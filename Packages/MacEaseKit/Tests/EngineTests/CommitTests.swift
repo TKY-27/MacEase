@@ -144,6 +144,80 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         #expect(!FileManager.default.fileExists(atPath: trashed))
     }
 
+    @Test func caseOnlyReplacementCanBeUndone() async throws {
+        let folder = try TestVolume.makeFolder()
+        let original = folder.appending(path: "NOTE.txt")
+        let output = folder.appending(path: "note.txt")
+        try write("original", to: original)
+        let engine = try makeEngine()
+        let outcome = await engine.run(
+            Batch(operation: .textLineEndings, items: [replacing(original, name: "note.txt", text: "converted")]),
+            settings: Settings()
+        ) { _ in }
+
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        #expect(try read(output) == "converted")
+        let record = try #require(outcome.record)
+        #expect(try await engine.history.undo(record.id) == [.restored])
+        #expect(try read(original) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["NOTE.txt"])
+    }
+
+    @Test func folderInputWithUnreadableChildStillRunsBody() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let locked = folder.appending(path: ".locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: false)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        defer {
+            #expect(throws: Never.self) {
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
+            }
+        }
+        let engine = try makeEngine()
+        let workItem = WorkItem(inputs: [folder]) { _ in .text("folder report", .report) }
+
+        let outcome = await engine.run(Batch(operation: .folderTree, items: [workItem]), settings: Settings()) { _ in }
+
+        #expect(outcome.outcomes == [.succeeded(outputs: [], warnings: [])])
+        #expect(outcome.reportText == "folder report")
+    }
+
+    @Test func derivedFolderWithUnreadableChildStillRecordsCommit() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "archive.tar")
+        let output = folder.appending(path: "extracted")
+        let staged = folder.appending(path: "staged")
+        try write("archive", to: original)
+        defer {
+            for candidate in [staged, output] where FileManager.default.fileExists(atPath: candidate.path) {
+                #expect(throws: Never.self) {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o700], ofItemAtPath: candidate.appending(path: "locked").path)
+                }
+            }
+        }
+        let engine = try makeEngine()
+        let workItem = WorkItem(inputs: [original]) { _ in
+            let child = staged.appending(path: "locked")
+            try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
+            try write("keep", to: child.appending(path: "child.txt"))
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: child.path)
+            return .derived(nextTo: original, outputs: [StagedFile(url: staged, name: "extracted", check: .folder)])
+        }
+
+        let outcome = await engine.run(Batch(operation: .archiveExtract, items: [workItem]), settings: Settings()) {
+            _ in
+        }
+
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        let record = try #require(outcome.record)
+        #expect(record.items.count == 1)
+        #expect(try await engine.history.undo(record.id) == [.skipped(.undoOutputChanged, path: output.path)])
+        #expect(FileManager.default.fileExists(atPath: output.path))
+    }
+
     @Test func replaceWithNewExtensionKeepsBothUntilTrashed() async throws {
         let folder = try TestVolume.makeFolder()
         let original = folder.appending(path: "data.csv")

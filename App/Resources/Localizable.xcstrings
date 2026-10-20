@@ -3915,6 +3915,17 @@
         }
       }
     },
+    "The result was saved with the original name because its capitalization could not be changed.": {
+      "comment": "Replacement succeeded before renaming failed",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大文字と小文字を変更できなかったため、結果は元の名前のまま保存しました。"
+          }
+        }
+      }
+    },
     "The text encoding of “%@” could not be detected.": {
       "localizations": {
         "ja": {

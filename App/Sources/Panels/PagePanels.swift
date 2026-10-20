@@ -31,7 +31,10 @@ enum PageThumbnail {
         do {
             return try await offMain { try render(entry) }
         } catch {
-            Logger(category: "panels").error("Thumbnail failed: \(error, privacy: .public)")
+            let failure = error as NSError
+            Logger(category: "panels").error(
+                "Thumbnail failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             return nil
         }
     }

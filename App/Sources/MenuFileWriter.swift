@@ -23,8 +23,10 @@ struct MenuFileWriter {
             do {
                 return try JavaRuntime.executable() != nil
             } catch {
+                let failure = error as NSError
                 Logger(category: "java").error(
-                    "java_home failed to start: \(error.localizedDescription, privacy: .public)")
+                    "java_home failed to start (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
                 return false
             }
         }.value

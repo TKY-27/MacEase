@@ -125,13 +125,19 @@ struct EncodingPanel: View {
                         do {
                             try sampleReader.close()
                         } catch {
-                            Logger(category: "panels").error("Preview close failed: \(error, privacy: .public)")
+                            let failure = error as NSError
+                            Logger(category: "panels").error(
+                                "Preview close failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                            )
                         }
                     }
                     return try sampleReader.read(upToCount: Self.sampleBytes)
                 }
             } catch {
-                Logger(category: "panels").error("Encoding preview unreadable: \(error, privacy: .public)")
+                let failure = error as NSError
+                Logger(category: "panels").error(
+                    "Encoding preview unreadable (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
                 sampleUnreadable = true
             }
         }

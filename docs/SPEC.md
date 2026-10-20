@@ -189,10 +189,12 @@ UTF-8 or target encoding for text).
 
 **Replace sequence.**
 
-The engine records the input's size and modification date before the operation
-reads it. Replacement commit sections and their history records are serialized.
-Within one coordinated write, the engine checks that stamp before cloning, Trashing or replacing the
-original; a changed input is skipped as `changedSinceScan`.
+Before an operation reads a non-directory input, the engine records its size
+and modification date. Folder inputs are not stamped: folders never replace.
+Replacement commit sections and their history records are serialized. Within
+one coordinated write, the engine compares the current input stamp with that
+scan stamp before cloning, Trashing or replacing the original; a changed input
+is skipped as `changedSinceScan`.
 
 1. If the output name equals the original name: clone the original
    (`clonefile`, falling back to copy on non-APFS volumes) into the item's
@@ -204,6 +206,12 @@ original; a changed input is skipped as `changedSinceScan`.
    resulting URL. A crash between the steps leaves both files, never neither.
 3. On volumes without a Trash (`trashItem` throws `NSFeatureUnsupportedError`),
    the original is kept and the output is committed as a derived file.
+
+A case-only output name on a case-insensitive volume uses the same-name
+replacement sequence, followed by a case-change move. If that move fails, the
+replacement remains committed at the original name with a warning and its
+Trash URL recorded. A failure to stamp any committed output must not discard
+its history record; undo skips an output whose stamp is unavailable.
 
 All commits go through `NSFileCoordinator` so iCloud Drive and File Provider
 locations stay consistent; reading a dataless cloud file downloads it first.
@@ -232,13 +240,29 @@ confirmation in a panel.
 - History is persisted in `~/Library/Application Support/MacEase/history.json`
   and keeps the last 100 batches.
 - Each record holds the operation, time, and per item: original path, Trash URL
-  (replace), output path, rename old and new names, and the output's size and
-  modification date at commit time.
+  (replace), output path, rename old and new names, and a commit-time output
+  stamp. File stamps contain size and modification date. Rename stamps also
+  contain filesystem device and inode identity.
+- Folder stamps contain a bounded summary, never a persisted descendant list:
+  descendant count, total size, latest modification date, and an
+  enumeration-order-independent hash of relative paths, types, sizes,
+  modification times and modes. Symbolic links are not followed. Unreadable
+  children contribute path/error markers and an unreadable count; an
+  incomplete summary cannot authorize undo. Root stamp failures leave a
+  record without a stamp. Summaries scan descendants without retaining them.
 - Undo works per batch. For each item it moves the original back from the Trash
   and moves the output to the Trash (replace), moves derived outputs to the
   Trash (derived), or renames back (rename). An item is skipped with a reason
-  when its Trash URL no longer exists or its output's size or modification date
-  changed since commit.
+  when its Trash URL no longer exists, the original name is occupied, or its
+  output stamp changed, is missing or cannot be verified. A case-only replace
+  must not mistake its own output for an occupied original name.
+- Rename undo also skips a different filesystem identity, even with matching
+  size and modification date. Legacy rename records without stamps and legacy
+  folder records without summaries load but are skipped. File stamps do not
+  hash contents; edits preserving both size and modification date are outside
+  their detection guarantee.
+- An undo attempt consumes restored and skipped entries; only failed entries
+  remain retryable in that batch.
 - The completion notification offers **Undo** and **Show in Finder**. The menu
   bar shows the last 10 batches with Undo.
 - A batch produces one notification, whatever its size.
@@ -780,3 +804,6 @@ check.
   Background panel offers the person and subject masks only.
 - 2026-10-21: Video replace operations reject multiple video or audio tracks
   before writing so additional tracks cannot be lost (ADR 0010).
+- 2026-10-21: Commit and undo stamps recorded (ADR 0011): scan checks before
+  replace, bounded folder summaries, rename identity checks, safe skips for
+  missing or incomplete stamps, and history retained after case-change failure.

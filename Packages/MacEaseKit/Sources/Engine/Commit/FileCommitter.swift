@@ -44,7 +44,16 @@ struct FileCommitter: Sendable {
                     if keepsName || changesCase {
                         let kept = try replaceKeepingName(
                             original: target, output: output, cloneDirectory: cloneDirectory)
-                        if changesCase { try FileManager.default.moveItem(at: target, to: final) }
+                        if changesCase {
+                            do {
+                                try FileManager.default.moveItem(at: target, to: final)
+                            } catch {
+                                logger.error(
+                                    "Case change failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                                )
+                                return Replaced(output: target, trashed: kept.trashed, warning: .outputNameUnchanged)
+                            }
+                        }
                         return Replaced(output: final, trashed: kept.trashed, warning: kept.warning)
                     }
                     try FileManager.default.moveItem(at: output.url, to: final)
@@ -166,7 +175,7 @@ struct FileCommitter: Sendable {
         try coordinate(moving: source, to: destination)
     }
 
-    private static func isCaseOnlyChange(from oldName: String, to newName: String, in directory: URL) throws -> Bool {
+    static func isCaseOnlyChange(from oldName: String, to newName: String, in directory: URL) throws -> Bool {
         guard oldName != newName, oldName.lowercased() == newName.lowercased() else { return false }
         let values = try directory.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
         return values.volumeSupportsCaseSensitiveNames == false

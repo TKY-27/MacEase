@@ -99,7 +99,10 @@ struct SizePanel: View {
             }
             return try await offMain { try imageDimensions(of: url) }
         } catch {
-            Logger(category: "panels").error("No dimensions for preview: \(error, privacy: .public)")
+            let failure = error as NSError
+            Logger(category: "panels").error(
+                "No dimensions for preview (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             return nil
         }
     }

@@ -41,7 +41,9 @@ public final class StagingArea: Sendable {
         do {
             stale = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
         } catch {
-            logger.error("Staging registry unreadable: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "Staging registry unreadable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
             return
         }
         for path in stale {
@@ -66,7 +68,9 @@ public final class StagingArea: Sendable {
         } catch CocoaError.fileNoSuchFile {
             return
         } catch {
-            logger.error("Staging removal failed: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "Staging removal failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
         }
     }
 
@@ -78,7 +82,9 @@ public final class StagingArea: Sendable {
         do {
             try persist(paths)
         } catch {
-            logger.error("Staging registry write failed: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "Staging registry write failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
         }
     }
 }

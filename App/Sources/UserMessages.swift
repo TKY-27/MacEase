@@ -88,6 +88,12 @@ enum UserMessages {
             String(localized: "The volume has no Trash, so the original was kept next to the result.")
         case .originalKept:
             String(localized: "The original could not be moved to the Trash, so both files were kept.")
+        case .outputNameUnchanged:
+            String(
+                localized:
+                    "The result was saved with the original name because its capitalization could not be changed.",
+                comment: "Replacement succeeded before renaming failed"
+            )
         case .metadataDropped:
             String(localized: "The output format cannot hold the original metadata.")
         }

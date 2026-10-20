@@ -93,6 +93,7 @@ public enum ItemWarning: Equatable, Sendable {
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
     case originalKept
+    case outputNameUnchanged
     case metadataDropped
 }
 

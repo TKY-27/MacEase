@@ -141,7 +141,10 @@ final class PanelCoordinator {
                 family.limits($0) != nil
             }
         } catch {
-            logger.error("Presets unreadable: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Presets unreadable (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             presets = []
         }
         let choice = PanelMemory.value(for: op, default: defaults)
@@ -259,8 +262,10 @@ final class PanelCoordinator {
                     sampleRate: Self.bitrateProbe.sampleRate, channels: Self.bitrateProbe.channels)
                 bitrates = format.bitrateChoices.filter(supported.contains)
             } catch {
+                let failure = error as NSError
                 logger.error(
-                    "No bitrates for \(preset, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    "No bitrates for \(preset, privacy: .private) (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
                 bitrates = []
             }
             return ExtractAudioFormat(preset: preset, format: format, bitrates: bitrates)

@@ -80,7 +80,10 @@ final class SettingsStore {
                 supportDirectory: HostConfiguration.current.supportDirectory
             ).presets()
         } catch {
-            logger.error("Edited presets unreadable, using defaults: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Edited presets unreadable, using defaults (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
         }
         return resolved
     }
@@ -91,8 +94,11 @@ final class SettingsStore {
         do {
             return try Settings.decode(stored)
         } catch {
+            let failure = error as NSError
             Logger(category: "settings")
-                .error("Stored settings unreadable, using defaults: \(error.localizedDescription, privacy: .public)")
+                .error(
+                    "Stored settings unreadable, using defaults (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
             defaults.set(stored, forKey: Key.unreadableSettings)
             return Settings()
         }
@@ -102,7 +108,10 @@ final class SettingsStore {
         do {
             defaults.set(try JSONEncoder().encode(settings), forKey: Settings.defaultsKey)
         } catch {
-            logger.error("Settings encoding failed: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
         }
     }
 }

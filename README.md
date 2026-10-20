@@ -84,6 +84,7 @@ build it yourself from source instead (see below).
    **MacEase**. The submenu lists what fits the selected kinds of files.
 2. Pick an operation and a preset, such as **Compress > Discord** for a video.
    Items ending in "…", including **Custom…**, open a small panel first.
+   With multiple inputs, PDF merge and **Make PDF** open a page-order panel.
 3. Progress appears in the menu bar. When the batch finishes, a notification
    offers **Undo** and **Show in Finder**.
 
@@ -110,6 +111,11 @@ make bootstrap
 make build
 make test
 ```
+
+Before first launch, copy `build/DerivedData/Build/Products/Debug/MacEase Dev.app`
+to `~/Applications` or `/Applications`; onboarding cannot continue while the
+app is outside those folders. You can enable its Finder extension in onboarding
+or in **System Settings > General > Login Items & Extensions**.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 

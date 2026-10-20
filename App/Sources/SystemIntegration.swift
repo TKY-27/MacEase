@@ -31,6 +31,7 @@ enum SystemSettingsPane {
 
 enum LoginItem {
     static var status: SMAppService.Status { SMAppService.mainApp.status }
+    static var isOn: Bool { status == .enabled || status == .requiresApproval }
 
     static func setEnabled(_ enabled: Bool) throws {
         if enabled {

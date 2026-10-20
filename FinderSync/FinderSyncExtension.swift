@@ -29,7 +29,7 @@ final class FinderSyncExtension: FIFinderSync {
     // The sandbox redirects NSHomeDirectory into the container.
     private static var realHomeDirectory: URL {
         guard let entry = getpwuid(getuid()), let directory = entry.pointee.pw_dir else {
-            return URL(fileURLWithPath: NSHomeDirectory())
+            preconditionFailure("The account home directory is unavailable")
         }
         return URL(fileURLWithPath: String(cString: directory), isDirectory: true)
     }

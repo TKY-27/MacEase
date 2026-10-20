@@ -369,7 +369,10 @@ private struct StripFramePicker: View {
             } catch is CancellationError {
                 return
             } catch {
-                Logger(category: "panels").error("Frame preview failed: \(error, privacy: .public)")
+                let failure = error as NSError
+                Logger(category: "panels").error(
+                    "Frame preview failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
                 still = nil
                 stillFailed = true
             }

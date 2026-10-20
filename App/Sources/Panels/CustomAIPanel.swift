@@ -79,7 +79,10 @@ struct CustomAIPanel: View {
             } catch is CancellationError {
                 return
             } catch {
-                Logger(category: "panels").error("Custom plan failed: \(error, privacy: .public)")
+                let nsError = error as NSError
+                Logger(category: "panels").error(
+                    "Custom plan failed (\(nsError.domain, privacy: .public) \(nsError.code, privacy: .public)): \(nsError.localizedDescription, privacy: .private)"
+                )
                 failure = Self.describe(error)
             }
         }

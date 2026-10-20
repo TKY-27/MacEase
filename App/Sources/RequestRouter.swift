@@ -27,7 +27,10 @@ final class RequestRouter {
         } catch .notARunRequest {
             return
         } catch {
-            logger.error("Malformed request rejected: \(String(describing: error), privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Malformed request rejected (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             return
         }
         guard let file = menuFile(), RequestToken.matches(request.token, file.token) else {

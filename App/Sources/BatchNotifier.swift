@@ -55,7 +55,10 @@ final class BatchNotifier: NSObject {
         do {
             return try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
-            logger.error("Notification authorization failed: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Notification authorization failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             return false
         }
     }
@@ -97,7 +100,12 @@ final class BatchNotifier: NSObject {
     private func post(_ content: UNMutableNotificationContent, id: String) {
         guard settings.notificationsEnabled else { return }
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { [logger] error in
-            if let error { logger.error("Notification failed: \(error.localizedDescription, privacy: .public)") }
+            if let error {
+                let failure = error as NSError
+                logger.error(
+                    "Notification failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
+            }
         }
     }
 }

@@ -39,7 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 concurrency: settings.settings.effectiveConcurrency
             )
         } catch {
-            logger.fault("Support folder unavailable: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            logger.fault(
+                "Support folder unavailable (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             NSApp.terminate(nil)
             return
         }
@@ -162,7 +165,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try writeMenuFile()
         } catch {
-            logger.error("Menu file write failed: \(error.localizedDescription, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Menu file write failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
         }
     }
 

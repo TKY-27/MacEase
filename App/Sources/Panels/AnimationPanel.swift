@@ -87,7 +87,10 @@ struct AnimationPanel: View {
             do {
                 preview = try await MediaPreview(videoAt: firstFile)
             } catch {
-                Logger(category: "panels").error("No video preview: \(error, privacy: .public)")
+                let failure = error as NSError
+                Logger(category: "panels").error(
+                    "No video preview (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
             }
         }
     }

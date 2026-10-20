@@ -68,7 +68,10 @@ enum PanelMemory {
         do {
             return try JSONDecoder().decode(Value.self, from: stored)
         } catch {
-            logger.error("Panel values for \(op.rawValue, privacy: .public) unreadable: \(error, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Panel values for \(op.rawValue, privacy: .public) unreadable (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
             return fallback
         }
     }
@@ -77,7 +80,10 @@ enum PanelMemory {
         do {
             UserDefaults.standard.set(try JSONEncoder().encode(value), forKey: key(op))
         } catch {
-            logger.error("Panel values for \(op.rawValue, privacy: .public) not saved: \(error, privacy: .public)")
+            let failure = error as NSError
+            logger.error(
+                "Panel values for \(op.rawValue, privacy: .public) not saved (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
         }
     }
 

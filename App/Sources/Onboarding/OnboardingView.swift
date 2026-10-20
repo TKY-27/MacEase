@@ -31,7 +31,7 @@ struct OnboardingView: View {
     init(notifier: BatchNotifier, isFirstRun: Bool, finish: @escaping () -> Void) {
         self.notifier = notifier
         self.finish = finish
-        _launchesAtLogin = State(initialValue: isFirstRun || LoginItem.status != .notRegistered)
+        _launchesAtLogin = State(initialValue: isFirstRun || LoginItem.isOn)
         let needsMove = location.isTranslocated || !location.isInApplications
         steps = (needsMove ? [.location] : []) + [.finderExtension, .notifications, .folderAccess, .launchAtLogin]
     }
@@ -176,7 +176,7 @@ struct OnboardingView: View {
             return
         }
         do {
-            if launchesAtLogin != (LoginItem.status == .enabled) {
+            if launchesAtLogin != LoginItem.isOn {
                 try LoginItem.setEnabled(launchesAtLogin)
             }
         } catch {

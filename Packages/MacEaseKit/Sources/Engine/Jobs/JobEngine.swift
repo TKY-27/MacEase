@@ -74,7 +74,9 @@ public final class JobEngine: Sendable {
             try await history.flush()
         } catch {
             tracker.markHistoryFailed()
-            logger.error("History write failed: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "History write failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
         }
 
         let texts = summaries.compactMap(\.text)
@@ -108,7 +110,10 @@ public final class JobEngine: Sendable {
             try await gate.acquire()
             do {
                 try Self.downloadIfNeeded(workItem.inputs)
-                for input in workItem.inputs { inputStamps[input] = try FileStamp(of: input) }
+                for input in workItem.inputs {
+                    let values = try input.resourceValues(forKeys: [.isDirectoryKey])
+                    if values.isDirectory != true { inputStamps[input] = try FileStamp(of: input) }
+                }
                 result = try await workItem.body(context)
                 await gate.release()
             } catch {
@@ -138,7 +143,9 @@ public final class JobEngine: Sendable {
             try await history.record(records, batch: batch.id, operation: batch.operation)
         } catch {
             tracker.markHistoryFailed()
-            logger.error("History write failed: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "History write failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
         }
         await commitGate.release()
         return outcome
@@ -150,7 +157,7 @@ public final class JobEngine: Sendable {
             let pathExtension = workItem.inputs.first?.pathExtension ?? ""
             let operation = batch.operation.rawValue
             logger.error(
-                "\(operation, privacy: .public) failed on .\(pathExtension, privacy: .public): \(detail, privacy: .public)"
+                "\(operation, privacy: .public) failed on .\(pathExtension, privacy: .public): \(detail, privacy: .private)"
             )
         default:
             break
@@ -173,7 +180,7 @@ public final class JobEngine: Sendable {
             }
             let replaced = try await committer.replace(
                 original: original, with: output, cloneDirectory: cloneDirectory, expectedStamp: expectedStamp)
-            let stamp = try FileStamp(of: replaced.output)
+            let stamp = outputStamp(of: replaced.output)
             if let trashed = replaced.trashed {
                 records.append(
                     .replaced(
@@ -187,7 +194,7 @@ public final class JobEngine: Sendable {
         case .derived(let original, let staged):
             for file in staged {
                 let output = try await committer.derive(file, nextTo: original)
-                records.append(.derived(output: output.path, stamp: try FileStamp(of: output)))
+                records.append(.derived(output: output.path, stamp: outputStamp(of: output)))
                 outputs.append(output)
             }
         case .rename(let plans):
@@ -201,7 +208,7 @@ public final class JobEngine: Sendable {
                 records.append(
                     .renamed(
                         from: plan.url.path, to: renamed.path,
-                        stamp: try FileStamp(of: renamed, includingIdentity: true)))
+                        stamp: outputStamp(of: renamed, includingIdentity: true)))
                 outputs.append(renamed)
             }
         case .trash(let urls, let permanently, let condition):
@@ -216,6 +223,17 @@ public final class JobEngine: Sendable {
             return (.skipped(reason), nil)
         }
         return (.succeeded(outputs: outputs, warnings: context.warnings), nil)
+    }
+
+    private func outputStamp(of url: URL, includingIdentity: Bool = false) -> FileStamp? {
+        do {
+            return try FileStamp(of: url, includingIdentity: includingIdentity)
+        } catch {
+            logger.error(
+                "Undo stamp unavailable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
+            return nil
+        }
     }
 
     /// Coordination downloads dataless cloud files.

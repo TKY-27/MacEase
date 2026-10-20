@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import MenuCatalog
@@ -6,7 +7,7 @@ import os
 public struct FileStamp: Codable, Equatable, Sendable {
     public let size: Int64?
     public let modified: Date
-    private let descendants: [DescendantStamp]?
+    private let directorySummary: DirectorySummary?
     private let identity: FileIdentity?
 
     private struct FileIdentity: Codable, Equatable, Sendable {
@@ -14,14 +15,22 @@ public struct FileStamp: Codable, Equatable, Sendable {
         let inode: UInt64
     }
 
-    private struct DescendantStamp: Codable, Equatable, Sendable {
-        let path: String
-        let kind: Kind
-        let size: Int64
-        let modified: Date
+    private struct DirectorySummary: Codable, Equatable, Sendable {
+        var descendantCount = 0
+        var totalSize: Int64 = 0
+        var latestModification = Date.distantPast
+        var unreadableCount = 0
+        var listingHash = Array(repeating: UInt8(0), count: SHA256.byteCount)
 
-        enum Kind: String, Codable, Sendable {
-            case directory, file, symbolicLink, other
+        mutating func include(_ entry: String) {
+            let digest = SHA256.hash(data: Data(entry.utf8))
+            for (index, byte) in digest.enumerated() { listingHash[index] ^= byte }
+        }
+
+        mutating func includeFailure(at path: String, error: Error) {
+            unreadableCount += 1
+            let failure = error as NSError
+            include("error\0\(path)\0\(failure.domain)\0\(failure.code)")
         }
     }
 
@@ -36,18 +45,19 @@ public struct FileStamp: Codable, Equatable, Sendable {
         }
         size = isDirectory ? nil : values.fileSize.map(Int64.init)
         modified = modificationDate
-        descendants = isDirectory ? try Self.snapshot(of: url) : nil
+        directorySummary = isDirectory ? Self.snapshot(of: url) : nil
         identity =
             includingIdentity
             ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
     }
 
-    fileprivate func matches(_ path: String) throws -> Bool {
+    fileprivate func matches(_ path: String) -> Bool {
+        guard directorySummary?.unreadableCount == nil || directorySummary?.unreadableCount == 0 else {
+            return false
+        }
         do {
             return try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil) == self
-        } catch let error as POSIXError where error.code == .ENOENT || error.code == .ENOTDIR {
-            return false
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+        } catch {
             return false
         }
     }
@@ -66,39 +76,43 @@ public struct FileStamp: Codable, Equatable, Sendable {
                 + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
     }
 
-    private static func snapshot(of root: URL) throws -> [DescendantStamp] {
-        var descendants: [DescendantStamp] = []
-        var pending: [(url: URL, prefix: String)] = [(root, "")]
-        while let directory = pending.popLast() {
-            let children = try FileManager.default.contentsOfDirectory(
-                at: directory.url, includingPropertiesForKeys: nil)
-            for child in children {
+    private static func snapshot(of root: URL) -> DirectorySummary {
+        var summary = DirectorySummary()
+        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard
+            let entries = FileManager.default.enumerator(
+                at: root, includingPropertiesForKeys: nil,
+                errorHandler: { url, error in
+                    summary.includeFailure(at: String(url.path.dropFirst(prefix.count)), error: error)
+                    return true
+                })
+        else {
+            summary.includeFailure(at: "", error: CocoaError(.fileReadUnknown))
+            return summary
+        }
+        for case let child as URL in entries {
+            let path = String(child.path.dropFirst(prefix.count))
+            summary.descendantCount += 1
+            do {
                 let metadata = try metadata(of: child)
-                let mode = metadata.st_mode & S_IFMT
-                let kind: DescendantStamp.Kind =
-                    switch mode {
-                    case S_IFDIR: .directory
-                    case S_IFREG: .file
-                    case S_IFLNK: .symbolicLink
-                    default: .other
-                    }
-                let path =
-                    directory.prefix.isEmpty
-                    ? child.lastPathComponent : "\(directory.prefix)/\(child.lastPathComponent)"
-                descendants.append(
-                    DescendantStamp(
-                        path: path, kind: kind, size: metadata.st_size,
-                        modified: modificationDate(of: metadata)))
-                if kind == .directory { pending.append((child, path)) }
+                let modification = modificationDate(of: metadata)
+                summary.totalSize += metadata.st_size
+                summary.latestModification = max(summary.latestModification, modification)
+                summary.include(
+                    "\(path)\0\(metadata.st_mode)\0\(metadata.st_size)\0\(metadata.st_mtimespec.tv_sec)\0\(metadata.st_mtimespec.tv_nsec)"
+                )
+            } catch {
+                summary.includeFailure(at: path, error: error)
+                entries.skipDescendants()
             }
         }
-        return descendants.sorted { $0.path < $1.path }
+        return summary
     }
 }
 
 public enum CommitRecord: Codable, Equatable, Sendable {
-    case replaced(original: String, trashed: String, output: String, stamp: FileStamp)
-    case derived(output: String, stamp: FileStamp)
+    case replaced(original: String, trashed: String, output: String, stamp: FileStamp?)
+    case derived(output: String, stamp: FileStamp?)
     case renamed(from: String, to: String, stamp: FileStamp? = nil)
     case removed(original: String, trashed: String)
 }
@@ -157,11 +171,15 @@ public actor HistoryStore {
             }
             records = stored.batches
         } catch {
-            logger.error("History unreadable: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                "History unreadable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
             do {
                 setAsideFile = try PrivateFile.setAside(file)
             } catch {
-                logger.fault("History could not be set aside: \(error.localizedDescription, privacy: .public)")
+                logger.fault(
+                    "History could not be set aside: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                )
             }
         }
     }
@@ -210,10 +228,12 @@ public actor HistoryStore {
                 guard fileManager.fileExists(atPath: trashed) else {
                     return .skipped(.undoTrashItemMissing, path: original)
                 }
-                guard try stamp.matches(output) else {
+                guard let stamp, stamp.matches(output) else {
                     return .skipped(.undoOutputChanged, path: output)
                 }
-                if output != original, fileManager.fileExists(atPath: original) {
+                let caseOnly = try FileCommitter.isCaseOnlyChange(
+                    from: original, to: output, in: URL(fileURLWithPath: original).deletingLastPathComponent())
+                if output != original, !caseOnly, fileManager.fileExists(atPath: original) {
                     return .skipped(.undoOriginalOccupied, path: original)
                 }
                 let trashedOutput = try committer.trash(URL(fileURLWithPath: output))
@@ -224,14 +244,15 @@ public actor HistoryStore {
                     throw error
                 }
             case .derived(let output, let stamp):
-                guard try stamp.matches(output) else {
+                guard let stamp, stamp.matches(output) else {
                     return .skipped(.undoOutputChanged, path: output)
                 }
                 _ = try committer.trash(URL(fileURLWithPath: output))
             case .renamed(let from, let to, let stamp):
-                guard let stamp, try stamp.matches(to)
+                guard let stamp, stamp.matches(to)
                 else { return .skipped(.undoOutputChanged, path: to) }
-                let caseOnly = from.lowercased() == to.lowercased()
+                let caseOnly = try FileCommitter.isCaseOnlyChange(
+                    from: from, to: to, in: URL(fileURLWithPath: from).deletingLastPathComponent())
                 guard caseOnly || !fileManager.fileExists(atPath: from) else {
                     return .skipped(.undoOriginalOccupied, path: from)
                 }

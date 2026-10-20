@@ -149,7 +149,7 @@ struct HistorySafetyTests {
         var items = try #require(batchJSON["items"] as? [[String: Any]])
         var derived = try #require(items[0]["derived"] as? [String: Any])
         var stamp = try #require(derived["stamp"] as? [String: Any])
-        stamp.removeValue(forKey: "descendants")
+        stamp.removeValue(forKey: "directorySummary")
         derived["stamp"] = stamp
         items[0]["derived"] = derived
         var renamed = try #require(items[1]["renamed"] as? [String: Any])
@@ -171,6 +171,85 @@ struct HistorySafetyTests {
             ])
         #expect(FileManager.default.fileExists(atPath: destination.path))
         #expect(FileManager.default.fileExists(atPath: output.appending(path: "child.txt").path))
+    }
+
+    @Test func directoryStampEncodingStaysBounded() throws {
+        let folder = try makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let childCount = 512
+        for index in 0..<childCount {
+            try Data("child".utf8).write(to: folder.appending(path: "child-\(index).txt"))
+        }
+
+        let encoded = try JSONEncoder().encode(FileStamp(of: folder))
+        let maximumStampBytes = 2_048
+        #expect(encoded.count < maximumStampBytes)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let summary = try #require(object["directorySummary"] as? [String: Any])
+        #expect(summary["descendantCount"] as? Int == childCount)
+        #expect(object["descendants"] == nil)
+    }
+
+    @Test func directoryStampDetectsEditsBeforeLatestModification() throws {
+        let folder = try makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let earlier = folder.appending(path: "earlier.txt")
+        let latest = folder.appending(path: "latest.txt")
+        try Data("old".utf8).write(to: earlier)
+        try Data("new".utf8).write(to: latest)
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes([.modificationDate: fixedDate], ofItemAtPath: earlier.path)
+        try FileManager.default.setAttributes(
+            [.modificationDate: fixedDate.addingTimeInterval(100)], ofItemAtPath: latest.path)
+        let stamp = try FileStamp(of: folder)
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: fixedDate.addingTimeInterval(1)], ofItemAtPath: earlier.path)
+
+        #expect(try FileStamp(of: folder) != stamp)
+    }
+
+    @Test func unreadableDirectoryStampPreservesHistoryAndRefusesUndo() async throws {
+        let folder = try makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let output = folder.appending(path: "output")
+        let locked = output.appending(path: ".locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: locked.appending(path: "child.txt"))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        defer {
+            #expect(throws: Never.self) {
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: locked.path)
+            }
+        }
+        let stamp = try FileStamp(of: output)
+        let id = UUID()
+        let support = folder.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let store = HistoryStore(supportDirectory: support)
+        try await store.record([.derived(output: output.path, stamp: stamp)], batch: id, operation: .archiveExtract)
+        try await store.flush()
+        let reloaded = HistoryStore(supportDirectory: support)
+
+        #expect(await reloaded.records.count == 1)
+        #expect(try await reloaded.undo(id) == [.skipped(.undoOutputChanged, path: output.path)])
+        #expect(FileManager.default.fileExists(atPath: output.path))
+    }
+
+    @Test func missingCommitStampKeepsRecordAndSkipsUndo() async throws {
+        let folder = try makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let output = folder.appending(path: "output.txt")
+        try Data("keep".utf8).write(to: output)
+        let id = UUID()
+        let store = HistoryStore(supportDirectory: folder)
+        try await store.record([.derived(output: output.path, stamp: nil)], batch: id, operation: .textConvert)
+        try await store.flush()
+        let reloaded = HistoryStore(supportDirectory: folder)
+
+        #expect(await reloaded.records.count == 1)
+        #expect(try await reloaded.undo(id) == [.skipped(.undoOutputChanged, path: output.path)])
+        #expect(try String(contentsOf: output, encoding: .utf8) == "keep")
     }
 
     private func makeFolder() throws -> URL {

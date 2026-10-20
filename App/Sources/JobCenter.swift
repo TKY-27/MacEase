@@ -94,7 +94,10 @@ final class JobCenter {
                 let outcomes = try await engine.history.undo(id)
                 if !outcomes.isEmpty { notifyUndo(outcomes) }
             } catch {
-                logger.error("Undo history write failed: \(error.localizedDescription, privacy: .public)")
+                let failure = error as NSError
+                logger.error(
+                    "Undo history write failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
             }
             await refreshRecent()
         }
