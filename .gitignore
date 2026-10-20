@@ -16,7 +16,7 @@ build/
 Package.resolved
 
 # Vendored native dependencies (built by scripts/build-deps.sh)
-Vendor/build/
+Vendor/build
 Vendor/src/
 
 # Release artifacts

@@ -3,10 +3,9 @@ import Foundation
 import ImageIO
 import PDFKit
 import UniformTypeIdentifiers
-import Vision
 
 enum PDFExport {
-    private static let pointsPerInch = 72.0
+    static let pointsPerInch = 72.0
     private static let ocrDPI = 300
     private static let pageSeparator = "\u{0C}"
     private static let textExtension = "txt"
@@ -89,12 +88,6 @@ enum PDFExport {
     }
 
     private static func recognizedText(on page: PDFPage, languages: [String]) async throws -> String {
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = languages.isEmpty
-        if !languages.isEmpty { request.recognitionLanguages = languages.map(Locale.Language.init(identifier:)) }
-        let observations = try await request.perform(on: try render(page, dpi: ocrDPI))
-        return observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        try await TextRecognition.text(in: try render(page, dpi: ocrDPI), languages: languages)
     }
 }
