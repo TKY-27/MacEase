@@ -17,4 +17,5 @@ public enum OperationOptions: Codable, Hashable, Sendable {
     case text(TextOperation)
     case jar(JAROperation)
     case audio(AudioOperation)
+    case image(ImageOperation)
 }

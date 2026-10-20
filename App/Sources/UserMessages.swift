@@ -55,6 +55,8 @@ enum UserMessages {
                 localized: "“\(file)” changed after it was scanned, so it was kept.",
                 comment: "Skip reason when a scanned duplicate or empty folder no longer qualifies"
             )
+        case .noTextFound:
+            String(localized: "No text was found in “\(file)”.")
         case .noTrashAvailable:
             String(localized: "“\(file)” is on a volume without a Trash.")
         case .undoTrashItemMissing:

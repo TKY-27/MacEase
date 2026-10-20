@@ -80,6 +80,7 @@ public enum SkipReason: Equatable, Sendable {
     case noUpscale
     case nothingToRemove
     case changedSinceScan
+    case noTextFound
     case noTrashAvailable
     case undoTrashItemMissing
     case undoOutputChanged
