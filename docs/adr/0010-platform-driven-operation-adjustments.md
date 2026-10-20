@@ -16,9 +16,11 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   that still misses also steps resolution and frame rate down when settings
   allow it, instead of failing. The correction aims at 96% of the target, the
   middle of the accepted band.
-- **LINE preset (9).** Planning has no input duration, so a clip over 300 s
-  fails with a message pointing to Trim rather than opening a prefilled Trim
-  panel.
+- **LINE preset (9).** Planning has no input duration, so the compressor
+  reports a clip over 300 s and the host then opens the Trim panel. The
+  prefilled end sits one second under the limit, because keyframe cuts and
+  audio frames can run past the mark, and the compression runs again on the
+  trimmed file.
 - **Archive extraction (8.5).** libarchive's `SECURE_NOABSOLUTEPATHS` rejects
   the absolute staging prefix MacEase extracts into. Entry names and hard-link
   targets are checked before writing (absolute or `..` refuses the archive),

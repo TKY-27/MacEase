@@ -132,6 +132,12 @@ enum UserMessages {
                 localized: "“\(file)” was not extracted because it expands to more than \(byteCount(limit)).",
                 comment: "Archive extraction stopped by the zip bomb guard"
             )
+        case .tooLong(let limit):
+            String(
+                localized:
+                    "“\(file)” is longer than this preset allows (\(Duration.seconds(limit).formatted(.time(pattern: .minuteSecond)))).",
+                comment: "Platform preset duration limit; the Trim panel opens next"
+            )
         }
     }
 

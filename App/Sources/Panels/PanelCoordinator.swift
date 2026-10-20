@@ -31,12 +31,19 @@ final class PanelCoordinator {
         switch op {
         case .imageResize, .videoResize: showSize(op, inputs)
         case .imageCompress: showTargetSize(op, inputs, family: .image)
+        case .videoCompress:
+            let video = store.settings.video
+            let defaults = TargetSizeChoice(
+                allowsDownscale: video.allowDownscale, allowsFrameRateReduction: video.allowFrameRateReduction)
+            showTargetSize(op, inputs, family: .video, defaults: defaults)
         case .audioCompress: showTargetSize(op, inputs, family: .audio)
         case .imageRotate, .videoRotate: showAngle(op, inputs)
         case .videoTrim, .audioTrim: inputs.forEach { presentTrim(op, file: $0, prefill: nil) }
         case .videoThumbnail: inputs.forEach { showFramePicker(op, file: $0) }
-        case .videoToGIF, .videoToAPNG: showAnimation(op, inputs)
-        case .imageBackground: showBackground(op, inputs)
+        case .videoToGIF, .videoToAPNG, .videoToAnimatedWebP: showAnimation(op, inputs)
+        case .imageBackground, .videoBackground: showBackground(op, inputs)
+        case .videoSubtitles: showSubtitles(op, inputs)
+        case .videoExtractAudio: showExtractAudio(op, inputs)
         case .imageToPDF, .pdfMerge: showPageOrder(op, inputs)
         case .pdfExtractPages: inputs.forEach { showPageSelect(op, file: $0) }
         case .folderRename: showRename(op, inputs)
@@ -63,14 +70,25 @@ final class PanelCoordinator {
             showPassword(request.op, files, wasWrong: reason == .wrongPassword)
         case (.text(.encoding(let target, _)), .textEncodingUndetected):
             files.forEach { showEncoding(request.op, file: $0, target: target) }
+        case (.video(.compress), .tooLong(let limit)):
+            let prefill = 0...max(limit - Self.trimHeadroomSeconds, 0)
+            files.forEach {
+                presentTrim(.videoTrim, file: $0, prefill: prefill, then: (request.op, request.options))
+            }
         default:
             return false
         }
         return true
     }
 
-    /// Public for LINE's over-limit videos.
-    func presentTrim(_ op: OperationID, file: URL, prefill: ClosedRange<Double>?) {
+    /// Trims can overshoot the end slightly.
+    private static let trimHeadroomSeconds = 1.0
+
+    /// `next` runs on the trimmed file.
+    func presentTrim(
+        _ op: OperationID, file: URL, prefill: ClosedRange<Double>?,
+        then next: (op: OperationID, options: OperationOptions)? = nil
+    ) {
         let isVideo = op == .videoTrim
         let mode = PanelMemory.value(for: op, default: store.settings.video.trimMode)
         host.show(title: Self.title(op)) { close in
@@ -79,7 +97,13 @@ final class PanelCoordinator {
                 close()
                 let options: OperationOptions =
                     isVideo ? .video(.trim(start: start, end: end, mode: mode)) : .audio(.trim(start: start, end: end))
-                self.launch(op, options, [file])
+                let trim = self.jobs.run(OperationRequest(op: op, options: options, inputs: [file]))
+                guard let next else { return }
+                Task {
+                    guard let outcome = await trim.value, !outcome.wasCancelled else { return }
+                    let trimmed = Self.continuing(outcome)
+                    if !trimmed.isEmpty { self.launch(next.op, next.options, trimmed) }
+                }
             }
         }
     }
@@ -115,7 +139,9 @@ final class PanelCoordinator {
         }
     }
 
-    private func showTargetSize(_ op: OperationID, _ inputs: [URL], family: TargetSizeFamily) {
+    private func showTargetSize(
+        _ op: OperationID, _ inputs: [URL], family: TargetSizeFamily, defaults: TargetSizeChoice = TargetSizeChoice()
+    ) {
         let presets: [PlatformPreset]
         do {
             presets = try PresetLibrary(supportDirectory: supportDirectory).presets().filter {
@@ -125,7 +151,7 @@ final class PanelCoordinator {
             logger.error("Presets unreadable: \(error.localizedDescription, privacy: .public)")
             presets = []
         }
-        let choice = PanelMemory.value(for: op, default: TargetSizeChoice())
+        let choice = PanelMemory.value(for: op, default: defaults)
         host.show(title: Self.title(op)) { close in
             TargetSizePanel(family: family, presets: presets, choice: choice, cancel: close) { choice, options in
                 self.finish(op, choice, options, inputs, close: close)
@@ -168,12 +194,22 @@ final class PanelCoordinator {
         let defaults = AnimationChoice(
             width: settings.video.gifWidth, framesPerSecond: settings.video.gifFrameRate,
             colors: settings.video.gifColors, dithering: settings.image.gifDithering, loops: settings.video.gifLoops)
-        let isGIF = op == .videoToGIF
+        let format: AnimationFormat =
+            switch op {
+            case .videoToGIF: .gif
+            case .videoToAnimatedWebP: .webP
+            default: .apng
+            }
         let choice = PanelMemory.value(for: op, default: defaults)
         host.show(title: Self.title(op)) { close in
-            AnimationPanel(firstFile: inputs[0], isGIF: isGIF, choice: choice, cancel: close) { choice in
+            AnimationPanel(firstFile: inputs[0], format: format, choice: choice, cancel: close) { choice in
+                let rendering = choice.rendering
                 let options: OperationOptions =
-                    isGIF ? .video(.gif(choice.rendering)) : .video(.apng(choice.rendering))
+                    switch format {
+                    case .gif: .video(.gif(rendering))
+                    case .apng: .video(.apng(rendering))
+                    case .webP: .video(.webP(rendering))
+                    }
                 self.finish(op, choice, options, inputs, close: close)
             }
         }
@@ -181,14 +217,67 @@ final class PanelCoordinator {
 
     private func showBackground(_ op: OperationID, _ inputs: [URL]) {
         let image = store.settings.image
+        let isVideo = op == .videoBackground
         let defaults = BackgroundChoice(
-            keyColor: image.colorKey, tolerance: image.colorKeyTolerance, customColor: image.customBackground,
-            videoFormat: store.settings.video.transparentFormat)
+            mask: isVideo ? .person : .subject, keyColor: image.colorKey, tolerance: image.colorKeyTolerance,
+            customColor: image.customBackground, videoFormat: store.settings.video.transparentFormat)
         let choice = PanelMemory.value(for: op, default: defaults)
         host.show(title: Self.title(op)) { close in
-            BackgroundPanel(offersVideoFormat: false, choice: choice, cancel: close) { choice in
+            BackgroundPanel(isVideo: isVideo, choice: choice, cancel: close) { choice in
                 let options = choice.imageOptions(green: image.greenBackground, blue: image.blueBackground)
-                self.finish(op, choice, .image(.background(options)), inputs, close: close)
+                let operation: OperationOptions =
+                    isVideo
+                    ? .video(
+                        .background(
+                            VideoBackgroundRequest(
+                                mask: options.mask, fill: options.fill, transparentFormat: choice.videoFormat)))
+                    : .image(.background(options))
+                self.finish(op, choice, operation, inputs, close: close)
+            }
+        }
+    }
+
+    private func showSubtitles(_ op: OperationID, _ inputs: [URL]) {
+        let settings = store.settings.intelligence
+        let defaults = SubtitleChoice(
+            language: settings.subtitleLanguage, format: settings.subtitleFormat,
+            translationTarget: settings.translationTarget)
+        let choice = PanelMemory.value(for: op, default: defaults)
+        host.show(title: Self.title(op)) { close in
+            SubtitlesPanel(choice: choice, cancel: close) { choice in
+                self.finish(op, choice, .video(.subtitles(choice.request)), inputs, close: close)
+            }
+        }
+    }
+
+    /// Source sample rates are unknown here.
+    private static let bitrateProbe = (sampleRate: 48_000.0, channels: 2)
+
+    private func showExtractAudio(_ op: OperationID, _ inputs: [URL]) {
+        let settings = store.settings
+        let formats = op.presets.compactMap { preset -> ExtractAudioFormat? in
+            guard
+                case .video(.extractAudio(let format, _)) = OperationPlanner.options(
+                    for: op, preset: preset, settings: settings)
+            else { return nil }
+            let bitrates: [Int]
+            do {
+                let supported = try format.supportedKilobits(
+                    sampleRate: Self.bitrateProbe.sampleRate, channels: Self.bitrateProbe.channels)
+                bitrates = format.bitrateChoices.filter(supported.contains)
+            } catch {
+                logger.error(
+                    "No bitrates for \(preset, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                bitrates = []
+            }
+            return ExtractAudioFormat(preset: preset, format: format, bitrates: bitrates)
+        }
+        var choice = PanelMemory.value(for: op, default: ExtractAudioChoice(preset: settings.audio.extractFormat))
+        // Presets can disappear between releases.
+        if !formats.contains(where: { $0.preset == choice.preset }) { choice.preset = formats.first?.preset ?? "" }
+        host.show(title: Self.title(op)) { close in
+            ExtractAudioPanel(formats: formats, choice: choice, cancel: close) { choice, format in
+                self.finish(op, choice, .video(.extractAudio(format, kilobits: choice.kilobits)), inputs, close: close)
             }
         }
     }
@@ -354,14 +443,19 @@ final class PanelCoordinator {
                 logger.error("Plan stopped before \(step.operation.rawValue, privacy: .public)")
                 return
             }
-            current = zip(outcome.inputs, outcome.outcomes).flatMap { inputs, result -> [URL] in
-                switch result {
-                case .succeeded(let outputs, _): outputs
-                case .skipped: inputs
-                case .failed: []
-                }
-            }
+            current = Self.continuing(outcome)
             if current.isEmpty || outcome.wasCancelled { return }
+        }
+    }
+
+    /// Files the next chained step consumes.
+    private static func continuing(_ outcome: BatchOutcome) -> [URL] {
+        zip(outcome.inputs, outcome.outcomes).flatMap { inputs, result -> [URL] in
+            switch result {
+            case .succeeded(let outputs, _): outputs
+            case .skipped: inputs
+            case .failed: []
+            }
         }
     }
 

@@ -30,6 +30,7 @@ struct TargetSizeFamily {
     let options: (TargetSizeChoice, PlatformPreset?) -> OperationOptions?
 
     private static let bytesPerMegabyte = 1_000_000.0
+    private static let percent = 100.0
 
     static func bytes(_ megabytes: Double) -> Int64 {
         Int64((megabytes * bytesPerMegabyte).rounded(.down))
@@ -53,6 +54,28 @@ struct TargetSizeFamily {
                     ImageCompression(
                         goal: goal, allowsDownscale: choice.allowsDownscale,
                         allowsFrameRateReduction: choice.allowsFrameRateReduction, stripsGPS: choice.stripsGPS)))
+        }
+    }
+
+    /// Video output never carries location metadata.
+    static var video: TargetSizeFamily {
+        TargetSizeFamily(
+            qualityLevels: Array(0...100), qualityText: { "\($0)" }, limits: \.video, offersDownscale: true,
+            offersFrameRateReduction: true
+        ) { choice, preset in
+            let goal: VideoCompression.Goal
+            switch choice.goal {
+            case .size: goal = .bytes(bytes(choice.megabytes))
+            case .quality: goal = .quality(Double(choice.quality) / percent)
+            case .preset:
+                guard let preset else { return nil }
+                goal = .platform(preset)
+            }
+            return .video(
+                .compress(
+                    VideoCompression(
+                        goal: goal, allowsDownscale: choice.allowsDownscale,
+                        allowsFrameRateReduction: choice.allowsFrameRateReduction)))
         }
     }
 

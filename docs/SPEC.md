@@ -350,7 +350,7 @@ operation.
 | Trim | video and audio trim, LINE preset over the limit | AVPlayerView trimming UI for MP4, MOV, M4V and audio; for MKV, WebM, AVI and FLV a thumbnail strip (one frame every 1/20 of the duration) with numeric start and end fields; exact or keyframe mode |
 | Frame picker | thumbnail, GIF range | Same media view as Trim with a single playhead |
 | GIF options | video to GIF, animated WebP, APNG | Range, width, fps, colors, dithering, loop, estimated size |
-| Background | image and video background | Mode (subject, person, color key with eyedropper and tolerance), output (transparent, green #00B140, blue #0047BB, custom color, blur radius), video output format |
+| Background | image and video background | Mode (subject, person; color key with eyedropper and tolerance for images only), output (transparent, green #00B140, blue #0047BB, custom color, blur radius), video output format |
 | Page order | PDF merge, images to PDF | Thumbnails with drag to reorder, remove |
 | Page select | PDF extract | Page range field and thumbnails |
 | Rename | batch rename | Prefix, suffix, find and replace, numbering (start, step, digits), date (creation or EXIF), live preview table |
@@ -361,6 +361,8 @@ operation.
 | Text result | OCR, checksum, tree | Read-only text with Copy and Save |
 | Password | archive extract | Secure field, remember for this batch |
 | Custom (AI) | natural-language custom | Prompt field, parsed plan shown as operation and parameters, Run |
+| Subtitles | video subtitles | Spoken language, format (SRT, VTT, TXT), optional translation target |
+| Extract audio | extract audio | Format, bitrate for lossy formats (Automatic copies the stream when possible) |
 
 ## 6. Progress and notifications
 
@@ -445,7 +447,7 @@ a message naming the codec.
 | `video.toAnimatedWebP` | 480 px 15 fps, 720 px 24 fps | Derived | libwebp animation encoder |
 | `video.toAPNG` | 480 px 15 fps | Derived | ImageIO APNG writer |
 | `video.thumbnail` | First frame, Middle frame, Choose… | Derived | PNG or JPEG per settings, full resolution |
-| `video.extractAudio` | MP3, M4A, AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes |
+| `video.extractAudio` | MP3, M4A, AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; a bitrate chosen in the Custom panel always encodes |
 | `video.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Speech framework `SpeechAnalyzer` with `SpeechTranscriber` and audio time ranges; language from settings or the system locale; cues split at sentence boundaries, at most 42 characters per line and 2 lines; translation with the Translation framework |
 | `video.background` | Remove, Green back, Blue back, Custom color, Blur | Derived | Section 8.11 |
 | `video.aiCustom` | — | Depends on plan | Section 10 |
@@ -579,7 +581,7 @@ Defaults (checked October 2026; values change, so they are editable):
 | `discord` | 20,000,000 B | 20,000,000 B | 20,000,000 B, MP4 H.264 + AAC |
 | `x` | 5,000,000 B, JPEG/PNG/WebP | 15,000,000 B, ≤ 1280×1080, ≤ 350 frames | 512,000,000 B, ≤ 1920×1080, MP4 H.264 + AAC |
 | `instagram` | 8,000,000 B, JPEG, width ≤ 1440, aspect 4:5 to 1.91:1 (crop) | — | Reels: 9:16 1080×1920 (crop default, letterbox option), MP4 H.264 + AAC |
-| `line` | — | — | ≤ 300 s (longer inputs fail with a message pointing to Trim, ADR 0010), ≤ 1920×1080, MP4 H.264 + AAC |
+| `line` | — | — | ≤ 300 s (longer inputs open Trim one second under the limit, then compress, ADR 0010), ≤ 1920×1080, MP4 H.264 + AAC |
 | `email` | 18,000,000 B (25 MB attachment limit minus Base64 overhead) | 18,000,000 B | 18,000,000 B, MP4 H.264 + AAC |
 | `web` | WebP, long edge ≤ 1920, quality 80 | — | — |
 
@@ -763,3 +765,7 @@ check.
   archive path checks replace `SECURE_NOABSOLUTEPATHS`, HEIC metadata strip
   re-encodes, MP3 below 128 kbps compresses to AAC, AI plans use menu presets,
   and the language switch asks first.
+- 2026-10-21: LINE clips over 300 s open the Trim panel one second under the
+  limit and compress the trimmed file (ADR 0010). Subtitles and Extract audio
+  panels added; a bitrate chosen in the latter always re-encodes. The video
+  Background panel offers the person and subject masks only.

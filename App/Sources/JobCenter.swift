@@ -150,7 +150,10 @@ final class JobCenter {
     }
 
     private static func asksUser(_ reason: InvalidInput) -> Bool {
-        [.passwordRequired, .wrongPassword, .textEncodingUndetected].contains(reason)
+        switch reason {
+        case .passwordRequired, .wrongPassword, .textEncodingUndetected, .tooLong: true
+        default: false
+        }
     }
 }
 

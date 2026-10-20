@@ -9,8 +9,6 @@ import Vision
 struct IntelligenceSettingsView: View {
     @Bindable var store: SettingsStore
     @State private var showsOCRLanguages = false
-    @State private var subtitleLocales: [String] = []
-    @State private var translationLanguages: [String] = []
 
     var body: some View {
         Form {
@@ -28,30 +26,9 @@ struct IntelligenceSettingsView: View {
                 }
             }
             Section("Subtitles") {
-                Picker("Spoken language", selection: $store.settings.intelligence.subtitleLanguage) {
-                    Text(
-                        "System (\(Self.displayName(Locale.current.identifier)))", comment: "Follow the Mac's language"
-                    )
-                    .tag("")
-                    Divider()
-                    ForEach(options(subtitleLocales, current: store.settings.intelligence.subtitleLanguage), id: \.self)
-                    {
-                        Text(Self.displayName($0)).tag($0)
-                    }
-                }
-                Picker("Format", selection: $store.settings.intelligence.subtitleFormat) {
-                    ForEach(SubtitleFormat.allCases, id: \.self) { format in
-                        Text(MenuStrings.preset(.videoSubtitles, format.rawValue)).tag(format)
-                    }
-                }
-                Picker("Translate into", selection: $store.settings.intelligence.translationTarget) {
-                    ForEach(
-                        options(translationLanguages, current: store.settings.intelligence.translationTarget),
-                        id: \.self
-                    ) {
-                        Text(Self.displayName($0)).tag($0)
-                    }
-                }
+                SpokenLanguagePicker(selection: $store.settings.intelligence.subtitleLanguage)
+                SubtitleFormatPicker(selection: $store.settings.intelligence.subtitleFormat)
+                TranslationLanguagePicker(selection: $store.settings.intelligence.translationTarget)
             }
             Section {
                 Toggle(isOn: $store.settings.intelligence.aiEnabled) {
@@ -67,10 +44,6 @@ struct IntelligenceSettingsView: View {
         .sheet(isPresented: $showsOCRLanguages) {
             OCRLanguagesSheet(selection: $store.settings.intelligence.ocrLanguages)
         }
-        .task {
-            subtitleLocales = await SpeechTranscriber.supportedLocales.map { $0.identifier(.bcp47) }
-            translationLanguages = await Self.translationLanguages()
-        }
     }
 
     private var ocrLanguageSummary: String {
@@ -82,12 +55,12 @@ struct IntelligenceSettingsView: View {
     }
 
     /// Keeps the stored value selectable while loading.
-    private func options(_ identifiers: [String], current: String) -> [String] {
+    fileprivate static func options(_ identifiers: [String], current: String) -> [String] {
         let all = identifiers.contains(current) || current.isEmpty ? identifiers : identifiers + [current]
         return all.sorted { Self.displayName($0).localizedStandardCompare(Self.displayName($1)) == .orderedAscending }
     }
 
-    private nonisolated static func translationLanguages() async -> [String] {
+    fileprivate nonisolated static func translationLanguages() async -> [String] {
         await LanguageAvailability().supportedLanguages.map(\.minimalIdentifier)
     }
 
@@ -132,5 +105,52 @@ private struct OCRLanguagesSheet: View {
             selection.removeAll { $0 == language }
             if isChosen { selection.append(language) }
         }
+    }
+}
+
+/// Shared by Settings and the Subtitles panel.
+struct SpokenLanguagePicker: View {
+    @Binding var selection: String
+    @State private var locales: [String] = []
+
+    var body: some View {
+        Picker("Spoken language", selection: $selection) {
+            Text(
+                "System (\(IntelligenceSettingsView.displayName(Locale.current.identifier)))",
+                comment: "Follow the Mac's language"
+            )
+            .tag("")
+            Divider()
+            ForEach(IntelligenceSettingsView.options(locales, current: selection), id: \.self) {
+                Text(IntelligenceSettingsView.displayName($0)).tag($0)
+            }
+        }
+        .task { locales = await SpeechTranscriber.supportedLocales.map { $0.identifier(.bcp47) } }
+    }
+}
+
+struct SubtitleFormatPicker: View {
+    @Binding var selection: SubtitleFormat
+
+    var body: some View {
+        Picker("Format", selection: $selection) {
+            ForEach(SubtitleFormat.allCases, id: \.self) { format in
+                Text(MenuStrings.preset(.videoSubtitles, format.rawValue)).tag(format)
+            }
+        }
+    }
+}
+
+struct TranslationLanguagePicker: View {
+    @Binding var selection: String
+    @State private var languages: [String] = []
+
+    var body: some View {
+        Picker("Translate into", selection: $selection) {
+            ForEach(IntelligenceSettingsView.options(languages, current: selection), id: \.self) {
+                Text(IntelligenceSettingsView.displayName($0)).tag($0)
+            }
+        }
+        .task { languages = await IntelligenceSettingsView.translationLanguages() }
     }
 }

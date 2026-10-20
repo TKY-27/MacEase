@@ -123,10 +123,10 @@ struct VideoSettingsView: View {
 struct AudioSettingsView: View {
     @Bindable var store: SettingsStore
 
-    private static let mp3Bitrates = [64, 96, 128, 160, 192, 224, 256, 320]
-    private static let aacBitrates = [64, 96, 128, 160, 192, 256, 320]
-    private static let opusBitrates = [32, 48, 64, 96, 128, 160, 192, 256]
-    private static let vorbisBitrates = [64, 96, 128, 160, 192, 256, 320]
+    fileprivate static let mp3Bitrates = [64, 96, 128, 160, 192, 224, 256, 320]
+    fileprivate static let aacBitrates = [64, 96, 128, 160, 192, 256, 320]
+    fileprivate static let opusBitrates = [32, 48, 64, 96, 128, 160, 192, 256]
+    fileprivate static let vorbisBitrates = [64, 96, 128, 160, 192, 256, 320]
     private static let vbrQualities = 0...9
     private static let loudnessTargets = [-14.0, -16.0, -23.0]
 
@@ -236,6 +236,19 @@ extension TrimMode {
         switch self {
         case .keyframe: String(localized: "At keyframes (fast, lossless)", comment: "Video trim mode")
         case .exact: String(localized: "Exact (re-encodes)", comment: "Video trim mode")
+        }
+    }
+}
+
+extension AudioFormat {
+    /// Empty for lossless formats.
+    var bitrateChoices: [Int] {
+        switch self {
+        case .mp3: AudioSettingsView.mp3Bitrates
+        case .m4aAAC, .aac: AudioSettingsView.aacBitrates
+        case .opus: AudioSettingsView.opusBitrates
+        case .ogg: AudioSettingsView.vorbisBitrates
+        default: []
         }
     }
 }
