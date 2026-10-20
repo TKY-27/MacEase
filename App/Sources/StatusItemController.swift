@@ -107,7 +107,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func recentItem(_ record: BatchRecord) -> NSMenuItem {
         let time = record.date.formatted(date: .omitted, time: .shortened)
-        let title = "\(MenuStrings.operation(record.operation)) · \(time)"
+        let title = "\(MenuStrings.operationName(record.operation)) · \(time)"
         let recentMenuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         if record.undone {
@@ -160,7 +160,7 @@ private struct ActiveBatchRow: View {
         if let batch = jobs.active.first(where: { $0.id == batchID }) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(verbatim: "\(MenuStrings.operation(batch.operation)) (\(batch.itemCount))")
+                    Text(verbatim: "\(MenuStrings.operationName(batch.operation)) (\(batch.itemCount))")
                         .font(.system(size: 13))
                     ProgressView(value: batch.progress)
                         .progressViewStyle(.linear)

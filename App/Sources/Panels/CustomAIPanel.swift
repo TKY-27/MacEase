@@ -62,7 +62,7 @@ struct CustomAIPanel: View {
                             }
                         } label: {
                             Text(
-                                "\(index + 1). \(MenuStrings.operation(steps[index].operation)): \(MenuStrings.preset(steps[index].operation, steps[index].preset))"
+                                "\(index + 1). \(MenuStrings.operationName(steps[index].operation)): \(MenuStrings.preset(steps[index].operation, steps[index].preset))"
                             )
                         }
                     }

@@ -9,6 +9,13 @@ enum MenuStrings {
         lookup("menu.op.\(op.rawValue)")
     }
 
+    /// Outside the menu, titles drop their ellipsis.
+    static func operationName(_ op: OperationID) -> String {
+        let title = operation(op)
+        for ellipsis in ["…", "..."] where title.hasSuffix(ellipsis) { return String(title.dropLast(ellipsis.count)) }
+        return title
+    }
+
     static func preset(_ op: OperationID, _ preset: String) -> String {
         if preset == MenuEntry.customPreset, op != .videoThumbnail { return lookup("menu.custom") }
         return lookup("menu.preset.\(op.rawValue).\(preset)")

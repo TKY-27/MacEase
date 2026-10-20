@@ -58,8 +58,8 @@ final class PanelCoordinator {
     }
 
     func presentReport(_ text: String, operation op: OperationID) {
-        host.show(title: Self.title(op)) { close in
-            TextResultPanel(text: text, suggestedName: "\(Self.title(op)).txt", close: close)
+        host.show(title: MenuStrings.operationName(op)) { close in
+            TextResultPanel(text: text, suggestedName: "\(MenuStrings.operationName(op)).txt", close: close)
         }
     }
 
@@ -91,7 +91,7 @@ final class PanelCoordinator {
     ) {
         let isVideo = op == .videoTrim
         let mode = PanelMemory.value(for: op, default: store.settings.video.trimMode)
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             TrimPanel(url: file, isVideo: isVideo, prefill: prefill, mode: mode, close: close) { start, end, mode in
                 PanelMemory.remember(mode, for: op)
                 close()
@@ -106,13 +106,6 @@ final class PanelCoordinator {
                 }
             }
         }
-    }
-
-    /// Menu titles end with an ellipsis.
-    private static func title(_ op: OperationID) -> String {
-        let title = MenuStrings.operation(op)
-        for ellipsis in ["…", "..."] where title.hasSuffix(ellipsis) { return String(title.dropLast(ellipsis.count)) }
-        return title
     }
 
     private func launch(_ op: OperationID, _ options: OperationOptions, _ inputs: [URL]) {
@@ -130,7 +123,7 @@ final class PanelCoordinator {
     private func showSize(_ op: OperationID, _ inputs: [URL]) {
         let isVideo = op == .videoResize
         let choice = PanelMemory.value(for: op, default: SizeChoice())
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             SizePanel(isVideo: isVideo, firstFile: inputs[0], choice: choice, cancel: close) { choice in
                 let options: OperationOptions =
                     isVideo ? .video(.resize(choice.videoResize)) : .image(.resize(choice.imageResize))
@@ -152,7 +145,7 @@ final class PanelCoordinator {
             presets = []
         }
         let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             TargetSizePanel(family: family, presets: presets, choice: choice, cancel: close) { choice, options in
                 self.finish(op, choice, options, inputs, close: close)
             }
@@ -162,7 +155,7 @@ final class PanelCoordinator {
     private func showAngle(_ op: OperationID, _ inputs: [URL]) {
         let isVideo = op == .videoRotate
         let choice = PanelMemory.value(for: op, default: AngleChoice(fill: store.settings.video.rotationFill))
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             AnglePanel(offersTransparency: !isVideo, choice: choice, cancel: close) { choice in
                 let options: OperationOptions =
                     isVideo
@@ -181,7 +174,7 @@ final class PanelCoordinator {
     }
 
     private func showFramePicker(_ op: OperationID, file: URL) {
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             FramePickerPanel(url: file, close: close) { seconds in
                 close()
                 self.launch(op, .video(.still(.at(seconds: seconds))), [file])
@@ -201,7 +194,7 @@ final class PanelCoordinator {
             default: .apng
             }
         let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             AnimationPanel(firstFile: inputs[0], format: format, choice: choice, cancel: close) { choice in
                 let rendering = choice.rendering
                 let options: OperationOptions =
@@ -222,7 +215,7 @@ final class PanelCoordinator {
             mask: isVideo ? .person : .subject, keyColor: image.colorKey, tolerance: image.colorKeyTolerance,
             customColor: image.customBackground, videoFormat: store.settings.video.transparentFormat)
         let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             BackgroundPanel(isVideo: isVideo, choice: choice, cancel: close) { choice in
                 let options = choice.imageOptions(green: image.greenBackground, blue: image.blueBackground)
                 let operation: OperationOptions =
@@ -243,7 +236,7 @@ final class PanelCoordinator {
             language: settings.subtitleLanguage, format: settings.subtitleFormat,
             translationTarget: settings.translationTarget)
         let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             SubtitlesPanel(choice: choice, cancel: close) { choice in
                 self.finish(op, choice, .video(.subtitles(choice.request)), inputs, close: close)
             }
@@ -275,7 +268,7 @@ final class PanelCoordinator {
         var choice = PanelMemory.value(for: op, default: ExtractAudioChoice(preset: settings.audio.extractFormat))
         // Presets can disappear between releases.
         if !formats.contains(where: { $0.preset == choice.preset }) { choice.preset = formats.first?.preset ?? "" }
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             ExtractAudioPanel(formats: formats, choice: choice, cancel: close) { choice, format in
                 self.finish(op, choice, .video(.extractAudio(format, kilobits: choice.kilobits)), inputs, close: close)
             }
@@ -299,7 +292,7 @@ final class PanelCoordinator {
                 isPDF
                 ? String(localized: "Merge", comment: "Page order action for PDFs")
                 : String(localized: "Create PDF", comment: "Page order action for images")
-            host.show(title: Self.title(op)) { close in
+            host.show(title: MenuStrings.operationName(op)) { close in
                 PageOrderPanel(actionTitle: actionTitle, pages: entries, cancel: close) { pages in
                     close()
                     var files: [URL] = []
@@ -323,7 +316,7 @@ final class PanelCoordinator {
                 showFailure(op, error, file: file)
                 return
             }
-            host.show(title: Self.title(op)) { close in
+            host.show(title: MenuStrings.operationName(op)) { close in
                 PageSelectPanel(pages: entries, cancel: close) { pages in
                     close()
                     self.launch(op, .pdf(.extractPages(pages)), [file])
@@ -334,7 +327,7 @@ final class PanelCoordinator {
 
     private func showRename(_ op: OperationID, _ inputs: [URL]) {
         let choice = PanelMemory.value(for: op, default: RenameChoice(settings: store.settings.folder))
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             RenamePanel(selection: inputs, choice: choice, cancel: close) { choice in
                 self.finish(op, choice, .folder(.rename(choice.rules)), inputs, close: close)
             }
@@ -352,7 +345,7 @@ final class PanelCoordinator {
                 showFailure(op, error, file: inputs[0])
                 return
             }
-            host.show(title: Self.title(op)) { close in
+            host.show(title: MenuStrings.operationName(op)) { close in
                 AIRenamePanel(files: files, cancel: close) { plans in
                     close()
                     self.launch(op, .rename(plans), plans.map(\.url))
@@ -363,7 +356,7 @@ final class PanelCoordinator {
 
     private func showDuplicates(_ op: OperationID, _ inputs: [URL]) {
         let settings = store.settings
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             ScanningPanel(
                 title: String(localized: "Looking for duplicates…", comment: "Scan progress"), subject: inputs[0],
                 close: close
@@ -382,7 +375,7 @@ final class PanelCoordinator {
 
     private func showEmptyFolders(_ op: OperationID, _ inputs: [URL]) {
         let settings = store.settings
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             ScanningPanel(
                 title: String(localized: "Looking for empty folders…", comment: "Scan progress"), subject: inputs[0],
                 close: close
@@ -401,7 +394,7 @@ final class PanelCoordinator {
 
     private func showAnalysis(_ op: OperationID, folder: URL) {
         let settings = store.settings.folder
-        host.show(title: "\(Self.title(op)): \(folder.lastPathComponent)") { close in
+        host.show(title: "\(MenuStrings.operationName(op)): \(folder.lastPathComponent)") { close in
             ScanningPanel(
                 title: String(localized: "Analyzing…", comment: "Scan progress"), subject: folder, close: close
             ) { progress in
@@ -421,7 +414,7 @@ final class PanelCoordinator {
         let isRunnable = { (step: CustomStep) in
             OperationPlanner.options(for: step.operation, preset: step.preset, settings: settings) != nil
         }
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             CustomAIPanel(kind: op.kind, prompt: prompt, isRunnable: isRunnable, cancel: close) { prompt, steps in
                 PanelMemory.remember(prompt, for: op)
                 close()
@@ -460,7 +453,7 @@ final class PanelCoordinator {
     }
 
     private func showPassword(_ op: OperationID, _ archives: [URL], wasWrong: Bool) {
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             PasswordPanel(archives: archives, wasWrong: wasWrong, cancel: close) { password, forAll in
                 close()
                 let now = forAll ? archives : [archives[0]]
@@ -473,7 +466,7 @@ final class PanelCoordinator {
 
     private func showEncoding(_ op: OperationID, file: URL, target: TextEncodingTarget) {
         let encoding = PanelMemory.value(for: op, default: SourceTextEncoding.cp932)
-        host.show(title: Self.title(op)) { close in
+        host.show(title: MenuStrings.operationName(op)) { close in
             EncodingPanel(file: file, encoding: encoding, cancel: close) { source in
                 self.finish(op, source, .text(.encoding(target, source: source)), [file], close: close)
             }
@@ -525,7 +518,7 @@ final class PanelCoordinator {
             for: op, default: OptionMemory(choice: choices.first?.id ?? "", number: number?.initial ?? 0))
         // Presets can disappear between releases.
         let choice = choices.contains { $0.id == remembered.choice } ? remembered.choice : choices.first?.id ?? ""
-        let title = Self.title(op)
+        let title = MenuStrings.operationName(op)
         host.show(title: title) { close in
             OptionsPanel(
                 choiceTitle: title, choices: choices, number: number,
@@ -541,7 +534,7 @@ final class PanelCoordinator {
 
     private func showFailure(_ op: OperationID, _ error: any Error, file: URL) {
         let message = UserMessages.describe(EngineError.wrapping(error, path: file.path), file: file.lastPathComponent)
-        host.show(title: Self.title(op)) { close in PanelFailure(message: message, close: close) }
+        host.show(title: MenuStrings.operationName(op)) { close in PanelFailure(message: message, close: close) }
     }
 }
 

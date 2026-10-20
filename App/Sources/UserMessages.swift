@@ -204,7 +204,7 @@ struct BatchSummary {
                 if firstReason == nil { firstReason = UserMessages.describe(error, file: file) }
             }
         }
-        let operation = MenuStrings.operation(outcome.operation)
+        let operation = MenuStrings.operationName(outcome.operation)
         title =
             succeeded == 0 && failed > 0
             ? String(localized: "\(operation) failed", comment: "Notification title when every item failed")
