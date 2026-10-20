@@ -4,12 +4,17 @@ import Foundation
 import Vision
 
 enum TextRecognition {
-    private static let probeText = "MacEase"
+    private enum Probe {
+        static let text = "MacEase"
+        static let canvas = CGSize(width: 400, height: 120)
+        static let fontSize: CGFloat = 64
+        static let baseline = CGPoint(x: 20, y: 30)
+    }
 
     /// Virtual Macs may lack the recognition models.
     static var isAvailable: Bool {
         get async {
-            let size = CGSize(width: 400, height: 120)
+            let size = Probe.canvas
             guard
                 let context = CGContext(
                     data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
@@ -19,12 +24,12 @@ enum TextRecognition {
             context.fill(CGRect(origin: .zero, size: size))
             let line = CTLineCreateWithAttributedString(
                 NSAttributedString(
-                    string: probeText,
-                    attributes: [.font: CTFontCreateWithName("Helvetica" as CFString, 64, nil)]))
-            context.textPosition = CGPoint(x: 20, y: 30)
+                    string: Probe.text,
+                    attributes: [.font: CTFontCreateWithName("Helvetica" as CFString, Probe.fontSize, nil)]))
+            context.textPosition = Probe.baseline
             CTLineDraw(line, context)
             guard let image = context.makeImage() else { return false }
-            return (try? await text(in: image, languages: [])).map { $0.contains(probeText) } ?? false
+            return (try? await text(in: image, languages: [])).map { $0.contains(Probe.text) } ?? false
         }
     }
 
