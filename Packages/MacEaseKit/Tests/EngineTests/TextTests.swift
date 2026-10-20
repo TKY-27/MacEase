@@ -403,19 +403,25 @@ private let japanese = "日本語のテキストです。\n二行目"
                 """)
     }
 
-    @Test func xmlExternalEntitiesAreNotResolved() async throws {
+    @Test func xmlExternalEntitiesAreNeverRead() async throws {
         let secret = try TestVolume.makeFolder().appending(path: "secret.txt")
         try Data("TOP-SECRET".utf8).write(to: secret)
-        let input = """
-            <?xml version="1.0"?>
-            <!DOCTYPE r [<!ENTITY leak SYSTEM "\(secret.absoluteString)">]>
-            <r>&leak;</r>
-            """
+        let input = #"<!DOCTYPE r [<!ENTITY leak SYSTEM "URL">]><r>&leak;</r>"#.replacing(
+            "URL", with: secret.absoluteString)
 
         let (outcome, output) = try await convert(.xmlToJSON, name: "xxe.xml", input: input)
 
         #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
         #expect(try String(contentsOf: output, encoding: .utf8) == "{\n  \"r\": null\n}\n")
+    }
+
+    @Test func xmlInternalEntityDeclarationsAreRejected() async throws {
+        let input = #"<!DOCTYPE r [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;">]><r>&b;</r>"#
+
+        let (outcome, output) = try await convert(.xmlToJSON, name: "laughs.xml", input: input)
+
+        #expect(outcome.outcomes == [.failed(.invalidInput(.malformed("XML entity declarations are not supported")))])
+        #expect(!FileManager.default.fileExists(atPath: output.path))
     }
 
     @Test func malformedXMLFailsWithItsPosition() async throws {

@@ -185,6 +185,14 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
         #expect(pages[1].contains("HELLO 42"))
     }
 
+    @Test func toTextFailsWhenNoPageHasText() async throws {
+        let url = try makePDF("blank.pdf", pages: [.text(""), .text("")])
+
+        let outcome = try await runPDF(.toText, op: .pdfToText, on: [url])
+
+        #expect(outcome.outcomes == [.failed(.invalidInput(.emptyInput))])
+    }
+
     @Test func compressKeepsTheResultOnlyWhenSmaller() async throws {
         let heavy = try makePDF("photo.pdf", pages: [.noise])
         let light = try makePDF("plain.pdf", pages: [.text("tiny")])
@@ -212,13 +220,15 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
     @Test func extractPagesKeepsTheChosenPages() async throws {
         let url = try makePDF("long.pdf", pages: [.text("P1"), .text("P2"), .text("P3")])
 
-        let outcome = try await runPDF(.extractPages(IndexSet([0, 2, 9])), op: .pdfExtractPages, on: [url])
-        let none = try await runPDF(.extractPages(IndexSet([5])), op: .pdfExtractPages, on: [url])
+        let outcome = try await runPDF(.extractPages(IndexSet([0, 2])), op: .pdfExtractPages, on: [url])
+        let none = try await runPDF(.extractPages(IndexSet()), op: .pdfExtractPages, on: [url])
+        let missing = try await runPDF(.extractPages(IndexSet([5])), op: .pdfExtractPages, on: [url])
 
         let output = url.deletingLastPathComponent().appending(path: "long (extracted).pdf")
         #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
         #expect(try texts(of: output) == ["P1", "P3"])
         #expect(none.outcomes == [.failed(.invalidInput(.noPages))])
+        #expect(missing.outcomes == [.failed(.unexpected("page index out of range"))])
     }
 
     @Test func splitWritesOnePDFPerPage() async throws {

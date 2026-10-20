@@ -3,6 +3,10 @@ import MenuCatalog
 import PDFKit
 
 enum PDFEditing {
+    private static let mergedSuffix = " (merged)"
+    private static let extractedSuffix = " (extracted)"
+    private static let pdfExtension = "pdf"
+
     static func merge(_ inputs: [URL], pages: [PDFPageReference]?, context: ItemContext) throws -> ItemResult {
         let minimum = OperationID.pdfMerge.minimumSelection
         guard inputs.count >= minimum, let first = inputs.first else {
@@ -25,7 +29,7 @@ enum PDFEditing {
             merged.insert(try copy(of: reference.pageIndex, in: document), at: merged.pageCount)
             context.progress(Double(position + 1) / Double(order.count))
         }
-        let name = "\(baseName(of: first)) (merged).pdf"
+        let name = "\(baseName(of: first))\(mergedSuffix).\(pdfExtension)"
         let staged = try context.stagingURL(for: first, name: name)
         try write(merged, to: staged)
         return .derived(nextTo: first, outputs: [StagedFile(url: staged, name: name, check: .pdf)])
@@ -39,8 +43,10 @@ enum PDFEditing {
         document.insert(first, at: 0)
         let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
         try write(document, to: staged, options: [.saveImagesAsJPEGOption: true, .optimizeImagesForScreenOption: true])
-        let sizes = try [url, staged].map { try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0 }
-        guard sizes[1] < sizes[0] else { return .skipped(.outputNotSmaller) }
+        guard let originalSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+            let outputSize = try staged.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        else { throw EngineError.unexpected("PDF size unreadable") }
+        guard outputSize < originalSize else { return .skipped(.outputNotSmaller) }
         return .replace(original: url, output: StagedFile(url: staged, name: url.lastPathComponent, check: .pdf))
     }
 
@@ -57,13 +63,12 @@ enum PDFEditing {
 
     static func extract(_ pages: IndexSet, from url: URL, context: ItemContext) throws -> ItemResult {
         let document = try open(url)
-        let chosen = pages.filter { $0 < document.pageCount }
-        guard !chosen.isEmpty else { throw EngineError.invalidInput(.noPages) }
+        guard !pages.isEmpty else { throw EngineError.invalidInput(.noPages) }
         let extracted = PDFDocument()
-        for index in chosen {
+        for index in pages {
             extracted.insert(try copy(of: index, in: document), at: extracted.pageCount)
         }
-        let name = "\(baseName(of: url)) (extracted).pdf"
+        let name = "\(baseName(of: url))\(extractedSuffix).\(pdfExtension)"
         let staged = try context.stagingURL(for: url, name: name)
         try write(extracted, to: staged)
         return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .pdf)])
@@ -76,7 +81,8 @@ enum PDFEditing {
             try Task.checkCancellation()
             let single = PDFDocument()
             single.insert(try copy(of: index, in: document), at: 0)
-            let name = pageFileName(base: baseName(of: url), index: index, count: document.pageCount, extension: "pdf")
+            let name = pageFileName(
+                base: baseName(of: url), index: index, count: document.pageCount, extension: pdfExtension)
             try write(single, to: folder.appending(path: name))
             context.progress(Double(index + 1) / Double(document.pageCount))
         }
@@ -87,6 +93,7 @@ enum PDFEditing {
     static func open(_ url: URL) throws -> PDFDocument {
         guard let document = PDFDocument(url: url) else { throw EngineError.decodeFailed("PDF does not open") }
         guard !document.isEncrypted else { throw EngineError.invalidInput(.encrypted) }
+        guard document.pageCount > 0 else { throw EngineError.invalidInput(.emptyInput) }
         return document
     }
 

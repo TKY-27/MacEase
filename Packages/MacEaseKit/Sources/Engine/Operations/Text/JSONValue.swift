@@ -115,7 +115,6 @@ extension JSONIndent {
     }
 }
 
-/// Reports syntax errors by line and column.
 struct JSONParser {
     private static let maximumDepth = 512
     private static let surrogateBits: UInt32 = 10

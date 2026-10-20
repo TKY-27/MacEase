@@ -63,7 +63,6 @@ public enum OperationPlanner {
         validated([url], kind: kind, lane: lane, body: body)
     }
 
-    /// One item covering every input.
     static func validated(
         _ urls: [URL],
         kind: FileKind,

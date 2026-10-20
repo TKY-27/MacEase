@@ -9,7 +9,10 @@ enum PDFExport {
     private static let pointsPerInch = 72.0
     private static let ocrDPI = 300
     private static let pageSeparator = "\u{0C}"
+    private static let textExtension = "txt"
     private static let percent = 100.0
+    /// Keeps one page bitmap near 400 MB.
+    private static let maximumPixels = 100_000_000
 
     static func images(of url: URL, format: StillFormat, dpi: Int, context: ItemContext) throws -> ItemResult {
         let document = try PDFEditing.open(url)
@@ -39,7 +42,6 @@ enum PDFExport {
         return .derived(nextTo: url, outputs: [StagedFile(url: folder, name: base, check: .folder)])
     }
 
-    /// Pages without a text layer get OCR.
     static func text(of url: URL, context: ItemContext) async throws -> ItemResult {
         let document = try PDFEditing.open(url)
         var pages: [String] = []
@@ -54,7 +56,8 @@ enum PDFExport {
             }
             context.progress(Double(index + 1) / Double(document.pageCount))
         }
-        let name = "\(PDFEditing.baseName(of: url)).txt"
+        guard pages.contains(where: { !$0.isEmpty }) else { throw EngineError.invalidInput(.emptyInput) }
+        let name = "\(PDFEditing.baseName(of: url)).\(textExtension)"
         let staged = try context.stagingURL(for: url, name: name)
         try Data(pages.joined(separator: pageSeparator).utf8).write(to: staged)
         return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .text(.utf8))])
@@ -65,8 +68,13 @@ enum PDFExport {
         let bounds = page.bounds(for: .cropBox)
         let isQuarterTurned = page.rotation % 180 != 0
         let scale = Double(dpi) / pointsPerInch
-        let width = Int(((isQuarterTurned ? bounds.height : bounds.width) * scale).rounded())
-        let height = Int(((isQuarterTurned ? bounds.width : bounds.height) * scale).rounded())
+        let scaledWidth = ((isQuarterTurned ? bounds.height : bounds.width) * scale).rounded()
+        let scaledHeight = ((isQuarterTurned ? bounds.width : bounds.height) * scale).rounded()
+        guard scaledWidth * scaledHeight <= Double(maximumPixels) else {
+            throw EngineError.invalidInput(.malformed("page is too large to render at \(dpi) dpi"))
+        }
+        let width = Int(scaledWidth)
+        let height = Int(scaledHeight)
         guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
             let canvas = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,

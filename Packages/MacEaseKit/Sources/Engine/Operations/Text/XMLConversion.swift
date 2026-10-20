@@ -13,7 +13,11 @@ enum XMLConversion {
         parser.shouldResolveExternalEntities = false
         let builder = XMLTreeBuilder()
         parser.delegate = builder
-        guard parser.parse(), let root = builder.root else {
+        let parsed = parser.parse()
+        guard !builder.declaresEntities else {
+            throw EngineError.invalidInput(.malformed("XML entity declarations are not supported"))
+        }
+        guard parsed, let root = builder.root else {
             throw EngineError.invalidInput(
                 .malformed("XML error at line \(parser.lineNumber), column \(parser.columnNumber)"))
         }
@@ -135,7 +139,14 @@ private final class XMLTreeBuilder: NSObject, XMLParserDelegate {
     }
 
     private(set) var root: Node?
+    /// Rejects billion-laughs expansion explicitly.
+    private(set) var declaresEntities = false
     private var open: [Node] = []
+
+    func parser(_ parser: XMLParser, foundInternalEntityDeclarationWithName name: String, value: String?) {
+        declaresEntities = true
+        parser.abortParsing()
+    }
 
     func parser(
         _ parser: XMLParser,

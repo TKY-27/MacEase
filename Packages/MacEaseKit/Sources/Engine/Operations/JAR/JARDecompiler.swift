@@ -8,6 +8,7 @@ public enum JAROperation: Codable, Hashable, Sendable {
 
 public enum JavaRuntime {
     private static let javaHome = URL(fileURLWithPath: "/usr/libexec/java_home")
+    private static let javaInHome = "bin/java"
 
     /// `nil` when `java_home` finds no installed runtime.
     public static func executable() throws -> URL? {
@@ -21,18 +22,20 @@ public enum JavaRuntime {
         probe.waitUntilExit()
         let path = home.trimmingCharacters(in: .whitespacesAndNewlines)
         guard probe.terminationStatus == 0, !path.isEmpty else { return nil }
-        return URL(fileURLWithPath: path).appending(path: "bin/java")
+        return URL(fileURLWithPath: path).appending(path: javaInHome)
     }
 }
 
 enum JARDecompiler {
     private static let stderrTailLines = 3
     private static let logName = "cfr-stderr.log"
+    private static let bundledJARName = "cfr.jar"
+    private static let sourceExtension = "java"
     private static let progressPrefix = "Processing "
     private static let noSourceMessage = "CFR produced no Java source"
 
     static var bundledOperation: JAROperation? {
-        Bundle.main.resourceURL.map { .decompile(cfr: $0.appending(path: "cfr.jar")) }
+        Bundle.main.resourceURL.map { .decompile(cfr: $0.appending(path: bundledJARName)) }
     }
 
     static func batch(_ operation: JAROperation, op: OperationID, inputs: [URL]) -> Batch {
@@ -50,18 +53,19 @@ enum JARDecompiler {
     private static func decompile(_ jar: URL, cfr: URL, context: ItemContext) async throws -> ItemResult {
         guard let java = try JavaRuntime.executable() else { throw EngineError.missingCapability(.java) }
         guard FileManager.default.fileExists(atPath: cfr.path) else { throw EngineError.unexpected("cfr.jar missing") }
-        let staging = try context.stagingDirectory(for: jar)
         let name = jar.deletingPathExtension().lastPathComponent
-        let output = staging.appending(path: name, directoryHint: .isDirectory)
-        let log = staging.appending(path: logName)
+        let output = try context.stagingDirectory(for: jar).appending(path: name, directoryHint: .isDirectory)
+        let log = try context.stagingDirectory(for: jar).appending(path: logName)
         guard FileManager.default.createFile(atPath: log.path, contents: nil) else {
             throw EngineError.unexpected("CFR log not writable")
         }
+        let logHandle = try FileHandle(forWritingTo: log)
+        defer { try? logHandle.close() }
         let process = Process()
         process.executableURL = java
         process.arguments = ["-jar", cfr.path, jar.path, "--outputdir", output.path]
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = try FileHandle(forWritingTo: log)
+        process.standardError = logHandle
         try await run(process)
         // CFR exits 0 even on unreadable jars.
         guard process.terminationStatus == 0, containsJavaSource(output) else {
@@ -79,7 +83,10 @@ enum JARDecompiler {
                 } catch {
                     process.terminationHandler = nil
                     continuation.resume(throwing: error)
+                    return
                 }
+                // `onCancel` already ran if cancelled before launch.
+                if Task.isCancelled { process.terminate() }
             }
         } onCancel: {
             if process.isRunning { process.terminate() }
@@ -91,7 +98,7 @@ enum JARDecompiler {
         guard let files = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else {
             return false
         }
-        return files.contains { ($0 as? URL)?.pathExtension == "java" }
+        return files.contains { ($0 as? URL)?.pathExtension == sourceExtension }
     }
 
     /// Progress and stack frames hide the cause.
