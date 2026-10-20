@@ -13,6 +13,7 @@ ffmpeg -f lavfi -i sine=frequency=440:sample_rate=48000 -t 1 -ac 2 -c:a libopus 
 ffmpeg -f lavfi -i color=red:s=8x8 -frames:v 1 cover.png
 ffmpeg -f lavfi -i sine=frequency=440:sample_rate=44100 -i cover.png -t 1 -map 0 -map 1 -c:a flac -c:v copy -disposition:v attached_pic -metadata title=Fixture -metadata artist=FFmpeg -metadata album=Tests ffmpeg-flac.flac
 ffmpeg -f lavfi -i sine=frequency=440:sample_rate=16000 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 0.5 -map 0 -map 1 -c:a:0 flac -c:a:1 libmp3lame -b:a:1 64k ffmpeg-flac-mp3.mka
+ffmpeg -f lavfi -i sine=frequency=1000:sample_rate=48000 -af "pan=5.1|FC=c0" -t 0.5 -c:a aac -b:a 96k ffmpeg-aac-51-center.m4a
 ```
 
 `sub.srt` holds two cues, "Hello" (0–1 s) and "World" (1–2 s).
