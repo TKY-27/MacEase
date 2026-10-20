@@ -18,8 +18,7 @@ public enum AudioFormat: String, Codable, CaseIterable, Sendable {
     case cafALAC = "caf-alac"
 
     private static let opusKilobits = Array(6...510)
-    private static let vorbisKilobits = Array(48...320)
-    private static let monoVorbisKilobits = Array(32...240)
+    private static let vorbisCandidates = Array(stride(from: 32, through: 480, by: 8))
     private static let aacRates: Set<Double> = [8_000, 11_025, 12_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000]
     private static let mp3Rates = (low: 44_100.0, high: 48_000.0)
 
@@ -56,16 +55,26 @@ public enum AudioFormat: String, Codable, CaseIterable, Sendable {
     }
 
     /// Ascending; empty for lossless formats.
-    public func supportedKilobits(sampleRate: Double, channels: Int) -> [Int] {
-        let rate = outputSampleRate(sampleRate)
+    public func supportedKilobits(sampleRate: Double, channels: Int) throws -> [Int] {
+        let rate = Int(outputSampleRate(sampleRate))
         let count = outputChannels(channels)
         return switch self {
         case .mp3: MP3EncoderOptions.constantBitrates
-        case .m4aAAC, .aac: AACEncoder.applicableKilobits(sampleRate: Int(rate), channels: count)
+        case .m4aAAC, .aac: try AACEncoder.applicableKilobits(sampleRate: rate, channels: count)
         case .opus: Self.opusKilobits
-        case .ogg: count == 1 ? Self.monoVorbisKilobits : Self.vorbisKilobits
+        case .ogg:
+            Self.vorbisCandidates.filter {
+                VorbisAudioEncoder.accepts(sampleRate: rate, channels: count, bitrate: $0 * 1_000)
+            }
         default: []
         }
+    }
+
+    /// Encoders reject bitrates outside their lists.
+    func nearestKilobits(_ requested: Int, sampleRate: Double, channels: Int) throws -> Int {
+        let supported = try supportedKilobits(sampleRate: sampleRate, channels: channels)
+        guard let lowest = supported.first else { throw EngineError.unsupportedCodec("\(fileExtension) bitrates") }
+        return supported.last { $0 <= requested } ?? lowest
     }
 
     func outputSampleRate(_ rate: Double) -> Double {
@@ -137,9 +146,13 @@ public final class AudioFileEncoder {
         let format = target.format
         let rate = format.outputSampleRate(sampleRate)
         let count = format.outputChannels(channels)
-        let bits = target.kilobits * 1_000
         let losslessDepth = bitDepth.map { $0 <= Self.defaultDepth ? Self.defaultDepth : Self.highDepth }
         do {
+            let kilobits =
+                format.isLossy && target.variableQuality == nil
+                ? try format.nearestKilobits(target.kilobits, sampleRate: sampleRate, channels: channels)
+                : target.kilobits
+            let bits = kilobits * 1_000
             converter =
                 rate == sampleRate && count == channels
                 ? nil
@@ -147,7 +160,7 @@ public final class AudioFileEncoder {
             switch format {
             case .mp3:
                 let mode: MP3EncoderOptions.Mode =
-                    target.variableQuality.map { .variable(quality: $0) } ?? .constant(kilobits: target.kilobits)
+                    target.variableQuality.map { .variable(quality: $0) } ?? .constant(kilobits: kilobits)
                 sink = try MP3Sink(url: url, sampleRate: Int(rate), channels: count, mode: mode, tags: tags)
             case .m4aAAC, .m4aALAC:
                 let depth = bitDepth == Self.alacMiddleDepth ? Self.alacMiddleDepth : losslessDepth ?? Self.highDepth
@@ -155,7 +168,7 @@ public final class AudioFileEncoder {
                     url: url, sampleRate: rate, channels: count, codec: format == .m4aAAC ? .aac(bits) : .alac(depth),
                     tags: tags)
             case .aac:
-                sink = try ADTSSink(url: url, sampleRate: Int(rate), channels: count, kilobits: target.kilobits)
+                sink = try ADTSSink(url: url, sampleRate: Int(rate), channels: count, kilobits: kilobits)
             case .wav, .aiff, .cafPCM:
                 let float = isFloat && format != .aiff
                 let depth = float ? Self.floatDepth : isFloat ? Self.highDepth : bitDepth ?? Self.defaultDepth
@@ -361,9 +374,7 @@ private final class MP3Sink: AudioSink {
 
     init(url: URL, sampleRate: Int, channels: Int, mode: MP3EncoderOptions.Mode, tags: AudioTags) throws {
         encoder = try MP3Encoder(options: MP3EncoderOptions(sampleRate: sampleRate, channels: channels, mode: mode))
-        guard FileManager.default.createFile(atPath: url.path, contents: ID3Tag.encode(tags)) else {
-            throw EngineError.encodeFailed("cannot create the MP3 file")
-        }
+        try ID3Tag.encode(tags).write(to: url, options: .withoutOverwriting)
         handle = try FileHandle(forWritingTo: url)
         audioStart = try handle.seekToEnd()
     }
@@ -390,9 +401,7 @@ private final class ADTSSink: AudioSink {
 
     init(url: URL, sampleRate: Int, channels: Int, kilobits: Int) throws {
         encoder = try AACEncoder(sampleRate: sampleRate, channels: channels, kilobits: kilobits)
-        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
-            throw EngineError.encodeFailed("cannot create the AAC file")
-        }
+        try Data().write(to: url, options: .withoutOverwriting)
         handle = try FileHandle(forWritingTo: url)
     }
 

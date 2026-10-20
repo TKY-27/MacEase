@@ -48,8 +48,8 @@ enum PCMFormat {
 
 /// One input per call; `nil` ends.
 private func convert(
-    _ converter: AVAudioConverter, input: AVAudioBuffer?, makeOutput: () throws -> AVAudioBuffer,
-    collect: (AVAudioBuffer) -> Void
+    _ converter: AVAudioConverter, input: AVAudioBuffer?, failure: (String) -> EngineError = EngineError.encodeFailed,
+    makeOutput: () throws -> AVAudioBuffer, collect: (AVAudioBuffer) -> Void
 ) throws {
     var supplied = false
     while true {
@@ -65,7 +65,7 @@ private func convert(
             return input
         }
         if status == .error {
-            throw EngineError.encodeFailed(error.map { "AudioConverter \($0.code)" } ?? "AudioConverter failed")
+            throw failure(error.map { "AudioConverter \($0.code)" } ?? "AudioConverter failed")
         }
         collect(output)
         if status != .haveData { return }
@@ -80,12 +80,20 @@ public final class PCMConverter {
     private let input: AVAudioFormat
     private let output: AVAudioFormat
 
-    public init(sampleRate: Double, channels: Int, toSampleRate targetRate: Double, channels targetChannels: Int) throws
-    {
-        input = try PCMFormat.make(sampleRate: sampleRate, channels: channels)
+    public convenience init(
+        sampleRate: Double, channels: Int, toSampleRate targetRate: Double, channels targetChannels: Int
+    ) throws {
+        try self.init(
+            from: PCMFormat.make(sampleRate: sampleRate, channels: channels), toSampleRate: targetRate,
+            channels: targetChannels)
+    }
+
+    /// `input` must be interleaved 32-bit float.
+    init(from input: AVAudioFormat, toSampleRate targetRate: Double, channels targetChannels: Int) throws {
+        self.input = input
         output = try PCMFormat.make(sampleRate: targetRate, channels: targetChannels)
         guard let converter = AVAudioConverter(from: input, to: output) else {
-            throw EngineError.unsupportedCodec("\(channels)-channel \(sampleRate) Hz to \(targetRate) Hz conversion")
+            throw EngineError.unsupportedCodec("\(input.channelCount)-channel audio at \(input.sampleRate) Hz")
         }
         converter.downmix = true
         converter.sampleRateConverterQuality = AVAudioQuality.max.rawValue
@@ -135,30 +143,34 @@ final class AACEncoder {
     let sampleRate: Int
     let channels: Int
 
+    private let frequencyIndex: Int
+
+    /// `kilobits` must be one of `applicableKilobits`.
     init(sampleRate: Int, channels: Int, kilobits: Int) throws {
-        input = try PCMFormat.make(sampleRate: Double(sampleRate), channels: channels)
+        guard let frequencyIndex = Self.rates.firstIndex(of: sampleRate) else {
+            throw EngineError.unsupportedCodec("AAC at \(sampleRate) Hz")
+        }
+        (input, output, converter) = try Self.converter(sampleRate: sampleRate, channels: channels)
+        converter.bitRate = kilobits * 1_000
+        self.frequencyIndex = frequencyIndex
+        self.sampleRate = sampleRate
+        self.channels = channels
+    }
+
+    private static func converter(sampleRate: Int, channels: Int) throws -> (
+        AVAudioFormat, AVAudioFormat, AVAudioConverter
+    ) {
+        let input = try PCMFormat.make(sampleRate: Double(sampleRate), channels: channels)
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: channels,
         ]
         guard let output = AVAudioFormat(settings: settings), let converter = AVAudioConverter(from: input, to: output)
         else { throw EngineError.unsupportedCodec("AAC at \(sampleRate) Hz with \(channels) channels") }
-        let requested = kilobits * 1_000
-        let applicable = (converter.applicableEncodeBitRates ?? []).map(\.intValue).sorted()
-        converter.bitRate = applicable.last { $0 <= requested } ?? applicable.first ?? requested
-        self.output = output
-        self.converter = converter
-        self.sampleRate = sampleRate
-        self.channels = channels
+        return (input, output, converter)
     }
 
-    static func applicableKilobits(sampleRate: Int, channels: Int) -> [Int] {
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: channels,
-        ]
-        guard let input = try? PCMFormat.make(sampleRate: Double(sampleRate), channels: channels),
-            let output = AVAudioFormat(settings: settings),
-            let converter = AVAudioConverter(from: input, to: output)
-        else { return [] }
+    static func applicableKilobits(sampleRate: Int, channels: Int) throws -> [Int] {
+        let converter = try converter(sampleRate: sampleRate, channels: channels).2
         return (converter.applicableEncodeBitRates ?? []).map { $0.intValue / 1_000 }.sorted()
     }
 
@@ -167,8 +179,6 @@ final class AACEncoder {
         let value = Self.lowComplexity << 11 | frequencyIndex << 7 | channels << 3
         return Data([UInt8(value >> 8), UInt8(value & 0xFF)])
     }
-
-    private var frequencyIndex: Int { Self.rates.firstIndex(of: sampleRate) ?? 0 }
 
     /// ISO/IEC 13818-7 header without CRC.
     func adtsHeader(payloadLength: Int) -> Data {
@@ -233,10 +243,12 @@ public final class AudioPacketEncoder {
     private var vorbisGranule: Int64 = 0
 
     /// Opus takes 48 kHz only.
-    public init(codec: MediaCodec, sampleRate: Int, channels: Int, kilobits: Int) throws {
+    public init(codec: MediaCodec, sampleRate: Int, channels: Int, kilobits requested: Int) throws {
         self.sampleRate = sampleRate
         self.channels = channels
+        let format: AudioFormat = codec == .aac ? .aac : codec == .opus ? .opus : .ogg
         do {
+            let kilobits = try format.nearestKilobits(requested, sampleRate: Double(sampleRate), channels: channels)
             switch codec {
             case .aac:
                 let aac = try AACEncoder(sampleRate: sampleRate, channels: channels, kilobits: kilobits)
@@ -280,9 +292,7 @@ public final class AudioPacketEncoder {
         do {
             switch backend {
             case .aac(let aac): return try aac.finish().map(Self.aacPacket)
-            case .opus(let opus):
-                let flush = [Float](repeating: 0, count: opus.preSkip * channels)
-                return try (opus.encode(flush) + opus.finish()).map(Self.opusPacket)
+            case .opus(let opus): return try opus.finishWithLookahead().map(Self.opusPacket)
             case .vorbis(let vorbis): return vorbisPackets(try vorbis.finish())
             }
         } catch {
@@ -431,25 +441,18 @@ public final class AudioPacketDecoder {
         packet.packetDescriptions?.pointee = AudioStreamPacketDescription(
             mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(payload.count))
         var samples: [Float] = []
-        var supplied = false
-        while true {
-            guard let output = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: Self.maximumFrames) else {
-                throw EngineError.decodeFailed("no PCM buffer")
-            }
-            var error: NSError?
-            let status = converter.convert(to: output, error: &error) { _, inputStatus in
-                guard !supplied else {
-                    inputStatus.pointee = .noDataNow
-                    return nil
+        try Engine.convert(
+            converter, input: packet, failure: EngineError.decodeFailed,
+            makeOutput: {
+                guard let output = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: Self.maximumFrames) else {
+                    throw EngineError.decodeFailed("no PCM buffer")
                 }
-                supplied = true
-                inputStatus.pointee = .haveData
-                return packet
-            }
-            if status == .error { throw EngineError.decodeFailed("AudioConverter \(error?.code ?? 0)") }
-            samples += PCMFormat.samples(output)
-            if status != .haveData { return samples }
-        }
+                return output
+            },
+            collect: { output in
+                if let output = output as? AVAudioPCMBuffer { samples += PCMFormat.samples(output) }
+            })
+        return samples
     }
 
     private static func pcm(_ payload: Data, bits: Int, float: Bool, bigEndian: Bool) -> [Float] {

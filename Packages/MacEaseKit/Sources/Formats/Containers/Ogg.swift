@@ -16,8 +16,8 @@ final class OggPacketWriter {
 
     init(url: URL) throws {
         file = try PatchableFile(url: url)
+        // `deinit` still frees the stream on failure.
         guard ogg_stream_init(stream, Int32.random(in: 1...Int32.max)) == 0 else {
-            stream.deallocate()
             throw FormatError.encoderFailure("ogg_stream_init")
         }
     }

@@ -52,7 +52,12 @@ enum OutputVerifier {
         var frames = 0
         do {
             let source = try AudioInput(url: url).open()
-            while let chunk = try source.read() { frames += chunk.count }
+            while let chunk = try source.read() {
+                try Task.checkCancellation()
+                frames += chunk.count
+            }
+        } catch is CancellationError {
+            throw EngineError.cancelled
         } catch {
             throw EngineError.encodeFailed("output audio does not decode: \(error)")
         }

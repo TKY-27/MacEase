@@ -1,3 +1,4 @@
+import AVFoundation
 import Formats
 import Foundation
 import MenuCatalog
@@ -120,6 +121,24 @@ private func fileSize(_ url: URL) throws -> Int64 {
         }
         let record = try #require(result.outcome.record)
         #expect(record.outputPaths == [output.path])
+    }
+
+    @Test func cafAACConvertsToM4A() async throws {
+        let input = try TestVolume.makeFolder().appending(path: "memo.caf")
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 2,
+        ]
+        let file = try AVAudioFile(
+            forWriting: input, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: true)
+        let buffer = try PCMFormat.buffer(AudioSignals.music(), format: file.processingFormat)
+        try file.write(from: buffer)
+        file.close()
+
+        let result = try await run(.audioConvert, .convert(.m4aAAC), on: input)
+
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        #expect(output.lastPathComponent == "memo.m4a")
+        #expect(try AudioInput(url: output).container == .mpeg4)
     }
 
     @Test func undoRestoresTheOriginal() async throws {

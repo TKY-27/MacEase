@@ -8,6 +8,21 @@ public struct XiphPacket: Sendable {
     public let granule: Int64
 }
 
+/// Vorbis I channel order against WAV order.
+enum VorbisChannels {
+    /// Vorbis channel feeding each WAV-ordered channel.
+    static func order(_ channels: Int) -> [Int] {
+        switch channels {
+        case 3: [0, 2, 1]
+        case 5: [0, 2, 1, 3, 4]
+        case 6: [0, 2, 1, 5, 3, 4]
+        case 7: [0, 2, 1, 6, 3, 4, 5]
+        case 8: [0, 2, 1, 7, 3, 4, 5, 6]
+        default: Array(0..<channels)
+        }
+    }
+}
+
 /// libvorbis with average-bitrate management.
 public final class VorbisAudioEncoder {
     static let commentPrefix = Data([3]) + Data("vorbis".utf8)
@@ -52,6 +67,14 @@ public final class VorbisAudioEncoder {
         Self.release(info, state, block)
     }
 
+    /// libvorbis's managed modes cover limited ranges.
+    public static func accepts(sampleRate: Int, channels: Int, bitrate: Int) -> Bool {
+        var info = vorbis_info()
+        vorbis_info_init(&info)
+        defer { vorbis_info_clear(&info) }
+        return vorbis_encode_init(&info, channels, sampleRate, -1, bitrate, -1) == 0
+    }
+
     private static func release(
         _ info: UnsafeMutablePointer<vorbis_info>, _ state: UnsafeMutablePointer<vorbis_dsp_state>,
         _ block: UnsafeMutablePointer<vorbis_block>
@@ -77,8 +100,10 @@ public final class VorbisAudioEncoder {
         guard let buffer = vorbis_analysis_buffer(state, Int32(frames)) else {
             throw FormatError.encoderFailure("vorbis_analysis_buffer")
         }
-        for channel in 0..<channels {
-            guard let destination = buffer[channel] else { throw FormatError.encoderFailure("Vorbis channel buffer") }
+        for (channel, vorbisChannel) in VorbisChannels.order(channels).enumerated() {
+            guard let destination = buffer[vorbisChannel] else {
+                throw FormatError.encoderFailure("Vorbis channel buffer")
+            }
             for frame in 0..<frames { destination[frame] = interleaved[frame * channels + channel] }
         }
         vorbis_analysis_wrote(state, Int32(frames))
@@ -115,18 +140,19 @@ public final class VorbisAudioDecoder {
     public let sampleRate: Int
     public let channels: Int
     public let tags: AudioTags
+    private let order: [Int]
     private var packetNumber: Int64 = 0
 
     public init(headers: [Data]) throws {
-        guard headers.count == Self.headerCount,
-            let tags = try? VorbisComment.decode(headers[1].dropFirst(VorbisAudioEncoder.commentPrefix.count))
-        else {
+        do {
+            guard headers.count == Self.headerCount else { throw FormatError.corrupt("Vorbis needs three headers") }
+            tags = try VorbisComment.decode(headers[1].dropFirst(VorbisAudioEncoder.commentPrefix.count))
+        } catch {
             info.deallocate()
             state.deallocate()
             block.deallocate()
-            throw FormatError.corrupt("Vorbis headers are malformed")
+            throw error
         }
-        self.tags = tags
         let info = self.info
         vorbis_info_init(info)
         var comment = vorbis_comment()
@@ -150,6 +176,7 @@ public final class VorbisAudioDecoder {
         }
         sampleRate = info.pointee.rate
         channels = Int(info.pointee.channels)
+        order = VorbisChannels.order(channels)
         vorbis_synthesis_init(state, info)
         vorbis_block_init(state, block)
         packetNumber = Int64(Self.headerCount)
@@ -202,8 +229,10 @@ public final class VorbisAudioDecoder {
         while frames > 0, let channelBuffers = pcm {
             let start = output.count
             output += [Float](repeating: 0, count: frames * channels)
-            for channel in 0..<channels {
-                guard let source = channelBuffers[channel] else { throw FormatError.corrupt("Vorbis channel missing") }
+            for (channel, vorbisChannel) in order.enumerated() {
+                guard let source = channelBuffers[vorbisChannel] else {
+                    throw FormatError.corrupt("Vorbis channel missing")
+                }
                 for frame in 0..<frames { output[start + frame * channels + channel] = source[frame] }
             }
             vorbis_synthesis_read(state, Int32(frames))

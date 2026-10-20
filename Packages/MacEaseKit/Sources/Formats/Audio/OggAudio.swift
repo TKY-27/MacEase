@@ -170,9 +170,7 @@ public final class OggAudioWriter {
         case .vorbis(let vorbis):
             try queue(try vorbis.finish())
         case .opus(let opus):
-            // Flushes the encoder's lookahead.
-            let flush = [Float](repeating: 0, count: opus.preSkip * channels)
-            try queue(opusPackets(try opus.encode(flush) + opus.finish()))
+            try queue(opusPackets(try opus.finishWithLookahead()))
         }
         guard var last = held else { throw FormatError.encoderFailure("no audio packets") }
         if case .opus(let opus) = encoder {

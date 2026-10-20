@@ -2,7 +2,7 @@ import Accelerate
 import Formats
 import Foundation
 
-/// SPEC 8.10's audio rule, shared with video.
+/// SPEC 8.10's audio rule, public for video.
 public enum AudioTargetSize {
     /// Container framing and index overhead.
     public static let overheadShare = 0.02
@@ -26,11 +26,11 @@ enum AudioJob {
         let input = try AudioInput(url: url)
         switch operation {
         case .convert(let format):
-            guard format != input.sameFormat else { return .skipped(.alreadyDone) }
+            guard format != input.exactFormat else { return .skipped(.alreadyDone) }
             let target = AudioTarget.defaults(for: format, settings: context.settings.audio)
             return try await replace(url, with: input, target: target, context: context)
         case .compress(.kilobits(let kilobits)):
-            let target = AudioTarget(format: compressedFormat(input, kilobits: kilobits), kilobits: kilobits)
+            let target = AudioTarget(format: try compressedFormat(input, kilobits: kilobits), kilobits: kilobits)
             let result = try await replace(url, with: input, target: target, context: context)
             return try isSmaller(result, than: url) ? result : .skipped(.outputNotSmaller)
         case .compress(.targetBytes(let bytes)):
@@ -43,9 +43,9 @@ enum AudioJob {
     }
 
     /// Lossless sources become AAC in M4A.
-    private static func compressedFormat(_ input: AudioInput, kilobits: Int?) -> AudioFormat {
+    private static func compressedFormat(_ input: AudioInput, kilobits: Int?) throws -> AudioFormat {
         let format = input.codec.isLossy && input.sameFormat.isLossy ? input.sameFormat : .m4aAAC
-        let supported = format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
+        let supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         guard format == .mp3, let kilobits, let lowest = supported.first, kilobits < lowest else { return format }
         // The in-house encoder stops at 128 kbps.
         return .m4aAAC
@@ -58,12 +58,12 @@ enum AudioJob {
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         let tags = await tags(of: input, context: context)
         let budget = bytes - Int64(tags.artwork?.data.count ?? 0)
-        var format = compressedFormat(input, kilobits: nil)
-        var supported = format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
+        var format = try compressedFormat(input, kilobits: nil)
+        var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
         if planned == nil, format == .mp3 {
             format = .m4aAAC
-            supported = format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
+            supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
             planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
         }
         let candidates = supported.filter { $0 <= planned ?? supported.first ?? 0 }.reversed().prefix(

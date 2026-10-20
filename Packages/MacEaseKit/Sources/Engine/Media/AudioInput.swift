@@ -35,8 +35,7 @@ public enum AudioCodec: Equatable, Sendable {
 /// A probed file, decodable repeatedly.
 public struct AudioInput: Sendable {
     private static let headerLength = 64
-    private static let id3HeaderLength = 10
-    private static let asfSignature: [UInt8] = [0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11]
+    static let asfSignature: [UInt8] = [0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11]
 
     public let url: URL
     public let container: AudioContainer
@@ -66,7 +65,7 @@ public struct AudioInput: Sendable {
                 do {
                     file = try AVAudioFile(forReading: url)
                 } catch {
-                    throw EngineError.decodeFailed("AudioToolbox cannot open the file")
+                    throw EngineError.decodeFailed("AudioToolbox cannot open the file: \((error as NSError).code)")
                 }
                 let description = file.fileFormat.streamDescription.pointee
                 codec = Self.codec(description.mFormatID)
@@ -103,6 +102,24 @@ public struct AudioInput: Sendable {
         }
     }
 
+    /// The writable format reproducing container and codec.
+    var exactFormat: AudioFormat? {
+        switch (container, codec) {
+        case (.mp3, .mp3): .mp3
+        case (.mpeg4, .aac): .m4aAAC
+        case (.mpeg4, .alac): .m4aALAC
+        case (.adts, .aac): .aac
+        case (.wave, .pcm): .wav
+        case (.aiff, .pcm): .aiff
+        case (.flac, .flac): .flac
+        case (.ogg, .vorbis): .ogg
+        case (.ogg, .opus): .opus
+        case (.caf, .pcm): .cafPCM
+        case (.caf, .alac): .cafALAC
+        default: nil
+        }
+    }
+
     public var duration: Double? {
         frameCount.map { Double($0) / sampleRate }
     }
@@ -122,9 +139,8 @@ public struct AudioInput: Sendable {
         if ascii(0, "caff") { return .caf }
         if ascii(0, "fLaC") { return .flac }
         if ascii(0, "OggS") { return .ogg }
-        if ascii(0, "ID3"), header.count >= id3HeaderLength {
-            let size = header[6..<10].reduce(0) { $0 << 7 | UInt64($1 & 0x7F) }
-            try handle.seek(toOffset: UInt64(id3HeaderLength) + size)
+        if let tagLength = ID3Tag.length(prefix: header) {
+            try handle.seek(toOffset: UInt64(tagLength))
             header = [UInt8](try handle.read(upToCount: headerLength) ?? Data())
             if ascii(0, "fLaC") { return .flac }
         }
@@ -184,31 +200,40 @@ public struct AudioInput: Sendable {
     }
 }
 
-/// AudioToolbox decoding through `AVAudioFile`.
+/// `AVAudioFile` decoding, in WAV channel order.
 final class AudioFileReader: PCMSource {
     private static let chunkFrames: AVAudioFrameCount = 1 << 16
 
     private let file: AVAudioFile
     private let buffer: AVAudioPCMBuffer
+    /// AAC surround starts with the centre.
+    private let reorder: PCMConverter?
     let sampleRate: Double
     let channels: Int
 
     init(url: URL) throws {
         file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: true)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: Self.chunkFrames) else {
-            throw EngineError.decodeFailed("no buffer for \(file.processingFormat)")
+        let format = file.processingFormat
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: Self.chunkFrames) else {
+            throw EngineError.decodeFailed("no buffer for \(format)")
         }
         self.buffer = buffer
-        sampleRate = file.processingFormat.sampleRate
-        channels = Int(file.processingFormat.channelCount)
+        sampleRate = format.sampleRate
+        channels = Int(format.channelCount)
+        reorder = channels > 2 ? try PCMConverter(from: format, toSampleRate: sampleRate, channels: channels) : nil
     }
 
     func read() throws -> [Float]? {
-        guard file.framePosition < file.length else { return nil }
-        try file.read(into: buffer, frameCount: Self.chunkFrames)
-        let count = Int(buffer.frameLength) * channels
-        guard count > 0, let samples = buffer.floatChannelData?[0] else { return nil }
-        return Array(UnsafeBufferPointer(start: samples, count: count))
+        while file.framePosition < file.length {
+            try file.read(into: buffer, frameCount: Self.chunkFrames)
+            let samples = PCMFormat.samples(buffer)
+            guard !samples.isEmpty else { break }
+            guard let reorder else { return samples }
+            let reordered = try reorder.convert(samples)
+            if !reordered.isEmpty { return reordered }
+        }
+        guard let tail = try reorder?.finish(), !tail.isEmpty else { return nil }
+        return tail
     }
 }
 

@@ -6,6 +6,18 @@ public enum ID3Tag {
     private static let frontCover: UInt8 = 3
     private static let version: [UInt8] = [4, 0]
     private static let synchsafeBits = 7
+    public static let headerLength = 10
+    private static let footerFlag: UInt8 = 0x10
+    private static let flagsOffset = 5
+    private static let sizeOffset = 6
+
+    /// Bytes of a leading tag, footer included.
+    public static func length(prefix: [UInt8]) -> Int? {
+        guard prefix.count >= headerLength, prefix.starts(with: Array("ID3".utf8)) else { return nil }
+        let size = prefix[sizeOffset..<headerLength].reduce(0) { $0 << synchsafeBits | Int($1 & 0x7F) }
+        let footer = prefix[flagsOffset] & footerFlag != 0 ? headerLength : 0
+        return headerLength + size + footer
+    }
 
     /// Empty when there is nothing to write.
     public static func encode(_ tags: AudioTags) -> Data {

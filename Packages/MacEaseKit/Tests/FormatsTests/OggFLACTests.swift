@@ -96,6 +96,26 @@ import Testing
         #expect(AudioFixtures.delay(of: decodedLeft, behind: left, maximum: 64) == 0)
     }
 
+    @Test func vorbisSurroundKeepsWAVChannelOrder() throws {
+        let url = ContainerFixtures.temporaryURL("surround.ogg")
+        let centre = 2
+        let frames = 9_600
+        let source = (0..<frames * 6).map { index -> Float in
+            index % 6 == centre ? Float(sin(Double(index / 6) * 0.06) * 0.5) : 0
+        }
+        let writer = try OggAudioWriter(
+            url: url, codec: .vorbis, sampleRate: 48_000, channels: 6, bitrate: 256_000, tags: AudioTags())
+        try writer.write(source)
+        try writer.finish()
+
+        let decoded = try readAll(try OggAudioReader(url: url))
+
+        let energy = (0..<6).map { channel in
+            stride(from: channel, to: decoded.count, by: 6).reduce(0.0) { $0 + Double(decoded[$1] * decoded[$1]) }
+        }
+        for channel in 0..<6 where channel != centre { #expect(energy[channel] < energy[centre] / 100) }
+    }
+
     @Test func vorbisCodecPrivateSplitsBackIntoHeaders() throws {
         let encoder = try VorbisAudioEncoder(sampleRate: 48_000, channels: 1, bitrate: 96_000)
         #expect(try VorbisAudioDecoder.headers(codecPrivate: encoder.codecPrivate) == encoder.headers)

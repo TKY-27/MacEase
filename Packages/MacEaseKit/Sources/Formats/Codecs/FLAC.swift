@@ -10,8 +10,6 @@ enum FLACBlock {
     static let picture: UInt8 = 6
     static let lastFlag: UInt8 = 0x80
     static let maximumLength = (1 << 24) - 1
-    private static let id3HeaderLength = 10
-    private static let id3FooterFlag: UInt8 = 0x10
 
     struct Block {
         var type: UInt8
@@ -26,12 +24,10 @@ enum FLACBlock {
 
     /// Blocks, and where frames begin.
     static func read(_ handle: FileHandle) throws -> (blocks: [Block], framesOffset: UInt64) {
-        var prefix = [UInt8](try handle.read(upToCount: id3HeaderLength) ?? Data())
+        var prefix = [UInt8](try handle.read(upToCount: ID3Tag.headerLength) ?? Data())
         var offset: UInt64 = 0
-        if prefix.starts(with: Array("ID3".utf8)), prefix.count == id3HeaderLength {
-            let size = prefix[6..<10].reduce(0) { $0 << 7 | UInt64($1 & 0x7F) }
-            let footer: UInt64 = prefix[5] & id3FooterFlag != 0 ? UInt64(id3HeaderLength) : 0
-            offset = UInt64(id3HeaderLength) + size + footer
+        if let tagLength = ID3Tag.length(prefix: prefix) {
+            offset = UInt64(tagLength)
             try handle.seek(toOffset: offset)
             prefix = [UInt8](try handle.read(upToCount: marker.count) ?? Data())
         }
@@ -114,7 +110,7 @@ public final class FLACFileWriter {
 
     public func write(_ interleaved: [Float]) throws {
         let integers = interleaved.map { sample in
-            Int32(max(min((sample * scale).rounded(), Float(maximum)), -Float(maximum) - 1))
+            sample.isFinite ? Int32(max(min((sample * scale).rounded(), Float(maximum)), -Float(maximum) - 1)) : 0
         }
         guard FLAC__stream_encoder_process_interleaved(encoder, integers, UInt32(integers.count / channels)) != 0
         else { throw FormatError.encoderFailure(stateDescription) }

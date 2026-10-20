@@ -115,6 +115,39 @@ enum AudioSignals {
         #expect(try await AudioInput(url: url).tags() == tags)
     }
 
+    @Test func surroundChannelsArriveInWAVOrder() throws {
+        let url = URL(filePath: #filePath).deletingLastPathComponent()
+            .appending(path: "../FormatsTests/Resources/ffmpeg-aac-51-center.m4a")
+        let (input, samples) = try AudioSignals.decode(url)
+
+        #expect(input.channels == 6)
+        let energy = (0..<6).map { channel in
+            stride(from: channel, to: samples.count, by: 6).reduce(0.0) { $0 + Double(samples[$1] * samples[$1]) }
+        }
+        let centre = 2
+        for channel in 0..<6 where channel != centre { #expect(energy[channel] < energy[centre] / 1_000) }
+    }
+
+    @Test func lowRatesClampTheBitrate() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        for (format, rate) in [(AudioFormat.ogg, 22_050.0), (.m4aAAC, 8_000), (.aac, 11_025)] {
+            let url = folder.appending(path: "low.\(format.fileExtension)")
+            try await AudioSignals.write(
+                AudioSignals.music(sampleRate: rate, channels: 1), to: url, format: format, sampleRate: rate,
+                channels: 1, kilobits: 320)
+            #expect(try AudioSignals.decode(url).samples.count > Int(rate), "\(format)")
+        }
+    }
+
+    @Test func nonFiniteSamplesDoNotBreakFLAC() async throws {
+        let url = try AudioSignals.temporaryFolder().appending(path: "nan.flac")
+        var samples = AudioSignals.music(seconds: 0.2)
+        samples[10] = .nan
+        samples[11] = .infinity
+        try await AudioSignals.write(samples, to: url, format: .flac)
+        #expect(try AudioSignals.decode(url).samples[10] == 0)
+    }
+
     @Test func wmaFailsNamingTheCodec() throws {
         let url = try AudioSignals.temporaryFolder().appending(path: "song.wma")
         try Data([0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0, 0xAA, 0, 0x62, 0xCE, 0x6C]).write(
