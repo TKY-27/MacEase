@@ -16,9 +16,8 @@ public struct OperationRequest: Sendable {
 public enum OperationPlanner {
     /// `nil` when a panel must ask first.
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
-        switch (op, preset) {
-        case (.anyChecksum, "sha256"): .checksum(.sha256)
-        case (.anyChecksum, "md5"): .checksum(.md5)
+        switch op.kind {
+        case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
         default: nil
         }
     }
