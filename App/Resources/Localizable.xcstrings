@@ -520,6 +520,16 @@
         }
       }
     },
+    "Automatic keeps the original audio when the format allows.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「自動」では、形式が対応していれば元の音声をそのまま使います。"
+          }
+        }
+      }
+    },
     "Back": {
       "localizations": {
         "ja": {
@@ -536,6 +546,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "背景"
+          }
+        }
+      }
+    },
+    "Bitrate": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビットレート"
           }
         }
       }
@@ -881,7 +901,7 @@
       }
     },
     "Create": {
-      "comment": "Animation panel action",
+      "comment": "Subtitles panel action",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -3948,6 +3968,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "合計サイズ"
+          }
+        }
+      }
+    },
+    "Translate": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻訳"
           }
         }
       }
@@ -8307,6 +8337,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%1$@” は %2$@ を超えています。"
+          }
+        }
+      }
+    },
+    "“%@” is longer than this preset allows (%@).": {
+      "comment": "Platform preset duration limit; the Trim panel opens next",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” はこのプリセットの上限 (%@) より長いです。"
           }
         }
       }
