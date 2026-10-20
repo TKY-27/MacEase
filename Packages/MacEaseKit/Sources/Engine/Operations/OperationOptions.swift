@@ -11,4 +11,6 @@ public enum ChecksumAlgorithm: String, Codable, CaseIterable, Sendable {
 public enum OperationOptions: Codable, Hashable, Sendable {
     case checksum(ChecksumAlgorithm)
     case video(VideoOperation)
+    case folder(FolderOperation)
+    case archive(ArchiveOperation)
 }

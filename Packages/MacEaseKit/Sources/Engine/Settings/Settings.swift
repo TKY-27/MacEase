@@ -59,13 +59,6 @@ public enum MP3Mode: String, Codable, CaseIterable, Sendable {
     case vbr
 }
 
-public enum ArchiveFormat: String, Codable, CaseIterable, Sendable {
-    case zip
-    case sevenZip = "7z"
-    case tar
-    case tarGzip = "tar.gz"
-}
-
 public enum UnmappablePolicy: String, Codable, CaseIterable, Sendable {
     case fail
     case questionMark

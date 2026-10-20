@@ -52,6 +52,8 @@ public enum OutputCheck: Sendable {
     case text(String.Encoding)
     case svg
     case folder
+    /// Its decompressor decoded it without error.
+    case decompressed
 }
 
 public struct RenamePlan: Equatable, Sendable {

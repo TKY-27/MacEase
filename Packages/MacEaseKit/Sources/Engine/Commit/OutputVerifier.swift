@@ -42,6 +42,8 @@ enum OutputVerifier {
             }
         case .folder:
             throw EngineError.encodeFailed("expected a folder")
+        case .decompressed:
+            return
         }
     }
 
