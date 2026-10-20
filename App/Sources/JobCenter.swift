@@ -23,9 +23,11 @@ final class JobCenter {
     @ObservationIgnored let engine: JobEngine
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let notifier: BatchNotifier
-    @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var tasks: [UUID: Task<BatchOutcome?, Never>] = [:]
     @ObservationIgnored var presentReport: ((String, OperationID) -> Void)?
     @ObservationIgnored var presentPanel: ((MenuEntry, [URL]) -> Void)?
+    /// `false` when no panel can answer it.
+    @ObservationIgnored var askAgain: ((OperationRequest, [URL], InvalidInput) -> Bool)?
     @ObservationIgnored private let logger = Logger(category: "jobs")
 
     init(engine: JobEngine, settings: SettingsStore, notifier: BatchNotifier) {
@@ -38,7 +40,11 @@ final class JobCenter {
 
     func start(entry: MenuEntry, inputs: [URL]) {
         let preset = entry.isCustom ? nil : entry.preset
-        guard let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.settings) else {
+        // Finder selection order is unreliable.
+        let ordersPages = [OperationID.imageToPDF, .pdfMerge].contains(entry.op) && inputs.count > 1
+        guard !ordersPages,
+            let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.settings)
+        else {
             if let presentPanel {
                 presentPanel(entry, inputs)
             } else {
@@ -49,22 +55,26 @@ final class JobCenter {
         run(OperationRequest(op: entry.op, options: options, inputs: inputs))
     }
 
-    func run(_ request: OperationRequest) {
+    /// Await the task to chain batches.
+    @discardableResult
+    func run(_ request: OperationRequest) -> Task<BatchOutcome?, Never> {
         let snapshot = settings.settings
         let engine = engine
         let id = UUID()
-        let task = Task {
+        let task = Task { () -> BatchOutcome? in
             let batch = await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
             guard !batch.items.isEmpty else {
                 self.forget(id)
-                return
+                return nil
             }
             self.active.append(ActiveBatch(id: id, operation: request.op, itemCount: batch.items.count, progress: 0))
             let reporter = ProgressReporter { fraction in self.update(id, progress: fraction) }
             let outcome = await engine.run(batch, settings: snapshot) { reporter.report($0) }
-            self.finish(outcome, activeID: id)
+            self.finish(outcome, request: request, activeID: id)
+            return outcome
         }
         tasks[id] = task
+        return task
     }
 
     func cancel(_ id: UUID) {
@@ -122,20 +132,30 @@ final class JobCenter {
         active.removeAll { $0.id == id }
     }
 
-    private func finish(_ outcome: BatchOutcome, activeID: UUID) {
+    private func finish(_ outcome: BatchOutcome, request: OperationRequest, activeID: UUID) {
         forget(activeID)
         if let text = outcome.clipboardText {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         }
         if let report = outcome.reportText { presentReport?(report, outcome.operation) }
-        notifier.notify(outcome)
+        let questions = zip(outcome.inputs, outcome.outcomes).compactMap { inputs, result -> (URL, InvalidInput)? in
+            guard case .failed(.invalidInput(let reason)) = result, Self.asksUser(reason), let url = inputs.first
+            else { return nil }
+            return (url, reason)
+        }
+        let asked = questions.first.map { askAgain?(request, questions.map(\.0), $0.1) ?? false } ?? false
+        if !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
+    }
+
+    private static func asksUser(_ reason: InvalidInput) -> Bool {
+        [.passwordRequired, .wrongPassword, .textEncodingUndetected].contains(reason)
     }
 }
 
 /// Throttles progress hops to the main actor.
-private final class ProgressReporter: Sendable {
+final class ProgressReporter: Sendable {
     private static let minimumStep = 0.01
 
     private let lastReported = Mutex(-1.0)

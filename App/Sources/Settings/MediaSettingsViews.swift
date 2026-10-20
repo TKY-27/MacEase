@@ -190,7 +190,7 @@ struct AudioSettingsView: View {
 }
 
 extension Dithering {
-    fileprivate var title: String {
+    var title: String {
         switch self {
         case .floydSteinberg: String(localized: "Floyd–Steinberg", comment: "GIF dithering method")
         case .ordered: String(localized: "Ordered", comment: "GIF dithering method")
@@ -232,7 +232,7 @@ extension EncodePriority {
 }
 
 extension TrimMode {
-    fileprivate var title: String {
+    var title: String {
         switch self {
         case .keyframe: String(localized: "At keyframes (fast, lossless)", comment: "Video trim mode")
         case .exact: String(localized: "Exact (re-encodes)", comment: "Video trim mode")
@@ -241,7 +241,7 @@ extension TrimMode {
 }
 
 extension TransparentVideoFormat {
-    fileprivate var title: String {
+    var title: String {
         switch self {
         case .hevcAlpha: String(localized: "HEVC with alpha (MOV)", comment: "Transparent video format")
         case .proRes4444: "ProRes 4444 (MOV)"
