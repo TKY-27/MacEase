@@ -16,7 +16,7 @@ enum VideoStills {
         let sampler = try await FrameSampler(
             input: input, frameDuration: input.frameDuration, edit: FrameEdit(rotation: input.displayRotation),
             start: time, end: time + 2 * input.frameDuration)
-        guard let frame = try sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
+        guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
         let format = context.settings.video.thumbnailFormat
         let type: UTType = format == .png ? .png : .jpeg
         let name = url.deletingPathExtension().lastPathComponent + "." + format.rawValue
@@ -63,7 +63,7 @@ enum VideoAnimations {
             input: input, frameDuration: Nanoseconds.perSecond / Int64(rendering.framesPerSecond), edit: edit,
             start: start, end: end)
         var frames: [CGImage] = []
-        while let frame = try sampler.next() {
+        while let frame = try await sampler.next() {
             frames.append(try CGImage.make(from: frame.image))
             context.progress(Double(frame.timestamp - start) / Double(max(end - start, 1)))
         }

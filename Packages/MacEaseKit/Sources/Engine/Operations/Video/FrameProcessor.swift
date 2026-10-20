@@ -11,10 +11,6 @@ struct FrameEdit: Hashable, Sendable {
     var fill = RGBColor.black
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
-
-    var isIdentity: Bool {
-        rotation.truncatingRemainder(dividingBy: 360) == 0 && !flipsHorizontally && !flipsVertically && size == nil
-    }
 }
 
 struct PixelSize: Hashable, Sendable {

@@ -75,7 +75,7 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
     private(set) var track: MediaTrack
     private let session: VTCompressionSession
     private let settings: VideoEncoding
-    private let output = SampleCollector()
+    private let output = CallbackResults<CMSampleBuffer> { .encoderFailure("VideoToolbox frame (\($0))") }
 
     init(_ settings: VideoEncoding, number: Int) throws {
         self.settings = settings
@@ -99,6 +99,9 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
             kVTCompressionPropertyKey_ExpectedFrameRate: Double(Nanoseconds.perSecond) / Double(settings.frameDuration),
             kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration:
                 Double(settings.keyframeInterval) / Double(Nanoseconds.perSecond),
+            kVTCompressionPropertyKey_ColorPrimaries: kCVImageBufferColorPrimaries_ITU_R_709_2,
+            kVTCompressionPropertyKey_TransferFunction: kCVImageBufferTransferFunction_ITU_R_709_2,
+            kVTCompressionPropertyKey_YCbCrMatrix: kCVImageBufferYCbCrMatrix_ITU_R_709_2,
         ]
         if let bitrate = settings.bitrate {
             properties[kVTCompressionPropertyKey_AverageBitRate] = bitrate
@@ -121,7 +124,10 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
             presentationTimeStamp: CMTime(value: timestamp, timescale: SampleBuffers.nanosecondScale),
             duration: CMTime(value: settings.frameDuration, timescale: SampleBuffers.nanosecondScale),
             frameProperties: nil, infoFlagsOut: nil
-        ) { [output] status, _, sample in output.add(status, sample) }
+        ) { [output] status, _, sample in
+            if status != noErr { output.fail(status) }
+            if let sample { output.append(sample) }
+        }
         guard status == noErr else { throw FormatError.encoderFailure("VideoToolbox encode (\(status))") }
         return try drained()
     }
@@ -138,28 +144,6 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
             track.codecPrivate = VideoFormat.decoderConfiguration(of: format)
         }
         return try samples.flatMap { try SampleBuffers.packets(from: $0, track: track.number) }
-    }
-}
-
-/// Lock-guarded; VideoToolbox handlers must be Sendable.
-private final class SampleCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var samples: [CMSampleBuffer] = []
-    private var failure: OSStatus?
-
-    func add(_ status: OSStatus, _ sample: CMSampleBuffer?) {
-        lock.withLock {
-            if status != noErr { failure = failure ?? status }
-            if let sample { samples.append(sample) }
-        }
-    }
-
-    func take() throws -> [CMSampleBuffer] {
-        try lock.withLock {
-            if let failure { throw FormatError.encoderFailure("VideoToolbox frame (\(failure))") }
-            defer { samples = [] }
-            return samples
-        }
     }
 }
 
@@ -186,7 +170,7 @@ extension SampleBuffers {
             guard CMSampleBufferGetSampleTimingInfo(sample, at: index, timingInfoOut: &timing) == noErr else {
                 throw FormatError.encoderFailure("sample timing")
             }
-            let attachment = attachments.map { $0.count > index ? $0[index] : $0.first ?? [:] }
+            let attachment = attachments.flatMap { $0.count > index ? $0[index] : nil }
             packets.append(
                 MediaPacket(
                     track: track, timestamp: nanoseconds(timing.presentationTimeStamp),
@@ -210,7 +194,10 @@ final class LibVPXFrameEncoder: VideoFrameEncoder {
     private let settings: VideoEncoding
     private let color: VPXEncoder
     private let alpha: VPXEncoder?
+    private let converter: YUVConverter
     private var frameIndex: Int64 = 0
+    /// libvpx counts frames; packets need real times.
+    private var timestamps: [Int64: Int64] = [:]
 
     init(_ settings: VideoEncoding, number: Int) throws {
         self.settings = settings
@@ -223,25 +210,36 @@ final class LibVPXFrameEncoder: VideoFrameEncoder {
         vpx.keyframeInterval = Int(settings.keyframeInterval / settings.frameDuration)
         color = try VPXEncoder(settings: vpx)
         alpha = settings.alpha ? try VPXEncoder(settings: vpx) : nil
+        converter = try YUVConverter(matrix: .bt601, fullRange: false)
     }
 
     func encode(_ image: CVPixelBuffer, timestamp: Int64) throws -> [MediaPacket] {
-        let (picture, mask) = try YUVFrame.planes(of: image, withAlpha: alpha != nil)
+        let (picture, mask) = try converter.planes(of: image, withAlpha: alpha != nil)
+        timestamps[frameIndex] = timestamp
         let colorFrames = try color.encode(picture, index: frameIndex)
-        let alphaFrames = try mask.map { try alpha?.encode($0, index: frameIndex, forceKeyframe: false) ?? [] } ?? []
+        var alphaFrames: [EncodedVideoFrame] = []
+        if let alpha, let mask {
+            let keyframe = colorFrames.contains { $0.presentation == frameIndex && $0.isKeyframe }
+            alphaFrames = try alpha.encode(mask, index: frameIndex, forceKeyframe: keyframe)
+        }
         frameIndex += 1
-        return packets(colorFrames, alphaFrames)
+        return try packets(colorFrames, alphaFrames)
     }
 
     func finish() throws -> [MediaPacket] {
-        packets(try color.finish(), try alpha?.finish() ?? [])
+        try packets(try color.finish(), try alpha?.finish() ?? [])
     }
 
-    private func packets(_ colorFrames: [EncodedVideoFrame], _ alphaFrames: [EncodedVideoFrame]) -> [MediaPacket] {
-        colorFrames.map { frame in
-            MediaPacket(
-                track: track.number, timestamp: frame.presentation * settings.frameDuration,
-                duration: settings.frameDuration, isKeyframe: frame.isKeyframe, payload: frame.payload,
+    private func packets(_ colorFrames: [EncodedVideoFrame], _ alphaFrames: [EncodedVideoFrame]) throws
+        -> [MediaPacket]
+    {
+        try colorFrames.map { frame in
+            guard let timestamp = timestamps.removeValue(forKey: frame.presentation) else {
+                throw FormatError.encoderFailure("libvpx returned an unknown frame")
+            }
+            return MediaPacket(
+                track: track.number, timestamp: timestamp, duration: settings.frameDuration,
+                isKeyframe: frame.isKeyframe, payload: frame.payload,
                 additional: alphaFrames.first { $0.presentation == frame.presentation }?.payload)
         }
     }
@@ -289,68 +287,5 @@ extension CGImage {
                 provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
         else { throw FormatError.encoderFailure("frame image") }
         return picture
-    }
-}
-
-extension YUVFrame {
-    /// ITU-R BT.601 coefficients for encoding, limited range.
-    private static let bt601Matrix = vImage_ARGBToYpCbCrMatrix(
-        R_Yp: 0.299, G_Yp: 0.587, B_Yp: 0.114, R_Cb: -0.168_736, G_Cb: -0.331_264, B_Cb_R_Cr: 0.5, G_Cr: -0.418_688,
-        B_Cr: -0.081_312)
-    private static let videoRange = vImage_YpCbCrPixelRange(
-        Yp_bias: 16, CbCr_bias: 128, YpRangeMax: 235, CbCrRangeMax: 240, YpMax: 255, YpMin: 0, CbCrMax: 255, CbCrMin: 0)
-
-    /// Alpha comes back as a gray plane.
-    static func planes(of image: CVPixelBuffer, withAlpha: Bool) throws -> (YUVFrame, YUVFrame?) {
-        CVPixelBufferLockBaseAddress(image, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(image, .readOnly) }
-        let width = CVPixelBufferGetWidth(image)
-        let height = CVPixelBufferGetHeight(image)
-        guard let base = CVPixelBufferGetBaseAddress(image) else { throw FormatError.encoderFailure("pixel buffer") }
-        let chromaWidth = (width + 1) / 2
-        let chromaHeight = (height + 1) / 2
-        var luma = [UInt8](repeating: 0, count: width * height)
-        var blue = [UInt8](repeating: 0, count: chromaWidth * chromaHeight)
-        var red = [UInt8](repeating: 0, count: chromaWidth * chromaHeight)
-        var conversion = vImage_ARGBToYpCbCr()
-        var matrix = bt601Matrix
-        var range = videoRange
-        var status = vImageConvert_ARGBToYpCbCr_GenerateConversion(
-            &matrix, &range, &conversion, kvImageARGB8888, kvImage420Yp8_Cb8_Cr8, vImage_Flags(kvImageNoFlags))
-        guard status == kvImageNoError else { throw FormatError.encoderFailure("YUV conversion setup \(status)") }
-        var source = vImage_Buffer(
-            data: base, height: vImagePixelCount(height), width: vImagePixelCount(width),
-            rowBytes: CVPixelBufferGetBytesPerRow(image))
-        status = luma.withUnsafeMutableBytes { lumaBytes in
-            blue.withUnsafeMutableBytes { blueBytes in
-                red.withUnsafeMutableBytes { redBytes in
-                    var y = vImage_Buffer(
-                        data: lumaBytes.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width),
-                        rowBytes: width)
-                    var cb = vImage_Buffer(
-                        data: blueBytes.baseAddress, height: vImagePixelCount(chromaHeight),
-                        width: vImagePixelCount(chromaWidth), rowBytes: chromaWidth)
-                    var cr = vImage_Buffer(
-                        data: redBytes.baseAddress, height: vImagePixelCount(chromaHeight),
-                        width: vImagePixelCount(chromaWidth), rowBytes: chromaWidth)
-                    let fromBGRA: [UInt8] = [3, 2, 1, 0]
-                    return vImageConvert_ARGB8888To420Yp8_Cb8_Cr8(
-                        &source, &y, &cb, &cr, &conversion, fromBGRA, vImage_Flags(kvImageNoFlags))
-                }
-            }
-        }
-        guard status == kvImageNoError else { throw FormatError.encoderFailure("YUV conversion \(status)") }
-        let picture = YUVFrame(width: width, height: height, luma: luma, blueDifference: blue, redDifference: red)
-        guard withAlpha else { return (picture, nil) }
-        let pixels = base.assumingMemoryBound(to: UInt8.self)
-        let rowBytes = CVPixelBufferGetBytesPerRow(image)
-        var gray = [UInt8](repeating: 0, count: width * height)
-        for row in 0..<height {
-            for column in 0..<width {
-                let opacity = Int(pixels[row * rowBytes + column * 4 + 3])
-                gray[row * width + column] = UInt8(16 + opacity * 219 / 255)
-            }
-        }
-        return (picture, YUVFrame(gray: gray, width: width, height: height))
     }
 }

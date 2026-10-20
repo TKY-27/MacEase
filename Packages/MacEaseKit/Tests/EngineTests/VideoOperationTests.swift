@@ -80,6 +80,15 @@ import Testing
         let properties = try #require(CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any])
         #expect(properties[kCGImagePropertyPixelWidth] as? Int == 96)
         #expect(properties[kCGImagePropertyPixelHeight] as? Int == 160)
+        let picture = try #require(CGImageSourceCreateImageAtIndex(image, 0, nil))
+        let pixels = try PixelBuffer(cgImage: picture)
+        func isYellow(_ x: Int, _ y: Int) -> Bool {
+            let base = (y * pixels.width + x) * 4
+            return pixels.rgba[base] > 180 && pixels.rgba[base + 1] > 180 && pixels.rgba[base + 2] < 80
+        }
+        // ffmpeg shows rows 60–79 yellow.
+        #expect(isYellow(48, 70))
+        #expect(!isYellow(48, 90))
         #expect(FileManager.default.fileExists(atPath: url.path))
 
         let gif = try output(try await run(.videoToGIF, preset: "480-10", on: url))

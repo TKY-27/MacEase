@@ -7,6 +7,7 @@ public enum AudioFormat {
     private static let aacFramesPerPacket: UInt32 = 1024
     private static let mp3FramesPerPacket: UInt32 = 1152
     private static let ac3FramesPerPacket: UInt32 = 1536
+    private static let alacFramesPerPacket: UInt32 = 4096
 
     public static func description(for track: MediaTrack) throws -> CMAudioFormatDescription {
         guard case .audio(let sampleRate, let channels) = track.kind else {
@@ -19,6 +20,10 @@ public enum AudioFormat {
             guard let config = track.codecPrivate else { throw FormatError.corrupt("AAC without AudioSpecificConfig") }
             cookie = ElementaryStream.audioDescriptor(config)
             format = (kAudioFormatMPEG4AAC, aacFramesPerPacket)
+        case .alac:
+            guard let config = track.codecPrivate else { throw FormatError.corrupt("ALAC without its cookie") }
+            cookie = config
+            format = (kAudioFormatAppleLossless, alacFramesPerPacket)
         case .mp3: format = (kAudioFormatMPEGLayer3, mp3FramesPerPacket)
         case .ac3: format = (kAudioFormatAC3, ac3FramesPerPacket)
         default: throw FormatError.unsupported("\(track.codec.displayName) in MP4 or MOV")

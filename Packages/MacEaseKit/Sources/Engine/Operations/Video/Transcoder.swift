@@ -53,12 +53,14 @@ enum Transcoder {
             guard let output = stage.output else { throw EngineError.encodeFailed("stream produced nothing") }
             return output
         }
-        let origin = min(start, primed.flatMap { $0 }.compactMap(\.decodeTimestamp).min() ?? start)
+        // FLV alone cannot store negative decode times.
+        let firstDecode = primed.flatMap { $0 }.compactMap(\.decodeTimestamp).min() ?? start
+        let origin = plan.container == .flv ? min(start, firstDecode) : start
         let transform: CGAffineTransform =
             if case .copy = plan.video { plan.transform ?? input.transform } else { .identity }
         var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform)
         var queues = primed
-        while let index = earliest(stages, queues) {
+        while let index = try await earliest(stages, queues, sink: sink) {
             try Task.checkCancellation()
             if queues[index].isEmpty { queues[index] = try await stages[index].pull() }
             for packet in queues[index] {
@@ -70,14 +72,28 @@ enum Transcoder {
         try await sink.finish()
     }
 
-    private static func earliest(_ stages: [any StreamStage], _ queues: [[MediaPacket]]) -> Int? {
-        var best: (index: Int, time: Int64)?
-        for index in stages.indices {
-            guard let time = queues[index].first?.timestamp ?? stages[index].nextTime else { continue }
-            if let current = best, current.time <= time { continue }
-            best = (index, time)
+    private static let readinessPoll = Duration.milliseconds(2)
+
+    /// Earliest stream the sink accepts now.
+    private static func earliest(
+        _ stages: [any StreamStage], _ queues: [[MediaPacket]], sink: any PacketSink
+    ) async throws -> Int? {
+        while true {
+            var candidates: [(index: Int, time: Int64)] = []
+            for index in stages.indices {
+                guard let time = queues[index].first?.timestamp ?? stages[index].nextTime else {
+                    stages[index].output.map { sink.endTrack($0.track.number) }
+                    continue
+                }
+                candidates.append((index, time))
+            }
+            guard !candidates.isEmpty else { return nil }
+            let ordered = candidates.sorted { $0.time < $1.time }
+            if let ready = ordered.first(where: { sink.accepts(track: stages[$0.index].output?.track.number ?? 0) }) {
+                return ready.index
+            }
+            try await Task.sleep(for: readinessPoll)
         }
-        return best?.index
     }
 
     private static func prime(_ stage: any StreamStage) async throws -> [MediaPacket] {
@@ -146,18 +162,29 @@ final class PacketCopyStage: StreamStage {
         case container(any MediaDemuxer, sourceTrack: Int)
     }
 
+    /// Deeper than any B-frame pyramid in practice.
+    private static let reorderWindow = 16
+    private static let reorderingCodecs: Set<MediaCodec> = [.h264, .hevc, .mpeg4Part2]
+
     private var source: Source
     private let number: Int
     private let start: Int64
     private let end: Int64
-    private var upcoming: Int64?
+    private let isVideo: Bool
+    private let synthesizesDecodeTimes: Bool
+    private var window: [MediaPacket] = []
+    private var sourceEnded = false
+    private var seenKeyframe = false
+    private var lastDecodeTime: Int64?
+    private var reorderShift: Int64?
+    private var pendingAsset: [MediaPacket] = []
     private(set) var output: OutputTrack?
 
     init(input: MediaInput, track: MediaTrack, number: Int, start: Int64, end: Int64) async throws {
         self.number = number
         self.start = start
         self.end = end
-        upcoming = start
+        isVideo = track.isVideo
         var described = track
         described.number = number
         switch input.backend {
@@ -170,40 +197,75 @@ final class PacketCopyStage: StreamStage {
                 end: CMTime(value: end, timescale: SampleBuffers.nanosecondScale))
             source = .asset(
                 try AssetTrackReader(asset: asset, track: assetTrack, number: number, mode: .packets, range: range))
-            let format = try await assetTrack.load(.formatDescriptions).first
-            output = OutputTrack(track: described, format: format)
+            output = OutputTrack(track: described, format: try await assetTrack.load(.formatDescriptions).first)
+            synthesizesDecodeTimes = false
         default:
             guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
             source = .container(demuxer, sourceTrack: track.number)
             output = OutputTrack(track: described, format: nil)
+            synthesizesDecodeTimes = Self.reorderingCodecs.contains(track.codec)
         }
     }
 
-    var nextTime: Int64? { upcoming }
+    var nextTime: Int64? {
+        if let first = window.first { return first.timestamp }
+        return sourceEnded ? nil : start
+    }
 
     func pull() async throws -> [MediaPacket] {
+        while !sourceEnded, window.count < Self.reorderWindow {
+            guard let packet = try await nextRaw() else {
+                sourceEnded = true
+                break
+            }
+            guard packet.timestamp >= start || isVideo else { continue }
+            if isVideo, !seenKeyframe {
+                guard packet.isKeyframe else { continue }
+                seenKeyframe = true
+            }
+            window.append(packet)
+        }
+        guard !window.isEmpty else { return [] }
+        if reorderShift == nil { reorderShift = synthesizesDecodeTimes ? shift(for: window) : 0 }
+        // Keep late frames that earlier frames reference.
+        guard window.contains(where: { $0.timestamp < end }) else {
+            window = []
+            sourceEnded = true
+            return []
+        }
+        var packet = window.removeFirst()
+        if synthesizesDecodeTimes, packet.decodeTimestamp == nil { packet.decodeTimestamp = decodeTime(for: packet) }
+        packet.track = number
+        return [packet]
+    }
+
+    private func nextRaw() async throws -> MediaPacket? {
         switch source {
         case .asset(let reader):
-            guard let packets = try reader.nextPackets() else {
-                upcoming = nil
-                return []
-            }
-            upcoming = packets.last?.timestamp ?? upcoming
-            return packets.filter { $0.timestamp < end && ($0.timestamp >= start || output?.track.isVideo == true) }
+            while pendingAsset.isEmpty, let packets = try await reader.nextPackets() { pendingAsset = packets }
+            return pendingAsset.isEmpty ? nil : pendingAsset.removeFirst()
         case .container(var demuxer, let sourceTrack):
             defer { source = .container(demuxer, sourceTrack: sourceTrack) }
             while let packet = try demuxer.nextPacket() {
-                guard packet.track == sourceTrack else { continue }
-                guard packet.timestamp < end else { break }
-                guard packet.timestamp >= start else { continue }
-                upcoming = packet.timestamp
-                var renumbered = packet
-                renumbered.track = number
-                return [renumbered]
+                try Task.checkCancellation()
+                if packet.track == sourceTrack { return packet }
             }
-            upcoming = nil
-            return []
+            return nil
         }
+    }
+
+    /// Keeps decode times at or before presentation.
+    private func shift(for packets: [MediaPacket]) -> Int64 {
+        let sorted = packets.map(\.timestamp).sorted()
+        return zip(sorted, packets).map { $0 - $1.timestamp }.max().map { max($0, 0) } ?? 0
+    }
+
+    private func decodeTime(for packet: MediaPacket) -> Int64 {
+        let next = ([packet] + window).map(\.timestamp).min() ?? packet.timestamp
+        var time = min(next - (reorderShift ?? 0), packet.timestamp)
+        if let last = lastDecodeTime, time <= last { time = last + 1 }
+        lastDecodeTime = time
+        return time
     }
 }
 
@@ -230,7 +292,7 @@ final class FrameEncodeStage: StreamStage {
 
     func pull() async throws -> [MediaPacket] {
         guard upcoming != nil else { return [] }
-        guard let frame = try sampler.next() else {
+        guard let frame = try await sampler.next() else {
             upcoming = nil
             return try encoder.finish()
         }

@@ -21,10 +21,10 @@ import Testing
             for x in 0..<Self.width {
                 let inSquare = (x - index * 4 + 200) % 160 < 40 && y > 30 && y < 70
                 let base = y * rowBytes + x * 4
-                pixels[base] = inSquare ? 30 : UInt8(x * 255 / Self.width)
-                pixels[base + 1] = inSquare ? 200 : UInt8(y * 255 / Self.height)
-                pixels[base + 2] = inSquare ? 240 : 90
-                pixels[base + 3] = x < Self.width / 2 ? 128 : 255
+                let opacity = x < Self.width / 2 ? 128 : 255
+                let straight = inSquare ? [30, 200, 240] : [x * 255 / Self.width, y * 255 / Self.height, 90]
+                for channel in 0..<3 { pixels[base + channel] = UInt8(straight[channel] * opacity / 255) }
+                pixels[base + 3] = UInt8(opacity)
             }
         }
         return image

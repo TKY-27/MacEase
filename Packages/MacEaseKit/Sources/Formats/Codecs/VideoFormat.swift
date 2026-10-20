@@ -6,6 +6,8 @@ public enum VideoFormat {
     private static let startCode: [UInt8] = [0, 0, 1]
     private static let vopStartCode: UInt8 = 0xB6
     private static let avcLengthSize = 4
+    private static let reservedLengthBits: UInt8 = 0xFC
+    private static let reservedCountBits: UInt8 = 0xE0
     private static let avcSequenceParameterSet: UInt8 = 7
     private static let avcPictureParameterSet: UInt8 = 8
 
@@ -17,13 +19,17 @@ public enum VideoFormat {
         case .mjpeg: kCMVideoCodecType_JPEG
         case .av1: kCMVideoCodecType_AV1
         case .vp9: kCMVideoCodecType_VP9
+        case .prores: kCMVideoCodecType_AppleProRes422
         default: nil
         }
     }
 
     public static func description(for track: MediaTrack) throws -> CMVideoFormatDescription {
-        guard case .video(let width, let height) = track.kind, let codecType = codecType(track.codec) else {
+        guard case .video(let width, let height) = track.kind, var codecType = codecType(track.codec) else {
             throw FormatError.unsupported(track.codec.displayName)
+        }
+        if track.codec == .prores, let fourCC = track.codecPrivate, fourCC.count == 4 {
+            codecType = fourCC.reduce(0) { $0 << 8 | CMVideoCodecType($1) }
         }
         var atoms: [String: Data] = [:]
         switch (track.codec, track.codecPrivate) {
@@ -110,8 +116,8 @@ public enum VideoFormat {
             throw FormatError.corrupt("H.264 keyframe without SPS and PPS")
         }
         let profile = Array(first)
-        var record = Data([1, profile[1], profile[2], profile[3], 0xFC | UInt8(avcLengthSize - 1)])
-        record.append(0xE0 | UInt8(sequenceSets.count))
+        var record = Data([1, profile[1], profile[2], profile[3], reservedLengthBits | UInt8(avcLengthSize - 1)])
+        record.append(reservedCountBits | UInt8(sequenceSets.count))
         for set in sequenceSets {
             record.appendBigEndian(UInt16(set.count))
             record.append(contentsOf: set)

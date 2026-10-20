@@ -35,6 +35,7 @@ public enum VideoDecoders {
     }
 
     static let pixelFormat = kCVPixelFormatType_32BGRA
+    static let maximumThreads = 8
 
     static func makeImage(width: Int, height: Int) throws -> CVPixelBuffer {
         var image: CVPixelBuffer?
@@ -45,12 +46,12 @@ public enum VideoDecoders {
     }
 }
 
-/// VideoToolbox, reordered by VideoToolbox itself.
+/// VideoToolbox, reordered by `ReorderBuffer`.
 final class ToolboxFrameDecoder: VideoFrameDecoder {
     private var track: MediaTrack
     private var session: VTDecompressionSession?
     private var format: CMVideoFormatDescription?
-    private let output = FrameCollector()
+    private let output = CallbackResults<DecodedFrame> { .decoderFailure("VideoToolbox frame (\($0))") }
     private var annexB = false
     private var reorder: ReorderBuffer
 
@@ -98,10 +99,11 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
         let status = VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: sample, flags: [], infoFlagsOut: nil
         ) { [output] status, _, image, presentation, _ in
-            guard status == noErr, let image else {
+            guard status == noErr else {
                 output.fail(status)
                 return
             }
+            guard let image else { return }
             output.append(DecodedFrame(image: image, timestamp: SampleBuffers.nanoseconds(presentation)))
         }
         guard status == noErr else { throw FormatError.decoderFailure("VideoToolbox decode (\(status))") }
@@ -154,29 +156,6 @@ struct ReorderBuffer {
         defer { pending = [] }
         lastEmitted = pending.last?.timestamp ?? lastEmitted
         return pending
-    }
-}
-
-/// Lock-guarded; VideoToolbox handlers must be Sendable.
-private final class FrameCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private var frames: [DecodedFrame] = []
-    private var failure: OSStatus?
-
-    func append(_ frame: DecodedFrame) {
-        lock.withLock { frames.append(frame) }
-    }
-
-    func fail(_ status: OSStatus) {
-        lock.withLock { failure = failure ?? status }
-    }
-
-    func take() throws -> [DecodedFrame] {
-        try lock.withLock {
-            if let failure { throw FormatError.decoderFailure("VideoToolbox frame (\(failure))") }
-            defer { frames = [] }
-            return frames
-        }
     }
 }
 
@@ -260,6 +239,7 @@ final class JPEGFrameDecoder: VideoFrameDecoder {
 final class LibVPXFrameDecoder: VideoFrameDecoder {
     private let color: VPXDecoder
     private let alpha: VPXDecoder?
+    private var converter: YUVConverter?
 
     init(track: MediaTrack) throws {
         let vp9 = track.codec == .vp9
@@ -273,8 +253,18 @@ final class LibVPXFrameDecoder: VideoFrameDecoder {
         if let alpha, let additional = packet.additional { masks = try alpha.decode(additional) }
         return try pictures.enumerated().map { index, picture in
             let mask = index < masks.count ? masks[index].luma : nil
-            return DecodedFrame(image: try picture.pixelBuffer(alpha: mask), timestamp: packet.timestamp)
+            let converter = try converter(for: picture)
+            return DecodedFrame(image: try converter.image(from: picture, alpha: mask), timestamp: packet.timestamp)
         }
+    }
+
+    private func converter(for picture: YUVFrame) throws -> YUVConverter {
+        if let converter, converter.matrix == picture.matrix, converter.isFullRange == picture.isFullRange {
+            return converter
+        }
+        let created = try YUVConverter(matrix: picture.matrix, fullRange: picture.isFullRange)
+        converter = created
+        return created
     }
 
     func finish() throws -> [DecodedFrame] { [] }
@@ -283,12 +273,12 @@ final class LibVPXFrameDecoder: VideoFrameDecoder {
 /// For AV1 without hardware decoding.
 final class Dav1dFrameDecoder: VideoFrameDecoder {
     private var context: OpaquePointer?
-    private var pending: [Int64] = []
+    private var converter: YUVConverter?
 
     init() throws {
         var settings = Dav1dSettings()
         dav1d_default_settings(&settings)
-        settings.n_threads = Int32(min(8, ProcessInfo.processInfo.activeProcessorCount))
+        settings.n_threads = Int32(min(VideoDecoders.maximumThreads, ProcessInfo.processInfo.activeProcessorCount))
         guard dav1d_open(&context, &settings) == 0, context != nil else {
             throw FormatError.decoderFailure("dav1d_open")
         }
@@ -330,99 +320,37 @@ final class Dav1dFrameDecoder: VideoFrameDecoder {
             if status == -EAGAIN { return frames }
             guard status == 0 else { throw FormatError.decoderFailure("dav1d_get_picture \(status)") }
             defer { dav1d_picture_unref(&picture) }
-            frames.append(DecodedFrame(image: try Self.image(of: picture), timestamp: picture.m.timestamp))
+            frames.append(DecodedFrame(image: try image(of: picture), timestamp: picture.m.timestamp))
         }
     }
 
-    private static func image(of picture: Dav1dPicture) throws -> CVPixelBuffer {
-        guard picture.p.layout == DAV1D_PIXEL_LAYOUT_I420, picture.p.bpc == 8 else {
-            throw FormatError.unsupported("AV1 other than 8-bit 4:2:0 without hardware decoding")
+    private func image(of picture: Dav1dPicture) throws -> CVPixelBuffer {
+        guard picture.p.layout == DAV1D_PIXEL_LAYOUT_I420 else {
+            throw FormatError.unsupported("AV1 chroma other than 4:2:0 without hardware decoding")
         }
         let width = Int(picture.p.w)
         let height = Int(picture.p.h)
-        func plane(_ index: Int, columns: Int, rows: Int, stride: Int) -> [UInt8] {
-            guard let base = (index == 0 ? picture.data.0 : index == 1 ? picture.data.1 : picture.data.2) else {
-                return []
-            }
-            let pointer = base.assumingMemoryBound(to: UInt8.self)
-            var result = [UInt8](repeating: 0, count: columns * rows)
-            for row in 0..<rows {
-                for column in 0..<columns { result[row * columns + column] = pointer[row * stride + column] }
-            }
-            return result
-        }
+        let depth = Int(picture.p.bpc)
         let chromaWidth = (width + 1) / 2
         let chromaHeight = (height + 1) / 2
         let frame = YUVFrame(
             width: width, height: height,
-            luma: plane(0, columns: width, rows: height, stride: Int(picture.stride.0)),
-            blueDifference: plane(1, columns: chromaWidth, rows: chromaHeight, stride: Int(picture.stride.1)),
-            redDifference: plane(2, columns: chromaWidth, rows: chromaHeight, stride: Int(picture.stride.1))
+            luma: try YUVConverter.copyPlane(
+                picture.data.0, stride: Int(picture.stride.0), columns: width, rows: height, bitDepth: depth),
+            blueDifference: try YUVConverter.copyPlane(
+                picture.data.1, stride: Int(picture.stride.1), columns: chromaWidth, rows: chromaHeight,
+                bitDepth: depth),
+            redDifference: try YUVConverter.copyPlane(
+                picture.data.2, stride: Int(picture.stride.1), columns: chromaWidth, rows: chromaHeight,
+                bitDepth: depth)
         )
-        return try frame.pixelBuffer(alpha: nil)
-    }
-}
-
-extension YUVFrame {
-    /// ITU-R BT.601 coefficients, limited range.
-    private static let bt601Matrix = vImage_YpCbCrToARGBMatrix(
-        Yp: 1, Cr_R: 1.402, Cr_G: -0.714_136, Cb_G: -0.344_136, Cb_B: 1.772)
-    private static let videoRange = vImage_YpCbCrPixelRange(
-        Yp_bias: 16, CbCr_bias: 128, YpRangeMax: 235, CbCrRangeMax: 240, YpMax: 255, YpMin: 0, CbCrMax: 255, CbCrMin: 0)
-
-    private static func conversion() throws -> vImage_YpCbCrToARGB {
-        var conversion = vImage_YpCbCrToARGB()
-        var matrix = bt601Matrix
-        var range = videoRange
-        let status = vImageConvert_YpCbCrToARGB_GenerateConversion(
-            &matrix, &range, &conversion, kvImage420Yp8_Cb8_Cr8, kvImageARGB8888, vImage_Flags(kvImageNoFlags))
-        guard status == kvImageNoError else { throw FormatError.decoderFailure("YUV conversion setup \(status)") }
-        return conversion
-    }
-
-    /// Opaque unless `alpha` holds luma.
-    func pixelBuffer(alpha: [UInt8]?) throws -> CVPixelBuffer {
-        let image = try VideoDecoders.makeImage(width: width, height: height)
-        CVPixelBufferLockBaseAddress(image, [])
-        defer { CVPixelBufferUnlockBaseAddress(image, []) }
-        guard let base = CVPixelBufferGetBaseAddress(image) else { throw FormatError.decoderFailure("pixel buffer") }
-        var lumaPlane = luma
-        var bluePlane = blueDifference
-        var redPlane = redDifference
-        var conversion = try Self.conversion()
-        let status = lumaPlane.withUnsafeMutableBytes { lumaBytes in
-            bluePlane.withUnsafeMutableBytes { blueBytes in
-                redPlane.withUnsafeMutableBytes { redBytes in
-                    var y = vImage_Buffer(
-                        data: lumaBytes.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width),
-                        rowBytes: width)
-                    var cb = vImage_Buffer(
-                        data: blueBytes.baseAddress, height: vImagePixelCount(chromaHeight),
-                        width: vImagePixelCount(chromaWidth), rowBytes: chromaWidth)
-                    var cr = vImage_Buffer(
-                        data: redBytes.baseAddress, height: vImagePixelCount(chromaHeight),
-                        width: vImagePixelCount(chromaWidth), rowBytes: chromaWidth)
-                    var destination = vImage_Buffer(
-                        data: base, height: vImagePixelCount(height), width: vImagePixelCount(width),
-                        rowBytes: CVPixelBufferGetBytesPerRow(image))
-                    let toBGRA: [UInt8] = [3, 2, 1, 0]
-                    return vImageConvert_420Yp8_Cb8_Cr8ToARGB8888(
-                        &y, &cb, &cr, &destination, &conversion, toBGRA, 255, vImage_Flags(kvImageNoFlags))
-                }
-            }
+        let header = picture.seq_hdr?.pointee
+        let matrix: YUVMatrix = header?.mtrx == DAV1D_MC_BT709 ? .bt709 : .bt601
+        let fullRange = header?.color_range == 1
+        if converter?.matrix != matrix || converter?.isFullRange != fullRange {
+            converter = try YUVConverter(matrix: matrix, fullRange: fullRange)
         }
-        guard status == kvImageNoError else { throw FormatError.decoderFailure("YUV conversion \(status)") }
-        if let alpha {
-            let rowBytes = CVPixelBufferGetBytesPerRow(image)
-            let pixels = base.assumingMemoryBound(to: UInt8.self)
-            for row in 0..<height {
-                for column in 0..<width {
-                    let level = Int(alpha[row * width + column])
-                    let opacity = UInt8(min(max((level - 16) * 255 / 219, 0), 255))
-                    pixels[row * rowBytes + column * 4 + 3] = opacity
-                }
-            }
-        }
-        return image
+        guard let converter else { throw FormatError.decoderFailure("YUV converter") }
+        return try converter.image(from: frame, alpha: nil)
     }
 }

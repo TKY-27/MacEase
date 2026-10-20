@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreVideo
 import Formats
 import Foundation
 import Testing
@@ -117,5 +118,65 @@ import Testing
         let video = try packets(of: url)
         #expect(video.count == 48)
         #expect(video.first?.isKeyframe == true)
+    }
+
+    @Test func reorderedH264RemuxesFromMatroskaWithSynthesizedDecodeTimes() async throws {
+        let mkv = try await transcode(
+            try resource("ffmpeg-h264-aac.mp4"),
+            TranscodePlan(container: .mkv, video: .encode(encoding(.h264), FrameEdit()), audio: .copy))
+        defer { try? FileManager.default.removeItem(at: mkv) }
+        let stored = try packets(of: mkv).filter { $0.track == 1 }.map(\.timestamp)
+        #expect(stored != stored.sorted(), "fixture needs B-frames")
+
+        let flv = try await transcode(mkv, TranscodePlan(container: .flv, video: .copy, audio: .copy))
+        defer { try? FileManager.default.removeItem(at: flv) }
+        let video = try packets(of: flv).filter { $0.track == 1 }
+        let decodeTimes = video.compactMap(\.decodeTimestamp)
+        #expect(decodeTimes.count == 48)
+        #expect(decodeTimes == decodeTimes.sorted())
+        #expect(zip(decodeTimes, video).allSatisfy { $0 <= $1.timestamp })
+
+        let mp4 = try await transcode(mkv, TranscodePlan(container: .mp4, video: .copy, audio: .copy))
+        defer { try? FileManager.default.removeItem(at: mp4) }
+        let asset = AVURLAsset(url: mp4)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .frames)
+        var times: [Int64] = []
+        while let frame = try await reader.nextFrame() { times.append(frame.timestamp) }
+        #expect(times.count == 48)
+        #expect(times == times.sorted())
+    }
+
+    @Test func keyframeTrimKeepsAudioInSync() async throws {
+        var plan = TranscodePlan(container: .mkv, video: .copy, audio: .copy)
+        plan.range = 700_000_000..<1_500_000_000
+        let url = try await transcode(try resource("ffmpeg-h264-aac.mp4"), plan)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let all = try packets(of: url)
+        let firstVideo = try #require(all.first { $0.track == 1 }).timestamp
+        let firstAudio = try #require(all.first { $0.track == 2 }).timestamp
+        #expect(firstVideo == 0)
+        #expect(firstAudio >= 0 && firstAudio < 25 * Nanoseconds.perMillisecond)
+    }
+
+    @Test func vp9ExactTrimStartsAtZero() async throws {
+        var plan = TranscodePlan(container: .webm, video: .encode(encoding(.vp9), FrameEdit()), audio: nil)
+        plan.range = 500_000_000..<1_000_000_000
+        let url = try await transcode(try resource("ffmpeg-h264-aac.mp4"), plan)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let times = try packets(of: url).map(\.timestamp)
+        #expect(times.first == 0)
+        #expect(times.count == 12)
+        #expect(times.allSatisfy { $0 >= 0 })
+    }
+
+    @Test func frameRateUpsamplingKeepsTheFullDuration() async throws {
+        var settings = encoding(.h264)
+        settings.frameDuration = Nanoseconds.perSecond / 60
+        let url = try await transcode(
+            try resource("ffmpeg-h264-aac.mp4"),
+            TranscodePlan(container: .mkv, video: .encode(settings, FrameEdit()), audio: nil))
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(try packets(of: url).count == 120)
     }
 }

@@ -11,6 +11,9 @@ public enum ElementaryStream {
     private static let aacObjectType: UInt8 = 0x40
     private static let visualStreamType: UInt8 = 0x11
     private static let audioStreamType: UInt8 = 0x15
+    private static let streamDependenceFlag: UInt8 = 0x80
+    private static let urlFlag: UInt8 = 0x40
+    private static let ocrStreamFlag: UInt8 = 0x20
     /// Buffer size and two bitrates.
     private static let decoderConfigTail = 11
 
@@ -60,7 +63,12 @@ public enum ElementaryStream {
                 guard index + length <= bytes.count else { return nil }
                 return Data(bytes[index..<(index + length)])
             case esDescriptorTag:
+                guard index + 3 <= bytes.count else { return nil }
+                let flags = bytes[index + 2]
                 index += 3
+                if flags & streamDependenceFlag != 0 { index += 2 }
+                if flags & urlFlag != 0, index < bytes.count { index += 1 + Int(bytes[index]) }
+                if flags & ocrStreamFlag != 0 { index += 2 }
             case decoderConfigTag:
                 index += 2 + decoderConfigTail
             default:

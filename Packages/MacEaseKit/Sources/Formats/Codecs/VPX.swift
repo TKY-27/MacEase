@@ -9,6 +9,8 @@ public struct YUVFrame: Sendable {
     public var luma: [UInt8]
     public var blueDifference: [UInt8]
     public var redDifference: [UInt8]
+    public var matrix = YUVMatrix.bt601
+    public var isFullRange = false
 
     public var chromaWidth: Int { (width + 1) / 2 }
     public var chromaHeight: Int { (height + 1) / 2 }
@@ -19,44 +21,6 @@ public struct YUVFrame: Sendable {
         self.luma = luma
         self.blueDifference = blueDifference
         self.redDifference = redDifference
-    }
-
-    /// BT.601 limited range, as browsers assume.
-    public init(rgba pixels: PixelBuffer) {
-        let width = pixels.width
-        let height = pixels.height
-        var luma = [UInt8](repeating: 0, count: width * height)
-        let chromaWidth = (width + 1) / 2
-        let chromaHeight = (height + 1) / 2
-        var blue = [UInt8](repeating: 128, count: chromaWidth * chromaHeight)
-        var red = [UInt8](repeating: 128, count: chromaWidth * chromaHeight)
-        for y in 0..<height {
-            for x in 0..<width {
-                let base = (y * width + x) * 4
-                let r = Double(pixels.rgba[base])
-                let g = Double(pixels.rgba[base + 1])
-                let b = Double(pixels.rgba[base + 2])
-                luma[y * width + x] = UInt8(min(max(16 + 0.257 * r + 0.504 * g + 0.098 * b, 0), 255).rounded())
-            }
-        }
-        for y in 0..<chromaHeight {
-            for x in 0..<chromaWidth {
-                var sums = (r: 0.0, g: 0.0, b: 0.0, count: 0.0)
-                for dy in 0..<2 where 2 * y + dy < height {
-                    for dx in 0..<2 where 2 * x + dx < width {
-                        let base = ((2 * y + dy) * width + 2 * x + dx) * 4
-                        sums.r += Double(pixels.rgba[base])
-                        sums.g += Double(pixels.rgba[base + 1])
-                        sums.b += Double(pixels.rgba[base + 2])
-                        sums.count += 1
-                    }
-                }
-                let (r, g, b) = (sums.r / sums.count, sums.g / sums.count, sums.b / sums.count)
-                blue[y * chromaWidth + x] = UInt8(min(max(128 - 0.148 * r - 0.291 * g + 0.439 * b, 0), 255).rounded())
-                red[y * chromaWidth + x] = UInt8(min(max(128 + 0.439 * r - 0.368 * g - 0.071 * b, 0), 255).rounded())
-            }
-        }
-        self.init(width: width, height: height, luma: luma, blueDifference: blue, redDifference: red)
     }
 
     /// Gray planes carry VP9 alpha.
@@ -166,6 +130,8 @@ public final class VPXEncoder {
                     image.stride.0 = Int32(frame.width)
                     image.stride.1 = Int32(frame.chromaWidth)
                     image.stride.2 = Int32(frame.chromaWidth)
+                    image.cs = frame.matrix == .bt709 ? VPX_CS_BT_709 : VPX_CS_BT_601
+                    image.range = frame.isFullRange ? VPX_CR_FULL_RANGE : VPX_CR_STUDIO_RANGE
                     let flags = forceKeyframe ? vpx_enc_frame_flags_t(VPX_EFLAG_FORCE_KF) : 0
                     try Self.check(vpx_codec_encode(&context, &image, index, 1, flags, UInt(VPX_DL_GOOD_QUALITY)))
                 }
@@ -223,29 +189,26 @@ public final class VPXDecoder {
         var iterator: vpx_codec_iter_t?
         while let image = vpx_codec_get_frame(&context, &iterator) {
             guard image.pointee.fmt == VPX_IMG_FMT_I420 else { throw FormatError.unsupported("VPX image format") }
-            frames.append(Self.copy(image.pointee))
+            frames.append(try Self.copy(image.pointee))
         }
         return frames
     }
 
-    private static func copy(_ image: vpx_image_t) -> YUVFrame {
+    private static func copy(_ image: vpx_image_t) throws -> YUVFrame {
         let width = Int(image.d_w)
         let height = Int(image.d_h)
-        func plane(_ pointer: UnsafeMutablePointer<UInt8>?, stride: Int32, columns: Int, rows: Int) -> [UInt8] {
-            guard let pointer else { return [] }
-            var result = [UInt8](repeating: 0, count: columns * rows)
-            for row in 0..<rows {
-                for column in 0..<columns { result[row * columns + column] = pointer[row * Int(stride) + column] }
-            }
-            return result
-        }
         let chromaWidth = (width + 1) / 2
         let chromaHeight = (height + 1) / 2
-        return YUVFrame(
+        var frame = YUVFrame(
             width: width, height: height,
-            luma: plane(image.planes.0, stride: image.stride.0, columns: width, rows: height),
-            blueDifference: plane(image.planes.1, stride: image.stride.1, columns: chromaWidth, rows: chromaHeight),
-            redDifference: plane(image.planes.2, stride: image.stride.2, columns: chromaWidth, rows: chromaHeight)
+            luma: try YUVConverter.copyPlane(image.planes.0, stride: Int(image.stride.0), columns: width, rows: height),
+            blueDifference: try YUVConverter.copyPlane(
+                image.planes.1, stride: Int(image.stride.1), columns: chromaWidth, rows: chromaHeight),
+            redDifference: try YUVConverter.copyPlane(
+                image.planes.2, stride: Int(image.stride.2), columns: chromaWidth, rows: chromaHeight)
         )
+        frame.matrix = image.cs == VPX_CS_BT_709 ? .bt709 : .bt601
+        frame.isFullRange = image.range == VPX_CR_FULL_RANGE
+        return frame
     }
 }

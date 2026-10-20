@@ -77,8 +77,8 @@ extension FourCharCode {
     }
 }
 
-/// Packets, frames or PCM from one track.
-final class AssetTrackReader {
+/// Blocking reads would starve the cooperative pool.
+final class AssetTrackReader: @unchecked Sendable {
     enum Mode {
         case packets
         case frames
@@ -89,6 +89,7 @@ final class AssetTrackReader {
     private let reader: AVAssetReader
     private let output: AVAssetReaderTrackOutput
     private let number: Int
+    private let queue = DispatchQueue(label: "MacEase.AssetTrackReader")
 
     init(asset: AVAsset, track: AVAssetTrack, number: Int, mode: Mode, range: CMTimeRange? = nil) throws {
         reader = try AVAssetReader(asset: asset)
@@ -121,23 +122,30 @@ final class AssetTrackReader {
         reader.cancelReading()
     }
 
-    func nextSample() throws -> CMSampleBuffer? {
+    func nextSample() async throws -> CMSampleBuffer? {
         try Task.checkCancellation()
-        if let sample = output.copyNextSampleBuffer() { return sample }
-        if reader.status == .failed {
-            throw EngineError.decodeFailed(reader.error.map { "\($0)" } ?? "asset read failed")
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                if let sample = self.output.copyNextSampleBuffer() {
+                    continuation.resume(returning: sample)
+                } else if self.reader.status == .failed {
+                    let reason = self.reader.error.map { "\($0)" } ?? "asset read failed"
+                    continuation.resume(throwing: EngineError.decodeFailed(reason))
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            }
         }
-        return nil
     }
 
-    func nextPackets() throws -> [MediaPacket]? {
-        guard let sample = try nextSample() else { return nil }
+    func nextPackets() async throws -> [MediaPacket]? {
+        guard let sample = try await nextSample() else { return nil }
         guard CMSampleBufferGetNumSamples(sample) > 0 else { return [] }
         return try SampleBuffers.packets(from: sample, track: number)
     }
 
-    func nextFrame() throws -> DecodedFrame? {
-        while let sample = try nextSample() {
+    func nextFrame() async throws -> DecodedFrame? {
+        while let sample = try await nextSample() {
             guard let image = CMSampleBufferGetImageBuffer(sample) else { continue }
             return DecodedFrame(image: image, timestamp: SampleBuffers.nanoseconds(sample.presentationTimeStamp))
         }

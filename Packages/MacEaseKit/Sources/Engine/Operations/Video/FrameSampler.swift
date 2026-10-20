@@ -14,6 +14,7 @@ final class FrameSampler {
     private var processor: FrameProcessor?
     private let edit: FrameEdit
     let frameDuration: Int64
+    private let sourceFrameDuration: Int64
     private let end: Int64
     private var decoded: [DecodedFrame] = []
     private var sourceQueue: [DecodedFrame] = []
@@ -26,6 +27,7 @@ final class FrameSampler {
         guard let track = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         self.edit = edit
         self.frameDuration = frameDuration
+        sourceFrameDuration = input.frameDuration
         self.end = end
         nextOutput = start
         position = start
@@ -44,7 +46,7 @@ final class FrameSampler {
     }
 
     /// `nil` once the range is exhausted.
-    func next() throws -> DecodedFrame? {
+    func next() async throws -> DecodedFrame? {
         while true {
             try Task.checkCancellation()
             if let chosen = ready() {
@@ -53,7 +55,7 @@ final class FrameSampler {
                 return DecodedFrame(image: image, timestamp: nextOutput)
             }
             if sourceEnded { return nil }
-            if let frame = try nextSourceFrame() {
+            if let frame = try await nextSourceFrame() {
                 decoded.append(frame)
                 position = frame.timestamp
             } else {
@@ -76,17 +78,18 @@ final class FrameSampler {
         let center = nextOutput + frameDuration / 2
         guard center < end, let first = decoded.first else { return nil }
         if decoded.count >= 2 { return first }
-        guard sourceEnded, center < first.timestamp + frameDuration else { return nil }
+        guard sourceEnded, center < first.timestamp + max(frameDuration, sourceFrameDuration) else { return nil }
         return first
     }
 
-    private func nextSourceFrame() throws -> DecodedFrame? {
+    private func nextSourceFrame() async throws -> DecodedFrame? {
         switch source {
         case .asset(let reader):
-            return try reader.nextFrame()
+            return try await reader.nextFrame()
         case .container(var demuxer, var decoder, let sourceTrack, let decodeFrom):
             defer { source = .container(demuxer, decoder, sourceTrack: sourceTrack, decodeFrom: decodeFrom) }
             while sourceQueue.isEmpty, let packet = try demuxer.nextPacket() {
+                try Task.checkCancellation()
                 guard packet.track == sourceTrack, packet.timestamp >= decodeFrom else { continue }
                 sourceQueue = try decoder.decode(packet)
             }

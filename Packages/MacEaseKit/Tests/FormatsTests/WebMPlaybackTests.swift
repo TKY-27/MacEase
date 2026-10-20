@@ -8,15 +8,15 @@ import WebKit
 @Suite struct WebMPlaybackTests {
     private func makeWebM() throws -> URL {
         let frames = Fixtures.gradientFrames(count: 45, width: 320, height: 180)
-        let encoder = try VPXEncoder(
-            settings: VPXEncoder.Settings(
-                codec: .vp9, width: 320, height: 180, framesPerSecond: 15, kilobitsPerSecond: 600)
-        )
-        var videoPackets: [EncodedVideoFrame] = []
+        let frameDuration = Nanoseconds.perSecond / 15
+        var encoder = try VideoEncoders.make(
+            VideoEncoding(codec: .vp9, width: 320, height: 180, frameDuration: frameDuration, bitrate: 600_000),
+            track: 1)
+        var packets: [MediaPacket] = []
         for (index, frame) in frames.enumerated() {
-            videoPackets += try encoder.encode(YUVFrame(rgba: frame), index: Int64(index), forceKeyframe: index == 0)
+            packets += try encoder.encode(try Fixtures.pixelBuffer(frame), timestamp: Int64(index) * frameDuration)
         }
-        videoPackets += try encoder.finish()
+        packets += try encoder.finish()
         let opus = try OpusAudioEncoder(channels: 2, bitrate: 96_000)
         let tone = (0..<(OpusAudioEncoder.sampleRate * 3)).flatMap { sample -> [Float] in
             let value = Float(sin(2 * Double.pi * 440 * Double(sample) / 48_000) * 0.3)
@@ -32,12 +32,6 @@ import WebKit
         )
         audio.codecDelay = Int64(opus.preSkip) * Nanoseconds.perSecond / 48_000
         audio.seekPreRoll = 80 * Nanoseconds.perMillisecond
-        var packets = videoPackets.map { frame in
-            MediaPacket(
-                track: 1, timestamp: frame.presentation * Nanoseconds.perSecond / 15, isKeyframe: frame.isKeyframe,
-                payload: frame.payload
-            )
-        }
         packets += audioPackets.enumerated().map { index, payload in
             MediaPacket(
                 track: 2, timestamp: Int64(index) * 20 * Nanoseconds.perMillisecond, isKeyframe: true, payload: payload)

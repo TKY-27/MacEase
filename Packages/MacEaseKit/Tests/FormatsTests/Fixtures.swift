@@ -1,6 +1,8 @@
 import CoreGraphics
+import CoreVideo
 import Foundation
 import ImageIO
+import Testing
 import UniformTypeIdentifiers
 
 @testable import Formats
@@ -27,6 +29,26 @@ struct FixtureRandom {
 }
 
 enum Fixtures {
+    /// BGRA, as the video encoders take it.
+    static func pixelBuffer(_ pixels: PixelBuffer) throws -> CVPixelBuffer {
+        let image = try VideoDecoders.makeImage(width: pixels.width, height: pixels.height)
+        CVPixelBufferLockBaseAddress(image, [])
+        defer { CVPixelBufferUnlockBaseAddress(image, []) }
+        let base = try #require(CVPixelBufferGetBaseAddress(image)).assumingMemoryBound(to: UInt8.self)
+        let rowBytes = CVPixelBufferGetBytesPerRow(image)
+        for y in 0..<pixels.height {
+            for x in 0..<pixels.width {
+                let source = (y * pixels.width + x) * 4
+                let target = y * rowBytes + x * 4
+                base[target] = pixels.rgba[source + 2]
+                base[target + 1] = pixels.rgba[source + 1]
+                base[target + 2] = pixels.rgba[source]
+                base[target + 3] = pixels.rgba[source + 3]
+            }
+        }
+        return image
+    }
+
     /// Gradient, soft blobs, texture and noise.
     static func photo(width: Int = 480, height: Int = 360, seed: UInt64 = 7, noise: Double = 6) -> PixelBuffer {
         var random = FixtureRandom(seed: seed)

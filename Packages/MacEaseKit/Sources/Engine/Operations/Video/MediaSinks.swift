@@ -50,6 +50,10 @@ struct OutputTrack {
 }
 
 protocol PacketSink {
+    /// AVAssetWriter interleaves; muxers take anything.
+    func accepts(track: Int) -> Bool
+    /// Stops AVAssetWriter waiting on a drained stream.
+    func endTrack(_ track: Int)
     mutating func write(_ packet: MediaPacket) async throws
     mutating func finish() async throws
 }
@@ -72,6 +76,10 @@ enum Sinks {
 
 struct MuxerSink: PacketSink {
     var muxer: any MediaMuxer
+
+    func accepts(track: Int) -> Bool { true }
+
+    func endTrack(_ track: Int) {}
 
     mutating func write(_ packet: MediaPacket) async throws {
         try muxer.write(packet)
@@ -115,6 +123,14 @@ final class AssetWriterSink: PacketSink {
         error.map { "\($0)" } ?? "asset writer failed"
     }
 
+    func accepts(track: Int) -> Bool {
+        inputs[track]?.input.isReadyForMoreMediaData ?? true
+    }
+
+    func endTrack(_ track: Int) {
+        inputs.removeValue(forKey: track)?.input.markAsFinished()
+    }
+
     func write(_ packet: MediaPacket) async throws {
         guard let (input, format) = inputs[packet.track] else {
             throw EngineError.encodeFailed("packet for unknown track \(packet.track)")
@@ -129,6 +145,7 @@ final class AssetWriterSink: PacketSink {
 
     func finish() async throws {
         for (input, _) in inputs.values { input.markAsFinished() }
+        inputs = [:]
         await writer.finishWriting()
         guard writer.status == .completed else { throw EngineError.encodeFailed(Self.describe(writer.error)) }
     }
