@@ -18,6 +18,7 @@ public enum OperationPlanner {
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
         case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+        case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
         default: nil
         }
     }
@@ -33,6 +34,8 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .text(let operation):
+            return TextPlanner.batch(operation, op: request.op, inputs: inputs)
         }
     }
 
