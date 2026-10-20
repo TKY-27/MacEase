@@ -38,6 +38,12 @@ public struct AspectRange: Codable, Hashable, Sendable {
     public var min: AspectRatio
     public var max: AspectRatio
     public var fit: AspectFit
+
+    public init(min: AspectRatio, max: AspectRatio, fit: AspectFit) {
+        self.min = min
+        self.max = max
+        self.fit = fit
+    }
 }
 
 public struct MediaLimits: Codable, Hashable, Sendable {

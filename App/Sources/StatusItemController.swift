@@ -134,7 +134,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
 /// A menu item that runs a closure.
 @MainActor
-private final class ClosureMenuItem: NSMenuItem {
+final class ClosureMenuItem: NSMenuItem {
     private let handler: @MainActor () -> Void
 
     init(title: String, keyEquivalent: String = "", handler: @escaping @MainActor () -> Void) {
