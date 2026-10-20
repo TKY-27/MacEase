@@ -20,6 +20,7 @@ public enum OperationPlanner {
         case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
         case .pdf: PDFPlanner.operation(for: op, preset: preset).map(OperationOptions.pdf)
         case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
+        case .jar: JARDecompiler.bundledOperation.map(OperationOptions.jar)
         default: nil
         }
     }
@@ -39,6 +40,8 @@ public enum OperationPlanner {
             return PDFPlanner.batch(operation, op: request.op, inputs: inputs)
         case .text(let operation):
             return TextPlanner.batch(operation, op: request.op, inputs: inputs)
+        case .jar(let operation):
+            return JARDecompiler.batch(operation, op: request.op, inputs: inputs)
         }
     }
 

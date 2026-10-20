@@ -12,4 +12,5 @@ public enum OperationOptions: Codable, Hashable, Sendable {
     case checksum(ChecksumAlgorithm)
     case pdf(PDFOperation)
     case text(TextOperation)
+    case jar(JAROperation)
 }

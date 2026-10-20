@@ -30,19 +30,13 @@ struct MenuFileWriter {
 
     static func javaRuntimeIsInstalled() async -> Bool {
         await Task.detached {
-            let javaHome = Process()
-            javaHome.executableURL = URL(fileURLWithPath: "/usr/libexec/java_home")
-            javaHome.standardOutput = FileHandle.nullDevice
-            javaHome.standardError = FileHandle.nullDevice
             do {
-                try javaHome.run()
+                return try JavaRuntime.executable() != nil
             } catch {
                 Logger(category: "java").error(
                     "java_home failed to start: \(error.localizedDescription, privacy: .public)")
                 return false
             }
-            javaHome.waitUntilExit()
-            return javaHome.terminationStatus == 0
         }.value
     }
 }
