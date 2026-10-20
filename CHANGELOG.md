@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
 ## [1.0.0] - 2026-10-21
 
 First release.
@@ -45,3 +46,4 @@ First release.
 - A menu bar app with job progress, recent batches, settings, onboarding and
   update checks.
 - English and Japanese localization.
+- An app icon, shown in Finder and the About tab.
