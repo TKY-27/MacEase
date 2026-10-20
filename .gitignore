@@ -22,3 +22,6 @@ Vendor/src/
 # Release artifacts
 dist/
 *.dmg
+
+# Signing material (scripts/create-signing-identity.sh writes to build/signing/)
+*.p12
