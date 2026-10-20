@@ -61,10 +61,11 @@ if [[ "$set_secrets" == 1 ]]; then
     printf '%s' "$MACEASE_CERT_PASSWORD" | gh secret set MACEASE_CERT_PASSWORD
 fi
 
+# Secrets stay in files so terminals and logs never show them.
+printf '%s' "$MACEASE_CERT_PASSWORD" >"$out/password.txt"
 cat <<EOF
 Created "$identity" in $out.
-Back up $p12 and the password below; a new identity resets user privacy grants.
-
-MACEASE_CERT_PASSWORD=$MACEASE_CERT_PASSWORD
-MACEASE_CERT_P12_BASE64=$(base64 -i "$p12")
+Back up $p12 and $out/password.txt; a new identity resets user privacy grants.
+Repository secrets: MACEASE_CERT_P12_BASE64 is the output of
+\`base64 -i "$p12"\`, MACEASE_CERT_PASSWORD is the content of password.txt.
 EOF

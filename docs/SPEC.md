@@ -716,8 +716,9 @@ check.
   ("MacEase Release"), not notarized. A stable certificate keeps macOS privacy
   grants (TCC) and the Finder extension's enabled state across updates, which
   ad-hoc signatures do not. `scripts/create-signing-identity.sh` creates the
-  certificate and prints the values for the repository secrets
-  `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD`. Debug builds are
+  certificate and writes the values for the repository secrets
+  `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD` to files, never to the
+  terminal; `--set-secrets` sets them with `gh`. Debug builds are
   ad-hoc signed.
 - **Release (`.github/workflows/release.yml`)** on tags `v*` on the `xcode-27`
   image: build native dependencies, archive Release, sign the app and the
