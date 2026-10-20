@@ -21,6 +21,9 @@ public enum OperationPlanner {
         case .video: VideoPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.video)
         case .folder: FolderPlanner.options(for: op, preset: preset).map(OperationOptions.folder)
         case .archive: ArchivePlanner.options(for: op, preset: preset).map(OperationOptions.archive)
+        case .pdf: PDFPlanner.operation(for: op, preset: preset).map(OperationOptions.pdf)
+        case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
+        case .jar: JARDecompiler.bundledOperation.map(OperationOptions.jar)
         default: nil
         }
     }
@@ -42,6 +45,12 @@ public enum OperationPlanner {
             return FolderPlanner.batch(operation, op: request.op, folders: inputs, settings: settings)
         case .archive(let operation):
             return ArchivePlanner.batch(operation, op: request.op, archives: inputs)
+        case .pdf(let operation):
+            return PDFPlanner.batch(operation, op: request.op, inputs: inputs)
+        case .text(let operation):
+            return TextPlanner.batch(operation, op: request.op, inputs: inputs)
+        case .jar(let operation):
+            return JARDecompiler.batch(operation, op: request.op, inputs: inputs)
         }
     }
 
@@ -60,10 +69,23 @@ public enum OperationPlanner {
         lane: Lane = .cpu,
         body: @escaping @Sendable (ItemContext) async throws -> ItemResult
     ) -> WorkItem {
-        WorkItem(inputs: [url], lane: lane) { context in
-            let values = try url.resourceValues(forKeys: [.isDirectoryKey])
-            if kind != .folder, values.isDirectory == true { return .skipped(.isDirectory) }
-            guard try ContentSniffer.matches(url, kind: kind) else { return .skipped(.kindMismatch(expected: kind)) }
+        validated([url], kind: kind, lane: lane, body: body)
+    }
+
+    static func validated(
+        _ urls: [URL],
+        kind: FileKind,
+        lane: Lane = .cpu,
+        body: @escaping @Sendable (ItemContext) async throws -> ItemResult
+    ) -> WorkItem {
+        WorkItem(inputs: urls, lane: lane) { context in
+            for url in urls {
+                let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+                if kind != .folder, values.isDirectory == true { return .skipped(.isDirectory) }
+                guard try ContentSniffer.matches(url, kind: kind) else {
+                    return .skipped(.kindMismatch(expected: kind))
+                }
+            }
             return try await body(context)
         }
     }

@@ -13,4 +13,7 @@ public enum OperationOptions: Codable, Hashable, Sendable {
     case video(VideoOperation)
     case folder(FolderOperation)
     case archive(ArchiveOperation)
+    case pdf(PDFOperation)
+    case text(TextOperation)
+    case jar(JAROperation)
 }

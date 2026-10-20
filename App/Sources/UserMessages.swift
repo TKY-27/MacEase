@@ -104,6 +104,10 @@ enum UserMessages {
             String(localized: "“\(file)” is empty.")
         case .noPages:
             String(localized: "No pages were selected from “\(file)”.")
+        case .encrypted:
+            String(localized: "“\(file)” is password-protected.")
+        case .tooFewFiles(let minimum):
+            String(localized: "Select at least \(minimum) files for this operation.")
         case .malformed(let detail):
             String(localized: "“\(file)” could not be processed: \(detail).")
         case .passwordRequired:
