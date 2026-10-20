@@ -53,6 +53,8 @@ public enum InvalidInput: Equatable, Sendable {
     case unmappableCharacter(line: Int)
     case emptyInput
     case noPages
+    case encrypted
+    case tooFewFiles(minimum: Int)
     case malformed(String)
 }
 

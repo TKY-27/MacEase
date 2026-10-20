@@ -18,6 +18,7 @@ public enum OperationPlanner {
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
         case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+        case .pdf: PDFPlanner.operation(for: op, preset: preset).map(OperationOptions.pdf)
         case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
         default: nil
         }
@@ -34,6 +35,8 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .pdf(let operation):
+            return PDFPlanner.batch(operation, op: request.op, inputs: inputs)
         case .text(let operation):
             return TextPlanner.batch(operation, op: request.op, inputs: inputs)
         }
@@ -54,10 +57,24 @@ public enum OperationPlanner {
         lane: Lane = .cpu,
         body: @escaping @Sendable (ItemContext) async throws -> ItemResult
     ) -> WorkItem {
-        WorkItem(inputs: [url], lane: lane) { context in
-            let values = try url.resourceValues(forKeys: [.isDirectoryKey])
-            if kind != .folder, values.isDirectory == true { return .skipped(.isDirectory) }
-            guard try ContentSniffer.matches(url, kind: kind) else { return .skipped(.kindMismatch(expected: kind)) }
+        validated([url], kind: kind, lane: lane, body: body)
+    }
+
+    /// One item covering every input.
+    static func validated(
+        _ urls: [URL],
+        kind: FileKind,
+        lane: Lane = .cpu,
+        body: @escaping @Sendable (ItemContext) async throws -> ItemResult
+    ) -> WorkItem {
+        WorkItem(inputs: urls, lane: lane) { context in
+            for url in urls {
+                let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+                if kind != .folder, values.isDirectory == true { return .skipped(.isDirectory) }
+                guard try ContentSniffer.matches(url, kind: kind) else {
+                    return .skipped(.kindMismatch(expected: kind))
+                }
+            }
             return try await body(context)
         }
     }
