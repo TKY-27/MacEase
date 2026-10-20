@@ -54,6 +54,10 @@ public enum InvalidInput: Equatable, Sendable {
     case emptyInput
     case noPages
     case malformed(String)
+    case passwordRequired
+    case wrongPassword
+    case unsafeArchivePath(String)
+    case archiveExpandsTooMuch(limitBytes: Int64)
 }
 
 public enum Capability: String, Equatable, Sendable {
@@ -72,6 +76,7 @@ public enum SkipReason: Equatable, Sendable {
     case outputNotSmaller
     case noUpscale
     case nothingToRemove
+    case changedSinceScan
     case noTrashAvailable
     case undoTrashItemMissing
     case undoOutputChanged

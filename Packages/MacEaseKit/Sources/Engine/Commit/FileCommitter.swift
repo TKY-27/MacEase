@@ -169,17 +169,22 @@ enum AvailableName {
     private static let compoundExtensions = ["tar.gz", "tar.bz2", "tar.xz", "tar.zst"]
 
     static func url(for name: String, in directory: URL) throws -> URL {
+        directory.appending(
+            path: available(name) { FileManager.default.fileExists(atPath: directory.appending(path: $0).path) })
+    }
+
+    static func available(_ name: String, isTaken: (String) -> Bool) -> String {
         let (base, pathExtension) = split(name)
         var counter = 1
         while true {
             let candidate = counter == 1 ? base : "\(base) (\(counter))"
-            let url = directory.appending(path: pathExtension.isEmpty ? candidate : "\(candidate).\(pathExtension)")
-            if !FileManager.default.fileExists(atPath: url.path) { return url }
+            let numbered = pathExtension.isEmpty ? candidate : "\(candidate).\(pathExtension)"
+            if !isTaken(numbered) { return numbered }
             counter += 1
         }
     }
 
-    private static func split(_ name: String) -> (base: String, pathExtension: String) {
+    static func split(_ name: String) -> (base: String, pathExtension: String) {
         let lowercased = name.lowercased()
         if let compound = compoundExtensions.first(where: { lowercased.hasSuffix(".\($0)") }) {
             let base = String(name.dropLast(compound.count + 1))

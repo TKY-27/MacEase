@@ -18,6 +18,8 @@ public enum OperationPlanner {
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
         case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+        case .folder: FolderPlanner.options(for: op, preset: preset).map(OperationOptions.folder)
+        case .archive: ArchivePlanner.options(for: op, preset: preset).map(OperationOptions.archive)
         default: nil
         }
     }
@@ -33,6 +35,10 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .folder(let operation):
+            return FolderPlanner.batch(operation, op: request.op, folders: inputs, settings: settings)
+        case .archive(let operation):
+            return ArchivePlanner.batch(operation, op: request.op, archives: inputs)
         }
     }
 

@@ -50,6 +50,11 @@ enum UserMessages {
             String(localized: "“\(file)” is already smaller than the requested size.")
         case .nothingToRemove:
             String(localized: "“\(file)” had nothing to remove.")
+        case .changedSinceScan:
+            String(
+                localized: "“\(file)” changed after it was scanned, so it was kept.",
+                comment: "Skip reason when a scanned duplicate or empty folder no longer qualifies"
+            )
         case .noTrashAvailable:
             String(localized: "“\(file)” is on a volume without a Trash.")
         case .undoTrashItemMissing:
@@ -101,6 +106,26 @@ enum UserMessages {
             String(localized: "No pages were selected from “\(file)”.")
         case .malformed(let detail):
             String(localized: "“\(file)” could not be processed: \(detail).")
+        case .passwordRequired:
+            String(
+                localized: "“\(file)” is protected by a password.",
+                comment: "Archive extraction needs a password; the Password panel opens next"
+            )
+        case .wrongPassword:
+            String(
+                localized: "The password for “\(file)” is incorrect.",
+                comment: "Archive extraction failed because the entered password is wrong"
+            )
+        case .unsafeArchivePath(let path):
+            String(
+                localized: "“\(file)” was not extracted because the entry “\(path)” points outside its folder.",
+                comment: "Archive extraction refused a path traversal or absolute entry name"
+            )
+        case .archiveExpandsTooMuch(let limit):
+            String(
+                localized: "“\(file)” was not extracted because it expands to more than \(byteCount(limit)).",
+                comment: "Archive extraction stopped by the zip bomb guard"
+            )
         }
     }
 
