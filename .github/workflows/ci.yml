@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Lint
+        run: make lint
+
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: xcode-26
+            runner: macos-26
+            xcode: "26"
+          - name: xcode-27
+            runner: xcode-27
+            xcode: "27"
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select newest stable Xcode ${{ matrix.xcode }}
+        run: |
+          xcode_app="$(ls -d /Applications/Xcode_${{ matrix.xcode }}*.app | grep -viE 'beta|rc|release_candidate' | sort -V | tail -n 1)"
+          sudo xcode-select --switch "$xcode_app"
+          xcodebuild -version
+
+      - name: Install build tools
+        run: brew install xcodegen cmake meson ninja pkg-config
+
+      - name: Cache native dependencies
+        uses: actions/cache@v4
+        with:
+          path: Vendor/build
+          key: deps-${{ matrix.name }}-${{ hashFiles('Vendor/deps.lock', 'Vendor/patches/**', 'scripts/build-deps.sh') }}
+
+      - name: Build native dependencies
+        run: scripts/build-deps.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Test
+        run: make test
+
+      - name: Build app
+        run: make build

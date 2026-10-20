@@ -1,0 +1,22 @@
+name: Feature request
+description: Suggest a new operation, format, preset, or improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What do you need to do in Finder today that MacEase cannot do well?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Where it appears in the right-click menu, what it produces, and whether it replaces the original or creates a new file.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

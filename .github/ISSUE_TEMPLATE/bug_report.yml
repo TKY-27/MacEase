@@ -1,0 +1,50 @@
+name: Bug report
+description: Something does not work as described.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report. Please search existing issues first.
+  - type: input
+    id: version
+    attributes:
+      label: MacEase version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: "macOS 26.1, MacBook Air M2"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Which menu item, which files (type, size, resolution, codec), which settings.
+      placeholder: |
+        1. Select a 4K HEVC .mov file in Finder
+        2. MacEase > Video > Compress > Discord (20 MB)
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include error messages, screenshots, and whether the original file was affected.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Settings > Advanced > Copy Diagnostics, if available.
+      render: text
