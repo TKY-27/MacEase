@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An app icon, shown in Finder and the About tab.
+
 ## [1.0.0] - 2026-10-21
 
 First release.
