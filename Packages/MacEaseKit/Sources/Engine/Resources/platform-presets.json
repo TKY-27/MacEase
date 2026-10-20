@@ -1,0 +1,51 @@
+[
+  {
+    "id": "discord",
+    "name": { "en": "Discord", "ja": "Discord" },
+    "image": { "maxBytes": 20000000 },
+    "gif": { "maxBytes": 20000000 },
+    "video": { "maxBytes": 20000000, "formats": ["mp4"], "videoCodec": "h264", "audioCodec": "aac" }
+  },
+  {
+    "id": "x",
+    "name": { "en": "X", "ja": "X" },
+    "image": { "maxBytes": 5000000, "formats": ["jpeg", "png", "webp"] },
+    "gif": { "maxBytes": 15000000, "maxWidth": 1280, "maxHeight": 1080, "maxFrames": 350 },
+    "video": {
+      "maxBytes": 512000000, "maxWidth": 1920, "maxHeight": 1080,
+      "formats": ["mp4"], "videoCodec": "h264", "audioCodec": "aac"
+    }
+  },
+  {
+    "id": "instagram",
+    "name": { "en": "Instagram", "ja": "Instagram" },
+    "image": {
+      "maxBytes": 8000000, "maxWidth": 1440, "formats": ["jpeg"],
+      "aspect": { "min": "4:5", "max": "1.91:1", "fit": "crop" }
+    },
+    "video": {
+      "maxWidth": 1080, "maxHeight": 1920, "formats": ["mp4"], "videoCodec": "h264", "audioCodec": "aac",
+      "aspect": { "min": "9:16", "max": "9:16", "fit": "crop" }
+    }
+  },
+  {
+    "id": "line",
+    "name": { "en": "LINE", "ja": "LINE" },
+    "video": {
+      "maxDurationSeconds": 300, "maxWidth": 1920, "maxHeight": 1080,
+      "formats": ["mp4"], "videoCodec": "h264", "audioCodec": "aac"
+    }
+  },
+  {
+    "id": "email",
+    "name": { "en": "Email", "ja": "メール" },
+    "image": { "maxBytes": 18000000 },
+    "gif": { "maxBytes": 18000000 },
+    "video": { "maxBytes": 18000000, "formats": ["mp4"], "videoCodec": "h264", "audioCodec": "aac" }
+  },
+  {
+    "id": "web",
+    "name": { "en": "Web", "ja": "Web" },
+    "image": { "maxWidth": 1920, "maxHeight": 1920, "formats": ["webp"], "quality": 80 }
+  }
+]

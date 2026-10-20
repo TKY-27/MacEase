@@ -1,0 +1,40 @@
+// swift-tools-version: 6.2
+import Foundation
+import PackageDescription
+
+let nativeFramework = "Native/CNative.xcframework"
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+guard FileManager.default.fileExists(atPath: packageRoot.appending(path: nativeFramework).path) else {
+    fatalError("Native dependencies are missing. Run scripts/build-deps.sh from the repository root.")
+}
+
+let strict: [SwiftSetting] = [.treatAllWarnings(as: .error)]
+
+let package = Package(
+    name: "MacEaseKit",
+    defaultLocalization: "en",
+    platforms: [.macOS("26.0")],
+    products: [
+        .library(name: "MenuCatalog", targets: ["MenuCatalog"]),
+        .library(name: "Engine", targets: ["Engine"]),
+    ],
+    targets: [
+        .target(name: "MenuCatalog", swiftSettings: strict),
+        .binaryTarget(name: "CNative", path: nativeFramework),
+        .target(
+            name: "Formats",
+            dependencies: ["CNative"],
+            swiftSettings: strict,
+            linkerSettings: [.linkedLibrary("c++"), .linkedLibrary("z"), .linkedLibrary("bz2")]
+        ),
+        .target(
+            name: "Engine",
+            dependencies: ["MenuCatalog", "Formats"],
+            resources: [.process("Resources")],
+            swiftSettings: strict
+        ),
+        .testTarget(name: "MenuCatalogTests", dependencies: ["MenuCatalog"], swiftSettings: strict),
+        .testTarget(name: "FormatsTests", dependencies: ["Formats"], swiftSettings: strict),
+        .testTarget(name: "EngineTests", dependencies: ["Engine"], swiftSettings: strict),
+    ]
+)

@@ -1,0 +1,101 @@
+name: MacEase
+
+options:
+  bundleIdPrefix: io.github.tky27
+  developmentLanguage: en
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ARCHS: arm64
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Debug:
+      MACEASE_BUNDLE_ID: io.github.tky27.MacEase.dev
+      MACEASE_DISPLAY_NAME: MacEase Dev
+      MACEASE_URL_SCHEME: macease-dev
+      MACEASE_SUPPORT_FOLDER: MacEase Dev
+    Release:
+      MACEASE_BUNDLE_ID: io.github.tky27.MacEase
+      MACEASE_DISPLAY_NAME: MacEase
+      MACEASE_URL_SCHEME: macease
+      MACEASE_SUPPORT_FOLDER: MacEase
+
+packages:
+  MacEaseKit:
+    path: Packages/MacEaseKit
+
+targets:
+  MacEase:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+      - path: Vendor/build/cfr.jar
+        buildPhase: resources
+      - path: Vendor/build/THIRD_PARTY_NOTICES.txt
+        buildPhase: resources
+    dependencies:
+      - package: MacEaseKit
+        product: Engine
+      - package: MacEaseKit
+        product: MenuCatalog
+      - target: MacEaseFinderSync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MACEASE_BUNDLE_ID)
+        PRODUCT_NAME: $(MACEASE_DISPLAY_NAME)
+        PRODUCT_MODULE_NAME: MacEase
+        INFOPLIST_FILE: App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_APP_SANDBOX: NO
+
+  MacEaseFinderSync:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FinderSync
+        excludes:
+          - Info.plist
+          - FinderSync.entitlements
+    dependencies:
+      - package: MacEaseKit
+        product: MenuCatalog
+      - sdk: FinderSync.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MACEASE_BUNDLE_ID).FinderSync
+        PRODUCT_NAME: MacEaseFinderSync
+        PRODUCT_MODULE_NAME: MacEaseFinderSync
+        INFOPLIST_FILE: FinderSync/Info.plist
+        CODE_SIGN_ENTITLEMENTS: FinderSync/FinderSync.entitlements
+        ENABLE_APP_SANDBOX: YES
+
+schemes:
+  MacEase:
+    build:
+      targets:
+        MacEase: all
+    run:
+      config: Debug
+    archive:
+      config: Release

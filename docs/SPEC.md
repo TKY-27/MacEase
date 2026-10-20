@@ -190,9 +190,10 @@ UTF-8 or target encoding for text).
 **Replace sequence.**
 
 1. If the output name equals the original name: clone the original
-   (`clonefile`, falling back to copy on non-APFS volumes) to a sibling with a
-   hidden temporary name, move the clone to the Trash with `trashItem` and record
-   the resulting URL, then `FileManager.replaceItemAt(original, withItemAt: output)`.
+   (`clonefile`, falling back to copy on non-APFS volumes) into the item's
+   staging directory under its own name, move the clone to the Trash with
+   `trashItem` and record the resulting URL, then
+   `FileManager.replaceItemAt(original, withItemAt: output)` (ADR 0007).
 2. If the output name differs (extension changes): move the output to its final
    name next to the original, then move the original to the Trash and record the
    resulting URL. A crash between the steps leaves both files, never neither.
@@ -252,7 +253,7 @@ xcframeworks into `Vendor/build/` (ignored by git, cached in CI).
 | libavif | BSD-2-Clause | AVIF encode and decode | CMake, with dav1d and libaom |
 | libaom | BSD-2-Clause + AOM Patent License 1.0 | AV1 encoding for AVIF stills | CMake |
 | dav1d | BSD-2-Clause | AV1 decoding (AVIF fallback, AV1 video on chips without hardware AV1) | Meson and Ninja |
-| libjxl (+ highway, brotli) | BSD-3-Clause, Apache-2.0 (highway), MIT (brotli) | JPEG XL encoding | CMake, bundled third_party |
+| libjxl (+ highway, brotli, skcms) | BSD-3-Clause, Apache-2.0 (highway), MIT (brotli), BSD-3-Clause (skcms) | JPEG XL encoding | CMake, bundled third_party at the commits libjxl pins |
 | libvpx | BSD-3-Clause + patents | VP8 and VP9 encode and decode, including alpha | configure with an explicit `--target=arm64-darwin*-gcc` |
 | libopus | BSD-3-Clause | Opus encode and decode | CMake |
 | libogg, libvorbis | BSD-3-Clause | Ogg paging, Vorbis encode and decode | CMake |
@@ -563,8 +564,10 @@ preset.
 
 Schema: `{ "id", "name": {"en", "ja"}, "image": {...}?, "gif": {...}?, "video": {...}?, "audio": {...}? }`
 with optional fields `maxBytes`, `maxWidth`, `maxHeight`, `maxFrames`,
-`maxDurationSeconds`, `aspect` (`"9:16"` with `"crop"` or `"letterbox"`),
-`format`, `videoCodec`, `audioCodec`.
+`maxDurationSeconds`, `aspect` (`{"min": "4:5", "max": "1.91:1", "fit": "crop"}`,
+fit `crop` or `letterbox`), `formats` (accepted formats; the source format is
+kept when listed, otherwise the first is used), `videoCodec`, `audioCodec` and
+`quality` (0 to 100).
 
 Defaults (checked October 2026; values change, so they are editable):
 
@@ -703,8 +706,8 @@ check.
   - `build-26` on `macos-26` with the newest installed Xcode 26: build native
     dependencies (cached by the hash of `Vendor/deps.lock` and the build script),
     `swift test`, and `xcodebuild build` of the app in Debug.
-  - `build-27` on the `xcode-27` image (public preview at the time of writing)
-    with Xcode 27: the same steps.
+  - `build-27` on the `xcode-27` image (generally available since
+    2026-10-15) with Xcode 27: the same steps.
 - **Signing.** Releases are signed with a self-signed code-signing certificate
   ("MacEase Release"), not notarized. A stable certificate keeps macOS privacy
   grants (TCC) and the Finder extension's enabled state across updates, which
@@ -742,3 +745,7 @@ check.
 
 - 2026-10-20: Initial specification after chat discussion, Finder Sync spikes on
   macOS 27.0.1, and an independent review.
+- 2026-10-20: Same-name replace clones into staging instead of a hidden sibling
+  (ADR 0007). skcms listed with libjxl. Preset schema uses `formats`, an
+  `aspect` range object and `quality`, which the default table needs. The
+  `xcode-27` runner image is generally available.

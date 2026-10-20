@@ -1,0 +1,22 @@
+# name version license sha256 url license-files
+# License files are comma-separated; "-" means none.
+# highway, brotli, skcms: commits libjxl pins.
+libdeflate 1.26 MIT 125856d4656e0feab660f94842f835923410c9281fedbcee64598c918da42b5a https://github.com/ebiggers/libdeflate/releases/download/v1.26/libdeflate-1.26.tar.gz COPYING
+xz 5.8.4 0BSD 4ce24038fd4221e0d13bc1a2de7a4db56e90b92b3bf75321f6c14be73f65de4b https://github.com/tukaani-project/xz/releases/download/v5.8.4/xz-5.8.4.tar.xz COPYING,COPYING.0BSD
+zstd 1.5.7 BSD-3-Clause eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3 https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz LICENSE
+libogg 1.3.6 BSD-3-Clause 5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061 https://downloads.xiph.org/releases/ogg/libogg-1.3.6.tar.xz COPYING
+libvorbis 1.3.7 BSD-3-Clause b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz COPYING
+opus 1.6.1 BSD-3-Clause 6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1 https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz COPYING
+flac 1.5.0 BSD-3-Clause f2c1c76592a82ffff8413ba3c4a1299b6c7ab06c734dee03fd88630485c2b920 https://downloads.xiph.org/releases/flac/flac-1.5.0.tar.xz COPYING.Xiph
+libwebp 1.6.0 BSD-3-Clause e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564 https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz COPYING,PATENTS
+libaom 3.15.2 BSD-2-Clause 67bb54b245f33ed98600e08269e6139986e48114e14042474ddd8885801dfddc https://storage.googleapis.com/aom-releases/libaom-3.15.2.tar.gz LICENSE,PATENTS
+dav1d 1.5.4 BSD-2-Clause 686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5 https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz COPYING
+libavif 1.4.2 BSD-2-Clause 2b645287340ba5a631d268b551dc2d72bd73ac33335962dd36dcdb6d8366921d https://github.com/AOMediaCodec/libavif/archive/refs/tags/v1.4.2.tar.gz LICENSE
+highway 457c891775a7397bdb0376bb1031e6e027af1c48 Apache-2.0 5124b0501c98d9930dbb065bfa1a5bbbd59ce0f12facb7e1e33aaef01a5f1f1a https://github.com/google/highway/archive/457c891775a7397bdb0376bb1031e6e027af1c48.tar.gz LICENSE
+brotli 028fb5a23661f123017c060daa546b55cf4bde29 MIT 0afe09a53c8bad9861c8dd1fc1284308d54f19d2979ba3541cfdcc9b05fe360f https://github.com/google/brotli/archive/028fb5a23661f123017c060daa546b55cf4bde29.tar.gz LICENSE
+skcms 96d9171c94b937a1b5f0293de7309ac16311b722 BSD-3-Clause 9bb4b5bba0b7c04f6c2bce9ff713d61e23c9a20c4945161ae16290498ad74627 https://github.com/google/skcms/archive/96d9171c94b937a1b5f0293de7309ac16311b722.tar.gz LICENSE
+libjxl 0.12.0 BSD-3-Clause 03e9be69a30be4011f559da75328b6d7cea8ad921fabfbd551ce10bf45cdc992 https://github.com/libjxl/libjxl/archive/refs/tags/v0.12.0.tar.gz LICENSE,PATENTS
+libvpx 1.17.0 BSD-3-Clause 1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a https://github.com/webmproject/libvpx/archive/refs/tags/v1.17.0.tar.gz LICENSE,PATENTS
+libarchive 3.8.10 BSD-2-Clause 56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96 https://www.libarchive.org/downloads/libarchive-3.8.10.tar.xz COPYING
+cfr 0.152 MIT f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2 https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar -
+cfr-license 0.152 MIT d0b36fd265410a15e634220fdc6101976582799a09c69764f44bc21c21611527 https://raw.githubusercontent.com/leibnitz27/cfr/0.152/LICENSE -
