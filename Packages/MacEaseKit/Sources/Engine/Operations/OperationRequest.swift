@@ -40,6 +40,9 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .rename(let plans):
+            let items = plans.map { plan in WorkItem(inputs: [plan.url]) { _ in .rename([plan]) } }
+            return Batch(operation: request.op, items: items)
         case .video(let operation):
             return VideoPlanner.batch(operation, op: request.op, inputs: inputs)
         case .folder(let operation):

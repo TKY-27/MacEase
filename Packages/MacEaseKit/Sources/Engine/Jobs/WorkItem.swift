@@ -58,7 +58,7 @@ public enum OutputCheck: Sendable {
     case decompressed
 }
 
-public struct RenamePlan: Equatable, Sendable {
+public struct RenamePlan: Codable, Hashable, Sendable {
     public let url: URL
     public let newName: String
 

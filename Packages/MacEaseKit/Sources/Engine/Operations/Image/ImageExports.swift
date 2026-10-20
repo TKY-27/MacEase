@@ -2,7 +2,6 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import Vision
 
 /// Text, PDF, icon and data URI outputs.
 enum ImageExports {
@@ -13,14 +12,8 @@ enum ImageExports {
 
     static func recognizeText(_ url: URL, output: TextOutput, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
-        var request = RecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        let languages = context.settings.intelligence.ocrLanguages
-        request.automaticallyDetectsLanguage = true
-        if !languages.isEmpty { request.recognitionLanguages = languages.map(Locale.Language.init(identifier:)) }
-        let observations = try await request.perform(on: document.first)
-        let text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        let text = try await TextRecognition.text(
+            in: document.first, languages: context.settings.intelligence.ocrLanguages)
         guard !text.isEmpty else { return .skipped(.noTextFound) }
         switch output {
         case .clipboard: return .text(text, .clipboard)

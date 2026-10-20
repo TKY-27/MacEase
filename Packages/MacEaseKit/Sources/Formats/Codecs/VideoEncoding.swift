@@ -12,6 +12,7 @@ public struct VideoEncoding: Sendable {
         case hevc
         case vp9
         case mjpeg
+        case prores4444
     }
 
     public var codec: Codec
@@ -23,7 +24,7 @@ public struct VideoEncoding: Sendable {
     /// 0 to 1.
     public var quality = 0.7
     public var keyframeInterval = 2 * Nanoseconds.perSecond
-    /// VP9 only; alpha travels in BlockAdditions.
+    /// ProRes 4444 keeps alpha regardless.
     public var alpha = false
 
     public init(codec: Codec, width: Int, height: Int, frameDuration: Int64, bitrate: Int?) {
@@ -40,6 +41,7 @@ public struct VideoEncoding: Sendable {
         case .hevc: .hevc
         case .vp9: .vp9
         case .mjpeg: .mjpeg
+        case .prores4444: .prores
         }
     }
 }
@@ -47,6 +49,8 @@ public struct VideoEncoding: Sendable {
 public protocol VideoFrameEncoder {
     /// Complete after the first packet.
     var track: MediaTrack { get }
+    /// AVAssetWriter needs it for ProRes.
+    var formatDescription: CMFormatDescription? { get }
     /// BGRA in, decode order out.
     mutating func encode(_ image: CVPixelBuffer, timestamp: Int64) throws -> [MediaPacket]
     mutating func finish() throws -> [MediaPacket]
@@ -55,7 +59,7 @@ public protocol VideoFrameEncoder {
 public enum VideoEncoders {
     public static func make(_ settings: VideoEncoding, track number: Int) throws -> any VideoFrameEncoder {
         switch settings.codec {
-        case .h264, .hevc: try ToolboxFrameEncoder(settings, number: number)
+        case .h264, .hevc, .prores4444: try ToolboxFrameEncoder(settings, number: number)
         case .vp9: try LibVPXFrameEncoder(settings, number: number)
         case .mjpeg: JPEGFrameEncoder(settings, number: number)
         }
@@ -70,10 +74,11 @@ public enum VideoEncoders {
     }
 }
 
-/// VideoToolbox H.264 High or HEVC Main.
+/// H.264, HEVC with alpha, or ProRes 4444.
 final class ToolboxFrameEncoder: VideoFrameEncoder {
     private let bitsPerByte = 8
     private(set) var track: MediaTrack
+    private(set) var formatDescription: CMFormatDescription?
     private let session: VTCompressionSession
     private let settings: VideoEncoding
     private let output = CallbackResults<CMSampleBuffer> { .encoderFailure("VideoToolbox frame (\($0))") }
@@ -81,7 +86,13 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
     init(_ settings: VideoEncoding, number: Int) throws {
         self.settings = settings
         track = VideoEncoders.track(settings, number: number)
-        let codecType = settings.codec == .h264 ? kCMVideoCodecType_H264 : kCMVideoCodecType_HEVC
+        let codecType =
+            switch settings.codec {
+            case .h264: kCMVideoCodecType_H264
+            case .hevc where settings.alpha: kCMVideoCodecType_HEVCWithAlpha
+            case .prores4444: kCMVideoCodecType_AppleProRes4444
+            default: kCMVideoCodecType_HEVC
+            }
         var created: VTCompressionSession?
         var status = VTCompressionSessionCreate(
             allocator: nil, width: Int32(settings.width), height: Int32(settings.height), codecType: codecType,
@@ -90,26 +101,29 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
         )
         guard status == noErr, let created else { throw FormatError.encoderFailure("VideoToolbox session (\(status))") }
         session = created
-        let profile =
-            settings.codec == .h264
-            ? kVTProfileLevel_H264_High_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
         var properties: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime: false,
-            kVTCompressionPropertyKey_ProfileLevel: profile,
-            kVTCompressionPropertyKey_AllowFrameReordering: true,
             kVTCompressionPropertyKey_ExpectedFrameRate: Double(Nanoseconds.perSecond) / Double(settings.frameDuration),
-            kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration:
-                Double(settings.keyframeInterval) / Double(Nanoseconds.perSecond),
             kVTCompressionPropertyKey_ColorPrimaries: kCVImageBufferColorPrimaries_ITU_R_709_2,
             kVTCompressionPropertyKey_TransferFunction: kCVImageBufferTransferFunction_ITU_R_709_2,
             kVTCompressionPropertyKey_YCbCrMatrix: kCVImageBufferYCbCrMatrix_ITU_R_709_2,
         ]
-        if let bitrate = settings.bitrate {
-            properties[kVTCompressionPropertyKey_AverageBitRate] = bitrate
-            // Hardware encoders overshoot averages on noisy content.
-            properties[kVTCompressionPropertyKey_DataRateLimits] = [bitrate / bitsPerByte, 1] as CFArray
-        } else {
-            properties[kVTCompressionPropertyKey_Quality] = settings.quality
+        if settings.codec != .prores4444 {
+            properties[kVTCompressionPropertyKey_ProfileLevel] =
+                settings.codec == .h264 ? kVTProfileLevel_H264_High_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
+            properties[kVTCompressionPropertyKey_AllowFrameReordering] = true
+            properties[kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration] =
+                Double(settings.keyframeInterval) / Double(Nanoseconds.perSecond)
+            if let bitrate = settings.bitrate {
+                properties[kVTCompressionPropertyKey_AverageBitRate] = bitrate
+                // Hardware encoders overshoot averages on noisy content.
+                properties[kVTCompressionPropertyKey_DataRateLimits] = [bitrate / bitsPerByte, 1] as CFArray
+            } else {
+                properties[kVTCompressionPropertyKey_Quality] = settings.quality
+            }
+        }
+        if codecType == kCMVideoCodecType_HEVCWithAlpha {
+            properties[kVTCompressionPropertyKey_TargetQualityForAlpha] = settings.quality
         }
         status = VTSessionSetProperties(session, propertyDictionary: properties as CFDictionary)
         guard status == noErr else { throw FormatError.encoderFailure("VideoToolbox properties (\(status))") }
@@ -143,7 +157,8 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
 
     private func drained() throws -> [MediaPacket] {
         let samples = try output.take()
-        if track.codecPrivate == nil, let format = samples.first.flatMap(CMSampleBufferGetFormatDescription) {
+        if formatDescription == nil, let format = samples.first.flatMap(CMSampleBufferGetFormatDescription) {
+            formatDescription = format
             track.codecPrivate = VideoFormat.decoderConfiguration(of: format)
         }
         return try samples.flatMap { try SampleBuffers.packets(from: $0, track: track.number) }
@@ -194,6 +209,7 @@ extension SampleBuffers {
 /// VP9 alpha is a second gray stream.
 final class LibVPXFrameEncoder: VideoFrameEncoder {
     private(set) var track: MediaTrack
+    let formatDescription: CMFormatDescription? = nil
     private let settings: VideoEncoding
     private let color: VPXEncoder
     private let alpha: VPXEncoder?
@@ -251,6 +267,7 @@ final class LibVPXFrameEncoder: VideoFrameEncoder {
 /// ImageIO baseline JPEG per frame.
 final class JPEGFrameEncoder: VideoFrameEncoder {
     let track: MediaTrack
+    let formatDescription: CMFormatDescription? = nil
     private let quality: Double
 
     init(_ settings: VideoEncoding, number: Int) {
