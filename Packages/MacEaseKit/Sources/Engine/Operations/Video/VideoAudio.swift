@@ -247,17 +247,23 @@ enum VideoAudio {
     /// Rounding jitter, not a real gap.
     private static let gapToleranceFrames: Int64 = 2
 
-    static func extract(_ format: AudioFormat, url: URL, context: ItemContext) async throws -> ItemResult {
+    static func extract(
+        _ format: AudioFormat, kilobits: Int? = nil, url: URL, context: ItemContext
+    ) async throws -> ItemResult {
         let input = try await MediaInput.open(url)
         guard let track = input.audio, case .audio(let sampleRate, _) = track.kind else {
             throw EngineError.invalidInput(.malformed("no audio track"))
         }
         let name = url.deletingPathExtension().lastPathComponent + "." + format.fileExtension
         let output = try context.stagingURL(for: url, name: name)
-        if canCopy(track, to: format) {
+        if kilobits == nil, canCopy(track, to: format) {
             try await copy(input, track: track, format: format, to: output, progress: context.progress)
         } else {
-            let target = AudioTarget.defaults(for: format, settings: context.settings.audio)
+            var target = AudioTarget.defaults(for: format, settings: context.settings.audio)
+            if let kilobits {
+                target.kilobits = kilobits
+                target.variableQuality = nil
+            }
             try await encode(input, track: track, sampleRate: sampleRate, target: target, to: output) {
                 context.progress($0)
             }

@@ -184,11 +184,7 @@ import Testing
         let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
         let preset = try #require(library.bundled.first { $0.id == "line" })
         let result = try await run(VideoPlanner.compression(for: preset, settings: Settings()), on: url)
-        guard case .failed(.invalidInput(.malformed(let message))) = result else {
-            Issue.record("expected duration refusal, got \(result)")
-            return
-        }
-        #expect(message.contains("Trim"))
+        #expect(result == .failed(.invalidInput(.tooLong(limitSeconds: 300))))
         #expect(try Data(contentsOf: url) == original)
     }
 

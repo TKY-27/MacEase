@@ -61,6 +61,7 @@ public enum InvalidInput: Equatable, Sendable {
     case wrongPassword
     case unsafeArchivePath(String)
     case archiveExpandsTooMuch(limitBytes: Int64)
+    case tooLong(limitSeconds: Double)
 }
 
 public enum Capability: String, Equatable, Sendable {

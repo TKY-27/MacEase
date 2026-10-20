@@ -32,7 +32,7 @@ enum VideoCompressor {
         if let maximum = destination.limits.maxDurationSeconds,
             Double(input.duration) / Double(Nanoseconds.perSecond) > maximum
         {
-            throw EngineError.invalidInput(.malformed("This preset allows at most \(maximum) seconds. Use Trim first."))
+            throw EngineError.invalidInput(.tooLong(limitSeconds: maximum))
         }
         var edit = geometry(input, limits: destination.limits)
         var encoding = VideoEncoding(

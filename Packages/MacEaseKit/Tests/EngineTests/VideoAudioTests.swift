@@ -127,6 +127,27 @@ import Testing
         #expect((encoded.frameCount ?? 0) > 0)
     }
 
+    @Test func extractAudioWithChosenBitrateReencodesAAC() async throws {
+        let source = try fixture()
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: source.deletingLastPathComponent()),
+            progress: { _ in })
+        defer { context.removeStaging() }
+        let kilobits = 64
+        let bitrateTolerance = 0.2
+        let result = try await VideoAudio.extract(.m4aAAC, kilobits: kilobits, url: source, context: context)
+        guard case .derived(_, let outputs) = result, let output = outputs.first else {
+            Issue.record("expected a staged M4A")
+            return
+        }
+        #expect(try AudioInput(url: output.url).codec == .aac)
+        #expect(try await assetPackets(output.url) != (try await assetPackets(source)))
+        let track = try #require(try await AVURLAsset(url: output.url).loadTracks(withMediaType: .audio).first)
+        let rate = try await track.load(.estimatedDataRate)
+        #expect(
+            abs(Double(rate) - Double(kilobits * 1_000)) < Double(kilobits * 1_000) * bitrateTolerance, "\(rate) bps")
+    }
+
     @Test func stagedPCMCopyPreservesSignedEndpoints() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "VideoPCM-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

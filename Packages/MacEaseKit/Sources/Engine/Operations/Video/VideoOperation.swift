@@ -59,7 +59,8 @@ public enum VideoOperation: Codable, Hashable, Sendable {
     case removeAudio
     case convert(OutputContainer)
     case compress(VideoCompression)
-    case extractAudio(AudioFormat)
+    /// `nil` kilobits copies when possible.
+    case extractAudio(AudioFormat, kilobits: Int? = nil)
     case still(VideoStill)
     case gif(AnimationRendering)
     case apng(AnimationRendering)
@@ -94,7 +95,7 @@ enum VideoPlanner {
             return compression(preset, settings: settings).map(VideoOperation.compress)
         case .videoExtractAudio:
             if preset == "m4a" { return .extractAudio(.m4aAAC) }
-            return AudioFormat(rawValue: preset).map(VideoOperation.extractAudio)
+            return AudioFormat(rawValue: preset).map { .extractAudio($0) }
         case .videoThumbnail:
             return ["first": VideoStill.first, "middle": .middle][preset].map(VideoOperation.still)
         case .videoToGIF:
@@ -170,7 +171,8 @@ enum VideoPlanner {
             OperationPlanner.validated(url, kind: .video, lane: lane) { context in
                 switch operation {
                 case .compress(let compression): try await VideoCompressor.run(compression, url: url, context: context)
-                case .extractAudio(let format): try await VideoAudio.extract(format, url: url, context: context)
+                case .extractAudio(let format, let kilobits):
+                    try await VideoAudio.extract(format, kilobits: kilobits, url: url, context: context)
                 case .still(let still): try await VideoStills.run(still, url: url, context: context)
                 case .gif(let rendering): try await VideoAnimations.gif(rendering, url: url, context: context)
                 case .apng(let rendering): try await VideoAnimations.apng(rendering, url: url, context: context)
