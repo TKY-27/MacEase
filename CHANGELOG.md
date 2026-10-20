@@ -10,3 +10,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Project specification, architecture decision records and repository scaffolding.
+- Custom… panels for video compression, animated WebP, video background,
+  subtitles and audio extraction; LINE clips over five minutes open Trim first.
