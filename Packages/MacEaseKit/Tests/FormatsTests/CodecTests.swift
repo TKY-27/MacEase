@@ -54,7 +54,7 @@ private func opaque(_ rgba: [UInt8]) -> [UInt8] {
         let source = translucentP3Photo()
         let data = try WebPEncoder.encode(source, quality: 90)
         try expectStill(data, matches: source, minimumSSIM: 0.9)
-        let lossless = try WebPEncoder.encode(source, quality: 100, lossless: true)
+        let lossless = try WebPEncoder.encode(source, quality: WebPEncoder.losslessQuality)
         let pixels = try PixelBuffer(cgImage: try decode(lossless).image)
         #expect(opaque(pixels.rgba)[4_000..<4_400] == opaque(source.rgba)[4_000..<4_400])
     }

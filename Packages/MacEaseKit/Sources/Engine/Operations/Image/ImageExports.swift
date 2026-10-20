@@ -17,7 +17,7 @@ enum ImageExports {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         let languages = context.settings.intelligence.ocrLanguages
-        request.automaticallyDetectsLanguage = languages.isEmpty
+        request.automaticallyDetectsLanguage = true
         if !languages.isEmpty { request.recognitionLanguages = languages.map(Locale.Language.init(identifier:)) }
         let observations = try await request.perform(on: document.first)
         let text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
@@ -109,7 +109,6 @@ enum ImageExports {
         {
             return mime
         }
-        let header = String(decoding: data.prefix(SVGRenderer.sniffLength), as: UTF8.self).lowercased()
-        return header.contains("<svg") ? UTType.svg.preferredMIMEType : nil
+        return SVGRenderer.isSVG(data) ? UTType.svg.preferredMIMEType : nil
     }
 }

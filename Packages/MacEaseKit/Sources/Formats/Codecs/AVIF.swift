@@ -8,7 +8,7 @@ public enum AVIFEncoder {
     static let speed: Int32 = 6
     static let bitDepth: UInt32 = 8
 
-    public static func encode(_ pixels: PixelBuffer, quality: Int, xmp: Data? = nil) throws -> Data {
+    public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
         guard
             let image = avifImageCreate(UInt32(pixels.width), UInt32(pixels.height), bitDepth, AVIF_PIXEL_FORMAT_YUV420)
         else { throw FormatError.encoderFailure("AVIF image allocation") }
@@ -34,7 +34,7 @@ public enum AVIFEncoder {
 
         guard let encoder = avifEncoderCreate() else { throw FormatError.encoderFailure("AVIF encoder allocation") }
         defer { avifEncoderDestroy(encoder) }
-        let clamped = Int32(min(max(quality, 0), 100))
+        let clamped = Int32(min(max(quality, 0), 100).rounded())
         encoder.pointee.quality = clamped
         encoder.pointee.qualityAlpha = clamped
         encoder.pointee.speed = speed

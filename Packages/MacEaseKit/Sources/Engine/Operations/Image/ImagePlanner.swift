@@ -1,5 +1,6 @@
 import Foundation
 import MenuCatalog
+import os
 
 public enum ImagePlanner {
     /// `nil` when a panel must ask first.
@@ -29,7 +30,7 @@ public enum ImagePlanner {
     /// For presets edited in Settings.
     public static func compression(for preset: PlatformPreset, settings: Settings) -> ImageCompression {
         ImageCompression(
-            goal: .platform(preset), allowsDownscale: true,
+            goal: .platform(preset), allowsDownscale: settings.video.allowDownscale,
             allowsFrameRateReduction: settings.video.allowFrameRateReduction,
             stripsGPS: !settings.image.keepGPSOnPlatformPresets)
     }
@@ -87,9 +88,17 @@ public enum ImagePlanner {
             return ImageCompression(
                 goal: .level(level), allowsDownscale: false, allowsFrameRateReduction: false, stripsGPS: false)
         }
-        let bundled = try? PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory).bundled
-        return bundled?.first { $0.id == preset }.map { compression(for: $0, settings: settings) }
+        do {
+            // Reading `bundled` never touches the directory.
+            let bundled = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory).bundled
+            return bundled.first { $0.id == preset }.map { compression(for: $0, settings: settings) }
+        } catch {
+            logger.error("Bundled presets unreadable: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
+
+    private static let logger = Logger(category: "image")
 
     private static func background(_ preset: String, settings: ImageSettings) -> BackgroundOptions? {
         switch preset {

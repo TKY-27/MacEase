@@ -4,7 +4,7 @@ import Foundation
 import ImageIO
 
 struct EncodeOptions {
-    var quality: Int
+    var quality: Double
     var loops = true
     var metadata: CGImageMetadata?
     var gainMap: CFDictionary?
@@ -19,8 +19,10 @@ struct EncodeOptions {
 
 /// Callers pass only frames the format keeps.
 enum ImageEncoder {
-    static let maximumQuality = 100
+    static let maximumQuality = 100.0
     static let maximumICOEdge = 256
+    /// Fill behind transparency in opaque formats.
+    static let opaqueBackground = RGBColor.white
     private static let pointsPerInch = 72.0
 
     static func encode(_ frames: [ImageFrame], as format: ImageFormat, options: EncodeOptions) throws -> Data {
@@ -47,15 +49,8 @@ enum ImageEncoder {
         case .jxl:
             return try JXLEncoder.encode(
                 PixelBuffer(cgImage: first.image), quality: options.quality, xmp: xmp(options.metadata))
-        case .png where frames.count == 1 && options.pngColors != nil:
-            let pixels = try PixelBuffer(cgImage: first.image)
-            let chunks = try PNGFile.metadataChunks(
-                iccProfile: pixels.colorSpace.name == PixelBuffer.sRGB.name
-                    ? nil : pixels.colorSpace.copyICCData() as Data?,
-                xmp: xmp(options.metadata))
-            return try PNGQuantizer.encode(
-                pixels, colors: options.pngColors ?? 256, dithering: options.dithering, ancillary: chunks)
         case .png where frames.count == 1:
+            if let colors = options.pngColors { return try quantized(first.image, colors: colors, options: options) }
             let data = try imageIO(frames, as: format, options: options)
             return options.optimizesPNG ? try PNGOptimizer.optimize(data) : data
         case .ico:
@@ -74,7 +69,24 @@ enum ImageEncoder {
     }
 
     static func xmp(_ metadata: CGImageMetadata?) -> Data? {
-        metadata.flatMap { CGImageMetadataCreateXMPData($0, nil) as Data? }
+        upright(metadata).flatMap { CGImageMetadataCreateXMPData($0, nil) as Data? }
+    }
+
+    private static func quantized(_ image: CGImage, colors: Int, options: EncodeOptions) throws -> Data {
+        let pixels = try PixelBuffer(cgImage: image)
+        let profile = pixels.colorSpace.name == PixelBuffer.sRGB.name ? nil : pixels.colorSpace.copyICCData() as Data?
+        let chunks = try PNGFile.metadataChunks(iccProfile: profile, xmp: xmp(options.metadata))
+        return try PNGQuantizer.encode(pixels, colors: colors, dithering: options.dithering, ancillary: chunks)
+    }
+
+    /// ImageIO's own flattening color is undefined.
+    static func flattened(_ image: CGImage) throws -> CGImage {
+        guard ![.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) else { return image }
+        return try ImagePixels.draw(
+            width: image.width, height: image.height, like: image, fill: ImagePixels.color(opaqueBackground)
+        ) { context in
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
     }
 
     /// Decoded pixels are already upright.
@@ -95,7 +107,7 @@ enum ImageEncoder {
         else { throw EngineError.unsupportedCodec(format.rawValue) }
         var settings: [CFString: Any] = [:]
         if format.usesQuality {
-            settings[kCGImageDestinationLossyCompressionQuality] = Double(options.quality) / Double(maximumQuality)
+            settings[kCGImageDestinationLossyCompressionQuality] = options.quality / maximumQuality
         }
         if animated, let keys = AnimationKeys(type: format.contentType) {
             CGImageDestinationSetProperties(
@@ -108,7 +120,8 @@ enum ImageEncoder {
         } else {
             let metadata = format.holdsMetadata ? upright(options.metadata) : nil
             for frame in frames {
-                CGImageDestinationAddImageAndMetadata(destination, frame.image, metadata, settings as CFDictionary)
+                let image = format.holdsAlpha ? frame.image : try flattened(frame.image)
+                CGImageDestinationAddImageAndMetadata(destination, image, metadata, settings as CFDictionary)
             }
             if let gainMap = options.gainMap, [.jpeg, .heic].contains(format) {
                 CGImageDestinationAddAuxiliaryDataInfo(destination, kCGImageAuxiliaryDataTypeISOGainMap, gainMap)

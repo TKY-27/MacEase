@@ -142,6 +142,29 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
         }
     }
 
+    @Test func convertedOutputsAreUprightWithOrientationOne() async throws {
+        let folder = try TestVolume.makeFolder()
+        for format in [ImageFormat.webp, .avif, .jxl, .png] {
+            let input = try Fixture.write(
+                [try Fixture.photo(width: 80, height: 40)], as: .jpeg, to: folder.appending(path: "o-\(format).jpg"),
+                frameProperties: exifProperties.merging([kCGImagePropertyOrientation: 6]) { first, _ in first })
+            let outcome = try await Fixture.run(.imageConvert, preset: format.rawValue, inputs: [input])
+            let output = try Fixture.output(of: outcome)
+            #expect(try Fixture.properties(output)[kCGImagePropertyOrientation] as? Int ?? 1 == 1, "\(format)")
+            let image = try Fixture.image(output)
+            #expect(image.width == 40 && image.height == 80, "\(format)")
+        }
+    }
+
+    @Test func transparentSourcesFlattenOntoWhiteInJPEG() async throws {
+        let folder = try TestVolume.makeFolder()
+        let input = try Fixture.write(
+            [try Fixture.disc(background: nil)], as: .png, to: folder.appending(path: "clear.png"))
+        let outcome = try await Fixture.run(.imageConvert, preset: "jpeg", inputs: [input])
+        let corner = try Fixture.pixel(try Fixture.image(try Fixture.output(of: outcome)), x: 2, y: 2)
+        #expect(corner[0] > 245 && corner[1] > 245 && corner[2] > 245)
+    }
+
     @Test func convertKeepsAnimationOnlyWhereTheFormatHoldsIt() async throws {
         let folder = try TestVolume.makeFolder()
         let webP = try await Fixture.run(.imageConvert, preset: "webp", inputs: [try animatedGIF(in: folder)])

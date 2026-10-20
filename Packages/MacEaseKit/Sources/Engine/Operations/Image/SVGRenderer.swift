@@ -5,6 +5,11 @@ import WebKit
 @MainActor
 enum SVGRenderer {
     nonisolated static let sniffLength = 4096
+
+    nonisolated static func isSVG(_ data: Data) -> Bool {
+        String(decoding: data.prefix(sniffLength), as: UTF8.self).lowercased().contains("<svg")
+    }
+
     nonisolated static let defaultEdge = 1024.0
     nonisolated static let maximumEdge = 8192.0
     private static let blockEverything = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
@@ -41,7 +46,6 @@ enum SVGRenderer {
 
     private static func ruleList() async throws -> WKContentRuleList {
         guard let store = WKContentRuleListStore.default() else { throw EngineError.decodeFailed("rule store") }
-        if let existing = try? await store.contentRuleList(forIdentifier: ruleListIdentifier) { return existing }
         guard
             let compiled = try await store.compileContentRuleList(
                 forIdentifier: ruleListIdentifier, encodedContentRuleList: blockEverything)
@@ -55,10 +59,18 @@ private final class NavigationWaiter: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, any Error>?
 
     func wait(_ start: () -> Void) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            start()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                if Task.isCancelled { finish(CancellationError()) } else { start() }
+            }
+        } onCancel: {
+            Task { @MainActor in self.finish(CancellationError()) }
         }
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        finish(EngineError.decodeFailed("SVG renderer terminated"))
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -78,10 +90,11 @@ private final class NavigationWaiter: NSObject, WKNavigationDelegate {
     private func finish(_ error: (any Error)?) {
         guard let continuation else { return }
         self.continuation = nil
-        if let error {
-            continuation.resume(throwing: EngineError.decodeFailed("SVG load \((error as NSError).code)"))
-        } else {
-            continuation.resume()
+        switch error {
+        case nil: continuation.resume()
+        case let known as CancellationError: continuation.resume(throwing: known)
+        case let known as EngineError: continuation.resume(throwing: known)
+        case let other?: continuation.resume(throwing: EngineError.decodeFailed("SVG load \((other as NSError).code)"))
         }
     }
 }

@@ -6,11 +6,11 @@ import Foundation
 public enum WebPEncoder {
     /// Slowest, smallest libwebp method.
     static let method: Int32 = 6
+    /// Matches JPEG XL: top quality means lossless.
+    public static let losslessQuality = 100.0
 
-    public static func encode(_ pixels: PixelBuffer, quality: Int, lossless: Bool = false, xmp: Data? = nil) throws
-        -> Data
-    {
-        var config = try configuration(quality: quality, lossless: lossless)
+    public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
+        var config = try configuration(quality: quality)
         let writer = UnsafeMutablePointer<WebPMemoryWriter>.allocate(capacity: 1)
         WebPMemoryWriterInit(writer)
         defer {
@@ -29,11 +29,11 @@ public enum WebPEncoder {
         return chunks.isEmpty ? bitstream : try remux(bitstream, adding: chunks)
     }
 
-    static func configuration(quality: Int, lossless: Bool) throws -> WebPConfig {
+    static func configuration(quality: Double) throws -> WebPConfig {
         var config = WebPConfig()
         guard WebPConfigInit(&config) != 0 else { throw FormatError.encoderFailure("WebP version mismatch") }
-        config.quality = Float(min(max(quality, 0), 100))
-        config.lossless = lossless ? 1 : 0
+        config.quality = Float(min(max(quality, 0), losslessQuality))
+        config.lossless = quality >= losslessQuality ? 1 : 0
         config.method = method
         config.use_sharp_yuv = 1
         config.thread_level = 1
@@ -106,9 +106,8 @@ public final class WebPAnimationEncoder {
     private static let flagsOffset = 20
     private static let alphaFlag: UInt8 = 0x10
 
-    public init(width: Int, height: Int, quality: Int, loops: Bool, lossless: Bool = false, xmp: Data? = nil)
-        throws
-    {
+    public init(width: Int, height: Int, quality: Double, loops: Bool, xmp: Data? = nil) throws {
+        let config = try WebPEncoder.configuration(quality: quality)
         var options = WebPAnimEncoderOptions()
         guard WebPAnimEncoderOptionsInit(&options) != 0 else {
             throw FormatError.encoderFailure("WebP version mismatch")
@@ -116,14 +115,14 @@ public final class WebPAnimationEncoder {
         options.anim_params.loop_count = loops ? 0 : 1
         // Transparent canvas; the default is opaque white.
         options.anim_params.bgcolor = 0
-        options.allow_mixed = lossless ? 0 : 1
+        options.allow_mixed = config.lossless == 0 ? 1 : 0
         guard width > 0, height > 0, let encoder = WebPAnimEncoderNew(Int32(width), Int32(height), &options) else {
             throw FormatError.encoderFailure("WebP animation encoder")
         }
         self.width = width
         self.height = height
         self.encoder = encoder
-        self.config = try WebPEncoder.configuration(quality: quality, lossless: lossless)
+        self.config = config
         self.xmp = xmp
     }
 

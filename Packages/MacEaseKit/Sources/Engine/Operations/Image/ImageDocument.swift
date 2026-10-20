@@ -61,7 +61,7 @@ struct ImageDocument {
             }
         }
         let data = try Data(contentsOf: url)
-        if String(decoding: data.prefix(SVGRenderer.sniffLength), as: UTF8.self).lowercased().contains("<svg") {
+        if SVGRenderer.isSVG(data) {
             let image = try await SVGRenderer.render(data)
             return ImageDocument(url: url, contentType: .svg, frames: [ImageFrame(image: image, duration: 0)])
         }
@@ -115,16 +115,28 @@ struct ImageDocument {
         return properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
     }
 
+    private static let icoSignature = Data([0, 0, 1, 0])
+    private static let icnsSignature = Data("icns".utf8)
+
     private static func decodeIcon(_ data: Data, url: URL) throws -> ImageDocument {
-        let candidates: [(UTType, (Data) throws -> [PixelBuffer])] = [(.ico, ICOFile.read), (.icns, ICNSFile.read)]
-        for (type, reader) in candidates {
-            guard let images = try? reader(data), let largest = images.max(by: { $0.width < $1.width }) else {
-                continue
+        let type: UTType
+        let images: [PixelBuffer]
+        do {
+            if data.starts(with: icoSignature) {
+                (type, images) = (.ico, try ICOFile.read(data))
+            } else if data.starts(with: icnsSignature) {
+                (type, images) = (.icns, try ICNSFile.read(data))
+            } else {
+                throw EngineError.decodeFailed(url.lastPathComponent)
             }
-            let frame = ImageFrame(image: try largest.makeCGImage(), duration: 0)
-            return ImageDocument(url: url, contentType: type, frames: [frame])
+        } catch is FormatError {
+            throw EngineError.decodeFailed(url.lastPathComponent)
         }
-        throw EngineError.decodeFailed(url.lastPathComponent)
+        guard let largest = images.max(by: { $0.width < $1.width }) else {
+            throw EngineError.decodeFailed(url.lastPathComponent)
+        }
+        let frame = ImageFrame(image: try largest.makeCGImage(), duration: 0)
+        return ImageDocument(url: url, contentType: type, frames: [frame])
     }
 }
 

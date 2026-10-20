@@ -9,7 +9,7 @@ public enum JXLEncoder {
     /// The library's default effort.
     private static let effort: Int64 = 7
 
-    public static func encode(_ pixels: PixelBuffer, quality: Int, xmp: Data? = nil) throws -> Data {
+    public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
         guard let encoder = JxlEncoderCreate(nil) else { throw FormatError.encoderFailure("JXL encoder allocation") }
         defer { JxlEncoderDestroy(encoder) }
         let runner = JxlThreadParallelRunnerCreate(nil, JxlThreadParallelRunnerDefaultNumWorkerThreads())

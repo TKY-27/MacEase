@@ -3,13 +3,13 @@ import Formats
 import Foundation
 
 extension ImageSettings {
-    func quality(for format: ImageFormat) -> Int {
+    func quality(for format: ImageFormat) -> Double {
         switch format {
-        case .jpeg: jpegQuality
-        case .heic: heicQuality
-        case .webp: webpQuality
-        case .avif: avifQuality
-        case .jxl: jxlQuality
+        case .jpeg: Double(jpegQuality)
+        case .heic: Double(heicQuality)
+        case .webp: Double(webpQuality)
+        case .avif: Double(avifQuality)
+        case .jxl: Double(jxlQuality)
         default: ImageEncoder.maximumQuality
         }
     }
@@ -89,8 +89,6 @@ enum ImageOutput {
 
 /// Geometry edits and conversion.
 enum ImageEdits {
-    /// Corner fill for formats without alpha.
-    static let opaqueRotationFill = RGBColor.white
     /// Per-channel distance from the corner color.
     static let borderTolerance = 16
 
@@ -127,7 +125,7 @@ enum ImageEdits {
         if conversion.format == .gif, frames.count == 1 { frames[0].duration = 0 }
         var options = ImageOutput.defaultOptions(
             for: document, format: conversion.format, settings: context.settings.image)
-        options.quality = conversion.quality ?? options.quality
+        options.quality = conversion.quality.map(Double.init) ?? options.quality
         options.svgColors = conversion.svgColors
         options.optimizesPNG = context.settings.image.optimizePNGOnConvert
         options.gainMap = document.gainMap
@@ -137,6 +135,8 @@ enum ImageEdits {
     }
 
     static func rotate(_ url: URL, degrees: Double, fill: RGBColor?, context: ItemContext) async throws -> ItemResult {
+        guard degrees.isFinite else { throw EngineError.invalidInput(.malformed("\(degrees)°")) }
+        let degrees = degrees.truncatingRemainder(dividingBy: 360)
         let quarterTurns = degrees / 90
         if quarterTurns == quarterTurns.rounded(),
             let lossless = try ImageMetadata.rotateLosslessly(url, quarterTurns: Int(quarterTurns), context: context)
@@ -145,9 +145,8 @@ enum ImageEdits {
         }
         let document = try await ImageDocument.load(url)
         let format = document.writableFormat
-        let corner = fill ?? (format.holdsAlpha ? nil : opaqueRotationFill)
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
-            try ImagePixels.rotated($0, degrees: degrees, fill: corner.map(ImagePixels.color))
+            try ImagePixels.rotated($0, degrees: degrees, fill: fill.map(ImagePixels.color))
         }
     }
 
@@ -166,8 +165,9 @@ enum ImageEdits {
             content.width < Double(pixels.width) || content.height < Double(pixels.height)
         else { return .skipped(.nothingToRemove) }
         let format = document.writableFormat
-        return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
-            try ImagePixels.cropped($0, to: content)
+        return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in
+            let page = content.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return page.isEmpty ? image : try ImagePixels.cropped(image, to: page)
         }
     }
 

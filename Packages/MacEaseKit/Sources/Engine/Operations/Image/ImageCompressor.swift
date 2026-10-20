@@ -11,11 +11,16 @@ enum ImageCompressor {
     static let pngTargetColors = [256, 128, 64]
     static let gifTargetColors = [128, 64, 32]
     static let gifFrameStrides = [2, 3]
-    static let qualityRange = 1...100
+    static let lowestQuality = 1.0
+    static let highestQuality = 100.0
     static let maximumSearchEncodes = 8
+    /// Keeps interpolation inside the bracket.
+    static let minimumStep = 0.1
+    static let midpoint = 0.5
     static let downscaleStep = 0.9
     static let maximumDownscaleSteps = 20
     static let letterboxFill = RGBColor.black
+    static let shapeTolerance = 0.01
 
     struct Plan {
         var format: ImageFormat
@@ -34,24 +39,40 @@ enum ImageCompressor {
             frames: try fitted(ImageOutput.frames(of: document, for: format, context: context), to: limits),
             options: ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image))
         if compression.stripsGPS { plan.options.metadata = ImageMetadata.filtered(document.metadata, removing: [.gps]) }
-        let unchangedGeometry =
-            plan.frames.map(\.image.width) == document.frames.map(\.image.width)
-            && plan.frames.count == document.frames.count
+        let sizes = { (frames: [ImageFrame]) in frames.map { [$0.image.width, $0.image.height] } }
+        let unchanged = format == document.format && sizes(plan.frames) == sizes(document.frames)
+        if sameShape(plan.frames[0].image, document.first) { plan.options.gainMap = document.gainMap }
         let originalBytes = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
 
         guard let target = targetBytes(for: compression.goal, limits: limits) else {
             apply(qualityFor: compression.goal, limits: limits, to: &plan)
             let data = try ImageEncoder.encode(plan.frames, as: plan.format, options: plan.options)
-            if format == document.format, unchangedGeometry, Int64(data.count) >= originalBytes {
-                return .skipped(.outputNotSmaller)
+            if unchanged, Int64(data.count) >= originalBytes {
+                return try await keptSize(url, stripsGPS: compression.stripsGPS, reason: .outputNotSmaller, context)
             }
             return try ImageOutput.stage(data, for: document, as: format, context: context)
         }
-        if format == document.format, unchangedGeometry, originalBytes <= target, !compression.stripsGPS {
-            return .skipped(.alreadyDone)
+        if unchanged, originalBytes <= target {
+            return try await keptSize(url, stripsGPS: compression.stripsGPS, reason: .alreadyDone, context)
         }
         let data = try fit(plan, under: target, compression: compression, context: context)
         return try ImageOutput.stage(data, for: document, as: format, context: context)
+    }
+
+    /// Re-encoding cannot help; only GPS goes.
+    private static func keptSize(_ url: URL, stripsGPS: Bool, reason: SkipReason, _ context: ItemContext)
+        async throws -> ItemResult
+    {
+        guard stripsGPS else { return .skipped(reason) }
+        let stripped = try await ImageMetadata.strip(url, fields: [.gps], context: context)
+        if case .skipped = stripped { return .skipped(reason) }
+        return stripped
+    }
+
+    /// Gain maps survive scaling, not crops.
+    private static func sameShape(_ output: CGImage, _ source: CGImage) -> Bool {
+        let outputRatio = Double(output.width) / Double(output.height)
+        return abs(outputRatio - Double(source.width) / Double(source.height)) < shapeTolerance
     }
 
     private static func limits(for goal: CompressionGoal, document: ImageDocument) throws -> MediaLimits? {
@@ -86,9 +107,10 @@ enum ImageCompressor {
         }
         let table = plan.format == .avif ? levelQualityAVIF : levelQuality
         switch goal {
-        case .quality(let quality): plan.options.quality = quality
-        case .platform where limits?.quality != nil: plan.options.quality = limits?.quality ?? plan.options.quality
-        default: plan.options.quality = table[level] ?? plan.options.quality
+        case .quality(let quality): plan.options.quality = Double(quality)
+        case .platform where limits?.quality != nil:
+            plan.options.quality = limits?.quality.map(Double.init) ?? plan.options.quality
+        default: plan.options.quality = table[level].map(Double.init) ?? plan.options.quality
         }
         if plan.format == .png { plan.options.pngColors = levelColors[level] }
         if plan.format == .gif { plan.options.gifColors = levelColors[level] ?? plan.options.gifColors }
@@ -119,45 +141,48 @@ enum ImageCompressor {
 
     /// `nil` when nothing fits at this scale.
     private static func fitting(_ plan: Plan, under target: Int64, smallest: inout Int64) throws -> Data? {
-        func attempt(_ options: EncodeOptions) throws -> Data? {
+        func encode(_ options: EncodeOptions) throws -> Data {
             let data = try ImageEncoder.encode(plan.frames, as: plan.format, options: options)
             smallest = min(smallest, Int64(data.count))
-            return Int64(data.count) <= target ? data : nil
+            return data
         }
+        let underTarget = { (data: Data) in Int64(data.count) <= target ? data : nil }
         if plan.format.usesQuality {
-            return try searchQuality(plan, under: target, attempt: attempt)
+            return try searchQuality(plan.options, under: target, encode: encode)
         }
-        if plan.format == .png {
-            var options = plan.options
-            options.optimizesPNG = true
-            if let lossless = try attempt(options) { return lossless }
-            for colors in pngTargetColors {
-                options.pngColors = colors
-                if let quantized = try attempt(options) { return quantized }
-            }
-            return nil
+        var options = plan.options
+        guard plan.format == .png else { return underTarget(try encode(options)) }
+        options.optimizesPNG = true
+        if let lossless = underTarget(try encode(options)) { return lossless }
+        for colors in pngTargetColors {
+            options.pngColors = colors
+            if let quantized = underTarget(try encode(options)) { return quantized }
         }
-        return try attempt(plan.options)
+        return nil
     }
 
     /// Highest quality under `target`, eight encodes.
-    private static func searchQuality(_ plan: Plan, under target: Int64, attempt: (EncodeOptions) throws -> Data?)
-        throws -> Data?
-    {
-        var options = plan.options
-        options.quality = qualityRange.lowerBound
-        guard var best = try attempt(options) else { return nil }
-        var low = qualityRange.lowerBound + 1
-        var high = qualityRange.upperBound
-        var encodes = 1
-        while low <= high, encodes < maximumSearchEncodes {
-            options.quality = (low + high) / 2
-            encodes += 1
-            if let data = try attempt(options) {
+    private static func searchQuality(
+        _ initial: EncodeOptions, under target: Int64, encode: (EncodeOptions) throws -> Data
+    ) throws -> Data? {
+        var options = initial
+        options.quality = lowestQuality
+        var best = try encode(options)
+        guard Int64(best.count) <= target else { return nil }
+        var low = (quality: lowestQuality, logSize: log(Double(best.count)))
+        var high: (quality: Double, logSize: Double)?
+        let goal = log(Double(target))
+        for _ in 1..<maximumSearchEncodes {
+            // Size grows roughly exponentially with quality.
+            let fraction = high.map { (goal - low.logSize) / ($0.logSize - low.logSize) } ?? midpoint
+            let upper = high?.quality ?? highestQuality
+            options.quality = low.quality + (upper - low.quality) * min(max(fraction, minimumStep), 1 - minimumStep)
+            let data = try encode(options)
+            if Int64(data.count) <= target {
                 best = data
-                low = options.quality + 1
+                low = (options.quality, log(Double(data.count)))
             } else {
-                high = options.quality - 1
+                high = (options.quality, log(Double(data.count)))
             }
         }
         return best
@@ -244,7 +269,7 @@ enum ImageCompressor {
         let height = Double(image.height)
         let ratio = width / height
         let goal = min(max(ratio, aspect.min.value), aspect.max.value)
-        guard abs(goal - ratio) > 1e-3 else { return image }
+        guard abs(goal - ratio) > shapeTolerance else { return image }
         switch aspect.fit {
         case .crop:
             let cropWidth = goal < ratio ? (height * goal).rounded() : width

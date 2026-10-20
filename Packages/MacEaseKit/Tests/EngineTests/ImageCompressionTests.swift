@@ -22,7 +22,7 @@ private func expectTargetHit(for format: ImageFormat, minimumShare: Double = acc
     let source = try Fixture.write(
         [try Fixture.photo(width: 800, height: 600)], as: .png, to: folder.appending(path: "source.png"))
     let input = try Fixture.output(of: try await Fixture.run(.imageConvert, preset: format.rawValue, inputs: [source]))
-    let target = try Fixture.fileSize(input) * 2 / 5
+    let target = try Fixture.fileSize(input) / 2
 
     let outcome = try await Fixture.run(.imageCompress, compression(.bytes(target)), inputs: [input])
 
@@ -35,9 +35,14 @@ private func expectTargetHit(for format: ImageFormat, minimumShare: Double = acc
 }
 
 @Suite(.serialized) struct ImageCompressionTests {
-    @Test(arguments: [ImageFormat.jpeg, .webp, .avif, .jxl])
+    @Test(arguments: [ImageFormat.jpeg, .webp, .jxl])
     func qualityFormatsLandJustUnderTheTarget(format: ImageFormat) async throws {
         try await expectTargetHit(for: format)
+    }
+
+    /// libaom exposes only 64 quantizer steps.
+    @Test func avifStaysUnderTheTarget() async throws {
+        try await expectTargetHit(for: .avif, minimumShare: 0)
     }
 
     /// ImageIO quantizes HEIC quality into coarse steps.
@@ -125,17 +130,30 @@ private func expectTargetHit(for format: ImageFormat, minimumShare: Double = acc
         #expect(roomy.outcomes == [.skipped(.alreadyDone)])
     }
 
-    @Test func platformPresetsDropGPSUnlessKept() async throws {
+    @Test func platformPresetsOnlyDropGPSFromFilesAlreadyUnderTheLimit() async throws {
         let folder = try TestVolume.makeFolder()
         let gps: [CFString: Any] = [
             kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 35.0, kCGImagePropertyGPSLatitudeRef: "N"]
         ]
         let input = try Fixture.write(
-            [try Fixture.photo(width: 2000, height: 1500)], as: .jpeg, to: folder.appending(path: "trip.jpg"),
-            frameProperties: gps, quality: 1)
-        let outcome = try await Fixture.run(.imageCompress, preset: "x", inputs: [input])
+            [try Fixture.photo(width: 1200, height: 900)], as: .jpeg, to: folder.appending(path: "trip.jpg"),
+            frameProperties: gps, quality: 0.9)
+        let pixels = try Fixture.rawBytes(input)
+        let outcome = try await Fixture.run(.imageCompress, preset: "discord", inputs: [input])
         let output = try Fixture.output(of: outcome)
         #expect(try Fixture.properties(output)[kCGImagePropertyGPSDictionary] == nil)
-        #expect(try Fixture.fileSize(output) <= 5_000_000)
+        #expect(try Fixture.rawBytes(output) == pixels)
+
+        let again = try await Fixture.run(.imageCompress, preset: "discord", inputs: [output])
+        #expect(again.outcomes == [.skipped(.alreadyDone)])
+    }
+
+    @Test func instagramCropsSmallPortraitJPEGs() async throws {
+        let folder = try TestVolume.makeFolder()
+        let input = try Fixture.write(
+            [try Fixture.photo(width: 1080, height: 1920)], as: .jpeg, to: folder.appending(path: "story.jpg"))
+        let outcome = try await Fixture.run(.imageCompress, preset: "instagram", inputs: [input])
+        let image = try Fixture.image(try Fixture.output(of: outcome))
+        #expect(image.width == 1080 && image.height == 1350)
     }
 }

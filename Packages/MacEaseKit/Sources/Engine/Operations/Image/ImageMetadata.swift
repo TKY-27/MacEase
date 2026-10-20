@@ -60,6 +60,11 @@ enum ImageMetadata {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0,
             let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) })
         else {
+            let reader = try FileHandle(forReadingFrom: url)
+            defer { try? reader.close() }
+            guard SVGRenderer.isSVG(try reader.read(upToCount: SVGRenderer.sniffLength) ?? Data()) else {
+                throw EngineError.decodeFailed(url.lastPathComponent)
+            }
             return .skipped(.nothingToRemove)
         }
         let primary = CGImageSourceGetPrimaryImageIndex(source)
