@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check signing secrets
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACEASE_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACEASE_CERT_PASSWORD }}
+        run: |
+          missing=0
+          if [[ -z "$CERT_P12_BASE64" ]]; then
+            echo "::error::Repository secret MACEASE_CERT_P12_BASE64 is missing; see scripts/create-signing-identity.sh"
+            missing=1
+          fi
+          if [[ -z "$CERT_PASSWORD" ]]; then
+            echo "::error::Repository secret MACEASE_CERT_PASSWORD is missing; see scripts/create-signing-identity.sh"
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: Extract release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v heading="## [$version]" '
+            /^## \[/ { if (found) exit; found = index($0, heading) == 1; next }
+            found
+          ' CHANGELOG.md >"$RUNNER_TEMP/release-notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section with content"
+            exit 1
+          fi
+          echo "MACEASE_VERSION=$version" >>"$GITHUB_ENV"
+
+      - name: Select newest stable Xcode 27
+        run: |
+          xcode_app="$(ls -d /Applications/Xcode_27*.app | grep -viE 'beta|rc|release_candidate' | sort -V | tail -n 1)"
+          sudo xcode-select --switch "$xcode_app"
+          xcodebuild -version
+
+      - name: Install build tools
+        run: brew install xcodegen cmake meson ninja pkg-config
+
+      - name: Cache native dependencies
+        uses: actions/cache@v4
+        with:
+          path: Vendor/build
+          key: deps-xcode-27-${{ hashFiles('Vendor/deps.lock', 'Vendor/patches/**', 'scripts/build-deps.sh') }}
+
+      - name: Build native dependencies
+        run: scripts/build-deps.sh
+
+      - name: Import signing certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACEASE_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACEASE_CERT_PASSWORD }}
+        run: |
+          keychain_password="$(openssl rand -hex 32)"
+          echo "::add-mask::$keychain_password"
+          p12="$RUNNER_TEMP/macease-release.p12"
+          MACEASE_SIGNING_KEYCHAIN="$RUNNER_TEMP/macease-signing.keychain-db"
+          echo "MACEASE_SIGNING_KEYCHAIN=$MACEASE_SIGNING_KEYCHAIN" >>"$GITHUB_ENV"
+          security create-keychain -p "$keychain_password" "$MACEASE_SIGNING_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$MACEASE_SIGNING_KEYCHAIN"
+          security unlock-keychain -p "$keychain_password" "$MACEASE_SIGNING_KEYCHAIN"
+          printf '%s' "$CERT_P12_BASE64" | base64 --decode >"$p12"
+          security import "$p12" -k "$MACEASE_SIGNING_KEYCHAIN" -P "$CERT_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          rm "$p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$MACEASE_SIGNING_KEYCHAIN" >/dev/null
+
+      - name: Build DMG
+        run: make dmg
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg="dist/MacEase-$MACEASE_VERSION.dmg"
+          if [[ ! -f "$dmg" ]]; then
+            echo "::error::$dmg is missing; does MARKETING_VERSION in project.yml match the tag?"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" "$dmg" "$dmg.sha256" \
+            --verify-tag --title "MacEase $MACEASE_VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
+
+      - name: Delete signing keychain
+        if: always()
+        run: |
+          if [[ -n "${MACEASE_SIGNING_KEYCHAIN:-}" && -f "$MACEASE_SIGNING_KEYCHAIN" ]]; then
+            security delete-keychain "$MACEASE_SIGNING_KEYCHAIN"
+          fi

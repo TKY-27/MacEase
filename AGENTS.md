@@ -25,7 +25,9 @@ Run from the repository root.
 | Full tests on a real Mac, including capability-gated tests | `make test-device` |
 | Lint | `make lint` (runs `swift format lint --strict --recursive App FinderSync Packages`) |
 | Format | `make format` (runs `swift format format --in-place --recursive App FinderSync Packages`) |
-| Release DMG locally | `make dmg` |
+| Create the release signing identity (into `build/signing/`) | `scripts/create-signing-identity.sh [--set-secrets] [dir]` |
+| Release DMG locally (identity from an unlocked keychain file) | `MACEASE_SIGNING_KEYCHAIN=<path> make dmg` |
+| Ad-hoc signed DMG for local testing | `MACEASE_ALLOW_ADHOC=1 make dmg` |
 | Benchmarks | `scripts/bench.sh` |
 
 Builds treat warnings as errors. Keep these commands working as the project
