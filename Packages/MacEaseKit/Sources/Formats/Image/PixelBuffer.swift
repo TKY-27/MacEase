@@ -25,6 +25,13 @@ public struct PixelBuffer: Sendable {
         stride(from: 3, to: rgba.count, by: 4).allSatisfy { rgba[$0] == 255 }
     }
 
+    public var isGray: Bool {
+        stride(from: 0, to: rgba.count, by: 4).allSatisfy { index -> Bool in
+            let red = rgba[index]
+            return red == rgba[index + 1] && red == rgba[index + 2]
+        }
+    }
+
     /// Reads 8-bit images byte-exactly; draws anything else.
     public init(cgImage image: CGImage) throws {
         if let exact = PixelBuffer(exactly: image) {

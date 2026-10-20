@@ -45,7 +45,7 @@ public enum GIFEncoder {
     }
 
     /// Per-channel slack for reusing previous pixels.
-    private static let stillTolerance = 2
+    private static let stillTolerance = 4
     private static let paletteSampleFrames = 24
 
     public static func encode(_ frames: [GIFFrame], options: GIFOptions) throws -> Data {

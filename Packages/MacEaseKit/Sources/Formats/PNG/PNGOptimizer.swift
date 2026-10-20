@@ -47,11 +47,7 @@ public enum PNGOptimizer {
 
     private static func rasters(for pixels: PixelBuffer, allowsGray: Bool) -> [(PNGRaster, [UInt8]?)] {
         let opaque = pixels.isOpaque
-        let gray =
-            allowsGray
-            && stride(from: 0, to: pixels.rgba.count, by: 4).allSatisfy { index in
-                pixels.rgba[index] == pixels.rgba[index + 1] && pixels.rgba[index] == pixels.rgba[index + 2]
-            }
+        let gray = allowsGray && pixels.isGray
         var candidates: [(PNGRaster, [UInt8]?)] = []
         if let palette = paletteRaster(for: pixels) { candidates.append(palette) }
         if gray {
@@ -60,17 +56,17 @@ public enum PNGOptimizer {
                 channels.map { pixels.rgba[base + $0] }
             }
             let depth = opaque ? grayDepth(samples) : 8
-            candidates.append(
-                (
-                    PNGRaster(
-                        width: pixels.width, height: pixels.height, colorType: opaque ? .gray : .grayAlpha,
-                        bitDepth: depth,
-                        samples: depth == 8
-                            ? samples
-                            : pack(
-                                samples.map { $0 / UInt8(255 / ((1 << depth) - 1)) }, depth: depth, width: pixels.width)
-                    ), nil
-                ))
+            var packed = samples
+            if depth < 8 {
+                let levels: Int = (1 << depth) - 1
+                let step = UInt8(255 / levels)
+                packed = pack(samples.map { $0 / step }, depth: depth, width: pixels.width)
+            }
+            let raster = PNGRaster(
+                width: pixels.width, height: pixels.height, colorType: opaque ? .gray : .grayAlpha, bitDepth: depth,
+                samples: packed
+            )
+            candidates.append((raster, nil))
         } else {
             let samples =
                 opaque

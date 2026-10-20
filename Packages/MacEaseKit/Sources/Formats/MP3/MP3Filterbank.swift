@@ -4,8 +4,11 @@ import Foundation
 /// 512-tap polyphase analysis (ISO 11172-3 C.1.3).
 struct PolyphaseAnalysis {
     private static let window: [Double] = MP3Tables.synthesisWindow.map { $0 / 32 }
-    private static let matrix: [Double] = (0..<32).flatMap { k in
-        (0..<64).map { i in cos(Double((2 * k + 1) * (i - 16)) * Double.pi / 64) }
+    private static let matrix: [Double] = (0..<32).flatMap { (k: Int) -> [Double] in
+        (0..<64).map { (i: Int) -> Double in
+            let phase = Double((2 * k + 1) * (i - 16))
+            return cos(phase * Double.pi / 64)
+        }
     }
 
     /// Newest sample first, as in the standard.
