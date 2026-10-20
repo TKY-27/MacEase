@@ -8,9 +8,6 @@ MacEase adds one menu to Finder's context menu. Select files, right-click, pick
 what you want, and the files are transformed in place. No app window to open, no
 website to upload to, no video editor just to shrink a clip for Discord.
 
-> MacEase is under active development. Sections marked *(to be completed)* are
-> filled in as features land.
-
 ## Why
 
 - iPhone photos arrive as HEIC and some sites refuse them.
@@ -82,9 +79,23 @@ build it yourself from source instead (see below).
 
 ## Usage
 
-Select one or more files in Finder, right-click, and choose **MacEase**.
+1. Select one or more files or folders in Finder, right-click, and choose
+   **MacEase**. The submenu lists what fits the selected kinds of files.
+2. Pick an operation and a preset, such as **Compress > Discord** for a video.
+   Items ending in "…", including **Custom…**, open a small panel first.
+3. Progress appears in the menu bar. When the batch finishes, a notification
+   offers **Undo** and **Show in Finder**.
 
-*(to be completed: screenshots and a short walkthrough)*
+Operations that change a file replace it and move the original to the Trash.
+Operations that make something new, such as extracted audio or a PDF from
+images, write next to the original.
+
+<img src="docs/images/compress-en.png" width="420" alt="The Compress panel with a 10 MB file size goal">
+
+Open **Settings** from the menu bar icon to hide menu items, edit platform
+presets and set defaults for each kind of file.
+
+<img src="docs/images/settings-en.png" width="640" alt="MacEase Settings, General tab">
 
 ## Build from source
 
