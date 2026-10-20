@@ -28,4 +28,15 @@ public enum ArchiveListing {
     static func message(_ archive: OpaquePointer) -> String {
         archive_error_string(archive).map { String(cString: $0) } ?? "unknown libarchive error"
     }
+
+    /// libarchive converts names through the thread's locale.
+    static func inUTF8Locale<T>(_ body: () throws -> T) throws -> T {
+        guard let utf8 = newlocale(LC_CTYPE_MASK, "UTF-8", nil) else { throw FormatError.io("UTF-8 locale") }
+        let previous = uselocale(utf8)
+        defer {
+            uselocale(previous)
+            freelocale(utf8)
+        }
+        return try body()
+    }
 }
