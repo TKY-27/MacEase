@@ -347,9 +347,3 @@ private struct DelayRounding {
         return UInt16(min(delay, Int(UInt16.max)))
     }
 }
-
-extension Data {
-    mutating func appendLittleEndian(_ value: UInt16) {
-        append(contentsOf: [UInt8(value & 0xFF), UInt8(value >> 8)])
-    }
-}

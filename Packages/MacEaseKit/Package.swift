@@ -21,9 +21,10 @@ let package = Package(
     targets: [
         .target(name: "MenuCatalog", swiftSettings: strict),
         .binaryTarget(name: "CNative", path: nativeFramework),
+        .target(name: "NativeShims", dependencies: ["CNative"]),
         .target(
             name: "Formats",
-            dependencies: ["CNative"],
+            dependencies: ["CNative", "NativeShims"],
             swiftSettings: strict + [.unsafeFlags(["-O"])],
             linkerSettings: [.linkedLibrary("c++"), .linkedLibrary("z"), .linkedLibrary("bz2")]
         ),
@@ -34,7 +35,9 @@ let package = Package(
             swiftSettings: strict
         ),
         .testTarget(name: "MenuCatalogTests", dependencies: ["MenuCatalog"], swiftSettings: strict),
-        .testTarget(name: "FormatsTests", dependencies: ["Formats"], swiftSettings: strict),
+        .testTarget(
+            name: "FormatsTests", dependencies: ["Formats"], resources: [.copy("Resources")], swiftSettings: strict
+        ),
         .testTarget(name: "EngineTests", dependencies: ["Engine"], swiftSettings: strict),
     ]
 )

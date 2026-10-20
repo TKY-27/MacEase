@@ -213,19 +213,3 @@ public enum PNGFile {
         return pb <= pc ? b : c
     }
 }
-
-extension UInt32 {
-    init(bigEndian bytes: [UInt8], at offset: Int) {
-        self =
-            UInt32(bytes[offset]) << 24 | UInt32(bytes[offset + 1]) << 16 | UInt32(bytes[offset + 2]) << 8
-            | UInt32(bytes[offset + 3])
-    }
-}
-
-extension Data {
-    mutating func appendBigEndian(_ value: UInt32) {
-        append(contentsOf: [
-            UInt8(value >> 24), UInt8(value >> 16 & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF),
-        ])
-    }
-}

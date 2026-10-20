@@ -22,8 +22,8 @@ public enum ICOFile {
             output.append(contentsOf: [edge, edge, 0, 0])
             output.appendLittleEndian(UInt16(1))
             output.appendLittleEndian(UInt16(32))
-            output.appendLittleEndian32(UInt32(image.png.count))
-            output.appendLittleEndian32(UInt32(offset))
+            output.appendLittleEndian(UInt32(image.png.count))
+            output.appendLittleEndian(UInt32(offset))
             offset += image.png.count
         }
         for image in images { output.append(image.png) }
@@ -143,27 +143,5 @@ enum DIBImage {
             }
         }
         return PixelBuffer(width: width, height: height, rgba: rgba)
-    }
-}
-
-extension UInt16 {
-    init(littleEndian bytes: [UInt8], at offset: Int) {
-        self = UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
-    }
-}
-
-extension UInt32 {
-    init(littleEndian bytes: [UInt8], at offset: Int) {
-        self =
-            UInt32(bytes[offset]) | UInt32(bytes[offset + 1]) << 8 | UInt32(bytes[offset + 2]) << 16
-            | UInt32(bytes[offset + 3]) << 24
-    }
-}
-
-extension Data {
-    mutating func appendLittleEndian32(_ value: UInt32) {
-        append(contentsOf: [
-            UInt8(value & 0xFF), UInt8(value >> 8 & 0xFF), UInt8(value >> 16 & 0xFF), UInt8(value >> 24),
-        ])
     }
 }
