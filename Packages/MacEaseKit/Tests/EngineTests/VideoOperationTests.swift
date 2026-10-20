@@ -106,4 +106,13 @@ import Testing
         let duration = try await AVURLAsset(url: result).load(.duration).seconds
         #expect(abs(duration - 1) < 0.1)
     }
+
+    @Test func previewReportsDurationSizeAndScaledFrames() async throws {
+        let url = try fixture("ffmpeg-h264-aac.mp4")
+        let preview = try await MediaPreview(videoAt: url)
+        #expect(preview.durationSeconds > 1)
+        #expect(preview.displayWidth == 160 && preview.displayHeight == 96)
+        let frames = try await preview.frames(at: [0, preview.durationSeconds], width: 80)
+        #expect(frames.map(\.width) == [80, 80])
+    }
 }
