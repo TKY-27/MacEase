@@ -46,7 +46,7 @@ struct BackgroundChoice: Codable, Equatable {
 
 /// Shared by image and video background removal.
 struct BackgroundPanel: View {
-    let offersVideoFormat: Bool
+    let isVideo: Bool
     @State var choice: BackgroundChoice
     let cancel: () -> Void
     let run: (BackgroundChoice) -> Void
@@ -62,7 +62,7 @@ struct BackgroundPanel: View {
         } content: {
             Section {
                 Picker("Find", selection: $choice.mask) {
-                    ForEach(BackgroundChoice.Mask.allCases, id: \.self) { Text($0.title).tag($0) }
+                    ForEach(masks, id: \.self) { Text($0.title).tag($0) }
                 }
                 if choice.mask == .colorKey {
                     LabeledContent("Key color") {
@@ -99,13 +99,18 @@ struct BackgroundPanel: View {
                         Text(choice.blurRadius, format: .number.precision(.fractionLength(0)))
                     }
                 }
-                if offersVideoFormat, choice.output == .transparent {
+                if isVideo, choice.output == .transparent {
                     Picker("Video format", selection: $choice.videoFormat) {
                         ForEach(TransparentVideoFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                 }
             }
         }
+    }
+
+    /// The video matte uses Vision masks only.
+    private var masks: [BackgroundChoice.Mask] {
+        isVideo ? [.person, .subject] : BackgroundChoice.Mask.allCases
     }
 
     private func sampleKeyColor() {

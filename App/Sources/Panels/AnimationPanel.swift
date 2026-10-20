@@ -24,10 +24,16 @@ struct AnimationChoice: Codable, Equatable {
     }
 }
 
-/// GIF, and APNG without palette controls.
+enum AnimationFormat {
+    case gif
+    case apng
+    case webP
+}
+
+/// Palette controls apply to GIF only.
 struct AnimationPanel: View {
     let firstFile: URL
-    let isGIF: Bool
+    let format: AnimationFormat
     @State var choice: AnimationChoice
     let cancel: () -> Void
     let run: (AnimationChoice) -> Void
@@ -42,6 +48,8 @@ struct AnimationPanel: View {
     /// Typical deflate output for full-color frames.
     private static let pngCompressionRatio = 0.6
     private static let pngBitsPerPixel = 32.0
+    /// Rough lossy average; ignores the quality setting.
+    private static let webPBitsPerPixel = 0.5
     private static let bitsPerByte = 8.0
 
     var body: some View {
@@ -62,7 +70,7 @@ struct AnimationPanel: View {
             Section {
                 NumberField(title: Text("Width (pixels)"), value: $choice.width, range: Self.widthRange)
                 NumberField(title: Text("Frame rate (fps)"), value: $choice.framesPerSecond, range: Self.frameRateRange)
-                if isGIF {
+                if format == .gif {
                     NumberField(title: Text("Colors"), value: $choice.colors, range: Self.colorRange)
                     Picker("Dithering", selection: $choice.dithering) {
                         ForEach(Dithering.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -97,8 +105,12 @@ struct AnimationPanel: View {
         let height = width * Double(preview.displayHeight) / Double(preview.displayWidth)
         let seconds = choice.usesRange ? max(choice.end - choice.start, 0) : preview.durationSeconds
         let frames = (seconds * Double(choice.framesPerSecond)).rounded(.up)
-        let bitsPerPixel = isGIF ? log2(Double(choice.colors)) : Self.pngBitsPerPixel
-        let ratio = isGIF ? Self.gifCompressionRatio : Self.pngCompressionRatio
-        return Int64(frames * width * height * bitsPerPixel / Self.bitsPerByte * ratio)
+        let storedBitsPerPixel =
+            switch format {
+            case .gif: log2(Double(choice.colors)) * Self.gifCompressionRatio
+            case .apng: Self.pngBitsPerPixel * Self.pngCompressionRatio
+            case .webP: Self.webPBitsPerPixel
+            }
+        return Int64(frames * width * height * storedBitsPerPixel / Self.bitsPerByte)
     }
 }

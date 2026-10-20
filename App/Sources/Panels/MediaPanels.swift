@@ -231,16 +231,11 @@ private struct TrimmingPlayer: NSViewRepresentable {
     let prefill: ClosedRange<Double>?
     let finish: (ClosedRange<Double>?) -> Void
 
-    private static let timescale: CMTimeScale = 600
-
     func makeNSView(context: Context) -> TrimmingPlayerView {
-        if let prefill, let item = player.currentItem {
-            item.reversePlaybackEndTime = CMTime(seconds: prefill.lowerBound, preferredTimescale: Self.timescale)
-            item.forwardPlaybackEndTime = CMTime(seconds: prefill.upperBound, preferredTimescale: Self.timescale)
-        }
         let view = TrimmingPlayerView()
         view.player = player
         view.controlsStyle = .inline
+        view.prefill = prefill
         view.finish = finish
         return view
     }
@@ -258,7 +253,10 @@ private struct TrimmingPlayer: NSViewRepresentable {
 
 private final class TrimmingPlayerView: AVPlayerView {
     var finish: ((ClosedRange<Double>?) -> Void)?
+    var prefill: ClosedRange<Double>?
     private var hasBegun = false
+
+    private static let timescale: CMTimeScale = 600
 
     /// Trimming needs a window.
     override func viewDidMoveToWindow() {
@@ -266,6 +264,15 @@ private final class TrimmingPlayerView: AVPlayerView {
         guard window != nil, !hasBegun else { return }
         hasBegun = true
         Task { @MainActor in
+            // AVKit disables Trim for ranges set beforehand.
+            if let prefill, let item = player?.currentItem {
+                Task { @MainActor in
+                    item.reversePlaybackEndTime = CMTime(
+                        seconds: prefill.lowerBound, preferredTimescale: Self.timescale)
+                    item.forwardPlaybackEndTime = CMTime(
+                        seconds: prefill.upperBound, preferredTimescale: Self.timescale)
+                }
+            }
             let result = await beginTrimming()
             player?.pause()
             guard result == .okButton, let item = player?.currentItem else { return finish?(nil) ?? () }
