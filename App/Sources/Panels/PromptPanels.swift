@@ -1,0 +1,212 @@
+import AppKit
+import Engine
+import SwiftUI
+import UniformTypeIdentifiers
+import os
+
+struct TextResultPanel: View {
+    let text: String
+    let suggestedName: String
+    let close: () -> Void
+
+    @State private var failure: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                Text(text)
+                    .font(.body.monospaced())
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .frame(height: PanelLayout.listHeight)
+            if let failure {
+                Text(failure)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal)
+            }
+            PanelBar(
+                actionTitle: String(localized: "Copy", comment: "Text result action"),
+                cancelTitle: String(localized: "Done", comment: "Panel button"), cancel: close
+            ) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            } accessory: {
+                Button("Save…", action: save)
+            }
+        }
+        .frame(width: PanelLayout.wideWidth)
+    }
+
+    private func save() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedName
+        panel.allowedContentTypes = [.plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Data(text.utf8).write(to: url, options: .atomic)
+            failure = nil
+        } catch {
+            failure = UserMessages.describe(
+                EngineError.wrapping(error, path: url.path, otherwise: EngineError.commitFailed),
+                file: url.lastPathComponent)
+        }
+    }
+}
+
+/// The password is never persisted.
+struct PasswordPanel: View {
+    let archives: [URL]
+    let wasWrong: Bool
+    let cancel: () -> Void
+    let run: (_ password: String, _ forAll: Bool) -> Void
+
+    @State private var password = ""
+    @State private var forAll = true
+
+    var body: some View {
+        PanelForm(
+            actionTitle: String(localized: "Extract", comment: "Password panel action"), canRun: !password.isEmpty,
+            cancel: cancel
+        ) {
+            run(password, forAll)
+        } content: {
+            Text(
+                wasWrong
+                    ? String(localized: "The password for “\(archives[0].lastPathComponent)” was wrong. Try again.")
+                    : String(localized: "“\(archives[0].lastPathComponent)” is protected by a password.")
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            SecureField("Password", text: $password)
+            if archives.count > 1 {
+                Toggle("Use for all \(archives.count) archives in this batch", isOn: $forAll)
+            }
+        }
+    }
+}
+
+struct EncodingPanel: View {
+    let file: URL
+    @State var encoding: SourceTextEncoding
+    let cancel: () -> Void
+    let run: (SourceTextEncoding) -> Void
+
+    @State private var sample: Data?
+    @State private var sampleUnreadable = false
+
+    nonisolated private static let sampleBytes = 600
+
+    var body: some View {
+        PanelForm(
+            actionTitle: String(localized: "Convert", comment: "Encoding panel action"), cancel: cancel
+        ) {
+            run(encoding)
+        } content: {
+            Text(
+                "MacEase could not tell how “\(file.lastPathComponent)” is encoded. Choose the encoding that shows the text correctly."
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            Picker("Encoding", selection: $encoding) {
+                ForEach(SourceTextEncoding.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            Text(preview)
+                .font(.body.monospaced())
+                .lineLimit(Self.previewLines)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(Text("Preview"))
+        }
+        .task {
+            let file = file
+            do {
+                sample = try await offMain {
+                    let handle = try FileHandle(forReadingFrom: file)
+                    defer { try? handle.close() }
+                    return try handle.read(upToCount: Self.sampleBytes)
+                }
+            } catch {
+                Logger(category: "panels").error("Encoding preview unreadable: \(error, privacy: .public)")
+                sampleUnreadable = true
+            }
+        }
+    }
+
+    private static let previewLines = 6
+
+    private var preview: String {
+        if sampleUnreadable { return String(localized: "No preview available.", comment: "Panel preview failure") }
+        guard let sample else { return "" }
+        return String(data: sample, encoding: encoding.foundationEncoding)
+            ?? String(
+                localized: "This encoding does not fit the file.", comment: "Encoding panel preview")
+    }
+}
+
+extension SourceTextEncoding {
+    var title: String {
+        switch self {
+        case .utf8: "UTF-8"
+        case .utf16LittleEndian: "UTF-16 LE"
+        case .utf16BigEndian: "UTF-16 BE"
+        case .cp932: String(localized: "Japanese (Shift_JIS)", comment: "Text encoding")
+        case .eucJP: String(localized: "Japanese (EUC-JP)", comment: "Text encoding")
+        }
+    }
+
+    fileprivate var foundationEncoding: String.Encoding {
+        switch self {
+        case .utf8: .utf8
+        case .utf16LittleEndian: .utf16LittleEndian
+        case .utf16BigEndian: .utf16BigEndian
+        case .cp932:
+            String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
+        case .eucJP: .japaneseEUC
+        }
+    }
+}
+
+struct OptionChoice: Identifiable {
+    let id: String
+    let title: String
+}
+
+struct OptionNumber {
+    let title: String
+    let range: ClosedRange<Int>
+    let initial: Int
+}
+
+struct OptionsPanel: View {
+    let choiceTitle: String
+    let choices: [OptionChoice]
+    let number: OptionNumber?
+    let actionTitle: String
+    @State var selection: String
+    @State var value: Int
+    let cancel: () -> Void
+    let run: (_ choice: String, _ number: Int) -> Void
+
+    private static let largestRadioGroup = 4
+
+    var body: some View {
+        PanelForm(actionTitle: actionTitle, cancel: cancel) {
+            run(selection, value)
+        } content: {
+            if choices.count > Self.largestRadioGroup {
+                Picker(choiceTitle, selection: $selection) {
+                    ForEach(choices) { Text($0.title).tag($0.id) }
+                }
+            } else if choices.count > 1 {
+                Picker(choiceTitle, selection: $selection) {
+                    ForEach(choices) { Text($0.title).tag($0.id) }
+                }
+                .pickerStyle(.radioGroup)
+            }
+            if let number {
+                NumberField(title: Text(number.title), value: $value, range: number.range)
+            }
+        }
+    }
+}
