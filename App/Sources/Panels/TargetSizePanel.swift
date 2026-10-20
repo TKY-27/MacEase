@@ -32,8 +32,9 @@ struct TargetSizeFamily {
     private static let bytesPerMegabyte = 1_000_000.0
     private static let percent = 100.0
 
-    static func bytes(_ megabytes: Double) -> Int64 {
-        Int64((megabytes * bytesPerMegabyte).rounded(.down))
+    static func bytes(_ megabytes: Double) -> Int64? {
+        guard megabytes.isFinite, megabytes > 0 else { return nil }
+        return Int64(exactly: (megabytes * bytesPerMegabyte).rounded(.down))
     }
 
     static var image: TargetSizeFamily {
@@ -43,7 +44,9 @@ struct TargetSizeFamily {
         ) { choice, preset in
             let goal: CompressionGoal
             switch choice.goal {
-            case .size: goal = .bytes(bytes(choice.megabytes))
+            case .size:
+                guard let targetBytes = bytes(choice.megabytes) else { return nil }
+                goal = .bytes(targetBytes)
             case .quality: goal = .quality(choice.quality)
             case .preset:
                 guard let preset else { return nil }
@@ -65,7 +68,9 @@ struct TargetSizeFamily {
         ) { choice, preset in
             let goal: VideoCompression.Goal
             switch choice.goal {
-            case .size: goal = .bytes(bytes(choice.megabytes))
+            case .size:
+                guard let targetBytes = bytes(choice.megabytes) else { return nil }
+                goal = .bytes(targetBytes)
             case .quality: goal = .quality(Double(choice.quality) / percent)
             case .preset:
                 guard let preset else { return nil }
@@ -85,9 +90,11 @@ struct TargetSizeFamily {
             qualityText: { String(localized: "\($0) kbps", comment: "Audio bitrate") }, limits: \.audio
         ) { choice, preset in
             switch choice.goal {
-            case .size: .audio(.compress(.targetBytes(bytes(choice.megabytes))))
-            case .quality: .audio(.compress(.kilobits(choice.quality)))
-            case .preset: preset?.audio?.targetBytes.map { .audio(.compress(.targetBytes($0))) }
+            case .size:
+                guard let targetBytes = bytes(choice.megabytes) else { return nil }
+                return .audio(.compress(.targetBytes(targetBytes)))
+            case .quality: return .audio(.compress(.kilobits(choice.quality)))
+            case .preset: return preset?.audio?.targetBytes.map { .audio(.compress(.targetBytes($0))) }
             }
         }
     }

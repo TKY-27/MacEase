@@ -15,10 +15,17 @@ final class JobCenter {
         var progress: Double
     }
 
+    struct CompletedBatch {
+        let date: Date
+        let operation: OperationID
+        let summary: BatchSummary
+    }
+
     private static let recentCount = 10
 
     private(set) var active: [ActiveBatch] = []
     private(set) var recent: [BatchRecord] = []
+    private(set) var completed: [CompletedBatch] = []
 
     @ObservationIgnored let engine: JobEngine
     @ObservationIgnored private let settings: SettingsStore
@@ -112,10 +119,16 @@ final class JobCenter {
     }
 
     func showOutputs(of id: UUID) {
-        guard let record = recent.first(where: { $0.id == id }) else { return }
-        let urls = record.outputPaths.map { URL(fileURLWithPath: $0) }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-        NSWorkspace.shared.activateFileViewerSelecting(urls)
+        Task {
+            guard let record = await engine.history.records.first(where: { $0.id == id }) else { return }
+            let urls = record.outputPaths.map { URL(fileURLWithPath: $0) }
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+            NSWorkspace.shared.activateFileViewerSelecting(urls)
+        }
+    }
+
+    func showResult(_ batch: CompletedBatch) {
+        presentReport?(batch.summary.details, batch.operation)
     }
 
     func refreshRecent() async {
@@ -134,6 +147,11 @@ final class JobCenter {
 
     private func finish(_ outcome: BatchOutcome, request: OperationRequest, activeID: UUID) {
         forget(activeID)
+        completed.insert(
+            CompletedBatch(
+                date: Date(), operation: outcome.operation, summary: BatchSummary(outcome)),
+            at: 0)
+        completed = Array(completed.prefix(Self.recentCount))
         if let text = outcome.clipboardText {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)

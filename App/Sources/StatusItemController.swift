@@ -77,6 +77,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             menu.addItem(.separator())
         }
+        if !jobs.completed.isEmpty {
+            menu.addItem(
+                NSMenuItem.sectionHeader(title: String(localized: "Results", comment: "Menu bar section title")))
+            for batch in jobs.completed {
+                let time = batch.date.formatted(date: .omitted, time: .shortened)
+                let title = String(
+                    localized: "\(batch.summary.title) · \(time)…", comment: "Completed batch result menu item")
+                menu.addItem(
+                    ClosureMenuItem(title: title) { [jobs] in jobs.showResult(batch) })
+            }
+            menu.addItem(.separator())
+        }
         if !jobs.recent.isEmpty {
             menu.addItem(
                 NSMenuItem.sectionHeader(title: String(localized: "Recent", comment: "Menu bar section title")))

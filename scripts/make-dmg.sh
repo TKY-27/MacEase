@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Builds, signs and packages dist/MacEase-<version>.dmg.
-# MACEASE_SIGNING_KEYCHAIN: unlocked keychain file holding the identity.
-# MACEASE_ALLOW_ADHOC=1: sign ad hoc for local testing instead.
+# MACEASE_ALLOW_ADHOC=1 is only for local testing.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,7 +35,7 @@ xcodebuild -project "$app_name.xcodeproj" -scheme "$app_name" -destination 'gene
 app="$archive/Products/Applications/$app_name.app"
 appex="$app/Contents/PlugIns/MacEaseFinderSync.appex"
 
-# Inside out, keeping the entitlements Xcode expanded.
+# Preserve Xcode's expanded entitlements.
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$appex"
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$app"
 

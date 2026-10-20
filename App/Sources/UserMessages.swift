@@ -189,6 +189,7 @@ enum UserMessages {
 struct BatchSummary {
     let title: String
     let body: String
+    let details: String
 
     init(_ outcome: BatchOutcome) {
         var succeeded = 0
@@ -196,18 +197,27 @@ struct BatchSummary {
         var failed = 0
         var firstReason: String?
         var firstWarning: String?
+        var reasons: [String] = []
         for (outcome, inputs) in zip(outcome.outcomes, outcome.inputs) {
             let file = inputs.first?.lastPathComponent ?? ""
             switch outcome {
             case .succeeded(_, let warnings):
                 succeeded += 1
                 if firstWarning == nil, let warning = warnings.first { firstWarning = UserMessages.describe(warning) }
+                reasons += warnings.map {
+                    String(
+                        localized: "“\(file)”: \(UserMessages.describe($0))", comment: "File warning in batch results")
+                }
             case .skipped(let reason):
                 skipped += 1
-                if firstReason == nil { firstReason = UserMessages.describe(reason, file: file) }
+                let message = UserMessages.describe(reason, file: file)
+                if firstReason == nil { firstReason = message }
+                reasons.append(message)
             case .failed(let error):
                 failed += 1
-                if firstReason == nil { firstReason = UserMessages.describe(error, file: file) }
+                let message = UserMessages.describe(error, file: file)
+                if firstReason == nil { firstReason = message }
+                reasons.append(message)
             }
         }
         let operation = MenuStrings.operationName(outcome.operation)
@@ -221,7 +231,9 @@ struct BatchSummary {
         let historyNote =
             outcome.historyFailed
             ? String(localized: "Undo is unavailable because the history could not be saved.") : nil
-        body = ([parts.formatted(.list(type: .and))] + [firstReason ?? firstWarning, historyNote].compactMap { $0 })
+        let counts = parts.formatted(.list(type: .and))
+        body = ([counts] + [firstReason ?? firstWarning, historyNote].compactMap { $0 })
             .joined(separator: "\n")
+        details = ([counts] + reasons + [historyNote, outcome.reportText].compactMap { $0 }).joined(separator: "\n")
     }
 }

@@ -41,6 +41,7 @@ public final class OggAudioReader: PCMSource {
     private var pending: [Float] = []
     /// First pending frame's granule, once known.
     private var position: Int64?
+    private var lastPageEnd: Int64?
     private var finished = false
 
     public init(url: URL) throws {
@@ -93,24 +94,34 @@ public final class OggAudioReader: PCMSource {
         while !finished {
             guard let packet = try reader.next() else {
                 finished = true
-                return emit(pageEnd: nil, endsStream: false)
+                return try emit(pageEnd: nil, endsStream: false)
             }
             pending += try decode(packet.data)
+            guard packet.granule >= -1 else {
+                throw FormatError.corrupt(
+                    String(localized: "Ogg granule out of range", comment: "Invalid audio timeline"))
+            }
             guard packet.granule >= 0 else { continue }
             finished = packet.endsStream
-            let samples = emit(pageEnd: packet.granule, endsStream: packet.endsStream)
+            let samples = try emit(pageEnd: packet.granule, endsStream: packet.endsStream)
             if !samples.isEmpty { return samples }
         }
         return nil
     }
 
     /// Drops pre-skip and end padding (RFC 7845).
-    private func emit(pageEnd: Int64?, endsStream: Bool) -> [Float] {
+    private func emit(pageEnd: Int64?, endsStream: Bool) throws -> [Float] {
         let frames = Int64(pending.count / channels)
         let start = position ?? max(0, (pageEnd ?? frames) - frames)
-        var end = start + frames
+        let (decodedEnd, overflow) = start.addingReportingOverflow(frames)
+        guard !overflow, pageEnd.map({ $0 >= (lastPageEnd ?? 0) && $0 <= decodedEnd }) ?? true else {
+            throw FormatError.corrupt(
+                String(localized: "Ogg granule out of range", comment: "Invalid audio timeline"))
+        }
+        var end = decodedEnd
         if endsStream, let pageEnd { end = min(end, pageEnd) }
-        position = start + frames
+        position = decodedEnd
+        if let pageEnd { lastPageEnd = pageEnd }
         let first = max(preSkip, start)
         defer { pending = [] }
         guard end > first else { return [] }

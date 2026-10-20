@@ -33,6 +33,17 @@
         }
       }
     },
+    "%@ · %@…": {
+      "comment": "Completed batch result menu item",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@…"
+          }
+        }
+      }
+    },
     "%@, page %lld": {
       "comment": "Page order row",
       "localizations": {
@@ -2596,6 +2607,17 @@
         }
       }
     },
+    "Open Privacy Settings": {
+      "comment": "Notification action for denied file access",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシー設定を開く"
+          }
+        }
+      }
+    },
     "Open Settings": {
       "localizations": {
         "ja": {
@@ -3241,6 +3263,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” の変更結果"
+          }
+        }
+      }
+    },
+    "Results": {
+      "comment": "Menu bar section title",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果"
           }
         }
       }
@@ -8472,6 +8505,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” の項目 “%@” が展開先のフォルダの外部を参照しているため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "“%@”: %@": {
+      "comment": "File warning in batch results",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”: %@"
           }
         }
       }

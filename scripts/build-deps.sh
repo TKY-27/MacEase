@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Builds Vendor/deps.lock into Vendor/build/CNative.xcframework.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

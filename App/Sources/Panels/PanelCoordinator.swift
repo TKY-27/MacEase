@@ -478,41 +478,43 @@ final class PanelCoordinator {
         let settings = store.settings
         var choices = op.presets.map { OptionChoice(id: $0, title: MenuStrings.preset(op, $0)) }
         var number: OptionNumber?
-        var build: (String, Int) -> OperationOptions? = { preset, _ in
+        var build: (String, Int, Int) -> OperationOptions? = { preset, _, _ in
             OperationPlanner.options(for: op, preset: preset, settings: settings)
         }
         switch op {
         case .anyChecksum:
             choices = ChecksumAlgorithm.allCases.map { OptionChoice(id: $0.rawValue, title: $0.title) }
-            build = { id, _ in ChecksumAlgorithm(rawValue: id).map(OperationOptions.checksum) }
+            build = { id, _, _ in ChecksumAlgorithm(rawValue: id).map(OperationOptions.checksum) }
         case .videoFPS:
             choices = []
             number = OptionNumber(
                 title: String(localized: "Frame rate (fps)"), range: OptionLimits.frameRates,
                 initial: OptionLimits.defaultFrameRate)
-            build = { _, rate in .video(.frameRate(rate)) }
+            build = { _, rate, _ in .video(.frameRate(rate)) }
         case .audioNormalize:
             choices = []
             number = OptionNumber(
                 title: String(localized: "Target loudness (LUFS)", comment: "Normalize panel field"),
                 range: OptionLimits.loudness, initial: Int(settings.audio.loudnessTarget))
-            build = { _, loudness in .audio(.normalize(targetLoudness: Double(loudness))) }
+            build = { _, loudness, _ in .audio(.normalize(targetLoudness: Double(loudness))) }
         case .pdfToImages:
             number = OptionNumber(
                 title: String(localized: "Resolution (dpi)", comment: "PDF to images panel field"),
                 range: OptionLimits.dpi, initial: PDFOperation.defaultDPI)
-            build = { id, dpi in StillFormat(rawValue: id).map { .pdf(.toImages($0, dpi: dpi)) } }
+            build = { id, dpi, _ in StillFormat(rawValue: id).map { .pdf(.toImages($0, dpi: dpi)) } }
         case .imageConvert:
             number = OptionNumber(
                 title: String(localized: "Quality", comment: "Convert panel field"), range: OptionLimits.quality,
                 initial: settings.image.jpegQuality)
-            build = { id, quality in
-                ImageFormat(rawValue: id).map { .image(.convert(ImageConversion(format: $0, quality: quality))) }
+            build = { id, quality, colors in
+                ImageFormat(rawValue: id).map {
+                    .image(.convert(ImageConversion(format: $0, quality: quality, svgColors: colors)))
+                }
             }
         default:
             break
         }
-        choices = choices.filter { build($0.id, number?.initial ?? 0) != nil }
+        choices = choices.filter { build($0.id, number?.initial ?? 0, SVGColors.default) != nil }
         guard !choices.isEmpty || number != nil else { return false }
         let remembered = PanelMemory.value(
             for: op, default: OptionMemory(choice: choices.first?.id ?? "", number: number?.initial ?? 0))
@@ -523,10 +525,13 @@ final class PanelCoordinator {
             OptionsPanel(
                 choiceTitle: title, choices: choices, number: number,
                 actionTitle: String(localized: "Run", comment: "Options panel action"),
-                selection: choice, value: remembered.number, cancel: close
-            ) { choice, value in
-                guard let options = build(choice, value) else { return }
-                self.finish(op, OptionMemory(choice: choice, number: value), options, inputs, close: close)
+                offersSVGColors: op == .imageConvert,
+                selection: choice, value: remembered.number, svgColors: remembered.svgColors ?? SVGColors.default,
+                cancel: close
+            ) { choice, value, colors in
+                guard let options = build(choice, value, colors) else { return }
+                self.finish(
+                    op, OptionMemory(choice: choice, number: value, svgColors: colors), options, inputs, close: close)
             }
         }
         return true
@@ -541,6 +546,7 @@ final class PanelCoordinator {
 private struct OptionMemory: Codable {
     let choice: String
     let number: Int
+    var svgColors: Int?
 }
 
 private enum OptionLimits {

@@ -8,6 +8,10 @@ import os
 final class BatchNotifier: NSObject {
     private enum Identifier {
         static let category = "batch"
+        static let permissionCategory = "permission"
+        static let batchPermissionCategory = "batch-permission"
+        static let permissions = "permissions"
+        static let permissionLocation = "permissionLocation"
         static let undo = "undo"
         static let show = "show"
         static let batchID = "batchID"
@@ -32,8 +36,18 @@ final class BatchNotifier: NSObject {
             title: String(localized: "Show in Finder", comment: "Notification action that reveals outputs"),
             options: [.foreground]
         )
+        let permissions = UNNotificationAction(
+            identifier: Identifier.permissions,
+            title: String(localized: "Open Privacy Settings", comment: "Notification action for denied file access"),
+            options: [.foreground]
+        )
         center.setNotificationCategories([
-            UNNotificationCategory(identifier: Identifier.category, actions: [undo, show], intentIdentifiers: [])
+            UNNotificationCategory(identifier: Identifier.category, actions: [undo, show], intentIdentifiers: []),
+            UNNotificationCategory(
+                identifier: Identifier.permissionCategory, actions: [permissions], intentIdentifiers: []),
+            UNNotificationCategory(
+                identifier: Identifier.batchPermissionCategory, actions: [permissions, undo, show],
+                intentIdentifiers: []),
         ])
     }
 
@@ -54,6 +68,14 @@ final class BatchNotifier: NSObject {
         if outcome.record != nil {
             content.categoryIdentifier = Identifier.category
             content.userInfo = [Identifier.batchID: outcome.batchID.uuidString]
+        }
+        if let location = outcome.outcomes.lazy.compactMap({ result -> PermissionLocation? in
+            guard case .failed(.permissionDenied(let location)) = result else { return nil }
+            return location
+        }).first {
+            content.categoryIdentifier =
+                outcome.record == nil ? Identifier.permissionCategory : Identifier.batchPermissionCategory
+            content.userInfo[Identifier.permissionLocation] = location.rawValue
         }
         post(content, id: outcome.batchID.uuidString)
     }
@@ -93,6 +115,14 @@ extension BatchNotifier: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let action = response.actionIdentifier
+        if action == Identifier.permissions {
+            guard
+                let locationName = response.notification.request.content.userInfo[Identifier.permissionLocation]
+                    as? String, let location = PermissionLocation(rawValue: locationName)
+            else { return }
+            await MainActor.run { SystemSettingsPane.open(SystemSettingsPane.permissionAccess(location)) }
+            return
+        }
         guard let idString = response.notification.request.content.userInfo[Identifier.batchID] as? String,
             let id = UUID(uuidString: idString)
         else { return }

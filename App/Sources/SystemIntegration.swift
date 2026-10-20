@@ -5,10 +5,19 @@ import UserNotifications
 import os
 
 enum SystemSettingsPane {
+    static let filesAndFolders = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")
     static let fullDiskAccess = URL(
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
     static let notifications = Bundle.main.bundleIdentifier.flatMap {
         URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\($0)")
+    }
+
+    static func permissionAccess(_ location: PermissionLocation) -> URL? {
+        switch location {
+        case .desktop, .documents, .downloads, .removableVolume, .networkVolume: filesAndFolders
+        case .trash, .other: fullDiskAccess
+        }
     }
 
     static func open(_ url: URL?) {

@@ -136,7 +136,6 @@ struct PageSelectPanel: View {
     let cancel: () -> Void
     let run: (IndexSet) -> Void
 
-    @State private var selected = IndexSet()
     @State private var rangeText = ""
 
     private static let columns = [GridItem(.adaptive(minimum: PanelLayout.thumbnailEdge * 2))]
@@ -145,9 +144,6 @@ struct PageSelectPanel: View {
         VStack(spacing: 0) {
             Form {
                 TextField("Pages", text: $rangeText, prompt: Text(verbatim: "1-3, 5"))
-                    .onChange(of: rangeText) {
-                        if let parsed = PageRanges.parse(rangeText, pageCount: pages.count) { selected = parsed }
-                    }
                 if PageRanges.parse(rangeText, pageCount: pages.count) == nil {
                     Text("Enter page numbers between 1 and \(pages.count), such as 1-3, 5.")
                         .foregroundStyle(.red)
@@ -168,12 +164,19 @@ struct PageSelectPanel: View {
             PanelBar(
                 actionTitle: String(localized: "Extract", comment: "Page select action"), canRun: !selected.isEmpty,
                 cancel: cancel
-            ) { run(selected) }
+            ) {
+                if !selected.isEmpty { run(selected) }
+            }
         }
         .frame(width: PanelLayout.wideWidth)
     }
 
+    private var selected: IndexSet {
+        PageRanges.parse(rangeText, pageCount: pages.count) ?? IndexSet()
+    }
+
     private func toggle(_ index: Int) {
+        var selected = selected
         if selected.contains(index) { selected.remove(index) } else { selected.insert(index) }
         rangeText = PageRanges.format(selected)
     }

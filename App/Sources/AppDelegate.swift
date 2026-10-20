@@ -1,5 +1,6 @@
 import AppKit
 import Engine
+import FoundationModels
 import MenuCatalog
 import SwiftUI
 import os
@@ -7,6 +8,7 @@ import os
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let updateCheckInterval: TimeInterval = 60 * 60
+    private static let capabilityCheckInterval: TimeInterval = 60
 
     private let configuration = HostConfiguration.current
     private let logger = Logger(category: "app")
@@ -19,12 +21,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
     private var menuFile: MenuFile?
     private var javaAvailable = false
+    private var capabilityCheckInProgress = false
     private var launchFinished = false
     private var pendingURLs: [URL] = []
     private var updateTimer: Timer?
+    private var capabilityTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
     private var settingsWindow: SingleWindowPresenter?
     private var onboardingWindow: SingleWindowPresenter?
-    private var menuInputs: MenuInputs?
+    private var menuInputs: [OperationID]?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let engine: JobEngine
@@ -94,8 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishLaunching(engine: JobEngine, jobs: JobCenter) async {
-        javaAvailable = await MenuFileWriter.javaRuntimeIsInstalled()
-        refreshMenuFile()
+        await refreshCapabilities()
         launchFinished = true
         let queued = pendingURLs
         pendingURLs = []
@@ -111,6 +115,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateTimer = Timer.scheduledTimer(withTimeInterval: Self.updateCheckInterval, repeats: true) { [updates] _ in
             Task { await updates.check() }
         }
+        capabilityTimer = Timer.scheduledTimer(withTimeInterval: Self.capabilityCheckInterval, repeats: true) {
+            [weak self] _ in
+            Task { await self?.refreshCapabilities() }
+        }
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.refreshCapabilities() }
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard launchFinished else { return }
+        Task { await refreshCapabilities() }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -128,6 +150,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let engine = jobs?.engine { Task { await engine.setConcurrency(width) } }
     }
 
+    private func refreshCapabilities() async {
+        guard !capabilityCheckInProgress else { return }
+        capabilityCheckInProgress = true
+        defer { capabilityCheckInProgress = false }
+        javaAvailable = await MenuFileWriter.javaRuntimeIsInstalled()
+        if currentMenuInputs != menuInputs { refreshMenuFile() }
+    }
+
     private func refreshMenuFile() {
         do {
             try writeMenuFile()
@@ -139,19 +169,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func writeMenuFile() throws {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
-            hiddenOperations: inputs.hiddenOperations,
-            aiEnabled: inputs.aiEnabled,
-            javaAvailable: javaAvailable
+            visibleOperations: inputs
         )
         menuInputs = inputs
     }
 
-    private var currentMenuInputs: MenuInputs {
-        MenuInputs(hiddenOperations: settings.hiddenOperations, aiEnabled: settings.settings.intelligence.aiEnabled)
-    }
-
-    private struct MenuInputs: Equatable {
-        let hiddenOperations: Set<OperationID>
-        let aiEnabled: Bool
+    private var currentMenuInputs: [OperationID] {
+        let aiAvailable =
+            settings.settings.intelligence.aiEnabled
+            && SystemLanguageModel.default.availability == .available
+        return OperationID.allCases.filter { operation in
+            guard !settings.hiddenOperations.contains(operation) else { return false }
+            switch operation.requirement {
+            case .appleIntelligence: return aiAvailable
+            case .java: return javaAvailable
+            case nil: return true
+            }
+        }
     }
 }

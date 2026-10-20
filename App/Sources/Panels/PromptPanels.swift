@@ -120,9 +120,15 @@ struct EncodingPanel: View {
             let file = file
             do {
                 sample = try await offMain {
-                    let handle = try FileHandle(forReadingFrom: file)
-                    defer { try? handle.close() }
-                    return try handle.read(upToCount: Self.sampleBytes)
+                    let sampleReader = try FileHandle(forReadingFrom: file)
+                    defer {
+                        do {
+                            try sampleReader.close()
+                        } catch {
+                            Logger(category: "panels").error("Preview close failed: \(error, privacy: .public)")
+                        }
+                    }
+                    return try sampleReader.read(upToCount: Self.sampleBytes)
                 }
             } catch {
                 Logger(category: "panels").error("Encoding preview unreadable: \(error, privacy: .public)")
@@ -183,16 +189,19 @@ struct OptionsPanel: View {
     let choices: [OptionChoice]
     let number: OptionNumber?
     let actionTitle: String
+    var offersSVGColors = false
     @State var selection: String
     @State var value: Int
+    @State var svgColors = SVGColors.default
     let cancel: () -> Void
-    let run: (_ choice: String, _ number: Int) -> Void
+    let run: (_ choice: String, _ number: Int, _ svgColors: Int) -> Void
 
     private static let largestRadioGroup = 4
+    private static let svgColorRange = 1...8
 
     var body: some View {
         PanelForm(actionTitle: actionTitle, cancel: cancel) {
-            run(selection, value)
+            run(selection, value, svgColors)
         } content: {
             if choices.count > Self.largestRadioGroup {
                 Picker(choiceTitle, selection: $selection) {
@@ -204,7 +213,9 @@ struct OptionsPanel: View {
                 }
                 .pickerStyle(.radioGroup)
             }
-            if let number {
+            if offersSVGColors, selection == ImageFormat.svg.rawValue {
+                NumberField(title: Text("Colors"), value: $svgColors, range: Self.svgColorRange)
+            } else if let number {
                 NumberField(title: Text(number.title), value: $value, range: number.range)
             }
         }

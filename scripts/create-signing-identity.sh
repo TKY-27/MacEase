@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Creates the MacEase Release signing identity.
-# Usage: scripts/create-signing-identity.sh [--set-secrets] [output-dir]
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -61,7 +59,7 @@ if [[ "$set_secrets" == 1 ]]; then
     printf '%s' "$MACEASE_CERT_PASSWORD" | gh secret set MACEASE_CERT_PASSWORD
 fi
 
-# Secrets stay in files so terminals and logs never show them.
+# Files keep secrets out of terminal logs.
 printf '%s' "$MACEASE_CERT_PASSWORD" >"$out/password.txt"
 cat <<EOF
 Created "$identity" in $out.

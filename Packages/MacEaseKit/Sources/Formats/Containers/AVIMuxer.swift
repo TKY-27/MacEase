@@ -11,6 +11,7 @@ public struct AVIMuxer: MediaMuxer {
     private static let hasIndexAndInterleaved: UInt32 = 0x110
     /// Sample frames of timestamp rounding to ignore.
     private static let pcmSlack: Int64 = 1
+    private static let maximumSilenceBytes = 1 << 20
 
     private struct Stream {
         let track: MediaTrack
@@ -248,18 +249,42 @@ public struct AVIMuxer: MediaMuxer {
                 throw FormatError.encoderFailure("PCM packet is not whole sample frames")
             }
             let rate = Int64(sampleRate(streams[index].track))
-            let gap = try Nanoseconds.scale(start, by: rate, over: Nanoseconds.perSecond) - streams[index].units
+            let target = try Nanoseconds.scale(start, by: rate, over: Nanoseconds.perSecond)
+            let packetFrames = Int64(packet.payload.count / blockAlign)
+            guard target <= Int64(UInt32.max) - packetFrames else {
+                throw FormatError.encoderFailure(
+                    String(localized: "AVI stream length out of range", comment: "Unrepresentable output duration"))
+            }
+            let gap = target - streams[index].units
             guard gap >= -Self.pcmSlack else { throw FormatError.encoderFailure("overlapping PCM packets") }
             if gap > Self.pcmSlack {
-                let silence = Data(repeating: streams[index].silence, count: Int(gap) * blockAlign)
-                try writeChunk(silence, stream: index, keyframe: true, units: gap)
+                let maximumFrames = Self.maximumSilenceBytes / blockAlign
+                guard maximumFrames > 0 else {
+                    throw FormatError.encoderFailure(
+                        String(localized: "AVI PCM frame too large", comment: "Bounded silence buffer required"))
+                }
+                var remaining = gap
+                while remaining > 0 {
+                    let frames = min(remaining, Int64(maximumFrames))
+                    let silence = Data(repeating: streams[index].silence, count: Int(frames) * blockAlign)
+                    try writeChunk(silence, stream: index, keyframe: true, units: frames)
+                    remaining -= frames
+                }
             }
             try writeChunk(
-                packet.payload, stream: index, keyframe: true, units: Int64(packet.payload.count / blockAlign))
+                packet.payload, stream: index, keyframe: true, units: packetFrames)
         }
     }
 
     private mutating func writeChunk(_ payload: Data, stream index: Int, keyframe: Bool, units: Int64) throws {
+        guard payload.count < Int(AVI.deltaFrameBit), Int64(payload.count) <= Self.riffLimit - 8 else {
+            throw FormatError.encoderFailure(
+                String(localized: "AVI chunk size out of range", comment: "Unrepresentable output chunk"))
+        }
+        guard units >= 0, units <= Int64(UInt32.max) - streams[index].units else {
+            throw FormatError.encoderFailure(
+                String(localized: "AVI stream length out of range", comment: "Unrepresentable output duration"))
+        }
         if file.position + 8 + Int64(payload.count) - riffStart > Self.riffLimit {
             try closeRiff()
             try openMovi()

@@ -1,26 +1,16 @@
 import Engine
 import Foundation
-import FoundationModels
 import MenuCatalog
 import os
 
 struct MenuFileWriter {
     let configuration: HostConfiguration
 
-    func write(hiddenOperations: Set<OperationID>, aiEnabled: Bool, javaAvailable: Bool) throws -> MenuFile {
-        let aiAvailable = aiEnabled && SystemLanguageModel.default.availability == .available
-        let visible = OperationID.allCases.filter { op in
-            guard !hiddenOperations.contains(op) else { return false }
-            switch op.requirement {
-            case .appleIntelligence: return aiAvailable
-            case .java: return javaAvailable
-            case nil: return true
-            }
-        }
+    func write(visibleOperations: [OperationID]) throws -> MenuFile {
         let file = MenuFile(
             token: try TokenStore.current(),
             hostAvailable: !InstallLocation.current.isTranslocated,
-            visibleOperations: visible,
+            visibleOperations: visibleOperations,
             titles: MenuStrings.titles
         )
         try FileManager.default.createDirectory(at: configuration.supportDirectory, withIntermediateDirectories: true)

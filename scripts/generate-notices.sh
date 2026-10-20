@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Writes Vendor/build/THIRD_PARTY_NOTICES.txt from deps.lock.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

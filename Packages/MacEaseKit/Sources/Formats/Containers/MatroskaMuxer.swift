@@ -125,20 +125,32 @@ public struct MatroskaMuxer: MediaMuxer {
         guard tracks.contains(where: { $0.number == packet.track }) else {
             throw FormatError.encoderFailure("packet for unknown track \(packet.track)")
         }
+        let (end, endOverflow) = packet.timestamp.addingReportingOverflow(packet.duration ?? 0)
+        guard !endOverflow else {
+            throw FormatError.encoderFailure(
+                String(localized: "Matroska timestamp out of range", comment: "Unrepresentable output timeline"))
+        }
         if let first = pending.first {
-            let span = packet.timestamp - first.timestamp
+            let (span, spanOverflow) = packet.timestamp.subtractingReportingOverflow(first.timestamp)
+            guard !spanOverflow else {
+                throw FormatError.encoderFailure(
+                    String(localized: "Matroska timestamp out of range", comment: "Unrepresentable output timeline"))
+            }
             let startsGroup = packet.track == videoTrack ? packet.isKeyframe : videoTrack == nil
             let full = span >= Self.maximumRelative || pendingBytes >= Self.clusterBytes
             if full || (startsGroup && span >= Self.clusterSpan) { try flushCluster() }
         }
         pending.append(packet)
         pendingBytes += packet.payload.count
-        lastEnd = max(lastEnd, packet.timestamp + (packet.duration ?? 0))
+        lastEnd = max(lastEnd, end)
     }
 
     private static func ticks(_ nanoseconds: Int64) -> Int64 {
         let half = timestampScale / 2
-        return nanoseconds >= 0 ? (nanoseconds + half) / timestampScale : -((half - nanoseconds) / timestampScale)
+        let (whole, remainder) = nanoseconds.quotientAndRemainder(dividingBy: timestampScale)
+        if remainder >= half { return whole + 1 }
+        if remainder <= -half { return whole - 1 }
+        return whole
     }
 
     private mutating func flushCluster() throws {

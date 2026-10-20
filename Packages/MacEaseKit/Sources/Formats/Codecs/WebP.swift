@@ -98,6 +98,7 @@ public final class WebPAnimationEncoder {
     private var config: WebPConfig
     private let xmp: Data?
     private var elapsedMilliseconds = 0.0
+    private static let millisecondsPerSecond = 1000.0
     private var colorSpace: CGColorSpace?
     public private(set) var frameCount = 0
     private var hasTransparency = false
@@ -135,14 +136,22 @@ public final class WebPAnimationEncoder {
         guard pixels.width == width, pixels.height == height else {
             throw FormatError.encoderFailure("frames must share one size")
         }
+        let nextMilliseconds = elapsedMilliseconds + max(duration, 0) * Self.millisecondsPerSecond
+        guard duration.isFinite, nextMilliseconds.isFinite, Int32(exactly: nextMilliseconds.rounded()) != nil,
+            let timestamp = Int32(exactly: elapsedMilliseconds.rounded())
+        else {
+            throw FormatError.encoderFailure(
+                String(localized: "WebP animation duration out of range", comment: "Unrepresentable animation timeline")
+            )
+        }
         if colorSpace == nil { colorSpace = pixels.colorSpace }
         if !hasTransparency { hasTransparency = !pixels.isOpaque }
         try WebPEncoder.withPicture(pixels) { picture in
-            guard WebPAnimEncoderAdd(encoder, picture, Int32(elapsedMilliseconds.rounded()), &config) != 0 else {
+            guard WebPAnimEncoderAdd(encoder, picture, timestamp, &config) != 0 else {
                 throw FormatError.encoderFailure(errorText)
             }
         }
-        elapsedMilliseconds += max(duration, 0) * 1000
+        elapsedMilliseconds = nextMilliseconds
         frameCount += 1
     }
 
@@ -152,7 +161,12 @@ public final class WebPAnimationEncoder {
 
     public func finish() throws -> Data {
         guard frameCount > 0 else { throw FormatError.encoderFailure("no frames") }
-        guard WebPAnimEncoderAdd(encoder, nil, Int32(elapsedMilliseconds.rounded()), nil) != 0 else {
+        guard let timestamp = Int32(exactly: elapsedMilliseconds.rounded()) else {
+            throw FormatError.encoderFailure(
+                String(localized: "WebP animation duration out of range", comment: "Unrepresentable animation timeline")
+            )
+        }
+        guard WebPAnimEncoderAdd(encoder, nil, timestamp, nil) != 0 else {
             throw FormatError.encoderFailure(errorText)
         }
         for chunk in WebPEncoder.metadataChunks(colorSpace: colorSpace ?? PixelBuffer.sRGB, xmp: xmp) {

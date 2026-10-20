@@ -48,6 +48,10 @@ public enum ICNSFile {
             guard length >= 8, offset + length <= bytes.count else {
                 throw FormatError.corrupt("ICNS element out of range")
             }
+            guard elements[type] == nil else {
+                throw FormatError.corrupt(
+                    String(localized: "Duplicate ICNS element type", comment: "Invalid icon structure"))
+            }
             elements[type] = Array(bytes[(offset + 8)..<(offset + length)])
             order.append(type)
             offset += length

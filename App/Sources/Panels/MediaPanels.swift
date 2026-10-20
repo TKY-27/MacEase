@@ -31,12 +31,12 @@ enum LoadedMedia {
             let asset = AVURLAsset(url: url)
             let (playable, duration) = try await asset.load(.isPlayable, .duration)
             if playable {
-                let item = AVPlayerItem(asset: asset)
+                let playerItem = AVPlayerItem(asset: asset)
                 // Items load only once attached.
-                let player = AVPlayer(playerItem: item)
+                let player = AVPlayer(playerItem: playerItem)
                 // The KVO publisher never delivered readiness.
-                while item.status == .unknown { try await Task.sleep(for: statusPollInterval) }
-                if item.status == .readyToPlay { return .player(player, duration: duration.seconds) }
+                while playerItem.status == .unknown { try await Task.sleep(for: statusPollInterval) }
+                if playerItem.status == .readyToPlay { return .player(player, duration: duration.seconds) }
             }
         }
         if isVideo {
@@ -265,20 +265,21 @@ private final class TrimmingPlayerView: AVPlayerView {
         hasBegun = true
         Task { @MainActor in
             // AVKit disables Trim for ranges set beforehand.
-            if let prefill, let item = player?.currentItem {
+            if let prefill, let playerItem = player?.currentItem {
                 Task { @MainActor in
-                    item.reversePlaybackEndTime = CMTime(
+                    playerItem.reversePlaybackEndTime = CMTime(
                         seconds: prefill.lowerBound, preferredTimescale: Self.timescale)
-                    item.forwardPlaybackEndTime = CMTime(
+                    playerItem.forwardPlaybackEndTime = CMTime(
                         seconds: prefill.upperBound, preferredTimescale: Self.timescale)
                 }
             }
             let result = await beginTrimming()
             player?.pause()
-            guard result == .okButton, let item = player?.currentItem else { return finish?(nil) ?? () }
-            let start = item.reversePlaybackEndTime.isNumeric ? item.reversePlaybackEndTime.seconds : 0
+            guard result == .okButton, let playerItem = player?.currentItem else { return finish?(nil) ?? () }
+            let start = playerItem.reversePlaybackEndTime.isNumeric ? playerItem.reversePlaybackEndTime.seconds : 0
             let end =
-                item.forwardPlaybackEndTime.isNumeric ? item.forwardPlaybackEndTime.seconds : item.duration.seconds
+                playerItem.forwardPlaybackEndTime.isNumeric
+                ? playerItem.forwardPlaybackEndTime.seconds : playerItem.duration.seconds
             finish?(start...max(start, end))
         }
     }

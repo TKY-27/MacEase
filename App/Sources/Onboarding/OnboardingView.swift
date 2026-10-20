@@ -72,7 +72,7 @@ struct OnboardingView: View {
                 Spacer()
                 Button(isLast ? "Done" : "Continue", action: advance)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(step == .location && location.isTranslocated)
+                    .disabled(step == .location && (location.isTranslocated || !location.isInApplications))
             }
             .overlay { progress }
             .padding()
@@ -170,6 +170,7 @@ struct OnboardingView: View {
     }
 
     private func advance() {
+        guard step != .location || (!location.isTranslocated && location.isInApplications) else { return }
         guard isLast else {
             move(by: 1)
             return

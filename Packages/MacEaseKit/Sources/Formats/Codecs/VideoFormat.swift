@@ -10,6 +10,7 @@ public enum VideoFormat {
     private static let reservedCountBits: UInt8 = 0xE0
     private static let avcSequenceParameterSet: UInt8 = 7
     private static let avcPictureParameterSet: UInt8 = 8
+    private static let maximumSequenceSets = 31
 
     public static func codecType(_ codec: MediaCodec) -> CMVideoCodecType? {
         switch codec {
@@ -114,6 +115,13 @@ public enum VideoFormat {
         let pictureSets = units.filter { $0.first.map { $0 & 0x1F } == avcPictureParameterSet }
         guard let first = sequenceSets.first, first.count >= 4, !pictureSets.isEmpty else {
             throw FormatError.corrupt("H.264 keyframe without SPS and PPS")
+        }
+        guard sequenceSets.count <= maximumSequenceSets, pictureSets.count <= Int(UInt8.max),
+            sequenceSets.allSatisfy({ $0.count <= Int(UInt16.max) }),
+            pictureSets.allSatisfy({ $0.count <= Int(UInt16.max) })
+        else {
+            throw FormatError.corrupt(
+                String(localized: "H.264 parameter sets out of range", comment: "Invalid decoder configuration"))
         }
         let profile = Array(first)
         var record = Data([1, profile[1], profile[2], profile[3], reservedLengthBits | UInt8(avcLengthSize - 1)])

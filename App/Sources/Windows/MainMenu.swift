@@ -17,13 +17,13 @@ enum MainMenu {
             submenu(
                 String(localized: "Edit", comment: "Main menu title"),
                 [
-                    item(String(localized: "Undo", comment: "Edit menu item"), Selector(("undo:")), "z"),
-                    item(String(localized: "Redo", comment: "Edit menu item"), Selector(("redo:")), "Z"),
+                    menuItem(String(localized: "Undo", comment: "Edit menu item"), Selector(("undo:")), "z"),
+                    menuItem(String(localized: "Redo", comment: "Edit menu item"), Selector(("redo:")), "Z"),
                     .separator(),
-                    item(String(localized: "Cut", comment: "Edit menu item"), #selector(NSText.cut(_:)), "x"),
-                    item(String(localized: "Copy", comment: "Edit menu item"), #selector(NSText.copy(_:)), "c"),
-                    item(String(localized: "Paste", comment: "Edit menu item"), #selector(NSText.paste(_:)), "v"),
-                    item(
+                    menuItem(String(localized: "Cut", comment: "Edit menu item"), #selector(NSText.cut(_:)), "x"),
+                    menuItem(String(localized: "Copy", comment: "Edit menu item"), #selector(NSText.copy(_:)), "c"),
+                    menuItem(String(localized: "Paste", comment: "Edit menu item"), #selector(NSText.paste(_:)), "v"),
+                    menuItem(
                         String(localized: "Select All", comment: "Edit menu item"), #selector(NSText.selectAll(_:)),
                         "a"),
                 ]))
@@ -31,14 +31,14 @@ enum MainMenu {
             submenu(
                 String(localized: "Window", comment: "Main menu title"),
                 [
-                    item(
+                    menuItem(
                         String(localized: "Close", comment: "Window menu item"), #selector(NSWindow.performClose(_:)),
                         "w")
                 ]))
         return main
     }
 
-    private static func item(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
+    private static func menuItem(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
         NSMenuItem(title: title, action: action, keyEquivalent: key)
     }
 
