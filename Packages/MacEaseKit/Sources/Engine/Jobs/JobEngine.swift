@@ -53,24 +53,19 @@ public final class JobEngine: Sendable {
         settings: Settings,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> BatchOutcome {
-        let fractions = Mutex([Double](repeating: 0, count: batch.items.count))
-        let historyFailed = Mutex(false)
+        let tracker = BatchTracker(itemCount: batch.items.count)
         let summaries = await withTaskGroup(of: ItemResultSummary.self) { group in
             for (index, workItem) in batch.items.enumerated() {
                 group.addTask {
                     let context = ItemContext(settings: settings, staging: self.staging) { fraction in
-                        let overall = fractions.withLock { values in
-                            values[index] = fraction
-                            return values.reduce(0, +) / Double(values.count)
-                        }
-                        progress(overall)
+                        progress(tracker.update(index, fraction: fraction))
                     }
                     var records: [CommitRecord] = []
                     let (outcome, text) = await self.perform(workItem, of: batch, context: context, records: &records)
                     do {
                         try await self.history.record(records, batch: batch.id, operation: batch.operation)
                     } catch {
-                        historyFailed.withLock { $0 = true }
+                        tracker.markHistoryFailed()
                         self.logger.error("History write failed: \(error.localizedDescription, privacy: .public)")
                     }
                     context.progress(1)
@@ -84,7 +79,7 @@ public final class JobEngine: Sendable {
         do {
             try await history.flush()
         } catch {
-            historyFailed.withLock { $0 = true }
+            tracker.markHistoryFailed()
             logger.error("History write failed: \(error.localizedDescription, privacy: .public)")
         }
 
@@ -100,7 +95,7 @@ public final class JobEngine: Sendable {
             clipboardText: clipboard.isEmpty ? nil : clipboard.joined(separator: "\n"),
             reportText: showsReport ? (reports.isEmpty ? clipboard : reports).joined(separator: "\n") : nil,
             record: await history.records.last { $0.id == batch.id },
-            historyFailed: historyFailed.withLock { $0 }
+            historyFailed: tracker.historyFailed
         )
     }
 
@@ -214,4 +209,27 @@ public final class JobEngine: Sendable {
             if let coordinationError { throw coordinationError }
         }
     }
+}
+
+private final class BatchTracker: Sendable {
+    private let fractions: Mutex<[Double]>
+    private let failedHistory = Mutex(false)
+
+    init(itemCount: Int) {
+        fractions = Mutex([Double](repeating: 0, count: itemCount))
+    }
+
+    /// Returns the batch's mean progress.
+    func update(_ index: Int, fraction: Double) -> Double {
+        fractions.withLock { values in
+            values[index] = fraction
+            return values.reduce(0, +) / Double(values.count)
+        }
+    }
+
+    func markHistoryFailed() {
+        failedHistory.withLock { $0 = true }
+    }
+
+    var historyFailed: Bool { failedHistory.withLock { $0 } }
 }
