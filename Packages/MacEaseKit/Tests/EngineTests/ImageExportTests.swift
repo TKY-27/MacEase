@@ -123,6 +123,21 @@ private typealias Fixture = ImageFixtures
         #expect(try Fixture.pixel(image, x: 60, y: 40) == [0, 0, 255, 255])
     }
 
+    @Test func svgPixelEditsDeriveAPNGAndKeepTheVector() async throws {
+        let folder = try TestVolume.makeFolder()
+        let svg = folder.appending(path: "shape.svg")
+        try Data(
+            #"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="40"/></svg>"#
+                .utf8
+        )
+        .write(to: svg)
+        let outcome = try await Fixture.run(.imageResize, preset: "percent-50", inputs: [svg])
+        let output = try Fixture.output(of: outcome)
+        #expect(output.lastPathComponent == "shape.png")
+        #expect(try Fixture.image(output).width == 100)
+        #expect(FileManager.default.fileExists(atPath: svg.path))
+    }
+
     @Test func svgBase64UsesTheSVGMIMEType() async throws {
         let folder = try TestVolume.makeFolder()
         let svg = folder.appending(path: "dot.svg")

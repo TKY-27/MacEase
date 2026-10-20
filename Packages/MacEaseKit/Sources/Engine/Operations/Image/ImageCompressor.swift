@@ -71,7 +71,7 @@ enum ImageCompressor {
 
     /// The source format wins when listed.
     private static func outputFormat(for document: ImageDocument, limits: MediaLimits?) -> ImageFormat {
-        let source = document.format ?? ImageOutput.fallbackFormat
+        let source = document.writableFormat
         let accepted = (limits?.formats ?? []).compactMap(ImageFormat.init(rawValue:))
         guard let first = accepted.first, !accepted.contains(source) else { return source }
         return first

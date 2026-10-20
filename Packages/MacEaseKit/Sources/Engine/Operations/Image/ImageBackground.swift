@@ -15,7 +15,7 @@ enum ImageBackground {
         guard let firstMask = try await mask(for: document.first, source: options.mask) else {
             return .skipped(.nothingToRemove)
         }
-        let source = document.format ?? ImageOutput.fallbackFormat
+        let source = document.writableFormat
         let format = options.fill == .transparent && !source.holdsAlpha ? .png : source
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in
             let found = image === document.first ? firstMask : try await mask(for: image, source: options.mask)

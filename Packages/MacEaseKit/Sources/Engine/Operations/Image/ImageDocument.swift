@@ -14,7 +14,7 @@ struct ImageFrame {
 struct ImageDocument {
     let url: URL
     let contentType: UTType
-    /// `nil` when the source format is unwritable.
+    /// `nil` for RAW and vector sources.
     let format: ImageFormat?
     var frames: [ImageFrame]
     let isAnimated: Bool
@@ -29,6 +29,11 @@ struct ImageDocument {
     var isRaw: Bool { contentType.conforms(to: .rawImage) }
     var isMultiPage: Bool { !isAnimated && frames.count > 1 }
 
+    /// Derived outputs for RAW and vector sources.
+    var writableFormat: ImageFormat {
+        format ?? ([.none, .noneSkipFirst, .noneSkipLast].contains(first.alphaInfo) ? .jpeg : .png)
+    }
+
     init(
         url: URL, contentType: UTType, frames: [ImageFrame], isAnimated: Bool = false, loops: Bool = true,
         metadata: CGImageMetadata? = nil, gainMap: CFDictionary? = nil,
@@ -36,7 +41,7 @@ struct ImageDocument {
     ) {
         self.url = url
         self.contentType = contentType
-        self.format = ImageFormat(contentType: contentType)
+        self.format = contentType.conforms(to: .svg) ? nil : ImageFormat(contentType: contentType)
         self.frames = frames
         self.isAnimated = isAnimated
         self.loops = loops

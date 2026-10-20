@@ -17,9 +17,6 @@ extension ImageSettings {
 
 /// Shared decode, frame selection, encode and staging.
 enum ImageOutput {
-    /// Unwritable sources such as RAW become JPEG.
-    static let fallbackFormat = ImageFormat.jpeg
-
     static func defaultOptions(for document: ImageDocument, format: ImageFormat, settings: ImageSettings)
         -> EncodeOptions
     {
@@ -102,7 +99,7 @@ enum ImageEdits {
         let (width, height) = targetSize(of: document.first, resize.size)
         let grows = width > document.first.width || height > document.first.height
         if grows, !resize.allowsUpscale { return .skipped(.noUpscale) }
-        let format = document.format ?? ImageOutput.fallbackFormat
+        let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: true, context: context) {
             try ImagePixels.scaled($0, width: width, height: height)
         }
@@ -147,7 +144,7 @@ enum ImageEdits {
             return lossless
         }
         let document = try await ImageDocument.load(url)
-        let format = document.format ?? ImageOutput.fallbackFormat
+        let format = document.writableFormat
         let corner = fill ?? (format.holdsAlpha ? nil : opaqueRotationFill)
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
             try ImagePixels.rotated($0, degrees: degrees, fill: corner.map(ImagePixels.color))
@@ -156,7 +153,7 @@ enum ImageEdits {
 
     static func flip(_ url: URL, _ axis: FlipAxis, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
-        let format = document.format ?? ImageOutput.fallbackFormat
+        let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
             try ImagePixels.flipped($0, axis)
         }
@@ -168,7 +165,7 @@ enum ImageEdits {
         guard let content = contentBounds(of: pixels),
             content.width < Double(pixels.width) || content.height < Double(pixels.height)
         else { return .skipped(.nothingToRemove) }
-        let format = document.format ?? ImageOutput.fallbackFormat
+        let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
             try ImagePixels.cropped($0, to: content)
         }
