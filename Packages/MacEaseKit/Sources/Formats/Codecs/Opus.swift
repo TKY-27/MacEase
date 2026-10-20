@@ -69,6 +69,11 @@ public final class OpusAudioEncoder {
         return packets
     }
 
+    /// Flushes the lookahead so everything decodes.
+    public func finishWithLookahead() throws -> [Data] {
+        try encode([Float](repeating: 0, count: preSkip * channels)) + finish()
+    }
+
     /// Silence-padded; callers set `discardPadding`.
     public func finish() throws -> [Data] {
         guard !pending.isEmpty else { return [] }

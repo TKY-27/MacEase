@@ -47,6 +47,8 @@ public struct StagedFile: Sendable {
 public enum OutputCheck: Sendable {
     case image
     case media
+    /// Decoded fully with MacEase's own audio decoders.
+    case audio
     case archive
     case pdf
     case text(String.Encoding)

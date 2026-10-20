@@ -112,10 +112,6 @@ extension ArchivePlanner {
     }
 
     static func engineError(_ error: FormatError) -> EngineError {
-        switch error {
-        case .corrupt(let detail), .io(let detail), .decoderFailure(let detail): .decodeFailed(detail)
-        case .unsupported(let detail): .unsupportedCodec(detail)
-        case .encoderFailure(let detail): .encodeFailed(detail)
-        }
+        EngineError(error)
     }
 }

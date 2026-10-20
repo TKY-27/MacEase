@@ -1,3 +1,4 @@
+import Formats
 import Foundation
 import MenuCatalog
 
@@ -86,12 +87,22 @@ public enum SkipReason: Equatable, Sendable {
 }
 
 extension EngineError {
+    init(_ format: FormatError) {
+        switch format {
+        case .unsupported(let name): self = .unsupportedCodec(name)
+        case .corrupt(let detail), .decoderFailure(let detail): self = .decodeFailed(detail)
+        case .encoderFailure(let detail): self = .encodeFailed(detail)
+        case .io(let detail): self = .unexpected(detail)
+        }
+    }
+
     public static func wrapping(
         _ error: any Error,
         path: String,
         otherwise: (String) -> EngineError = EngineError.unexpected
     ) -> EngineError {
         if let engineError = error as? EngineError { return engineError }
+        if let format = error as? FormatError { return EngineError(format) }
         if error is CancellationError { return .cancelled }
         let nsError = error as NSError
         if isPermissionError(nsError)

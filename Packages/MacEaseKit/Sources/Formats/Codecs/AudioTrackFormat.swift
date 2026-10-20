@@ -3,7 +3,7 @@ import CoreMedia
 import Foundation
 
 /// Lets MP4 and MOV copy compressed audio.
-public enum AudioFormat {
+public enum AudioTrackFormat {
     private static let aacFramesPerPacket: UInt32 = 1024
     private static let mp3FramesPerPacket: UInt32 = 1152
     private static let ac3FramesPerPacket: UInt32 = 1536

@@ -24,6 +24,7 @@ public enum OperationPlanner {
         case .pdf: PDFPlanner.operation(for: op, preset: preset).map(OperationOptions.pdf)
         case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
         case .jar: JARDecompiler.bundledOperation.map(OperationOptions.jar)
+        case .audio: AudioPlanner.options(for: op, preset: preset).map(OperationOptions.audio)
         default: nil
         }
     }
@@ -51,6 +52,8 @@ public enum OperationPlanner {
             return TextPlanner.batch(operation, op: request.op, inputs: inputs)
         case .jar(let operation):
             return JARDecompiler.batch(operation, op: request.op, inputs: inputs)
+        case .audio(let operation):
+            return AudioPlanner.batch(for: request, operation: operation)
         }
     }
 

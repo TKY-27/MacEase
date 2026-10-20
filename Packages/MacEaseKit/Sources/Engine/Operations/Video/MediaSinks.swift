@@ -104,7 +104,7 @@ final class AssetWriterSink: PacketSink {
             let format =
                 try output.format
                 ?? (output.track.isVideo
-                    ? VideoFormat.description(for: output.track) : AudioFormat.description(for: output.track))
+                    ? VideoFormat.description(for: output.track) : AudioTrackFormat.description(for: output.track))
             let input = AVAssetWriterInput(
                 mediaType: output.track.isVideo ? .video : .audio, outputSettings: nil, sourceFormatHint: format)
             input.expectsMediaDataInRealTime = false

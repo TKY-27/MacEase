@@ -22,6 +22,8 @@ enum OutputVerifier {
             else { throw EngineError.encodeFailed("output image does not decode") }
         case .media:
             try await verifyMedia(file.url)
+        case .audio:
+            try verifyAudio(file.url)
         case .pdf:
             guard let document = PDFDocument(url: file.url), document.pageCount > 0 else {
                 throw EngineError.encodeFailed("output PDF does not open")
@@ -45,6 +47,23 @@ enum OutputVerifier {
         case .decompressed:
             return
         }
+    }
+
+    /// Covers Ogg, which AVFoundation may not open.
+    private static func verifyAudio(_ url: URL) throws {
+        var frames = 0
+        do {
+            let source = try AudioInput(url: url).open()
+            while let chunk = try source.read() {
+                try Task.checkCancellation()
+                frames += chunk.count
+            }
+        } catch is CancellationError {
+            throw EngineError.cancelled
+        } catch {
+            throw EngineError.encodeFailed("output audio does not decode: \(error)")
+        }
+        guard frames > 0 else { throw EngineError.encodeFailed("output audio is empty") }
     }
 
     private static func verifyMedia(_ url: URL) async throws {
