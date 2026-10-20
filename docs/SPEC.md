@@ -752,3 +752,4 @@ check.
 - 2026-10-20: In-house codec tuning recorded (ADR 0008): lightness-weighted
   lossy PNG palettes, ordered dithering as the GIF default, LZW with deferred
   clears and dictionary-aware dithering.
+- 2026-10-20: MP3 encoder design and table provenance recorded (ADR 0009).
