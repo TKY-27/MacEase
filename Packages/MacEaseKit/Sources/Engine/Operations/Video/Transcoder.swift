@@ -11,6 +11,7 @@ struct TranscodePlan {
 
     enum Audio {
         case copy
+        case encode(MediaCodec, kilobits: Int)
     }
 
     var container: OutputContainer
@@ -33,18 +34,34 @@ protocol StreamStage: AnyObject {
 }
 
 enum Transcoder {
+    /// Open ranges read to the end.
+    static func readerTime(_ nanoseconds: Int64) -> CMTime {
+        nanoseconds == .max ? .positiveInfinity : CMTime(value: nanoseconds, timescale: SampleBuffers.nanosecondScale)
+    }
+
     static func run(
         _ input: MediaInput, plan: TranscodePlan, to url: URL, progress: (Double) -> Void
     ) async throws {
         let start = try await startTime(input, plan: plan)
-        let end = plan.range?.upperBound ?? input.duration
+        // Streams may outlast the container's stated duration.
+        let end = plan.range?.upperBound ?? .max
+        let progressEnd = plan.range?.upperBound ?? input.duration
         var stages: [any StreamStage] = []
         if let video = plan.video, let track = input.video {
             stages.append(try await videoStage(video, track: track, input: input, start: start, end: end))
         }
-        if plan.audio != nil, let track = input.audio {
-            stages.append(
-                try await PacketCopyStage(input: input, track: track, number: stages.count + 1, start: start, end: end))
+        if let audio = plan.audio, let track = input.audio {
+            let number = stages.count + 1
+            switch audio {
+            case .copy:
+                stages.append(
+                    try await PacketCopyStage(input: input, track: track, number: number, start: start, end: end))
+            case .encode(let codec, let kilobits):
+                stages.append(
+                    try AudioEncodeStage(
+                        input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                        start: start, end: end))
+            }
         }
         guard !stages.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
         var primed: [[MediaPacket]] = []
@@ -65,7 +82,7 @@ enum Transcoder {
             if queues[index].isEmpty { queues[index] = try await stages[index].pull() }
             for packet in queues[index] {
                 try await sink.write(rebased(packet, origin: origin))
-                progress(Double(packet.timestamp - start) / Double(max(end - start, 1)))
+                progress(Double(packet.timestamp - start) / Double(max(progressEnd - start, 1)))
             }
             queues[index] = []
         }
@@ -194,7 +211,7 @@ final class PacketCopyStage: StreamStage {
             }
             let range = CMTimeRange(
                 start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
-                end: CMTime(value: end, timescale: SampleBuffers.nanosecondScale))
+                end: Transcoder.readerTime(end))
             source = .asset(
                 try AssetTrackReader(asset: asset, track: assetTrack, number: number, mode: .packets, range: range))
             output = OutputTrack(track: described, format: try await assetTrack.load(.formatDescriptions).first)

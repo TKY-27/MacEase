@@ -72,6 +72,7 @@ public enum VideoEncoders {
 
 /// VideoToolbox H.264 High or HEVC Main.
 final class ToolboxFrameEncoder: VideoFrameEncoder {
+    private let bitsPerByte = 8
     private(set) var track: MediaTrack
     private let session: VTCompressionSession
     private let settings: VideoEncoding
@@ -105,6 +106,8 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
         ]
         if let bitrate = settings.bitrate {
             properties[kVTCompressionPropertyKey_AverageBitRate] = bitrate
+            // Hardware encoders overshoot averages on noisy content.
+            properties[kVTCompressionPropertyKey_DataRateLimits] = [bitrate / bitsPerByte, 1] as CFArray
         } else {
             properties[kVTCompressionPropertyKey_Quality] = settings.quality
         }

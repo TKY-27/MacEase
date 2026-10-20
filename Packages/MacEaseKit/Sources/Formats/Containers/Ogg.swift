@@ -9,12 +9,12 @@ struct OggPacket {
     var endsStream: Bool
 }
 
-final class OggPacketWriter {
+package final class OggPacketWriter {
     private let stream = UnsafeMutablePointer<ogg_stream_state>.allocate(capacity: 1)
     private let file: PatchableFile
     private var packetNumber: Int64 = 0
 
-    init(url: URL) throws {
+    package init(url: URL) throws {
         file = try PatchableFile(url: url)
         // `deinit` still frees the stream on failure.
         guard ogg_stream_init(stream, Int32.random(in: 1...Int32.max)) == 0 else {
@@ -28,17 +28,17 @@ final class OggPacketWriter {
     }
 
     /// Audio must start on a fresh page.
-    func writeHeader(_ packet: Data) throws {
+    package func writeHeader(_ packet: Data) throws {
         try submit(packet, granule: 0, last: false)
         try drain(flush: true)
     }
 
-    func write(_ packet: Data, granule: Int64, last: Bool) throws {
+    package func write(_ packet: Data, granule: Int64, last: Bool) throws {
         try submit(packet, granule: granule, last: last)
         try drain(flush: last)
     }
 
-    func close() throws {
+    package func close() throws {
         try file.close()
     }
 

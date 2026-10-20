@@ -138,7 +138,13 @@ struct TruePeakDetector {
     static let tapsPerPhase = 12
 
     /// Reversed for `vDSP_convD`; unity gain each.
-    private let filters: [[Double]] = {
+    private let filters: [[Double]]
+
+    init() {
+        filters = Self.makeFilters()
+    }
+
+    private static func makeFilters() -> [[Double]] {
         let length = phases * tapsPerPhase
         let center = Double(length - 1) / 2
         let taps = (0..<length).map { index -> Double in
@@ -154,7 +160,7 @@ struct TruePeakDetector {
             let sum = filter.reduce(0, +)
             return filter.map { $0 / sum }.reversed()
         }
-    }()
+    }
 
     func maximum(_ samples: [Double], history: inout [Double]) -> Double {
         let signal = history + samples

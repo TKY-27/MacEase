@@ -35,7 +35,7 @@ final class FrameSampler {
         case .asset(let asset, let video?, _):
             let range = CMTimeRange(
                 start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
-                end: CMTime(value: end, timescale: SampleBuffers.nanosecondScale))
+                end: Transcoder.readerTime(end))
             source = .asset(try AssetTrackReader(asset: asset, track: video, number: 1, mode: .frames, range: range))
         default:
             guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
@@ -72,10 +72,9 @@ final class FrameSampler {
         return created
     }
 
-    /// Latest source frame at the output time.
     private func ready() -> DecodedFrame? {
-        while decoded.count >= 2, decoded[1].timestamp <= nextOutput { decoded.removeFirst() }
         let center = nextOutput + frameDuration / 2
+        while decoded.count >= 2, decoded[1].timestamp <= center { decoded.removeFirst() }
         guard center < end, let first = decoded.first else { return nil }
         if decoded.count >= 2 { return first }
         guard sourceEnded, center < first.timestamp + max(frameDuration, sourceFrameDuration) else { return nil }

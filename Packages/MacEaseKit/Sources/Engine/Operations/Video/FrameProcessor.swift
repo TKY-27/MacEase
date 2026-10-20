@@ -11,6 +11,7 @@ struct FrameEdit: Hashable, Sendable {
     var fill = RGBColor.black
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
+    var aspect: AspectRange?
 }
 
 struct PixelSize: Hashable, Sendable {
@@ -32,25 +33,27 @@ final class FrameProcessor {
     private let pool: CVPixelBufferPool
     private let geometry: CGAffineTransform
     private let scale: CGAffineTransform
+    private let viewport: CGRect
     private let background: CIImage?
     let size: PixelSize
 
     static func outputSize(source: PixelSize, edit: FrameEdit) -> PixelSize {
         let geometry = orientation(edit, width: Double(source.width), height: Double(source.height))
-        let bounds = CGRect(x: 0, y: 0, width: source.width, height: source.height).applying(geometry)
+        let bounds = viewport(source: source, edit: edit, geometry: geometry)
         let natural = PixelSize(width: Int(bounds.width.rounded()), height: Int(bounds.height.rounded()))
         return (edit.size ?? natural).evened()
     }
 
     init(source: PixelSize, edit: FrameEdit) throws {
         geometry = Self.orientation(edit, width: Double(source.width), height: Double(source.height))
-        let bounds = CGRect(x: 0, y: 0, width: source.width, height: source.height).applying(geometry)
+        let bounds = Self.viewport(source: source, edit: edit, geometry: geometry)
+        viewport = bounds
         size = Self.outputSize(source: source, edit: edit)
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
         background =
-            rightAngle
+            rightAngle && edit.aspect?.fit != .letterbox
             ? nil
             : CIImage(
                 color: CIColor(
@@ -67,6 +70,18 @@ final class FrameProcessor {
         pool = created
     }
 
+    private static func viewport(source: PixelSize, edit: FrameEdit, geometry: CGAffineTransform) -> CGRect {
+        let bounds = CGRect(x: 0, y: 0, width: source.width, height: source.height).applying(geometry)
+        guard let aspect = edit.aspect else { return bounds }
+        let ratio = bounds.width / bounds.height
+        let target = min(max(ratio, aspect.min.value), aspect.max.value)
+        let narrows = target < ratio
+        let crops = aspect.fit == .crop
+        let width = narrows == crops ? bounds.height * target : bounds.width
+        let height = narrows == crops ? bounds.height : bounds.width / target
+        return CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+    }
+
     /// Y-up space: clockwise turns are negative.
     private static func orientation(_ edit: FrameEdit, width: Double, height: Double) -> CGAffineTransform {
         var transform = CGAffineTransform(translationX: -width / 2, y: -height / 2)
@@ -78,7 +93,9 @@ final class FrameProcessor {
     }
 
     func process(_ frame: CVPixelBuffer) throws -> CVPixelBuffer {
-        var image = CIImage(cvPixelBuffer: frame).transformed(by: geometry).transformed(by: scale)
+        var image = CIImage(cvPixelBuffer: frame).transformed(by: geometry).cropped(to: viewport)
+            .transformed(by: CGAffineTransform(translationX: -viewport.minX, y: -viewport.minY))
+            .transformed(by: scale)
         let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         if let background { image = image.composited(over: background) }
         var output: CVPixelBuffer?

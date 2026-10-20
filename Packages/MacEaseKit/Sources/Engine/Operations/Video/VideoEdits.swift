@@ -11,7 +11,9 @@ enum VideoEdits {
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         let plan: TranscodePlan
         do {
-            plan = try self.plan(operation, input: input, source: source, settings: context.settings.video)
+            plan = try self.plan(
+                operation, input: input, source: source, settings: context.settings.video,
+                audioSettings: context.settings.audio)
         } catch let skip as SkipError {
             return .skipped(skip.reason)
         }
@@ -22,7 +24,8 @@ enum VideoEdits {
     }
 
     static func plan(
-        _ operation: VideoOperation, input: MediaInput, source: MediaTrack, settings: VideoSettings
+        _ operation: VideoOperation, input: MediaInput, source: MediaTrack, settings: VideoSettings,
+        audioSettings: AudioSettings = AudioSettings()
     ) throws -> TranscodePlan {
         let container = input.container
         switch operation {
@@ -31,7 +34,8 @@ enum VideoEdits {
             return TranscodePlan(container: container, video: .copy, audio: nil)
         case .convert(let target):
             guard target != container else { throw SkipError(.alreadyDone) }
-            return try conversion(to: target, input: input, source: source, settings: settings)
+            return conversion(
+                to: target, input: input, source: source, settings: settings, audioSettings: audioSettings)
         case .trim(let start, let end, let mode):
             let range = try Nanoseconds.from(seconds: start)..<(try Nanoseconds.from(seconds: end))
             guard !range.isEmpty, range.lowerBound < input.duration else {
@@ -69,7 +73,7 @@ enum VideoEdits {
             var edit = baked(input)
             edit.size = try resized(input.displaySize, resize)
             return reencoded(input, source: source, edit: edit, settings: settings)
-        case .still, .gif, .apng:
+        case .still, .gif, .apng, .webP, .gifX, .extractAudio, .compress:
             throw EngineError.unexpected("not an in-place edit")
         }
     }
@@ -114,19 +118,28 @@ enum VideoEdits {
     }
 
     private static func conversion(
-        to target: OutputContainer, input: MediaInput, source: MediaTrack, settings: VideoSettings
-    ) throws -> TranscodePlan {
-        let audioFits = input.audio.map { target.holds($0.codec) } ?? true
-        guard audioFits else {
-            throw EngineError.unsupportedCodec("\(input.audio?.codec.displayName ?? "") in \(target)")
-        }
-        if target.holds(source.codec), input.transform == .identity || target.fileType != nil {
+        to target: OutputContainer, input: MediaInput, source: MediaTrack, settings: VideoSettings,
+        audioSettings: AudioSettings
+    ) -> TranscodePlan {
+        let audioFits =
+            input.audio.map { track in
+                target.holds(track.codec)
+                    && (target != .avi || track.codec == .pcm(bits: 16, float: false, bigEndian: false))
+            } ?? true
+        let videoFits = target.holds(source.codec) && (input.transform == .identity || target.fileType != nil)
+        if videoFits && audioFits {
             return TranscodePlan(container: target, video: .copy, audio: input.audio == nil ? nil : .copy)
+        }
+        let audio: TranscodePlan.Audio? = input.audio.map { _ in
+            switch target {
+            case .webm: return .encode(.opus, kilobits: audioSettings.opusBitrate)
+            case .avi: return .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)
+            default: return .encode(.aac, kilobits: audioSettings.aacBitrate)
+            }
         }
         var encoding = encoding(input, source: source, settings: settings)
         encoding.codec = target == .mkv ? .h264 : codec(for: target, source: source.codec, settings: settings)
-        return TranscodePlan(
-            container: target, video: .encode(encoding, baked(input)), audio: input.audio == nil ? nil : .copy)
+        return TranscodePlan(container: target, video: .encode(encoding, baked(input)), audio: audio)
     }
 
     private static func resized(_ display: PixelSize, _ resize: VideoResize) throws -> PixelSize {
