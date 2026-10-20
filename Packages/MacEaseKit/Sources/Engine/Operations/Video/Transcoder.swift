@@ -82,12 +82,14 @@ enum Transcoder {
         var queues = primed
         while let index = try await earliest(stages, queues, sink: sink) {
             try Task.checkCancellation()
-            if queues[index].isEmpty { queues[index] = try await stages[index].pull() }
-            for packet in queues[index] {
-                try await sink.write(rebased(packet, origin: origin))
-                progress(Double(packet.timestamp - start) / Double(max(progressEnd - start, 1)))
+            guard !queues[index].isEmpty else {
+                queues[index] = try await stages[index].pull()
+                continue
             }
-            queues[index] = []
+            // A blocked input must not starve others.
+            let packet = queues[index].removeFirst()
+            try await sink.write(rebased(packet, origin: origin))
+            progress(Double(packet.timestamp - start) / Double(max(progressEnd - start, 1)))
         }
         try await sink.finish()
     }
