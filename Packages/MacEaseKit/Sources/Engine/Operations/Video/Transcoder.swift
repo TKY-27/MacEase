@@ -23,6 +23,8 @@ struct TranscodePlan {
     var startsAtKeyframe = true
     /// Display matrix for copied MP4 and MOV.
     var transform: CGAffineTransform?
+    /// Replaces backgrounds before encoding.
+    var matte: BackgroundMatte?
 }
 
 /// Pulls one output stream in time order.
@@ -48,7 +50,8 @@ enum Transcoder {
         let progressEnd = plan.range?.upperBound ?? input.duration
         var stages: [any StreamStage] = []
         if let video = plan.video, let track = input.video {
-            stages.append(try await videoStage(video, track: track, input: input, start: start, end: end))
+            stages.append(
+                try await videoStage(video, track: track, input: input, matte: plan.matte, start: start, end: end))
         }
         if let audio = plan.audio, let track = input.audio {
             let number = stages.count + 1
@@ -127,13 +130,15 @@ enum Transcoder {
     }
 
     private static func videoStage(
-        _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, start: Int64, end: Int64
+        _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
+        end: Int64
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
             try await PacketCopyStage(input: input, track: track, number: 1, start: start, end: end)
         case .encode(let encoding, let edit):
-            try await FrameEncodeStage(input: input, encoding: encoding, edit: edit, start: start, end: end)
+            try await FrameEncodeStage(
+                input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end)
         }
     }
 
@@ -292,17 +297,24 @@ final class FrameEncodeStage: StreamStage {
     private var encoder: any VideoFrameEncoder
     private var upcoming: Int64?
 
-    init(input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, start: Int64, end: Int64) async throws {
+    private let matte: BackgroundMatte?
+
+    init(
+        input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, matte: BackgroundMatte?, start: Int64,
+        end: Int64
+    ) async throws {
         sampler = try await FrameSampler(
             input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end)
         encoder = try VideoEncoders.make(encoding, track: 1)
+        self.matte = matte
         upcoming = start
     }
 
     var output: OutputTrack? {
         let track = encoder.track
-        if [.h264, .hevc].contains(track.codec), track.codecPrivate == nil { return nil }
-        return OutputTrack(track: track, format: nil)
+        let fromToolbox: Set<MediaCodec> = [.h264, .hevc, .prores]
+        if fromToolbox.contains(track.codec), encoder.formatDescription == nil { return nil }
+        return OutputTrack(track: track, format: encoder.formatDescription)
     }
 
     var nextTime: Int64? { upcoming }
@@ -314,6 +326,7 @@ final class FrameEncodeStage: StreamStage {
             return try encoder.finish()
         }
         upcoming = sampler.position
-        return try encoder.encode(frame.image, timestamp: frame.timestamp)
+        let image = try await matte?.apply(frame.image) ?? frame.image
+        return try encoder.encode(image, timestamp: frame.timestamp)
     }
 }

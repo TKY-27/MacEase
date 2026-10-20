@@ -65,6 +65,8 @@ public enum VideoOperation: Codable, Hashable, Sendable {
     case apng(AnimationRendering)
     case webP(AnimationRendering)
     case gifX
+    case subtitles(SubtitleRequest)
+    case background(VideoBackgroundRequest)
 }
 
 enum VideoPlanner {
@@ -102,8 +104,33 @@ enum VideoPlanner {
             return animation(preset, settings: settings).map(VideoOperation.webP)
         case .videoToAPNG:
             return animation(preset, settings: settings).map(VideoOperation.apng)
+        case .videoSubtitles:
+            return subtitles(preset, settings: settings.intelligence).map(VideoOperation.subtitles)
+        case .videoBackground:
+            return background(preset, settings: settings).map(VideoOperation.background)
         default:
             return nil
+        }
+    }
+
+    private static func subtitles(_ preset: String, settings: IntelligenceSettings) -> SubtitleRequest? {
+        if preset == "translated-srt" {
+            return SubtitleRequest(
+                format: .srt, language: settings.subtitleLanguage, translation: settings.translationTarget)
+        }
+        return SubtitleFormat(rawValue: preset).map {
+            SubtitleRequest(format: $0, language: settings.subtitleLanguage, translation: nil)
+        }
+    }
+
+    private static func background(_ preset: String, settings: Settings) -> VideoBackgroundRequest? {
+        let fills: [String: BackgroundFill] = [
+            "remove": .transparent, "green": .color(settings.image.greenBackground),
+            "blue": .color(settings.image.blueBackground), "color": .color(settings.image.customBackground),
+            "blur": .blur(radius: BackgroundOptions.defaultBlurRadius),
+        ]
+        return fills[preset].map {
+            VideoBackgroundRequest(mask: .person, fill: $0, transparentFormat: settings.video.transparentFormat)
         }
     }
 
@@ -154,6 +181,9 @@ enum VideoPlanner {
                 case .apng(let rendering): try await VideoAnimations.apng(rendering, url: url, context: context)
                 case .webP(let rendering): try await VideoAnimations.webP(rendering, url: url, context: context)
                 case .gifX: try await VideoAnimations.gifX(url: url, context: context)
+                case .subtitles(let request): try await VideoSubtitles.run(request, url: url, context: context)
+                case .background(let request):
+                    try await VideoBackgroundRemoval.run(request, url: url, context: context)
                 default: try await VideoEdits.run(operation, url: url, context: context)
                 }
             }
@@ -165,10 +195,10 @@ enum VideoPlanner {
 extension VideoOperation {
     var usesHardwareVideo: Bool {
         switch self {
-        case .removeAudio, .still, .gif, .apng, .webP, .gifX, .extractAudio: false
+        case .removeAudio, .still, .gif, .apng, .webP, .gifX, .extractAudio, .subtitles: false
         case .trim(_, _, let mode): mode == .exact
         case .convert(let container): container != .webm && container != .avi
-        case .resize, .rotate, .flip, .frameRate, .compress: true
+        case .resize, .rotate, .flip, .frameRate, .compress, .background: true
         }
     }
 }

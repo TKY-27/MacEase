@@ -73,7 +73,7 @@ enum VideoEdits {
             var edit = baked(input)
             edit.size = try resized(input.displaySize, resize)
             return reencoded(input, source: source, edit: edit, settings: settings)
-        case .still, .gif, .apng, .webP, .gifX, .extractAudio, .compress:
+        case .still, .gif, .apng, .webP, .gifX, .extractAudio, .compress, .subtitles, .background:
             throw EngineError.unexpected("not an in-place edit")
         }
     }

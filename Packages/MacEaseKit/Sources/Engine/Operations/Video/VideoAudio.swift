@@ -256,31 +256,39 @@ enum VideoAudio {
             try await copy(input, track: track, format: format, to: output, progress: context.progress)
         } else {
             let target = AudioTarget.defaults(for: format, settings: context.settings.audio)
-            let bitDepth: Int?
-            let isFloat: Bool
-            if case .pcm(let bits, let float, _) = track.codec {
-                bitDepth = bits
-                isFloat = float
-            } else {
-                bitDepth = nil
-                isFloat = false
+            try await encode(input, track: track, sampleRate: sampleRate, target: target, to: output) {
+                context.progress($0)
             }
-            let source = try VideoPCMSource(input: input, track: track, start: 0, end: .max)
-            let encoder = try AudioFileEncoder(
-                url: output, target: target, sampleRate: source.sampleRate, channels: source.channels,
-                bitDepth: bitDepth, isFloat: isFloat)
-            var frames: Int64 = 0
-            while let chunk = try await source.next() {
-                try Task.checkCancellation()
-                try await encoder.write(chunk.samples)
-                frames += Int64(chunk.samples.count / source.channels)
-                context.progress(
-                    min(1, Double(frames) / max(sampleRate * Double(input.duration) / Double(Nanoseconds.perSecond), 1))
-                )
-            }
-            try await encoder.finish()
         }
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .audio)])
+    }
+
+    static func encode(
+        _ input: MediaInput, track: MediaTrack, sampleRate: Double, target: AudioTarget, to output: URL,
+        progress: (Double) -> Void
+    ) async throws {
+        let bitDepth: Int?
+        let isFloat: Bool
+        if case .pcm(let bits, let float, _) = track.codec {
+            bitDepth = bits
+            isFloat = float
+        } else {
+            bitDepth = nil
+            isFloat = false
+        }
+        let source = try VideoPCMSource(input: input, track: track, start: 0, end: .max)
+        let encoder = try AudioFileEncoder(
+            url: output, target: target, sampleRate: source.sampleRate, channels: source.channels,
+            bitDepth: bitDepth, isFloat: isFloat)
+        var frames: Int64 = 0
+        let expectedFrames = max(sampleRate * Double(input.duration) / Double(Nanoseconds.perSecond), 1)
+        while let chunk = try await source.next() {
+            try Task.checkCancellation()
+            try await encoder.write(chunk.samples)
+            frames += Int64(chunk.samples.count / source.channels)
+            progress(min(1, Double(frames) / expectedFrames))
+        }
+        try await encoder.finish()
     }
 
     private static func canCopy(_ track: MediaTrack, to format: AudioFormat) -> Bool {
