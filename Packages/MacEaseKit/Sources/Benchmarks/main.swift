@@ -121,8 +121,10 @@ func writeClip(to url: URL) async throws {
         if let base = CVPixelBufferGetBaseAddress(buffer) {
             let bytes = base.assumingMemoryBound(to: UInt8.self)
             let count = CVPixelBufferGetBytesPerRow(buffer) * Targets.clipHeight
-            for offset in stride(from: 0, to: count, by: 4) {
-                bytes[offset] = UInt8(truncatingIfNeeded: offset &+ index * 7)
+            var grain = UInt64(index + 1)
+            for offset in 0..<count {
+                grain = grain &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                bytes[offset] = UInt8(truncatingIfNeeded: (offset / 4) &+ index &+ Int(grain >> 61))
             }
         }
         CVPixelBufferUnlockBaseAddress(buffer, [])
@@ -163,6 +165,8 @@ func benchmark() async throws {
 
     let clip = volume.appending(path: "clip.mp4")
     try await writeClip(to: clip)
+    let clipBytes = try clip.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    print("Clip to compress: \(clipBytes / 1_000_000) MB")
     try await measure("60 s 1080p to 20 MB (Discord)", target: Targets.videoSeconds) {
         try await run(.videoCompress, preset: "discord", on: clip)
     }

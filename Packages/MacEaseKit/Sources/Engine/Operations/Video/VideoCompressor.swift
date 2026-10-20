@@ -6,6 +6,8 @@ enum VideoCompressor {
     private static let audioKilobits = [128, 96, 64]
     private static let resolutionSteps = [2160, 1440, 1080, 720, 480]
     private static let containerShare = 0.02
+    /// Encoders miss proportionally; aim mid-band.
+    private static let correctionAim = 0.96
     private static let minimumBitsPerPixelFrame = 0.04
     private static let reducedFrameRate = 30
     private static let defaultQuality = 0.75
@@ -115,7 +117,8 @@ enum VideoCompressor {
                 if let output = try await encodeAndCorrect(encoding, edit: edit, audioBitrate: audioBitrate) {
                     return output
                 }
-                guard belowPixelBudget(encoding), reduce(&encoding, edit: &edit, compression: compression) else {
+                // Grain floors encoders; misses step down too.
+                guard reduce(&encoding, edit: &edit, compression: compression) else {
                     throw EngineError.targetUnreachable(smallestBytes: smallest)
                 }
             }
@@ -132,7 +135,7 @@ enum VideoCompressor {
             if first.bytes <= target, Double(first.bytes) >= Double(target) * minimumTargetShare { return first.url }
             let underTarget = first.bytes <= target
             if !underTarget { try FileManager.default.removeItem(at: first.url) }
-            let ratio = Double(target) * (1 - containerShare) / Double(first.bytes)
+            let ratio = Double(target) * correctionAim / Double(first.bytes)
             let fixedBitrate = Double(audioBitrate)
             let correctedRate = (Double(encoding.bitrate ?? 0) + fixedBitrate) * ratio - fixedBitrate
             var corrected = encoding
