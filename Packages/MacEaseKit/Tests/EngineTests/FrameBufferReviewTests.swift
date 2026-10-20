@@ -16,13 +16,13 @@ private let canAllocateVideoFrames: Bool = {
 @Suite struct FrameBufferReviewTests {
     @Test func rejectsLargeFrameSetsAndOverflowBeforeAllocation() throws {
         var budget = FrameMemoryBudget()
-        #expect(throws: EngineError.self) {
+        #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
             try budget.reserve(width: 480, height: 270, frameCount: 9_000)
         }
-        #expect(throws: EngineError.self) {
+        #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
             try budget.reserve(width: 2_048, height: 2_048, frameCount: 100)
         }
-        #expect(throws: EngineError.self) {
+        #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
             try budget.reserve(width: Int.max, height: Int.max, frameCount: Int64.max)
         }
         try budget.reserve(width: 480, height: 270, frameCount: 150)
@@ -37,12 +37,9 @@ private let canAllocateVideoFrames: Bool = {
         let context = ItemContext(
             settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
         defer { context.removeStaging() }
-        do {
+        await #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
             _ = try await ImageEdits.resize(
                 source, ImageResize(size: .exact(width: 50_000, height: 50_000), allowsUpscale: true), context: context)
-            Issue.record("oversized resize must report its memory limit")
-        } catch EngineError.invalidInput(.malformed(let reason)) {
-            #expect(reason.contains("memory budget"))
         }
         #expect(try Data(contentsOf: source) == original)
     }
@@ -53,15 +50,12 @@ private let canAllocateVideoFrames: Bool = {
         let source = folder.appending(path: "pages.tiff")
         let image = try ImageFixtures.disc(size: 2_048)
         try ImageFixtures.write(Array(repeating: image, count: 7), as: .tiff, to: source)
-        do {
+        await #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
             _ = try await ImageDocument.load(source)
-            Issue.record("oversized page set must fail")
-        } catch EngineError.invalidInput(.malformed(let reason)) {
-            #expect(reason.contains("memory budget"))
         }
     }
 
-    @Test func longAnimationFailsBeforeSampling() async throws {
+    @Test func oversizedAnimationFrameFailsBeforeSampling() async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
         let source = try #require(
@@ -76,7 +70,13 @@ private let canAllocateVideoFrames: Bool = {
         let tenMinutes = 600 * Nanoseconds.perSecond
         packet.duration = tenMinutes
         let extended = folder.appending(path: "long.mkv")
-        var muxer = try MatroskaMuxer(url: extended, tracks: demuxer.tracks, webm: false)
+        let oversizedEdge = 4_096
+        let tracks = demuxer.tracks.map { track in
+            var declared = track
+            if case .video = declared.kind { declared.kind = .video(width: oversizedEdge, height: oversizedEdge) }
+            return declared
+        }
+        var muxer = try MatroskaMuxer(url: extended, tracks: tracks, webm: false)
         try muxer.write(packet)
         try muxer.finish()
         let context = ItemContext(
@@ -84,10 +84,10 @@ private let canAllocateVideoFrames: Bool = {
         defer { context.removeStaging() }
         do {
             _ = try await VideoAnimations.apng(
-                AnimationRendering(width: 480, framesPerSecond: 15), url: extended, context: context)
-            Issue.record("long animation must fail its memory budget")
-        } catch EngineError.invalidInput(.malformed(let reason)) {
-            #expect(reason.contains("memory budget"))
+                AnimationRendering(width: oversizedEdge, framesPerSecond: 15), url: extended, context: context)
+            Issue.record("oversized animation must fail before decoding")
+        } catch EngineError.invalidInput(.frameMemoryExceeded) {
+            #expect(FileManager.default.fileExists(atPath: extended.path))
         }
     }
 

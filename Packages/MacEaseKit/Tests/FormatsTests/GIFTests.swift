@@ -46,6 +46,26 @@ extension Fixtures {
 }
 
 @Suite struct GIFEncoderTests {
+    @Test func streamedGradientMeetsQualityAndBeatsImageIO() async throws {
+        let video = FileManager.default.temporaryDirectory.appending(path: "gradient-\(UUID().uuidString).mp4")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: video) } }
+        try await VideoFixture.write(Fixtures.gradientFrames(), fps: 15, to: video)
+        let frames = try await VideoFixture.frames(of: video, count: 30, fps: 15)
+        let output = FileManager.default.temporaryDirectory.appending(path: "gradient-\(UUID().uuidString).gif")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: output) } }
+        let encoder = try GIFEncoder.Stream(
+            width: 320, height: 180, options: GIFOptions(paletteScope: .perFrame), to: output)
+        for frame in frames { try encoder.add(GIFFrame(pixels: frame, duration: 1.0 / 15)) }
+        try encoder.finish()
+        let bitstream = try Data(contentsOf: output)
+        let decoded = try decodedFrames(bitstream)
+        #expect(decoded.count == frames.count)
+        let ssim = zip(frames, decoded).map { SSIM.compare($0, $1) }.reduce(0, +) / Double(frames.count)
+        #expect(ssim >= 0.93, "SSIM \(ssim)")
+        let reference = try imageIOGIF(frames, delay: 1.0 / 15)
+        #expect(bitstream.count < reference.count, "\(bitstream.count) vs ImageIO \(reference.count)")
+    }
+
     private func decodedFrames(_ data: Data) throws -> [PixelBuffer] {
         let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
         return try (0..<CGImageSourceGetCount(source)).map { index in

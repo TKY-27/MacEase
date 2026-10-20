@@ -1,6 +1,5 @@
 import CoreGraphics
 import CoreVideo
-import Foundation
 
 struct FrameMemoryBudget {
     private static let residentLimit: Int64 = 1_500_000_000
@@ -45,11 +44,5 @@ struct FrameMemoryBudget {
         for image in images { try budget.reserve(image) }
     }
 
-    static var exceeded: EngineError {
-        .invalidInput(
-            .malformed(
-                String(
-                    localized: "These frames exceed the memory budget. Use fewer or smaller frames.",
-                    comment: "Frame memory limit")))
-    }
+    static let exceeded = EngineError.invalidInput(.frameMemoryExceeded)
 }

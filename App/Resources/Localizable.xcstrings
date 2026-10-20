@@ -665,6 +665,17 @@
         }
       }
     },
+    "Choose an animation range within “%@” and a supported frame rate.": {
+      "comment": "Range must fit the source",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” の長さに収まる範囲と、対応しているフレームレートを選んでください。"
+          }
+        }
+      }
+    },
     "Choose…": {
       "localizations": {
         "ja": {
@@ -8311,6 +8322,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” の中身が拡張子と一致しません。"
+          }
+        }
+      }
+    },
+    "“%@” exceeds the frame memory budget. Use fewer or smaller frames.": {
+      "comment": "Limit protects available memory",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” はフレーム用のメモリ上限を超えています。フレーム数を減らすか、サイズを小さくしてください。"
           }
         }
       }

@@ -64,6 +64,8 @@ public enum InvalidInput: Equatable, Sendable {
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
     case multipleTracks
+    case frameMemoryExceeded
+    case invalidAnimationRange
 }
 
 public enum Capability: String, Equatable, Sendable {

@@ -149,6 +149,16 @@ enum UserMessages {
                     "“\(file)” has multiple audio or video tracks. Replacement supports at most one of each.",
                 comment: "Replacement would discard additional tracks"
             )
+        case .frameMemoryExceeded:
+            String(
+                localized: "“\(file)” exceeds the frame memory budget. Use fewer or smaller frames.",
+                comment: "Limit protects available memory"
+            )
+        case .invalidAnimationRange:
+            String(
+                localized: "Choose an animation range within “\(file)” and a supported frame rate.",
+                comment: "Range must fit the source"
+            )
         }
     }
 

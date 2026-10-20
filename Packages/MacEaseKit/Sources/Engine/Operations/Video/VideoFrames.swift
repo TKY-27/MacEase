@@ -27,40 +27,59 @@ enum VideoStills {
 }
 
 enum VideoAnimations {
+    private static let maximumEncodedWebPBytes = 100_000_000
+    private static let maximumFrameBytes = 32_000_000
+    private static let rgbaBytesPerPixel = 4
+    private static let millisecondsPerSecond = 1_000.0
     static func gif(_ rendering: AnimationRendering, url: URL, context: ItemContext) async throws -> ItemResult {
-        let frames = try await sample(rendering, url: url, context: context)
-        let duration = 1 / Double(rendering.framesPerSecond)
-        let options = GIFOptions(colors: rendering.colors, dithering: rendering.dithering, loops: rendering.loops)
-        let data = try GIFEncoder.encode(
-            try frames.map { GIFFrame(pixels: try PixelBuffer(cgImage: $0), duration: duration) }, options: options)
+        let sampling = try await Sampling(rendering, url: url)
         let name = url.deletingPathExtension().lastPathComponent + ".gif"
         let output = try context.stagingURL(for: url, name: name)
-        try data.write(to: output)
+        try await encodeGIF(rendering, sampling: sampling, to: output, context: context)
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .image)])
     }
 
     static func apng(_ rendering: AnimationRendering, url: URL, context: ItemContext) async throws -> ItemResult {
-        let frames = try await sample(rendering, url: url, context: context)
+        let sampling = try await Sampling(rendering, url: url)
         let name = url.deletingPathExtension().lastPathComponent + ".png"
         let output = try context.stagingURL(for: url, name: name)
-        try ImageFiles.write(
-            frames, type: .png, to: output,
-            animation: ImageFiles.Animation(delay: 1 / Double(rendering.framesPerSecond), loops: rendering.loops))
+        guard
+            let destination = CGImageDestinationCreateWithURL(
+                output as CFURL, UTType.png.identifier as CFString, sampling.frameCount, nil)
+        else { throw EngineError.encodeFailed("cannot create APNG") }
+        let loop = [kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGLoopCount: rendering.loops ? 0 : 1]]
+        CGImageDestinationSetProperties(destination, loop as CFDictionary)
+        // Millisecond rounding prevents ImageIO timing drift.
+        var frameIndex = 0
+        var emittedMilliseconds = 0
+        try await sampling.consume(context: context) { image in
+            frameIndex += 1
+            let target = Int((Double(frameIndex) * sampling.duration * millisecondsPerSecond).rounded())
+            let delay = Double(target - emittedMilliseconds) / millisecondsPerSecond
+            emittedMilliseconds = target
+            let properties = [kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGDelayTime: delay]]
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+        }
+        guard CGImageDestinationFinalize(destination) else { throw EngineError.encodeFailed("APNG write failed") }
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .image)])
     }
 
     static func webP(_ rendering: AnimationRendering, url: URL, context: ItemContext) async throws -> ItemResult {
-        let frames = try await sample(rendering, url: url, context: context)
-        guard let firstImage = frames.first else { throw EngineError.invalidInput(.emptyInput) }
-        let first = try PixelBuffer(cgImage: firstImage)
-        let encoder = try WebPAnimationEncoder(
-            width: first.width, height: first.height,
-            quality: Double(context.settings.image.webpQuality), loops: rendering.loops)
-        for frame in frames { try encoder.add(frame, duration: 1 / Double(rendering.framesPerSecond)) }
-        let data = try encoder.finish()
+        let sampling = try await Sampling(rendering, url: url)
+        let encoder = try WebPAnimationEncoder.Stream(
+            width: sampling.size.width, height: sampling.size.height,
+            quality: Double(context.settings.image.webpQuality), loops: rendering.loops,
+            maximumEncodedBytes: maximumEncodedWebPBytes)
         let name = url.deletingPathExtension().lastPathComponent + ".webp"
         let output = try context.stagingURL(for: url, name: name)
-        try data.write(to: output)
+        do {
+            try await sampling.consume(context: context) { image in
+                try encoder.add(image, duration: sampling.duration)
+            }
+            try encoder.finish(to: output)
+        } catch WebPAnimationEncoder.Stream.Error.encodedSizeExceeded {
+            throw EngineError.invalidInput(.frameMemoryExceeded)
+        }
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .image)])
     }
 
@@ -82,126 +101,132 @@ enum VideoAnimations {
         let frameLimit = Int64(maxFrames)
         let minimumFrameDuration = input.duration / frameLimit + (input.duration % frameLimit == 0 ? 0 : 1)
 
-        var data = try await encodeGIF(
-            rendering, maxHeight: maxHeight, maxFrames: maxFrames, minimumFrameDuration: minimumFrameDuration, url: url,
-            context: context)
-        var smallestBytes = Int64(data.count)
-        while Int64(data.count) > maxBytes, rendering.framesPerSecond > 1 {
-            rendering.framesPerSecond -= 1
-            data = try await encodeGIF(
-                rendering, maxHeight: maxHeight, maxFrames: maxFrames, minimumFrameDuration: minimumFrameDuration,
-                url: url, context: context)
-            smallestBytes = min(smallestBytes, Int64(data.count))
-        }
-        while Int64(data.count) > maxBytes, rendering.width > 1 {
-            rendering.width = max(1, Int((Double(rendering.width) * 0.9).rounded(.down)))
-            data = try await encodeGIF(
-                rendering, maxHeight: maxHeight, maxFrames: maxFrames, minimumFrameDuration: minimumFrameDuration,
-                url: url, context: context)
-            smallestBytes = min(smallestBytes, Int64(data.count))
-        }
-        while Int64(data.count) > maxBytes, rendering.colors > 2 {
-            rendering.colors = max(2, rendering.colors / 2)
-            data = try await encodeGIF(
-                rendering, maxHeight: maxHeight, maxFrames: maxFrames, minimumFrameDuration: minimumFrameDuration,
-                url: url, context: context)
-            smallestBytes = min(smallestBytes, Int64(data.count))
-        }
-        guard Int64(data.count) <= maxBytes else {
-            throw EngineError.targetUnreachable(smallestBytes: smallestBytes)
-        }
-
         let name = url.deletingPathExtension().lastPathComponent + ".gif"
         let output = try context.stagingURL(for: url, name: name)
-        try data.write(to: output)
+        func attempt() async throws -> Int64 {
+            let sampling = try await Sampling(
+                rendering, maxHeight: maxHeight, minimumFrameDuration: minimumFrameDuration, url: url)
+            guard sampling.frameCount <= maxFrames else {
+                throw EngineError.invalidInput(.malformed("X GIF exceeds its frame limit"))
+            }
+            if FileManager.default.fileExists(atPath: output.path) { try FileManager.default.removeItem(at: output) }
+            try await encodeGIF(rendering, sampling: sampling, to: output, context: context)
+            // URL caches survive file replacement.
+            let attributes = try FileManager.default.attributesOfItem(atPath: output.path)
+            guard let byteCount = attributes[.size] as? Int64 else {
+                throw EngineError.encodeFailed("GIF size is unavailable")
+            }
+            return byteCount
+        }
+        var byteCount = try await attempt()
+        var smallestBytes = byteCount
+        while byteCount > maxBytes, rendering.framesPerSecond > 1 {
+            rendering.framesPerSecond -= 1
+            byteCount = try await attempt()
+            smallestBytes = min(smallestBytes, byteCount)
+        }
+        while byteCount > maxBytes, rendering.width > 1 {
+            rendering.width = max(1, Int((Double(rendering.width) * 0.9).rounded(.down)))
+            byteCount = try await attempt()
+            smallestBytes = min(smallestBytes, byteCount)
+        }
+        while byteCount > maxBytes, rendering.colors > 2 {
+            rendering.colors = max(2, rendering.colors / 2)
+            byteCount = try await attempt()
+            smallestBytes = min(smallestBytes, byteCount)
+        }
+        guard byteCount <= maxBytes else {
+            throw EngineError.targetUnreachable(smallestBytes: smallestBytes)
+        }
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .image)])
     }
 
     private static func encodeGIF(
-        _ rendering: AnimationRendering, maxHeight: Int, maxFrames: Int, minimumFrameDuration: Int64,
-        url: URL, context: ItemContext
-    ) async throws -> Data {
-        let frames = try await sample(
-            rendering, maxHeight: maxHeight, minimumFrameDuration: minimumFrameDuration, url: url, context: context)
-        guard frames.count <= maxFrames else {
-            throw EngineError.invalidInput(.malformed("X GIF exceeds its frame limit"))
+        _ rendering: AnimationRendering, sampling: Sampling, to output: URL, context: ItemContext
+    ) async throws {
+        let options = GIFOptions(
+            colors: rendering.colors, dithering: rendering.dithering, loops: rendering.loops, paletteScope: .perFrame)
+        let encoder = try GIFEncoder.Stream(
+            width: sampling.size.width, height: sampling.size.height, options: options, to: output)
+        try await sampling.consume(context: context) { image in
+            try encoder.add(GIFFrame(pixels: PixelBuffer(cgImage: image), duration: sampling.duration))
         }
-        let interval = max(Nanoseconds.perSecond / Int64(rendering.framesPerSecond), minimumFrameDuration)
-        let duration = Double(interval) / Double(Nanoseconds.perSecond)
-        let options = GIFOptions(colors: rendering.colors, dithering: rendering.dithering, loops: rendering.loops)
-        return try GIFEncoder.encode(
-            frames.map { GIFFrame(pixels: try PixelBuffer(cgImage: $0), duration: duration) }, options: options)
+        try encoder.finish()
     }
 
-    private static func sample(
-        _ rendering: AnimationRendering, maxHeight: Int? = nil, minimumFrameDuration: Int64 = 0,
-        url: URL, context: ItemContext
-    ) async throws
-        -> [CGImage]
-    {
-        guard rendering.width > 0, rendering.framesPerSecond > 0 else {
-            throw EngineError.invalidInput(.malformed("animation width and frame rate must be positive"))
+    private struct Sampling {
+        let input: MediaInput
+        let size: PixelSize
+        let start: Int64
+        let end: Int64
+        let interval: Int64
+        let frameCount: Int
+        var duration: Double { Double(interval) / Double(Nanoseconds.perSecond) }
+
+        init(
+            _ rendering: AnimationRendering, maxHeight: Int? = nil, minimumFrameDuration: Int64 = 0, url: URL
+        ) async throws {
+            guard rendering.width > 0, rendering.framesPerSecond > 0 else {
+                throw EngineError.invalidInput(.invalidAnimationRange)
+            }
+            input = try await MediaInput.open(url)
+            let display = input.displaySize
+            let scale = min(
+                1,
+                min(
+                    Double(rendering.width) / Double(display.width),
+                    Double(maxHeight ?? Int.max) / Double(display.height)))
+            size = PixelSize(
+                width: max(1, Int((Double(display.width) * scale).rounded())),
+                height: max(1, Int((Double(display.height) * scale).rounded()))
+            ).evened()
+            let sourceSeconds = Double(input.duration) / Double(Nanoseconds.perSecond)
+            guard
+                [rendering.start, rendering.end].compactMap({ $0 }).allSatisfy({
+                    $0.isFinite && $0 >= 0 && $0 <= sourceSeconds
+                })
+            else { throw EngineError.invalidInput(.invalidAnimationRange) }
+            start = try rendering.start.map { try Nanoseconds.from(seconds: $0) } ?? 0
+            end = try rendering.end.map { try Nanoseconds.from(seconds: $0) } ?? input.duration
+            interval = max(Nanoseconds.perSecond / Int64(rendering.framesPerSecond), minimumFrameDuration)
+            guard interval > 0, start >= 0, start < end, end <= input.duration else {
+                throw EngineError.invalidInput(.invalidAnimationRange)
+            }
+            let centeredSpan = end - start - interval / 2
+            guard centeredSpan > 0 else { throw EngineError.invalidInput(.emptyInput) }
+            frameCount = Int((centeredSpan - 1) / interval + 1)
+            guard size.width <= maximumFrameBytes / rgbaBytesPerPixel / size.height else {
+                throw EngineError.invalidInput(.frameMemoryExceeded)
+            }
+            var workingBudget = FrameMemoryBudget()
+            try workingBudget.reserve(width: size.width, height: size.height)
         }
-        let input = try await MediaInput.open(url)
-        let display = input.displaySize
-        let scale = min(
-            1,
-            min(
-                Double(rendering.width) / Double(display.width),
-                Double(maxHeight ?? Int.max) / Double(display.height)))
-        let width = max(1, Int((Double(display.width) * scale).rounded()))
-        let height = max(1, Int((Double(display.height) * scale).rounded()))
-        let start = try rendering.start.map { try Nanoseconds.from(seconds: $0) } ?? 0
-        let end = try rendering.end.map { try Nanoseconds.from(seconds: $0) } ?? input.duration
-        let frameDuration = max(Nanoseconds.perSecond / Int64(rendering.framesPerSecond), minimumFrameDuration)
-        guard frameDuration > 0, start >= 0, start < end, end <= input.duration else {
-            throw EngineError.invalidInput(
-                .malformed(
-                    String(
-                        localized: "Choose an animation range within the video and a supported frame rate.",
-                        comment: "Invalid animation range")))
+
+        func consume(context: ItemContext, frameBody: (CGImage) throws -> Void) async throws {
+            let edit = FrameEdit(rotation: input.displayRotation, size: size)
+            let sampler = try await FrameSampler(
+                input: input, frameDuration: interval, edit: edit, start: start, end: end)
+            var sampledCount = 0
+            while let frame = try await sampler.next() {
+                try autoreleasepool {
+                    try frameBody(CGImage.make(from: frame.image))
+                }
+                sampledCount += 1
+                context.progress(Double(frame.timestamp - start) / Double(end - start))
+            }
+            guard sampledCount > 0 else { throw EngineError.invalidInput(.emptyInput) }
+            guard sampledCount == frameCount else { throw EngineError.decodeFailed("animation ended before its range") }
         }
-        let span = end - start
-        let frameCount = span / frameDuration + (span % frameDuration == 0 ? 0 : 1)
-        var predictedBudget = FrameMemoryBudget()
-        try predictedBudget.reserve(width: width, height: height, frameCount: frameCount)
-        let edit = FrameEdit(rotation: input.displayRotation, size: PixelSize(width: width, height: height))
-        let sampler = try await FrameSampler(
-            input: input,
-            frameDuration: frameDuration,
-            edit: edit,
-            start: start, end: end)
-        var frames: [CGImage] = []
-        var retainedBudget = FrameMemoryBudget()
-        while let frame = try await sampler.next() {
-            try retainedBudget.reserve(frame.image)
-            frames.append(try CGImage.make(from: frame.image))
-            context.progress(Double(frame.timestamp - start) / Double(max(end - start, 1)))
-        }
-        guard !frames.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
-        return frames
     }
 }
 
-/// ImageIO writing shared by stills and APNG.
 enum ImageFiles {
-    struct Animation {
-        let delay: Double
-        let loops: Bool
-    }
-
-    static func write(_ images: [CGImage], type: UTType, to url: URL, animation: Animation? = nil) throws {
+    static func write(_ images: [CGImage], type: UTType, to url: URL) throws {
         guard
             let destination = CGImageDestinationCreateWithURL(
                 url as CFURL, type.identifier as CFString, images.count, nil)
         else { throw EngineError.encodeFailed("cannot create \(type.identifier)") }
-        if let animation {
-            let loop = [kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGLoopCount: animation.loops ? 0 : 1]]
-            CGImageDestinationSetProperties(destination, loop as CFDictionary)
-        }
-        let frame: [CFString: Any] =
-            animation.map { [kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGDelayTime: $0.delay]] } ?? [:]
-        for image in images { CGImageDestinationAddImage(destination, image, frame as CFDictionary) }
+        for image in images { CGImageDestinationAddImage(destination, image, nil) }
         guard CGImageDestinationFinalize(destination) else { throw EngineError.encodeFailed("image write failed") }
     }
 }

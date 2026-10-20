@@ -123,10 +123,10 @@ struct VideoSettingsView: View {
 struct AudioSettingsView: View {
     @Bindable var store: SettingsStore
 
-    fileprivate static let mp3Bitrates = [64, 96, 128, 160, 192, 224, 256, 320]
-    fileprivate static let aacBitrates = [64, 96, 128, 160, 192, 256, 320]
-    fileprivate static let opusBitrates = [32, 48, 64, 96, 128, 160, 192, 256]
-    fileprivate static let vorbisBitrates = [64, 96, 128, 160, 192, 256, 320]
+    nonisolated fileprivate static let mp3Bitrates = [64, 96, 128, 160, 192, 224, 256, 320]
+    nonisolated fileprivate static let aacBitrates = [64, 96, 128, 160, 192, 256, 320]
+    nonisolated fileprivate static let opusBitrates = [32, 48, 64, 96, 128, 160, 192, 256]
+    nonisolated fileprivate static let vorbisBitrates = [64, 96, 128, 160, 192, 256, 320]
     private static let vbrQualities = 0...9
     private static let loudnessTargets = [-14.0, -16.0, -23.0]
 

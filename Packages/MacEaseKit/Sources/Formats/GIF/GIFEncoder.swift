@@ -47,6 +47,7 @@ public enum GIFEncoder {
     /// Per-channel slack for reusing previous pixels.
     private static let stillTolerance = 4
     private static let paletteSampleFrames = 24
+    private static let maximumFrameDuration = Double(UInt16.max) / 100
 
     public static func encode(_ frames: [GIFFrame], options: GIFOptions) throws -> Data {
         guard let first = frames.first else { throw FormatError.encoderFailure("no frames") }
@@ -67,6 +68,103 @@ public enum GIFEncoder {
             options.paletteScope == .global
             ? palette(for: sampled(frames).map(\.pixels), count: paletteSize) : nil
 
+        var output = header(
+            width: width, height: height, globalPalette: globalPalette,
+            reservesTransparent: reservesTransparent, loops: animated && options.loops
+        )
+        var encoding = FrameEncoding(
+            width: width, height: height, options: options, globalPalette: globalPalette,
+            reservesTransparent: reservesTransparent, differencing: differencing,
+            disposal: hasRealTransparency ? 2 : 1, animated: animated, transparentFirst: false
+        )
+        for frame in frames {
+            output.append(encoding.encode(frame))
+        }
+        output.append(Marker.trailer)
+        return output
+    }
+
+    public final class Stream {
+        private let width: Int
+        private let height: Int
+        private let output: PatchableFile
+        private var encoding: FrameEncoding
+        private var pendingFrame: GIFFrame?
+        private var firstIsTransparent = false
+        private var finished = false
+
+        public init(width: Int, height: Int, options: GIFOptions, to url: URL) throws {
+            guard options.paletteScope == .perFrame else {
+                throw FormatError.encoderFailure("GIF streaming requires per-frame palettes")
+            }
+            guard width > 0, height > 0, width <= 65_535, height <= 65_535 else {
+                throw FormatError.encoderFailure("invalid GIF dimensions")
+            }
+            self.width = width
+            self.height = height
+            encoding = FrameEncoding(
+                width: width, height: height, options: options, globalPalette: nil,
+                reservesTransparent: true, differencing: false, disposal: 2,
+                animated: true, transparentFirst: true
+            )
+            output = try PatchableFile(url: url)
+            // Aligns disposal background with transparent index.
+            try output.append(
+                GIFEncoder.header(
+                    width: width, height: height,
+                    globalPalette: [PaletteColor(red: 0, green: 0, blue: 0, alpha: 0)],
+                    reservesTransparent: false, loops: options.loops
+                ))
+        }
+
+        public func add(_ frame: GIFFrame) throws {
+            guard !finished else { throw FormatError.encoderFailure("GIF stream is finished") }
+            guard frame.pixels.width == width, frame.pixels.height == height else {
+                throw FormatError.encoderFailure("frames must share one size")
+            }
+            guard GIFEncoder.validDuration(frame.duration) else {
+                throw FormatError.encoderFailure("invalid GIF frame duration")
+            }
+            let isTransparent = !frame.pixels.isOpaque
+            if let pendingFrame {
+                do {
+                    try append(pendingFrame, clearAfter: isTransparent)
+                } catch {
+                    finished = true
+                    throw error
+                }
+            } else {
+                firstIsTransparent = isTransparent
+            }
+            pendingFrame = frame
+        }
+
+        public func finish() throws {
+            guard !finished else { throw FormatError.encoderFailure("GIF stream is finished") }
+            guard let pendingFrame else { throw FormatError.encoderFailure("no frames") }
+            finished = true
+            try append(pendingFrame, clearAfter: encoding.options.loops && firstIsTransparent)
+            self.pendingFrame = nil
+            encoding.drawnSource = nil
+            try output.append(Data([Marker.trailer]))
+            try output.close()
+        }
+
+        private func append(_ frame: GIFFrame, clearAfter: Bool) throws {
+            encoding.differencing = frame.pixels.isOpaque && !clearAfter
+            encoding.disposal = encoding.differencing ? 1 : 2
+            if !encoding.differencing { encoding.drawnSource = nil }
+            try output.append(encoding.encode(frame))
+        }
+    }
+
+    private static func validDuration(_ duration: Double) -> Bool {
+        duration.isFinite && duration >= 0 && duration <= maximumFrameDuration
+    }
+
+    private static func header(
+        width: Int, height: Int, globalPalette: [PaletteColor]?, reservesTransparent: Bool, loops: Bool
+    ) -> Data {
         var output = Data("GIF89a".utf8)
         output.appendLittleEndian(UInt16(width))
         output.appendLittleEndian(UInt16(height))
@@ -79,29 +177,50 @@ public enum GIFEncoder {
         } else {
             output.append(contentsOf: [Marker.colorResolution, 0, 0])
         }
-        if animated, options.loops {
+        if loops {
             output.append(contentsOf: [Marker.extensionIntroducer, Marker.applicationLabel, 0x0B])
             output.append(Data("NETSCAPE2.0".utf8))
             output.append(contentsOf: [0x03, 0x01, 0x00, 0x00, 0x00])
         }
 
+        return output
+    }
+
+    private struct FrameEncoding {
+        let width: Int
+        let height: Int
+        let options: GIFOptions
+        let globalPalette: [PaletteColor]?
+        let reservesTransparent: Bool
+        var differencing: Bool
+        var disposal: UInt8
+        let animated: Bool
+        let transparentFirst: Bool
         var drawnSource: [UInt8]?
         var timing = DelayRounding()
-        for frame in frames {
-            let colors = globalPalette ?? palette(for: [frame.pixels], count: paletteSize)
-            let transparentIndex = reservesTransparent ? colors.count : nil
-            let fullPalette = colors + (reservesTransparent ? [PaletteColor(red: 0, green: 0, blue: 0, alpha: 0)] : [])
+
+        mutating func encode(_ frame: GIFFrame) -> Data {
+            let colorCount = min(max(options.colors, 2), 256)
+            let colors =
+                globalPalette
+                ?? GIFEncoder.palette(
+                    for: [frame.pixels], count: reservesTransparent ? colorCount - 1 : colorCount)
+            let transparent = PaletteColor(red: 0, green: 0, blue: 0, alpha: 0)
+            let transparentIndex = reservesTransparent ? (transparentFirst ? 0 : colors.count) : nil
+            let fullPalette =
+                reservesTransparent ? (transparentFirst ? [transparent] + colors : colors + [transparent]) : colors
             var skipped = stride(from: 3, to: frame.pixels.rgba.count, by: 4).map {
                 frame.pixels.rgba[$0] < PaletteColor.opacityCutoff
             }
             if differencing, let drawnSource {
-                for (pixel, still) in stillMask(frame.pixels.rgba, previous: drawnSource).enumerated() where still {
+                for (pixel, still) in GIFEncoder.stillMask(frame.pixels.rgba, previous: drawnSource).enumerated()
+                where still {
                     skipped[pixel] = true
                 }
             }
             let bounds =
                 differencing && drawnSource != nil
-                ? changedBounds(skipped, width: width, height: height) : (0, 0, width, height)
+                ? GIFEncoder.changedBounds(skipped, width: width, height: height) : (0, 0, width, height)
             if differencing {
                 // Last drawn source values prevent slow drift.
                 var updated = drawnSource ?? frame.pixels.rgba
@@ -113,23 +232,23 @@ public enum GIFEncoder {
             }
             var coder = FrameCoder(
                 palette: fullPalette, transparentIndex: transparentIndex, dithering: options.dithering,
-                codeSize: max(2, bitsNeeded(fullPalette.count))
+                codeSize: max(2, GIFEncoder.bitsNeeded(fullPalette.count))
             )
             let compressed = coder.encode(frame.pixels, skipped: skipped, bounds: bounds)
             var control: FrameControl?
             if reservesTransparent {
                 let delay: UInt16 = animated ? timing.next(frame.duration) : 0
-                let disposal: UInt8 = hasRealTransparency ? 2 : 1
                 control = FrameControl(disposal: disposal, transparentIndex: transparentIndex, delay: delay)
             }
-            appendFrame(
+            var output = Data()
+            GIFEncoder.appendFrame(
                 compressed, bounds: bounds, codeSize: coder.codeSize,
-                localPalette: globalPalette == nil ? colors : nil, reservesTransparent: reservesTransparent,
+                localPalette: globalPalette == nil ? (transparentFirst ? fullPalette : colors) : nil,
+                reservesTransparent: reservesTransparent && !transparentFirst,
                 control: control, into: &output
             )
+            return output
         }
-        output.append(Marker.trailer)
-        return output
     }
 
     private static func sampled(_ frames: [GIFFrame]) -> [GIFFrame] {
