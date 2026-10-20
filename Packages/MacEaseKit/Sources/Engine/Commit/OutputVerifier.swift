@@ -46,6 +46,10 @@ enum OutputVerifier {
     }
 
     private static func verifyMedia(_ url: URL) async throws {
+        if let demuxer = try ContainerSignature.demuxer(for: url) {
+            try verifyPackets(demuxer)
+            return
+        }
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.load(.tracks)
         var playable = false
@@ -53,5 +57,15 @@ enum OutputVerifier {
             playable = true
         }
         guard playable else { throw EngineError.encodeFailed("output has no playable track") }
+    }
+
+    /// Every track needs a parsed packet.
+    private static func verifyPackets(_ demuxer: any MediaDemuxer) throws {
+        var demuxer = demuxer
+        var seen = Set<Int>()
+        while let packet = try demuxer.nextPacket() { seen.insert(packet.track) }
+        guard Set(demuxer.tracks.map(\.number)).isSubset(of: seen) else {
+            throw EngineError.encodeFailed("output has a track without packets")
+        }
     }
 }

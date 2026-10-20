@@ -18,6 +18,7 @@ public enum OperationPlanner {
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
         case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+        case .video: VideoPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.video)
         default: nil
         }
     }
@@ -33,6 +34,8 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .video(let operation):
+            return VideoPlanner.batch(operation, op: request.op, inputs: inputs)
         }
     }
 

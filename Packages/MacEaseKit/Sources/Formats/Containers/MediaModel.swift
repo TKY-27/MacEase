@@ -129,13 +129,13 @@ public enum Nanoseconds {
     private static let limit = 9e18
 
     /// `value × numerator ÷ denominator` without intermediate overflow.
-    static func scale(_ value: Int64, by numerator: Int64, over denominator: Int64) throws -> Int64 {
+    public static func scale(_ value: Int64, by numerator: Int64, over denominator: Int64) throws -> Int64 {
         let estimate = Double(value) * Double(numerator) / Double(denominator)
         guard denominator > 0, abs(estimate) < limit else { throw FormatError.corrupt("timestamp out of range") }
         return denominator.dividingFullWidth(value.multipliedFullWidth(by: numerator)).quotient
     }
 
-    static func from(seconds: Double) throws -> Int64 {
+    public static func from(seconds: Double) throws -> Int64 {
         let nanoseconds = seconds * Double(perSecond)
         guard nanoseconds.isFinite, abs(nanoseconds) < limit else { throw FormatError.corrupt("time out of range") }
         return Int64(nanoseconds)

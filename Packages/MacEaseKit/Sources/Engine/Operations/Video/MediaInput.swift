@@ -32,11 +32,26 @@ struct MediaInput {
         _ url: URL, backend: Backend, demuxer: () throws -> any MediaDemuxer
     ) throws -> MediaInput {
         let opened = try demuxer()
-        let video = opened.tracks.first(where: \.isVideo)
+        var video = opened.tracks.first(where: \.isVideo)
+        if let track = video, track.defaultDuration == nil {
+            video?.defaultDuration = try measuredFrameDuration(try demuxer(), track: track.number)
+        }
         let audio = opened.tracks.first { !$0.isVideo }
         let duration = try opened.duration ?? Self.scanDuration(try demuxer())
         return MediaInput(
             url: url, backend: backend, video: video, audio: audio, duration: duration, transform: .identity)
+    }
+
+    /// Median spacing of the first frames.
+    private static func measuredFrameDuration(_ demuxer: any MediaDemuxer, track: Int) throws -> Int64? {
+        var demuxer = demuxer
+        var times: [Int64] = []
+        while times.count < frameRateProbe, let packet = try demuxer.nextPacket() {
+            if packet.track == track { times.append(packet.timestamp) }
+        }
+        times.sort()
+        let gaps = zip(times.dropFirst(), times).map { $0 - $1 }.filter { $0 > 0 }.sorted()
+        return gaps.isEmpty ? nil : gaps[gaps.count / 2]
     }
 
     /// AVI and FLV may omit the duration.
@@ -68,6 +83,35 @@ struct MediaInput {
             duration: duration, transform: transform)
     }
 
+    private static let frameRateProbe = 32
+    /// Single-frame clips have no spacing to measure.
+    private static let fallbackFrameDuration = Nanoseconds.perSecond / 30
+
+    var container: OutputContainer {
+        switch backend {
+        case .asset:
+            OutputContainer(rawValue: url.pathExtension.lowercased()).flatMap { $0.fileType == nil ? nil : $0 } ?? .mp4
+        case .matroska: url.pathExtension.lowercased() == "webm" ? .webm : .mkv
+        case .avi: .avi
+        case .flv: .flv
+        }
+    }
+
+    var codedSize: PixelSize {
+        guard case .video(let width, let height)? = video?.kind else { return PixelSize(width: 0, height: 0) }
+        return PixelSize(width: width, height: height)
+    }
+
+    var displaySize: PixelSize {
+        let quarterTurns = Int((displayRotation / 90).rounded()) % 2
+        let coded = codedSize
+        return quarterTurns == 1 ? PixelSize(width: coded.height, height: coded.width) : coded
+    }
+
+    var frameDuration: Int64 {
+        video?.defaultDuration ?? Self.fallbackFrameDuration
+    }
+
     /// Clockwise degrees that `transform` turns the picture.
     var displayRotation: Double {
         let degrees = atan2(Double(transform.b), Double(transform.a)) * 180 / .pi
@@ -97,14 +141,31 @@ enum ContainerSignature {
     private static let quickTimeAtoms: Set<String> = ["ftyp", "moov", "wide", "mdat", "free", "skip", "pnot"]
 
     static func detect(_ url: URL) throws -> ContainerSignature {
+        guard let signature = try signature(of: url) else {
+            throw EngineError.decodeFailed("unrecognized video container")
+        }
+        return signature
+    }
+
+    private static func signature(of url: URL) throws -> ContainerSignature? {
         let reader = try FileHandle(forReadingFrom: url)
         defer { try? reader.close() }
         let header = [UInt8](try reader.read(upToCount: 12) ?? Data())
-        guard header.count == 12 else { throw EngineError.decodeFailed("file too short for a video") }
+        guard header.count == 12 else { return nil }
         if header.starts(with: ebmlMagic) { return .matroska }
         if header.starts(with: Array("FLV".utf8)) { return .flv }
         if header.starts(with: Array("RIFF".utf8)), Array(header[8..<12]) == Array("AVI ".utf8) { return .avi }
         if quickTimeAtoms.contains(String(decoding: header[4..<8], as: UTF8.self)) { return .isoMedia }
-        throw EngineError.decodeFailed("unrecognized video container")
+        return nil
+    }
+
+    /// `nil` for files AVFoundation reads.
+    static func demuxer(for url: URL) throws -> (any MediaDemuxer)? {
+        switch try signature(of: url) {
+        case .isoMedia, nil: nil
+        case .matroska: try MatroskaDemuxer(url: url)
+        case .avi: try AVIDemuxer(url: url)
+        case .flv: try FLVDemuxer(url: url)
+        }
     }
 }

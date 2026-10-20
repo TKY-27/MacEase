@@ -39,11 +39,17 @@ final class FrameProcessor {
     private let background: CIImage?
     let size: PixelSize
 
+    static func outputSize(source: PixelSize, edit: FrameEdit) -> PixelSize {
+        let geometry = orientation(edit, width: Double(source.width), height: Double(source.height))
+        let bounds = CGRect(x: 0, y: 0, width: source.width, height: source.height).applying(geometry)
+        let natural = PixelSize(width: Int(bounds.width.rounded()), height: Int(bounds.height.rounded()))
+        return (edit.size ?? natural).evened()
+    }
+
     init(source: PixelSize, edit: FrameEdit) throws {
         geometry = Self.orientation(edit, width: Double(source.width), height: Double(source.height))
         let bounds = CGRect(x: 0, y: 0, width: source.width, height: source.height).applying(geometry)
-        let natural = PixelSize(width: Int(bounds.width.rounded()), height: Int(bounds.height.rounded()))
-        size = (edit.size ?? natural).evened()
+        size = Self.outputSize(source: source, edit: edit)
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0

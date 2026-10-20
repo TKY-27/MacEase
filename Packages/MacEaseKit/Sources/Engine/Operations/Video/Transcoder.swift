@@ -20,6 +20,8 @@ struct TranscodePlan {
     var range: Range<Int64>?
     /// Copies start at the preceding keyframe.
     var startsAtKeyframe = true
+    /// Display matrix for copied MP4 and MOV.
+    var transform: CGAffineTransform?
 }
 
 /// Pulls one output stream in time order.
@@ -53,7 +55,7 @@ enum Transcoder {
         }
         let origin = min(start, primed.flatMap { $0 }.compactMap(\.decodeTimestamp).min() ?? start)
         let transform: CGAffineTransform =
-            if case .copy = plan.video { input.transform } else { .identity }
+            if case .copy = plan.video { plan.transform ?? input.transform } else { .identity }
         var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform)
         var queues = primed
         while let index = earliest(stages, queues) {
@@ -98,8 +100,7 @@ enum Transcoder {
         case .copy:
             try await PacketCopyStage(input: input, track: track, number: 1, start: start, end: end)
         case .encode(let encoding, let edit):
-            try await FrameEncodeStage(
-                input: input, track: track, encoding: encoding, edit: edit, start: start, end: end)
+            try await FrameEncodeStage(input: input, encoding: encoding, edit: edit, start: start, end: end)
         }
     }
 
@@ -208,44 +209,15 @@ final class PacketCopyStage: StreamStage {
 
 /// Re-encoded at a constant frame rate.
 final class FrameEncodeStage: StreamStage {
-    private enum Source {
-        case asset(AssetTrackReader)
-        case container(any MediaDemuxer, any VideoFrameDecoder, sourceTrack: Int, decodeFrom: Int64)
-    }
-
-    private var source: Source
+    private let sampler: FrameSampler
     private var encoder: any VideoFrameEncoder
-    private var processor: FrameProcessor?
-    private let edit: FrameEdit
-    private let frameDuration: Int64
-    private let end: Int64
-    private var decoded: [DecodedFrame] = []
-    private var sourceQueue: [DecodedFrame] = []
-    private var nextOutput: Int64
     private var upcoming: Int64?
-    private var sourceEnded = false
 
-    init(
-        input: MediaInput, track: MediaTrack, encoding: VideoEncoding, edit: FrameEdit, start: Int64, end: Int64
-    ) async throws {
-        self.edit = edit
-        self.end = end
-        frameDuration = encoding.frameDuration
-        nextOutput = start
-        upcoming = start
+    init(input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, start: Int64, end: Int64) async throws {
+        sampler = try await FrameSampler(
+            input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end)
         encoder = try VideoEncoders.make(encoding, track: 1)
-        switch input.backend {
-        case .asset(let asset, let video?, _):
-            let range = CMTimeRange(
-                start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
-                end: CMTime(value: end, timescale: SampleBuffers.nanosecondScale))
-            source = .asset(try AssetTrackReader(asset: asset, track: video, number: 1, mode: .frames, range: range))
-        default:
-            guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
-            let decodeFrom = start > 0 ? try await Transcoder.keyframe(atOrBefore: start, in: input) : 0
-            source = .container(
-                demuxer, try VideoDecoders.make(for: track), sourceTrack: track.number, decodeFrom: decodeFrom)
-        }
+        upcoming = start
     }
 
     var output: OutputTrack? {
@@ -258,56 +230,11 @@ final class FrameEncodeStage: StreamStage {
 
     func pull() async throws -> [MediaPacket] {
         guard upcoming != nil else { return [] }
-        if let frame = try nextSourceFrame() {
-            decoded.append(frame)
-        } else {
-            sourceEnded = true
-        }
-        var packets: [MediaPacket] = []
-        while let chosen = ready() {
-            let image = try processor(for: chosen.image).process(chosen.image)
-            packets += try encoder.encode(image, timestamp: nextOutput)
-            nextOutput += frameDuration
-        }
-        if sourceEnded {
-            packets += try encoder.finish()
+        guard let frame = try sampler.next() else {
             upcoming = nil
-        } else {
-            upcoming = decoded.last?.timestamp ?? upcoming
+            return try encoder.finish()
         }
-        return packets
-    }
-
-    private func processor(for image: CVPixelBuffer) throws -> FrameProcessor {
-        if let processor { return processor }
-        let size = PixelSize(width: CVPixelBufferGetWidth(image), height: CVPixelBufferGetHeight(image))
-        let created = try FrameProcessor(source: size, edit: edit)
-        processor = created
-        return created
-    }
-
-    /// Latest source frame at the output time.
-    private func ready() -> DecodedFrame? {
-        while decoded.count >= 2, decoded[1].timestamp <= nextOutput { decoded.removeFirst() }
-        let center = nextOutput + frameDuration / 2
-        guard center < end, let first = decoded.first else { return nil }
-        if decoded.count >= 2 { return first }
-        guard sourceEnded, center < first.timestamp + frameDuration else { return nil }
-        return first
-    }
-
-    private func nextSourceFrame() throws -> DecodedFrame? {
-        switch source {
-        case .asset(let reader):
-            return try reader.nextFrame()
-        case .container(var demuxer, var decoder, let sourceTrack, let decodeFrom):
-            defer { source = .container(demuxer, decoder, sourceTrack: sourceTrack, decodeFrom: decodeFrom) }
-            while sourceQueue.isEmpty, let packet = try demuxer.nextPacket() {
-                guard packet.track == sourceTrack, packet.timestamp >= decodeFrom else { continue }
-                sourceQueue = try decoder.decode(packet)
-            }
-            if sourceQueue.isEmpty { sourceQueue = try decoder.finish() }
-            return sourceQueue.isEmpty ? nil : sourceQueue.removeFirst()
-        }
+        upcoming = sampler.position
+        return try encoder.encode(frame.image, timestamp: frame.timestamp)
     }
 }

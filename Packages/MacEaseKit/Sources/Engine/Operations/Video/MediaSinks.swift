@@ -3,7 +3,7 @@ import CoreMedia
 import Formats
 import Foundation
 
-enum OutputContainer: String, Codable, CaseIterable, Sendable {
+public enum OutputContainer: String, Codable, CaseIterable, Sendable {
     case mp4
     case mov
     case m4v

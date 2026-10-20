@@ -273,7 +273,7 @@ final class JPEGFrameEncoder: VideoFrameEncoder {
 
 extension CGImage {
     /// Copies a BGRA pixel buffer.
-    static func make(from image: CVPixelBuffer) throws -> CGImage {
+    public static func make(from image: CVPixelBuffer) throws -> CGImage {
         CVPixelBufferLockBaseAddress(image, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(image, .readOnly) }
         let width = CVPixelBufferGetWidth(image)
