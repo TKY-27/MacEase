@@ -244,6 +244,8 @@ enum VideoAudio {
     private static let flacMarkerLength = 4
     private static let flacBlockHeaderLength = 4
     private static let opusSampleRate = 48_000
+    /// Rounding jitter, not a real gap.
+    private static let gapToleranceFrames: Int64 = 2
 
     static func extract(_ format: AudioFormat, url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try await MediaInput.open(url)
@@ -284,6 +286,11 @@ enum VideoAudio {
         let expectedFrames = max(sampleRate * Double(input.duration) / Double(Nanoseconds.perSecond), 1)
         while let chunk = try await source.next() {
             try Task.checkCancellation()
+            let due = try Nanoseconds.scale(chunk.timestamp, by: Int64(source.sampleRate), over: Nanoseconds.perSecond)
+            if due - frames > gapToleranceFrames {
+                try await encoder.write([Float](repeating: 0, count: Int(due - frames) * source.channels))
+                frames = due
+            }
             try await encoder.write(chunk.samples)
             frames += Int64(chunk.samples.count / source.channels)
             progress(min(1, Double(frames) / expectedFrames))

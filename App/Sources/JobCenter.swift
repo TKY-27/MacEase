@@ -38,7 +38,7 @@ final class JobCenter {
 
     func start(entry: MenuEntry, inputs: [URL]) {
         let preset = entry.isCustom ? nil : entry.preset
-        guard let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.settings) else {
+        guard let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.planning) else {
             if let presentPanel {
                 presentPanel(entry, inputs)
             } else {
@@ -50,7 +50,7 @@ final class JobCenter {
     }
 
     func run(_ request: OperationRequest) {
-        let snapshot = settings.settings
+        let snapshot = settings.planning
         let engine = engine
         let id = UUID()
         let task = Task {

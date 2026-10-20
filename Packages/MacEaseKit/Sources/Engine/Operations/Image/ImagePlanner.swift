@@ -82,20 +82,12 @@ public enum ImagePlanner {
         resizePresets[preset].map { .resize(ImageResize(size: $0)) }
     }
 
-    /// Menu presets use the bundled platform limits.
     private static func compression(_ preset: String, settings: Settings) -> ImageCompression? {
         if let level = qualityPresets[preset] {
             return ImageCompression(
                 goal: .level(level), allowsDownscale: false, allowsFrameRateReduction: false, stripsGPS: false)
         }
-        do {
-            // Reading `bundled` never touches the directory.
-            let bundled = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory).bundled
-            return bundled.first { $0.id == preset }.map { compression(for: $0, settings: settings) }
-        } catch {
-            logger.error("Bundled presets unreadable: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
+        return settings.platformPresets.first { $0.id == preset }.map { compression(for: $0, settings: settings) }
     }
 
     private static let logger = Logger(category: "image")

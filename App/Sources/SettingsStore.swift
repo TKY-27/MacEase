@@ -72,6 +72,19 @@ final class SettingsStore {
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
     }
 
+    /// Settings with the user's edited presets.
+    var planning: Settings {
+        var resolved = settings
+        do {
+            resolved.platformPresets = try PresetLibrary(
+                supportDirectory: HostConfiguration.current.supportDirectory
+            ).presets()
+        } catch {
+            logger.error("Edited presets unreadable, using defaults: \(error.localizedDescription, privacy: .public)")
+        }
+        return resolved
+    }
+
     /// Unreadable settings are kept aside, never overwritten.
     private static func decodeSettings(from defaults: UserDefaults) -> Settings {
         guard let stored = defaults.data(forKey: Settings.defaultsKey) else { return Settings() }

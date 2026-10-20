@@ -1,8 +1,33 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import Vision
 
 enum TextRecognition {
+    private static let probeText = "MacEase"
+
+    /// Virtual Macs may lack the recognition models.
+    static var isAvailable: Bool {
+        get async {
+            let size = CGSize(width: 400, height: 120)
+            guard
+                let context = CGContext(
+                    data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                    space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+            else { return false }
+            context.setFillColor(gray: 1, alpha: 1)
+            context.fill(CGRect(origin: .zero, size: size))
+            let line = CTLineCreateWithAttributedString(
+                NSAttributedString(
+                    string: probeText,
+                    attributes: [.font: CTFontCreateWithName("Helvetica" as CFString, 64, nil)]))
+            context.textPosition = CGPoint(x: 20, y: 30)
+            CTLineDraw(line, context)
+            guard let image = context.makeImage() else { return false }
+            return (try? await text(in: image, languages: [])).map { $0.contains(probeText) } ?? false
+        }
+    }
+
     /// Empty `languages` lets Vision detect them.
     static func text(in image: CGImage, languages: [String]) async throws -> String {
         var request = RecognizeTextRequest()

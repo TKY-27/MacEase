@@ -171,7 +171,8 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
         #expect(try pixelSize(of: jpegFolder.appending(path: "deck 1.jpg")) == (200, 100))
     }
 
-    @Test func toTextSeparatesPagesWithFormFeedsAndRecognizesScans() async throws {
+    @Test(.requires(.textRecognition) { await TextRecognition.isAvailable })
+    func toTextSeparatesPagesWithFormFeedsAndRecognizesScans() async throws {
         let url = try makePDF("mixed.pdf", pages: [.text("Alpha"), .scan("HELLO 42"), .text("Gamma")])
 
         let outcome = try await runPDF(.toText, op: .pdfToText, on: [url])
@@ -185,7 +186,8 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
         #expect(pages[1].contains("HELLO 42"))
     }
 
-    @Test func toTextFailsWhenNoPageHasText() async throws {
+    @Test(.requires(.textRecognition) { await TextRecognition.isAvailable })
+    func toTextFailsWhenNoPageHasText() async throws {
         let url = try makePDF("blank.pdf", pages: [.text(""), .text("")])
 
         let outcome = try await runPDF(.toText, op: .pdfToText, on: [url])

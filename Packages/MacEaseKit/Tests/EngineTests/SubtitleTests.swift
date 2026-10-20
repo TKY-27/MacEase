@@ -32,6 +32,12 @@ import Testing
         #expect(cues.flatMap(\.lines).joined() == text)
     }
 
+    @Test func spreadTimingEndsWithTheCue() {
+        let words = Subtitles.spread("Hi all", from: 0, to: 6)
+        #expect(words.first?.start == 0)
+        #expect(words.last?.end == 6)
+    }
+
     @Test func writesSRTAndVTT() {
         let cues = [SubtitleCue(start: 3661.5, end: 3662.25, lines: ["a", "b"])]
         #expect(Subtitles.srt(cues) == "1\n01:01:01,500 --> 01:01:02,250\na\nb\n")

@@ -39,8 +39,18 @@ enum Subtitles {
             return words
         }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
-        try await analyzer.start(inputAudioFile: try AVAudioFile(forReading: url), finishAfterFile: true)
-        return try await collector.value
+        return try await withTaskCancellationHandler {
+            do {
+                try await analyzer.start(inputAudioFile: try AVAudioFile(forReading: url), finishAfterFile: true)
+                return try await collector.value
+            } catch {
+                collector.cancel()
+                throw error
+            }
+        } onCancel: {
+            collector.cancel()
+            Task { await analyzer.cancelAndFinishNow() }
+        }
     }
 
     private static func timedWords(in text: AttributedString) -> [TimedWord] {
@@ -112,7 +122,7 @@ enum Subtitles {
     static func spread(_ text: String, from start: Double, to end: Double) -> [TimedWord] {
         let tokens: [String] =
             text.contains(" ") ? text.split(separator: " ").map { $0 + " " } : text.map { String($0) }
-        let total = Double(max(text.count, 1))
+        let total = Double(max(tokens.reduce(0) { $0 + $1.count }, 1))
         var offset = 0.0
         return tokens.map { token in
             defer { offset += Double(token.count) }

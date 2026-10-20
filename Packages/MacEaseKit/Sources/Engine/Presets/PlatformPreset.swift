@@ -95,11 +95,17 @@ public struct PresetLibrary: Sendable {
     public let bundled: [PlatformPreset]
     private let userFile: URL
 
-    public init(supportDirectory: URL) throws {
-        guard let url = Bundle.module.url(forResource: "platform-presets", withExtension: "json") else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        bundled = try JSONDecoder().decode([PlatformPreset].self, from: Data(contentsOf: url))
+    /// Bundled, so failure means a broken build.
+    public static let bundledPresets: [PlatformPreset] = {
+        guard let url = Bundle.module.url(forResource: "platform-presets", withExtension: "json"),
+            let data = try? Data(contentsOf: url),
+            let presets = try? JSONDecoder().decode([PlatformPreset].self, from: data)
+        else { preconditionFailure("platform-presets.json is missing or invalid") }
+        return presets
+    }()
+
+    public init(supportDirectory: URL) {
+        bundled = Self.bundledPresets
         userFile = supportDirectory.appending(path: Self.fileName)
     }
 

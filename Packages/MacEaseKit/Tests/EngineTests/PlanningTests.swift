@@ -79,7 +79,7 @@ private func temporaryFolder() throws -> URL {
 @Suite struct PresetLibraryTests {
     @Test func userEditsOverrideBundledPresetsAndReset() throws {
         let support = try temporaryFolder()
-        let library = try PresetLibrary(supportDirectory: support)
+        let library = PresetLibrary(supportDirectory: support)
         var discord = try #require(try library.preset(id: "discord"))
         #expect(discord.video?.targetBytes == 19_400_000)
         discord.video?.maxBytes = 10_000_000
@@ -93,7 +93,7 @@ private func temporaryFolder() throws -> URL {
 
     @Test func duplicateUserEntriesDoNotCrash() throws {
         let support = try temporaryFolder()
-        let library = try PresetLibrary(supportDirectory: support)
+        let library = PresetLibrary(supportDirectory: support)
         var web = try #require(try library.preset(id: "web"))
         web.image?.quality = 60
         let duplicates = try JSONEncoder().encode([web, web])
@@ -102,10 +102,24 @@ private func temporaryFolder() throws -> URL {
     }
 
     @Test func instagramAspectRangeParses() throws {
-        let library = try PresetLibrary(supportDirectory: try temporaryFolder())
+        let library = PresetLibrary(supportDirectory: try temporaryFolder())
         let aspect = try #require(try library.preset(id: "instagram")?.image?.aspect)
         #expect(abs(aspect.min.value - 0.8) < 0.0001)
         #expect(abs(aspect.max.value - 1.91) < 0.0001)
         #expect(aspect.fit == .crop)
+    }
+}
+
+@Suite struct EditedPresetTests {
+    @Test func planningUsesTheSettingsPresets() throws {
+        var settings = Settings()
+        let index = try #require(settings.platformPresets.firstIndex { $0.id == "discord" })
+        settings.platformPresets[index].video?.maxBytes = 1_000_000
+        let options = try #require(OperationPlanner.options(for: .videoCompress, preset: "discord", settings: settings))
+        guard case .video(.compress(let compression)) = options, case .platform(let preset) = compression.goal else {
+            Issue.record("expected a platform goal, got \(options)")
+            return
+        }
+        #expect(preset.video?.maxBytes == 1_000_000)
     }
 }

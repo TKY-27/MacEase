@@ -18,6 +18,7 @@ final class BackgroundMatte {
     }()
     private var previous: CIImage?
     private var pool: CVPixelBufferPool?
+    private var maskPool: CVPixelBufferPool?
 
     init(source: MaskSource, fill: BackgroundFill) {
         self.source = source
@@ -28,7 +29,7 @@ final class BackgroundMatte {
         let image = CIImage(cvPixelBuffer: frame)
         let extent = image.extent
         let current = try await mask(for: frame, extent: extent)
-        let smoothed = previous.map { blend(current, $0) } ?? current
+        let smoothed = try materialized(previous.map { blend(current, $0) } ?? current, extent: extent)
         previous = smoothed
         let matte = smoothed.clampedToExtent().applyingGaussianBlur(sigma: Self.featherRadius).cropped(to: extent)
         let composited = image.applyingFilter(
@@ -112,6 +113,24 @@ final class BackgroundMatte {
             small, toBitmap: &bytes, rowBytes: edge * 4, bounds: CGRect(x: 0, y: 0, width: edge, height: edge),
             format: .RGBA8, colorSpace: nil)
         return stride(from: 0, to: bytes.count, by: 4).map { Double(bytes[$0]) / 255 }
+    }
+
+    /// Pixels, so history never chains filters.
+    private func materialized(_ mask: CIImage, extent: CGRect) throws -> CIImage {
+        if maskPool == nil {
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_OneComponent8,
+                kCVPixelBufferWidthKey: Int(extent.width), kCVPixelBufferHeightKey: Int(extent.height),
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
+            ]
+            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &maskPool)
+        }
+        var output: CVPixelBuffer?
+        guard let maskPool, CVPixelBufferPoolCreatePixelBuffer(nil, maskPool, &output) == kCVReturnSuccess,
+            let output
+        else { throw EngineError.encodeFailed("matte mask buffer") }
+        context.render(mask.cropped(to: extent), to: output, bounds: extent, colorSpace: nil)
+        return CIImage(cvPixelBuffer: output)
     }
 
     private func buffer(like frame: CVPixelBuffer) throws -> CVPixelBuffer {

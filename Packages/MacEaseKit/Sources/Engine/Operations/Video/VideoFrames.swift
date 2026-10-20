@@ -65,8 +65,7 @@ enum VideoAnimations {
     }
 
     static func gifX(url: URL, context: ItemContext) async throws -> ItemResult {
-        let library = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
-        guard let limits = library.bundled.first(where: { $0.id == "x" })?.gif,
+        guard let limits = context.settings.platformPresets.first(where: { $0.id == "x" })?.gif,
             let maxBytes = limits.targetBytes, let maxWidth = limits.maxWidth,
             let maxHeight = limits.maxHeight, let maxFrames = limits.maxFrames
         else { throw EngineError.invalidInput(.malformed("X GIF limits are missing")) }

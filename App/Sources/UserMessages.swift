@@ -151,6 +151,8 @@ enum UserMessages {
             )
         case .hardwareEncoder:
             String(localized: "This Mac has no hardware encoder for this format.")
+        case .textRecognition:
+            String(localized: "Text recognition is unavailable on this Mac.")
         }
     }
 

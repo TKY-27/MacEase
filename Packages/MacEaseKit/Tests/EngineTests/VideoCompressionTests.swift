@@ -125,7 +125,7 @@ import Testing
     @Test func smallPlatformClipRemuxesWithoutReencodingVideo() async throws {
         let url = try fixture()
         let before = try await videoPayloads(url)
-        let library = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
         let preset = try #require(library.bundled.first { $0.id == "discord" })
         let result = try output(try await run(VideoPlanner.compression(for: preset, settings: Settings()), on: url))
         #expect(try await videoPayloads(result) == before)
@@ -136,7 +136,7 @@ import Testing
 
     @Test func instagramCropsToPortraitWithoutStretching() async throws {
         let url = try fixture()
-        let library = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
         let preset = try #require(library.bundled.first { $0.id == "instagram" })
         let result = try output(try await run(VideoPlanner.compression(for: preset, settings: Settings()), on: url))
         let opened = try await MediaInput.open(result)
@@ -181,7 +181,7 @@ import Testing
         try muxer.write(longPacket)
         try muxer.finish()
         let original = try Data(contentsOf: url)
-        let library = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
         let preset = try #require(library.bundled.first { $0.id == "line" })
         let result = try await run(VideoPlanner.compression(for: preset, settings: Settings()), on: url)
         guard case .failed(.invalidInput(.malformed(let message))) = result else {

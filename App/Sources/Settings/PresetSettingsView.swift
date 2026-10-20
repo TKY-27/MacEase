@@ -60,7 +60,7 @@ struct PresetSettingsView: View {
 
     private func load() {
         do {
-            let library = try self.library ?? PresetLibrary(supportDirectory: supportDirectory)
+            let library = self.library ?? PresetLibrary(supportDirectory: supportDirectory)
             self.library = library
             presets = try library.presets()
             editedIDs = Set(try library.overrides().map(\.id))

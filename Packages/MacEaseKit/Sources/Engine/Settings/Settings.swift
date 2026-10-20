@@ -188,6 +188,12 @@ public struct Settings: Codable, Equatable, Sendable {
     public var folder = FolderSettings()
     public var text = TextSettings()
     public var intelligence = IntelligenceSettings()
+    /// Stored by `PresetLibrary`; the host fills it.
+    public var platformPresets = PresetLibrary.bundledPresets
+
+    private enum CodingKeys: String, CodingKey {
+        case permanentDelete, concurrencyLimit, image, video, audio, folder, text, intelligence
+    }
 
     public init() {}
 

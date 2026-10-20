@@ -10,9 +10,9 @@ struct MissingCapabilityOnDevice: Error, CustomStringConvertible {
 
 extension Trait where Self == ConditionTrait {
     /// `make test-device` fails instead of skipping.
-    static func requires(_ capability: Capability, probe: @escaping @Sendable () throws -> Bool) -> Self {
+    static func requires(_ capability: Capability, probe: @escaping @Sendable () async throws -> Bool) -> Self {
         .enabled("Requires \(capability.rawValue)") {
-            let present = try probe()
+            let present = try await probe()
             if !present, ProcessInfo.processInfo.environment["MACEASE_DEVICE_TESTS"] == "1" {
                 throw MissingCapabilityOnDevice(capability: capability)
             }

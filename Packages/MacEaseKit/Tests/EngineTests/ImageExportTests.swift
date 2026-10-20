@@ -11,7 +11,8 @@ import Testing
 private typealias Fixture = ImageFixtures
 
 @Suite(.serialized) struct ImageExportTests {
-    @Test func ocrCopiesSavesAndShowsText() async throws {
+    @Test(.requires(.textRecognition) { await TextRecognition.isAvailable })
+    func ocrCopiesSavesAndShowsText() async throws {
         let folder = try TestVolume.makeFolder()
         let input = try Fixture.write(
             [try Fixture.text("MacEase reads text")], as: .png, to: folder.appending(path: "sign.png"))

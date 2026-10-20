@@ -27,7 +27,7 @@ public enum VideoDecoders {
     public static func make(for track: MediaTrack) throws -> any VideoFrameDecoder {
         switch track.codec {
         case .vp8, .vp9: try LibVPXFrameDecoder(track: track)
-        case .av1 where !VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1): try Dav1dFrameDecoder()
+        case .av1 where !ToolboxFrameDecoder.opensSession(for: track): try Dav1dFrameDecoder()
         case .mjpeg: JPEGFrameDecoder()
         case .h264, .hevc, .mpeg4Part2, .av1: try ToolboxFrameDecoder(track: track)
         default: throw FormatError.unsupported(track.codec.displayName)
@@ -63,6 +63,19 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
 
     deinit {
         if let session { VTDecompressionSessionInvalidate(session) }
+    }
+
+    /// Virtual Macs claim AV1 hardware falsely.
+    static func opensSession(for track: MediaTrack) -> Bool {
+        guard VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1),
+            let format = try? VideoFormat.description(for: track)
+        else { return false }
+        var session: VTDecompressionSession?
+        let status = VTDecompressionSessionCreate(
+            allocator: nil, formatDescription: format, decoderSpecification: nil, imageBufferAttributes: nil,
+            outputCallback: nil, decompressionSessionOut: &session)
+        if let session { VTDecompressionSessionInvalidate(session) }
+        return status == noErr
     }
 
     private func prepare(with packet: MediaPacket) throws -> (VTDecompressionSession, CMVideoFormatDescription) {

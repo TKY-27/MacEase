@@ -150,13 +150,8 @@ enum VideoPlanner {
                 goal: .bytes(target), allowsDownscale: settings.video.allowDownscale,
                 allowsFrameRateReduction: settings.video.allowFrameRateReduction)
         }
-        do {
-            let bundled = try PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory).bundled
-            return bundled.first { $0.id == preset && $0.video != nil }.map { compression(for: $0, settings: settings) }
-        } catch {
-            Logger(category: "video").error(
-                "Bundled presets unreadable: \(error.localizedDescription, privacy: .public)")
-            return nil
+        return settings.platformPresets.first { $0.id == preset && $0.video != nil }.map {
+            compression(for: $0, settings: settings)
         }
     }
 

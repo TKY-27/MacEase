@@ -46,21 +46,31 @@ enum PCMFormat {
     }
 }
 
+/// AVAudioConverter calls back synchronously inside `convert`.
+private final class ConverterFeed: @unchecked Sendable {
+    let input: AVAudioBuffer?
+    var supplied = false
+
+    init(_ input: AVAudioBuffer?) {
+        self.input = input
+    }
+}
+
 /// One input per call; `nil` ends.
 private func convert(
     _ converter: AVAudioConverter, input: AVAudioBuffer?, failure: (String) -> EngineError = EngineError.encodeFailed,
     makeOutput: () throws -> AVAudioBuffer, collect: (AVAudioBuffer) -> Void
 ) throws {
-    var supplied = false
+    let feed = ConverterFeed(input)
     while true {
         let output = try makeOutput()
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { _, inputStatus in
-            guard let input, !supplied else {
-                inputStatus.pointee = input == nil ? .endOfStream : .noDataNow
+            guard let input = feed.input, !feed.supplied else {
+                inputStatus.pointee = feed.input == nil ? .endOfStream : .noDataNow
                 return nil
             }
-            supplied = true
+            feed.supplied = true
             inputStatus.pointee = .haveData
             return input
         }

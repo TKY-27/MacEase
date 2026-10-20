@@ -69,6 +69,7 @@ public enum Capability: String, Equatable, Sendable {
     case speechAssets
     case translationModel
     case hardwareEncoder
+    case textRecognition
 }
 
 public enum SkipReason: Equatable, Sendable {
