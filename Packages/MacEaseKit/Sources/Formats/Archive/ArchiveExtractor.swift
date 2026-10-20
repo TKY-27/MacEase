@@ -7,6 +7,7 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case wrongPassword
     case unsafePath(String)
     case expandsTooMuch(limitBytes: Int64)
+    case duplicateRootName(String)
 }
 
 /// Caps extracted bytes against zip bombs.
@@ -23,7 +24,8 @@ public struct ExtractionLimits: Sendable {
     public static let standard = ExtractionLimits(maximumExpansionRatio: 1_000, allowanceBytes: 1 << 30)
 
     func limit(forArchiveBytes size: Int64) -> Int64 {
-        max(allowanceBytes, size.multipliedReportingOverflow(by: maximumExpansionRatio).partialValue)
+        let (expanded, overflow) = size.multipliedReportingOverflow(by: maximumExpansionRatio)
+        return overflow ? Int64.max : max(allowanceBytes, expanded)
     }
 }
 
@@ -83,7 +85,7 @@ public enum ArchiveExtractor {
             guard archive_read_open_filename(reader.archive, source.path, blockSize) == ARCHIVE_OK else {
                 throw failure(reader.archive, entry: nil, password: password)
             }
-            var written: Int64 = 0
+            var logicalBytes: Int64 = 0
             var entry: OpaquePointer?
             while true {
                 try Task.checkCancellation()
@@ -100,12 +102,18 @@ public enum ArchiveExtractor {
                     archive_entry_set_hardlink_utf8(entry, directory.path + "/" + (try checked(link)))
                 }
                 if archive_entry_is_encrypted(entry) != 0 { try requireDecryption(reader.archive, password: password) }
+                let declaredSize = archive_entry_size_is_set(entry) != 0 ? archive_entry_size(entry) : 0
+                guard declaredSize >= 0 else { throw FormatError.corrupt("negative archive entry size") }
+                var memberBytes: Int64 = 0
+                try charge(declaredSize, from: &memberBytes, total: &logicalBytes, limit: limit)
                 guard archive_write_header(reader.disk, entry) >= ARCHIVE_WARN else {
                     throw FormatError.corrupt(ArchiveListing.message(reader.disk))
                 }
-                try copyData(reader, entry: entry, password: password) { bytes in
-                    written += Int64(bytes)
-                    guard written <= limit else { throw ArchiveError.expandsTooMuch(limitBytes: limit) }
+                try copyData(reader, entry: entry, password: password) { bytes, offset in
+                    guard offset >= 0 else { throw FormatError.corrupt("negative archive data offset") }
+                    let (end, overflow) = offset.addingReportingOverflow(Int64(bytes))
+                    guard !overflow else { throw ArchiveError.expandsTooMuch(limitBytes: limit) }
+                    try charge(end, from: &memberBytes, total: &logicalBytes, limit: limit)
                     let read = archive_filter_bytes(reader.archive, -1)
                     progress(Double(read) / Double(max(1, archiveBytes)))
                 }
@@ -159,11 +167,21 @@ public enum ArchiveExtractor {
         archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP
     }
 
+    private static func charge(_ size: Int64, from member: inout Int64, total: inout Int64, limit: Int64)
+        throws
+    {
+        guard size > member else { return }
+        let increase = size - member
+        guard increase <= limit - total else { throw ArchiveError.expandsTooMuch(limitBytes: limit) }
+        member = size
+        total += increase
+    }
+
     private static func copyData(
         _ reader: Reader,
         entry: OpaquePointer,
         password: String?,
-        wrote: (Int) throws -> Void
+        wrote: (Int, Int64) throws -> Void
     ) throws {
         var buffer: UnsafeRawPointer?
         var size = 0
@@ -173,7 +191,7 @@ public enum ArchiveExtractor {
             let status = archive_read_data_block(reader.archive, &buffer, &size, &offset)
             if status == ARCHIVE_EOF { break }
             guard status >= ARCHIVE_WARN else { throw failure(reader.archive, entry: entry, password: password) }
-            try wrote(size)
+            try wrote(size, offset)
             guard archive_write_data_block(reader.disk, buffer, size, offset) >= ARCHIVE_WARN else {
                 throw FormatError.corrupt(ArchiveListing.message(reader.disk))
             }

@@ -20,7 +20,6 @@ enum AudioJob {
     /// Gain changes below this are inaudible.
     private static let negligibleDecibels = 0.05
     private static let measureShare = 0.5
-    private static let maximumSizeAttempts = 6
 
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try AudioInput(url: url)
@@ -57,18 +56,20 @@ enum AudioJob {
         guard try fileSize(url) > bytes else { return .skipped(.alreadyDone) }
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         let tags = await tags(of: input, context: context)
-        let budget = bytes - Int64(tags.artwork?.data.count ?? 0)
         var format = try compressedFormat(input, kilobits: nil)
         var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
+        var budget = bytes - tagBytes(tags, format: format)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
         if planned == nil, format == .mp3 {
             format = .m4aAAC
             supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
+            budget = bytes - tagBytes(tags, format: format)
             planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
         }
-        let candidates = supported.filter { $0 <= planned ?? supported.first ?? 0 }.reversed().prefix(
-            maximumSizeAttempts)
-        guard !candidates.isEmpty else { throw EngineError.unsupportedCodec("\(format.fileExtension) bitrates") }
+        guard let minimum = supported.first else {
+            throw EngineError.unsupportedCodec("\(format.fileExtension) bitrates")
+        }
+        let candidates = supported.filter { $0 <= (planned ?? minimum) }.reversed()
         var smallest = Int64.max
         for kilobits in candidates {
             let staged = try context.stagingURL(for: url, name: outputName(for: url, format: format))
@@ -83,6 +84,17 @@ enum AudioJob {
             try FileManager.default.removeItem(at: staged)
         }
         throw EngineError.targetUnreachable(smallestBytes: smallest)
+    }
+
+    private static func tagBytes(_ tags: AudioTags, format: AudioFormat) -> Int64 {
+        switch format {
+        case .mp3: Int64(ID3Tag.encode(tags).count)
+        case .ogg, .opus: Int64(VorbisComment.encode(tags).count)
+        default:
+            Int64(
+                (tags.title?.utf8.count ?? 0) + (tags.artist?.utf8.count ?? 0) + (tags.album?.utf8.count ?? 0)
+                    + (tags.artwork?.data.count ?? 0))
+        }
     }
 
     private static func normalize(_ url: URL, input: AudioInput, to target: Double, context: ItemContext)

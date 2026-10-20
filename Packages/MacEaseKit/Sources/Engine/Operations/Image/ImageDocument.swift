@@ -51,7 +51,8 @@ struct ImageDocument {
     }
 
     static func load(_ url: URL) async throws -> ImageDocument {
-        if let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0,
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        if let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions), CGImageSourceGetCount(source) > 0,
             let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) })
         {
             do {
@@ -70,6 +71,8 @@ struct ImageDocument {
 
     private static func decode(_ source: CGImageSource, type: UTType, url: URL) throws -> ImageDocument {
         let count = CGImageSourceGetCount(source)
+        var frameBudget = FrameMemoryBudget()
+        try frameBudget.reserve(width: 1, height: 1, frameCount: Int64(count))
         let animation = AnimationKeys(type: type)
         let isAnimated = count > 1 && animation != nil
         let indices: [Int]
@@ -79,6 +82,16 @@ struct ImageDocument {
             indices = [largestIndex(in: source)]
         } else {
             indices = [CGImageSourceGetPrimaryImageIndex(source)]
+        }
+        var pixelBudget = FrameMemoryBudget()
+        for index in indices {
+            guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+                let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                let height = properties[kCGImagePropertyPixelHeight] as? Int
+            else { throw EngineError.decodeFailed(url.lastPathComponent) }
+            let depth = properties[kCGImagePropertyDepth] as? Int ?? 8
+            let componentBytes = depth > 16 ? 4 : depth > 8 ? 2 : 1
+            try pixelBudget.reserve(width: width, height: height, bytesPerPixel: 4 * componentBytes)
         }
         let frames = try indices.map { index in
             guard let raw = CGImageSourceCreateImageAtIndex(source, index, nil) else {

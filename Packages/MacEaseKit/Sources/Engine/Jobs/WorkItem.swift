@@ -73,12 +73,17 @@ public enum TextDestination: Sendable {
     case report
 }
 
+public enum RemovalCondition: Sendable {
+    case duplicate(of: URL)
+    case emptyFolder(FolderSettings)
+}
+
 public enum ItemResult: Sendable {
     case replace(original: URL, output: StagedFile)
     case derived(nextTo: URL, outputs: [StagedFile])
     case rename([RenamePlan])
     case text(String, TextDestination)
-    case trash([URL], permanently: Bool)
+    case trash([URL], permanently: Bool, condition: RemovalCondition? = nil)
     case skipped(SkipReason)
 }
 

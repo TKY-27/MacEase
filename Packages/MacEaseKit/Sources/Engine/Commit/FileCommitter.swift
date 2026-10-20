@@ -96,23 +96,59 @@ struct FileCommitter: Sendable {
 
     func rename(_ url: URL, to newName: String) throws -> URL {
         try Self.namingLock.withLock { _ in
+            try Task.checkCancellation()
             let directory = url.deletingLastPathComponent()
             let destination =
                 try Self.isCaseOnlyChange(from: url.lastPathComponent, to: newName, in: directory)
                 ? directory.appending(path: newName)
                 : try AvailableName.url(for: newName, in: directory)
-            try coordinate(moving: url, to: destination)
+            try coordinate(moving: url, to: destination, beforeMove: Task.checkCancellation)
             return destination
         }
     }
 
     /// `nil` after a permanent delete.
-    func remove(_ url: URL, permanently: Bool) throws -> URL? {
+    func remove(_ url: URL, permanently: Bool, condition: RemovalCondition? = nil) throws -> URL? {
+        try Self.namingLock.withLock { _ in
+            try Task.checkCancellation()
+            switch condition {
+            case .duplicate(let kept):
+                do {
+                    return try coordinate(reading: kept, deleting: url) { retained, target in
+                        let key: Set<URLResourceKey> = [.fileResourceIdentifierKey]
+                        let retainedID = try retained.resourceValues(forKeys: key).fileResourceIdentifier
+                        let targetID = try target.resourceValues(forKeys: key).fileResourceIdentifier
+                        guard retainedID?.isEqual(targetID) == false,
+                            FileManager.default.contentsEqual(atPath: retained.path, andPath: target.path)
+                        else { throw Failure.changedSinceScan }
+                        return try removeCoordinated(target, permanently: permanently)
+                    }
+                } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile
+                {
+                    throw Failure.changedSinceScan
+                }
+            case .emptyFolder(let settings):
+                return try coordinate(writing: url, options: .forDeleting) { target in
+                    guard try EmptyFolderScanner.isEmpty(target, settings: settings) else {
+                        throw Failure.changedSinceScan
+                    }
+                    return try removeCoordinated(target, permanently: permanently)
+                }
+            case nil:
+                return try coordinate(writing: url, options: .forDeleting) {
+                    try removeCoordinated($0, permanently: permanently)
+                }
+            }
+        }
+    }
+
+    private func removeCoordinated(_ url: URL, permanently: Bool) throws -> URL? {
+        try Task.checkCancellation()
         if permanently {
-            try coordinate(writing: url, options: .forDeleting) { try FileManager.default.removeItem(at: $0) }
+            try FileManager.default.removeItem(at: url)
             return nil
         }
-        return try trash(url)
+        return try trashCoordinated(url)
     }
 
     func trash(_ url: URL) throws -> URL {
@@ -189,7 +225,28 @@ struct FileCommitter: Sendable {
         return try result.get()
     }
 
-    private func coordinate(moving source: URL, to destination: URL) throws {
+    private func coordinate<Value>(
+        reading retained: URL, deleting target: URL, _ body: (URL, URL) throws -> Value
+    ) throws -> Value {
+        var coordinationError: NSError?
+        var result: Result<Value, any Error>?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            readingItemAt: retained, options: .withoutChanges,
+            writingItemAt: target, options: .forDeleting, error: &coordinationError
+        ) { retained, target in
+            result = Result {
+                try Task.checkCancellation()
+                return try body(retained, target)
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw EngineError.commitFailed("Coordination did not run") }
+        return try result.get()
+    }
+
+    private func coordinate(
+        moving source: URL, to destination: URL, beforeMove: () throws -> Void = {}
+    ) throws {
         var coordinationError: NSError?
         var bodyError: (any Error)?
         NSFileCoordinator(filePresenter: nil).coordinate(
@@ -199,7 +256,12 @@ struct FileCommitter: Sendable {
             options: .forReplacing,
             error: &coordinationError
         ) { from, to in
-            do { try FileManager.default.moveItem(at: from, to: to) } catch { bodyError = error }
+            do {
+                try beforeMove()
+                try FileManager.default.moveItem(at: from, to: to)
+            } catch {
+                bodyError = error
+            }
         }
         if let error = coordinationError ?? bodyError { throw error }
     }

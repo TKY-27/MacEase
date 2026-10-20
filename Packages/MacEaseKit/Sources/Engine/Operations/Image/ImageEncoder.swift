@@ -27,6 +27,8 @@ enum ImageEncoder {
 
     static func encode(_ frames: [ImageFrame], as format: ImageFormat, options: EncodeOptions) throws -> Data {
         guard let first = frames.first else { throw EngineError.encodeFailed("no frames") }
+        try FrameMemoryBudget.validate(images: frames.map(\.image))
+        if format == .heic, frames.count > 1 { throw EngineError.unsupportedCodec("HEICS") }
         switch format {
         case .gif:
             let gifFrames = try frames.map {
@@ -110,12 +112,13 @@ enum ImageEncoder {
             settings[kCGImageDestinationLossyCompressionQuality] = options.quality / maximumQuality
         }
         if animated, let keys = AnimationKeys(type: format.contentType) {
+            let metadata = format.holdsMetadata ? upright(options.metadata) : nil
             CGImageDestinationSetProperties(
                 destination, [keys.dictionary: [keys.loopCount: options.loops ? 0 : 1]] as CFDictionary)
             for frame in frames {
                 var frameSettings = settings
                 frameSettings[keys.dictionary] = [keys.delay: frame.duration, keys.unclampedDelay: frame.duration]
-                CGImageDestinationAddImage(destination, frame.image, frameSettings as CFDictionary)
+                CGImageDestinationAddImageAndMetadata(destination, frame.image, metadata, frameSettings as CFDictionary)
             }
         } else {
             let metadata = format.holdsMetadata ? upright(options.metadata) : nil

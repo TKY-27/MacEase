@@ -2310,6 +2310,17 @@
         }
       }
     },
+    "Multiple selected folders are named “%@”. Rename one before creating the archive.": {
+      "comment": "Archive roots must remain distinguishable",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したフォルダのうち、複数が “%@” という名前です。アーカイブを作成する前に、どちらかの名前を変更してください。"
+          }
+        }
+      }
+    },
     "Name": {
       "localizations": {
         "ja": {

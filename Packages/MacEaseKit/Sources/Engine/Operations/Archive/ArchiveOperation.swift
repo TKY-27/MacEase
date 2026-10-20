@@ -108,6 +108,7 @@ extension ArchivePlanner {
         case .wrongPassword: .invalidInput(.wrongPassword)
         case .unsafePath(let path): .invalidInput(.unsafeArchivePath(path))
         case .expandsTooMuch(let limit): .invalidInput(.archiveExpandsTooMuch(limitBytes: limit))
+        case .duplicateRootName(let name): .duplicateArchiveRootName(name)
         }
     }
 

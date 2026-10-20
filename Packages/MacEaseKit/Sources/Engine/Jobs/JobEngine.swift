@@ -192,17 +192,21 @@ public final class JobEngine: Sendable {
             }
         case .rename(let plans):
             for plan in plans {
+                try Task.checkCancellation()
                 guard AvailableName.checkedName(plan.newName) else {
                     throw EngineError.invalidInput(.malformed(plan.newName))
                 }
                 guard plan.newName != plan.url.lastPathComponent else { continue }
                 let renamed = try committer.rename(plan.url, to: plan.newName)
-                records.append(.renamed(from: plan.url.path, to: renamed.path))
+                records.append(
+                    .renamed(
+                        from: plan.url.path, to: renamed.path,
+                        stamp: try FileStamp(of: renamed, includingIdentity: true)))
                 outputs.append(renamed)
             }
-        case .trash(let urls, let permanently):
+        case .trash(let urls, let permanently, let condition):
             for url in urls {
-                if let trashed = try committer.remove(url, permanently: permanently) {
+                if let trashed = try committer.remove(url, permanently: permanently, condition: condition) {
                     records.append(.removed(original: url.path, trashed: trashed.path))
                 }
             }

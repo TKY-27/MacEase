@@ -106,14 +106,9 @@ struct CSVTable {
             fieldQuoted = false
         }
         func finishRecord() {
-            let isBlankLine = record.isEmpty && field.isEmpty && !fieldQuoted
-            if !isBlankLine {
-                finishField()
-                records.append(record)
-            }
+            finishField()
+            records.append(record)
             record = []
-            field = String.UnicodeScalarView()
-            fieldQuoted = false
         }
 
         var index = 0
@@ -143,7 +138,7 @@ struct CSVTable {
             index += 1
         }
         guard !inQuotes else { throw EngineError.invalidInput(.malformed("a quoted CSV field never closes")) }
-        finishRecord()
+        if !record.isEmpty || !field.isEmpty || fieldQuoted { finishRecord() }
         return records
     }
 }

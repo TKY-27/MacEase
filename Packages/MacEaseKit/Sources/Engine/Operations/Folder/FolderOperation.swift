@@ -49,18 +49,17 @@ enum FolderPlanner {
         case .removeDuplicates(let removals, let permanently):
             let items = removals.flatMap { removal in
                 removal.removed.map { duplicate in
-                    removalItem(duplicate, kind: .any, permanently: permanently && settings.permanentDelete) {
-                        try !isSameItem(removal.kept, duplicate)
-                            && FileManager.default.contentsEqual(atPath: removal.kept.path, andPath: duplicate.path)
-                    }
+                    removalItem(
+                        duplicate, kind: .any, permanently: permanently && settings.permanentDelete,
+                        condition: .duplicate(of: removal.kept))
                 }
             }
             return Batch(operation: op, items: items)
         case .removeEmpty(let candidates, let permanently):
             let items = outermost(candidates).map { folder in
-                removalItem(folder, kind: .folder, permanently: permanently && settings.permanentDelete) {
-                    try EmptyFolderScanner.isEmpty(folder, settings: settings.folder)
-                }
+                removalItem(
+                    folder, kind: .folder, permanently: permanently && settings.permanentDelete,
+                    condition: .emptyFolder(settings.folder))
             }
             return Batch(operation: op, items: items)
         case .tree(let output):
@@ -78,19 +77,11 @@ enum FolderPlanner {
         _ url: URL,
         kind: FileKind,
         permanently: Bool,
-        stillQualifies: @escaping @Sendable () throws -> Bool
+        condition: RemovalCondition
     ) -> WorkItem {
         OperationPlanner.validated(url, kind: kind) { _ in
-            guard try stillQualifies() else { return .skipped(.changedSinceScan) }
-            return .trash([url], permanently: permanently)
+            .trash([url], permanently: permanently, condition: condition)
         }
-    }
-
-    /// Path strings can differ for one file.
-    private static func isSameItem(_ first: URL, _ second: URL) throws -> Bool {
-        let key: Set<URLResourceKey> = [.fileResourceIdentifierKey]
-        let identifier = try first.resourceValues(forKeys: key).fileResourceIdentifier
-        return identifier?.isEqual(try second.resourceValues(forKeys: key).fileResourceIdentifier) == true
     }
 
     /// Trashing an ancestor already removes its descendants.

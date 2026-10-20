@@ -104,6 +104,24 @@ enum ContentSniffer {
             ascii("Rar!"),
         ]
         return isZip(header) || signatures.contains { starts(header, with: $0) }
-            || starts(header, with: ascii("ustar"), at: 257)
+            || isTar(header)
+    }
+
+    private static func isTar(_ header: [UInt8]) -> Bool {
+        let blockSize = 512
+        let checksumRange = 148..<156
+        let space: UInt8 = 0x20
+        guard header.count >= blockSize, header[0] != 0 else { return false }
+        let digits = header[checksumRange].drop(while: { $0 == 0 || $0 == space })
+            .prefix(while: { (0x30...0x37).contains($0) })
+        guard !digits.isEmpty,
+            header[digits.endIndex..<checksumRange.upperBound].allSatisfy({ $0 == 0 || $0 == space })
+        else { return false }
+        let stored = digits.reduce(0) { $0 * 8 + Int($1 - 0x30) }
+        let actual =
+            header[..<checksumRange.lowerBound].reduce(0) { $0 + Int($1) }
+            + checksumRange.count * Int(space)
+            + header[checksumRange.upperBound..<blockSize].reduce(0) { $0 + Int($1) }
+        return stored == actual
     }
 }

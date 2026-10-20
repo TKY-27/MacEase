@@ -85,7 +85,19 @@ enum Subtitles {
         var line = ""
         var start = words.first?.start ?? 0
         var end = start
-        for word in words {
+        let timedFragments = words.flatMap { word -> [TimedWord] in
+            guard word.text.count > maximumLineLength else { return [word] }
+            let characters = Array(word.text)
+            return stride(from: 0, to: characters.count, by: maximumLineLength).map { offset in
+                let limit = min(offset + maximumLineLength, characters.count)
+                let duration = word.end - word.start
+                return TimedWord(
+                    text: String(characters[offset..<limit]),
+                    start: word.start + duration * Double(offset) / Double(characters.count),
+                    end: word.start + duration * Double(limit) / Double(characters.count))
+            }
+        }
+        for word in timedFragments {
             let candidate = line + word.text
             if candidate.trimmingCharacters(in: .whitespaces).count > maximumLineLength, !line.isEmpty {
                 lines.append(line.trimmingCharacters(in: .whitespaces))

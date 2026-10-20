@@ -23,8 +23,13 @@ public enum ArchiveWriter {
         skipping isSkipped: (String) -> Bool
     ) throws {
         var members: [Member] = []
+        var rootNames: Set<String> = []
         for root in roots {
-            try collect(root.path, as: root.lastPathComponent, skipping: isSkipped, into: &members)
+            let name = root.lastPathComponent
+            guard rootNames.insert(name).inserted else {
+                throw ArchiveError.duplicateRootName(name)
+            }
+            try collect(root.path, as: name, skipping: isSkipped, into: &members)
         }
         let total = max(1, members.reduce(Int64(0)) { $0 + ($1.isRegularFile ? Int64($1.status.st_size) : 0) })
         try ArchiveListing.inUTF8Locale {

@@ -249,6 +249,22 @@ private let japanese = "日本語のテキストです。\n二行目"
         #expect(tab == "[\n\t{\n\t\t\"a\": \"1;5\",\n\t\t\"b\": \"2\"\n\t}\n]\n")
     }
 
+    @Test func csvDistinguishesBlankRecordsFromTrailingTerminators() async throws {
+        let blank = try await converted(.csvToJSON, name: "blank.csv", input: "value\n\n")
+        let terminated = try await converted(.csvToJSON, name: "terminated.csv", input: "value\n")
+        let emptyFields = try await converted(.csvToJSON, name: "fields.csv", input: "a,b\n,\n")
+
+        #expect(blank == "[\n  {\n    \"value\": \"\"\n  }\n]\n")
+        #expect(terminated == "[]\n")
+        #expect(emptyFields == "[\n  {\n    \"a\": \"\",\n    \"b\": \"\"\n  }\n]\n")
+    }
+
+    @Test func csvBlankRecordMustMatchHeaderWidth() async throws {
+        let (outcome, _) = try await convert(.csvToJSON, name: "blank-width.csv", input: "a,b\n\n")
+
+        #expect(outcome.outcomes == [.failed(.invalidInput(.malformed("CSV record 2 has 1 fields, the header has 2")))])
+    }
+
     @Test func csvToXML() async throws {
         let xml = try await converted(.csvToXML, name: "people.csv", input: Self.csv)
 

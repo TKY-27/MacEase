@@ -13,6 +13,13 @@ enum ImagePixels {
     static func render(_ image: CIImage, like reference: CGImage) throws -> CGImage {
         let extent = image.extent.integral
         let format: CIFormat = reference.bitsPerComponent > 8 ? .RGBA16 : .RGBA8
+        guard let width = Int(exactly: extent.width), let height = Int(exactly: extent.height) else {
+            throw FrameMemoryBudget.exceeded
+        }
+        var budget = FrameMemoryBudget()
+        try budget.reserve(
+            width: width, height: height,
+            bytesPerPixel: reference.bitsPerComponent > 8 ? 8 : 4)
         let context = CIContext(options: [.cacheIntermediates: false])
         guard
             let rendered = context.createCGImage(
@@ -79,6 +86,8 @@ enum ImagePixels {
     static func draw(
         width: Int, height: Int, like reference: CGImage, fill: CGColor?, _ body: (CGContext) -> Void
     ) throws -> CGImage {
+        var budget = FrameMemoryBudget()
+        try budget.reserve(width: width, height: height)
         guard
             let context = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

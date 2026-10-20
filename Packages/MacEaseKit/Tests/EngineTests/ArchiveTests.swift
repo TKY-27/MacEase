@@ -47,6 +47,22 @@ private func snapshot(_ root: URL) throws -> [String: String] {
 }
 
 @Suite(.serialized) struct ArchiveTests {
+    @Test func duplicateRootNamesFailWithoutCreatingArchive() async throws {
+        let root = try TestVolume.makeFolder()
+        try makeTree(["one/Project/note.txt": "first", "two/Project/note.txt": "second"], in: root)
+        let outcome = try await runOperation(
+            .folderCompress, .folder(.compress(.tar)),
+            inputs: [folderURL(root, "one/Project"), folderURL(root, "two/Project")])
+
+        #expect(outcome.outcomes == [.failed(.duplicateArchiveRootName("Project"))])
+        #expect(outcome.record == nil)
+        #expect(
+            try snapshot(root) == [
+                "one": "/", "one/Project": "/", "one/Project/note.txt": "first",
+                "two": "/", "two/Project": "/", "two/Project/note.txt": "second",
+            ])
+    }
+
     private func makeProject(in parent: URL) throws -> URL {
         let project = folderURL(parent, "Project")
         try makeTree(

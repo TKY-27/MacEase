@@ -8,6 +8,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case encodeFailed(String)
     case commitFailed(String)
     case unsupportedCodec(String)
+    case duplicateArchiveRootName(String)
     case permissionDenied(PermissionLocation)
     case cancelled
     case targetUnreachable(smallestBytes: Int64)
@@ -106,6 +107,7 @@ extension EngineError {
         otherwise: (String) -> EngineError = EngineError.unexpected
     ) -> EngineError {
         if let engineError = error as? EngineError { return engineError }
+        if let archiveError = error as? ArchiveError { return ArchivePlanner.engineError(archiveError) }
         if let format = error as? FormatError { return EngineError(format) }
         if error is CancellationError { return .cancelled }
         let nsError = error as NSError

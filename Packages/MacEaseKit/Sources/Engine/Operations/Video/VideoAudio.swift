@@ -4,6 +4,8 @@ import CoreMedia
 import Formats
 import Foundation
 
+private let silenceChunkFrames = 4_096
+
 final class VideoPCMSource {
     private enum Source {
         case asset(AssetTrackReader)
@@ -95,8 +97,6 @@ final class VideoPCMSource {
 }
 
 final class AudioEncodeStage: StreamStage {
-    private static let silenceChunkFrames = 4_096
-
     private let source: VideoPCMSource
     private let encoder: AudioPacketEncoder?
     private let converter: PCMConverter?
@@ -176,7 +176,7 @@ final class AudioEncodeStage: StreamStage {
                     (Double(chunk.timestamp - sourceCursor) * source.sampleRate / Double(Nanoseconds.perSecond))
                         .rounded())
                 if missing > 1 {
-                    let frames = min(missing, Self.silenceChunkFrames)
+                    let frames = min(missing, silenceChunkFrames)
                     pendingChunk = chunk
                     self.sourceCursor =
                         sourceCursor
@@ -294,8 +294,12 @@ enum VideoAudio {
             try Task.checkCancellation()
             let due = try Nanoseconds.scale(chunk.timestamp, by: Int64(source.sampleRate), over: Nanoseconds.perSecond)
             if due - frames > gapToleranceFrames {
-                try await encoder.write([Float](repeating: 0, count: Int(due - frames) * source.channels))
-                frames = due
+                while frames < due {
+                    try Task.checkCancellation()
+                    let count = Int(min(due - frames, Int64(silenceChunkFrames)))
+                    try await encoder.write([Float](repeating: 0, count: count * source.channels))
+                    frames += Int64(count)
+                }
             }
             try await encoder.write(chunk.samples)
             frames += Int64(chunk.samples.count / source.channels)

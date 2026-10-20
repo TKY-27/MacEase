@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import MenuCatalog
 import os
@@ -5,23 +6,100 @@ import os
 public struct FileStamp: Codable, Equatable, Sendable {
     public let size: Int64?
     public let modified: Date
+    private let descendants: [DescendantStamp]?
+    private let identity: FileIdentity?
 
-    init(of url: URL) throws {
-        var url = url
-        url.removeAllCachedResourceValues()
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey])
-        guard let modified = values.contentModificationDate else {
+    private struct FileIdentity: Codable, Equatable, Sendable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
+    private struct DescendantStamp: Codable, Equatable, Sendable {
+        let path: String
+        let kind: Kind
+        let size: Int64
+        let modified: Date
+
+        enum Kind: String, Codable, Sendable {
+            case directory, file, symbolicLink, other
+        }
+    }
+
+    init(of url: URL, includingIdentity: Bool = false) throws {
+        let metadata = try Self.metadata(of: url)
+        let isDirectory = metadata.st_mode & S_IFMT == S_IFDIR
+        var currentURL = url
+        currentURL.removeAllCachedResourceValues()
+        let values = try currentURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        guard let modificationDate = values.contentModificationDate else {
             throw EngineError.commitFailed("missing modification date")
         }
-        self.size = values.isDirectory == true ? nil : values.fileSize.map(Int64.init)
-        self.modified = modified
+        size = isDirectory ? nil : values.fileSize.map(Int64.init)
+        modified = modificationDate
+        descendants = isDirectory ? try Self.snapshot(of: url) : nil
+        identity =
+            includingIdentity
+            ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
+    }
+
+    fileprivate func matches(_ path: String) throws -> Bool {
+        do {
+            return try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil) == self
+        } catch let error as POSIXError where error.code == .ENOENT || error.code == .ENOTDIR {
+            return false
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return false
+        }
+    }
+
+    private static func metadata(of url: URL) throws -> stat {
+        var metadata = stat()
+        guard lstat(url.path, &metadata) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return metadata
+    }
+
+    private static func modificationDate(of metadata: stat) -> Date {
+        Date(
+            timeIntervalSince1970: TimeInterval(metadata.st_mtimespec.tv_sec)
+                + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
+    }
+
+    private static func snapshot(of root: URL) throws -> [DescendantStamp] {
+        var descendants: [DescendantStamp] = []
+        var pending: [(url: URL, prefix: String)] = [(root, "")]
+        while let directory = pending.popLast() {
+            let children = try FileManager.default.contentsOfDirectory(
+                at: directory.url, includingPropertiesForKeys: nil)
+            for child in children {
+                let metadata = try metadata(of: child)
+                let mode = metadata.st_mode & S_IFMT
+                let kind: DescendantStamp.Kind =
+                    switch mode {
+                    case S_IFDIR: .directory
+                    case S_IFREG: .file
+                    case S_IFLNK: .symbolicLink
+                    default: .other
+                    }
+                let path =
+                    directory.prefix.isEmpty
+                    ? child.lastPathComponent : "\(directory.prefix)/\(child.lastPathComponent)"
+                descendants.append(
+                    DescendantStamp(
+                        path: path, kind: kind, size: metadata.st_size,
+                        modified: modificationDate(of: metadata)))
+                if kind == .directory { pending.append((child, path)) }
+            }
+        }
+        return descendants.sorted { $0.path < $1.path }
     }
 }
 
 public enum CommitRecord: Codable, Equatable, Sendable {
     case replaced(original: String, trashed: String, output: String, stamp: FileStamp)
     case derived(output: String, stamp: FileStamp)
-    case renamed(from: String, to: String)
+    case renamed(from: String, to: String, stamp: FileStamp? = nil)
     case removed(original: String, trashed: String)
 }
 
@@ -37,7 +115,7 @@ public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
         items.compactMap { record in
             switch record {
             case .replaced(_, _, let output, _), .derived(let output, _): output
-            case .renamed(_, let to): to
+            case .renamed(_, let to, _): to
             case .removed: nil
             }
         }
@@ -132,7 +210,7 @@ public actor HistoryStore {
                 guard fileManager.fileExists(atPath: trashed) else {
                     return .skipped(.undoTrashItemMissing, path: original)
                 }
-                guard (try? FileStamp(of: URL(fileURLWithPath: output))) == stamp else {
+                guard try stamp.matches(output) else {
                     return .skipped(.undoOutputChanged, path: output)
                 }
                 if output != original, fileManager.fileExists(atPath: original) {
@@ -146,12 +224,13 @@ public actor HistoryStore {
                     throw error
                 }
             case .derived(let output, let stamp):
-                guard (try? FileStamp(of: URL(fileURLWithPath: output))) == stamp else {
+                guard try stamp.matches(output) else {
                     return .skipped(.undoOutputChanged, path: output)
                 }
                 _ = try committer.trash(URL(fileURLWithPath: output))
-            case .renamed(let from, let to):
-                guard fileManager.fileExists(atPath: to) else { return .skipped(.undoOutputChanged, path: to) }
+            case .renamed(let from, let to, let stamp):
+                guard let stamp, try stamp.matches(to)
+                else { return .skipped(.undoOutputChanged, path: to) }
                 let caseOnly = from.lowercased() == to.lowercased()
                 guard caseOnly || !fileManager.fileExists(atPath: from) else {
                     return .skipped(.undoOriginalOccupied, path: from)
@@ -177,7 +256,7 @@ public actor HistoryStore {
         switch record {
         case .replaced(_, let trashed, _, _), .removed(_, let trashed): trashed
         case .derived(let output, _): output
-        case .renamed(_, let to): to
+        case .renamed(_, let to, _): to
         }
     }
 

@@ -14,6 +14,11 @@ enum UserMessages {
             String(localized: "“\(file)” could not be saved.")
         case .unsupportedCodec(let codec):
             String(localized: "“\(file)” uses \(codec), which MacEase does not support.")
+        case .duplicateArchiveRootName(let name):
+            String(
+                localized: "Multiple selected folders are named “\(name)”. Rename one before creating the archive.",
+                comment: "Archive roots must remain distinguishable"
+            )
         case .permissionDenied(let location):
             String(
                 localized:

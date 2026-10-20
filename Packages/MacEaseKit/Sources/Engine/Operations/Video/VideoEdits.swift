@@ -111,9 +111,10 @@ enum VideoEdits {
         case .avi: .mjpeg
         case .flv: .h264
         case .mp4, .mov, .m4v, .mkv:
-            switch (source, settings.codec) {
-            case (.hevc, _), (_, .hevc): .hevc
-            default: .h264
+            switch source {
+            case .h264: .h264
+            case .hevc: .hevc
+            default: settings.codec == .hevc ? .hevc : .h264
             }
         }
     }

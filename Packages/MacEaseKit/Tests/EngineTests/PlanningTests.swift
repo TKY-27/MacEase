@@ -30,6 +30,25 @@ private func temporaryFolder() throws -> URL {
         #expect(try ContentSniffer.matches(folder, kind: .folder))
         #expect(try !ContentSniffer.matches(folder, kind: .any))
     }
+
+    @Test func recognizesV7TarAndRejectsBrokenHeaders() throws {
+        let folder = try temporaryFolder()
+        var header = [UInt8](repeating: 0, count: 512)
+        header.replaceSubrange(0..<6, with: Array("a.txt\0".utf8))
+        header.replaceSubrange(100..<108, with: Array("0000644\0".utf8))
+        header.replaceSubrange(108..<116, with: Array("0000000\0".utf8))
+        header.replaceSubrange(116..<124, with: Array("0000000\0".utf8))
+        header.replaceSubrange(124..<136, with: Array("00000000000\0".utf8))
+        header.replaceSubrange(136..<148, with: Array("00000000000\0".utf8))
+        header.replaceSubrange(148..<156, with: Array("005415\0 ".utf8))
+        let archive = folder.appending(path: "old.tar")
+        try Data(header + [UInt8](repeating: 0, count: 1024)).write(to: archive)
+        #expect(try ContentSniffer.matches(archive, kind: .archive))
+
+        header[100] = UInt8(ascii: "1")
+        try Data(header).write(to: archive)
+        #expect(try !ContentSniffer.matches(archive, kind: .archive))
+    }
 }
 
 @Suite struct ChecksumTests {
@@ -107,6 +126,15 @@ private func temporaryFolder() throws -> URL {
         #expect(abs(aspect.min.value - 0.8) < 0.0001)
         #expect(abs(aspect.max.value - 1.91) < 0.0001)
         #expect(aspect.fit == .crop)
+    }
+
+    @Test func aspectRatioStoresPreciseLocaleIndependentNumbers() throws {
+        let ratio = AspectRatio(width: 1.2345678901234567, height: 0.875)
+
+        let encoded = try JSONEncoder().encode(ratio)
+
+        #expect(String(decoding: encoded, as: UTF8.self) == "\"1.2345678901234567:0.875\"")
+        #expect(try JSONDecoder().decode(AspectRatio.self, from: encoded) == ratio)
     }
 }
 

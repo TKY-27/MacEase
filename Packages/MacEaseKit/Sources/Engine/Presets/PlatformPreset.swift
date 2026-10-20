@@ -24,8 +24,7 @@ public struct AspectRatio: Codable, Hashable, Sendable {
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
-        try container.encode(
-            "\(width.formatted(.number.grouping(.never))):\(height.formatted(.number.grouping(.never)))")
+        try container.encode("\(width):\(height)")
     }
 }
 

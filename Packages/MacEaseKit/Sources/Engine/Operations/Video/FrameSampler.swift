@@ -49,6 +49,11 @@ final class FrameSampler {
     func next() async throws -> DecodedFrame? {
         while true {
             try Task.checkCancellation()
+            guard nextOutput + frameDuration / 2 < end else {
+                decoded.removeAll()
+                sourceQueue.removeAll()
+                return nil
+            }
             if let chosen = ready() {
                 let image = try processor(for: chosen.image).process(chosen.image)
                 defer { nextOutput += frameDuration }

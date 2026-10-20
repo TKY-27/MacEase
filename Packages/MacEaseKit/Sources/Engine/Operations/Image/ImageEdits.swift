@@ -1,6 +1,7 @@
 import CoreGraphics
 import Formats
 import Foundation
+import UniformTypeIdentifiers
 
 extension ImageSettings {
     func quality(for format: ImageFormat) -> Double {
@@ -30,6 +31,9 @@ enum ImageOutput {
 
     /// Warns about frames `format` drops.
     static func frames(of document: ImageDocument, for format: ImageFormat, context: ItemContext) -> [ImageFrame] {
+        if document.isAnimated, document.contentType.conforms(to: .heics), format == .heic {
+            return document.frames
+        }
         if document.isAnimated, !format.holdsAnimation {
             context.warn(.firstFrameOnly)
             return [document.frames[0]]
@@ -74,9 +78,12 @@ enum ImageOutput {
         _ transform: (CGImage) async throws -> CGImage
     ) async throws -> ItemResult {
         var frames = frames(of: document, for: format, context: context)
+        var retainedBudget = FrameMemoryBudget()
+        for frame in document.frames { try retainedBudget.reserve(frame.image) }
         for index in frames.indices {
             try Task.checkCancellation()
             frames[index].image = try await transform(frames[index].image)
+            try retainedBudget.reserve(frames[index].image)
             context.progress(Double(index + 1) / Double(frames.count + 1))
         }
         var options = defaultOptions(for: document, format: format, settings: context.settings.image)
@@ -160,9 +167,16 @@ enum ImageEdits {
 
     static func trimBorders(_ url: URL, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
-        let pixels = try PixelBuffer(cgImage: document.first)
-        guard let content = contentBounds(of: pixels),
-            content.width < Double(pixels.width) || content.height < Double(pixels.height)
+        let canvas = document.first
+        var content = CGRect.null
+        for frame in document.frames {
+            try Task.checkCancellation()
+            if let bounds = contentBounds(of: try PixelBuffer(cgImage: frame.image)) {
+                content = content.union(bounds)
+            }
+        }
+        guard !content.isNull,
+            content.width < Double(canvas.width) || content.height < Double(canvas.height)
         else { return .skipped(.nothingToRemove) }
         let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in

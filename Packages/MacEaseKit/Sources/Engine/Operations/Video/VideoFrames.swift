@@ -153,14 +153,28 @@ enum VideoAnimations {
         let height = max(1, Int((Double(display.height) * scale).rounded()))
         let start = try rendering.start.map { try Nanoseconds.from(seconds: $0) } ?? 0
         let end = try rendering.end.map { try Nanoseconds.from(seconds: $0) } ?? input.duration
+        let frameDuration = max(Nanoseconds.perSecond / Int64(rendering.framesPerSecond), minimumFrameDuration)
+        guard frameDuration > 0, start >= 0, start < end, end <= input.duration else {
+            throw EngineError.invalidInput(
+                .malformed(
+                    String(
+                        localized: "Choose an animation range within the video and a supported frame rate.",
+                        comment: "Invalid animation range")))
+        }
+        let span = end - start
+        let frameCount = span / frameDuration + (span % frameDuration == 0 ? 0 : 1)
+        var predictedBudget = FrameMemoryBudget()
+        try predictedBudget.reserve(width: width, height: height, frameCount: frameCount)
         let edit = FrameEdit(rotation: input.displayRotation, size: PixelSize(width: width, height: height))
         let sampler = try await FrameSampler(
             input: input,
-            frameDuration: max(Nanoseconds.perSecond / Int64(rendering.framesPerSecond), minimumFrameDuration),
+            frameDuration: frameDuration,
             edit: edit,
             start: start, end: end)
         var frames: [CGImage] = []
+        var retainedBudget = FrameMemoryBudget()
         while let frame = try await sampler.next() {
+            try retainedBudget.reserve(frame.image)
             frames.append(try CGImage.make(from: frame.image))
             context.progress(Double(frame.timestamp - start) / Double(max(end - start, 1)))
         }

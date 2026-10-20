@@ -133,8 +133,11 @@ public enum EmptyFolderScanner {
                 try FolderWalk.isPlainFolder(child) && !settings.excludedNames.contains(child.lastPathComponent)
             if isCandidate, try visit(child, settings: settings, isRoot: false, found: &found) {
                 emptyChildren.append(child)
-            } else if !(settings.emptyIgnoresDSStore && child.lastPathComponent == finderMetadataName) {
-                empty = false
+            } else {
+                let type = try child.resourceValues(forKeys: [.fileResourceTypeKey]).fileResourceType
+                if !(settings.emptyIgnoresDSStore && name == finderMetadataName && type == .regular) {
+                    empty = false
+                }
             }
         }
         if !empty || isRoot { found += emptyChildren }
