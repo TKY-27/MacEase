@@ -127,7 +127,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 title: String(localized: "Undone", comment: "Recent batch state"), action: nil, keyEquivalent: "")
             undone.isEnabled = false
             submenu.addItem(undone)
-        } else {
+        } else if jobs.canUndo(record.id) {
             submenu.addItem(
                 ClosureMenuItem(title: String(localized: "Undo", comment: "Menu bar recent batch action")) { [jobs] in
                     jobs.undo(record.id)

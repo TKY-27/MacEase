@@ -108,13 +108,87 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         #expect(texts.contains(try read(original)))
         let record = try #require(outcome.record)
         #expect(record.items.count == expectedCommits)
-        guard case .replaced(_, let trashed, _, _) = try #require(record.items.first) else {
+        guard case .replaced(_, let trashed, _, _, _) = try #require(record.items.first) else {
             Issue.record("expected replaced record")
             return
         }
         #expect(try read(URL(fileURLWithPath: trashed)) == "old")
         #expect(try await engine.history.undo(record.id) == Array(repeating: .restored, count: expectedCommits))
         #expect(try read(original) == "old")
+    }
+
+    @Test func undoWaitsForTheCommitGateBeforeCheckingTheOutput() async throws {
+        let folder = try TestVolume.makeFolder()
+        let original = folder.appending(path: "race.txt")
+        try write("original", to: original)
+        let engine = try makeEngine()
+        let first = await engine.run(
+            Batch(operation: .textLineEndings, items: [replacing(original, name: "race.txt", text: "first")]),
+            settings: Settings()
+        ) { _ in }
+        let firstRecord = try #require(first.record)
+        let staged = folder.appending(path: "staged.txt")
+        let cloneDirectory = folder.appending(path: "clones")
+        try FileManager.default.createDirectory(at: cloneDirectory, withIntermediateDirectories: false)
+        try write("second replacement", to: staged)
+        let expectedStamp = try FileStamp(of: original)
+        let (started, continuation) = AsyncStream<Void>.makeStream()
+        try await engine.history.commitGate.acquire()
+        let pendingUndo = Task {
+            continuation.yield(())
+            continuation.finish()
+            return try await engine.undo(firstRecord.id)
+        }
+        for await _ in started { break }
+        do {
+            let replaced = try await FileCommitter().replace(
+                original: original, with: StagedFile(url: staged, name: "race.txt", check: .text(.utf8)),
+                cloneDirectory: cloneDirectory, expectedStamp: expectedStamp)
+            let trashed = try #require(replaced.trashed)
+            try await engine.history.record(
+                [
+                    .replaced(
+                        original: original.path, trashed: trashed.url.path, output: replaced.output.path,
+                        stamp: try FileStamp(of: replaced.output), trashStamp: trashed.stamp)
+                ],
+                batch: UUID(), operation: .textLineEndings)
+            await engine.history.commitGate.release()
+        } catch {
+            await engine.history.commitGate.release()
+            _ = try await pendingUndo.value
+            throw error
+        }
+
+        #expect(try await pendingUndo.value == [.skipped(.undoOutputChanged, path: original.path)])
+        #expect(try read(original) == "second replacement")
+        guard case .replaced(_, let firstBackup, _, _, _) = try #require(firstRecord.items.first) else {
+            Issue.record("expected replaced record")
+            return
+        }
+        #expect(try read(URL(fileURLWithPath: firstBackup)) == "original")
+    }
+
+    @Test func cancelledUndoCannotBypassTheHeldCommitGate() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "before.txt")
+        try write("keep", to: original)
+        let engine = try makeEngine()
+        let outcome = await engine.run(
+            Batch(
+                operation: .folderRename,
+                items: [
+                    WorkItem(inputs: [original]) { _ in .rename([RenamePlan(url: original, newName: "after.txt")]) }
+                ]), settings: Settings()
+        ) { _ in }
+        try await engine.history.commitGate.acquire()
+        let pendingUndo = Task { try await engine.undo(outcome.batchID) }
+        pendingUndo.cancel()
+        await #expect(throws: CancellationError.self) { try await pendingUndo.value }
+        #expect(!FileManager.default.fileExists(atPath: original.path))
+        #expect(try read(folder.appending(path: "after.txt")) == "keep")
+        await engine.history.commitGate.release()
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
     }
 
     @Test func replaceWithSameNameTrashesOriginalAndUndoRestoresIt() async throws {
@@ -131,7 +205,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         #expect(outcome.outcomes == [.succeeded(outputs: [original], warnings: [])])
         #expect(try read(original) == "new")
         let record = try #require(outcome.record)
-        guard case .replaced(_, let trashed, _, _) = try #require(record.items.first) else {
+        guard case .replaced(_, let trashed, _, _, _) = try #require(record.items.first) else {
             Issue.record("expected replaced record")
             return
         }

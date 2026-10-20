@@ -242,7 +242,10 @@ confirmation in a panel.
 - Each record holds the operation, time, and per item: original path, Trash URL
   (replace), output path, rename old and new names, and a commit-time output
   stamp. File stamps contain size and modification date. Rename stamps also
-  contain filesystem device and inode identity.
+  contain filesystem device and inode identity. Replace and removal records
+  include a Trash stamp with device, inode, size and modification date, captured
+  while the commit holds its naming lock. Folder Trash stamps include the
+  bounded summary described below.
 - Folder stamps contain a bounded summary, never a persisted descendant list:
   descendant count, total size, latest modification date, and an
   enumeration-order-independent hash of relative paths, types, sizes,
@@ -250,11 +253,19 @@ confirmation in a panel.
   children contribute path/error markers and an unreadable count; an
   incomplete summary cannot authorize undo. Root stamp failures leave a
   record without a stamp. Summaries scan descendants without retaining them.
+- Undo refuses a batch that is still running, without consuming any entries.
+  The menu hides Undo until that batch finishes. Appending new entries resets
+  the record's undone flag so pending entries cannot be hidden.
+- Undo and commits share one gate. Each undo item holds the committer's naming
+  lock and coordinates all affected paths together. Stamp and occupancy checks,
+  moves and rollback run inside that single exclusive write section.
 - Undo works per batch. For each item it moves the original back from the Trash
   and moves the output to the Trash (replace), moves derived outputs to the
   Trash (derived), or renames back (rename). An item is skipped with a reason
-  when its Trash URL no longer exists, the original name is occupied, or its
-  output stamp changed, is missing or cannot be verified. A case-only replace
+  when its Trash URL no longer exists, its Trash identity or metadata changed,
+  its Trash stamp is missing, the original name is occupied, or its output
+  stamp changed, is missing or cannot be verified. Legacy replace and removal
+  records without Trash identity stamps load but cannot restore files. A case-only replace
   must not mistake its own output for an occupied original name.
 - Rename undo also skips a different filesystem identity, even with matching
   size and modification date. Legacy rename records without stamps and legacy
@@ -263,6 +274,15 @@ confirmation in a panel.
   their detection guarantee.
 - An undo attempt consumes restored and skipped entries; only failed entries
   remain retryable in that batch.
+- Replace and removal records are saved without throttling before the commit
+  gate is released. Other records may be coalesced for up to one second and
+  are flushed at batch completion. Failed saves remain dirty for retry.
+- Normal application termination stops new requests, cancels pending work and
+  waits for accepted undo requests. An engine termination barrier then waits
+  for the current commit and its record, seals further commits and undo, and
+  flushes history. AppKit defers termination until this completes off the main
+  actor. A flush failure cancels termination and allows a retry. Forced process
+  termination and crashes cannot provide this orderly shutdown guarantee.
 - The completion notification offers **Undo** and **Show in Finder**. The menu
   bar shows the last 10 batches with Undo.
 - A batch produces one notification, whatever its size.
@@ -807,3 +827,6 @@ check.
 - 2026-10-21: Commit and undo stamps recorded (ADR 0011): scan checks before
   replace, bounded folder summaries, rename identity checks, safe skips for
   missing or incomplete stamps, and history retained after case-change failure.
+- 2026-10-21: Undo shares commit serialization, refuses running batches and
+  verifies Trash identity. Backup records save immediately, and normal quit
+  waits for a sealed history flush (ADR 0011).

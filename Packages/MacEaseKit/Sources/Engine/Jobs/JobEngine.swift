@@ -27,7 +27,6 @@ public final class JobEngine: Sendable {
     public let staging: StagingArea
     private let cpuGate: LaneGate
     private let hardwareVideoGate = LaneGate(width: 1)
-    private let commitGate = LaneGate(width: 1)
     private let committer = FileCommitter()
     private let logger = Logger(category: "jobs")
 
@@ -36,6 +35,14 @@ public final class JobEngine: Sendable {
         history = HistoryStore(supportDirectory: supportDirectory)
         staging = StagingArea(supportDirectory: supportDirectory)
         cpuGate = LaneGate(width: concurrency)
+    }
+
+    public func undo(_ id: UUID) async throws -> [UndoOutcome] {
+        try await history.undo(id)
+    }
+
+    public func prepareForTermination() async throws {
+        try await history.prepareForTermination()
     }
 
     public func setConcurrency(_ width: Int) async {
@@ -54,6 +61,7 @@ public final class JobEngine: Sendable {
         settings: Settings,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> BatchOutcome {
+        await history.beginBatch(batch.id)
         let tracker = BatchTracker(itemCount: batch.items.count)
         let summaries = await withTaskGroup(of: ItemResultSummary.self) { group in
             for (index, workItem) in batch.items.enumerated() {
@@ -79,6 +87,7 @@ public final class JobEngine: Sendable {
             )
         }
 
+        await history.endBatch(batch.id)
         let texts = summaries.compactMap(\.text)
         let clipboard = texts.filter { $0.1 == .clipboard }.map(\.0)
         let reports = texts.filter { $0.1 == .report }.map(\.0)
@@ -125,13 +134,14 @@ public final class JobEngine: Sendable {
             return (.failed(logged(EngineError.wrapping(error, path: path), batch: batch, workItem: workItem)), nil)
         }
         do {
-            try await commitGate.acquire()
+            try await history.commitGate.acquire()
         } catch {
             return (.failed(EngineError.wrapping(error, path: path)), nil)
         }
         var records: [CommitRecord] = []
         let outcome: (ItemOutcome, (String, TextDestination)?)
         do {
+            try await history.checkAcceptingCommits()
             outcome = try await commit(result, inputStamps: inputStamps, context: context, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)
@@ -147,7 +157,7 @@ public final class JobEngine: Sendable {
                 "History write failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
         }
-        await commitGate.release()
+        await history.commitGate.release()
         return outcome
     }
 
@@ -184,7 +194,8 @@ public final class JobEngine: Sendable {
             if let trashed = replaced.trashed {
                 records.append(
                     .replaced(
-                        original: original.path, trashed: trashed.path, output: replaced.output.path, stamp: stamp)
+                        original: original.path, trashed: trashed.url.path, output: replaced.output.path, stamp: stamp,
+                        trashStamp: trashed.stamp)
                 )
             } else {
                 records.append(.derived(output: replaced.output.path, stamp: stamp))
@@ -214,7 +225,7 @@ public final class JobEngine: Sendable {
         case .trash(let urls, let permanently, let condition):
             for url in urls {
                 if let trashed = try committer.remove(url, permanently: permanently, condition: condition) {
-                    records.append(.removed(original: url.path, trashed: trashed.path))
+                    records.append(.removed(original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp))
                 }
             }
         case .text(let text, let destination):

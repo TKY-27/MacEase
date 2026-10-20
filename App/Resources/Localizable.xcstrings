@@ -2136,6 +2136,17 @@
         }
       }
     },
+    "MacEase could not save undo history.": {
+      "comment": "Explains why quitting was cancelled",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase は取り消し用の履歴を保存できませんでした。"
+          }
+        }
+      }
+    },
     "MacEase could not tell how “%@” is encoded. Choose the encoding that shows the text correctly.": {
       "localizations": {
         "ja": {
@@ -2995,6 +3006,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "MacEase を終了"
+          }
+        }
+      }
+    },
+    "Quit was cancelled. Check disk space and support folder access, then try again.": {
+      "comment": "Helps recover from history save failure",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了をキャンセルしました。ディスクの空き容量とサポートフォルダへのアクセス権を確認してから、もう一度お試しください。"
           }
         }
       }
@@ -3972,6 +3994,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac にはこの形式のハードウェアエンコーダがありません。"
+          }
+        }
+      }
+    },
+    "This batch is still running. Try Undo after it finishes.": {
+      "comment": "Explains why running batches cannot undo",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この一括処理はまだ実行中です。完了してから取り消してください。"
           }
         }
       }

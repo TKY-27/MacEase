@@ -92,7 +92,7 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
         #expect(try Fixture.image(output).width == 320)
         let exif = try Fixture.properties(output)[kCGImagePropertyExifDictionary] as? [CFString: Any]
         #expect(exif?[kCGImagePropertyExifLensModel] as? String == "Test Lens")
-        guard case .replaced(_, let trashed, _, _) = try #require(outcome.record?.items.first) else {
+        guard case .replaced(_, let trashed, _, _, _) = try #require(outcome.record?.items.first) else {
             Issue.record("expected a replace record")
             return
         }

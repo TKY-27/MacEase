@@ -10,6 +10,7 @@ import os
 final class JobCenter {
     struct ActiveBatch: Identifiable {
         let id: UUID
+        let batchID: UUID
         let operation: OperationID
         let itemCount: Int
         var progress: Double
@@ -26,6 +27,8 @@ final class JobCenter {
     private(set) var active: [ActiveBatch] = []
     private(set) var recent: [BatchRecord] = []
     private(set) var completed: [CompletedBatch] = []
+    private var terminating = false
+    private var undoTasks: [UUID: Task<Void, Never>] = [:]
 
     @ObservationIgnored let engine: JobEngine
     @ObservationIgnored private let settings: SettingsStore
@@ -46,6 +49,7 @@ final class JobCenter {
     var isBusy: Bool { !active.isEmpty }
 
     func start(entry: MenuEntry, inputs: [URL]) {
+        guard !terminating else { return }
         let preset = entry.isCustom ? nil : entry.preset
         // Finder selection order is unreliable.
         let ordersPages = [OperationID.imageToPDF, .pdfMerge].contains(entry.op) && inputs.count > 1
@@ -65,16 +69,19 @@ final class JobCenter {
     /// Await the task to chain batches.
     @discardableResult
     func run(_ request: OperationRequest) -> Task<BatchOutcome?, Never> {
+        guard !terminating else { return Task { nil } }
         let snapshot = settings.planning
         let engine = engine
         let id = UUID()
         let task = Task { () -> BatchOutcome? in
             let batch = await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
-            guard !batch.items.isEmpty else {
+            guard !self.terminating, !Task.isCancelled, !batch.items.isEmpty else {
                 self.forget(id)
                 return nil
             }
-            self.active.append(ActiveBatch(id: id, operation: request.op, itemCount: batch.items.count, progress: 0))
+            self.active.append(
+                ActiveBatch(id: id, batchID: batch.id, operation: request.op, itemCount: batch.items.count, progress: 0)
+            )
             let reporter = ProgressReporter { fraction in self.update(id, progress: fraction) }
             let outcome = await engine.run(batch, settings: snapshot) { reporter.report($0) }
             self.finish(outcome, request: request, activeID: id)
@@ -88,11 +95,36 @@ final class JobCenter {
         tasks[id]?.cancel()
     }
 
+    func canUndo(_ id: UUID) -> Bool {
+        !terminating && !active.contains { $0.batchID == id } && undoTasks[id] == nil
+    }
+
+    func prepareForTermination() async throws {
+        terminating = true
+        for task in tasks.values { task.cancel() }
+        let pendingUndos = Array(undoTasks.values)
+        for task in pendingUndos { await task.value }
+        do {
+            try await engine.prepareForTermination()
+        } catch {
+            terminating = false
+            throw error
+        }
+    }
+
     func undo(_ id: UUID) {
-        Task {
+        guard !terminating, undoTasks[id] == nil else { return }
+        undoTasks[id] = Task {
+            defer { undoTasks[id] = nil }
             do {
-                let outcomes = try await engine.history.undo(id)
+                let outcomes = try await engine.undo(id)
                 if !outcomes.isEmpty { notifyUndo(outcomes) }
+            } catch UndoFailure.batchRunning {
+                notifier.notify(
+                    title: String(localized: "Undo", comment: "Notification title after undo"),
+                    body: String(
+                        localized: "This batch is still running. Try Undo after it finishes.",
+                        comment: "Explains why running batches cannot undo"))
             } catch {
                 let failure = error as NSError
                 logger.error(
@@ -150,6 +182,7 @@ final class JobCenter {
 
     private func finish(_ outcome: BatchOutcome, request: OperationRequest, activeID: UUID) {
         forget(activeID)
+        guard !terminating else { return }
         completed.insert(
             CompletedBatch(
                 date: Date(), operation: outcome.operation, summary: BatchSummary(outcome)),

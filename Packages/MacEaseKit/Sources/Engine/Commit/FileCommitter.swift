@@ -12,9 +12,14 @@ struct FileCommitter: Sendable {
         case noTrash
     }
 
+    struct Trashed: Sendable {
+        let url: URL
+        let stamp: FileStamp?
+    }
+
     struct Replaced: Sendable {
         let output: URL
-        let trashed: URL?
+        let trashed: Trashed?
         let warning: ItemWarning?
     }
 
@@ -58,7 +63,7 @@ struct FileCommitter: Sendable {
                     }
                     try FileManager.default.moveItem(at: output.url, to: final)
                     do {
-                        return Replaced(output: final, trashed: try trashCoordinated(target), warning: nil)
+                        return Replaced(output: final, trashed: try trashForHistory(target), warning: nil)
                     } catch let error as CocoaError where error.code == .featureUnsupported {
                         return Replaced(output: final, trashed: nil, warning: .keptAsDerived)
                     } catch {
@@ -81,9 +86,9 @@ struct FileCommitter: Sendable {
     private func replaceKeepingName(original: URL, output: StagedFile, cloneDirectory: URL) throws -> Replaced {
         let clone = cloneDirectory.appending(path: original.lastPathComponent)
         try cloneOrCopy(original, to: clone)
-        let trashed: URL
+        let trashed: Trashed
         do {
-            trashed = try trashCoordinated(clone)
+            trashed = try trashForHistory(clone)
         } catch let error as CocoaError where error.code == .featureUnsupported {
             try FileManager.default.removeItem(at: clone)
             throw Failure.noTrash
@@ -117,7 +122,7 @@ struct FileCommitter: Sendable {
     }
 
     /// `nil` after a permanent delete.
-    func remove(_ url: URL, permanently: Bool, condition: RemovalCondition? = nil) throws -> URL? {
+    func remove(_ url: URL, permanently: Bool, condition: RemovalCondition? = nil) throws -> Trashed? {
         try Self.namingLock.withLock { _ in
             try Task.checkCancellation()
             switch condition {
@@ -151,17 +156,25 @@ struct FileCommitter: Sendable {
         }
     }
 
-    private func removeCoordinated(_ url: URL, permanently: Bool) throws -> URL? {
+    private func removeCoordinated(_ url: URL, permanently: Bool) throws -> Trashed? {
         try Task.checkCancellation()
         if permanently {
             try FileManager.default.removeItem(at: url)
             return nil
         }
-        return try trashCoordinated(url)
+        return try trashForHistory(url)
     }
 
-    func trash(_ url: URL) throws -> URL {
-        try coordinate(writing: url, options: .forDeleting) { try trashCoordinated($0) }
+    private func trashForHistory(_ url: URL) throws -> Trashed {
+        let trashed = try trashCoordinated(url)
+        do {
+            return Trashed(url: trashed, stamp: try FileStamp(of: trashed, includingIdentity: true))
+        } catch {
+            logger.error(
+                "Trash stamp unavailable: \(error.localizedDescription, privacy: .private)"
+            )
+            return Trashed(url: trashed, stamp: nil)
+        }
     }
 
     private func trashCoordinated(_ url: URL) throws -> URL {
@@ -171,8 +184,110 @@ struct FileCommitter: Sendable {
         return trashed as URL
     }
 
-    func move(_ source: URL, to destination: URL) throws {
-        try coordinate(moving: source, to: destination)
+    func undo(_ record: CommitRecord) -> UndoOutcome {
+        do {
+            return try Self.namingLock.withLock { _ in
+                switch record {
+                case .replaced(let original, let trashed, let output, let stamp, let trashStamp):
+                    return try coordinateUndo(paths: [original, trashed, output]) { urls in
+                        let originalURL = urls[0]
+                        let trashedURL = urls[1]
+                        let outputURL = urls[2]
+                        guard let trashStamp, trashStamp.matchesIdentity(trashedURL.path) else {
+                            return .skipped(.undoTrashItemMissing, path: original)
+                        }
+                        guard let stamp, stamp.matches(outputURL.path) else {
+                            return .skipped(.undoOutputChanged, path: output)
+                        }
+                        let caseOnly = try Self.isCaseOnlyChange(
+                            from: originalURL.path, to: outputURL.path, in: originalURL.deletingLastPathComponent())
+                        if outputURL != originalURL, !caseOnly,
+                            FileManager.default.fileExists(atPath: originalURL.path)
+                        {
+                            return .skipped(.undoOriginalOccupied, path: original)
+                        }
+                        let trashedOutput = try trashCoordinated(outputURL)
+                        do {
+                            try FileManager.default.moveItem(at: trashedURL, to: originalURL)
+                        } catch {
+                            try FileManager.default.moveItem(at: trashedOutput, to: outputURL)
+                            throw error
+                        }
+                        return .restored
+                    }
+                case .derived(let output, let stamp):
+                    return try coordinateUndo(paths: [output]) { urls in
+                        guard let stamp, stamp.matches(urls[0].path) else {
+                            return .skipped(.undoOutputChanged, path: output)
+                        }
+                        _ = try trashCoordinated(urls[0])
+                        return .restored
+                    }
+                case .renamed(let from, let to, let stamp):
+                    return try coordinateUndo(paths: [from, to]) { urls in
+                        guard let stamp, stamp.matches(urls[1].path) else {
+                            return .skipped(.undoOutputChanged, path: to)
+                        }
+                        let caseOnly = try Self.isCaseOnlyChange(
+                            from: urls[0].path, to: urls[1].path, in: urls[0].deletingLastPathComponent())
+                        guard caseOnly || !FileManager.default.fileExists(atPath: urls[0].path) else {
+                            return .skipped(.undoOriginalOccupied, path: from)
+                        }
+                        try FileManager.default.moveItem(at: urls[1], to: urls[0])
+                        return .restored
+                    }
+                case .removed(let original, let trashed, let trashStamp):
+                    return try coordinateUndo(paths: [original, trashed]) { urls in
+                        guard let trashStamp, trashStamp.matchesIdentity(urls[1].path) else {
+                            return .skipped(.undoTrashItemMissing, path: original)
+                        }
+                        guard !FileManager.default.fileExists(atPath: urls[0].path) else {
+                            return .skipped(.undoOriginalOccupied, path: original)
+                        }
+                        try FileManager.default.moveItem(at: urls[1], to: urls[0])
+                        return .restored
+                    }
+                }
+            }
+        } catch {
+            let path: String
+            switch record {
+            case .replaced(_, let trashed, _, _, _), .removed(_, let trashed, _): path = trashed
+            case .derived(let output, _): path = output
+            case .renamed(_, let to, _): path = to
+            }
+            return .failed(EngineError.wrapping(error, path: path, otherwise: EngineError.commitFailed), path: path)
+        }
+    }
+
+    private func coordinateUndo(
+        paths: [String], _ body: @escaping @Sendable ([URL]) throws -> UndoOutcome
+    ) throws -> UndoOutcome {
+        var intents: [NSFileAccessIntent] = []
+        let references = paths.map { path in
+            if let existing = intents.first(where: { $0.url.path == path }) { return existing }
+            let intent = NSFileAccessIntent.writingIntent(
+                with: URL(fileURLWithPath: path), options: .forReplacing)
+            intents.append(intent)
+            return intent
+        }
+        let completed = DispatchSemaphore(value: 0)
+        let result = Mutex<Result<UndoOutcome, any Error>?>(nil)
+        let queue = OperationQueue()
+        NSFileCoordinator(filePresenter: nil).coordinate(with: intents, queue: queue) { error in
+            result.withLock { outcome in
+                outcome = Result {
+                    if let error { throw error }
+                    return try body(references.map(\.url))
+                }
+            }
+            completed.signal()
+        }
+        completed.wait()
+        return try result.withLock { outcome in
+            guard let outcome else { throw EngineError.commitFailed("Coordination did not run") }
+            return try outcome.get()
+        }
     }
 
     static func isCaseOnlyChange(from oldName: String, to newName: String, in directory: URL) throws -> Bool {

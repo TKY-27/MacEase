@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var javaAvailable = false
     private var capabilityCheckInProgress = false
     private var launchFinished = false
+    private var terminationPending = false
     private var pendingURLs: [URL] = []
     private var updateTimer: Timer?
     private var capabilityTimer: Timer?
@@ -132,6 +133,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         guard launchFinished else { return }
         Task { await refreshCapabilities() }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let jobs else { return .terminateNow }
+        guard !terminationPending else { return .terminateLater }
+        terminationPending = true
+        Task {
+            do {
+                try await jobs.prepareForTermination()
+                sender.reply(toApplicationShouldTerminate: true)
+            } catch {
+                terminationPending = false
+                logger.error("Termination history flush failed: \(error.localizedDescription, privacy: .private)")
+                sender.reply(toApplicationShouldTerminate: false)
+                let alert = NSAlert()
+                alert.messageText = String(
+                    localized: "MacEase could not save undo history.", comment: "Explains why quitting was cancelled")
+                alert.informativeText = String(
+                    localized: "Quit was cancelled. Check disk space and support folder access, then try again.",
+                    comment: "Helps recover from history save failure")
+                alert.runModal()
+            }
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

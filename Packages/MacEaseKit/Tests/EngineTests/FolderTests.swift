@@ -102,7 +102,7 @@ func listing(_ folder: URL) throws -> [String] {
         #expect(outcome.outcomes == [.succeeded(outputs: [], warnings: []), .skipped(.changedSinceScan)])
         #expect(try listing(root) == ["copy2.txt", "edited.txt", "keep.txt"])
         let record = try #require(outcome.record)
-        guard case .removed(let original, let trashed) = try #require(record.items.first) else {
+        guard case .removed(let original, let trashed, _) = try #require(record.items.first) else {
             Issue.record("expected a Trash record despite the permanent request")
             return
         }

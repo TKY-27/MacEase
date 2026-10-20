@@ -51,7 +51,7 @@ public struct FileStamp: Codable, Equatable, Sendable {
             ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
     }
 
-    fileprivate func matches(_ path: String) -> Bool {
+    func matches(_ path: String) -> Bool {
         guard directorySummary?.unreadableCount == nil || directorySummary?.unreadableCount == 0 else {
             return false
         }
@@ -60,6 +60,10 @@ public struct FileStamp: Codable, Equatable, Sendable {
         } catch {
             return false
         }
+    }
+
+    func matchesIdentity(_ path: String) -> Bool {
+        identity != nil && matches(path)
     }
 
     private static func metadata(of url: URL) throws -> stat {
@@ -111,10 +115,10 @@ public struct FileStamp: Codable, Equatable, Sendable {
 }
 
 public enum CommitRecord: Codable, Equatable, Sendable {
-    case replaced(original: String, trashed: String, output: String, stamp: FileStamp?)
+    case replaced(original: String, trashed: String, output: String, stamp: FileStamp?, trashStamp: FileStamp? = nil)
     case derived(output: String, stamp: FileStamp?)
     case renamed(from: String, to: String, stamp: FileStamp? = nil)
-    case removed(original: String, trashed: String)
+    case removed(original: String, trashed: String, trashStamp: FileStamp? = nil)
 }
 
 public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
@@ -128,7 +132,7 @@ public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
     public var outputPaths: [String] {
         items.compactMap { record in
             switch record {
-            case .replaced(_, _, let output, _), .derived(let output, _): output
+            case .replaced(_, _, let output, _, _), .derived(let output, _): output
             case .renamed(_, let to, _): to
             case .removed: nil
             }
@@ -142,7 +146,14 @@ public enum UndoOutcome: Equatable, Sendable {
     case failed(EngineError, path: String)
 }
 
+public enum UndoFailure: Error, Equatable {
+    case batchRunning
+}
+
 public actor HistoryStore {
+    let commitGate = LaneGate(width: 1)
+    private var runningBatches: Set<UUID> = []
+    private var terminating = false
     public static let capacity = 100
     private static let formatVersion = 1
     private static let saveInterval: TimeInterval = 1
@@ -188,97 +199,85 @@ public actor HistoryStore {
         guard !newItems.isEmpty else { return }
         if let index = records.lastIndex(where: { $0.id == id }) {
             records[index].items += newItems
+            records[index].undone = false
         } else {
             records.append(BatchRecord(id: id, operation: operation, date: Date(), items: newItems, undone: false))
             records = Array(records.suffix(Self.capacity))
         }
         dirty = true
-        if Date().timeIntervalSince(lastSave) >= Self.saveInterval { try save() }
+        let needsDurableBackup = newItems.contains { record in
+            switch record {
+            case .replaced, .removed: true
+            case .derived, .renamed: false
+            }
+        }
+        if needsDurableBackup || Date().timeIntervalSince(lastSave) >= Self.saveInterval { try save() }
     }
 
     func flush() throws {
         if dirty { try save() }
     }
 
+    func beginBatch(_ id: UUID) {
+        runningBatches.insert(id)
+    }
+
+    func endBatch(_ id: UUID) {
+        runningBatches.remove(id)
+    }
+
+    func checkAcceptingCommits() throws {
+        if terminating { throw CancellationError() }
+    }
+
+    func prepareForTermination() async throws {
+        try await commitGate.acquire()
+        do {
+            terminating = true
+            try flush()
+            await commitGate.release()
+        } catch {
+            terminating = false
+            await commitGate.release()
+            throw error
+        }
+    }
+
     public func clear() throws {
+        try checkAcceptingCommits()
         records = []
+        dirty = true
         try save()
     }
 
-    public func undo(_ id: UUID) throws -> [UndoOutcome] {
+    public func undo(_ id: UUID) async throws -> [UndoOutcome] {
+        try await commitGate.acquire()
+        do {
+            try checkAcceptingCommits()
+            guard !runningBatches.contains(id) else { throw UndoFailure.batchRunning }
+            let outcomes = try undoRecordedBatch(id)
+            await commitGate.release()
+            return outcomes
+        } catch {
+            await commitGate.release()
+            throw error
+        }
+    }
+
+    private func undoRecordedBatch(_ id: UUID) throws -> [UndoOutcome] {
         guard let index = records.firstIndex(where: { $0.id == id }), !records[index].undone else { return [] }
         var outcomes: [UndoOutcome] = []
         var failed: [CommitRecord] = []
-        for item in records[index].items.reversed() {
-            let outcome = undo(item)
+        for entry in records[index].items.reversed() {
+            let outcome = committer.undo(entry)
             outcomes.append(outcome)
-            if case .failed = outcome { failed.insert(item, at: 0) }
+            if case .failed = outcome { failed.insert(entry, at: 0) }
         }
         records[index].items = failed
         records[index].undone = failed.isEmpty
+        dirty = true
         try save()
         return outcomes
-    }
-
-    private func undo(_ record: CommitRecord) -> UndoOutcome {
-        let fileManager = FileManager.default
-        do {
-            switch record {
-            case .replaced(let original, let trashed, let output, let stamp):
-                guard fileManager.fileExists(atPath: trashed) else {
-                    return .skipped(.undoTrashItemMissing, path: original)
-                }
-                guard let stamp, stamp.matches(output) else {
-                    return .skipped(.undoOutputChanged, path: output)
-                }
-                let caseOnly = try FileCommitter.isCaseOnlyChange(
-                    from: original, to: output, in: URL(fileURLWithPath: original).deletingLastPathComponent())
-                if output != original, !caseOnly, fileManager.fileExists(atPath: original) {
-                    return .skipped(.undoOriginalOccupied, path: original)
-                }
-                let trashedOutput = try committer.trash(URL(fileURLWithPath: output))
-                do {
-                    try committer.move(URL(fileURLWithPath: trashed), to: URL(fileURLWithPath: original))
-                } catch {
-                    try committer.move(trashedOutput, to: URL(fileURLWithPath: output))
-                    throw error
-                }
-            case .derived(let output, let stamp):
-                guard let stamp, stamp.matches(output) else {
-                    return .skipped(.undoOutputChanged, path: output)
-                }
-                _ = try committer.trash(URL(fileURLWithPath: output))
-            case .renamed(let from, let to, let stamp):
-                guard let stamp, stamp.matches(to)
-                else { return .skipped(.undoOutputChanged, path: to) }
-                let caseOnly = try FileCommitter.isCaseOnlyChange(
-                    from: from, to: to, in: URL(fileURLWithPath: from).deletingLastPathComponent())
-                guard caseOnly || !fileManager.fileExists(atPath: from) else {
-                    return .skipped(.undoOriginalOccupied, path: from)
-                }
-                try committer.move(URL(fileURLWithPath: to), to: URL(fileURLWithPath: from))
-            case .removed(let original, let trashed):
-                guard fileManager.fileExists(atPath: trashed) else {
-                    return .skipped(.undoTrashItemMissing, path: original)
-                }
-                guard !fileManager.fileExists(atPath: original) else {
-                    return .skipped(.undoOriginalOccupied, path: original)
-                }
-                try committer.move(URL(fileURLWithPath: trashed), to: URL(fileURLWithPath: original))
-            }
-        } catch {
-            let path = Self.path(of: record)
-            return .failed(EngineError.wrapping(error, path: path, otherwise: EngineError.commitFailed), path: path)
-        }
-        return .restored
-    }
-
-    private static func path(of record: CommitRecord) -> String {
-        switch record {
-        case .replaced(_, let trashed, _, _), .removed(_, let trashed): trashed
-        case .derived(let output, _): output
-        case .renamed(_, let to, _): to
-        }
     }
 
     private func save() throws {
