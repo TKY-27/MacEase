@@ -99,6 +99,7 @@ public final class VPXEncoder {
         }
     }
 
+    public static let worstQuality = 63
     private static let speed: Int32 = 4
     private static let log2TileColumns: Int32 = 2
     private var context = vpx_codec_ctx_t()

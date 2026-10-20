@@ -38,6 +38,8 @@ let package = Package(
         .testTarget(
             name: "FormatsTests", dependencies: ["Formats"], resources: [.copy("Resources")], swiftSettings: strict
         ),
-        .testTarget(name: "EngineTests", dependencies: ["Engine"], swiftSettings: strict),
+        .testTarget(
+            name: "EngineTests", dependencies: ["Engine"], resources: [.copy("Resources")], swiftSettings: strict
+        ),
     ]
 )

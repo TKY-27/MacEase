@@ -11,3 +11,10 @@ ffmpeg -f lavfi -i testsrc=size=96x64:rate=30000/1001 -f lavfi -i sine=frequency
 ```
 
 `sub.srt` holds two cues, "Hello" (0–1 s) and "World" (1–2 s).
+
+AV1 and Annex B H.264 in AVI:
+
+```sh
+ffmpeg -f lavfi -i testsrc=size=96x64:rate=10 -t 1 -pix_fmt yuv420p -c:v libsvtav1 -preset 12 -crf 50 -g 5 ffmpeg-av1.mkv
+ffmpeg -f lavfi -i testsrc=size=96x64:rate=10 -t 1 -c:v h264_videotoolbox -b:v 200k -g 5 ffmpeg-h264.avi
+```

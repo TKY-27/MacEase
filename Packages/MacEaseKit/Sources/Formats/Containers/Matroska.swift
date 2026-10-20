@@ -82,7 +82,7 @@ enum MatroskaValue {
 }
 
 /// Matroska CodecID strings and their codecs.
-enum MatroskaCodec {
+public enum MatroskaCodec {
     static func codec(id: String, bitDepth: Int?) -> MediaCodec {
         switch id {
         case "V_MPEG4/ISO/AVC": .h264
@@ -91,6 +91,8 @@ enum MatroskaCodec {
         case "V_VP9": .vp9
         case "V_AV1": .av1
         case "V_MJPEG": .mjpeg
+        case "V_PRORES": .prores
+        case "A_ALAC": .alac
         case "V_MPEG4/ISO/ASP", "V_MPEG4/ISO/SP", "V_MPEG4/ISO/AP": .mpeg4Part2
         case "A_OPUS": .opus
         case "A_VORBIS": .vorbis
@@ -108,7 +110,7 @@ enum MatroskaCodec {
         }
     }
 
-    static func id(for codec: MediaCodec) throws -> String {
+    public static func id(for codec: MediaCodec) throws -> String {
         switch codec {
         case .h264: "V_MPEG4/ISO/AVC"
         case .hevc: "V_MPEGH/ISO/HEVC"
@@ -117,6 +119,8 @@ enum MatroskaCodec {
         case .av1: "V_AV1"
         case .mjpeg: "V_MJPEG"
         case .mpeg4Part2: "V_MPEG4/ISO/ASP"
+        case .prores: "V_PRORES"
+        case .alac: "A_ALAC"
         case .aac: "A_AAC"
         case .opus: "A_OPUS"
         case .vorbis: "A_VORBIS"

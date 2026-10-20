@@ -198,8 +198,9 @@ public struct MatroskaMuxer: MediaMuxer {
         let segmentSize = file.position - segmentDataStart
         try file.patch(EBML.encodeSize(segmentSize, width: Self.sizeWidth), at: segmentSizeOffset)
         let milliseconds = Double(lastEnd) / Double(Self.timestampScale)
-        let bits = milliseconds.bitPattern
-        try file.patch((0..<8).map { UInt8(bits >> UInt64(56 - 8 * $0) & 0xFF) }, at: durationOffset)
+        var duration = Data()
+        duration.appendBigEndian(milliseconds.bitPattern)
+        try file.patch(duration, at: durationOffset)
         var seeks = [(MatroskaID.info, infoPosition), (MatroskaID.tracks, tracksPosition)]
         if !points.isEmpty { seeks.append((MatroskaID.cues, cuesPosition)) }
         let seekHead = EBML.element(

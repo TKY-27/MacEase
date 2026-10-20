@@ -8,7 +8,9 @@ public enum MediaCodec: Hashable, Sendable {
     case av1
     case mjpeg
     case mpeg4Part2
+    case prores
     case aac
+    case alac
     case opus
     case vorbis
     case flac
@@ -21,7 +23,7 @@ public enum MediaCodec: Hashable, Sendable {
 
     public var isVideo: Bool {
         switch self {
-        case .h264, .hevc, .vp8, .vp9, .av1, .mjpeg, .mpeg4Part2: true
+        case .h264, .hevc, .vp8, .vp9, .av1, .mjpeg, .mpeg4Part2, .prores: true
         default: false
         }
     }
@@ -35,6 +37,8 @@ public enum MediaCodec: Hashable, Sendable {
         case .av1: "AV1"
         case .mjpeg: "Motion JPEG"
         case .mpeg4Part2: "MPEG-4 Part 2"
+        case .prores: "ProRes"
+        case .alac: "ALAC"
         case .aac: "AAC"
         case .opus: "Opus"
         case .vorbis: "Vorbis"
