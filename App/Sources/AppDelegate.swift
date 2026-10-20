@@ -1,6 +1,7 @@
 import AppKit
 import Engine
 import MenuCatalog
+import SwiftUI
 import os
 
 @MainActor
@@ -20,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchFinished = false
     private var pendingURLs: [URL] = []
     private var updateTimer: Timer?
+    private var settingsWindow: SingleWindowPresenter?
+    private var onboardingWindow: SingleWindowPresenter?
+    private var menuInputs: MenuInputs?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let engine: JobEngine
@@ -41,7 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
-        statusItem = StatusItemController(jobs: jobs, updates: updates) {}
+        makeWindows(jobs: jobs)
+        statusItem = StatusItemController(jobs: jobs, updates: updates) { [weak self] in self?.settingsWindow?.show() }
+        NSApp.mainMenu = MainMenu.make { [weak self] in self?.settingsWindow?.show() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
         updates.onNewRelease = { [notifier] release in
             notifier.notify(
@@ -50,11 +56,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         Task { await finishLaunching(engine: engine, jobs: jobs) }
+        if !settings.onboardingCompleted { onboardingWindow?.show() }
+    }
+
+    private func makeWindows(jobs: JobCenter) {
+        settingsWindow = SingleWindowPresenter { [unowned self] in
+            SettingsWindow.make(
+                store: settings, notifier: notifier, jobs: jobs, supportDirectory: configuration.supportDirectory,
+                showOnboarding: { [weak self] in self?.onboardingWindow?.show() },
+                rotateToken: { [weak self] in try self?.rotateToken() }
+            )
+        }
+        onboardingWindow = SingleWindowPresenter { [unowned self] in
+            let view = OnboardingView(notifier: notifier, isFirstRun: !settings.onboardingCompleted) {
+                [weak self] in
+                self?.settings.onboardingCompleted = true
+                self?.onboardingWindow?.close()
+            }
+            let content = NSHostingController(rootView: view)
+            let window = NSWindow(contentViewController: content)
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(content.view.fittingSize)
+            window.title = String(localized: "Welcome to MacEase", comment: "Onboarding window title")
+            return window
+        }
+    }
+
+    private func rotateToken() throws {
+        try TokenStore.rotate()
+        try writeMenuFile()
     }
 
     private func finishLaunching(engine: JobEngine, jobs: JobCenter) async {
         javaAvailable = await MenuFileWriter.javaRuntimeIsInstalled()
-        writeMenuFile()
+        refreshMenuFile()
         launchFinished = true
         let queued = pendingURLs
         pendingURLs = []
@@ -80,21 +115,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         urls.forEach { router?.route($0) }
     }
 
+    /// Slider drags fire many changes per second.
     private func settingsChanged() {
-        writeMenuFile()
+        if currentMenuInputs != menuInputs { refreshMenuFile() }
         let width = settings.settings.effectiveConcurrency
         if let engine = jobs?.engine { Task { await engine.setConcurrency(width) } }
     }
 
-    private func writeMenuFile() {
+    private func refreshMenuFile() {
         do {
-            menuFile = try MenuFileWriter(configuration: configuration).write(
-                hiddenOperations: settings.hiddenOperations,
-                aiEnabled: settings.settings.intelligence.aiEnabled,
-                javaAvailable: javaAvailable
-            )
+            try writeMenuFile()
         } catch {
             logger.error("Menu file write failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func writeMenuFile() throws {
+        let inputs = currentMenuInputs
+        menuFile = try MenuFileWriter(configuration: configuration).write(
+            hiddenOperations: inputs.hiddenOperations,
+            aiEnabled: inputs.aiEnabled,
+            javaAvailable: javaAvailable
+        )
+        menuInputs = inputs
+    }
+
+    private var currentMenuInputs: MenuInputs {
+        MenuInputs(hiddenOperations: settings.hiddenOperations, aiEnabled: settings.settings.intelligence.aiEnabled)
+    }
+
+    private struct MenuInputs: Equatable {
+        let hiddenOperations: Set<OperationID>
+        let aiEnabled: Bool
     }
 }
