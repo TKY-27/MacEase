@@ -50,6 +50,8 @@ enum UserMessages {
             String(localized: "“\(file)” is already smaller than the requested size.")
         case .nothingToRemove:
             String(localized: "“\(file)” had nothing to remove.")
+        case .noTextFound:
+            String(localized: "No text was found in “\(file)”.")
         case .noTrashAvailable:
             String(localized: "“\(file)” is on a volume without a Trash.")
         case .undoTrashItemMissing:
