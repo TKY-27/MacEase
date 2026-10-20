@@ -380,7 +380,7 @@ in the host's `UserDefaults`, except presets (section 9).
 
 | Tab | Settings |
 | --- | --- |
-| General | Language (System, English, Japanese; changing relaunches the host), launch at login (`SMAppService.mainApp`), notifications, menu item visibility per operation, permanent delete opt-in |
+| General | Language (System, English, Japanese; changing asks, then relaunches the host), launch at login (`SMAppService.mainApp`), notifications, menu item visibility per operation, permanent delete opt-in |
 | Images | Default quality per format (JPEG, HEIC, WebP, AVIF, JXL), PNG compression (lossless optimize on convert), GIF dithering, metadata fields to strip (EXIF, GPS, maker notes, comments, XMP, IPTC), keep GPS on platform presets, color key default and tolerance, background colors |
 | Video | Codec for re-encode (Auto, H.264, HEVC), quality mode (speed or quality), allow downscale and fps reduction in target-size compression, trim mode default (keyframe or exact), rotation fill color, GIF defaults, background output format default |
 | Audio | Default bitrate per format, MP3 mode (CBR or VBR), loudness target (−14, −16, −23 LUFS), extract audio default format |
@@ -412,7 +412,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 | `image.flip` | Horizontal, Vertical | Replace | Pixel flip, orientation reset to 1 |
 | `image.trimBorders` | — | Replace | Removes uniform borders matching the corner color within tolerance |
 | `image.background` | Remove, Green back, Blue back, Custom color, Blur, Color key | Replace | Subject mask from Vision `GenerateForegroundInstanceMaskRequest` (all instances), person mask option, or color key with tolerance; mask edges feathered 1 px; Remove outputs alpha and converts to PNG when the source format has no alpha (JPEG, BMP) |
-| `image.stripMetadata` | All, GPS only, Settings selection | Replace | Pixels untouched where the format allows lossless metadata rewrite (JPEG, PNG, HEIC via `CGImageDestinationCopyImageSource`) |
+| `image.stripMetadata` | All, GPS only, Settings selection | Replace | Pixels untouched for JPEG (`CGImageDestinationCopyImageSource`), PNG and TIFF (stored pixels with new metadata); HEIC re-encodes at the settings quality because macOS keeps its metadata otherwise (ADR 0010) |
 | `image.ocr` | Copy text, Save as .txt, Show | Clipboard, Derived, Report | Vision `RecognizeTextRequest` accurate, language correction on, languages from settings with automatic detection |
 | `image.toPDF` | — | Derived | One PDF from all selected images in Finder order; Page order panel when more than one image |
 | `image.iconSet` | macOS icon (.icns), iOS AppIcon set, Windows icon (.ico) | Derived | Non-square inputs are padded to square with transparency; AppIcon set writes `Contents.json` and the sizes Xcode 26 expects |
@@ -455,7 +455,7 @@ a message naming the codec.
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `audio.convert` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Replace | Bitrates from settings; tags (title, artist, album, artwork) copied where the target supports them |
-| `audio.compress` | 64, 96, 128, 192 kbps | Replace | Re-encodes in the same lossy format, or AAC in M4A for lossless sources |
+| `audio.compress` | 64, 96, 128, 192 kbps | Replace | Re-encodes in the same lossy format, or AAC in M4A for lossless sources and for MP3 below 128 kbps (ADR 0010) |
 | `audio.normalize` | −14 LUFS, −16 LUFS, −23 LUFS | Replace | ITU-R BS.1770-4 integrated loudness; gain only, capped so the 4× oversampled true peak stays at or below −1 dBTP; the notification reports when the cap stopped short of the target |
 | `audio.trim` | — (panel) | Replace | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy |
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
@@ -478,7 +478,7 @@ Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not 
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `archive.extract` | — | Derived | ZIP, 7z, TAR, gz, bz2, xz, tar.gz, RAR (read only) through libarchive into a new folder named after the archive (or into the parent when the archive has a single top-level folder); extraction flags `SECURE_NODOTDOT`, `SECURE_SYMLINKS`, `SECURE_NOABSOLUTEPATHS`; encrypted entries open the Password panel |
+| `archive.extract` | — | Derived | ZIP, 7z, TAR, gz, bz2, xz, tar.gz, RAR (read only) through libarchive into a new folder named after the archive (or into the parent when the archive has a single top-level folder); extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
 
 ### 8.6 PDFs
 
@@ -532,15 +532,18 @@ Quick Look already previews PDFs on macOS, so there is no preview operation.
   3. Re-encode video at the bitrate `(target × 8 / duration) − audio bitrate − 2% container overhead`.
   4. If the result misses, correct the bitrate by the ratio of target to actual
      size and encode once more.
-  5. If the required video bitrate falls below 0.04 bits per pixel per frame and
-     downscale is allowed, step resolution down (2160p, 1440p, 1080p, 720p, 480p)
-     and fps to at most 30, then plan again.
+     The correction aims at 96% of the target.
+  5. If the required video bitrate falls below 0.04 bits per pixel per frame, or
+     the corrected encode still misses, and downscale is allowed, step
+     resolution down (2160p, 1440p, 1080p, 720p, 480p) and fps to at most 30,
+     then plan again (ADR 0010).
 - **Audio.** Choose the bitrate from target and duration among the format's
   supported bitrates.
 - An item that cannot reach the target fails with the smallest achievable size
   in the message, and the original is kept.
 - Accepted output: at most the target and at least 92% of the target on the
-  fixtures, except when step 1 or 2 already lands below.
+  fixtures, except when step 1 or 2 already lands below, and for AVIF and HEIC,
+  whose quality steps are coarser than that band (ADR 0010).
 
 ### 8.11 Video background removal
 
@@ -576,7 +579,7 @@ Defaults (checked October 2026; values change, so they are editable):
 | `discord` | 20,000,000 B | 20,000,000 B | 20,000,000 B, MP4 H.264 + AAC |
 | `x` | 5,000,000 B, JPEG/PNG/WebP | 15,000,000 B, ≤ 1280×1080, ≤ 350 frames | 512,000,000 B, ≤ 1920×1080, MP4 H.264 + AAC |
 | `instagram` | 8,000,000 B, JPEG, width ≤ 1440, aspect 4:5 to 1.91:1 (crop) | — | Reels: 9:16 1080×1920 (crop default, letterbox option), MP4 H.264 + AAC |
-| `line` | — | — | ≤ 300 s (longer inputs open the Trim panel prefilled at 0–300 s), ≤ 1920×1080, MP4 H.264 + AAC |
+| `line` | — | — | ≤ 300 s (longer inputs fail with a message pointing to Trim, ADR 0010), ≤ 1920×1080, MP4 H.264 + AAC |
 | `email` | 18,000,000 B (25 MB attachment limit minus Base64 overhead) | 18,000,000 B | 18,000,000 B, MP4 H.264 + AAC |
 | `web` | WebP, long edge ≤ 1920, quality 80 | — | — |
 
@@ -588,11 +591,12 @@ availability changes.
 
 **Custom (natural language)** (`image.aiCustom`, `video.aiCustom`, `audio.aiCustom`). The user
 writes a request such as "WebP under 1 MB, long edge 1600". A
-`LanguageModelSession` with guided generation (`@Generable` operation plan:
-operation ID, preset or explicit parameters) turns it into a plan restricted to
-the operations of the selected kind. The Custom panel shows the plan in plain
-words; nothing runs until the user presses Run. Plans that reference unknown
-operations or invalid parameters are rejected with the reason.
+`LanguageModelSession` with guided generation (`@Generable` plan of one to
+three steps, each an operation ID and one of its menu presets) turns it into a
+plan restricted to the operations of the selected kind (ADR 0010). The Custom
+panel shows the plan in plain words; nothing runs until the user presses Run.
+Plans that reference unknown operations or presets are rejected with the
+reason.
 
 **AI rename** (`image.aiRename`, `pdf.aiRename`, `folder.aiRename` for a folder's direct image and PDF children):
 
@@ -753,3 +757,8 @@ check.
   lossy PNG palettes, ordered dithering as the GIF default, LZW with deferred
   clears and dictionary-aware dithering.
 - 2026-10-20: MP3 encoder design and table provenance recorded (ADR 0009).
+- 2026-10-21: Platform-driven adjustments recorded (ADR 0010): video target
+  size steps down after a persistent miss, LINE over 300 s points to Trim,
+  archive path checks replace `SECURE_NOABSOLUTEPATHS`, HEIC metadata strip
+  re-encodes, MP3 below 128 kbps compresses to AAC, AI plans use menu presets,
+  and the language switch asks first.
