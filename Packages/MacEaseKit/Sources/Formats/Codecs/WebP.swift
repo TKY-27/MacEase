@@ -44,6 +44,13 @@ public enum WebPEncoder {
     static func withPicture(_ pixels: PixelBuffer, _ body: (UnsafeMutablePointer<WebPPicture>) throws -> Void)
         throws
     {
+        guard pixels.width > 0, pixels.height > 0,
+            Int32(exactly: pixels.width) != nil, Int32(exactly: pixels.height) != nil,
+            pixels.width <= Int(Int32.max) / 4
+        else {
+            throw FormatError.corrupt(
+                String(localized: "WebP dimensions out of range", comment: "Invalid image metadata"))
+        }
         let picture = UnsafeMutablePointer<WebPPicture>.allocate(capacity: 1)
         defer { picture.deallocate() }
         guard WebPPictureInit(picture) != 0 else { throw FormatError.encoderFailure("WebP version mismatch") }
@@ -320,7 +327,11 @@ public final class WebPAnimationEncoder {
         // Transparent canvas; the default is opaque white.
         options.anim_params.bgcolor = 0
         options.allow_mixed = config.lossless == 0 ? 1 : 0
-        guard width > 0, height > 0, let encoder = WebPAnimEncoderNew(Int32(width), Int32(height), &options) else {
+        guard width > 0, height > 0, Int32(exactly: width) != nil, Int32(exactly: height) != nil else {
+            throw FormatError.corrupt(
+                String(localized: "WebP dimensions out of range", comment: "Invalid image metadata"))
+        }
+        guard let encoder = WebPAnimEncoderNew(Int32(width), Int32(height), &options) else {
             throw FormatError.encoderFailure("WebP animation encoder")
         }
         self.width = width

@@ -9,14 +9,25 @@ public enum ICOFile {
     private static let entrySize = 16
 
     public static func write(_ images: [(size: Int, png: Data)]) throws -> Data {
-        guard !images.isEmpty, images.allSatisfy({ (1...256).contains($0.size) }) else {
+        guard !images.isEmpty, images.count <= Int(UInt16.max),
+            images.allSatisfy({ (1...256).contains($0.size) })
+        else {
             throw FormatError.encoderFailure("ICO entries must be 1 to 256 px")
+        }
+        let directoryBytes = directorySize + entrySize * images.count
+        var imageBytes = 0
+        for image in images {
+            guard image.png.count <= Int(UInt32.max) - directoryBytes - imageBytes else {
+                throw FormatError.corrupt(
+                    String(localized: "ICO output too large", comment: "Unrepresentable icon file"))
+            }
+            imageBytes += image.png.count
         }
         var output = Data()
         output.appendLittleEndian(UInt16(0))
         output.appendLittleEndian(UInt16(1))
         output.appendLittleEndian(UInt16(images.count))
-        var offset = directorySize + entrySize * images.count
+        var offset = directoryBytes
         for image in images {
             let edge = UInt8(image.size == 256 ? 0 : image.size)
             output.append(contentsOf: [edge, edge, 0, 0])

@@ -192,6 +192,12 @@ public final class MP3Encoder {
             try processGranule(output: &output)
         }
         output.append(assembler.drain())
+        if case .variable = options.mode {
+            guard UInt32(exactly: frameStarts.count) != nil, UInt32(exactly: streamBytes) != nil else {
+                throw FormatError.corrupt(
+                    String(localized: "MP3 stream too large", comment: "Unrepresentable Xing metadata"))
+            }
+        }
         let xing: Data? = if case .variable = options.mode { xingFrame() } else { nil }
         return Finish(trailingBytes: output, xingFrame: xing)
     }

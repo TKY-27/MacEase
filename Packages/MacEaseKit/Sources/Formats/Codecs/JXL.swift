@@ -10,6 +10,12 @@ public enum JXLEncoder {
     private static let effort: Int64 = 7
 
     public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
+        guard UInt32(exactly: pixels.width) != nil, UInt32(exactly: pixels.height) != nil,
+            pixels.width > 0, pixels.height > 0
+        else {
+            throw FormatError.corrupt(
+                String(localized: "JXL dimensions out of range", comment: "Invalid image metadata"))
+        }
         guard let encoder = JxlEncoderCreate(nil) else { throw FormatError.encoderFailure("JXL encoder allocation") }
         defer { JxlEncoderDestroy(encoder) }
         let runner = JxlThreadParallelRunnerCreate(nil, JxlThreadParallelRunnerDefaultNumWorkerThreads())

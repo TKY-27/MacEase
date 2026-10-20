@@ -12,6 +12,7 @@ public enum ICNSFile {
 
     /// Larger embedded images are refused, not decoded.
     static let maximumEdge = 1024
+    private static let headerSize = 8
 
     private static let legacyRLE: [String: (size: Int, mask: String)] = [
         "is32": (16, "s8mk"), "il32": (32, "l8mk"), "ih32": (48, "h8mk"), "it32": (128, "t8mk"),
@@ -23,6 +24,10 @@ public enum ICNSFile {
         for element in pngElements {
             guard let png = pngBySize[element.size] else {
                 throw FormatError.encoderFailure("missing \(element.size) px")
+            }
+            guard png.count <= Int(UInt32.max) - 2 * headerSize - body.count else {
+                throw FormatError.corrupt(
+                    String(localized: "ICNS output too large", comment: "Unrepresentable icon file"))
             }
             body.append(Data(element.type.utf8))
             body.appendBigEndian(UInt32(png.count + 8))

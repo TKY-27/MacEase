@@ -29,6 +29,10 @@ public enum VideoFormat {
         guard case .video(let width, let height) = track.kind, var codecType = codecType(track.codec) else {
             throw FormatError.unsupported(track.codec.displayName)
         }
+        guard width > 0, height > 0, Int32(exactly: width) != nil, Int32(exactly: height) != nil else {
+            throw FormatError.corrupt(
+                String(localized: "Video dimensions out of range", comment: "Invalid video metadata"))
+        }
         if track.codec == .prores, let fourCC = track.codecPrivate, fourCC.count == 4 {
             codecType = fourCC.reduce(0) { $0 << 8 | CMVideoCodecType($1) }
         }
@@ -79,11 +83,14 @@ public enum VideoFormat {
     }
 
     /// Start-code NAL units to 4-byte length prefixes.
-    public static func lengthPrefixed(annexB payload: Data) -> Data {
+    public static func lengthPrefixed(annexB payload: Data) throws -> Data {
         var output = Data()
-        output.reserveCapacity(payload.count + 16)
         for unit in nalUnits(annexB: payload) {
-            output.appendBigEndian(UInt32(unit.count))
+            guard let length = UInt32(exactly: unit.count) else {
+                throw FormatError.corrupt(
+                    String(localized: "Video packet too large", comment: "Invalid video packet"))
+            }
+            output.appendBigEndian(length)
             output.append(contentsOf: unit)
         }
         return output

@@ -136,6 +136,9 @@ public struct AVIDemuxer: MediaDemuxer {
             let sampleRate = Double(UInt32(littleEndian: format, at: 4))
             info.bytesPerSecond = Int64(UInt32(littleEndian: format, at: 8))
             let bits = Int(UInt16(littleEndian: format, at: 14))
+            let isPCM = tag == 0x0001 || tag == 0x0003
+            try AudioMetadata.validate(
+                sampleRate: sampleRate, channels: channels, bitDepth: bits == 0 && !isPCM ? nil : bits)
             var track = MediaTrack(
                 number: number, kind: .audio(sampleRate: sampleRate, channels: channels),
                 codec: Self.audioCodec(tag, bits: bits)

@@ -5,6 +5,7 @@ public struct AVIMuxer: MediaMuxer {
     /// Non-OpenDML readers stop after one RIFF.
     private static let riffLimit: Int64 = 1 << 30
     private static let superIndexCapacity = 256
+    private static let maximumStreams = 100
     private static let superIndexHeader = 24
     private static let standardIndexHeader = 24
     private static let suggestedBuffer: UInt32 = 1 << 20
@@ -43,6 +44,10 @@ public struct AVIMuxer: MediaMuxer {
     private var finished = false
 
     public init(url: URL, tracks: [MediaTrack]) throws {
+        guard tracks.count <= Self.maximumStreams else {
+            throw FormatError.corrupt(
+                String(localized: "AVI stream count out of range", comment: "Invalid AVI metadata"))
+        }
         streams = try tracks.enumerated().map { index, track in try Self.stream(index, track) }
         guard streams.filter({ $0.track.isVideo }).count <= 1 else {
             throw FormatError.unsupported("more than one video stream in AVI")
@@ -53,9 +58,18 @@ public struct AVIMuxer: MediaMuxer {
 
     private static func stream(_ index: Int, _ track: MediaTrack) throws -> Stream {
         switch (track.kind, track.codec) {
-        case (.video, .mjpeg):
+        case (.video(let width, let height), .mjpeg):
             guard let frameDuration = track.defaultDuration, frameDuration > 0 else {
                 throw FormatError.unsupported("AVI video without a frame rate")
+            }
+            let divisor = gcd(frameDuration, Nanoseconds.perSecond)
+            guard (1...Int(UInt16.max)).contains(width), (1...Int(UInt16.max)).contains(height),
+                width <= Int(UInt32.max) / (height * 3),
+                frameDuration / 1_000 <= Int64(UInt32.max),
+                frameDuration / divisor <= Int64(UInt32.max)
+            else {
+                throw FormatError.corrupt(
+                    String(localized: "AVI video metadata out of range", comment: "Invalid AVI metadata"))
             }
             return Stream(
                 track: track, chunkID: AVI.chunkID(stream: index, suffix: "dc"), frameDuration: frameDuration,
@@ -63,9 +77,21 @@ public struct AVIMuxer: MediaMuxer {
             )
         case (.audio(_, let channels), .pcm(let bits, let float, false))
         where channels > 0 && bits > 0 && bits % 8 == 0 && (!float || bits == 32):
+            guard case .audio(let sampleRate, _) = track.kind else {
+                throw FormatError.corrupt(
+                    String(localized: "AVI audio metadata out of range", comment: "Invalid AVI metadata"))
+            }
+            try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bits)
+            let blockAlign = channels * bits / 8
+            guard blockAlign <= Int(UInt16.max),
+                sampleRate * Double(blockAlign) <= Double(UInt32.max)
+            else {
+                throw FormatError.corrupt(
+                    String(localized: "AVI audio metadata out of range", comment: "Invalid AVI metadata"))
+            }
             return Stream(
                 track: track, chunkID: AVI.chunkID(stream: index, suffix: "wb"), frameDuration: 0,
-                blockAlign: channels * bits / 8
+                blockAlign: blockAlign
             )
         default:
             throw FormatError.unsupported("\(track.codec.displayName) in AVI")
@@ -237,8 +263,13 @@ public struct AVIMuxer: MediaMuxer {
         let start = max(packet.timestamp, 0)
         if streams[index].track.isVideo {
             let frameDuration = streams[index].frameDuration
-            let frame = (start + frameDuration / 2) / frameDuration
-            guard frame >= streams[index].units else {
+            let (roundedStart, overflow) = start.addingReportingOverflow(frameDuration / 2)
+            guard !overflow else {
+                throw FormatError.corrupt(
+                    String(localized: "AVI timestamp out of range", comment: "Invalid AVI timestamp"))
+            }
+            let frame = roundedStart / frameDuration
+            guard frame >= streams[index].units, frame <= Int64(UInt32.max) - 1 else {
                 throw FormatError.encoderFailure("video frames closer than the AVI frame rate")
             }
             while streams[index].units < frame { try writeChunk(Data(), stream: index, keyframe: false, units: 1) }

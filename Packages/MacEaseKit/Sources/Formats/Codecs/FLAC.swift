@@ -10,6 +10,8 @@ enum FLACBlock {
     static let picture: UInt8 = 6
     static let lastFlag: UInt8 = 0x80
     static let maximumLength = (1 << 24) - 1
+    private static let streamInfoLength = 34
+    private static let packedAudioOffset = 10
 
     struct Block {
         var type: UInt8
@@ -42,6 +44,19 @@ enum FLACBlock {
             let length = try cursor.take(3).reduce(0) { $0 << 8 | Int($1) }
             let body = try handle.read(upToCount: length) ?? Data()
             guard body.count == length else { throw FormatError.corrupt("truncated FLAC metadata") }
+            if flags & ~lastFlag == streamInfo {
+                guard body.count == streamInfoLength else { throw FormatError.corrupt("truncated FLAC metadata") }
+                let sampleRate =
+                    Int(body[packedAudioOffset]) << 12 | Int(body[packedAudioOffset + 1]) << 4
+                    | Int(body[packedAudioOffset + 2] >> 4)
+                let channels = Int(body[packedAudioOffset + 2] >> 1 & 0x07) + 1
+                let bitDepth = Int(body[packedAudioOffset + 2] & 0x01) << 4 | Int(body[packedAudioOffset + 3] >> 4)
+                try AudioMetadata.validate(sampleRate: Double(sampleRate), channels: channels, bitDepth: bitDepth + 1)
+                guard (4...32).contains(bitDepth + 1) else {
+                    throw FormatError.corrupt(
+                        String(localized: "Audio bit depth out of range", comment: "Rejects unsafe audio metadata"))
+                }
+            }
             blocks.append(Block(type: flags & ~lastFlag, body: body))
             last = flags & lastFlag != 0
             offset += UInt64(4 + length)
@@ -85,6 +100,10 @@ public final class FLACFileWriter {
 
     /// Integer PCM of 16 or 24 bits.
     public init(url: URL, sampleRate: Int, channels: Int, bitsPerSample: Int, tags: AudioTags) throws {
+        try AudioMetadata.validate(sampleRate: Double(sampleRate), channels: channels, bitDepth: bitsPerSample)
+        guard bitsPerSample == 16 || bitsPerSample == 24 else {
+            throw FormatError.unsupported("FLAC at \(sampleRate) Hz, \(channels) channels, \(bitsPerSample) bits")
+        }
         guard let encoder = FLAC__stream_encoder_new() else { throw FormatError.encoderFailure("FLAC encoder") }
         self.encoder = encoder
         self.url = url
@@ -109,10 +128,14 @@ public final class FLACFileWriter {
     }
 
     public func write(_ interleaved: [Float]) throws {
+        guard let frames = UInt32(exactly: interleaved.count / channels) else {
+            throw FormatError.encoderFailure(
+                String(localized: "Audio frame count out of range", comment: "Rejects oversized audio buffer"))
+        }
         let integers = interleaved.map { sample in
             sample.isFinite ? Int32(max(min((sample * scale).rounded(), Float(maximum)), -Float(maximum) - 1)) : 0
         }
-        guard FLAC__stream_encoder_process_interleaved(encoder, integers, UInt32(integers.count / channels)) != 0
+        guard FLAC__stream_encoder_process_interleaved(encoder, integers, frames) != 0
         else { throw FormatError.encoderFailure(stateDescription) }
     }
 

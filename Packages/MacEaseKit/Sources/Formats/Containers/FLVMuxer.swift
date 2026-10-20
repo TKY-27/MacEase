@@ -4,6 +4,7 @@ import Foundation
 public struct FLVMuxer: MediaMuxer {
     private static let aacFlags: UInt8 = 0xAF
     private static let maximumTimestamp = Int64(UInt32.max)
+    private static let maximumCompositionTime: Int64 = (1 << 23) - 1
 
     private let file: PatchableFile
     private let video: MediaTrack?
@@ -88,13 +89,26 @@ public struct FLVMuxer: MediaMuxer {
     public mutating func write(_ packet: MediaPacket) throws {
         guard !finished else { throw FormatError.encoderFailure("FLV already finished") }
         let decodeTime = packet.decodeTimestamp ?? packet.timestamp
-        guard decodeTime >= 0, Self.milliseconds(packet.timestamp) <= Self.maximumTimestamp else {
+        let maximumNanoseconds = Self.maximumTimestamp * Nanoseconds.perMillisecond
+        guard packet.timestamp >= 0, decodeTime >= 0,
+            packet.timestamp <= maximumNanoseconds, decodeTime <= maximumNanoseconds
+        else {
             throw FormatError.encoderFailure("FLV timestamps must be between 0 and 49 days")
+        }
+        let (packetEnd, overflow) = packet.timestamp.addingReportingOverflow(packet.duration ?? 0)
+        guard !overflow else {
+            throw FormatError.corrupt(
+                String(localized: "FLV packet duration out of range", comment: "Invalid FLV timestamp"))
         }
         let time = Self.milliseconds(decodeTime)
         switch packet.track {
         case video?.number:
             let offset = Self.milliseconds(packet.timestamp) - time
+            guard (-Self.maximumCompositionTime - 1...Self.maximumCompositionTime).contains(offset) else {
+                throw FormatError.corrupt(
+                    String(localized: "FLV composition time out of range", comment: "Preserves signed composition time")
+                )
+            }
             let frameType = packet.isKeyframe ? FLV.keyFrame : FLV.interFrame
             var body = Data([frameType << 4 | FLV.avcCodecID, FLV.codedFrames])
             body += [
@@ -108,7 +122,7 @@ public struct FLVMuxer: MediaMuxer {
         default:
             throw FormatError.encoderFailure("packet for unknown track \(packet.track)")
         }
-        end = max(end, packet.timestamp + (packet.duration ?? 0))
+        end = max(end, packetEnd)
     }
 
     public mutating func finish() throws {

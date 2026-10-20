@@ -71,6 +71,15 @@ public final class VPXEncoder {
     private var image = vpx_image_t()
 
     public init(settings: Settings) throws {
+        guard settings.width > 0, settings.height > 0,
+            Int32(exactly: settings.width) != nil, Int32(exactly: settings.height) != nil,
+            settings.framesPerSecond > 0, Int32(exactly: settings.framesPerSecond) != nil,
+            (0...Int(UInt32.max)).contains(settings.keyframeInterval),
+            (0...Self.worstQuality).contains(settings.constantQuality),
+            settings.kilobitsPerSecond.map({ (1...Int(UInt32.max)).contains($0) }) ?? true
+        else {
+            throw FormatError.corrupt(String(localized: "VPX settings out of range", comment: "Invalid video metadata"))
+        }
         self.settings = settings
         let vp9: Int32 = settings.codec == .vp9 ? 1 : 0
         var config = vpx_codec_enc_cfg_t()
@@ -180,6 +189,9 @@ public final class VPXDecoder {
     }
 
     public func decode(_ payload: Data) throws -> [YUVFrame] {
+        guard payload.count <= Int(UInt32.max) else {
+            throw FormatError.corrupt(String(localized: "VPX packet too large", comment: "Invalid video packet"))
+        }
         try payload.withUnsafeBytes { bytes in
             try VPXEncoder.check(
                 vpx_codec_decode(&context, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count), nil, 0)

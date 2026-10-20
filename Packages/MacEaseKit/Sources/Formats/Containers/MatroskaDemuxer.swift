@@ -148,6 +148,8 @@ public struct MatroskaDemuxer: MediaDemuxer {
             guard type == MatroskaValue.videoTrack || type == MatroskaValue.audioTrack else { continue }
             if type == MatroskaValue.videoTrack {
                 _ = try VideoDecoders.checkedFrameBytes(width: width, height: height)
+            } else {
+                try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
             }
             if let defaultDuration, defaultDuration > Self.maximumFrameDuration {
                 throw FormatError.corrupt("DefaultDuration out of range")

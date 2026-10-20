@@ -13,6 +13,7 @@ public enum AudioTrackFormat {
         guard case .audio(let sampleRate, let channels) = track.kind else {
             throw FormatError.unsupported("not an audio track")
         }
+        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
         var cookie: Data?
         let format: (id: AudioFormatID, frames: UInt32)
         switch track.codec {

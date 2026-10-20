@@ -27,6 +27,7 @@ public final class LoudnessMeter {
     private var truePeakLinear = 0.0
 
     public init(sampleRate: Double, channels: Int) throws {
+        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
         guard
             let setup = vDSP_biquad_CreateSetupD(
                 Self.kWeighting(sampleRate: sampleRate), vDSP_Length(Self.biquadSections))

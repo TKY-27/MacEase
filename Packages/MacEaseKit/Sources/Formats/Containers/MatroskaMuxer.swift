@@ -29,6 +29,23 @@ public struct MatroskaMuxer: MediaMuxer {
         guard tracks.allSatisfy({ $0.number > 0 }), Set(tracks.map(\.number)).count == tracks.count else {
             throw FormatError.encoderFailure("Matroska track numbers must be unique and positive")
         }
+        for track in tracks {
+            switch track.kind {
+            case .video(let width, let height):
+                guard width >= 0, height >= 0 else {
+                    throw FormatError.corrupt(
+                        String(localized: "Matroska video dimensions out of range", comment: "Invalid track metadata"))
+                }
+            case .audio(let sampleRate, let channels):
+                let bitDepth: Int?
+                if case .pcm(let bits, _, _) = track.codec { bitDepth = bits } else { bitDepth = nil }
+                try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
+            }
+            guard track.defaultDuration.map({ $0 >= 0 }) ?? true else {
+                throw FormatError.corrupt(
+                    String(localized: "Matroska duration out of range", comment: "Invalid track metadata"))
+            }
+        }
         if webm {
             for track in tracks where !MatroskaCodec.webmCodecs.contains(try MatroskaCodec.id(for: track.codec)) {
                 throw FormatError.unsupported("\(track.codec.displayName) in WebM")
@@ -140,8 +157,13 @@ public struct MatroskaMuxer: MediaMuxer {
             let full = span >= Self.maximumRelative || pendingBytes >= Self.clusterBytes
             if full || (startsGroup && span >= Self.clusterSpan) { try flushCluster() }
         }
+        let (newPendingBytes, byteOverflow) = pendingBytes.addingReportingOverflow(packet.payload.count)
+        guard !byteOverflow else {
+            throw FormatError.corrupt(
+                String(localized: "Matroska cluster too large", comment: "Invalid packet payload"))
+        }
         pending.append(packet)
-        pendingBytes += packet.payload.count
+        pendingBytes = newPendingBytes
         lastEnd = max(lastEnd, end)
     }
 
@@ -158,7 +180,8 @@ public struct MatroskaMuxer: MediaMuxer {
         let base = max(Self.ticks(first.timestamp), 0)
         var body = EBML.element(MatroskaID.clusterTimestamp, unsigned: UInt64(base))
         for packet in pending {
-            guard let relative = Int16(exactly: Self.ticks(packet.timestamp) - base) else {
+            let (relativeTicks, overflow) = Self.ticks(packet.timestamp).subtractingReportingOverflow(base)
+            guard !overflow, let relative = Int16(exactly: relativeTicks) else {
                 throw FormatError.encoderFailure("packet outside its cluster's time range")
             }
             var block = EBML.encodeSize(Int64(packet.track))

@@ -120,7 +120,7 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
 
     func decode(_ packet: MediaPacket) throws -> [DecodedFrame] {
         let (session, format) = try prepare(with: packet)
-        let payload = annexB ? VideoFormat.lengthPrefixed(annexB: packet.payload) : packet.payload
+        let payload = try annexB ? VideoFormat.lengthPrefixed(annexB: packet.payload) : packet.payload
         let sample = try SampleBuffers.make(payload, packet: packet, format: format)
         let status = VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: sample, flags: [], infoFlagsOut: nil
@@ -191,6 +191,9 @@ public enum SampleBuffers {
     public static func make(_ payload: Data, packet: MediaPacket, format: CMFormatDescription) throws
         -> CMSampleBuffer
     {
+        guard payload.count <= Int(UInt32.max) else {
+            throw FormatError.corrupt(String(localized: "Media packet too large", comment: "Invalid sample payload"))
+        }
         var block: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: nil, memoryBlock: nil, blockLength: payload.count, blockAllocator: nil,

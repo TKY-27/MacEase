@@ -58,7 +58,14 @@ public protocol VideoFrameEncoder {
 
 public enum VideoEncoders {
     public static func make(_ settings: VideoEncoding, track number: Int) throws -> any VideoFrameEncoder {
-        switch settings.codec {
+        guard settings.width > 0, settings.height > 0,
+            Int32(exactly: settings.width) != nil, Int32(exactly: settings.height) != nil,
+            settings.frameDuration > 0
+        else {
+            throw FormatError.corrupt(
+                String(localized: "Video encoding settings out of range", comment: "Invalid video metadata"))
+        }
+        return switch settings.codec {
         case .h264, .hevc, .prores4444: try ToolboxFrameEncoder(settings, number: number)
         case .vp9: try LibVPXFrameEncoder(settings, number: number)
         case .mjpeg: JPEGFrameEncoder(settings, number: number)

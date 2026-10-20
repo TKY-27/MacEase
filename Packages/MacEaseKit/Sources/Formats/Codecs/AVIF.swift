@@ -9,6 +9,12 @@ public enum AVIFEncoder {
     static let bitDepth: UInt32 = 8
 
     public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
+        guard UInt32(exactly: pixels.width) != nil, UInt32(exactly: pixels.height) != nil,
+            pixels.width > 0, pixels.height > 0, pixels.width <= Int(UInt32.max) / 4
+        else {
+            throw FormatError.corrupt(
+                String(localized: "AVIF dimensions out of range", comment: "Invalid image metadata"))
+        }
         guard
             let image = avifImageCreate(UInt32(pixels.width), UInt32(pixels.height), bitDepth, AVIF_PIXEL_FORMAT_YUV420)
         else { throw FormatError.encoderFailure("AVIF image allocation") }

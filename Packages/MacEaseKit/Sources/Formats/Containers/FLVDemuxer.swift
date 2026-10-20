@@ -94,6 +94,9 @@ public struct FLVDemuxer: MediaDemuxer {
             track.kind = .audio(sampleRate: format.sampleRate, channels: format.channels)
             track.codecPrivate = Data(config)
         }
+        if case .audio(let sampleRate, let channels) = track.kind {
+            try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
+        }
         return track
     }
 

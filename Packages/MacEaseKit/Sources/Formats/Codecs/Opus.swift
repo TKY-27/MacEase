@@ -18,6 +18,7 @@ public final class OpusAudioEncoder {
 
     public init(channels: Int, bitrate: Int) throws {
         guard (1...2).contains(channels) else { throw FormatError.unsupported("Opus with \(channels) channels") }
+        guard let bitrate = Int32(exactly: bitrate) else { throw FormatError.encoderFailure("Opus settings rejected") }
         var status: Int32 = 0
         guard
             let encoder = opus_encoder_create(Int32(Self.sampleRate), Int32(channels), OPUS_APPLICATION_AUDIO, &status),
@@ -25,7 +26,7 @@ public final class OpusAudioEncoder {
         else { throw FormatError.encoderFailure("opus_encoder_create \(status)") }
         self.encoder = encoder
         self.channels = channels
-        guard macease_opus_set_bitrate(encoder, Int32(bitrate)) == OPUS_OK,
+        guard macease_opus_set_bitrate(encoder, bitrate) == OPUS_OK,
             macease_opus_set_complexity(encoder, Self.maximumComplexity) == OPUS_OK
         else {
             opus_encoder_destroy(encoder)
@@ -97,6 +98,11 @@ public final class OpusAudioDecoder {
     public let channels: Int
 
     public init(channels: Int) throws {
+        try AudioMetadata.validate(sampleRate: Double(OpusAudioEncoder.sampleRate), channels: channels)
+        guard channels <= 2 else {
+            throw FormatError.corrupt(
+                String(localized: "Audio channel count out of range", comment: "Rejects unsafe audio metadata"))
+        }
         var status: Int32 = 0
         guard let decoder = opus_decoder_create(Int32(OpusAudioEncoder.sampleRate), Int32(channels), &status),
             status == OPUS_OK
@@ -111,10 +117,14 @@ public final class OpusAudioDecoder {
 
     /// Interleaved 48 kHz samples.
     public func decode(_ packet: Data) throws -> [Float] {
+        guard let packetBytes = Int32(exactly: packet.count) else {
+            throw FormatError.corrupt(
+                String(localized: "Audio packet size out of range", comment: "Rejects oversized audio packet"))
+        }
         var output = [Float](repeating: 0, count: Self.maximumFrame * channels)
         let decoded = packet.withUnsafeBytes { bytes in
             opus_decode_float(
-                decoder, bytes.bindMemory(to: UInt8.self).baseAddress, Int32(bytes.count), &output,
+                decoder, bytes.bindMemory(to: UInt8.self).baseAddress, packetBytes, &output,
                 Int32(Self.maximumFrame), 0
             )
         }

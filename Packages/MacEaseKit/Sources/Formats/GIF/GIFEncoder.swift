@@ -56,6 +56,10 @@ public enum GIFEncoder {
         guard width > 0, height > 0, width <= 65_535, height <= 65_535,
             frames.allSatisfy({ $0.pixels.width == width && $0.pixels.height == height })
         else { throw FormatError.encoderFailure("frames must share one size") }
+        guard frames.allSatisfy({ validDuration($0.duration) }) else {
+            throw FormatError.corrupt(
+                String(localized: "GIF frame duration out of range", comment: "Invalid animation timing"))
+        }
 
         let animated = frames.count > 1
         let hasRealTransparency = frames.contains { !$0.pixels.isOpaque }

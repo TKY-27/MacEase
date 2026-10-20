@@ -29,6 +29,9 @@ public struct AudioTags: Equatable, Sendable {
 
 /// Bounds-checked little- and big-endian reads.
 struct ByteCursor {
+    static let maximumMetadataBytes: UInt32 = 16 << 20
+    static let maximumCommentBytes: UInt32 = 128 << 20
+
     private let bytes: [UInt8]
     private(set) var offset = 0
 
@@ -42,6 +45,14 @@ struct ByteCursor {
         guard count >= 0, count <= remaining else { throw FormatError.corrupt("truncated audio header") }
         defer { offset += count }
         return Array(bytes[offset..<(offset + count)])
+    }
+
+    mutating func takeMetadata(_ length: UInt32, maximumBytes: UInt32 = maximumMetadataBytes) throws -> [UInt8] {
+        guard length <= maximumBytes else {
+            throw FormatError.corrupt(
+                String(localized: "Audio metadata too large", comment: "Rejects oversized metadata field"))
+        }
+        return try take(Int(length))
     }
 
     mutating func uint8() throws -> UInt8 { try take(1)[0] }
@@ -84,11 +95,21 @@ public enum VorbisComment {
 
     public static func decode(_ body: some Sequence<UInt8>) throws -> AudioTags {
         var cursor = ByteCursor(body)
-        _ = try cursor.take(Int(try cursor.uint32LE()))
+        _ = try cursor.takeMetadata(try cursor.uint32LE())
         let count = Int(try cursor.uint32LE())
+        guard count <= cursor.remaining / 4, count <= Int(ByteCursor.maximumMetadataBytes) else {
+            throw FormatError.corrupt(
+                String(localized: "Audio metadata too large", comment: "Rejects oversized metadata field"))
+        }
         var tags = AudioTags()
         for _ in 0..<count {
-            let field = String(decoding: try cursor.take(Int(try cursor.uint32LE())), as: UTF8.self)
+            let field = String(
+                decoding: try cursor.takeMetadata(try cursor.uint32LE(), maximumBytes: ByteCursor.maximumCommentBytes),
+                as: UTF8.self)
+            guard field.utf8.count <= ByteCursor.maximumCommentBytes else {
+                throw FormatError.corrupt(
+                    String(localized: "Audio metadata too large", comment: "Rejects oversized metadata field"))
+            }
             guard let separator = field.firstIndex(of: "=") else { continue }
             let value = String(field[field.index(after: separator)...])
             switch field[..<separator].uppercased() {
@@ -124,10 +145,14 @@ public enum FLACPicture {
     public static func decode(_ body: some Sequence<UInt8>) throws -> Artwork {
         var cursor = ByteCursor(body)
         _ = try cursor.uint32BE()
-        let mimeType = String(decoding: try cursor.take(Int(try cursor.uint32BE())), as: UTF8.self)
-        _ = try cursor.take(Int(try cursor.uint32BE()))
+        let mimeType = String(decoding: try cursor.takeMetadata(try cursor.uint32BE()), as: UTF8.self)
+        guard mimeType.utf8.count <= ByteCursor.maximumMetadataBytes else {
+            throw FormatError.corrupt(
+                String(localized: "Audio metadata too large", comment: "Rejects oversized metadata field"))
+        }
+        _ = try cursor.takeMetadata(try cursor.uint32BE())
         _ = try cursor.take(16)
-        let data = Data(try cursor.take(Int(try cursor.uint32BE())))
-        return Artwork(data: data, mimeType: mimeType)
+        let pictureBytes = Data(try cursor.takeMetadata(try cursor.uint32BE()))
+        return Artwork(data: pictureBytes, mimeType: mimeType)
     }
 }

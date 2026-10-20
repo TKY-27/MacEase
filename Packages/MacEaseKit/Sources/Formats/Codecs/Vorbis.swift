@@ -28,20 +28,24 @@ public final class VorbisAudioEncoder {
     static let commentPrefix = Data([3]) + Data("vorbis".utf8)
     private static let framingBit: UInt8 = 1
 
-    private let info = UnsafeMutablePointer<vorbis_info>.allocate(capacity: 1)
-    private let state = UnsafeMutablePointer<vorbis_dsp_state>.allocate(capacity: 1)
-    private let block = UnsafeMutablePointer<vorbis_block>.allocate(capacity: 1)
+    private let codecInfo: UnsafeMutablePointer<vorbis_info>
+    private let state: UnsafeMutablePointer<vorbis_dsp_state>
+    private let block: UnsafeMutablePointer<vorbis_block>
     public let channels: Int
     /// Identification, comment and setup.
     public let headers: [Data]
 
     public init(sampleRate: Int, channels: Int, bitrate: Int, tags: AudioTags = AudioTags()) throws {
+        try AudioMetadata.validate(sampleRate: Double(sampleRate), channels: channels)
+        codecInfo = .allocate(capacity: 1)
+        state = .allocate(capacity: 1)
+        block = .allocate(capacity: 1)
         self.channels = channels
-        vorbis_info_init(info)
-        let status = vorbis_encode_init(info, channels, sampleRate, -1, bitrate, -1)
-        guard status == 0, vorbis_analysis_init(state, info) == 0 else {
-            vorbis_info_clear(info)
-            Self.release(info, state, block)
+        vorbis_info_init(codecInfo)
+        let status = vorbis_encode_init(codecInfo, channels, sampleRate, -1, bitrate, -1)
+        guard status == 0, vorbis_analysis_init(state, codecInfo) == 0 else {
+            vorbis_info_clear(codecInfo)
+            Self.release(codecInfo, state, block)
             throw FormatError.unsupported("Vorbis at \(bitrate / 1000) kbps, \(sampleRate) Hz, \(channels) channels")
         }
         vorbis_block_init(state, block)
@@ -63,23 +67,26 @@ public final class VorbisAudioEncoder {
     deinit {
         vorbis_block_clear(block)
         vorbis_dsp_clear(state)
-        vorbis_info_clear(info)
-        Self.release(info, state, block)
+        vorbis_info_clear(codecInfo)
+        Self.release(codecInfo, state, block)
     }
 
     /// libvorbis's managed modes cover limited ranges.
     public static func accepts(sampleRate: Int, channels: Int, bitrate: Int) -> Bool {
-        var info = vorbis_info()
-        vorbis_info_init(&info)
-        defer { vorbis_info_clear(&info) }
-        return vorbis_encode_init(&info, channels, sampleRate, -1, bitrate, -1) == 0
+        guard (1...AudioMetadata.maximumChannels).contains(channels), sampleRate > 0,
+            Double(sampleRate) <= AudioMetadata.maximumSampleRate
+        else { return false }
+        var codecInfo = vorbis_info()
+        vorbis_info_init(&codecInfo)
+        defer { vorbis_info_clear(&codecInfo) }
+        return vorbis_encode_init(&codecInfo, channels, sampleRate, -1, bitrate, -1) == 0
     }
 
     private static func release(
-        _ info: UnsafeMutablePointer<vorbis_info>, _ state: UnsafeMutablePointer<vorbis_dsp_state>,
+        _ codecInfo: UnsafeMutablePointer<vorbis_info>, _ state: UnsafeMutablePointer<vorbis_dsp_state>,
         _ block: UnsafeMutablePointer<vorbis_block>
     ) {
-        info.deallocate()
+        codecInfo.deallocate()
         state.deallocate()
         block.deallocate()
     }
@@ -97,7 +104,11 @@ public final class VorbisAudioEncoder {
     public func encode(_ interleaved: [Float]) throws -> [XiphPacket] {
         let frames = interleaved.count / channels
         guard frames > 0 else { return [] }
-        guard let buffer = vorbis_analysis_buffer(state, Int32(frames)) else {
+        guard let frameCount = Int32(exactly: frames) else {
+            throw FormatError.encoderFailure(
+                String(localized: "Audio frame count out of range", comment: "Rejects oversized audio buffer"))
+        }
+        guard let buffer = vorbis_analysis_buffer(state, frameCount) else {
             throw FormatError.encoderFailure("vorbis_analysis_buffer")
         }
         for (channel, vorbisChannel) in VorbisChannels.order(channels).enumerated() {
@@ -106,7 +117,7 @@ public final class VorbisAudioEncoder {
             }
             for frame in 0..<frames { destination[frame] = interleaved[frame * channels + channel] }
         }
-        vorbis_analysis_wrote(state, Int32(frames))
+        vorbis_analysis_wrote(state, frameCount)
         return try drain()
     }
 
@@ -133,8 +144,9 @@ public final class VorbisAudioEncoder {
 
 public final class VorbisAudioDecoder {
     private static let headerCount = 3
+    private static let identificationPrefix = Data([1]) + Data("vorbis".utf8)
 
-    private let info = UnsafeMutablePointer<vorbis_info>.allocate(capacity: 1)
+    private let codecInfo = UnsafeMutablePointer<vorbis_info>.allocate(capacity: 1)
     private let state = UnsafeMutablePointer<vorbis_dsp_state>.allocate(capacity: 1)
     private let block = UnsafeMutablePointer<vorbis_block>.allocate(capacity: 1)
     public let sampleRate: Int
@@ -146,15 +158,23 @@ public final class VorbisAudioDecoder {
     public init(headers: [Data]) throws {
         do {
             guard headers.count == Self.headerCount else { throw FormatError.corrupt("Vorbis needs three headers") }
+            guard headers[0].starts(with: Self.identificationPrefix) else {
+                throw FormatError.corrupt("Vorbis header 1 rejected")
+            }
+            var identification = ByteCursor(headers[0].dropFirst(Self.identificationPrefix.count))
+            _ = try identification.uint32LE()
+            let channels = Int(try identification.uint8())
+            let sampleRate = Double(try identification.uint32LE())
+            try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
             tags = try VorbisComment.decode(headers[1].dropFirst(VorbisAudioEncoder.commentPrefix.count))
         } catch {
-            info.deallocate()
+            codecInfo.deallocate()
             state.deallocate()
             block.deallocate()
             throw error
         }
-        let info = self.info
-        vorbis_info_init(info)
+        let codecInfo = self.codecInfo
+        vorbis_info_init(codecInfo)
         var comment = vorbis_comment()
         vorbis_comment_init(&comment)
         defer { vorbis_comment_clear(&comment) }
@@ -164,20 +184,29 @@ public final class VorbisAudioDecoder {
                 var packet = ogg_packet(
                     packet: buffer.baseAddress, bytes: buffer.count, b_o_s: index == 0 ? 1 : 0, e_o_s: 0,
                     granulepos: 0, packetno: Int64(index))
-                return vorbis_synthesis_headerin(info, &comment, &packet)
+                return vorbis_synthesis_headerin(codecInfo, &comment, &packet)
             }
             guard status == 0 else {
-                vorbis_info_clear(info)
-                info.deallocate()
+                vorbis_info_clear(codecInfo)
+                codecInfo.deallocate()
                 state.deallocate()
                 block.deallocate()
                 throw FormatError.corrupt("Vorbis header \(index + 1) rejected")
             }
         }
-        sampleRate = info.pointee.rate
-        channels = Int(info.pointee.channels)
+        sampleRate = codecInfo.pointee.rate
+        channels = Int(codecInfo.pointee.channels)
+        do {
+            try AudioMetadata.validate(sampleRate: Double(sampleRate), channels: channels)
+        } catch {
+            vorbis_info_clear(codecInfo)
+            codecInfo.deallocate()
+            state.deallocate()
+            block.deallocate()
+            throw error
+        }
         order = VorbisChannels.order(channels)
-        vorbis_synthesis_init(state, info)
+        vorbis_synthesis_init(state, codecInfo)
         vorbis_block_init(state, block)
         packetNumber = Int64(Self.headerCount)
     }
@@ -185,8 +214,8 @@ public final class VorbisAudioDecoder {
     deinit {
         vorbis_block_clear(block)
         vorbis_dsp_clear(state)
-        vorbis_info_clear(info)
-        info.deallocate()
+        vorbis_info_clear(codecInfo)
+        codecInfo.deallocate()
         state.deallocate()
         block.deallocate()
     }

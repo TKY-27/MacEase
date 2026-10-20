@@ -19,7 +19,13 @@ struct OpusHead {
         _ = try cursor.uint32LE()
         let decibels = Double(Int16(bitPattern: try cursor.uint16LE())) / Self.gainScale
         gain = Float(pow(10, decibels / 20))
-        guard try cursor.uint8() == 0 else { throw FormatError.unsupported("Opus with \(channels) channels") }
+        try AudioMetadata.validate(sampleRate: Double(OpusAudioEncoder.sampleRate), channels: channels)
+        let mapping = try cursor.uint8()
+        guard mapping == 0 else { throw FormatError.unsupported("Opus with \(channels) channels") }
+        guard channels <= 2 else {
+            throw FormatError.corrupt(
+                String(localized: "Audio channel count out of range", comment: "Rejects unsafe audio metadata"))
+        }
     }
 }
 

@@ -81,6 +81,17 @@ public enum PNGFile {
         strategy: PNGFilterStrategy,
         level: Int32
     ) throws -> Data {
+        guard raster.width > 0, raster.height > 0,
+            UInt32(exactly: raster.width) != nil, UInt32(exactly: raster.height) != nil,
+            raster.bitDepth > 0, UInt8(exactly: raster.bitDepth) != nil
+        else {
+            throw FormatError.corrupt(String(localized: "PNG raster out of range", comment: "Invalid image metadata"))
+        }
+        let rowBytes = raster.rowBytes
+        let (sampleBytes, overflow) = rowBytes.multipliedReportingOverflow(by: raster.height)
+        guard !overflow, sampleBytes == raster.samples.count, sampleBytes <= Int.max - raster.height else {
+            throw FormatError.corrupt(String(localized: "PNG raster out of range", comment: "Invalid image metadata"))
+        }
         var header = Data()
         header.appendBigEndian(UInt32(raster.width))
         header.appendBigEndian(UInt32(raster.height))
@@ -96,7 +107,13 @@ public enum PNGFile {
         chunks.append(PNGChunk(type: "IDAT", payload: try compress(filtered(raster, strategy: strategy), level: level)))
         chunks.append(PNGChunk(type: "IEND", payload: Data()))
         var output = Data(signature)
-        for chunk in chunks { output.append(serialized(chunk)) }
+        for chunk in chunks {
+            guard chunk.payload.count <= Int(UInt32.max) else {
+                throw FormatError.corrupt(
+                    String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
+            }
+            output.append(serialized(chunk))
+        }
         return output
     }
 
@@ -116,6 +133,9 @@ public enum PNGFile {
         }
         defer { libdeflate_free_compressor(compressor) }
         let bound = libdeflate_zlib_compress_bound(compressor, input.count)
+        guard bound <= Int(UInt32.max) else {
+            throw FormatError.corrupt(String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
+        }
         var output = [UInt8](repeating: 0, count: bound)
         let written = input.withUnsafeBytes { source in
             output.withUnsafeMutableBytes { target in
@@ -132,12 +152,21 @@ public enum PNGFile {
         if let iccProfile {
             var payload = Data("ICC Profile".utf8)
             payload.append(contentsOf: [0, 0])
-            payload.append(try compress([UInt8](iccProfile), level: maximumLevel))
+            let compressed = try compress([UInt8](iccProfile), level: maximumLevel)
+            guard compressed.count <= Int(UInt32.max) - payload.count else {
+                throw FormatError.corrupt(
+                    String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
+            }
+            payload.append(compressed)
             chunks.append(PNGChunk(type: "iCCP", payload: payload))
         }
         if let xmp {
             var payload = Data("XML:com.adobe.xmp".utf8)
             payload.append(contentsOf: [0, 0, 0, 0, 0])
+            guard xmp.count <= Int(UInt32.max) - payload.count else {
+                throw FormatError.corrupt(
+                    String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
+            }
             payload.append(xmp)
             chunks.append(PNGChunk(type: "iTXt", payload: payload))
         }

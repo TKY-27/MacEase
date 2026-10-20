@@ -6,6 +6,7 @@ import Foundation
 /// Speaker layouts make downmixing possible.
 enum PCMFormat {
     static func make(sampleRate: Double, channels: Int) throws -> AVAudioFormat {
+        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
         let tag: AudioChannelLayoutTag =
             switch channels {
             case 1: kAudioChannelLayoutTag_Mono
@@ -27,7 +28,10 @@ enum PCMFormat {
 
     static func buffer(_ samples: [Float], format: AVAudioFormat) throws -> AVAudioPCMBuffer {
         let channels = Int(format.channelCount)
-        let frames = AVAudioFrameCount(samples.count / channels)
+        guard channels > 0, let frames = AVAudioFrameCount(exactly: samples.count / channels) else {
+            throw FormatError.corrupt(
+                String(localized: "Audio frame count out of range", comment: "Rejects oversized audio buffers"))
+        }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: max(frames, 1)),
             let destination = buffer.floatChannelData?[0]
         else { throw EngineError.encodeFailed("no PCM buffer") }
@@ -119,9 +123,13 @@ public final class PCMConverter {
     }
 
     private func run(_ buffer: AVAudioPCMBuffer?, frames: Int) throws -> [Float] {
-        let capacity =
-            AVAudioFrameCount(Double(frames) * output.sampleRate / input.sampleRate) + 2
-            * AVAudioFrameCount(Self.slackFrames)
+        let resampledFrames = (Double(frames) * output.sampleRate / input.sampleRate).rounded(.up)
+        let slack = 2 * AVAudioFrameCount(Self.slackFrames)
+        guard let frameCount = AVAudioFrameCount(exactly: resampledFrames), frameCount <= .max - slack else {
+            throw FormatError.corrupt(
+                String(localized: "Audio frame count out of range", comment: "Rejects oversized audio buffers"))
+        }
+        let capacity = frameCount + slack
         var result: [Float] = []
         try Engine.convert(
             converter, input: buffer,
@@ -359,7 +367,9 @@ public final class AudioPacketDecoder {
             switch track.codec {
             case .opus:
                 backend = .opus(try OpusAudioDecoder(channels: channels))
-                leadingFrames = Int(track.codecDelay * Int64(OpusAudioEncoder.sampleRate) / Nanoseconds.perSecond)
+                leadingFrames = Int(
+                    try Nanoseconds.scale(
+                        track.codecDelay, by: Int64(OpusAudioEncoder.sampleRate), over: Nanoseconds.perSecond))
             case .vorbis:
                 let headers = try VorbisAudioDecoder.headers(codecPrivate: track.codecPrivate ?? Data())
                 backend = .vorbis(try VorbisAudioDecoder(headers: headers))
@@ -432,7 +442,7 @@ public final class AudioPacketDecoder {
             throw EngineError.fromAudio(error)
         }
         if let padding = packet.discardPadding, padding > 0 {
-            let frames = Int(padding * Int64(sampleRate) / Nanoseconds.perSecond)
+            let frames = Int(try Nanoseconds.scale(padding, by: Int64(sampleRate), over: Nanoseconds.perSecond))
             samples.removeLast(min(samples.count, frames * channels))
         }
         if leadingFrames > 0 {
@@ -444,12 +454,16 @@ public final class AudioPacketDecoder {
     }
 
     private func decode(_ payload: Data, _ converter: AVAudioConverter, _ input: AVAudioFormat) throws -> [Float] {
+        guard let byteCount = UInt32(exactly: payload.count) else {
+            throw FormatError.corrupt(
+                String(localized: "Audio packet size out of range", comment: "Rejects oversized audio packets"))
+        }
         let packet = AVAudioCompressedBuffer(format: input, packetCapacity: 1, maximumPacketSize: payload.count)
         payload.copyBytes(to: packet.data.assumingMemoryBound(to: UInt8.self), count: payload.count)
         packet.packetCount = 1
-        packet.byteLength = UInt32(payload.count)
+        packet.byteLength = byteCount
         packet.packetDescriptions?.pointee = AudioStreamPacketDescription(
-            mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(payload.count))
+            mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: byteCount)
         var samples: [Float] = []
         try Engine.convert(
             converter, input: packet, failure: EngineError.decodeFailed,
