@@ -27,6 +27,7 @@ public final class JobEngine: Sendable {
     public let staging: StagingArea
     private let cpuGate: LaneGate
     private let hardwareVideoGate = LaneGate(width: 1)
+    private let commitGate = LaneGate(width: 1)
     private let committer = FileCommitter()
     private let logger = Logger(category: "jobs")
 
@@ -60,14 +61,7 @@ public final class JobEngine: Sendable {
                     let context = ItemContext(settings: settings, staging: self.staging) { fraction in
                         progress(tracker.update(index, fraction: fraction))
                     }
-                    var records: [CommitRecord] = []
-                    let (outcome, text) = await self.perform(workItem, of: batch, context: context, records: &records)
-                    do {
-                        try await self.history.record(records, batch: batch.id, operation: batch.operation)
-                    } catch {
-                        tracker.markHistoryFailed()
-                        self.logger.error("History write failed: \(error.localizedDescription, privacy: .public)")
-                    }
+                    let (outcome, text) = await self.perform(workItem, of: batch, context: context, tracker: tracker)
                     context.progress(1)
                     return ItemResultSummary(index: index, outcome: outcome, text: text)
                 }
@@ -103,16 +97,18 @@ public final class JobEngine: Sendable {
         _ workItem: WorkItem,
         of batch: Batch,
         context: ItemContext,
-        records: inout [CommitRecord]
+        tracker: BatchTracker
     ) async -> (ItemOutcome, (String, TextDestination)?) {
         let gate = workItem.lane == .hardwareVideo ? hardwareVideoGate : cpuGate
         let path = workItem.inputs.first?.path ?? ""
         defer { context.removeStaging() }
         let result: ItemResult
+        var inputStamps: [URL: FileStamp] = [:]
         do {
             try await gate.acquire()
             do {
                 try Self.downloadIfNeeded(workItem.inputs)
+                for input in workItem.inputs { inputStamps[input] = try FileStamp(of: input) }
                 result = try await workItem.body(context)
                 await gate.release()
             } catch {
@@ -124,11 +120,28 @@ public final class JobEngine: Sendable {
             return (.failed(logged(EngineError.wrapping(error, path: path), batch: batch, workItem: workItem)), nil)
         }
         do {
-            return try await commit(result, context: context, records: &records)
+            try await commitGate.acquire()
+        } catch {
+            return (.failed(EngineError.wrapping(error, path: path)), nil)
+        }
+        var records: [CommitRecord] = []
+        let outcome: (ItemOutcome, (String, TextDestination)?)
+        do {
+            outcome = try await commit(result, inputStamps: inputStamps, context: context, records: &records)
+        } catch FileCommitter.Failure.changedSinceScan {
+            outcome = (.skipped(.changedSinceScan), nil)
         } catch {
             let engineError = EngineError.wrapping(error, path: path, otherwise: EngineError.commitFailed)
-            return (.failed(logged(engineError, batch: batch, workItem: workItem)), nil)
+            outcome = (.failed(logged(engineError, batch: batch, workItem: workItem)), nil)
         }
+        do {
+            try await history.record(records, batch: batch.id, operation: batch.operation)
+        } catch {
+            tracker.markHistoryFailed()
+            logger.error("History write failed: \(error.localizedDescription, privacy: .public)")
+        }
+        await commitGate.release()
+        return outcome
     }
 
     private func logged(_ error: EngineError, batch: Batch, workItem: WorkItem) -> EngineError {
@@ -147,6 +160,7 @@ public final class JobEngine: Sendable {
 
     private func commit(
         _ result: ItemResult,
+        inputStamps: [URL: FileStamp],
         context: ItemContext,
         records: inout [CommitRecord]
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
@@ -154,7 +168,11 @@ public final class JobEngine: Sendable {
         switch result {
         case .replace(let original, let output):
             let cloneDirectory = try context.stagingDirectory(for: original)
-            let replaced = try await committer.replace(original: original, with: output, cloneDirectory: cloneDirectory)
+            guard let expectedStamp = inputStamps[original] else {
+                throw EngineError.commitFailed("Replacement original was not an input")
+            }
+            let replaced = try await committer.replace(
+                original: original, with: output, cloneDirectory: cloneDirectory, expectedStamp: expectedStamp)
             let stamp = try FileStamp(of: replaced.output)
             if let trashed = replaced.trashed {
                 records.append(

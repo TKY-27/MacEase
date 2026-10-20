@@ -52,6 +52,12 @@ struct YUVConverter {
 
     /// `alpha` is a full-range opacity plane.
     func image(from frame: YUVFrame, alpha: [UInt8]?) throws -> CVPixelBuffer {
+        let pixelCount =
+            try VideoDecoders.checkedFrameBytes(width: frame.width, height: frame.height)
+            / VideoDecoders.bgraBytesPerPixel
+        guard alpha == nil || alpha?.count == pixelCount else {
+            throw FormatError.decoderFailure("alpha plane size differs from color")
+        }
         let image = try VideoDecoders.makeImage(width: frame.width, height: frame.height)
         CVPixelBufferLockBaseAddress(image, [])
         defer { CVPixelBufferUnlockBaseAddress(image, []) }

@@ -197,6 +197,7 @@ public final class VPXDecoder {
     private static func copy(_ image: vpx_image_t) throws -> YUVFrame {
         let width = Int(image.d_w)
         let height = Int(image.d_h)
+        _ = try VideoDecoders.checkedFrameBytes(width: width, height: height)
         let chromaWidth = (width + 1) / 2
         let chromaHeight = (height + 1) / 2
         var frame = YUVFrame(

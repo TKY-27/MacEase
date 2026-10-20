@@ -15,6 +15,7 @@ struct MediaInput {
     let backend: Backend
     let video: MediaTrack?
     let audio: MediaTrack?
+    let hasMultipleTracks: Bool
     let duration: Int64
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
@@ -37,9 +38,12 @@ struct MediaInput {
             video?.defaultDuration = try measuredFrameDuration(try demuxer(), track: track.number)
         }
         let audio = opened.tracks.first { !$0.isVideo }
+        let hasMultipleTracks =
+            opened.tracks.filter(\.isVideo).count > 1 || opened.tracks.filter { !$0.isVideo }.count > 1
         let duration = try opened.duration ?? Self.scanDuration(try demuxer())
         return MediaInput(
-            url: url, backend: backend, video: video, audio: audio, duration: duration, transform: .identity)
+            url: url, backend: backend, video: video, audio: audio, hasMultipleTracks: hasMultipleTracks,
+            duration: duration, transform: .identity)
     }
 
     /// Median spacing of the first frames.
@@ -67,8 +71,10 @@ struct MediaInput {
 
     private static func openAsset(_ url: URL) async throws -> MediaInput {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
-        let videoTrack = try await asset.loadTracks(withMediaType: .video).first
-        let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
+        let videoTracks = try await asset.loadTracks(withMediaType: .video)
+        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let videoTrack = videoTracks.first
+        let audioTrack = audioTracks.first
         let duration = SampleBuffers.nanoseconds(try await asset.load(.duration))
         var video: MediaTrack?
         var transform = CGAffineTransform.identity
@@ -80,7 +86,11 @@ struct MediaInput {
         if let audioTrack { audio = try await AssetTracks.describe(audioTrack, number: 2) }
         return MediaInput(
             url: url, backend: .asset(asset, video: videoTrack, audio: audioTrack), video: video, audio: audio,
-            duration: duration, transform: transform)
+            hasMultipleTracks: videoTracks.count > 1 || audioTracks.count > 1, duration: duration, transform: transform)
+    }
+
+    func requireSingleTracksForReplacement() throws {
+        if hasMultipleTracks { throw EngineError.invalidInput(.multipleTracks) }
     }
 
     private static let frameRateProbe = 32

@@ -24,6 +24,19 @@ public protocol VideoFrameDecoder {
 }
 
 public enum VideoDecoders {
+    static let maximumDimension = 16_384
+    static let bgraBytesPerPixel = 4
+
+    static func checkedFrameBytes(width: Int, height: Int) throws -> Int {
+        guard (1...maximumDimension).contains(width), (1...maximumDimension).contains(height) else {
+            throw FormatError.corrupt("video dimensions out of range")
+        }
+        let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
+        let (bytes, byteOverflow) = pixels.multipliedReportingOverflow(by: bgraBytesPerPixel)
+        guard !pixelOverflow, !byteOverflow else { throw FormatError.corrupt("video frame size overflow") }
+        return bytes
+    }
+
     public static func make(for track: MediaTrack) throws -> any VideoFrameDecoder {
         switch track.codec {
         case .vp8, .vp9: try LibVPXFrameDecoder(track: track)
@@ -58,7 +71,7 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
     init(track: MediaTrack) throws {
         self.track = track
         guard case .video(let width, let height) = track.kind else { throw FormatError.unsupported("not video") }
-        reorder = ReorderBuffer(width: width, height: height)
+        reorder = try ReorderBuffer(width: width, height: height)
     }
 
     deinit {
@@ -142,8 +155,8 @@ struct ReorderBuffer {
     private var pending: [DecodedFrame] = []
     private var lastEmitted: Int64?
 
-    init(width: Int, height: Int) {
-        let frameBytes = max(width * height * 4, 1)
+    init(width: Int, height: Int) throws {
+        let frameBytes = try VideoDecoders.checkedFrameBytes(width: width, height: height)
         depth = min(max(Self.memoryBudget / frameBytes, Self.depthRange.lowerBound), Self.depthRange.upperBound)
     }
 
@@ -264,8 +277,24 @@ final class LibVPXFrameDecoder: VideoFrameDecoder {
         let pictures = try color.decode(packet.payload)
         var masks: [YUVFrame] = []
         if let alpha, let additional = packet.additional { masks = try alpha.decode(additional) }
+        let hasAlphaPacket = alpha != nil && packet.additional != nil
+        guard !hasAlphaPacket || masks.count == pictures.count else {
+            throw FormatError.decoderFailure("VP9 alpha frame count differs from color")
+        }
         return try pictures.enumerated().map { index, picture in
-            let mask = index < masks.count ? masks[index].luma : nil
+            let mask: [UInt8]?
+            if hasAlphaPacket {
+                let alphaFrame = masks[index]
+                let pixelCount =
+                    try VideoDecoders.checkedFrameBytes(width: picture.width, height: picture.height)
+                    / VideoDecoders.bgraBytesPerPixel
+                guard alphaFrame.width == picture.width, alphaFrame.height == picture.height,
+                    alphaFrame.luma.count == pixelCount
+                else { throw FormatError.decoderFailure("VP9 alpha dimensions differ from color") }
+                mask = alphaFrame.luma
+            } else {
+                mask = nil
+            }
             let converter = try converter(for: picture)
             return DecodedFrame(image: try converter.image(from: picture, alpha: mask), timestamp: packet.timestamp)
         }

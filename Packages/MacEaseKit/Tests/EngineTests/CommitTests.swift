@@ -17,6 +17,12 @@ private func read(_ url: URL) throws -> String {
     try String(contentsOf: url, encoding: .utf8)
 }
 
+private func makeReplacementFolder() throws -> URL {
+    let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseCommit-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    return folder
+}
+
 private func replacing(_ original: URL, name: String, text: String) -> WorkItem {
     WorkItem(inputs: [original]) { context in
         let staged = try context.stagingURL(for: original, name: name)
@@ -26,6 +32,91 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
 }
 
 @Suite(.serialized) struct CommitTests {
+    @Test(arguments: ["note.txt", "note.json", "NOTE.txt"])
+    func replacementSkipsOriginalEditedDuringTheJob(outputName: String) async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "note.txt")
+        try write("old", to: original)
+        let engine = try makeEngine()
+        let workItem = WorkItem(inputs: [original]) { context in
+            let staged = try context.stagingURL(for: original, name: outputName)
+            try write("converted", to: staged)
+            try write("saved by another app", to: original)
+            return .replace(original: original, output: StagedFile(url: staged, name: outputName, check: .text(.utf8)))
+        }
+
+        let outcome = await engine.run(Batch(operation: .textLineEndings, items: [workItem]), settings: Settings()) {
+            _ in
+        }
+
+        #expect(outcome.outcomes == [.skipped(.changedSinceScan)])
+        #expect(try read(original) == "saved by another app")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["note.txt"])
+        #expect(outcome.record == nil)
+    }
+
+    @Test func replacementSkipsSameSizeEditWithChangedModificationDate() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "note.txt")
+        try write("old", to: original)
+        let engine = try makeEngine()
+        let workItem = WorkItem(inputs: [original]) { context in
+            let staged = try context.stagingURL(for: original, name: "note.txt")
+            try write("replacement", to: staged)
+            let stamp = try FileStamp(of: original)
+            try write("new", to: original)
+            try FileManager.default.setAttributes(
+                [.modificationDate: stamp.modified.addingTimeInterval(1)], ofItemAtPath: original.path)
+            return .replace(original: original, output: StagedFile(url: staged, name: "note.txt", check: .text(.utf8)))
+        }
+
+        let outcome = await engine.run(Batch(operation: .textLineEndings, items: [workItem]), settings: Settings()) {
+            _ in
+        }
+
+        #expect(outcome.outcomes == [.skipped(.changedSinceScan)])
+        #expect(try read(original) == "new")
+        #expect(outcome.record == nil)
+    }
+
+    @Test(arguments: [["first output", "second output"], ["one", "two"]])
+    func concurrentReplacementsPreserveBackupsAndUndo(texts: [String]) async throws {
+        let folder = try TestVolume.makeFolder()
+        let original = folder.appending(path: "note.txt")
+        try write("old", to: original)
+        let engine = try makeEngine()
+        let barrier = CommitBarrier()
+        let workItems = texts.map { text in
+            WorkItem(inputs: [original]) { context in
+                let staged = try context.stagingURL(for: original, name: "note.txt")
+                try write(text, to: staged)
+                await barrier.arrive()
+                return .replace(
+                    original: original, output: StagedFile(url: staged, name: "note.txt", check: .text(.utf8)))
+            }
+        }
+
+        let outcome = await engine.run(Batch(operation: .textLineEndings, items: workItems), settings: Settings()) {
+            _ in
+        }
+
+        let expectedCommits = texts.first?.utf8.count == "old".utf8.count ? texts.count : 1
+        #expect(outcome.outcomes.filter { $0 == .skipped(.changedSinceScan) }.count == texts.count - expectedCommits)
+        #expect(outcome.outcomes.filter { if case .succeeded = $0 { true } else { false } }.count == expectedCommits)
+        #expect(texts.contains(try read(original)))
+        let record = try #require(outcome.record)
+        #expect(record.items.count == expectedCommits)
+        guard case .replaced(_, let trashed, _, _) = try #require(record.items.first) else {
+            Issue.record("expected replaced record")
+            return
+        }
+        #expect(try read(URL(fileURLWithPath: trashed)) == "old")
+        #expect(try await engine.history.undo(record.id) == Array(repeating: .restored, count: expectedCommits))
+        #expect(try read(original) == "old")
+    }
+
     @Test func replaceWithSameNameTrashesOriginalAndUndoRestoresIt() async throws {
         let folder = try TestVolume.makeFolder()
         let original = folder.appending(path: "note.txt")
@@ -315,6 +406,19 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
 
         #expect(!FileManager.default.fileExists(atPath: stale.path))
         #expect(try read(precious.appending(path: "file.txt")) == "keep")
+    }
+}
+
+private actor CommitBarrier {
+    private var arrival: CheckedContinuation<Void, Never>?
+
+    func arrive() async {
+        if let arrival {
+            self.arrival = nil
+            arrival.resume()
+        } else {
+            await withCheckedContinuation { arrival = $0 }
+        }
     }
 }
 

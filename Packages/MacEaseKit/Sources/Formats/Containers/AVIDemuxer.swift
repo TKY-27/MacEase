@@ -122,6 +122,7 @@ public struct AVIDemuxer: MediaDemuxer {
         if type == "vids", format.count >= AVI.bitmapInfoSize {
             let width = Int(Int32(bitPattern: UInt32(littleEndian: format, at: 4)))
             let height = abs(Int(Int32(bitPattern: UInt32(littleEndian: format, at: 8))))
+            _ = try VideoDecoders.checkedFrameBytes(width: width, height: height)
             let compression = String(decoding: format[16..<20], as: UTF8.self)
             var track = MediaTrack(
                 number: number, kind: .video(width: width, height: height), codec: Self.videoCodec(compression, handler)

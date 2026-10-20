@@ -74,6 +74,7 @@ public struct FLVDemuxer: MediaDemuxer {
         if codec == .h264, body.count > 5, body[1] == FLV.sequenceHeader {
             let record = Array(body[5...])
             let size = try FLV.avcDimensions(record)
+            _ = try VideoDecoders.checkedFrameBytes(width: size.width, height: size.height)
             track.kind = .video(width: size.width, height: size.height)
             track.codecPrivate = Data(record)
         }

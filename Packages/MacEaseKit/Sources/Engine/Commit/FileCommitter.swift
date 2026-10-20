@@ -5,8 +5,12 @@ import os
 
 /// Sole path that moves user files.
 struct FileCommitter: Sendable {
-    /// Name choice and move are atomic.
     private static let namingLock = Mutex(())
+
+    enum Failure: Error {
+        case changedSinceScan
+        case noTrash
+    }
 
     struct Replaced: Sendable {
         let output: URL
@@ -16,31 +20,52 @@ struct FileCommitter: Sendable {
 
     private let logger = Logger(category: "commit")
 
-    func replace(original: URL, with output: StagedFile, cloneDirectory: URL) async throws -> Replaced {
+    func replace(
+        original: URL, with output: StagedFile, cloneDirectory: URL, expectedStamp: FileStamp
+    ) async throws -> Replaced {
         try await OutputVerifier.verify(output)
-        try FinderAttributes(of: original).apply(to: output.url)
-        let directory = original.deletingLastPathComponent()
-        if output.name == original.lastPathComponent {
-            return try replaceKeepingName(original: original, output: output, cloneDirectory: cloneDirectory)
-        }
-        if try Self.isCaseOnlyChange(from: original.lastPathComponent, to: output.name, in: directory) {
-            let kept = try replaceKeepingName(original: original, output: output, cloneDirectory: cloneDirectory)
-            let renamed = directory.appending(path: output.name)
-            try coordinate(moving: kept.output, to: renamed)
-            return Replaced(output: renamed, trashed: kept.trashed, warning: kept.warning)
-        }
-        let destination = try coordinatedMove(output.url, toAvailableNameIn: directory, named: output.name)
-        do {
-            return Replaced(output: destination, trashed: try trash(original), warning: nil)
-        } catch let error as CocoaError where error.code == .featureUnsupported {
-            return Replaced(output: destination, trashed: nil, warning: .keptAsDerived)
-        } catch {
+        return try Self.namingLock.withLock { _ in
+            try Task.checkCancellation()
+            let directory = original.deletingLastPathComponent()
+            let keepsName = output.name == original.lastPathComponent
+            let changesCase = try Self.isCaseOnlyChange(
+                from: original.lastPathComponent, to: output.name, in: directory)
+            let destination =
+                keepsName
+                ? original
+                : changesCase
+                    ? directory.appending(path: output.name)
+                    : try AvailableName.url(for: output.name, in: directory)
             do {
-                try coordinate(moving: destination, to: output.url)
-            } catch {
-                return Replaced(output: destination, trashed: nil, warning: .originalKept)
+                return try coordinate(replacing: original, destination: destination) { target, final in
+                    try Task.checkCancellation()
+                    guard try FileStamp(of: target) == expectedStamp else { throw Failure.changedSinceScan }
+                    try FinderAttributes(of: target).apply(to: output.url)
+                    if keepsName || changesCase {
+                        let kept = try replaceKeepingName(
+                            original: target, output: output, cloneDirectory: cloneDirectory)
+                        if changesCase { try FileManager.default.moveItem(at: target, to: final) }
+                        return Replaced(output: final, trashed: kept.trashed, warning: kept.warning)
+                    }
+                    try FileManager.default.moveItem(at: output.url, to: final)
+                    do {
+                        return Replaced(output: final, trashed: try trashCoordinated(target), warning: nil)
+                    } catch let error as CocoaError where error.code == .featureUnsupported {
+                        return Replaced(output: final, trashed: nil, warning: .keptAsDerived)
+                    } catch {
+                        do {
+                            try FileManager.default.moveItem(at: final, to: output.url)
+                        } catch {
+                            return Replaced(output: final, trashed: nil, warning: .originalKept)
+                        }
+                        throw error
+                    }
+                }
+            } catch Failure.noTrash {
+                let derived = try AvailableName.url(for: output.name, in: directory)
+                try coordinate(moving: output.url, to: derived)
+                return Replaced(output: derived, trashed: nil, warning: .keptAsDerived)
             }
-            throw error
         }
     }
 
@@ -49,20 +74,13 @@ struct FileCommitter: Sendable {
         try cloneOrCopy(original, to: clone)
         let trashed: URL
         do {
-            trashed = try trash(clone)
+            trashed = try trashCoordinated(clone)
         } catch let error as CocoaError where error.code == .featureUnsupported {
             try FileManager.default.removeItem(at: clone)
-            let destination = try coordinatedMove(
-                output.url,
-                toAvailableNameIn: original.deletingLastPathComponent(),
-                named: output.name
-            )
-            return Replaced(output: destination, trashed: nil, warning: .keptAsDerived)
+            throw Failure.noTrash
         }
         do {
-            try coordinate(writing: original, options: .forReplacing) { target in
-                _ = try FileManager.default.replaceItemAt(target, withItemAt: output.url)
-            }
+            _ = try FileManager.default.replaceItemAt(original, withItemAt: output.url)
         } catch {
             logger.error("Replace failed; an extra copy of the original stays in the Trash")
             throw error
@@ -98,10 +116,12 @@ struct FileCommitter: Sendable {
     }
 
     func trash(_ url: URL) throws -> URL {
+        try coordinate(writing: url, options: .forDeleting) { try trashCoordinated($0) }
+    }
+
+    private func trashCoordinated(_ url: URL) throws -> URL {
         var trashed: NSURL?
-        try coordinate(writing: url, options: .forDeleting) { target in
-            try FileManager.default.trashItem(at: target, resultingItemURL: &trashed)
-        }
+        try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
         guard let trashed else { throw EngineError.commitFailed("Trash returned no location") }
         return trashed as URL
     }
@@ -132,20 +152,41 @@ struct FileCommitter: Sendable {
         try FileManager.default.copyItem(at: source, to: destination)
     }
 
-    private func coordinate(
+    private func coordinate<Value>(
         writing url: URL,
         options: NSFileCoordinator.WritingOptions,
-        _ body: (URL) throws -> Void
-    ) throws {
+        _ body: (URL) throws -> Value
+    ) throws -> Value {
         var coordinationError: NSError?
-        var bodyError: (any Error)?
+        var result: Result<Value, any Error>?
         NSFileCoordinator(filePresenter: nil).coordinate(
             writingItemAt: url, options: options, error: &coordinationError
         ) {
             target in
-            do { try body(target) } catch { bodyError = error }
+            result = Result { try body(target) }
         }
-        if let error = coordinationError ?? bodyError { throw error }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw EngineError.commitFailed("Coordination did not run") }
+        return try result.get()
+    }
+
+    private func coordinate<Value>(
+        replacing original: URL, destination: URL, _ body: (URL, URL) throws -> Value
+    ) throws -> Value {
+        if original == destination {
+            return try coordinate(writing: original, options: .forReplacing) { try body($0, $0) }
+        }
+        var coordinationError: NSError?
+        var result: Result<Value, any Error>?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            writingItemAt: original, options: .forReplacing,
+            writingItemAt: destination, options: .forReplacing, error: &coordinationError
+        ) { target, final in
+            result = Result { try body(target, final) }
+        }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw EngineError.commitFailed("Coordination did not run") }
+        return try result.get()
     }
 
     private func coordinate(moving source: URL, to destination: URL) throws {

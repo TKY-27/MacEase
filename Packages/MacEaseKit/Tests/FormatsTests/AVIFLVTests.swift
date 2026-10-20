@@ -6,6 +6,20 @@ import Testing
 private typealias Fixture = ContainerFixtures
 
 @Suite struct AVITests {
+    @Test(arguments: [Data([0, 0, 0, 0]), Data([1, 64, 0, 0])])
+    func rejectsInvalidVideoWidth(bytes: Data) throws {
+        var avi = try Data(contentsOf: Fixture.resource("ffmpeg-mjpeg-pcm.avi"))
+        let formatChunk = try #require(avi.range(of: Data("strf".utf8)))
+        let widthOffset = formatChunk.lowerBound + 12
+        avi.replaceSubrange(widthOffset..<(widthOffset + 4), with: bytes)
+        let url = Fixture.temporaryURL("invalid-width.avi")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
+        try avi.write(to: url)
+        #expect(throws: FormatError.corrupt("video dimensions out of range")) {
+            try AVIDemuxer(url: url)
+        }
+    }
+
     @Test func readsFFmpegMotionJPEGWithPCM() throws {
         var demuxer = try AVIDemuxer(url: Fixture.resource("ffmpeg-mjpeg-pcm.avi"))
         #expect(demuxer.tracks.map(\.codec) == [.mjpeg, .pcm(bits: 16, float: false, bigEndian: false)])
@@ -139,6 +153,30 @@ private typealias Fixture = ContainerFixtures
 }
 
 @Suite struct FLVTests {
+    @Test func rejectsOversizedSPSDimensions() throws {
+        let oversizedSPS: [UInt8] = [0x67, 0x42, 0, 0x33, 0xF4, 0, 0x20, 0x0F, 0x20]
+        let pictureParameters: [UInt8] = [0x28, 0xEE, 0x3C, 0xB0]
+        let configuration: [UInt8] =
+            [1, 0x42, 0, 0x33, 0xFF, 0xE1, 0, UInt8(oversizedSPS.count)] + oversizedSPS
+            + [1, 0, UInt8(pictureParameters.count)] + pictureParameters
+        let body: [UInt8] = [0x17, 0, 0, 0, 0] + configuration
+        let tagSize = body.count
+        var tag: [UInt8] = [
+            9, UInt8(tagSize >> 16), UInt8(tagSize >> 8), UInt8(tagSize),
+            0, 0, 0, 0, 0, 0, 0,
+        ]
+        tag += body
+        var flv = Data([0x46, 0x4C, 0x56, 1, 1, 0, 0, 0, 9, 0, 0, 0, 0])
+        flv.append(contentsOf: tag)
+        flv.append(contentsOf: [0, 0, 0, UInt8(tag.count)])
+        let url = Fixture.temporaryURL("oversized.flv")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
+        try flv.write(to: url)
+        #expect(throws: FormatError.corrupt("video dimensions out of range")) {
+            try FLVDemuxer(url: url)
+        }
+    }
+
     @Test func readsFFmpegH264WithAAC() throws {
         var demuxer = try FLVDemuxer(url: Fixture.resource("ffmpeg-h264-aac.flv"))
         #expect(demuxer.tracks.map(\.codec) == [.h264, .aac])

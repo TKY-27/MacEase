@@ -29,7 +29,8 @@ entirely on your Mac, and is free and open source under the MIT License.
   rate, remove audio, convert between MP4, MOV, M4V, MKV, WebM, AVI and FLV,
   make GIF, animated WebP or APNG, extract audio, export thumbnails, generate and
   translate subtitles, remove the background into transparent video or a green or
-  blue screen.
+  blue screen. Replacement operations require at most one video and one audio
+  track; derived exports use the first track of each kind.
 - **Audio:** convert between MP3, M4A, AAC, WAV, AIFF, FLAC, OGG and Opus,
   compress, normalize loudness, trim.
 - **Folders:** remove duplicates and empty folders, print a tree, batch rename,

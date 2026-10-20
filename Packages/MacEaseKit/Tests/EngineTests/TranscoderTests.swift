@@ -40,6 +40,29 @@ import Testing
         VideoEncoding(codec: codec, width: width, height: height, frameDuration: Self.frameDuration, bitrate: 500_000)
     }
 
+    @Test func cancelledAssetWriterReportsHealth() async throws {
+        let source = try resource("ffmpeg-h264-aac.mp4")
+        let asset = AVURLAsset(url: source)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let described = try await AssetTracks.describe(track, number: 1)
+        let format = try #require(try await track.load(.formatDescriptions).first)
+        let url = temporaryURL("failed.mov")
+        defer {
+            if FileManager.default.fileExists(atPath: url.path) {
+                #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) }
+            }
+        }
+        let sink = try AssetWriterSink(
+            url: url, fileType: .mov, tracks: [OutputTrack(track: described, format: format)], transform: .identity)
+        try sink.checkHealth()
+        sink.cancel()
+        do {
+            try sink.checkHealth()
+            Issue.record("cancelled writer must report encode failure")
+        } catch EngineError.encodeFailed {
+        }
+    }
+
     @Test func remuxesMP4IntoMatroskaAndBack() async throws {
         let mkv = try await transcode(
             try resource("ffmpeg-h264-aac.mp4"), TranscodePlan(container: .mkv, video: .copy, audio: .copy))

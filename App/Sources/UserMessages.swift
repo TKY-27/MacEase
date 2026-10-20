@@ -138,6 +138,12 @@ enum UserMessages {
                     "“\(file)” is longer than this preset allows (\(Duration.seconds(limit).formatted(.time(pattern: .minuteSecond)))).",
                 comment: "Platform preset duration limit; the Trim panel opens next"
             )
+        case .multipleTracks:
+            String(
+                localized:
+                    "“\(file)” has multiple audio or video tracks. Replacement supports at most one of each.",
+                comment: "Replacement would discard additional tracks"
+            )
         }
     }
 

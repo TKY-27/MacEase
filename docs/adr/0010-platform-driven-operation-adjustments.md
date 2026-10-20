@@ -40,10 +40,13 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
 - **Natural-language requests (10).** Plans are one to three menu steps, an
   operation with one of its presets. Steps outside the selected kind or its
   presets are rejected with the reason.
+- **Video tracks (8.2).** The video pipeline selects the first video and audio
+  tracks. Replace operations reject inputs with more than one track of either
+  kind before writing. Derived outputs may use the first tracks.
 - **Language setting (7).** Changing the language asks before relaunching,
   because running jobs stop.
 
 ## Consequences
 
-SPEC.md sections 7, 8.1, 8.3, 8.5, 8.10, 9 and 10 describe these behaviors.
+SPEC.md sections 7, 8.1, 8.2, 8.3, 8.5, 8.10, 9 and 10 describe these behaviors.
 Users of large grainy clips get a smaller frame instead of a failure.

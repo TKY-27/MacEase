@@ -74,4 +74,39 @@ import VideoToolbox
         check(frames, count: 10, frameDuration: 100 * Nanoseconds.perMillisecond)
         #expect(frames.first.map(showsYellowBar) == true)
     }
+
+    @Test func rejectsSmallerVP9AlphaFrame() throws {
+        let colorSize = 16
+        let alphaSize = 8
+        let colorSettings = VPXEncoder.Settings(
+            codec: .vp9, width: colorSize, height: colorSize, framesPerSecond: 30, kilobitsPerSecond: nil)
+        let alphaSettings = VPXEncoder.Settings(
+            codec: .vp9, width: alphaSize, height: alphaSize, framesPerSecond: 30, kilobitsPerSecond: nil)
+        let color = try VPXEncoder(settings: colorSettings)
+        let alpha = try VPXEncoder(settings: alphaSettings)
+        let colorFrame = YUVFrame(
+            gray: [UInt8](repeating: 128, count: colorSize * colorSize), width: colorSize, height: colorSize)
+        let alphaFrame = YUVFrame(
+            gray: [UInt8](repeating: 128, count: alphaSize * alphaSize), width: alphaSize, height: alphaSize)
+        let colorPackets = try color.encode(colorFrame, index: 0) + color.finish()
+        let alphaPackets = try alpha.encode(alphaFrame, index: 0) + alpha.finish()
+        let colorPacket = try #require(colorPackets.first)
+        let alphaPacket = try #require(alphaPackets.first)
+        var track = MediaTrack(number: 1, kind: .video(width: colorSize, height: colorSize), codec: .vp9)
+        track.hasAlpha = true
+        let decoder = try LibVPXFrameDecoder(track: track)
+        let packet = MediaPacket(
+            track: 1, timestamp: 0, isKeyframe: true, payload: colorPacket.payload, additional: alphaPacket.payload)
+        #expect(throws: FormatError.decoderFailure("VP9 alpha dimensions differ from color")) {
+            try decoder.decode(packet)
+        }
+    }
+
+    @Test func rejectsShortAlphaPlane() throws {
+        let frame = YUVFrame(gray: [UInt8](repeating: 128, count: 16 * 16), width: 16, height: 16)
+        let converter = try YUVConverter(matrix: .bt601, fullRange: false)
+        #expect(throws: FormatError.decoderFailure("alpha plane size differs from color")) {
+            try converter.image(from: frame, alpha: [UInt8](repeating: 255, count: 15 * 16))
+        }
+    }
 }

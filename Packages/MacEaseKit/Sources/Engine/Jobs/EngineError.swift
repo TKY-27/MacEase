@@ -62,6 +62,7 @@ public enum InvalidInput: Equatable, Sendable {
     case unsafeArchivePath(String)
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
+    case multipleTracks
 }
 
 public enum Capability: String, Equatable, Sendable {

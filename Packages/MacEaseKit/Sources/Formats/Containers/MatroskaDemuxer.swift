@@ -146,6 +146,9 @@ public struct MatroskaDemuxer: MediaDemuxer {
             guard number > 0 else { throw FormatError.corrupt("track number 0") }
             if let encodings { strippedHeaders[number] = try strippedHeader(encodings) }
             guard type == MatroskaValue.videoTrack || type == MatroskaValue.audioTrack else { continue }
+            if type == MatroskaValue.videoTrack {
+                _ = try VideoDecoders.checkedFrameBytes(width: width, height: height)
+            }
             if let defaultDuration, defaultDuration > Self.maximumFrameDuration {
                 throw FormatError.corrupt("DefaultDuration out of range")
             }

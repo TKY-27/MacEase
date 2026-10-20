@@ -37,6 +37,73 @@ import Testing
         return first
     }
 
+    private func multitrackMatroska(duplicateVideo: Bool) throws -> URL {
+        let folder = try multitrackFolder()
+        let url = folder.appending(path: "multiple.mkv")
+        let video = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .vp9)
+        let audio = MediaTrack(number: 2, kind: .audio(sampleRate: 48_000, channels: 2), codec: .opus)
+        var duplicate = duplicateVideo ? video : audio
+        duplicate.number = 3
+        var muxer = try MatroskaMuxer(url: url, tracks: [video, audio, duplicate], webm: false)
+        try muxer.write(MediaPacket(track: 1, timestamp: 0, isKeyframe: true, payload: Data([1])))
+        try muxer.write(MediaPacket(track: 2, timestamp: 0, isKeyframe: true, payload: Data([2])))
+        try muxer.write(MediaPacket(track: 3, timestamp: 0, isKeyframe: true, payload: Data([3])))
+        try muxer.finish()
+        return url
+    }
+
+    private func multitrackFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseMultiTrack-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    @Test(arguments: [true, false])
+    func replacementPreservesMultiTrackMatroska(duplicateVideo: Bool) async throws {
+        let url = try multitrackMatroska(duplicateVideo: duplicateVideo)
+        defer {
+            #expect(throws: Never.self) { try FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        }
+        let original = try Data(contentsOf: url)
+        #expect(try await run(.videoRemoveAudio, preset: nil, on: url) == .failed(.invalidInput(.multipleTracks)))
+        #expect(
+            try await run(.videoCompress, preset: "quality-high", on: url) == .failed(.invalidInput(.multipleTracks)))
+        #expect(try Data(contentsOf: url) == original)
+    }
+
+    @Test(arguments: [true, false])
+    func replacementPreservesMultiTrackAVAsset(duplicateVideo: Bool) async throws {
+        let folder = try multitrackFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "ffmpeg-h264-aac.mp4")
+        let fixture = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac", withExtension: "mp4", subdirectory: "Resources"))
+        try FileManager.default.copyItem(at: fixture, to: source)
+        let asset = AVURLAsset(url: source)
+        let composition = AVMutableComposition()
+        let range = CMTimeRange(start: .zero, duration: try await asset.load(.duration))
+        for mediaType in [AVMediaType.video, .audio] {
+            let original = try #require(try await asset.loadTracks(withMediaType: mediaType).first)
+            let copies = (mediaType == .video) == duplicateVideo ? 2 : 1
+            for _ in 0..<copies {
+                let track = try #require(
+                    composition.addMutableTrack(
+                        withMediaType: mediaType, preferredTrackID: kCMPersistentTrackID_Invalid))
+                try track.insertTimeRange(range, of: original, at: .zero)
+            }
+        }
+        let url = source.deletingLastPathComponent().appending(path: "multiple.mov")
+        let exporter = try #require(
+            AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough))
+        try await exporter.export(to: url, as: .mov)
+        let multi = AVURLAsset(url: url)
+        let kind: AVMediaType = duplicateVideo ? .video : .audio
+        #expect(try await multi.loadTracks(withMediaType: kind).count == 2)
+        let original = try Data(contentsOf: url)
+        #expect(try await run(.videoRemoveAudio, preset: nil, on: url) == .failed(.invalidInput(.multipleTracks)))
+        #expect(try Data(contentsOf: url) == original)
+    }
+
     @Test func removeAudioKeepsVideoOnly() async throws {
         let url = try fixture("ffmpeg-h264-aac.mp4")
         let result = try output(try await run(.videoRemoveAudio, preset: nil, on: url))

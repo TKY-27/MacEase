@@ -189,6 +189,11 @@ UTF-8 or target encoding for text).
 
 **Replace sequence.**
 
+The engine records the input's size and modification date before the operation
+reads it. Replacement commit sections and their history records are serialized.
+Within one coordinated write, the engine checks that stamp before cloning, Trashing or replacing the
+original; a changed input is skipped as `changedSinceScan`.
+
 1. If the output name equals the original name: clone the original
    (`clonefile`, falling back to copy on non-APFS volumes) into the item's
    staging directory under its own name, move the clone to the Trash with
@@ -432,6 +437,10 @@ dav1d. Audio codecs: AAC, MP3, PCM, ALAC, AC-3 through AudioToolbox; Opus and
 Vorbis through libopus and libvorbis; FLAC through AudioToolbox. Unsupported
 codecs (DTS, WMA, WMV, Sorenson H.263, VP6, Screen Video, RealVideo) fail with
 a message naming the codec.
+
+Replace operations refuse inputs with more than one video track or more than
+one audio track before writing an output, because the current pipeline selects
+only the first track of each kind. Derived operations may use those first tracks.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
@@ -769,3 +778,5 @@ check.
   limit and compress the trimmed file (ADR 0010). Subtitles and Extract audio
   panels added; a bitrate chosen in the latter always re-encodes. The video
   Background panel offers the person and subject masks only.
+- 2026-10-21: Video replace operations reject multiple video or audio tracks
+  before writing so additional tracks cannot be lost (ADR 0010).

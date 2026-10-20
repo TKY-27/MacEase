@@ -52,6 +52,8 @@ struct OutputTrack {
 protocol PacketSink {
     /// AVAssetWriter interleaves; muxers take anything.
     func accepts(track: Int) -> Bool
+    func checkHealth() throws
+    mutating func cancel()
     /// Stops AVAssetWriter waiting on a drained stream.
     func endTrack(_ track: Int)
     mutating func write(_ packet: MediaPacket) async throws
@@ -78,6 +80,10 @@ struct MuxerSink: PacketSink {
     var muxer: any MediaMuxer
 
     func accepts(track: Int) -> Bool { true }
+
+    func checkHealth() throws {}
+
+    mutating func cancel() {}
 
     func endTrack(_ track: Int) {}
 
@@ -127,6 +133,16 @@ final class AssetWriterSink: PacketSink {
         inputs[track]?.input.isReadyForMoreMediaData ?? true
     }
 
+    func checkHealth() throws {
+        if writer.status == .failed || writer.status == .cancelled {
+            throw EngineError.encodeFailed(Self.describe(writer.error))
+        }
+    }
+
+    func cancel() {
+        writer.cancelWriting()
+    }
+
     func endTrack(_ track: Int) {
         inputs.removeValue(forKey: track)?.input.markAsFinished()
     }
@@ -136,7 +152,8 @@ final class AssetWriterSink: PacketSink {
             throw EngineError.encodeFailed("packet for unknown track \(packet.track)")
         }
         while !input.isReadyForMoreMediaData {
-            guard writer.status == .writing else { throw EngineError.encodeFailed(Self.describe(writer.error)) }
+            try checkHealth()
+            try Task.checkCancellation()
             try await Task.sleep(for: Self.readinessPoll)
         }
         let sample = try SampleBuffers.make(packet.payload, packet: packet, format: format)

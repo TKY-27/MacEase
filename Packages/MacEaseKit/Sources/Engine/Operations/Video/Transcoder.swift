@@ -80,18 +80,23 @@ enum Transcoder {
             if case .copy = plan.video { plan.transform ?? input.transform } else { .identity }
         var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform)
         var queues = primed
-        while let index = try await earliest(stages, queues, sink: sink) {
-            try Task.checkCancellation()
-            guard !queues[index].isEmpty else {
-                queues[index] = try await stages[index].pull()
-                continue
+        do {
+            while let index = try await earliest(stages, queues, sink: sink) {
+                try Task.checkCancellation()
+                guard !queues[index].isEmpty else {
+                    queues[index] = try await stages[index].pull()
+                    continue
+                }
+                // A blocked input must not starve others.
+                let packet = queues[index].removeFirst()
+                try await sink.write(rebased(packet, origin: origin))
+                progress(Double(packet.timestamp - start) / Double(max(progressEnd - start, 1)))
             }
-            // A blocked input must not starve others.
-            let packet = queues[index].removeFirst()
-            try await sink.write(rebased(packet, origin: origin))
-            progress(Double(packet.timestamp - start) / Double(max(progressEnd - start, 1)))
+            try await sink.finish()
+        } catch {
+            sink.cancel()
+            throw error
         }
-        try await sink.finish()
     }
 
     private static let readinessPoll = Duration.milliseconds(2)
@@ -101,6 +106,8 @@ enum Transcoder {
         _ stages: [any StreamStage], _ queues: [[MediaPacket]], sink: any PacketSink
     ) async throws -> Int? {
         while true {
+            try sink.checkHealth()
+            try Task.checkCancellation()
             var candidates: [(index: Int, time: Int64)] = []
             for index in stages.indices {
                 guard let time = queues[index].first?.timestamp ?? stages[index].nextTime else {

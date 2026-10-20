@@ -8,6 +8,7 @@ enum VideoEdits {
 
     static func run(_ operation: VideoOperation, url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try await MediaInput.open(url)
+        try input.requireSingleTracksForReplacement()
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         let plan: TranscodePlan
         do {

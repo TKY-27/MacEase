@@ -8291,6 +8291,17 @@
         }
       }
     },
+    "“%@” has multiple audio or video tracks. Replacement supports at most one of each.": {
+      "comment": "Replacement would discard additional tracks",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” には複数の音声トラックまたは映像トラックがあります。置き換えでは、それぞれ 1 つまでしか扱えません。"
+          }
+        }
+      }
+    },
     "“%@” is a folder.": {
       "localizations": {
         "ja": {

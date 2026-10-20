@@ -145,6 +145,28 @@ import Testing
         }
     }
 
+    @Test(arguments: [(0, 16), (16, 0), (16_385, 16), (16, 16_385), (Int.max, Int.max)])
+    func rejectsInvalidVideoDimensions(width: Int, height: Int) throws {
+        let url = temporaryURL("dimensions.mkv")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
+        let track = MediaTrack(number: 1, kind: .video(width: width, height: height), codec: .vp9)
+        var muxer = try MatroskaMuxer(url: url, tracks: [track], webm: false)
+        try muxer.finish()
+        #expect(throws: FormatError.corrupt("video dimensions out of range")) {
+            try MatroskaDemuxer(url: url)
+        }
+    }
+
+    @Test func acceptsMaximumVideoDimension() throws {
+        let url = temporaryURL("maximum-dimension.mkv")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
+        let track = MediaTrack(number: 1, kind: .video(width: 16_384, height: 1), codec: .vp9)
+        var muxer = try MatroskaMuxer(url: url, tracks: [track], webm: false)
+        try muxer.finish()
+        let demuxer = try MatroskaDemuxer(url: url)
+        #expect(demuxer.tracks[0].kind == track.kind)
+    }
+
     @Test func ebmlLacingWithOneFrameHasNoSizes() throws {
         let block: [UInt8] = [0x81, 0, 0, 0x06, 0, 5, 6, 7]
         #expect(try MatroskaDemuxer.unlace(block, from: 4, lacing: 3) == [[5, 6, 7]])
