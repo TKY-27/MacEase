@@ -102,7 +102,7 @@ public struct ImageSettings: Codable, Equatable, Sendable {
     public var avifQuality = 70
     public var jxlQuality = 85
     public var optimizePNGOnConvert = true
-    public var gifDithering = Dithering.floydSteinberg
+    public var gifDithering = Dithering.ordered
     public var strippedMetadata = Set(MetadataField.allCases)
     public var keepGPSOnPlatformPresets = false
     public var colorKey = RGBColor.white

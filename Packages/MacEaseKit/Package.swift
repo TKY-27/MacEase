@@ -24,7 +24,7 @@ let package = Package(
         .target(
             name: "Formats",
             dependencies: ["CNative"],
-            swiftSettings: strict,
+            swiftSettings: strict + [.unsafeFlags(["-O"])],
             linkerSettings: [.linkedLibrary("c++"), .linkedLibrary("z"), .linkedLibrary("bz2")]
         ),
         .target(

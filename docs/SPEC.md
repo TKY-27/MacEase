@@ -749,3 +749,6 @@ check.
   (ADR 0007). skcms listed with libjxl. Preset schema uses `formats`, an
   `aspect` range object and `quality`, which the default table needs. The
   `xcode-27` runner image is generally available.
+- 2026-10-20: In-house codec tuning recorded (ADR 0008): lightness-weighted
+  lossy PNG palettes, ordered dithering as the GIF default, LZW with deferred
+  clears and dictionary-aware dithering.
