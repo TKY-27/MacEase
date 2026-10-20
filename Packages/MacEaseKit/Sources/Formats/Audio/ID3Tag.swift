@@ -20,7 +20,12 @@ public enum ID3Tag {
             frames += frame("APIC", body)
         }
         guard !frames.isEmpty else { return Data() }
-        return Data("ID3".utf8) + Data(version) + Data([0]) + synchsafe(frames.count) + frames
+        var tag = Data("ID3".utf8)
+        tag.append(contentsOf: version)
+        tag.append(0)
+        tag.append(synchsafe(frames.count))
+        tag.append(frames)
+        return tag
     }
 
     private static func frame(_ id: String, _ body: Data) -> Data {
