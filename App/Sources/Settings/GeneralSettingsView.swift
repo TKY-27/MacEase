@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import MenuCatalog
 import ServiceManagement
 import SwiftUI
@@ -28,6 +29,10 @@ struct GeneralSettingsView: View {
                 }
                 launchAtLogin
                 notifications
+                Picker("When converting or editing:", selection: $store.settings.outputMode) {
+                    Text("Save as New File").tag(Engine.Settings.OutputMode.newFile)
+                    Text("Replace Original").tag(Engine.Settings.OutputMode.replace)
+                }
             }
             Section {
                 LabeledContent {

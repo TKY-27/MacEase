@@ -124,8 +124,29 @@ struct FileCommitter: Sendable {
         }
     }
 
-    func derive(_ output: StagedFile, nextTo original: URL) async throws -> Committed {
+    func derive(_ output: StagedFile, nextTo original: URL, expectedStamp: FileStamp? = nil) async throws -> Committed {
         try await OutputVerifier.verify(output)
+        if let expectedStamp {
+            return try Self.namingLock.withLock { _ in
+                while true {
+                    try Task.checkCancellation()
+                    let destination = try AvailableName.url(for: output.name, in: original.deletingLastPathComponent())
+                    do {
+                        return try coordinate(reading: original, writing: destination, options: .forReplacing) {
+                            source, final in
+                            guard try FileStamp(of: source) == expectedStamp else { throw Failure.changedSinceScan }
+                            let attributes = try FinderAttributes(of: source)
+                            try Task.checkCancellation()
+                            try attributes.apply(to: output.url)
+                            try FileManager.default.moveItem(at: output.url, to: final)
+                            return Committed(output: final, stamp: outputStamp(of: final))
+                        }
+                    } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                        continue
+                    }
+                }
+            }
+        }
         return try coordinatedMove(
             output.url, toAvailableNameIn: original.deletingLastPathComponent(), named: output.name)
     }
@@ -150,7 +171,7 @@ struct FileCommitter: Sendable {
             switch condition {
             case .duplicate(let kept):
                 do {
-                    return try coordinate(reading: kept, deleting: url) { retained, target in
+                    return try coordinate(reading: kept, writing: url, options: .forDeleting) { retained, target in
                         let key: Set<URLResourceKey> = [.fileResourceIdentifierKey]
                         let retainedID = try retained.resourceValues(forKeys: key).fileResourceIdentifier
                         let targetID = try target.resourceValues(forKeys: key).fileResourceIdentifier
@@ -393,13 +414,14 @@ struct FileCommitter: Sendable {
     }
 
     private func coordinate<Value>(
-        reading retained: URL, deleting target: URL, _ body: (URL, URL) throws -> Value
+        reading retained: URL, writing target: URL, options: NSFileCoordinator.WritingOptions,
+        _ body: (URL, URL) throws -> Value
     ) throws -> Value {
         var coordinationError: NSError?
         var result: Result<Value, any Error>?
         NSFileCoordinator(filePresenter: nil).coordinate(
             readingItemAt: retained, options: .withoutChanges,
-            writingItemAt: target, options: .forDeleting, error: &coordinationError
+            writingItemAt: target, options: options, error: &coordinationError
         ) { retained, target in
             result = Result {
                 try Task.checkCancellation()

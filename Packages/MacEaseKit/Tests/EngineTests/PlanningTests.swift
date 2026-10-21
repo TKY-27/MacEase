@@ -76,6 +76,23 @@ private func temporaryFolder() throws -> URL {
 }
 
 @Suite struct SettingsTests {
+    @Test func outputModeDefaultsAndMigration() throws {
+        #expect(Settings().outputMode == .newFile)
+        let legacy = Data(#"{"permanentDelete":true,"image":{"jpegQuality":42}}"#.utf8)
+        let migrated = try Settings.decode(legacy)
+        #expect(migrated.outputMode == .newFile)
+        #expect(migrated.permanentDelete)
+        #expect(migrated.image.jpegQuality == 42)
+        for mode in Settings.OutputMode.allCases {
+            var settings = migrated
+            settings.outputMode = mode
+            #expect(try Settings.decode(JSONEncoder().encode(settings)) == settings)
+        }
+        #expect(throws: DecodingError.self) {
+            try Settings.decode(Data(#"{"outputMode":"unknown"}"#.utf8))
+        }
+    }
+
     @Test func storedValuesSurviveKeysAddedLater() throws {
         var settings = Settings()
         settings.image.jpegQuality = 42

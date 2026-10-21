@@ -33,7 +33,8 @@ import VideoToolbox
     }
 
     private func run(_ compression: VideoCompression, on url: URL) async throws -> ItemOutcome {
-        let settings = Settings()
+        var settings = Settings()
+        settings.outputMode = .replace
         let support = FileManager.default.temporaryDirectory.appending(path: "VideoCompression-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: support) }
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)

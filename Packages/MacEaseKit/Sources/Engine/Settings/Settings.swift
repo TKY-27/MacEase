@@ -177,8 +177,14 @@ public struct IntelligenceSettings: Codable, Equatable, Sendable {
 }
 
 public struct Settings: Codable, Equatable, Sendable {
+    public enum OutputMode: String, Codable, CaseIterable, Sendable {
+        case newFile
+        case replace
+    }
+
     public static let defaultsKey = "settings"
 
+    public var outputMode = OutputMode.newFile
     public var permanentDelete = false
     /// Zero means half of the active processors.
     public var concurrencyLimit = 0
@@ -192,7 +198,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var platformPresets = PresetLibrary.bundledPresets
 
     private enum CodingKeys: String, CodingKey {
-        case permanentDelete, concurrencyLimit, image, video, audio, folder, text, intelligence
+        case outputMode, permanentDelete, concurrencyLimit, image, video, audio, folder, text, intelligence
     }
 
     public init() {}

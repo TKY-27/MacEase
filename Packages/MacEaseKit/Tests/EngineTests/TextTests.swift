@@ -10,6 +10,8 @@ private func runText(
     on inputs: [URL],
     settings: Settings = Settings()
 ) async throws -> BatchOutcome {
+    var settings = settings
+    settings.outputMode = .replace
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseTextSupport-\(UUID().uuidString)")
     let engine = try JobEngine(supportDirectory: support, concurrency: 2)
     let request = OperationRequest(op: op, options: .text(operation), inputs: inputs)

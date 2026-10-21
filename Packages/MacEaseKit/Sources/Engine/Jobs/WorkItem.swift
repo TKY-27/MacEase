@@ -10,6 +10,7 @@ public enum Lane: Sendable {
 public struct WorkItem: Sendable {
     public let inputs: [URL]
     public let lane: Lane
+    var newFileNaming: NewFileNaming?
     let body: @Sendable (ItemContext) async throws -> ItemResult
 
     public init(inputs: [URL], lane: Lane = .cpu, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {

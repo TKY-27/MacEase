@@ -35,6 +35,19 @@ public enum OperationPlanner {
 
     /// No file I/O; items validate when run.
     public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
+        let planned = plannedBatch(for: request, settings: settings)
+        guard settings.outputMode == .newFile, let naming = NewFileNaming(options: request.options) else {
+            return planned
+        }
+        let workItems = planned.items.map { workItem in
+            var configured = workItem
+            configured.newFileNaming = naming
+            return configured
+        }
+        return Batch(operation: planned.operation, items: workItems, reportsMultipleTexts: planned.reportsMultipleTexts)
+    }
+
+    private static func plannedBatch(for request: OperationRequest, settings: Settings) -> Batch {
         let inputs = targeted(request.inputs, kind: request.op.kind)
         switch request.options {
         case .checksum(let algorithm):

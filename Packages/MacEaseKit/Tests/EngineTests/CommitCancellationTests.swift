@@ -70,7 +70,8 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "renamed.txt").path))
     }
 
-    @Test func cancellationDuringDerivedCoordinationKeepsStagedOutput() async throws {
+    @Test(arguments: [false, true])
+    func cancellationDuringDerivedCoordinationKeepsStagedOutput(checksSource: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseDerive-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: root) } }
@@ -80,8 +81,9 @@ import Testing
         let staged = staging.appending(path: "derived.txt")
         try Data("original".utf8).write(to: original)
         try Data("derived".utf8).write(to: staged)
+        let expectedStamp = checksSource ? try FileStamp(of: original) : nil
         let pending = Mutex<Task<FileCommitter.Committed, any Error>?>(nil)
-        let presenter = CommitCancellationPresenter(url: staged) {
+        let presenter = CommitCancellationPresenter(url: checksSource ? original : staged) {
             pending.withLock { $0?.cancel() }
         }
         NSFileCoordinator.addFilePresenter(presenter)
@@ -90,7 +92,8 @@ import Testing
         let deriving = Task.detached {
             for await _ in ready.stream { break }
             return try await FileCommitter().derive(
-                StagedFile(url: staged, name: "derived.txt", check: .text(.utf8)), nextTo: original)
+                StagedFile(url: staged, name: "derived.txt", check: .text(.utf8)), nextTo: original,
+                expectedStamp: expectedStamp)
         }
         pending.withLock { $0 = deriving }
         ready.continuation.yield(())
@@ -170,6 +173,12 @@ private final class CommitCancellationPresenter: NSObject, NSFilePresenter, Send
         relinquished.withLock { $0 = true }
         cancel()
         writer(nil)
+    }
+
+    func relinquishPresentedItem(toReader reader: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        relinquished.withLock { $0 = true }
+        cancel()
+        reader(nil)
     }
 }
 

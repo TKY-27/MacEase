@@ -21,9 +21,11 @@ import UniformTypeIdentifiers
         let options = try #require(OperationPlanner.options(for: operation, preset: preset, settings: Settings()))
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .replace
         let batch = OperationPlanner.batch(
-            for: OperationRequest(op: operation, options: options, inputs: [url]), settings: Settings())
-        let result = await engine.run(batch, settings: Settings()) { _ in }
+            for: OperationRequest(op: operation, options: options, inputs: [url]), settings: settings)
+        let result = await engine.run(batch, settings: settings) { _ in }
         let outcome = try #require(result.outcomes.first)
         guard case .succeeded(let outputs, _) = outcome, let output = outputs.first else {
             Issue.record("expected success, got \(outcome)")

@@ -157,7 +157,9 @@ public final class JobEngine: Sendable {
         let outcome: (ItemOutcome, (String, TextDestination)?)
         do {
             try await history.checkAcceptingCommits()
-            outcome = try await commit(result, inputStamps: inputStamps, context: context, records: &records)
+            outcome = try await commit(
+                result, newFileNaming: workItem.newFileNaming, inputStamps: inputStamps,
+                context: context, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)
         } catch {
@@ -192,6 +194,7 @@ public final class JobEngine: Sendable {
 
     private func commit(
         _ result: ItemResult,
+        newFileNaming: NewFileNaming?,
         inputStamps: [URL: FileStamp],
         context: ItemContext,
         records: inout [CommitRecord]
@@ -199,10 +202,19 @@ public final class JobEngine: Sendable {
         var outputs: [URL] = []
         switch result {
         case .replace(let original, let output):
-            let cloneDirectory = try context.stagingDirectory(for: original)
             guard let expectedStamp = inputStamps[original] else {
                 throw EngineError.commitFailed("Replacement original was not an input")
             }
+            if let newFileNaming {
+                let named = StagedFile(
+                    url: output.url, name: newFileNaming.name(for: original, outputName: output.name),
+                    check: output.check)
+                let committed = try await committer.derive(named, nextTo: original, expectedStamp: expectedStamp)
+                records.append(.derived(output: committed.output.path, stamp: committed.stamp))
+                outputs.append(committed.output)
+                break
+            }
+            let cloneDirectory = try context.stagingDirectory(for: original)
             let replaced = try await committer.replace(
                 original: original, with: output, cloneDirectory: cloneDirectory, expectedStamp: expectedStamp)
             if let trashed = replaced.trashed {

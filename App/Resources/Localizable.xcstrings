@@ -3198,6 +3198,16 @@
         }
       }
     },
+    "Replace Original": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルを置き換える"
+          }
+        }
+      }
+    },
     "Replace with": {
       "localizations": {
         "ja": {
@@ -3391,6 +3401,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "実行"
+          }
+        }
+      }
+    },
+    "Save as New File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいファイルとして保存"
           }
         }
       }
@@ -4411,6 +4431,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "MacEase が起動していれば、Finder のメニューからすぐに操作できます。MacEase はメニューバーに常駐し、待機中はほとんどリソースを使用しません。"
+          }
+        }
+      }
+    },
+    "When converting or editing:": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換・編集したファイルの保存方法:"
           }
         }
       }

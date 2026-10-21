@@ -145,6 +145,8 @@ enum ImageFixtures {
     static func run(
         _ op: OperationID, _ operation: ImageOperation, inputs: [URL], settings: Settings = Settings()
     ) async throws -> BatchOutcome {
+        var settings = settings
+        settings.outputMode = .replace
         let request = OperationRequest(op: op, options: .image(operation), inputs: inputs)
         let batch = OperationPlanner.batch(for: request, settings: settings)
         return try await engine().run(batch, settings: settings) { _ in }

@@ -24,9 +24,11 @@ import Testing
     private func run(_ op: OperationID, options: OperationOptions, on url: URL) async throws -> ItemOutcome {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
         let engine = try JobEngine(supportDirectory: support, concurrency: 2)
+        var settings = Settings()
+        settings.outputMode = .replace
         let batch = OperationPlanner.batch(
-            for: OperationRequest(op: op, options: options, inputs: [url]), settings: Settings())
-        let outcome = await engine.run(batch, settings: Settings()) { _ in }
+            for: OperationRequest(op: op, options: options, inputs: [url]), settings: settings)
+        let outcome = await engine.run(batch, settings: settings) { _ in }
         return try #require(outcome.outcomes.first)
     }
 

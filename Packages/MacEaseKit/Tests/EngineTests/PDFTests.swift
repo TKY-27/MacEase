@@ -16,6 +16,8 @@ private func runPDF(
     on inputs: [URL],
     settings: Settings = Settings()
 ) async throws -> BatchOutcome {
+    var settings = settings
+    settings.outputMode = .replace
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEasePDFSupport-\(UUID().uuidString)")
     let engine = try JobEngine(supportDirectory: support, concurrency: 2)
     let request = OperationRequest(op: op, options: .pdf(operation), inputs: inputs)
@@ -99,6 +101,26 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
     let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
     let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
     return (image.width, image.height)
+}
+
+extension OutputModeTests {
+    @Test(arguments: [
+        (PDFOperation.rotate(degrees: 90), OperationID.pdfRotate, "paper_rotated.pdf"),
+        (.compress, .pdfCompress, "paper_compressed.pdf"),
+    ])
+    func pdfEditsKeepOriginal(operation: PDFOperation, op: OperationID, name: String) async throws {
+        let source = try makePDF("paper.pdf", pages: [.noise])
+        let request = OperationRequest(op: op, options: .pdf(operation), inputs: [source])
+        try await verifyNewFile(request, named: name) { output in
+            let document = try #require(PDFDocument(url: output))
+            #expect(document.pageCount == 1)
+            if op == .pdfRotate {
+                #expect(document.page(at: 0)?.rotation == 90)
+            } else {
+                #expect(try size(of: output) < size(of: source))
+            }
+        }
+    }
 }
 
 @Suite(.serialized) struct PDFTests {
