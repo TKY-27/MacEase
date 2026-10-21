@@ -11,6 +11,17 @@
         }
       }
     },
+    "%@ bytes": {
+      "comment": "Target size panel byte echo",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ バイト"
+          }
+        }
+      }
+    },
     "%@ failed": {
       "comment": "Notification title when every item failed",
       "localizations": {
@@ -40,6 +51,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@、%lld ページ目"
+          }
+        }
+      }
+    },
+    "%@: %@": {
+      "comment": "VoiceOver batch completion",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：%@"
+          }
+        }
+      }
+    },
+    "%@°": {
+      "comment": "Extra rotation angle",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@°"
           }
         }
       }
@@ -108,12 +141,13 @@
         }
       }
     },
-    "%lld of %lld shown": {
+    "%lld of %lld — %@": {
+      "comment": "Activity progress: done, total, current file",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$lld 件中 %1$lld 件を表示"
+            "value": "%lld / %lld — %@"
           }
         }
       }
@@ -170,23 +204,12 @@
       }
     },
     "About": {
-      "comment": "Settings tab",
+      "comment": "Settings page",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "このアプリについて"
-          }
-        }
-      }
-    },
-    "About %@": {
-      "comment": "Estimated file size",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "約 %@"
           }
         }
       }
@@ -221,13 +244,63 @@
         }
       }
     },
+    "Adds MacEase to Finder's right-click menu.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder の右クリックメニューに MacEase を追加します。"
+          }
+        }
+      }
+    },
+    "Adds one more angle to Rotate.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回転に角度を 1 つ追加します。"
+          }
+        }
+      }
+    },
     "Advanced": {
-      "comment": "Settings tab",
+      "comment": "Settings page",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "詳細"
+          }
+        }
+      }
+    },
+    "After cancel": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル後"
+          }
+        }
+      }
+    },
+    "After failure": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗後"
+          }
+        }
+      }
+    },
+    "After success": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成功後"
           }
         }
       }
@@ -238,16 +311,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "許可"
-          }
-        }
-      }
-    },
-    "Allow Notifications": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知を許可"
           }
         }
       }
@@ -298,6 +361,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "完全削除を許可しますか？"
+          }
+        }
+      }
+    },
+    "Also applies to images and GIFs compressed to a size.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズを指定して圧縮する画像と GIF にも適用されます。"
           }
         }
       }
@@ -354,6 +427,16 @@
         }
       }
     },
+    "Appears when a batch takes more than a moment. Finder keeps focus.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一括処理に少し時間がかかると表示されます。Finder が前面に表示されたままになります。"
+          }
+        }
+      }
+    },
     "Apple Intelligence features": {
       "localizations": {
         "ja": {
@@ -384,12 +467,12 @@
         }
       }
     },
-    "Applies to Discord, X, Instagram and the other presets.": {
+    "Applies to Compress items that target a size.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Discord、X、Instagram などのプリセットに適用されます。"
+            "value": "サイズを指定する圧縮項目に適用されます。"
           }
         }
       }
@@ -510,6 +593,16 @@
         }
       }
     },
+    "Auto": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
     "Automatic": {
       "localizations": {
         "ja": {
@@ -542,26 +635,6 @@
         }
       }
     },
-    "Automatic keeps the original audio when the format allows.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「自動」では、形式が対応していれば元の音声をそのまま使います。"
-          }
-        }
-      }
-    },
-    "Back": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "戻る"
-          }
-        }
-      }
-    },
     "Background": {
       "localizations": {
         "ja": {
@@ -583,43 +656,12 @@
         }
       }
     },
-    "Bitrate": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ビットレート"
-          }
-        }
-      }
-    },
-    "Blue": {
-      "comment": "Background output",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "青"
-          }
-        }
-      }
-    },
     "Blue background": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ブルーバック"
-          }
-        }
-      }
-    },
-    "Blur radius": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ぼかしの半径"
           }
         }
       }
@@ -631,17 +673,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ぼかし半径 (ピクセル)"
-          }
-        }
-      }
-    },
-    "Blurred": {
-      "comment": "Background output",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ぼかし"
           }
         }
       }
@@ -730,6 +761,17 @@
         }
       }
     },
+    "Choose the item again.": {
+      "comment": "Stale menu notification body",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目をもう一度選択してください。"
+          }
+        }
+      }
+    },
     "Choose…": {
       "localizations": {
         "ja": {
@@ -780,16 +822,6 @@
         }
       }
     },
-    "Clockwise; negative turns left.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "時計回りに回転します。負の値を指定すると左に回転します。"
-          }
-        }
-      }
-    },
     "Close": {
       "comment": "Window menu item",
       "localizations": {
@@ -801,22 +833,22 @@
         }
       }
     },
+    "Close automatically": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動的に閉じる"
+          }
+        }
+      }
+    },
     "Codec for re-encoding": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "再エンコード用のコーデック"
-          }
-        }
-      }
-    },
-    "Color": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "色"
           }
         }
       }
@@ -894,16 +926,6 @@
         }
       }
     },
-    "Continue": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "続ける"
-          }
-        }
-      }
-    },
     "Convert": {
       "comment": "Encoding panel action",
       "localizations": {
@@ -966,27 +988,6 @@
         }
       }
     },
-    "Corners": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "四隅"
-          }
-        }
-      }
-    },
-    "Create": {
-      "comment": "Subtitles panel action",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作成"
-          }
-        }
-      }
-    },
     "Create PDF": {
       "comment": "Page order action for images",
       "localizations": {
@@ -1044,27 +1045,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムの背景色"
-          }
-        }
-      }
-    },
-    "Custom color": {
-      "comment": "Background output",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カスタムの色"
-          }
-        }
-      }
-    },
-    "Customize…": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カスタマイズ…"
           }
         }
       }
@@ -1253,6 +1233,17 @@
         }
       }
     },
+    "Done.": {
+      "comment": "Activity status",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了しました。"
+          }
+        }
+      }
+    },
     "Drag to change the order. Press Delete to remove pages.": {
       "localizations": {
         "ja": {
@@ -1311,6 +1302,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集"
+          }
+        }
+      }
+    },
+    "Edit Presets…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセットを編集…"
           }
         }
       }
@@ -1377,6 +1378,17 @@
         }
       }
     },
+    "Enter a size such as 8 MB.": {
+      "comment": "Target size panel validation",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "8 MB などのサイズを入力してください。"
+          }
+        }
+      }
+    },
     "Enter page numbers between 1 and %lld, such as 1-3, 5.": {
       "localizations": {
         "ja": {
@@ -1387,12 +1399,23 @@
         }
       }
     },
-    "Estimated size": {
+    "Enter sizes from %lld to %lld pixels.": {
+      "comment": "Size panel validation",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "推定サイズ"
+            "value": "%lld px から %lld px までのサイズを入力してください。"
+          }
+        }
+      }
+    },
+    "Every setting and Finder menu choice returns to its default.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての設定と Finder メニューの選択項目がデフォルトに戻ります。"
           }
         }
       }
@@ -1440,13 +1463,12 @@
         }
       }
     },
-    "Extra angle (degrees): %@": {
-      "comment": "Editable extra rotation angle",
+    "Extra angle": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "追加角度 (度): %@"
+            "value": "追加の角度"
           }
         }
       }
@@ -1483,12 +1505,13 @@
         }
       }
     },
-    "File size": {
+    "Failed.": {
+      "comment": "Activity status",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルサイズ"
+            "value": "失敗しました。"
           }
         }
       }
@@ -1519,16 +1542,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "この方法で削除したファイルはゴミ箱に移動されず、復元できません。"
-          }
-        }
-      }
-    },
-    "Fill color": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "塗りつぶしの色"
           }
         }
       }
@@ -1565,12 +1578,23 @@
         }
       }
     },
-    "Finder menu items": {
+    "Finder Menu": {
+      "comment": "Settings page",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder のメニュー項目"
+            "value": "Finder メニュー"
+          }
+        }
+      }
+    },
+    "Finder extension": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder 拡張機能"
           }
         }
       }
@@ -1585,13 +1609,13 @@
         }
       }
     },
-    "Fit in box": {
-      "comment": "Resize mode",
+    "Finished with ^[%lld problem](inflect: true).": {
+      "comment": "Activity status",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "指定範囲に収める"
+            "value": "%lld 件の問題が発生して終了しました。"
           }
         }
       }
@@ -1603,17 +1627,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Floyd–Steinberg"
-          }
-        }
-      }
-    },
-    "Folder Access": {
-      "comment": "Onboarding step title",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダへのアクセス"
           }
         }
       }
@@ -1639,7 +1652,7 @@
       }
     },
     "Folders": {
-      "comment": "Settings tab",
+      "comment": "Settings page",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1742,6 +1755,16 @@
         }
       }
     },
+    "Full Disk Access…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルディスクアクセス…"
+          }
+        }
+      }
+    },
     "GIF": {
       "comment": "Preset section",
       "localizations": {
@@ -1764,23 +1787,12 @@
       }
     },
     "General": {
-      "comment": "Settings tab",
+      "comment": "Settings page",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "一般"
-          }
-        }
-      }
-    },
-    "Get Notified When Files Are Ready": {
-      "comment": "Onboarding step title",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルの処理完了を通知"
           }
         }
       }
@@ -1791,27 +1803,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "GitHub"
-          }
-        }
-      }
-    },
-    "Goal": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目標"
-          }
-        }
-      }
-    },
-    "Green": {
-      "comment": "Background output",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "緑"
           }
         }
       }
@@ -1838,7 +1829,7 @@
       }
     },
     "Height": {
-      "comment": "Resize mode",
+      "comment": "Size panel field",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1848,12 +1839,33 @@
         }
       }
     },
-    "Height (pixels)": {
+    "Hidden items stay available in Settings. Unsupported items never appear.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "高さ (ピクセル)"
+            "value": "非表示の項目は設定で引き続き利用できます。対応していない項目は表示されません。"
+          }
+        }
+      }
+    },
+    "Hide All": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて非表示"
+          }
+        }
+      }
+    },
+    "Hide items in %@": {
+      "comment": "Finder Menu tree collapse button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の項目を非表示"
           }
         }
       }
@@ -1864,6 +1876,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "履歴"
+          }
+        }
+      }
+    },
+    "History and edited presets are kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴と編集したプリセットは保持されます。"
           }
         }
       }
@@ -1973,16 +1995,6 @@
         }
       }
     },
-    "Keep aspect ratio": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "縦横比を保持"
-          }
-        }
-      }
-    },
     "Keep location for platform presets": {
       "localizations": {
         "ja": {
@@ -1999,16 +2011,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder のメニューからすぐに操作できます。"
-          }
-        }
-      }
-    },
-    "Key color": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "透過する色"
           }
         }
       }
@@ -2043,23 +2045,13 @@
         }
       }
     },
-    "Launch MacEase at login": {
+    "Largest selected file: %@": {
+      "comment": "Target size panel hint",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ログイン時に MacEase を起動"
-          }
-        }
-      }
-    },
-    "Launch at Login": {
-      "comment": "Onboarding step title",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ログイン時に起動"
+            "value": "選択したファイルの最大サイズ：%@"
           }
         }
       }
@@ -2080,6 +2072,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "ログイン時の起動設定を変更できませんでした: %@"
+          }
+        }
+      }
+    },
+    "Leave one field empty to keep proportions. Fill both to fit inside.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縦横比を保つには、どちらか一方のフィールドを空欄にしてください。枠内に収めるには、両方に入力してください。"
           }
         }
       }
@@ -2141,27 +2143,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ログ"
-          }
-        }
-      }
-    },
-    "Long edge": {
-      "comment": "Resize mode",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "長辺"
-          }
-        }
-      }
-    },
-    "Long edge (pixels)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "長辺 (ピクセル)"
           }
         }
       }
@@ -2281,6 +2262,17 @@
         }
       }
     },
+    "MacEase Activity": {
+      "comment": "Activity window title",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase のアクティビティ"
+          }
+        }
+      }
+    },
     "MacEase could not save undo history.": {
       "comment": "Explains why quitting was cancelled",
       "localizations": {
@@ -2322,33 +2314,12 @@
         }
       }
     },
-    "MacEase tells you when a batch finishes, with buttons to undo it or show the results. Without notifications, results appear only in the menu bar.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一括処理が完了すると、MacEase が通知します。通知のボタンから操作を元に戻したり、結果を表示したりできます。通知がオフの場合、結果はメニューバーにのみ表示されます。"
-          }
-        }
-      }
-    },
     "MacEase works best from the Applications folder. Quit MacEase, drag it into Applications, then open it from there.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "MacEase はアプリケーションフォルダから開くことをおすすめします。MacEase を終了し、アプリケーションフォルダにドラッグしてから、そこから開いてください。"
-          }
-        }
-      }
-    },
-    "Main subject": {
-      "comment": "Background mask source",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "主な被写体"
           }
         }
       }
@@ -2410,6 +2381,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "最大幅 (ピクセル)"
+          }
+        }
+      }
+    },
+    "Menu Items": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニュー項目"
           }
         }
       }
@@ -2654,37 +2635,6 @@
         }
       }
     },
-    "Notifications are off.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知はオフです。"
-          }
-        }
-      }
-    },
-    "Notifications are on.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知はオンです。"
-          }
-        }
-      }
-    },
-    "OCR & AI": {
-      "comment": "Settings tab",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OCR と AI"
-          }
-        }
-      }
-    },
     "OCR Languages": {
       "localizations": {
         "ja": {
@@ -2705,12 +2655,13 @@
         }
       }
     },
-    "Only part of the video": {
+    "On": {
+      "comment": "Welcome checklist state",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "動画の一部のみ"
+            "value": "オン"
           }
         }
       }
@@ -2741,26 +2692,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "コンソールを開く"
-          }
-        }
-      }
-    },
-    "Open Extension Settings": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拡張機能の設定を開く"
-          }
-        }
-      }
-    },
-    "Open Full Disk Access Settings": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フルディスクアクセスの設定を開く"
           }
         }
       }
@@ -2802,6 +2733,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定を開く"
+          }
+        }
+      }
+    },
+    "Open Settings…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を開く…"
           }
         }
       }
@@ -2951,38 +2892,6 @@
         }
       }
     },
-    "People": {
-      "comment": "Background mask source",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "人物"
-          }
-        }
-      }
-    },
-    "Percent": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パーセント"
-          }
-        }
-      }
-    },
-    "Percentage": {
-      "comment": "Resize mode",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "割合"
-          }
-        }
-      }
-    },
     "Permanently deleted files cannot be restored.": {
       "localizations": {
         "ja": {
@@ -3024,16 +2933,6 @@
         }
       }
     },
-    "Pick from Screen": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面から色を選択"
-          }
-        }
-      }
-    },
     "Plan": {
       "localizations": {
         "ja": {
@@ -3054,23 +2953,12 @@
         }
       }
     },
-    "Platform": {
+    "Platform presets": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プラットフォーム"
-          }
-        }
-      }
-    },
-    "Please choose the item again.": {
-      "comment": "Stale menu notification body",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "もう一度項目を選んでください。"
+            "value": "プラットフォームプリセット"
           }
         }
       }
@@ -3106,17 +2994,6 @@
       }
     },
     "Preset": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プリセット"
-          }
-        }
-      }
-    },
-    "Presets": {
-      "comment": "Settings tab",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -3282,16 +3159,6 @@
         }
       }
     },
-    "Remove location (GPS)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "位置情報 (GPS) を削除"
-          }
-        }
-      }
-    },
     "Rename": {
       "comment": "Rename panel action",
       "localizations": {
@@ -3344,18 +3211,8 @@
         }
       }
     },
-    "Replace Background": {
-      "comment": "Background panel action",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "背景を置き換え"
-          }
-        }
-      }
-    },
-    "Replace Original": {
+    "Replace original": {
+      "comment": "Output mode",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -3427,6 +3284,36 @@
         }
       }
     },
+    "Reset": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "Reset All Settings…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての設定をリセット…"
+          }
+        }
+      }
+    },
+    "Reset all settings?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての設定をリセットしますか？"
+          }
+        }
+      }
+    },
     "Resize": {
       "comment": "Size panel action",
       "localizations": {
@@ -3434,16 +3321,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイズを変更"
-          }
-        }
-      }
-    },
-    "Resize by": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイズの指定方法"
           }
         }
       }
@@ -3488,16 +3365,6 @@
         }
       }
     },
-    "Result for “%@”": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” の変更結果"
-          }
-        }
-      }
-    },
     "Results": {
       "comment": "Menu bar section title",
       "localizations": {
@@ -3509,13 +3376,23 @@
         }
       }
     },
-    "Rotate": {
-      "comment": "Angle panel action",
+    "Results with Undo when a batch finishes.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "回転"
+            "value": "一括処理が終わると、「取り消す」付きで結果を通知します。"
+          }
+        }
+      }
+    },
+    "Right-click and done.": {
+      "comment": "Welcome headline",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックするだけ。"
           }
         }
       }
@@ -3574,7 +3451,8 @@
         }
       }
     },
-    "Save as New File": {
+    "Save as new file": {
+      "comment": "Output mode",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -3647,6 +3525,37 @@
         }
       }
     },
+    "Select files in Finder, right-click, and choose MacEase to convert, compress, resize and more.": {
+      "comment": "Welcome description",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder でファイルを選択して右クリックし、MacEase を選ぶと、変換、圧縮、サイズ変更などを行えます。"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
+          }
+        }
+      }
+    },
+    "Settings were reset.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定をリセットしました。"
+          }
+        }
+      }
+    },
     "Settings…": {
       "comment": "Menu bar item",
       "localizations": {
@@ -3668,6 +3577,17 @@
         }
       }
     },
+    "Show %@ results in Finder": {
+      "comment": "Activity reveal button for VoiceOver",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder で %@ の結果を表示"
+          }
+        }
+      }
+    },
     "Show All": {
       "localizations": {
         "ja": {
@@ -3678,33 +3598,34 @@
         }
       }
     },
-    "Show Onboarding Again": {
+    "Show All Problems…": {
+      "comment": "Activity button",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "初期設定の案内を再表示"
+            "value": "すべての問題を表示…"
           }
         }
       }
     },
-    "Show a summary when a batch finishes.": {
+    "Show Progress": {
+      "comment": "Menu bar item",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一括処理が完了すると、概要を表示します。"
+            "value": "進行状況を表示"
           }
         }
       }
     },
-    "Show extra rotation angle": {
-      "comment": "Extra rotation preset visibility",
+    "Show Welcome Window…": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "追加の回転角度を表示"
+            "value": "ようこそウインドウを表示…"
           }
         }
       }
@@ -3730,6 +3651,27 @@
         }
       }
     },
+    "Show items in %@": {
+      "comment": "Finder Menu tree expand button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の項目を表示"
+          }
+        }
+      }
+    },
+    "Show progress window": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行状況ウインドウを表示"
+          }
+        }
+      }
+    },
     "Size": {
       "localizations": {
         "ja": {
@@ -3740,22 +3682,22 @@
         }
       }
     },
-    "Size (MB)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイズ (MB)"
-          }
-        }
-      }
-    },
     "Size by Type": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "種類別のサイズ"
+          }
+        }
+      }
+    },
+    "Size limits for Discord, X, Instagram and other Compress items.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discord、X、Instagram などの圧縮項目のサイズ制限です。"
           }
         }
       }
@@ -3895,13 +3837,24 @@
         }
       }
     },
-    "Step %lld of %lld": {
-      "comment": "Onboarding progress",
+    "Stop": {
+      "comment": "Activity button",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "全 %2$lld ステップのうち %1$lld ステップ目"
+            "value": "停止"
+          }
+        }
+      }
+    },
+    "Stop %@": {
+      "comment": "Activity stop button for VoiceOver",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を停止"
           }
         }
       }
@@ -4020,6 +3973,16 @@
         }
       }
     },
+    "Target size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標サイズ"
+          }
+        }
+      }
+    },
     "Target-Size Compression": {
       "localizations": {
         "ja": {
@@ -4031,12 +3994,23 @@
       }
     },
     "Text": {
-      "comment": "Settings tab",
+      "comment": "Settings page",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "テキスト"
+          }
+        }
+      }
+    },
+    "Text Recognition & AI": {
+      "comment": "Settings page",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト認識と AI"
           }
         }
       }
@@ -4061,42 +4035,12 @@
         }
       }
     },
-    "The Finder extension is off.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finder 拡張機能はオフです。"
-          }
-        }
-      }
-    },
-    "The Finder extension is on.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finder 拡張機能はオンです。"
-          }
-        }
-      }
-    },
     "The Finder menu now uses a new token.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "Finder のメニューで使用するトークンを更新しました。"
-          }
-        }
-      }
-    },
-    "The MacEase item in Finder's right-click menu comes from a Finder extension. Turn it on in System Settings.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finder の右クリックメニューにある MacEase の項目は、Finder 拡張機能によって表示されます。システム設定でオンにしてください。"
           }
         }
       }
@@ -4118,16 +4062,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "SDR 出力には Dolby Vision のダイナミックメタデータが含まれません。"
-          }
-        }
-      }
-    },
-    "The first time MacEase works on files in Desktop, Documents, Downloads, or on an external or network volume, macOS asks once for access. Allow it to continue. To skip these questions, give MacEase Full Disk Access.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MacEase がデスクトップ、書類、ダウンロード、外部ボリューム、ネットワークボリューム内のファイルを初めて処理する際、macOS がアクセスの許可を求めます。続けるには許可してください。確認を省略するには、MacEase にフルディスクアクセスを許可してください。"
           }
         }
       }
@@ -4168,6 +4102,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "元のファイルをゴミ箱に移動できなかったため、両方のファイルを残しました。"
+          }
+        }
+      }
+    },
+    "The original moves to the Trash. Undo puts it back.": {
+      "comment": "Output mode detail",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルはゴミ箱に移動します。「取り消す」で元に戻せます。"
           }
         }
       }
@@ -4240,6 +4185,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "プリセットを保存できませんでした: %@"
+          }
+        }
+      }
+    },
+    "The result appears next to the original, which stays untouched.": {
+      "comment": "Output mode detail",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果は元のファイルを変更せず、その隣に保存されます。"
           }
         }
       }
@@ -4368,16 +4324,6 @@
         }
       }
     },
-    "Tolerance": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許容範囲"
-          }
-        }
-      }
-    },
     "Top level only": {
       "localizations": {
         "ja": {
@@ -4409,33 +4355,12 @@
         }
       }
     },
-    "Translate": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "翻訳"
-          }
-        }
-      }
-    },
     "Translate into": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "翻訳先の言語"
-          }
-        }
-      }
-    },
-    "Transparent": {
-      "comment": "Background output",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "透明"
           }
         }
       }
@@ -4480,13 +4405,23 @@
         }
       }
     },
-    "Turn On the Finder Extension": {
-      "comment": "Onboarding step title",
+    "Turn On Finder Extension…": {
+      "comment": "Menu bar item",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder 拡張機能をオンにする"
+            "value": "Finder 拡張機能をオンにする…"
+          }
+        }
+      }
+    },
+    "Turn On…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンにする…"
           }
         }
       }
@@ -4509,6 +4444,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "取り消す"
+          }
+        }
+      }
+    },
+    "Undo %@": {
+      "comment": "Activity undo button for VoiceOver",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を取り消す"
           }
         }
       }
@@ -4681,18 +4627,8 @@
         }
       }
     },
-    "Video format": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "動画の形式"
-          }
-        }
-      }
-    },
     "Welcome to MacEase": {
-      "comment": "Onboarding window title",
+      "comment": "Welcome window title",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -4702,22 +4638,22 @@
         }
       }
     },
-    "When MacEase is already running, the Finder menu responds instantly. MacEase stays in the menu bar and uses almost no resources while idle.": {
+    "When Converting or Editing": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase が起動していれば、Finder のメニューからすぐに操作できます。MacEase はメニューバーに常駐し、待機中はほとんどリソースを使用しません。"
+            "value": "変換または編集時"
           }
         }
       }
     },
-    "When converting or editing:": {
+    "When converting or editing": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "変換・編集したファイルの保存方法:"
+            "value": "変換または編集時"
           }
         }
       }
@@ -4743,7 +4679,7 @@
       }
     },
     "Width": {
-      "comment": "Resize mode",
+      "comment": "Size panel field",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -4790,6 +4726,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "このプリセットへの変更内容は削除されます。"
+          }
+        }
+      }
+    },
+    "macOS asks once per protected folder, like Desktop or Downloads, the first time MacEase works there.": {
+      "comment": "Welcome folder access note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase が保護対象フォルダ（デスクトップやダウンロードなど）で初めて動作するときに、macOS が一度だけ確認します。"
           }
         }
       }
@@ -9009,6 +8956,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "ネットワークボリューム"
+          }
+        }
+      }
+    },
+    "px": {
+      "comment": "Pixel unit after a size field",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "px"
           }
         }
       }
