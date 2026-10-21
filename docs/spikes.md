@@ -122,6 +122,17 @@ zip, 2 h Opus, 400 MB UTF-8 log, 200 MB JSON.
 | History writes | Each Trash-backed record rewrites the whole `history.json`: 1,000 removals took 3 s and wrote about 118 MB; 3,000 took 17 s and about 1 GB. |
 | Temporary files | Each benchmark run left its sparse image folder and support folders; Formats tests left about 11 files per run (714 files, 16 MB found). |
 
+## HDR video edit lists (2026-10-22)
+
+Environment: macOS 27.0.1, Apple Silicon, FFmpeg 9.0.2 with x265.
+
+| Question | Result |
+| --- | --- |
+| Why did x265 HLG/PQ MOV and MP4 files refuse SDR conversion? | FFmpeg writes an edit list that starts the media at the B-frame delay (1024/12288 s for 24 fps). Passthrough `AVAssetReaderTrackOutput` samples keep media presentation times, while decoded frames use edited track times, so no packet duration matched the first frame. |
+| Which edit lists can SDR conversion map? | Non-empty segments at rate 1 that share one media-to-track offset. Empty edits and scaled edits still refuse with `hdrConversionUnsupported`. |
+| Does AVFoundation read in-band HDR10 SEI? | Yes. x265 mastering display and content light level SEI appear as `MasteringDisplayColorVolume` and `ContentLightLevelInfo` format extensions in MP4. |
+| Can SDR conversion read Matroska HEVC? | No. `AVURLAsset` reports "Cannot Open" for MKV before classification. |
+
 ## Release checklist (manual, run on macOS 26.x and 27.x)
 
 1. Install the DMG on a clean user account, clear quarantine with Open Anyway,

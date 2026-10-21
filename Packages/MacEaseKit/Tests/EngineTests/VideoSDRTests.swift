@@ -37,6 +37,15 @@ import VideoToolbox
     private static let temporalVariationLimit = 4.0
     private static let repeatedPatternSeparation = 10
     private static let fixtureReadinessTimeout = Duration.seconds(30)
+    private static let x265FrameCount = 24
+    private static let x265FrameRate = 24.0
+    private static let timestampTolerance = 1e-6
+    private static let editGap = CMTime(value: 1, timescale: 2)
+
+    enum TimelineEdit: CaseIterable {
+        case leadingGap
+        case slowMotion
+    }
 
     enum Transfer: String, CaseIterable {
         case pq
@@ -53,6 +62,13 @@ import VideoToolbox
             switch self {
             case .pq: kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
             case .hlg: kCVImageBufferTransferFunction_ITU_R_2100_HLG
+            }
+        }
+
+        var x265Fixture: String {
+            switch self {
+            case .pq: "x265-pq.mp4"
+            case .hlg: "x265-hlg.mov"
             }
         }
     }
@@ -380,6 +396,69 @@ import VideoToolbox
         return try grayLevels(output)
     }
 
+    private func x265Source(_ transfer: Transfer, in directory: URL) throws -> URL {
+        let resource = try #require(
+            Bundle.module.url(forResource: transfer.x265Fixture, withExtension: nil, subdirectory: "Resources"))
+        let source = directory.appending(path: transfer.x265Fixture)
+        try FileManager.default.copyItem(at: resource, to: source)
+        return source
+    }
+
+    private func expectBT709(_ url: URL) async throws {
+        let track = try #require(try await AVURLAsset(url: url).loadTracks(withMediaType: .video).first)
+        let format = try #require(try await track.load(.formatDescriptions).first)
+        let expected: [(CFString, CFString)] = [
+            (kCMFormatDescriptionExtension_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2),
+            (kCMFormatDescriptionExtension_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2),
+            (kCMFormatDescriptionExtension_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2),
+        ]
+        for (key, value) in expected {
+            #expect(CMFormatDescriptionGetExtension(format, extensionKey: key) as? String == value as String)
+        }
+    }
+
+    private func expectToneMapped(_ source: URL, to output: URL, frameCount: Int) async throws {
+        let hdrFrames = try await samples(
+            source,
+            settings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            ]
+        ).sorted { CMTimeCompare($0.presentationTimeStamp, $1.presentationTimeStamp) < 0 }
+        let sdrFrames = try await samples(
+            output,
+            settings: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                AVVideoColorPropertiesKey: [
+                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+                ],
+            ]
+        ).sorted { CMTimeCompare($0.presentationTimeStamp, $1.presentationTimeStamp) < 0 }
+        #expect(hdrFrames.count == sdrFrames.count)
+        var frameLevels: [[Double]] = []
+        for (hdr, sdr) in zip(hdrFrames, sdrFrames) {
+            let frame = try #require(CMSampleBufferGetImageBuffer(sdr))
+            let actual = try grayLevels(frame)
+            let reference = try referenceLevels(hdr)
+            let errors = zip(actual, reference).map { abs($0 - $1) }
+            #expect(errors.allSatisfy { $0 <= Self.referenceMaximumError })
+            #expect(errors.reduce(0, +) / Double(errors.count) <= Self.referenceMeanError)
+            #expect(zip(actual, actual.dropFirst()).allSatisfy { $1 + Self.monotonicRoundingAllowance >= $0 })
+            #expect(actual[7] - actual[6] > 2)
+            #expect(actual[7] < 252)
+            #expect(try neutralDeltaE(frame).allSatisfy { $0 <= Self.neutralDeltaELimit })
+            frameLevels.append(actual)
+        }
+        try #require(frameLevels.count == frameCount)
+        for index in 0..<(frameLevels.count - Self.repeatedPatternSeparation) {
+            #expect(
+                zip(frameLevels[index], frameLevels[index + Self.repeatedPatternSeparation]).allSatisfy {
+                    abs($0 - $1) <= Self.temporalVariationLimit
+                })
+        }
+    }
+
     @Test(arguments: Transfer.allCases) func toneMapsTaggedMain10Video(transfer: Transfer) async throws {
         let directory = try folder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
@@ -403,17 +482,9 @@ import VideoToolbox
         try await OutputVerifier.verify(staged)
         #expect(try Data(contentsOf: source) == sourceBytes)
 
+        try await expectBT709(staged.url)
         let asset = AVURLAsset(url: staged.url)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
-        let format = try #require(try await track.load(.formatDescriptions).first)
-        let expected: [(CFString, CFString)] = [
-            (kCMFormatDescriptionExtension_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2),
-            (kCMFormatDescriptionExtension_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2),
-            (kCMFormatDescriptionExtension_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2),
-        ]
-        for (key, value) in expected {
-            #expect(CMFormatDescriptionGetExtension(format, extensionKey: key) as? String == value as String)
-        }
         #expect(try await track.load(.preferredTransform) == Self.mirroredQuarterTurn)
         let metadata = try await asset.load(.metadata)
         var titles: [String] = []
@@ -441,45 +512,84 @@ import VideoToolbox
             #expect(CMTimeCompare(before.duration, after.duration) == 0)
         }
 
-        let hdrFrames = try await samples(
-            source,
-            settings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-            ]
-        ).sorted { CMTimeCompare($0.presentationTimeStamp, $1.presentationTimeStamp) < 0 }
-        let sdrFrames = try await samples(
-            staged.url,
-            settings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                AVVideoColorPropertiesKey: [
-                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
-                ],
-            ]
-        ).sorted { CMTimeCompare($0.presentationTimeStamp, $1.presentationTimeStamp) < 0 }
-        #expect(hdrFrames.count == sdrFrames.count)
-        var frameLevels: [[Double]] = []
-        for (hdr, sdr) in zip(hdrFrames, sdrFrames) {
-            let frame = try #require(CMSampleBufferGetImageBuffer(sdr))
-            let actual = try grayLevels(frame)
-            let reference = try referenceLevels(hdr)
-            let errors = zip(actual, reference).map { abs($0 - $1) }
-            #expect(errors.allSatisfy { $0 <= Self.referenceMaximumError })
-            #expect(errors.reduce(0, +) / Double(errors.count) <= Self.referenceMeanError)
-            #expect(zip(actual, actual.dropFirst()).allSatisfy { $1 + Self.monotonicRoundingAllowance >= $0 })
-            #expect(actual[7] - actual[6] > 2)
-            #expect(actual[7] < 252)
-            #expect(try neutralDeltaE(frame).allSatisfy { $0 <= Self.neutralDeltaELimit })
-            frameLevels.append(actual)
+        try await expectToneMapped(source, to: staged.url, frameCount: Self.frameTimes.count)
+    }
+
+    @Test(arguments: Transfer.allCases) func toneMapsReorderedX265Video(transfer: Transfer) async throws {
+        let directory = try folder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
+        let source = try x265Source(transfer, in: directory)
+        let sourceTrack = try #require(try await AVURLAsset(url: source).loadTracks(withMediaType: .video).first)
+        let mapping = try #require(try await sourceTrack.load(.segments).first?.timeMapping)
+        // B-frame delay starts media after the edit.
+        #expect(CMTimeCompare(mapping.source.start, mapping.target.start) > 0)
+        let sourceFormat = try #require(try await sourceTrack.load(.formatDescriptions).first)
+        #expect(
+            CMFormatDescriptionGetExtension(sourceFormat, extensionKey: kCMFormatDescriptionExtension_TransferFunction)
+                as? String == transfer.coreVideoValue as String)
+        if transfer == .pq {
+            for key in [
+                kCMFormatDescriptionExtension_MasteringDisplayColorVolume,
+                kCMFormatDescriptionExtension_ContentLightLevelInfo,
+            ] {
+                #expect(CMFormatDescriptionGetExtension(sourceFormat, extensionKey: key) != nil)
+            }
         }
-        try #require(frameLevels.count == Self.frameTimes.count)
-        for index in 0..<(frameLevels.count - Self.repeatedPatternSeparation) {
+        #expect(try await HDRClassification.video(at: source) == .unknownHDR)
+        let sourceBytes = try Data(contentsOf: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: directory), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .replace(let original, let staged) = try await VideoSDR.run(url: source, context: context) else {
+            Issue.record("expected staged SDR video")
+            return
+        }
+        #expect(original == source)
+        guard case .sdrVideo = staged.check else {
+            Issue.record("expected strict SDR output check")
+            return
+        }
+        try await OutputVerifier.verify(staged)
+        #expect(try Data(contentsOf: source) == sourceBytes)
+        try await expectBT709(staged.url)
+
+        let packets = try await samples(staged.url, settings: nil).sorted {
+            CMTimeCompare($0.presentationTimeStamp, $1.presentationTimeStamp) < 0
+        }
+        try #require(packets.count == Self.x265FrameCount)
+        for (index, packet) in packets.enumerated() {
             #expect(
-                zip(frameLevels[index], frameLevels[index + Self.repeatedPatternSeparation]).allSatisfy {
-                    abs($0 - $1) <= Self.temporalVariationLimit
-                })
+                abs(packet.presentationTimeStamp.seconds - Double(index) / Self.x265FrameRate) < Self.timestampTolerance
+            )
+            #expect(abs(packet.duration.seconds - 1 / Self.x265FrameRate) < Self.timestampTolerance)
         }
+        try await expectToneMapped(source, to: staged.url, frameCount: Self.x265FrameCount)
+    }
+
+    @Test(arguments: TimelineEdit.allCases) func unmappableEditsRefuseBeforeWriting(edit: TimelineEdit) async throws {
+        let directory = try folder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
+        let movie = AVMutableMovie(url: try x265Source(.hlg, in: directory))
+        let track = try #require(try await movie.loadTracks(withMediaType: .video).first)
+        let duration = try await movie.load(.duration)
+        switch edit {
+        case .leadingGap: track.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: Self.editGap))
+        case .slowMotion:
+            track.scaleTimeRange(
+                CMTimeRange(start: .zero, duration: duration), toDuration: CMTimeMultiply(duration, multiplier: 2))
+        }
+        let edited = directory.appending(path: "edited.mov")
+        try movie.writeHeader(to: edited, fileType: .mov, options: .addMovieHeaderToDestination)
+        let editedTrack = try #require(try await AVURLAsset(url: edited).loadTracks(withMediaType: .video).first)
+        #expect(try await editedTrack.load(.segments).count == (edit == .leadingGap ? 2 : 1))
+        let bytes = try Data(contentsOf: edited)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: directory), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.hdrConversionUnsupported) {
+            try await VideoSDR.run(url: edited, context: context)
+        }
+        #expect(try Data(contentsOf: edited) == bytes)
     }
 
     @Test func audioPacketsSurviveHDRConversion() async throws {

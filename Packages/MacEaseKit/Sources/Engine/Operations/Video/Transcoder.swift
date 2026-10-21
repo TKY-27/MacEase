@@ -179,7 +179,7 @@ enum Transcoder {
             try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end)
         case .toneMapToSDR(let encoding):
-            try SDRFrameEncodeStage(input: input, encoding: encoding)
+            try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }
     }
 

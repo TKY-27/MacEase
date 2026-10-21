@@ -157,6 +157,7 @@ final class SDRFrameEncodeStage: StreamStage {
     static let maximumPendingFrames = 8
     private let reader: AssetTrackReader
     private let timing: AssetTrackReader
+    private let timingOffset: CMTime
     private var sourceDurations: [Int64: Int64] = [:]
     private var encoder: any VideoFrameEncoder
     private var durations: [Int64: Int64] = [:]
@@ -164,10 +165,11 @@ final class SDRFrameEncodeStage: StreamStage {
     private var lastTimestamp: Int64?
     private(set) var nextTime: Int64? = 0
 
-    init(input: MediaInput, encoding: VideoEncoding) throws {
+    init(input: MediaInput, encoding: VideoEncoding) async throws {
         guard case .asset(let asset, let track?, _) = input.backend else {
             throw EngineError.hdrConversionUnsupported
         }
+        timingOffset = try await Self.editOffset(of: track)
         reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .sdrFrames)
         timing = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .packets)
         encoder = try VideoEncoders.make(encoding, track: 1)
@@ -202,16 +204,29 @@ final class SDRFrameEncodeStage: StreamStage {
         return try timed(encoder.encode(image, timestamp: timestamp))
     }
 
+    /// Packets use media time; frames use edits.
+    private static func editOffset(of track: AVAssetTrack) async throws -> CMTime {
+        let mappings = try await track.load(.segments).map(\.timeMapping)
+        guard let first = mappings.first else { throw EngineError.hdrConversionUnsupported }
+        let offset = CMTimeSubtract(first.target.start, first.source.start)
+        for mapping in mappings {
+            guard mapping.source.start.isNumeric, mapping.target.start.isNumeric,
+                CMTimeCompare(mapping.source.duration, mapping.target.duration) == 0,
+                CMTimeCompare(CMTimeSubtract(mapping.target.start, mapping.source.start), offset) == 0
+            else { throw EngineError.hdrConversionUnsupported }
+        }
+        return offset
+    }
+
     // Decoded frames lack durations; packets carry them.
     private func sourceDuration(at timestamp: Int64) async throws -> Int64 {
         while sourceDurations[timestamp] == nil {
             guard let sample = try await timing.nextSample() else { throw EngineError.hdrConversionUnsupported }
             guard CMSampleBufferGetNumSamples(sample) > 0 else { continue }
             for info in try sample.sampleTimingInfos() {
-                guard info.presentationTimeStamp.isNumeric, info.duration.isNumeric else {
-                    throw EngineError.hdrConversionUnsupported
-                }
-                let presentation = SampleBuffers.nanoseconds(info.presentationTimeStamp)
+                let edited = CMTimeAdd(info.presentationTimeStamp, timingOffset)
+                guard edited.isNumeric, info.duration.isNumeric else { throw EngineError.hdrConversionUnsupported }
+                let presentation = SampleBuffers.nanoseconds(edited)
                 if presentation >= timestamp {
                     sourceDurations[presentation] = SampleBuffers.nanoseconds(info.duration)
                 }
