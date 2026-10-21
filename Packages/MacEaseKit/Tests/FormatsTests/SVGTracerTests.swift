@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 import Testing
 
@@ -112,6 +113,35 @@ extension Fixtures {
             let iou = Double(intersection) / Double(union)
             #expect(iou >= 0.95, "layer \(index) IoU \(iou)")
         }
+    }
+
+    @Test(arguments: [[UInt8(0), 255], [127, 128], [254, 255], [255, 255], [0, 0]])
+    func monochromeRetainsThresholdBoundaryBytes(shades: [UInt8]) {
+        let size = 8
+        let rgba = (0..<(size * size)).flatMap { pixel -> [UInt8] in
+            let value = shades[pixel % size < size / 2 ? 0 : 1]
+            return [value, value, value, 255]
+        }
+        let pixels = PixelBuffer(width: size, height: size, rgba: rgba)
+        let document = SVGTracer.svg(SVGTracer.trace(pixels, colors: 1), width: size, height: size)
+        let expected: String
+        switch shades {
+        case [255, 255]: expected = "88f6fca3a8a8274857a74387c99262897a3a701684d60ef25d65133dc38c1d67"
+        case [0, 0]: expected = "0235a12c9095de7b79eb9253b16cd9ce963f5fd7e210166757cfd20b9e83a636"
+        default: expected = "bab7b3b2e50ccdfb1dd51892219a9d94a985befd10db6c2f01d11f02d7439ef1"
+        }
+        let digest = SHA256.hash(data: Data(document.utf8)).map { String(format: "%02x", $0) }.joined()
+        #expect(digest == expected)
+    }
+
+    @Test func transparentBlackDoesNotChangeTheMonochromeThreshold() {
+        let size = 8
+        let rgba = (0..<(size * size)).flatMap { pixel -> [UInt8] in
+            pixel % size < size / 2 ? [0, 0, 0, 0] : [255, 255, 255, 255]
+        }
+        let pixels = PixelBuffer(width: size, height: size, rgba: rgba)
+        let layers = SVGTracer.trace(pixels, colors: 1)
+        #expect(layers.isEmpty)
     }
 
     @Test func monochromeTracesOnlyTheDarkShapes() throws {

@@ -11,7 +11,7 @@ enum FLACBlock {
     static let picture: UInt8 = 6
     static let lastFlag: UInt8 = 0x80
     static let maximumLength = (1 << 24) - 1
-    private static let streamInfoLength = 34
+    static let streamInfoLength = 34
     private static let packedAudioOffset = 10
 
     struct Block {
@@ -101,15 +101,13 @@ public enum FLACMetadata {
 /// libFLAC frames behind MacEase's own tags.
 public final class FLACFileWriter {
     private static let compressionLevel: UInt32 = 5
-    private static let copyChunk = 1 << 20
 
     private let encoder: UnsafeMutablePointer<FLAC__StreamEncoder>
-    private let url: URL
-    private let framesURL: URL
+    private let output: PatchableFile
+    private var outputError: (any Error)?
     private let channels: Int
     private let scale: Float
     private let maximum: Int32
-    private let tags: AudioTags
 
     /// Integer PCM of 16 or 24 bits.
     public init(url: URL, sampleRate: Int, channels: Int, bitsPerSample: Int, tags: AudioTags) throws {
@@ -117,27 +115,65 @@ public final class FLACFileWriter {
         guard bitsPerSample == 16 || bitsPerSample == 24 else {
             throw FormatError.unsupported("FLAC at \(sampleRate) Hz, \(channels) channels, \(bitsPerSample) bits")
         }
+        var blocks = [FLACBlock.Block(type: FLACBlock.vorbisComment, body: VorbisComment.encode(tags))]
+        if let artwork = tags.artwork {
+            blocks.append(FLACBlock.Block(type: FLACBlock.picture, body: FLACPicture.encode(artwork)))
+        }
+        guard blocks.allSatisfy({ $0.body.count <= FLACBlock.maximumLength }) else {
+            throw FormatError.unsupported("FLAC artwork over 16 MB")
+        }
+        output = try PatchableFile(url: url)
+        try output.append(FLACBlock.marker)
+        try output.append(FLACBlock.header(type: FLACBlock.streamInfo, length: FLACBlock.streamInfoLength, last: false))
+        try output.append(Data(count: FLACBlock.streamInfoLength))
+        for (index, block) in blocks.enumerated() {
+            try output.append(
+                FLACBlock.header(type: block.type, length: block.body.count, last: index == blocks.count - 1))
+            try output.append(block.body)
+        }
         guard let encoder = FLAC__stream_encoder_new() else { throw FormatError.encoderFailure("FLAC encoder") }
         self.encoder = encoder
-        self.url = url
-        framesURL = url.appendingPathExtension("frames")
         self.channels = channels
         scale = Float(1 << (bitsPerSample - 1))
         maximum = Int32(1 << (bitsPerSample - 1)) - 1
-        self.tags = tags
         guard FLAC__stream_encoder_set_channels(encoder, UInt32(channels)) != 0,
             FLAC__stream_encoder_set_bits_per_sample(encoder, UInt32(bitsPerSample)) != 0,
             FLAC__stream_encoder_set_sample_rate(encoder, UInt32(sampleRate)) != 0,
-            FLAC__stream_encoder_set_compression_level(encoder, Self.compressionLevel) != 0,
-            FLAC__stream_encoder_init_file(encoder, framesURL.path, nil, nil) == FLAC__STREAM_ENCODER_INIT_STATUS_OK
+            FLAC__stream_encoder_set_compression_level(encoder, Self.compressionLevel) != 0
         else {
             throw FormatError.unsupported("FLAC at \(sampleRate) Hz, \(channels) channels, \(bitsPerSample) bits")
+        }
+        let status = FLAC__stream_encoder_init_stream(
+            encoder,
+            { _, bytes, count, samples, _, context in
+                // Native metadata would overwrite MacEase's tags.
+                guard samples > 0 else { return FLAC__STREAM_ENCODER_WRITE_STATUS_OK }
+                guard let context, let bytes else { return FLAC__STREAM_ENCODER_WRITE_STATUS_FATAL_ERROR }
+                let writer = Unmanaged<FLACFileWriter>.fromOpaque(context).takeUnretainedValue()
+                do {
+                    try writer.output.append(Data(bytes: bytes, count: count))
+                    return FLAC__STREAM_ENCODER_WRITE_STATUS_OK
+                } catch {
+                    writer.outputError = error
+                    return FLAC__STREAM_ENCODER_WRITE_STATUS_FATAL_ERROR
+                }
+            }, nil, nil,
+            { _, metadata, context in
+                guard let context, let metadata else { return }
+                let writer = Unmanaged<FLACFileWriter>.fromOpaque(context).takeUnretainedValue()
+                do {
+                    try writer.patchStreamInfo(metadata.pointee.data.stream_info)
+                } catch {
+                    writer.outputError = error
+                }
+            }, Unmanaged.passUnretained(self).toOpaque())
+        guard status == FLAC__STREAM_ENCODER_INIT_STATUS_OK else {
+            throw FormatError.encoderFailure(stateDescription)
         }
     }
 
     deinit {
         FLAC__stream_encoder_delete(encoder)
-        try? FileManager.default.removeItem(at: framesURL)
     }
 
     public func write(_ interleaved: [Float]) throws {
@@ -148,35 +184,34 @@ public final class FLACFileWriter {
         let integers = interleaved.map { sample in
             sample.isFinite ? Int32(max(min((sample * scale).rounded(), Float(maximum)), -Float(maximum) - 1)) : 0
         }
-        guard FLAC__stream_encoder_process_interleaved(encoder, integers, frames) != 0
-        else { throw FormatError.encoderFailure(stateDescription) }
+        let succeeded = FLAC__stream_encoder_process_interleaved(encoder, integers, frames) != 0
+        if let outputError { throw outputError }
+        guard succeeded else { throw FormatError.encoderFailure(stateDescription) }
     }
 
     public func finish() throws {
-        guard FLAC__stream_encoder_finish(encoder) != 0 else { throw FormatError.encoderFailure(stateDescription) }
-        let source = try FileHandle(forReadingFrom: framesURL)
-        defer { try? source.close() }
-        let (blocks, framesOffset) = try FLACBlock.read(source)
-        var kept = blocks.filter { ![FLACBlock.padding, FLACBlock.vorbisComment, FLACBlock.picture].contains($0.type) }
-        kept.append(FLACBlock.Block(type: FLACBlock.vorbisComment, body: VorbisComment.encode(tags)))
-        if let artwork = tags.artwork {
-            kept.append(FLACBlock.Block(type: FLACBlock.picture, body: FLACPicture.encode(artwork)))
-        }
-        guard kept.allSatisfy({ $0.body.count <= FLACBlock.maximumLength }) else {
-            throw FormatError.unsupported("FLAC artwork over 16 MB")
-        }
-        let output = try PatchableFile(url: url)
-        try output.append(FLACBlock.marker)
-        for (index, block) in kept.enumerated() {
-            try output.append(
-                FLACBlock.header(type: block.type, length: block.body.count, last: index == kept.count - 1))
-            try output.append(block.body)
-        }
-        try source.seek(toOffset: framesOffset)
-        while let chunk = try source.read(upToCount: Self.copyChunk), !chunk.isEmpty {
-            try output.append(chunk)
-        }
+        let succeeded = FLAC__stream_encoder_finish(encoder) != 0
+        if let outputError { throw outputError }
+        guard succeeded else { throw FormatError.encoderFailure(stateDescription) }
         try output.close()
+    }
+
+    private func patchStreamInfo(_ statistics: FLAC__StreamMetadata_StreamInfo) throws {
+        var body = Data()
+        body.appendBigEndian(UInt16(statistics.min_blocksize))
+        body.appendBigEndian(UInt16(statistics.max_blocksize))
+        for size in [statistics.min_framesize, statistics.max_framesize] {
+            var encoded = Data()
+            encoded.appendBigEndian(size)
+            body.append(encoded.suffix(3))
+        }
+        let packed =
+            UInt64(statistics.sample_rate) << 44 | UInt64(statistics.channels - 1) << 41
+            | UInt64(statistics.bits_per_sample - 1) << 36 | statistics.total_samples
+        body.appendBigEndian(packed)
+        withUnsafeBytes(of: statistics.md5sum) { body.append(contentsOf: $0) }
+        let headerLength = 4
+        try output.patch(body, at: Int64(FLACBlock.marker.count + headerLength))
     }
 
     private var stateDescription: String {

@@ -89,3 +89,44 @@ import UniformTypeIdentifiers
         #expect(decoded.rgba[32 * 4 + 3] == 255)
     }
 }
+
+@Suite struct PNGChunkTests {
+    @Test func parsesSlicesAndRetainsPayloadsIndependently() throws {
+        let expected = [
+            PNGChunk(type: "tEXt", payload: Data("Comment\u{0}kept".utf8)),
+            PNGChunk(type: "IDAT", payload: Data((0..<1024).map { UInt8($0 % 256) })),
+            PNGChunk(type: "IEND", payload: Data()),
+        ]
+        var original = Data(PNGFile.signature)
+        for chunk in expected { original.append(PNGFile.serialized(chunk)) }
+        let padding = Data(repeating: 0, count: 17)
+        var envelope = padding + original
+        var parsed = try PNGFile.chunks(in: envelope[padding.count...])
+        #expect(parsed == expected)
+        var rebuilt = Data(PNGFile.signature)
+        for chunk in parsed { rebuilt.append(PNGFile.serialized(chunk)) }
+        #expect(rebuilt == original)
+        envelope.resetBytes(in: envelope.startIndex..<envelope.endIndex)
+        #expect(parsed == expected)
+        parsed[1].payload.append(0)
+        #expect(parsed[1].payload.count == expected[1].payload.count + 1)
+        #expect(rebuilt == original)
+    }
+
+    @Test func rejectsEveryTruncatedChunkPrefix() throws {
+        var original = Data(PNGFile.signature)
+        original.append(PNGFile.serialized(PNGChunk(type: "IDAT", payload: Data(repeating: 1, count: 32))))
+        original.append(PNGFile.serialized(PNGChunk(type: "IEND", payload: Data())))
+        for length in 0..<original.count {
+            #expect(throws: FormatError.self) { try PNGFile.chunks(in: original.prefix(length)) }
+        }
+    }
+
+    @Test func rejectsLengthsPastTheOriginalBytes() throws {
+        var original = Data(PNGFile.signature)
+        original.append(contentsOf: [255, 255, 255, 255])
+        original.append(contentsOf: "IDAT".utf8)
+        original.append(contentsOf: [0, 0, 0, 0])
+        #expect(throws: FormatError.corrupt("truncated PNG chunk")) { try PNGFile.chunks(in: original) }
+    }
+}

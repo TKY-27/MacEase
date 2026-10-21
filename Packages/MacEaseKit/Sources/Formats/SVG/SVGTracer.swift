@@ -76,26 +76,29 @@ public enum SVGTracer {
     }
 
     private static func monochromeLabels(_ pixels: PixelBuffer) -> Labels {
-        let luma = (0..<pixels.pixelCount).map { pixel -> Int in
+        let luma = (0..<pixels.pixelCount).map { pixel -> UInt8 in
             let base = pixel * 4
-            return (299 * Int(pixels.rgba[base]) + 587 * Int(pixels.rgba[base + 1]) + 114 * Int(pixels.rgba[base + 2]))
-                / 1000
+            return UInt8(
+                (299 * Int(pixels.rgba[base]) + 587 * Int(pixels.rgba[base + 1]) + 114 * Int(pixels.rgba[base + 2]))
+                    / 1000)
         }
         let threshold = otsuThreshold(
             luma, alpha: stride(from: 3, to: pixels.rgba.count, by: 4).map { pixels.rgba[$0] })
         var map = [Int16](repeating: -1, count: pixels.pixelCount)
         var count = 0
         for pixel in map.indices
-        where pixels.rgba[pixel * 4 + 3] >= PaletteColor.opacityCutoff && luma[pixel] < threshold {
+        where pixels.rgba[pixel * 4 + 3] >= PaletteColor.opacityCutoff && Int(luma[pixel]) < threshold {
             map[pixel] = 0
             count += 1
         }
         return Labels(map: map, palette: [PaletteColor(red: 0, green: 0, blue: 0, alpha: 255)], counts: [count])
     }
 
-    private static func otsuThreshold(_ luma: [Int], alpha: [UInt8]) -> Int {
+    private static func otsuThreshold(_ luma: [UInt8], alpha: [UInt8]) -> Int {
         var histogram = [Double](repeating: 0, count: 256)
-        for (value, opacity) in zip(luma, alpha) where opacity >= PaletteColor.opacityCutoff { histogram[value] += 1 }
+        for (value, opacity) in zip(luma, alpha) where opacity >= PaletteColor.opacityCutoff {
+            histogram[Int(value)] += 1
+        }
         let total = histogram.reduce(0, +)
         let sum = histogram.enumerated().reduce(0.0) { $0 + Double($1.offset) * $1.element }
         var backgroundWeight = 0.0

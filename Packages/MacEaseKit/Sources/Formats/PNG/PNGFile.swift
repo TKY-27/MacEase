@@ -58,17 +58,21 @@ public enum PNGFile {
     ]
 
     static func chunks(in file: Data) throws -> [PNGChunk] {
-        let bytes = [UInt8](file)
-        guard bytes.starts(with: signature) else { throw FormatError.corrupt("not a PNG") }
+        let chunkOverhead = 12
+        let lengthWidth = 4
+        let payloadOffset = 8
+        guard file.starts(with: signature) else { throw FormatError.corrupt("not a PNG") }
         var chunks: [PNGChunk] = []
-        var offset = signature.count
-        while offset + 12 <= bytes.count {
-            let length = Int(UInt32(bigEndian: bytes, at: offset))
-            let typeBytes = bytes[(offset + 4)..<(offset + 8)]
-            guard offset + 12 + length <= bytes.count else { throw FormatError.corrupt("truncated PNG chunk") }
-            let type = String(decoding: typeBytes, as: UTF8.self)
-            chunks.append(PNGChunk(type: type, payload: Data(bytes[(offset + 8)..<(offset + 8 + length)])))
-            offset += 12 + length
+        var offset = file.startIndex + signature.count
+        while file.endIndex - offset >= chunkOverhead {
+            let length = file[offset..<(offset + lengthWidth)].reduce(0) { $0 << 8 | Int($1) }
+            guard length <= file.endIndex - offset - chunkOverhead else {
+                throw FormatError.corrupt("truncated PNG chunk")
+            }
+            let type = String(decoding: file[(offset + lengthWidth)..<(offset + payloadOffset)], as: UTF8.self)
+            chunks.append(
+                PNGChunk(type: type, payload: file[(offset + payloadOffset)..<(offset + payloadOffset + length)]))
+            offset += chunkOverhead + length
             if type == "IEND" { return chunks }
         }
         throw FormatError.corrupt("PNG ends before IEND")

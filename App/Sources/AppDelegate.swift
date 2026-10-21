@@ -2,13 +2,13 @@ import AppKit
 import Engine
 import FoundationModels
 import MenuCatalog
+import Observation
 import SwiftUI
 import os
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let updateCheckInterval: TimeInterval = 60 * 60
-    private static let capabilityCheckInterval: TimeInterval = 60
 
     private let configuration = HostConfiguration.current
     private let logger = Logger(category: "app")
@@ -27,7 +27,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationPending = false
     private var pendingURLs: [URL] = []
     private var updateTimer: Timer?
-    private var capabilityTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var settingsWindow: SingleWindowPresenter?
     private var welcomeWindow: SingleWindowPresenter?
@@ -73,8 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         makeWindows(jobs: jobs)
         statusItem = StatusItemController(
             jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() }
-        ) { [weak self] in self?.settingsWindow?.show() }
-        NSApp.mainMenu = MainMenu.make { [weak self] in self?.settingsWindow?.show() }
+        ) { [weak self] in self?.showSettings() }
+        NSApp.mainMenu = MainMenu.make { [weak self] in self?.showSettings() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
         updates.onNewRelease = { [notifier] release in
             notifier.notify(
@@ -100,10 +99,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openApp() {
         if settings.onboardingCompleted {
-            settingsWindow?.show()
+            showSettings()
         } else {
             welcomeWindow?.show()
         }
+    }
+
+    private func showSettings() {
+        settingsWindow?.show()
+        if launchFinished { Task { await refreshCapabilities() } }
     }
 
     private func makeWindows(jobs: JobCenter) {
@@ -132,9 +136,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rotateToken() throws {
         try TokenStore.rotate()
         try writeMenuFile()
+        Task { await refreshCapabilities() }
     }
 
     private func finishLaunching(engine: JobEngine, jobs: JobCenter) async {
+        observeModelAvailability()
         await refreshCapabilities()
         launchFinished = true
         let queued = pendingURLs
@@ -150,10 +156,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await updates.check()
         updateTimer = Timer.scheduledTimer(withTimeInterval: Self.updateCheckInterval, repeats: true) { [updates] _ in
             Task { await updates.check() }
-        }
-        capabilityTimer = Timer.scheduledTimer(withTimeInterval: Self.capabilityCheckInterval, repeats: true) {
-            [weak self] _ in
-            Task { await self?.refreshCapabilities() }
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
@@ -208,8 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !menuWriteScheduled {
             menuWriteScheduled = true
             Task { @MainActor in
-                menuWriteScheduled = false
-                refreshMenuFile()
+                await refreshCapabilities()
             }
         }
         let width = settings.settings.effectiveConcurrency
@@ -221,7 +222,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         capabilityCheckInProgress = true
         defer { capabilityCheckInProgress = false }
         javaAvailable = await MenuFileWriter.javaRuntimeIsInstalled()
-        if currentMenuInputs != menuInputs { refreshMenuFile() }
+        if menuWriteScheduled || currentMenuInputs != menuInputs {
+            menuWriteScheduled = false
+            refreshMenuFile()
+        }
+    }
+
+    private func observeModelAvailability() {
+        withObservationTracking {
+            _ = SystemLanguageModel.default.availability
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.observeModelAvailability()
+                await self?.refreshCapabilities()
+            }
+        }
     }
 
     private func refreshMenuFile() {
