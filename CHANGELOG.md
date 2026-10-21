@@ -55,6 +55,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Automatic duplicate removal saves each Trash move before continuing, preserving
+  Undo after interruption and stopping when history cannot be saved.
+- Native audio copying preserves source priming, end padding, and presentation
+  timing during remuxing, video conversion, trimming, and audio extraction.
+- Audio copying into containers without edit lists avoids negative start
+  timestamps and preserves A/V timing within one audio frame. Matroska and
+  WebM retain Opus delay metadata.
+- TIFF metadata stripping preserves each page's retained metadata and checks
+  all pages for fields to remove.
+- Property-list conversion rejects excessive shared-value expansion before
+  generating JSON and includes the final newline in its output limit.
+- Convert > SDR only offers supported video containers and rejects unsupported
+  inputs before AVFoundation opens them.
+
 - New image outputs warn when flattening transparency or tone-mapping HDR.
   Image edits and format conversions in Replace mode refuse unrequested losses.
 - Image conversions reject frame or page loss and preserve representable finite

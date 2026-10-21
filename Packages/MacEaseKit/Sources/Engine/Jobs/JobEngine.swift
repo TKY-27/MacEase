@@ -172,7 +172,7 @@ public final class JobEngine: Sendable {
             try await history.checkAcceptingCommits()
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputStamps: inputStamps,
-                context: context, records: &records)
+                context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)
         } catch {
@@ -210,6 +210,8 @@ public final class JobEngine: Sendable {
         newFileNaming: NewFileNaming?,
         inputStamps: [URL: FileStamp],
         context: ItemContext,
+        batch: Batch,
+        tracker: BatchTracker,
         records: inout [CommitRecord]
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
         var outputs: [URL] = []
@@ -274,8 +276,14 @@ public final class JobEngine: Sendable {
                     if let trashed = try committer.remove(
                         url, permanently: false, condition: .duplicate(of: removal.kept))
                     {
-                        records.append(
-                            .removed(original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp))
+                        let record = CommitRecord.removed(
+                            original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp)
+                        do {
+                            try await history.record([record], batch: batch.id, operation: batch.operation)
+                        } catch {
+                            tracker.markHistoryFailed()
+                            throw error
+                        }
                     }
                 }
             }

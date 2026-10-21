@@ -205,3 +205,61 @@ both test targets verify registered support-folder removal, including duplicate
 registration. PlanningTests (23 tests) and ArchiveExtractorTests (5 tests) also
 leave no new matching support or scratch directories after process exit.
 The full test run, app GUI and full-app Instruments measurements are not run.
+
+## Native audio packet copying (2026-10-22)
+
+The existing `ffmpeg-h264-aac.mp4` fixture has a 1024-sample AAC edit at
+48 kHz and 96,000 audible frames. Rebuilding its compressed sample buffers
+without their propagating attachments makes AVAssetWriter choose its default
+2112-sample priming. Restoring only the public trim keys and output timestamps
+does not preserve this source edit. Copying the opaque attachment dictionary
+with CoreMedia's public copy/set APIs does; no private key names are needed.
+Splitting a buffer still requires recalculating each packet's leading trim,
+trailing trim, and output presentation timestamp after restoring attachments.
+
+A standalone native remux using the production Formats sources preserves the
+1024-sample edit and two-second presentation range. Independently decoding
+source and output with the installed FFmpeg produces 96,000 frames each,
+with identical PCM hashes and the first audible frame at index 2. A native
+350–1350 ms range copy produces 48,000 decoded frames and a one-second edit.
+The source reader returns required preroll before the requested start and a
+final packet whose raw PTS exceeds the requested end; its output PTS remains
+inside the range. Packet selection must retain those samples.
+
+For HDR coverage, preserving the original AAC track in AVMutableMovie while
+replacing its video with `x265-hlg.mov` retains non-default priming. Inserting
+AAC into a fresh movie instead normalizes its priming to 2112 samples. Adding
+a 250 ms empty edit to the retained audio track preserves its 1024-sample edit;
+the standalone native remux also preserves this offset and its audible length.
+
+Formats compiles with Swift 6 and warnings as errors, and the focused Swift
+Testing sources type-check. Full package builds and focused test execution
+remain blocked by `sandbox-exec: sandbox_apply: Operation not permitted`.
+Native AVAssetReader PCM decoding also fails with AVFoundation `-11800` in
+this sandbox. These probes do not establish full Transcoder re-encode or
+HDR-to-SDR runtime acceptance; their regression tests require a permitted Mac.
+
+### Container-specific follow-up (2026-10-22)
+
+On macOS 27.0.1 with Swift 6.4, the existing MKV keyframe-trim test reproduces
+a negative first audio timestamp. The source reader selects the 0.5-second
+video keyframe for the requested 0.7-second start. Its first audio buffer has
+raw PTS 0.490666667 s, output PTS 0.5 s, and 0.030666667 s of leading trim
+across two AAC packets. The next complete audio packet starts at presentation
+time 0.512 s. Whole-packet presentation timing avoids a negative start or
+overlapping partial packets in containers without edit lists.
+
+After the container-specific copy fix, `TranscoderTests` and
+`AudioCopyTimingTests` pass all 19 tests, including their parameterized cases.
+The original MKV expectation remains `0 <= firstAudio < 25 ms`. Native remux,
+video re-encode, HDR-to-SDR, extraction, and sample-accurate audio trim checks
+pass. Added checks compare decoded onset after a 250 ms audio edit in MKV,
+FLV, and native PCM copied into AVI, and verify Opus CodecDelay, SeekPreRoll,
+CodecPrivate, and packet timestamps after WebM-to-Matroska copying.
+
+The focused command uses `swift test --package-path Packages/MacEaseKit`
+with `--filter 'TranscoderTests|AudioCopyTimingTests'`, `--disable-sandbox`,
+`--disable-automatic-resolution`, and writable temporary SwiftPM cache,
+configuration, and security directories. SwiftPM's nested sandbox otherwise
+fails with `sandbox_apply: Operation not permitted`. Package compilation treats
+warnings as errors. `make lint` passes. The full suite and app GUI are not run.

@@ -188,6 +188,16 @@ extension SampleBuffers {
         let count = CMSampleBufferGetNumSamples(sample)
         let attachments =
             CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
+        let audioFormat = sample.formatDescription.flatMap(CMAudioFormatDescriptionGetStreamBasicDescription)?.pointee
+        let audioAttachments = audioFormat == nil ? nil : AudioSampleAttachments(sample)
+        let trimStart = try trimDuration(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart)
+        let trimEnd = try trimDuration(sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtEnd)
+        let presentationOffset = sample.outputPresentationTimeStamp - sample.presentationTimeStamp - trimStart
+        let audibleStart = sample.presentationTimeStamp + trimStart
+        let audibleEnd = sample.presentationTimeStamp + sample.duration - trimEnd
+        if audioFormat != nil, sample.outputDuration != sample.duration - trimStart - trimEnd {
+            throw FormatError.unsupported("scaled sample timing")
+        }
         var packets: [MediaPacket] = []
         var offset = 0
         for index in 0..<count {
@@ -198,16 +208,42 @@ extension SampleBuffers {
                 throw FormatError.encoderFailure("sample timing")
             }
             let attachment = attachments.flatMap { $0.count > index ? $0[index] : nil }
-            packets.append(
-                MediaPacket(
-                    track: track, timestamp: nanoseconds(timing.presentationTimeStamp),
-                    decodeTimestamp: timing.decodeTimeStamp.isValid ? nanoseconds(timing.decodeTimeStamp) : nil,
-                    duration: timing.duration.isValid ? nanoseconds(timing.duration) : nil,
-                    isKeyframe: attachment?[kCMSampleAttachmentKey_NotSync] as? Bool != true,
-                    payload: payload.subdata(in: offset..<(offset + size))))
+            var packet = MediaPacket(
+                track: track, timestamp: nanoseconds(timing.presentationTimeStamp),
+                decodeTimestamp: timing.decodeTimeStamp.isValid ? nanoseconds(timing.decodeTimeStamp) : nil,
+                duration: timing.duration.isValid ? nanoseconds(timing.duration) : nil,
+                isKeyframe: attachment?[kCMSampleAttachmentKey_NotSync] as? Bool != true,
+                payload: payload.subdata(in: offset..<(offset + size)))
+            if let audioFormat {
+                packet.audioAttachments = audioAttachments
+                let duration =
+                    audioFormat.mFramesPerPacket > 0
+                    ? CMTime(
+                        seconds: Double(audioFormat.mFramesPerPacket) / audioFormat.mSampleRate,
+                        preferredTimescale: nanosecondScale)
+                    : timing.duration
+                let leading = CMTimeMinimum(duration, CMTimeMaximum(.zero, audibleStart - timing.presentationTimeStamp))
+                let trailing = CMTimeMinimum(
+                    duration - leading, CMTimeMaximum(.zero, timing.presentationTimeStamp + duration - audibleEnd))
+                packet.duration = nanoseconds(duration)
+                packet.trimDurationAtStart = nanoseconds(leading)
+                packet.outputTimestamp = nanoseconds(timing.presentationTimeStamp + presentationOffset + leading)
+                if trailing > .zero { packet.discardPadding = nanoseconds(trailing) }
+            }
+            packets.append(packet)
             offset += size
         }
         return packets
+    }
+
+    private static func trimDuration(_ sample: CMSampleBuffer, key: CFString) throws -> CMTime {
+        guard let attachment = CMGetAttachment(sample, key: key, attachmentModeOut: nil) else { return .zero }
+        guard let dictionary = attachment as? [String: Any] else {
+            throw FormatError.corrupt("audio trim duration")
+        }
+        let duration = CMTimeMakeFromDictionary(dictionary as CFDictionary)
+        guard duration.isNumeric, duration >= .zero else { throw FormatError.corrupt("audio trim duration") }
+        return duration
     }
 
     public static func nanoseconds(_ time: CMTime) -> Int64 {

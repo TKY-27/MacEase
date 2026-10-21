@@ -206,7 +206,20 @@ public enum SampleBuffers {
                 with: base, blockBuffer: block, offsetIntoDestination: 0, dataLength: bytes.count)
         }
         guard status == noErr else { throw FormatError.decoderFailure("block copy (\(status))") }
-        let presentation = CMTime(value: packet.timestamp, timescale: nanosecondScale)
+        let timeScale: CMTimeScale
+        if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio {
+            guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+                let rate = CMTimeScale(exactly: basic.mSampleRate), rate > 0
+            else { throw FormatError.decoderFailure("audio sample rate") }
+            timeScale = rate
+        } else {
+            timeScale = nanosecondScale
+        }
+        func sampleTime(_ nanoseconds: Int64) -> CMTime {
+            CMTime(value: nanoseconds, timescale: nanosecondScale).convertScale(
+                timeScale, method: .roundHalfAwayFromZero)
+        }
+        let presentation = sampleTime(packet.timestamp)
         var sample: CMSampleBuffer?
         if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio {
             var description = AudioStreamPacketDescription(
@@ -229,6 +242,25 @@ public enum SampleBuffers {
             )
         }
         guard status == noErr, let sample else { throw FormatError.decoderFailure("sample buffer (\(status))") }
+        packet.audioAttachments?.apply(to: sample)
+        for (key, duration) in [
+            (kCMSampleBufferAttachmentKey_TrimDurationAtStart, packet.trimDurationAtStart),
+            (kCMSampleBufferAttachmentKey_TrimDurationAtEnd, packet.discardPadding),
+        ] {
+            if let duration {
+                CMSetAttachment(
+                    sample, key: key,
+                    value: CMTimeCopyAsDictionary(sampleTime(duration), allocator: nil),
+                    attachmentMode: kCMAttachmentMode_ShouldPropagate)
+            } else {
+                CMRemoveAttachment(sample, key: key)
+            }
+        }
+        if let timestamp = packet.outputTimestamp {
+            let status = CMSampleBufferSetOutputPresentationTimeStamp(
+                sample, newValue: sampleTime(timestamp))
+            guard status == noErr else { throw FormatError.decoderFailure("sample output timing (\(status))") }
+        }
         if !packet.isKeyframe {
             guard
                 let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true)

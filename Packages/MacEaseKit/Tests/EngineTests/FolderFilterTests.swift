@@ -1,8 +1,25 @@
 import Foundation
 import MenuCatalog
+import Synchronization
 import Testing
 
 @testable import Engine
+
+private final class DuplicateCancellationPresenter: NSObject, NSFilePresenter, Sendable {
+    let presentedItemURL: URL?
+    let presentedItemOperationQueue = OperationQueue()
+    private let cancel: @Sendable () -> Void
+
+    init(url: URL, cancel: @escaping @Sendable () -> Void) {
+        presentedItemURL = url
+        self.cancel = cancel
+    }
+
+    func relinquishPresentedItem(toWriter writer: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        cancel()
+        writer(nil)
+    }
+}
 
 @Suite(.serialized) struct FolderFilterTests {
     @Test func legacyExcludedNamesRemainLiteral() {
@@ -109,6 +126,85 @@ import Testing
         let restored = try await engine.undo(batch.id)
         #expect(restored.count == 1)
         #expect(FileManager.default.fileExists(atPath: removed.path))
+    }
+
+    @Test func automaticDuplicateCancellationKeepsDurableUndoForMovedFiles() async throws {
+        let root = try TestVolume.makeFolder()
+        try makeTree(["keep.txt": "same", "first.txt": "same", "second.txt": "same", "third.txt": "same"], in: root)
+        let kept = root.appending(path: "keep.txt")
+        let first = root.appending(path: "first.txt")
+        let second = root.appending(path: "second.txt")
+        let third = root.appending(path: "third.txt")
+        let support = root.appending(path: "support")
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        let permission = AsyncStream<Void>.makeStream()
+        let work = WorkItem(inputs: [root]) { _ in
+            for await _ in permission.stream { break }
+            return .trashDuplicates([DuplicateRemoval(kept: kept, removed: [first, second, third])])
+        }
+        let batch = Batch(operation: .folderRemoveDuplicates, items: [work])
+        let running = Mutex<Task<BatchOutcome, Never>?>(nil)
+        let observedJournal = Mutex<Result<Data, any Error>?>(nil)
+        let presenter = DuplicateCancellationPresenter(url: third) {
+            observedJournal.withLock { result in
+                result = Result { try Data(contentsOf: support.appending(path: "history.journal")) }
+            }
+            running.withLock { $0?.cancel() }
+        }
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+        let pending = Task { await engine.run(batch, settings: Settings()) { _ in } }
+        running.withLock { $0 = pending }
+        permission.continuation.yield(())
+        permission.continuation.finish()
+
+        let outcome = await pending.value
+        #expect(outcome.wasCancelled)
+        #expect(!FileManager.default.fileExists(atPath: first.path))
+        #expect(!FileManager.default.fileExists(atPath: second.path))
+        #expect(FileManager.default.fileExists(atPath: third.path))
+        let journal = try #require(observedJournal.withLock { $0 }).get()
+        let entries = try journal.split(separator: UInt8(ascii: "\n")).map {
+            try JSONDecoder().decode(HistoryJournal.Entry.self, from: Data($0))
+        }
+        #expect(entries.count == 2)
+        #expect(entries.allSatisfy { $0.batch.items.count == 1 })
+
+        let reloaded = try JobEngine(supportDirectory: support, concurrency: 1)
+        let record = try #require(await reloaded.history.records.first)
+        #expect(record.id == batch.id)
+        #expect(record.items.count == 2)
+        #expect(try await reloaded.undo(batch.id) == [.restored, .restored])
+        #expect(FileManager.default.fileExists(atPath: first.path))
+        #expect(FileManager.default.fileExists(atPath: second.path))
+        #expect(FileManager.default.fileExists(atPath: third.path))
+    }
+
+    @Test func automaticDuplicateHistoryFailureStopsFurtherMoves() async throws {
+        let root = try TestVolume.makeFolder()
+        try makeTree(["keep.txt": "same", "first.txt": "same", "second.txt": "same"], in: root)
+        let kept = root.appending(path: "keep.txt")
+        let first = root.appending(path: "first.txt")
+        let second = root.appending(path: "second.txt")
+        let support = root.appending(path: "support")
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        let journal = support.appending(path: "history.journal")
+        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: false)
+        let work = WorkItem(inputs: [root]) { _ in
+            .trashDuplicates([DuplicateRemoval(kept: kept, removed: [first, second])])
+        }
+        let batch = Batch(operation: .folderRemoveDuplicates, items: [work])
+
+        let outcome = await engine.run(batch, settings: Settings()) { _ in }
+        #expect(outcome.historyFailed)
+        #expect(!FileManager.default.fileExists(atPath: first.path))
+        #expect(FileManager.default.fileExists(atPath: second.path))
+        try FileManager.default.removeItem(at: journal)
+        try await engine.history.flush()
+        let reloaded = try JobEngine(supportDirectory: support, concurrency: 1)
+        #expect(await reloaded.history.records.first?.items.count == 1)
+        #expect(try await reloaded.undo(batch.id) == [.restored])
+        #expect(FileManager.default.fileExists(atPath: first.path))
     }
 
     @Test func globsApplyAcrossOperationsWithoutErasingExcludedChildren() throws {

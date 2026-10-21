@@ -64,7 +64,9 @@ enum Transcoder {
             switch audio {
             case .copy:
                 stages.append(
-                    try await PacketCopyStage(input: input, track: track, number: number, start: start, end: end))
+                    try await PacketCopyStage(
+                        input: input, track: track, number: number, start: start, end: end,
+                        destination: plan.container))
             case .encode(let codec, let kilobits):
                 stages.append(
                     try AudioEncodeStage(
@@ -160,6 +162,11 @@ enum Transcoder {
         let (timestamp, timestampOverflow) = packet.timestamp.subtractingReportingOverflow(origin)
         guard !timestampOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
         shifted.timestamp = timestamp
+        if let outputTimestamp = packet.outputTimestamp {
+            let (rebasedOutput, outputOverflow) = outputTimestamp.subtractingReportingOverflow(origin)
+            guard !outputOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+            shifted.outputTimestamp = rebasedOutput
+        }
         if let decodeTimestamp = packet.decodeTimestamp {
             let (rebasedDecode, decodeOverflow) = decodeTimestamp.subtractingReportingOverflow(origin)
             guard !decodeOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
@@ -236,6 +243,7 @@ final class PacketCopyStage: StreamStage {
     private let start: Int64
     private let end: Int64
     private let isVideo: Bool
+    private let usesPresentedAudioTime: Bool
     private let synthesizesDecodeTimes: Bool
     private var window: [MediaPacket] = []
     private var sourceEnded = false
@@ -245,11 +253,15 @@ final class PacketCopyStage: StreamStage {
     private var pendingAsset: [MediaPacket] = []
     private(set) var output: OutputTrack?
 
-    init(input: MediaInput, track: MediaTrack, number: Int, start: Int64, end: Int64) async throws {
+    init(
+        input: MediaInput, track: MediaTrack, number: Int, start: Int64, end: Int64,
+        destination: OutputContainer? = nil
+    ) async throws {
         self.number = number
         self.start = start
         self.end = end
         isVideo = track.isVideo
+        usesPresentedAudioTime = (destination.map { $0.fileType == nil } ?? false) && track.codec != .opus
         var described = track
         described.number = number
         switch input.backend {
@@ -279,11 +291,24 @@ final class PacketCopyStage: StreamStage {
 
     func pull() async throws -> [MediaPacket] {
         while !sourceEnded, window.count < Self.reorderWindow {
-            guard let packet = try await nextRaw() else {
+            guard var packet = try await nextRaw() else {
                 sourceEnded = true
                 break
             }
-            guard packet.timestamp >= start || isVideo else { continue }
+            if usesPresentedAudioTime, let presented = packet.outputTimestamp {
+                if let duration = packet.duration, let trimmed = packet.trimDurationAtStart, trimmed >= duration {
+                    continue
+                }
+                let (packetStart, overflow) = presented.subtractingReportingOverflow(packet.trimDurationAtStart ?? 0)
+                guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+                guard packetStart >= start else { continue }
+                packet.timestamp = packetStart
+                packet.outputTimestamp = nil
+                packet.decodeTimestamp = nil
+                packet.trimDurationAtStart = nil
+            } else if !isVideo {
+                guard packet.timestamp >= start || packet.trimDurationAtStart != nil else { continue }
+            }
             if isVideo, !seenKeyframe {
                 guard packet.isKeyframe, packet.timestamp >= start else { continue }
                 seenKeyframe = true
@@ -293,7 +318,7 @@ final class PacketCopyStage: StreamStage {
         guard !window.isEmpty else { return [] }
         if reorderShift == nil { reorderShift = synthesizesDecodeTimes ? try shift(for: window) : 0 }
         // Keep late frames that earlier frames reference.
-        guard window.contains(where: { $0.timestamp < end }) else {
+        guard window.contains(where: { ($0.outputTimestamp ?? $0.timestamp) < end }) else {
             window = []
             sourceEnded = true
             return []

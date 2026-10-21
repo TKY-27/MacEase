@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 
 public enum MediaCodec: Hashable, Sendable {
@@ -86,12 +87,15 @@ public struct MediaPacket: Hashable, Sendable {
     public var track: Int
     /// Presentation time.
     public var timestamp: Int64
+    public var outputTimestamp: Int64?
     /// Differs from `timestamp` with reordered frames.
     public var decodeTimestamp: Int64?
     public var duration: Int64?
     public var isKeyframe: Bool
     public var payload: Data
     public var additional: Data?
+    public var trimDurationAtStart: Int64?
+    var audioAttachments: AudioSampleAttachments?
     /// Trailing padding the decoder drops.
     public var discardPadding: Int64?
 
@@ -106,6 +110,23 @@ public struct MediaPacket: Hashable, Sendable {
         self.isKeyframe = isKeyframe
         self.payload = payload
         self.additional = additional
+    }
+}
+
+// AVFoundation publishes immutable audio attachment values.
+struct AudioSampleAttachments: @unchecked Sendable, Hashable {
+    private let snapshot: CFDictionary
+
+    init?(_ sample: CMSampleBuffer) {
+        guard
+            let snapshot = CMCopyDictionaryOfAttachments(
+                allocator: nil, target: sample, attachmentMode: kCMAttachmentMode_ShouldPropagate)
+        else { return nil }
+        self.snapshot = snapshot
+    }
+
+    func apply(to sample: CMSampleBuffer) {
+        CMSetAttachments(sample, attachments: snapshot, attachmentMode: kCMAttachmentMode_ShouldPropagate)
     }
 }
 

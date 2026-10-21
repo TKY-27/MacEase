@@ -795,6 +795,10 @@ using the configured custom background color, with the section 3.5 warning.
 GIF and traced SVG retain binary alpha only. Partial alpha follows the same
 flattening policy; embedded-PNG SVG retains full alpha.
 
+TIFF metadata stripping reads, filters, and writes each page's own metadata
+with its stored pixels. It skips only when no page has a selected field to
+remove. Multipage rewrites retain the cumulative image allocation budget.
+
 ### 8.2 Videos
 
 Containers: MP4, M4V, MOV through AVFoundation; MKV, WebM, AVI, FLV through
@@ -1012,8 +1016,12 @@ dates that Foundation would truncate. Keys in emitted JSON are sorted by Unicode
 scalar order. Input and output are capped at 8 MiB, traversal at 64 levels and
 100,000 values; JSON depth is checked before parsing. XML input is checked for
 duplicate keys in every dictionary before Foundation decoding. This event pass
-never resolves external entities and refuses entity declarations. Binary plist
-decoding is unchanged. Foundation owns plist
+never resolves external entities and refuses entity declarations. After
+Foundation decoding, traversal charges expanded scalar and key bytes for every
+occurrence, including shared binary-plist references, against the 8 MiB cap.
+Base64 expansion is charged before encoding binary payloads. The existing
+bounded JSON serializer enforces the output cap while writing, including the
+final newline (ADR 0022). Foundation owns plist
 decoding, so these bounds do not promise a strict peak allocation ceiling inside
 the framework. Conversion reports that comments, order, and formatting are lost.
 
@@ -1193,7 +1201,11 @@ checked before tone-mapping and alpha-inspection buffers. These checks do not
 replace the display and peak-memory acceptance gates.
 
 **Video to SDR.** AVFoundation/VideoToolbox performs HDR-to-SDR tone mapping
-into BT.709 primaries, transfer, and matrix. The Dolby Vision 8.4 route uses the
+into BT.709 primaries, transfer, and matrix. Only MOV, MP4, and M4V are candidate
+containers for this path. Finder omits SDR for MKV, WebM, AVI, and FLV. The host
+rejects those inputs with the existing unsupported-file error before opening
+AVFoundation, including direct conversion requests (ADR 0022).
+The Dolby Vision 8.4 route uses the
 HLG-compatible base layer and reports that the output is SDR without Dolby
 Vision dynamic metadata. Unsupported Dolby Vision profiles or missing required
 base-layer information fail explicitly. Audio, timing, supported streams, and
@@ -1470,6 +1482,14 @@ check.
   ten minutes of synthesized silence in total per operation. The remaining
   budget is checked before filling each gap so sparse malformed timelines
   cannot trigger unbounded output work.
+- Native audio packet copies into MP4, MOV, M4V, and native audio extraction
+  preserve source priming, end padding, and edited presentation times through
+  edit lists and trim attachments. Matroska and WebM retain Opus CodecDelay and
+  SeekPreRoll. Other copied audio in Matroska, WebM, AVI, and FLV uses whole
+  packets on the edited presentation timeline, starting at or after the trim
+  origin without negative timestamps. Its start may differ by up to one audio
+  frame. Rate-changing audio edits fail with an unsupported-timing error before
+  their packets are appended (ADRs 0023 and 0024).
 - AVI indexes reject duplicate or overlapping OpenDML chunk references.
   Index reads are capped at the smaller of the file size and 128 MiB;
   records are capped at the smaller of the file size divided by the index
@@ -1650,6 +1670,17 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Apply container-specific audio copy timing. Preserve native edit
+  lists and Opus delay metadata; align other copied audio to whole packets on
+  the presentation timeline without negative starts (ADR 0024).
+
+- 2026-10-22: Preserve native audio priming and presentation timing across
+  packet-copy paths; refuse rate-changing audio edits (ADR 0023).
+
+- 2026-10-22: Strip TIFF metadata per page and inspect every page before
+  skipping. Bound repeated binary-plist values during JSON traversal and
+  generation. Restrict video SDR input to MOV, MP4, and M4V (ADR 0022).
 
 - 2026-10-22: Stream text encoding, line-ending transforms and verification;
   bound Shift_JIS grapheme retention, stream JSON serialization and record
