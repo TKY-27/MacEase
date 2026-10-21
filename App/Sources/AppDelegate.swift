@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.staging.removeStale()
         let jobs = JobCenter(engine: engine, settings: settings, notifier: notifier)
         self.jobs = jobs
-        let panels = PanelCoordinator(jobs: jobs, store: settings, supportDirectory: configuration.supportDirectory)
+        let panels = PanelCoordinator(jobs: jobs, store: settings)
         self.panels = panels
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }

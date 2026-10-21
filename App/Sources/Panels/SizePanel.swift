@@ -3,21 +3,18 @@ import ImageIO
 import SwiftUI
 import os
 
+/// A blank dimension keeps proportions.
 struct SizeChoice: Codable, Equatable {
-    enum Mode: String, Codable, CaseIterable {
-        case percent
-        case width
-        case height
-        case fit
-        case longEdge
-    }
+    static let pixelRange = 1...65_535
 
-    var mode = Mode.percent
-    var percent = 50.0
-    var width = 1920
-    var height = 1080
-    var keepsAspect = true
+    var width: Int?
+    var height: Int?
     var allowsUpscale = false
+
+    var isValid: Bool {
+        (width != nil || height != nil)
+            && [width, height].allSatisfy { $0.map(Self.pixelRange.contains) ?? true }
+    }
 }
 
 /// Videos never upscale or stretch.
@@ -29,53 +26,67 @@ struct SizePanel: View {
     let run: (SizeChoice) -> Void
 
     @State private var source: CGSize?
+    @FocusState private var widthFocused: Bool
 
-    private static let percentRange = 1.0...400.0
-    private static let pixelRange = 1...65_535
+    private static let fieldWidth: CGFloat = 96
 
     var body: some View {
         PanelForm(
             actionTitle: String(localized: "Resize", comment: "Size panel action"),
-            canRun: choice.mode != .percent || Self.percentRange.contains(choice.percent), cancel: cancel
+            canRun: choice.options(isVideo: isVideo) != nil,
+            cancel: cancel
         ) {
             run(choice)
         } content: {
-            Picker("Resize by", selection: $choice.mode) {
-                ForEach(SizeChoice.Mode.allCases, id: \.self) { Text($0.title).tag($0) }
+            Section {
+                dimensionField(String(localized: "Width", comment: "Size panel field"), value: $choice.width)
+                    .focused($widthFocused)
+                dimensionField(String(localized: "Height", comment: "Size panel field"), value: $choice.height)
+                if !isVideo {
+                    Toggle("Allow enlarging", isOn: $choice.allowsUpscale)
+                }
+            } footer: {
+                footer
             }
-            valueFields
-            if choice.mode == .fit, !isVideo {
-                Toggle("Keep aspect ratio", isOn: $choice.keepsAspect)
-            }
-            if !isVideo {
-                Toggle("Allow enlarging", isOn: $choice.allowsUpscale)
-            }
-            LabeledContent("Result for “\(firstFile.displayName)”") {
+            LabeledContent {
                 Text(resultText)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+            } label: {
+                Text(firstFile.displayName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
         .task { source = await Self.dimensions(of: firstFile, isVideo: isVideo) }
+        .onAppear { widthFocused = true }
     }
 
-    @ViewBuilder private var valueFields: some View {
-        switch choice.mode {
-        case .percent:
-            LabeledContent("Percent") {
-                TextField("Percent", value: $choice.percent, format: .number.precision(.fractionLength(0...1)))
+    private func dimensionField(_ title: String, value: Binding<Int?>) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: PanelLayout.unitSpacing) {
+                TextField(title, value: value, format: .number.grouping(.never), prompt: Text("Auto"))
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
+                    .frame(width: Self.fieldWidth)
+                Text("px", comment: "Pixel unit after a size field")
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
-        case .width:
-            NumberField(title: Text("Width (pixels)"), value: $choice.width, range: Self.pixelRange)
-        case .height:
-            NumberField(title: Text("Height (pixels)"), value: $choice.height, range: Self.pixelRange)
-        case .fit:
-            NumberField(title: Text("Width (pixels)"), value: $choice.width, range: Self.pixelRange)
-            NumberField(title: Text("Height (pixels)"), value: $choice.height, range: Self.pixelRange)
-        case .longEdge:
-            NumberField(title: Text("Long edge (pixels)"), value: $choice.width, range: Self.pixelRange)
+        }
+    }
+
+    @ViewBuilder private var footer: some View {
+        let outOfRange = [choice.width, choice.height].contains {
+            $0.map { !SizeChoice.pixelRange.contains($0) } ?? false
+        }
+        if outOfRange {
+            ProblemLabel(
+                text: String(
+                    localized: "Enter sizes from 1 to 65,535 pixels.", comment: "Size panel validation"))
+        } else {
+            Text("Leave one field empty to keep proportions. Fill both to fit inside.")
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -83,6 +94,7 @@ struct SizePanel: View {
         guard let source, source.width > 0, source.height > 0 else {
             return String(localized: "Unknown size", comment: "Size panel preview without dimensions")
         }
+        guard choice.isValid else { return Self.format(source) }
         let result = choice.resulting(from: source, allowsUpscale: choice.allowsUpscale && !isVideo)
         return "\(Self.format(source)) → \(Self.format(result))"
     }
@@ -126,53 +138,26 @@ struct SizePanel: View {
 extension SizeChoice {
     /// Videos fit a box per file.
     private static let unbounded = Int(Int32.max)
-    private static let wholePercent = 100.0
 
-    var imageResize: ImageResize {
-        let size: ImageSize =
-            switch mode {
-            case .percent: .percent(percent)
-            case .width: .width(width)
-            case .height: .height(height)
-            case .fit: keepsAspect ? .fit(width: width, height: height) : .exact(width: width, height: height)
-            case .longEdge: .longEdge(width)
-            }
-        return ImageResize(size: size, allowsUpscale: allowsUpscale)
-    }
-
-    var videoResize: VideoResize {
-        switch mode {
-        case .percent: .percent(Int(percent.rounded()))
-        case .width: .size(width: width, height: Self.unbounded)
-        case .height: .size(width: Self.unbounded, height: height)
-        case .fit: .size(width: width, height: height)
-        case .longEdge: .size(width: width, height: width)
+    func options(isVideo: Bool) -> OperationOptions? {
+        guard isValid else { return nil }
+        if isVideo { return .video(.resize(.size(width: width ?? Self.unbounded, height: height ?? Self.unbounded))) }
+        let size: ImageSize
+        switch (width, height) {
+        case (let width?, let height?): size = .fit(width: width, height: height)
+        case (let width?, nil): size = .width(width)
+        case (nil, let height?): size = .height(height)
+        case (nil, nil): return nil
         }
+        return .image(.resize(ImageResize(size: size, allowsUpscale: allowsUpscale)))
     }
 
     func resulting(from source: CGSize, allowsUpscale: Bool) -> CGSize {
-        if mode == .fit, !keepsAspect { return CGSize(width: width, height: height) }
-        let scale: Double =
-            switch mode {
-            case .percent: percent / Self.wholePercent
-            case .width: Double(width) / source.width
-            case .height: Double(height) / source.height
-            case .fit: min(Double(width) / source.width, Double(height) / source.height)
-            case .longEdge: Double(width) / max(source.width, source.height)
-            }
+        let scales = [
+            width.map { Double($0) / source.width }, height.map { Double($0) / source.height },
+        ].compactMap { $0 }
+        let scale = scales.min() ?? 1
         let applied = allowsUpscale ? scale : min(scale, 1)
         return CGSize(width: (source.width * applied).rounded(), height: (source.height * applied).rounded())
-    }
-}
-
-extension SizeChoice.Mode {
-    var title: String {
-        switch self {
-        case .percent: String(localized: "Percentage", comment: "Resize mode")
-        case .width: String(localized: "Width", comment: "Resize mode")
-        case .height: String(localized: "Height", comment: "Resize mode")
-        case .fit: String(localized: "Fit in box", comment: "Resize mode")
-        case .longEdge: String(localized: "Long edge", comment: "Resize mode")
-        }
     }
 }

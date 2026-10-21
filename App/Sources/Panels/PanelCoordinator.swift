@@ -11,13 +11,11 @@ final class PanelCoordinator {
     private let host = PanelHost()
     private let jobs: JobCenter
     private let store: SettingsStore
-    private let supportDirectory: URL
     private let logger = Logger(category: "panels")
 
-    init(jobs: JobCenter, store: SettingsStore, supportDirectory: URL) {
+    init(jobs: JobCenter, store: SettingsStore) {
         self.jobs = jobs
         self.store = store
-        self.supportDirectory = supportDirectory
     }
 
     func present(_ entry: MenuEntry, inputs: [URL]) {
@@ -39,13 +37,7 @@ final class PanelCoordinator {
         }
         switch op {
         case .imageResize, .videoResize: showSize(op, inputs)
-        case .imageCompress: showTargetSize(op, inputs, family: .image)
-        case .videoCompress:
-            let video = store.settings.video
-            let defaults = TargetSizeChoice(
-                allowsDownscale: video.allowDownscale, allowsFrameRateReduction: video.allowFrameRateReduction)
-            showTargetSize(op, inputs, family: .video, defaults: defaults)
-        case .audioCompress: showTargetSize(op, inputs, family: .audio)
+        case .imageCompress, .videoCompress, .audioCompress: showTargetSize(op, inputs)
         case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
         case .videoThumbnail where entry.preset == "choose-frame": showFramePicker(op, file: inputs[0])
         case .imageToPDF, .pdfMerge: showPageOrder(op, inputs)
@@ -180,31 +172,18 @@ final class PanelCoordinator {
         let choice = PanelMemory.value(for: op, default: SizeChoice())
         host.show(title: MenuStrings.operationName(op)) { close in
             SizePanel(isVideo: isVideo, firstFile: inputs[0], choice: choice, cancel: close) { choice in
-                let options: OperationOptions =
-                    isVideo ? .video(.resize(choice.videoResize)) : .image(.resize(choice.imageResize))
+                guard let options = choice.options(isVideo: isVideo) else { return }
                 self.finish(op, choice, options, inputs, close: close)
             }
         }
     }
 
-    private func showTargetSize(
-        _ op: OperationID, _ inputs: [URL], family: TargetSizeFamily, defaults: TargetSizeChoice = TargetSizeChoice()
-    ) {
-        let presets: [PlatformPreset]
-        do {
-            presets = try PresetLibrary(supportDirectory: supportDirectory).presets().filter {
-                family.limits($0) != nil
-            }
-        } catch {
-            let failure = error as NSError
-            logger.error(
-                "Presets unreadable (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
-            )
-            presets = []
-        }
-        let choice = PanelMemory.value(for: op, default: defaults)
+    private func showTargetSize(_ op: OperationID, _ inputs: [URL]) {
+        let choice = PanelMemory.value(for: op, default: TargetSizeChoice())
+        let settings = store.settings
         host.show(title: MenuStrings.operationName(op)) { close in
-            TargetSizePanel(family: family, presets: presets, choice: choice, cancel: close) { choice, options in
+            TargetSizePanel(op: op, inputs: inputs, settings: settings, choice: choice, cancel: close) {
+                choice, options in
                 self.finish(op, choice, options, inputs, close: close)
             }
         }

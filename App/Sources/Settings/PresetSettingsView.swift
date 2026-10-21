@@ -361,15 +361,6 @@ private enum PresetValidation {
     }
 }
 
-private struct ProblemLabel: View {
-    let text: String
-
-    var body: some View {
-        Label(text, systemImage: "exclamationmark.triangle.fill")
-            .foregroundStyle(.red)
-    }
-}
-
 /// Reuses the engine's decoder for identical rules.
 private struct AspectRatioStyle: ParseableFormatStyle, ParseStrategy {
     var parseStrategy: Self { self }
