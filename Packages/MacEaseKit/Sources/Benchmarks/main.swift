@@ -66,14 +66,16 @@ func measure(_ label: String, target: Double, _ body: () async throws -> Void) a
 }
 
 /// Keeps trashed originals off the user's Trash.
-func scratchVolume() throws -> URL {
+func withScratchVolume(_ body: (URL) async throws -> Void) async throws {
     let base = FileManager.default.temporaryDirectory.appending(path: "MacEaseBench-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: base) }
     let mount = base.appending(path: "mnt")
     try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
     let image = base.appending(path: "bench.sparseimage")
     try hdiutil(["create", "-size", "4g", "-fs", "APFS", "-type", "SPARSE", "-volname", "MacEaseBench", image.path])
     try hdiutil(["attach", "-nobrowse", "-noautoopen", "-mountpoint", mount.path, image.path])
-    return mount
+    defer { try? hdiutil(["detach", "-force", mount.path]) }
+    try await body(mount)
 }
 
 func hdiutil(_ arguments: [String]) throws {
@@ -86,12 +88,13 @@ func hdiutil(_ arguments: [String]) throws {
     guard process.terminationStatus == 0 else { throw BenchError(description: "hdiutil \(arguments[0]) failed") }
 }
 
-func run(_ op: OperationID, preset: String, on url: URL) async throws {
+func run(_ op: OperationID, preset: String?, on url: URL) async throws {
     let settings = Settings()
     guard let options = OperationPlanner.options(for: op, preset: preset, settings: settings) else {
-        throw BenchError(description: "\(op.rawValue) has no preset \(preset)")
+        throw BenchError(description: "\(op.rawValue) has no preset \(preset ?? "(none)")")
     }
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseBenchSupport-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: support) }
     let engine = try JobEngine(supportDirectory: support, concurrency: 1)
     let batch = OperationPlanner.batch(
         for: OperationRequest(op: op, options: options, inputs: [url]), settings: settings)
@@ -421,9 +424,10 @@ func benchmarkMP3(chip: String, outputURL: URL) throws {
 func benchmark() async throws {
     let chip = try chipName()
     print(String(localized: "Benchmark hardware: \(chip)", comment: "Chip used for benchmark measurements"))
-    let volume = try scratchVolume()
-    defer { try? hdiutil(["detach", "-force", volume.path]) }
+    try await withScratchVolume { volume in try await benchmark(chip: chip, volume: volume) }
+}
 
+func benchmark(chip: String, volume: URL) async throws {
     let titles = MenuTitles(operation: { $0.rawValue }, preset: { $1 }, kind: { $0.rawValue })
     let menu = MenuFile(
         token: String(repeating: "0", count: 64), hostAvailable: true, visibleOperations: OperationID.allCases,
@@ -458,8 +462,25 @@ func benchmark() async throws {
     }
 }
 
+/// Run under `/usr/bin/time -l` for peak memory.
+func benchmarkSingle(_ arguments: [String]) async throws {
+    guard let op = OperationID(rawValue: arguments[0]) else {
+        throw BenchError(description: "unknown operation \(arguments[0])")
+    }
+    let source = URL(fileURLWithPath: arguments[1])
+    try await withScratchVolume { volume in
+        let input = volume.appending(
+            path: source.lastPathComponent, directoryHint: source.hasDirectoryPath ? .isDirectory : .notDirectory)
+        try FileManager.default.copyItem(at: source, to: input)
+        try await measure("\(op.rawValue) \(source.lastPathComponent)", target: .infinity) {
+            try await run(op, preset: arguments.dropFirst(2).first, on: input)
+        }
+    }
+}
+
 do {
-    try await benchmark()
+    let arguments = Array(CommandLine.arguments.dropFirst())
+    if arguments.count >= 2 { try await benchmarkSingle(arguments) } else { try await benchmark() }
 } catch {
     print("Benchmark stopped: \(error)")
     exit(1)
