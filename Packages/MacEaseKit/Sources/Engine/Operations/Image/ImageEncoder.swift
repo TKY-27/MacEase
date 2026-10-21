@@ -14,6 +14,7 @@ struct EncodeOptions {
     var gifColors = 256
     var dithering = Dithering.ordered
     var svgColors = SVGColors.default
+    var svgMode = SVGMode.trace
     var pixelsPerInch = ImageDocument.defaultPixelsPerInch
 }
 
@@ -64,6 +65,13 @@ enum ImageEncoder {
         case .icns:
             return try icns(first.image)
         case .svg:
+            if options.svgMode == .embeddedPNG {
+                let png = try png(first.image)
+                let svg = """
+                    <svg xmlns="http://www.w3.org/2000/svg" width="\(first.image.width)" height="\(first.image.height)" viewBox="0 0 \(first.image.width) \(first.image.height)"><image width="\(first.image.width)" height="\(first.image.height)" href="data:image/png;base64,\(png.base64EncodedString())"/></svg>
+                    """
+                return Data(svg.utf8)
+            }
             let pixels = try PixelBuffer(cgImage: first.image)
             let layers = SVGTracer.trace(pixels, colors: options.svgColors)
             return Data(SVGTracer.svg(layers, width: pixels.width, height: pixels.height).utf8)
@@ -190,7 +198,7 @@ enum ImageEncoder {
         _ frames: [ImageFrame], format: ImageFormat, options: EncodeOptions, retaining retained: [CGImage] = [],
         streaming: Bool = false
     ) throws {
-        if format == .svg {
+        if format == .svg, options.svgMode == .trace {
             var tracingBudget = FrameMemoryBudget(limitBytes: maximumTracingBytes)
             for frame in frames {
                 try tracingBudget.reserve(width: frame.image.width, height: frame.image.height)
@@ -201,6 +209,7 @@ enum ImageEncoder {
         case .png where options.optimizesPNG && options.pngColors == nil:
             pixelCopies = 6
         case .avif: pixelCopies = 4
+        case .svg where options.svgMode == .embeddedPNG: pixelCopies = 7
         case .webp, .jxl, .svg: pixelCopies = 3
         case .gif: pixelCopies = 3
         case .png where options.pngColors != nil: pixelCopies = 3

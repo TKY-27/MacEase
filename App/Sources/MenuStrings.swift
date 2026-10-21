@@ -63,6 +63,8 @@ enum MenuStrings {
             return String(localized: "menu.preset.text.convert.target.html", defaultValue: "HTML")
         case (.textConvert, "csv-md"):
             return String(localized: "menu.preset.text.convert.target.markdown", defaultValue: "Markdown")
+        case (.anyChecksum, "sha1"): return "SHA-1"
+        case (.anyChecksum, "sha512"): return "SHA-512"
         default: break
         }
         return lookup("menu.preset.\(op.rawValue).\(preset)")
@@ -72,6 +74,19 @@ enum MenuStrings {
         MenuTitles(
             operation: operation,
             preset: { op, presetID in
+                let slotID = "\(op.rawValue)/\(presetID)"
+                if let slot = MenuValues.slots.first(where: { $0.id == slotID }),
+                    let value = settings.menuValues.value(for: slotID)
+                {
+                    if slot.defaultValue == value { return preset(op, presetID) }
+                    switch slot.unit {
+                    case .percent: return String(localized: "\(value)%")
+                    case .pixels:
+                        if op == .imageResize { return String(localized: "Long Edge \(value) px") }
+                        return String(localized: "\(value)p")
+                    case .megabytes: return String(localized: "\(value) MB")
+                    }
+                }
                 if presetID == "extra-angle" {
                     return String(
                         localized: "menu.preset.rotate.extra-angle",

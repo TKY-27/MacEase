@@ -38,13 +38,16 @@ enum TextEncoding {
     static func encode(
         _ text: String,
         as target: TextEncodingTarget,
-        unmappable: UnmappablePolicy
-    ) throws -> (data: Data, encoding: String.Encoding) {
+        unmappable: UnmappablePolicy,
+        substitute: String = "?"
+    ) throws -> (data: Data, encoding: String.Encoding, replaced: Bool) {
         switch target {
-        case .utf8: (Data(text.utf8), .utf8)
-        case .utf8BOM: (Data(utf8BOM + text.utf8), .utf8)
-        case .utf16: (Data(utf16LittleEndianBOM + bytes(of: Array(text.utf16), bigEndian: false)), .utf16)
-        case .shiftJIS: (try cp932Data(text, unmappable: unmappable), cp932)
+        case .utf8: return (Data(text.utf8), .utf8, false)
+        case .utf8BOM: return (Data(utf8BOM + text.utf8), .utf8, false)
+        case .utf16: return (Data(utf16LittleEndianBOM + bytes(of: Array(text.utf16), bigEndian: false)), .utf16, false)
+        case .shiftJIS:
+            let result = try cp932Data(text, unmappable: unmappable, substitute: substitute)
+            return (result.data, cp932, result.replaced)
         }
     }
 
@@ -90,14 +93,27 @@ enum TextEncoding {
         return nil
     }
 
-    private static func cp932Data(_ text: String, unmappable: UnmappablePolicy) throws -> Data {
-        if let data = text.data(using: cp932) { return data }
+    private static func cp932Data(
+        _ text: String, unmappable: UnmappablePolicy, substitute: String
+    ) throws -> (data: Data, replaced: Bool) {
+        let replacement: Data?
+        if unmappable == .custom {
+            guard substitute.unicodeScalars.count == 1, let encoded = substitute.data(using: cp932) else {
+                throw EngineError.invalidInput(.malformed("Shift_JIS substitute must be one encodable character"))
+            }
+            replacement = encoded
+        } else {
+            replacement = nil
+        }
+        if let data = text.data(using: cp932) { return (data, false) }
         var data = Data()
+        var replaced = false
         var line = 1
         for character in text {
             if let bytes = String(character).data(using: cp932) {
                 data.append(bytes)
             } else {
+                replaced = true
                 switch unmappable {
                 case .fail:
                     throw EngineError.invalidInput(.unmappableCharacter(line: line))
@@ -105,11 +121,14 @@ enum TextEncoding {
                     data.append(UInt8(ascii: "?"))
                 case .numericReference:
                     for scalar in character.unicodeScalars { data.append(contentsOf: "&#\(scalar.value);".utf8) }
+                case .custom:
+                    guard let replacement else { throw EngineError.unexpected("validated substitute missing") }
+                    data.append(replacement)
                 }
             }
             if character.isNewline { line += 1 }
         }
-        return data
+        return (data, replaced)
     }
 
     private static func normalized<Unit: FixedWidthInteger>(_ units: [Unit], ending: [Unit]) -> [Unit] {

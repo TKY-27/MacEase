@@ -121,7 +121,7 @@ extension OperationID {
                 "ini-xml", "txt",
             ]
         case .textJSON: ["pretty", "minify", "sort"]
-        case .anyChecksum: ["sha256", "md5"]
+        case .anyChecksum: ["sha256", "md5", "sha1", "sha512"]
         default: []
         }
     }

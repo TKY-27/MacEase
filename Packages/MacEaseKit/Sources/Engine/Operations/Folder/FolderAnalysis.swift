@@ -86,7 +86,8 @@ public struct FolderAnalysis: Codable, Hashable, Sendable {
                 requested: requested, canonical: canonical, coveredBy: covering.map { canonicalRoots[$0] })
         }
         let walked = try FolderWalk.regularFiles(
-            in: scanned, excluding: Set(settings.excludedNames), options: [.skipsPackageDescendants]
+            in: scanned, excluding: FolderFilter(settings: settings, scope: .analyze),
+            options: [.skipsPackageDescendants]
         ).sorted { $0.url.path < $1.url.path }
         var seen = Set<FileIdentity>()
         var files: [SizedFile] = []
@@ -97,7 +98,9 @@ public struct FolderAnalysis: Codable, Hashable, Sendable {
         let byType = Dictionary(grouping: files) { $0.url.pathExtension.lowercased() }.map { pathExtension, files in
             TypeTotal(pathExtension: pathExtension, fileCount: files.count, bytes: files.reduce(0) { $0 + $1.bytes })
         }
-        let rawDuplicates = try DuplicateScanner.groups(in: scanned, settings: settings) { progress($0 * hashingShare) }
+        let rawDuplicates = try DuplicateScanner.groups(in: scanned, settings: settings, scope: .analyze) {
+            progress($0 * hashingShare)
+        }
         var duplicates: [DuplicateGroup] = []
         for group in rawDuplicates {
             var groupIdentities = Set<FileIdentity>()
@@ -110,7 +113,7 @@ public struct FolderAnalysis: Codable, Hashable, Sendable {
                 duplicates.append(DuplicateGroup(bytesPerFile: group.bytesPerFile, files: distinct))
             }
         }
-        let walkedEmpty = try EmptyFolderScanner.folders(in: scanned, settings: settings) { _ in }
+        let walkedEmpty = try EmptyFolderScanner.folders(in: scanned, settings: settings, scope: .analyze) { _ in }
         var seenEmpty = Set<FileIdentity>()
         var empty: [URL] = []
         for url in walkedEmpty {

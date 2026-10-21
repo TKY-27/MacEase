@@ -23,6 +23,7 @@ public struct DuplicateRemoval: Codable, Hashable, Sendable {
 }
 
 public enum FolderOperation: Codable, Hashable, Sendable {
+    case automaticDuplicates
     case removeDuplicates([DuplicateRemoval], permanently: Bool)
     case removeEmpty([URL], permanently: Bool)
     case tree(TreeOutput)
@@ -35,9 +36,9 @@ enum FolderPlanner {
     private static let macMetadataNames: Set<String> = [".DS_Store", "__MACOSX"]
     private static let appleDoublePrefix = "._"
 
-    /// Removal, rename and analysis need panels.
-    static func options(for op: OperationID, preset: String?) -> FolderOperation? {
+    static func options(for op: OperationID, preset: String?, settings: FolderSettings) -> FolderOperation? {
         switch op {
+        case .folderRemoveDuplicates where settings.duplicateKeepPolicy != .ask: .automaticDuplicates
         case .folderTree: preset.flatMap(TreeOutput.init(rawValue:)).map(FolderOperation.tree)
         case .folderCompress: preset.flatMap(ArchiveFormat.init(rawValue:)).map(FolderOperation.compress)
         default: nil
@@ -46,6 +47,34 @@ enum FolderPlanner {
 
     static func batch(_ operation: FolderOperation, op: OperationID, folders: [URL], settings: Settings) -> Batch {
         switch operation {
+        case .automaticDuplicates:
+            let work = OperationPlanner.validated(folders, kind: .folder) { context in
+                guard context.settings.folder.duplicateKeepPolicy != .ask else {
+                    throw EngineError.invalidInput(.malformed("automatic duplicate keep policy"))
+                }
+                let groups = try DuplicateScanner.groups(in: folders, settings: context.settings.folder) {
+                    context.progress($0)
+                }
+                guard !groups.isEmpty else { return .skipped(.nothingToRemove) }
+                let removals = try groups.map { group -> DuplicateRemoval in
+                    let dated = try group.files.map { url -> (URL, Date) in
+                        let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
+                        guard let modified = values.contentModificationDate else {
+                            throw EngineError.decodeFailed("modification date")
+                        }
+                        return (url, modified)
+                    }
+                    let oldest = context.settings.folder.duplicateKeepPolicy == .oldest
+                    let sorted = dated.sorted { left, right in
+                        if left.1 != right.1 { return oldest ? left.1 < right.1 : left.1 > right.1 }
+                        return left.0.standardizedFileURL.path < right.0.standardizedFileURL.path
+                    }
+                    let kept = sorted[0].0
+                    return DuplicateRemoval(kept: kept, removed: sorted.dropFirst().map(\.0))
+                }
+                return .trashDuplicates(removals)
+            }
+            return Batch(operation: op, items: [work])
         case .removeDuplicates(let removals, let permanently):
             let items = removals.flatMap { removal in
                 removal.removed.map { duplicate in
@@ -94,9 +123,7 @@ enum FolderPlanner {
 
     private static func treeItem(_ folder: URL, output: TreeOutput) -> WorkItem {
         OperationPlanner.validated(folder, kind: .folder) { context in
-            let tree = try FolderTree.text(
-                of: folder, excluding: Set(context.settings.folder.excludedNames),
-                foldersOnly: context.settings.folder.treeFoldersOnly)
+            let tree = try FolderTree.text(of: folder, settings: context.settings.folder)
             let name = "\(folder.lastPathComponent) tree.\(output.rawValue)"
             switch output {
             case .copy: return .text(tree, .clipboard)
@@ -123,11 +150,11 @@ enum FolderPlanner {
     }
 
     private static func renameItem(_ selection: [URL], rules: RenameRules) -> WorkItem {
-        WorkItem(inputs: selection) { _ in
+        WorkItem(inputs: selection) { context in
             for folder in selection where try !ContentSniffer.matches(folder, kind: .folder) {
                 return .skipped(.notADirectory)
             }
-            return .rename(try rules.plans(for: RenameRules.targets(for: selection)))
+            return .rename(try rules.plans(for: RenameRules.targets(for: selection, settings: context.settings.folder)))
         }
     }
 

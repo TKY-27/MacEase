@@ -87,6 +87,7 @@ public enum ItemResult: Sendable {
     case rename([RenamePlan])
     case text(String, TextDestination)
     case trash([URL], permanently: Bool, condition: RemovalCondition? = nil)
+    case trashDuplicates([DuplicateRemoval])
     case skipped(SkipReason)
 }
 
@@ -101,6 +102,7 @@ public enum ItemWarning: Equatable, Sendable {
     case metadataDropped
     case hdrProvenanceUnknown
     case dolbyVisionRemoved
+    case unmappableCharactersReplaced
 }
 
 public final class ItemContext: Sendable {

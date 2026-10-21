@@ -14,7 +14,7 @@ public enum ImagePlanner {
         }
         guard let preset else { return nil }
         switch op {
-        case .imageResize: return resize(preset)
+        case .imageResize: return resize(preset, settings: settings)
         case .imageCompress: return compression(preset, settings: settings).map(ImageOperation.compress)
         case .imageConvert:
             return ImageFormat(rawValue: preset).map {
@@ -22,9 +22,11 @@ public enum ImagePlanner {
             }
         case .imageRotate:
             let degrees = preset == "extra-angle" ? settings.extraRotationDegrees : rotationDegrees[preset]
-            return degrees.map {
-                .rotate(degrees: $0, fill: settings.image.rotationFillsWithColor ? settings.image.rotationFill : nil)
-            }
+            guard let degrees, degrees.isFinite,
+                preset != "extra-angle" || Settings.extraRotationRange.contains(degrees)
+            else { return nil }
+            return .rotate(
+                degrees: degrees, fill: settings.image.rotationFillsWithColor ? settings.image.rotationFill : nil)
         case .imageFlip: return FlipAxis(rawValue: preset).map(ImageOperation.flip)
         case .imageBackground: return background(preset, settings: settings.image).map(ImageOperation.background)
         case .imageStripMetadata:
@@ -81,14 +83,16 @@ public enum ImagePlanner {
     private static let qualityPresets: [String: QualityLevel] = [
         "quality-high": .high, "quality-medium": .medium, "quality-low": .low,
     ]
-    private static let resizePresets: [String: ImageSize] = [
-        "percent-25": .percent(25), "percent-50": .percent(50), "percent-75": .percent(75),
-        "long-1080": .longEdge(1080), "long-1920": .longEdge(1920), "long-2560": .longEdge(2560),
-        "long-3840": .longEdge(3840),
-    ]
-
-    private static func resize(_ preset: String) -> ImageOperation? {
-        resizePresets[preset].map { .resize(ImageResize(size: $0)) }
+    private static func resize(_ preset: String, settings: Settings) -> ImageOperation? {
+        let slotID = "image.resize/\(preset)"
+        guard let slot = MenuValues.slots.first(where: { $0.id == slotID }),
+            let value = settings.menuValues.value(for: slotID)
+        else { return nil }
+        switch slot.unit {
+        case .percent: return .resize(ImageResize(size: .percent(Double(value))))
+        case .pixels: return .resize(ImageResize(size: .longEdge(value)))
+        case .megabytes: return nil
+        }
     }
 
     private static func compression(_ preset: String, settings: Settings) -> ImageCompression? {

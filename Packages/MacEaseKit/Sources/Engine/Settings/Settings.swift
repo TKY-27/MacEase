@@ -75,6 +75,7 @@ public enum UnmappablePolicy: String, Codable, CaseIterable, Sendable {
     case fail
     case questionMark
     case numericReference
+    case custom
 }
 
 public enum JSONIndent: String, Codable, CaseIterable, Sendable {
@@ -100,6 +101,11 @@ public enum SubtitleFormat: String, Codable, CaseIterable, Sendable {
     case txt
 }
 
+public enum SVGMode: String, Codable, CaseIterable, Sendable {
+    case trace
+    case embeddedPNG
+}
+
 public struct ImageSettings: Codable, Equatable, Sendable {
     public var jpegQuality = 85
     public var heicQuality = 80
@@ -120,6 +126,7 @@ public struct ImageSettings: Codable, Equatable, Sendable {
     public var rotationFillsWithColor = false
     public var rotationFill = RGBColor.white
     public var svgColors = SVGColors.default
+    public var svgMode = SVGMode.trace
 
     public init() {}
 }
@@ -168,11 +175,40 @@ public struct AudioSettings: Codable, Equatable, Sendable {
     public init() {}
 }
 
+public enum DuplicateKeepPolicy: String, Codable, CaseIterable, Sendable {
+    case ask
+    case oldest
+    case newest
+}
+
+public struct FolderExclusions: Codable, Equatable, Sendable {
+    public var folders = ""
+    public var files = ""
+    public var extensions = ""
+
+    public init(folders: String = "", files: String = "", extensions: String = "") {
+        self.folders = folders
+        self.files = files
+        self.extensions = extensions
+    }
+}
+
 public struct FolderSettings: Codable, Equatable, Sendable {
     public static let defaultExcludedNames = [".git", "node_modules", ".Trash"]
 
     public var duplicatesIgnoreHidden = true
+    public var duplicateMinimumBytes: Int64 = 0
+    public var duplicatesIgnoreEmpty = true
+    public var duplicatesMatchNames = false
+    public var duplicatesMatchModificationSecond = false
+    public var duplicateKeepPolicy = DuplicateKeepPolicy.ask
     public var excludedNames = FolderSettings.defaultExcludedNames
+    public var scanExclusions = FolderExclusions()
+    public var duplicateExclusions = FolderExclusions()
+    public var emptyExclusions = FolderExclusions()
+    public var treeExclusions = FolderExclusions()
+    public var analyzeExclusions = FolderExclusions()
+    public var renameExclusions = FolderExclusions()
     public var emptyIgnoresDSStore = true
     public var renamePrefix = ""
     public var renameSuffix = ""
@@ -187,8 +223,14 @@ public struct FolderSettings: Codable, Equatable, Sendable {
     public init() {}
 }
 
+public enum PDFImageLayout: String, Codable, CaseIterable, Sendable {
+    case pagesFolder
+    case looseFiles
+}
+
 public struct TextSettings: Codable, Equatable, Sendable {
     public var unmappable = UnmappablePolicy.fail
+    public var shiftJISSubstitute = "?"
     public var jsonIndent = JSONIndent.two
     public var keySortScope = KeySortScope.recursive
     public var jsonKeyComparison = JSONKeyComparison.ordinal
@@ -197,6 +239,7 @@ public struct TextSettings: Codable, Equatable, Sendable {
     public var jsonSortPrimitiveArrays = false
     public var csvTypeInference = false
     public var pdfImageDPI = PDFOperation.defaultDPI
+    public var pdfImageLayout = PDFImageLayout.pagesFolder
 
     public init() {}
 }
@@ -205,6 +248,7 @@ public struct IntelligenceSettings: Codable, Equatable, Sendable {
     /// Empty means automatic language detection.
     public var ocrLanguages: [String] = []
     public var ocrOutput = TextOutput.clipboard
+    public var ocrFileEncoding = TextEncodingTarget.utf8
     /// Empty means the system locale.
     public var subtitleLanguage = ""
     public var subtitleFormat = SubtitleFormat.srt
@@ -215,6 +259,8 @@ public struct IntelligenceSettings: Codable, Equatable, Sendable {
 }
 
 public struct Settings: Codable, Equatable, Sendable {
+    public static let extraRotationRange = -360.0...360.0
+
     public enum OutputMode: String, Codable, CaseIterable, Sendable {
         case newFile
         case replace
@@ -228,6 +274,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var concurrencyLimit = 0
     public var extraRotationEnabled = false
     public var extraRotationDegrees = 45.0
+    public var menuValues = MenuValues()
     public var image = ImageSettings()
     public var video = VideoSettings()
     public var audio = AudioSettings()
@@ -238,7 +285,7 @@ public struct Settings: Codable, Equatable, Sendable {
     public var platformPresets = PresetLibrary.bundledPresets
 
     private enum CodingKeys: String, CodingKey {
-        case outputMode, permanentDelete, concurrencyLimit, extraRotationEnabled, extraRotationDegrees
+        case outputMode, permanentDelete, concurrencyLimit, extraRotationEnabled, extraRotationDegrees, menuValues
         case image, video, audio, folder, text, intelligence
     }
 

@@ -268,6 +268,17 @@ public final class JobEngine: Sendable {
                     records.append(.removed(original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp))
                 }
             }
+        case .trashDuplicates(let removals):
+            for removal in removals {
+                for url in removal.removed {
+                    if let trashed = try committer.remove(
+                        url, permanently: false, condition: .duplicate(of: removal.kept))
+                    {
+                        records.append(
+                            .removed(original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp))
+                    }
+                }
+            }
         case .text(let text, let destination):
             return (.succeeded(outputs: [], warnings: context.warnings), (text, destination))
         case .skipped(let reason):

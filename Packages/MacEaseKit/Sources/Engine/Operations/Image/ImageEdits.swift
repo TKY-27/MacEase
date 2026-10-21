@@ -172,6 +172,7 @@ enum ImageEdits {
             for: document, format: conversion.format, settings: context.settings.image)
         options.quality = conversion.quality.map(Double.init) ?? options.quality
         options.svgColors = conversion.svgColors
+        options.svgMode = context.settings.image.svgMode
         options.optimizesPNG = context.settings.image.optimizePNGOnConvert
         if document.isAnimated, count > 1 {
             let staged = try context.stagingURL(

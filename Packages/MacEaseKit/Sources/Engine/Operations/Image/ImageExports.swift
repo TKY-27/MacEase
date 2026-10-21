@@ -19,10 +19,15 @@ enum ImageExports {
         case .clipboard: return .text(text, .clipboard)
         case .panel: return .text(text, .report)
         case .file:
-            let name = (url.lastPathComponent as NSString).deletingPathExtension + ".txt"
+            let name = (url.lastPathComponent as NSString).deletingPathExtension + "_ocr.txt"
             let staged = try context.stagingURL(for: url, name: name)
-            try Data(text.utf8).write(to: staged)
-            return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .text(.utf8))])
+            let encoded = try TextEncoding.encode(
+                text, as: context.settings.intelligence.ocrFileEncoding,
+                unmappable: context.settings.text.unmappable,
+                substitute: context.settings.text.shiftJISSubstitute)
+            try encoded.data.write(to: staged)
+            if encoded.replaced { context.warn(.unmappableCharactersReplaced) }
+            return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .text(encoded.encoding))])
         }
     }
 

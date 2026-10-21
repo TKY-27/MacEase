@@ -11,6 +11,7 @@ public struct MenuEntry: Codable, Hashable, Sendable {
     public let separatorBefore: Bool
     public let operationSeparatorBefore: Bool
     public let targetBytes: Int64?
+    public let resizeValue: Int?
     public let parameterVersion: String?
     public let minimumSelection: Int
     public let maximumSelection: Int?
@@ -23,7 +24,8 @@ public struct MenuEntry: Codable, Hashable, Sendable {
 
     public init(
         op: OperationID, preset: String?, path: [String], separatorBefore: Bool = false,
-        operationSeparatorBefore: Bool = false, targetBytes: Int64? = nil, parameterVersion: String? = nil,
+        operationSeparatorBefore: Bool = false, targetBytes: Int64? = nil, resizeValue: Int? = nil,
+        parameterVersion: String? = nil,
         rotationDegrees: Double? = nil, frameRate: Int? = nil, targetLoudness: Double? = nil
     ) {
         self.op = op
@@ -33,6 +35,7 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         self.separatorBefore = separatorBefore
         self.operationSeparatorBefore = operationSeparatorBefore
         self.targetBytes = targetBytes
+        self.resizeValue = resizeValue
         self.parameterVersion = parameterVersion
         self.minimumSelection = op.minimumSelection
         self.maximumSelection = preset == "choose-frame" ? 1 : op.maximumSelection
@@ -96,7 +99,8 @@ public struct MenuFile: Codable, Equatable, Sendable {
         let canonical = entries.map { entry in
             let constraints: [String] = [
                 String(entry.separatorBefore), String(entry.operationSeparatorBefore),
-                entry.targetBytes.map { String($0) } ?? "", entry.parameterVersion ?? "",
+                entry.targetBytes.map { String($0) } ?? "", entry.resizeValue.map { String($0) } ?? "",
+                entry.parameterVersion ?? "",
                 String(entry.minimumSelection),
                 entry.maximumSelection.map { String($0) } ?? "",
                 entry.sourceFormats.map { $0.sorted().joined(separator: ",") } ?? "",
@@ -165,7 +169,7 @@ extension MenuFile {
         hiddenEntries: Set<String> = [],
         extraRotationDegrees: Double? = nil,
         frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
-        sizeTargets: [String: Int64] = [:], parameterVersion: String? = nil
+        sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil
     ) {
         var entries: [MenuEntry] = []
         let visible = Set(visibleOperations)
@@ -215,7 +219,8 @@ extension MenuFile {
                             path: flat ? [titles.preset(op, preset)] : [opTitle, titles.preset(op, preset)],
                             separatorBefore: presetIndex == 0 && boundary,
                             operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
-                            targetBytes: sizeTargets["\(op.rawValue)/\(preset)"], parameterVersion: parameterVersion,
+                            targetBytes: sizeTargets["\(op.rawValue)/\(preset)"],
+                            resizeValue: resizeTargets["\(op.rawValue)/\(preset)"], parameterVersion: parameterVersion,
                             rotationDegrees: preset == "extra-angle" ? extraRotationDegrees : nil,
                             frameRate: op == .videoFPS ? frameRates[preset] : nil,
                             targetLoudness: op == .audioNormalize ? loudnessTargets[preset] : nil))

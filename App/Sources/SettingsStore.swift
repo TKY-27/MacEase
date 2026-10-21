@@ -123,6 +123,7 @@ final class SettingsStore {
         OperationID.videoConvert.menuEntryKey("flv"), OperationID.videoToAPNG.menuEntryKey("settings"),
         OperationID.videoExtractAudio.menuEntryKey("aiff"), OperationID.videoExtractAudio.menuEntryKey("ogg"),
         OperationID.videoExtractAudio.menuEntryKey("opus"),
+        OperationID.anyChecksum.menuEntryKey("sha1"), OperationID.anyChecksum.menuEntryKey("sha512"),
     ]
 
     /// Existing installs keep their visibility.

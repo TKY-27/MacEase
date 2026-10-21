@@ -23,7 +23,8 @@ public enum OperationPlanner {
         switch op.kind {
         case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
         case .video: VideoPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.video)
-        case .folder: FolderPlanner.options(for: op, preset: preset).map(OperationOptions.folder)
+        case .folder:
+            FolderPlanner.options(for: op, preset: preset, settings: settings.folder).map(OperationOptions.folder)
         case .archive: ArchivePlanner.options(for: op, preset: preset).map(OperationOptions.archive)
         case .pdf: PDFPlanner.operation(for: op, preset: preset, settings: settings).map(OperationOptions.pdf)
         case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)

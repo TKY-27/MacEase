@@ -134,7 +134,7 @@ private let japanese = "日本語のテキストです。\n二行目"
         let outcome = try await runText(
             .encoding(.shiftJIS, source: nil), op: .textEncoding, on: [url], settings: settings)
 
-        #expect(outcome.outcomes == [.succeeded(outputs: [url], warnings: [])])
+        #expect(outcome.outcomes == [.succeeded(outputs: [url], warnings: [.unmappableCharactersReplaced])])
         #expect(try bytes(url) == Array(expected.utf8))
     }
 

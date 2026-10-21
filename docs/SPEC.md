@@ -130,6 +130,8 @@ Menu file content:
   are published with their stable slot IDs and resolved parameters. Leaf
   constraints include minimum and maximum per-kind counts and applicable source
   and target formats. The host validates the parameters again before execution.
+  `resizeValue` carries the resolved integer percentage or pixel edge for its
+  stable resize slot; `targetBytes` carries decimal compression bytes.
 - `token` is generated once from 32 random bytes on first launch, persisted by
   the host, and rotatable in Settings > Advanced.
 
@@ -820,11 +822,17 @@ at whole-second resolution. Filters reduce candidates and never replace hash
 and byte comparison. At least one copy per verified group is always retained.
 There is no size-only or head-hash deletion mode and no Delete All choice.
 
-Global scan exclusions and per-Tree, per-Analyze, and per-Rename exclusions
-cover folder names, file names, and extensions. Rules split on newline or
-semicolon, match case-insensitively with `*` and `?`, and normalize an optional
-leading extension dot. Tree and Analyze add their rules to global rules;
-Rename has its own scope. Defaults exclude `.git`, `node_modules`, and `.Trash`.
+Global scan exclusions and per-Tree, per-Analyze, per-Rename, per-Duplicates,
+and per-Empty exclusions cover folder names, file names, and extensions.
+Rules split on newline or semicolon and trim whitespace. Foundation lowercase
+normalizes names and patterns before Darwin `fnmatch` with flags zero, matching
+basenames rather than paths. Shell patterns support `*`, `?`, bracket classes,
+and backslash escaping; wildcards may match a leading dot. Extension rules
+remove one optional leading dot and match the last extension. Each feature
+combines its rules with global rules. Legacy excluded folder names remain
+case-insensitive literal names, including names containing glob metacharacters.
+An excluded selected root or ancestor also prevents traversal.
+Defaults exclude `.git`, `node_modules`, and `.Trash`.
 Rules are visible, resettable, and previewable in Settings. Symlinks and packages
 remain traversal boundaries. Excluded or unreadable children never prove an
 ancestor empty or authorize its removal.
@@ -1135,6 +1143,10 @@ and Opus selections (ADR 0010).
 General menu slots are editable and resettable alongside platform presets.
 Percentage, pixel, byte-target, and angle edits preserve stable IDs, validate
 inline, and publish resolved values and labels in a new catalog version.
+Engine slot values accept integer percentages from 1 to 1,000, pixel edges
+from 1 to 16,384, and compression targets from 1 to 10,000 decimal MB.
+The extra angle accepts finite degrees from -360 to 360 and defaults to 45.
+Resetting a slot removes its override and restores its bundled value.
 Existing stored byte limits retain their units. MacEase uses decimal MB
 (1,000,000 bytes), not Flect's MiB values behind MB labels. Invalid values or
 codec/container tuples fail on save and again during planning.
@@ -1402,6 +1414,11 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Implement U5 engine settings for verified duplicate filters and
+  automatic Trash retention, shared feature exclusions, OCR encodings and
+  substitution warnings, embedded-PNG SVG, loose PDF page images, editable
+  catalog slots, and SHA-1/SHA-512 leaves. Settings controls are wired separately.
 
 - 2026-10-21: Drop SDR-to-HDR conversion from the target; HDR-to-SDR stays.
   Prefer proven, license-compatible libraries and components over custom

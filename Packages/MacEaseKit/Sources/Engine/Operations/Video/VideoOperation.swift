@@ -83,11 +83,19 @@ enum VideoPlanner {
         guard let preset else { return nil }
         switch op {
         case .videoResize:
-            if preset == "percent-50" { return .resize(.percent(50)) }
-            return Int(preset.dropLast()).map { .resize(.lines($0)) }
+            let slotID = "video.resize/\(preset)"
+            guard let slot = MenuValues.slots.first(where: { $0.id == slotID }),
+                let value = settings.menuValues.value(for: slotID)
+            else { return nil }
+            switch slot.unit {
+            case .percent: return .resize(.percent(value))
+            case .pixels: return .resize(.lines(value))
+            case .megabytes: return nil
+            }
         case .videoRotate:
             let degrees: [String: Double] = ["right-90": 90, "left-90": 270, "180": 180]
-            guard let angle = preset == "extra-angle" ? settings.extraRotationDegrees : degrees[preset], angle.isFinite
+            guard let angle = preset == "extra-angle" ? settings.extraRotationDegrees : degrees[preset], angle.isFinite,
+                preset != "extra-angle" || Settings.extraRotationRange.contains(angle)
             else { return nil }
             let normalized = (angle.truncatingRemainder(dividingBy: degreesPerTurn) + degreesPerTurn)
                 .truncatingRemainder(dividingBy: degreesPerTurn)
@@ -153,9 +161,11 @@ enum VideoPlanner {
     private static func compression(_ preset: String, settings: Settings) -> VideoCompression? {
         let qualities: [String: Double] = ["quality-high": 0.85, "quality-medium": 0.65, "quality-low": 0.4]
         if let quality = qualities[preset] { return VideoCompression(goal: .quality(quality)) }
-        let megabytes: [String: Int64] = ["mb-10": 10, "mb-25": 25, "mb-50": 50, "mb-100": 100]
-        if let size = megabytes[preset] {
-            let target = Int64((Double(size * 1_000_000) * MediaLimits.targetShare).rounded(.down))
+        let slotID = "video.compress/\(preset)"
+        if let slot = MenuValues.slots.first(where: { $0.id == slotID }), slot.unit == .megabytes {
+            guard let size = settings.menuValues.value(for: slotID) else { return nil }
+            let target = Int64(
+                (Double(Int64(size) * MenuValues.bytesPerMegabyte) * MediaLimits.targetShare).rounded(.down))
             return VideoCompression(
                 goal: .bytes(target), allowsDownscale: settings.video.allowDownscale,
                 allowsFrameRateReduction: settings.video.allowFrameRateReduction)

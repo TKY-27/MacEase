@@ -23,7 +23,7 @@ private typealias Fixture = ImageFixtures
         #expect(shown.reportText?.contains("MacEase") == true)
         let saved = try await Fixture.run(.imageOCR, preset: "save", inputs: [input])
         let file = try Fixture.output(of: saved)
-        #expect(file.lastPathComponent == "sign.txt")
+        #expect(file.lastPathComponent == "sign_ocr.txt")
         #expect(try String(contentsOf: file, encoding: .utf8).contains("reads text"))
         #expect(FileManager.default.fileExists(atPath: input.path))
 

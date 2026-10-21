@@ -56,6 +56,26 @@ public struct RenameRules: Codable, Hashable, Sendable {
         .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
     }
 
+    public static func targets(for selection: [URL], settings: FolderSettings) throws -> [URL] {
+        let filter = FolderFilter(settings: settings, scope: .rename)
+        // Selected links are never traversed.
+        if selection.count == 1, let root = selection.first,
+            try root.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true
+        {
+            return []
+        }
+        if selection.count == 1, let root = selection.first,
+            try FolderWalk.isPlainFolder(root), filter.excludesFolderOrAncestor(root)
+        {
+            return []
+        }
+        return try targets(for: selection).filter { url in
+            let isFolder = try FolderWalk.isPlainFolder(url)
+            return !filter.excludesFolderOrAncestor(isFolder ? url : url.deletingLastPathComponent())
+                && !filter.excludes(url, isFolder: isFolder)
+        }
+    }
+
     /// Resolves collisions so applying matches exactly.
     public func plans(for targets: [URL]) throws -> [RenamePlan] {
         var takenByFolder: [URL: Set<String>] = [:]

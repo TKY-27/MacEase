@@ -108,6 +108,8 @@ enum UserMessages {
             String(localized: "Only the first frame was kept because the format has no animation.")
         case .pngOptimizationSkipped:
             String(localized: "PNG optimization was skipped to stay within the memory budget.")
+        case .unmappableCharactersReplaced:
+            String(localized: "Characters that Shift_JIS cannot represent were replaced using the saved policy.")
         case .firstPageOnly:
             String(localized: "Only the first page was kept.")
         case .loudnessLimitedByPeak(let reached):

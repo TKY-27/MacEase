@@ -14,6 +14,7 @@ enum PDFExport {
     static func images(of url: URL, format: StillFormat, dpi: Int, context: ItemContext) throws -> ItemResult {
         let document = try PDFEditing.open(url)
         guard document.allowsPrinting else { throw EngineError.invalidInput(.pdfPrintingNotAllowed) }
+        let layout = context.settings.text.pdfImageLayout
         let folder = try PDFEditing.stagingFolder(for: url, context: context)
         let (type, pathExtension) = format == .png ? (UTType.png, "png") : (UTType.jpeg, "jpg")
         var properties: [CFString: Any] = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi]
@@ -22,12 +23,22 @@ enum PDFExport {
                 Double(context.settings.image.jpegQuality) / percent
         }
         let base = PDFEditing.baseName(of: url)
+        var looseFiles: [StagedFile] = []
         for index in 0..<document.pageCount {
             try Task.checkCancellation()
             try autoreleasepool {
                 let image = try render(try PDFEditing.page(index, in: document), dpi: dpi)
-                let name = PDFEditing.pageFileName(
-                    base: base, index: index, count: document.pageCount, extension: pathExtension)
+                let name: String
+                if layout == .looseFiles {
+                    let number = String(index + 1)
+                    let padding = String(repeating: "0", count: String(document.pageCount).count - number.count)
+                    name =
+                        document.pageCount == 1
+                        ? "\(base).\(pathExtension)" : "\(base)_p\(padding)\(number).\(pathExtension)"
+                } else {
+                    name = PDFEditing.pageFileName(
+                        base: base, index: index, count: document.pageCount, extension: pathExtension)
+                }
                 let target = folder.appending(path: name)
                 guard
                     let destination = CGImageDestinationCreateWithURL(
@@ -37,10 +48,14 @@ enum PDFExport {
                 guard CGImageDestinationFinalize(destination) else {
                     throw EngineError.encodeFailed("page image write failed")
                 }
+                if layout == .looseFiles {
+                    looseFiles.append(StagedFile(url: target, name: name, check: .image))
+                }
             }
             context.progress(Double(index + 1) / Double(document.pageCount))
         }
-        return .derived(nextTo: url, outputs: [StagedFile(url: folder, name: base, check: .folder)])
+        let outputs = layout == .looseFiles ? looseFiles : [StagedFile(url: folder, name: base, check: .folder)]
+        return .derived(nextTo: url, outputs: outputs)
     }
 
     static func text(of url: URL, context: ItemContext) async throws -> ItemResult {

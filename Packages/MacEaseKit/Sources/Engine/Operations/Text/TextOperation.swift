@@ -103,7 +103,9 @@ enum TextPlanner {
         switch operation {
         case .encoding(let target, let source):
             let decoded = try TextEncoding.decode(input, assuming: source)
-            let output = try TextEncoding.encode(decoded.text, as: target, unmappable: settings.unmappable)
+            let output = try TextEncoding.encode(
+                decoded.text, as: target, unmappable: settings.unmappable, substitute: settings.shiftJISSubstitute)
+            if output.replaced { context.warn(.unmappableCharactersReplaced) }
             return try replace(url, input: input, output: output.data, encoding: output.encoding, context: context)
         case .lineEndings(let ending):
             let output = try TextEncoding.normalizingLineEndings(input, to: ending)

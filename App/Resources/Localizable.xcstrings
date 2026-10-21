@@ -77,6 +77,16 @@
         }
       }
     },
+    "%lld MB": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld MB"
+          }
+        }
+      }
+    },
     "%lld copies of %@ — keep one": {
       "localizations": {
         "ja": {
@@ -163,12 +173,32 @@
         }
       }
     },
+    "%lld%%": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld%%"
+          }
+        }
+      }
+    },
     "%lld. %@: %@": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld. %@: %@"
+          }
+        }
+      }
+    },
+    "%lldp": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldp"
           }
         }
       }
@@ -725,6 +755,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Shift_JIS で表現できない文字"
+          }
+        }
+      }
+    },
+    "Characters that Shift_JIS cannot represent were replaced using the saved policy.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift_JIS で表せない文字を、設定した方法で置き換えました。"
           }
         }
       }
@@ -2143,6 +2183,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "ログ"
+          }
+        }
+      }
+    },
+    "Long Edge %lld px": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長辺 %lld px"
           }
         }
       }
