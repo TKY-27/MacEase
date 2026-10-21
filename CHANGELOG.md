@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated the target v1 specification and ADR policy for Flect-style menu-first
+  interaction, new-file output by default, HDR/SDR scope, and independent Swift
+  implementation with source study permitted. Implementation follows separately.
+
 ## [1.0.0] - 2026-10-21
 
 First release.

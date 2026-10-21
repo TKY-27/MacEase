@@ -10,13 +10,15 @@ under `docs/adr/`.
 MacEase is a macOS toolkit that converts, compresses, resizes and otherwise
 transforms files entirely from the Finder right-click menu. The user selects
 files in Finder, opens the context menu, picks an operation, and the files are
-transformed in place. There is no main window workflow.
+saved as new files by default. An optional output mode replaces originals
+through Trash and Undo. There is no main document window workflow.
 
 Principles:
 
 - **Right-click and done.** Every operation starts from the Finder context
-  menu. Operations with no choices run immediately. Small panels appear only
-  when an operation needs input.
+  menu. Preset and format leaves run immediately. Custom menu entries are
+  limited to Resize and Compress. Other windows collect essential input,
+  confirm destructive work, or present results.
 - **Never lose a file.** An original is never modified or removed until the
   output is fully written and verified. Replaced originals go to the Trash and
   every batch can be undone.
@@ -26,8 +28,10 @@ Principles:
   encoder, and in-house Swift implementations where no permissive library
   exists.
 
-This specification is the complete v1 feature list. Comparison with other tools
-is not an acceptance criterion.
+This specification defines the target finished v1, including the product
+direction accepted on 2026-10-21. It is not a statement of current implementation
+status. Flect is the interaction and functional reference within the explicit
+scope below. Windows backend behavior is not an acceptance criterion.
 
 ## 2. Platform and tooling
 
@@ -100,12 +104,12 @@ Menu file content:
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "catalogVersion": "sha256 of the entries array",
   "token": "64 hex characters",
   "hostAvailable": true,
   "entries": [
-    { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"] }
+    { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"], "separatorBefore": false }
   ],
   "kinds": { "image": { "title": "Images" } }
 }
@@ -115,11 +119,24 @@ Menu file content:
   language and already filtered by settings and capabilities (hidden items,
   Apple Intelligence availability, Java availability).
 - `path` gives the localized submenu titles from the kind level down to the leaf.
+  Different operation IDs can share a submenu, such as Rotate and Convert.
+- Schema 2 adds `separatorBefore` to each leaf. It marks a preset-group boundary
+  at that leaf's parent level. After filtering, the renderer keeps group
+  boundaries between surviving groups without leading, trailing, or repeated
+  separators. Separators have no action or entry index. Section headers are
+  not used.
+- The catalog hash covers the complete ordered entries, including grouping,
+  parameter values, visibility, and selection constraints. Editable menu values
+  are published with their stable slot IDs and resolved parameters. Leaf
+  constraints include minimum and maximum per-kind counts and applicable source
+  and target formats. The host validates the parameters again before execution.
 - `token` is generated once from 32 random bytes on first launch, persisted by
   the host, and rotatable in Settings > Advanced.
 
-If the menu file is missing or unreadable, the extension shows a single item,
-"Open MacEase", which launches the host.
+If the menu file is missing, unreadable, or uses an unsupported schema
+(including schema 1), the extension shows a single item,
+"Open MacEase", which opens `macease://open`. The host shows Welcome if
+onboarding is incomplete, otherwise Settings. This route never runs an operation.
 
 **Menu construction.** Finder Sync copies menu items and keeps only title,
 image, action and `tag`; `representedObject` is lost (verified). Each leaf's
@@ -147,7 +164,9 @@ macease://run?v=<catalogVersion>&e=<entryIndex>&t=<token>&path=<path>&path=<path
 **Threat model.** The token stops web pages and documents from triggering
 operations through the URL scheme. Local processes running as the same user can
 already modify the user's files and are out of scope. Permanent deletion is
-never triggered directly by a URL; it always passes through a confirmation panel.
+never triggered directly by a URL; it always requires a confirmation alert.
+Automatic duplicate retention can move verified redundant copies to the Trash
+under the saved keep policy. It never authorizes permanent deletion.
 
 ### 3.4 Job engine
 
@@ -157,15 +176,41 @@ never triggered directly by a URL; it always passes through a confirmation panel
   work. Hardware video encodes (VideoToolbox H.264, HEVC, HEVC with alpha) run
   one at a time. Software encodes (libvpx, libaom, ProRes on chips without a
   ProRes engine) count as CPU-bound.
-- Each item reports progress in [0, 1]. Batches can be cancelled from the menu
-  bar; cancellation stops running items, removes their staging files and leaves
+- Each item reports progress in [0, 1]. Batches can be cancelled from Activity
+  or the menu bar; cancellation stops running items, removes their staging files and leaves
   originals untouched.
 - Each item ends as `succeeded`, `skipped(reason)` or `failed(error)`. One item
   failing never stops the rest of the batch.
 
 ### 3.5 File commit model
 
-Every operation has exactly one output mode:
+Each operation resolves to one commit mode before processing. Settings > General
+has **When converting or editing** with two choices:
+
+- **Save as new file** (default). Transform operations use Derived commits.
+- **Replace original (move original to Trash, Undo)**. Transform operations use
+  the Replace sequence below.
+
+The default applies to new installs and existing installs without an explicit
+saved output-mode choice. A saved choice is preserved. Each batch snapshots
+its resolved mode and settings, so later Settings changes cannot alter a job.
+
+**Transform** in section 8 means this switch applies. It covers image resize,
+compression, conversion, rotation, flip, border trimming, background editing,
+and metadata stripping; video resize, trim, compression, rotation, flip,
+frame-rate changes, remove audio, and container conversion; audio conversion,
+compression, normalization, and trim; PDF compression and rotation; text encoding,
+line endings, and JSON formatting or sorting. AI plans use each step's policy.
+
+Exports, extracts, and reports always keep their inputs regardless of the switch.
+These include RAW/DNG conversion, image-to-PDF, icon sets, video animations,
+thumbnails, extracted audio, subtitles from audio or video, video background
+exports, OCR files, structural text conversion and derive-to-TXT, PDF merge,
+page images, text, page extraction and split, archives, JAR decompilation,
+folder trees, Analyze exports, and saved text results. Rename, Clipboard,
+Report, and Trash retain their own semantics.
+
+Resolved commit modes:
 
 | Mode | Behavior |
 | --- | --- |
@@ -174,11 +219,12 @@ Every operation has exactly one output mode:
 | **Rename** | The file is renamed. No content changes. |
 | **Clipboard** | The result is copied to the pasteboard. No files change. |
 | **Report** | The result is shown in a panel, optionally saved as a derived file. |
-| **Trash** | Items confirmed in a panel are moved to the Trash (or deleted permanently when that setting is on). |
+| **Trash** | Verified candidates are moved to the Trash after review or a saved duplicate keep policy. Permanent deletion always requires an alert. |
 
 **Staging.** Outputs are written to a directory obtained from
-`FileManager.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: original, create: true)`,
-which is on the same volume and outside the user's folder (so cloud-synced
+`FileManager.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true)`,
+where `destination` is the resolved output location. Staging is on that volume
+and outside the user's folder (so cloud-synced
 folders never see partial files). Staging is removed on success, failure and
 cancel. Stale staging directories from a crash are removed at host launch.
 
@@ -219,22 +265,56 @@ Replace, derived, rename, removal and undo check cancellation inside the
 coordinated section immediately before the first mutation. Once a mutation
 starts, its commit or rollback completes without another cancellation check.
 
-**Names.** A derived output or a renamed replace output that collides with an
-existing name gets ` (2)`, ` (3)` and so on before the extension.
+**Derived names.** Outputs are created in the source's parent folder. `stem`
+means the source name without its last extension, and `ext` is the retained
+source extension. Conversion uses the selected target extension. Names follow
+Flect's derive rules for corresponding operations:
 
-Report Save and Analyze Export as Markdown use a save panel to choose a folder
-and name. They stage and verify UTF-8 text, then use the Derived commit path
+| Operation | Candidate name before collision numbering |
+| --- | --- |
+| Resize, compress, rotate, trim | `stem_resized.ext`, `stem_compressed.ext`, `stem_rotated.ext`, `stem_trimmed.ext` |
+| Image, video, audio, or structural text conversion; derive-to-TXT | `stem.<target>` |
+| Remove metadata; image background | `stem_clean.ext`; `stem_keyed.png` for Remove or Color Key, with the resolved extension for other background edits |
+| OCR; thumbnail; subtitles | `stem_ocr.txt`; `stem_thumbnail.png` or `.jpg`; `stem.srt`, `.vtt`, or `.txt` |
+| Text encoding | `stem_utf8.ext`, `stem_utf8bom.ext`, `stem_utf16.ext`, `stem_sjis.ext` |
+| Line endings; JSON | `stem_lf.ext`, `stem_crlf.ext`; `stem_pretty.ext`, `stem_minified.ext`, `stem_sorted.ext` |
+| PDF merge | `first-ordered-stem_merged.pdf` beside the first ordered source |
+| PDF page images | One page: `stem.png` or `stem.jpg`. Multiple pages: `stem_pN.png` or `.jpg`, with N padded to the total page-count width |
+| PDF text; archive extraction; JAR decompilation | `stem.txt`; directory `stem`; directory `stem` |
+| Folder compression | `folder-stem.zip`, `.7z`, `.tar`, or `.tar.gz`, with the folder retained as the archive root |
+
+For `.tar.gz` extraction, both suffixes are removed. Folder compression uses
+the folder name without its last extension, matching Flect, so `project.v1`
+produces `project.zip`. MacEase-only edits use explicit suffixes such as
+`_flipped`, `_normalized`, `_fps30`, `_silent`, `_cropped`, and `_background`.
+Video animation exports use `stem.gif`, `stem.webp`, or `stem.apng`.
+Other multi-output exports use a named derived folder or the page naming rule
+in section 8.6.
+
+If either a file or a directory occupies a candidate, append ` (2)`, ` (3)`,
+and so on before the last extension, or after a directory name. A same-format
+conversion therefore never writes back to its source in new-file mode.
+Renamed Replace outputs use the same collision rule. Naming checks and the
+no-replace final move run inside commit serialization and file coordination.
+A concurrent collision retries with the next suffix. No existence-check race
+can authorize overwriting an occupied path.
+
+Report Save and Analyze Export use a save panel to choose a folder and name.
+They stage on the destination volume and verify the selected encoding and
+format, then use the Derived commit path
 and record an undoable batch. Existing files are never overwritten, including
 after a save panel replacement confirmation. Collisions use the available-name
 rule, and the host tells the user the final name when it changed.
 
-**Preservation on replace.**
+**Preservation.** These rules apply to both output modes unless explicitly limited.
 
 - Creation date, modification date, Finder tags and Finder comment are copied
   to the output.
 - EXIF, XMP, IPTC and the ICC profile are copied when the output format can hold
-  them, and dropped silently when it cannot (BMP, ICO, GIF, SVG). Metadata strip
-  operations are the exception.
+  them. Unsupported metadata must never disappear silently. Replace refuses a
+  target that cannot preserve it. Derived conversions report each unsupported
+  metadata class as a visible warning while retaining the source. Explicit
+  metadata stripping and the documented platform GPS policy are exceptions.
 - Pixel rotation sets EXIF Orientation to 1.
 - ISO 21496-1 and Apple HDR gain maps are kept for HEIC and JPEG outputs
   through ImageIO auxiliary data, including their calibration metadata.
@@ -244,16 +324,19 @@ rule, and the host tells the user the final name when it changed.
   whose ImageIO payload exposes planar YCbCr without raster bytes; color
   management is disabled and ImageIO writes packed RGB auxiliary samples.
   Explicit auxiliary orientation takes precedence over the base orientation,
-  and pixel transforms normalize both to upright (ADR 0012).
+  and pixel transforms normalize both to upright (see
+  `adr/0012-gain-map-calibration-and-raster-decoding.md`).
   Unreadable or unsupported maps fail with a typed error. Background changes
   and added canvas pixels, including non-right-angle rotations and letterbox
   presets, refuse HDR replacement until neutral gain can be derived reliably.
-  Other targets tone-map to SDR. See ADR 0010 for the bounded raster support.
+  HDR-to-SDR conversion is explicit under Convert > SDR (section 8.12).
+  Ordinary edits cannot silently remove HDR. Targets without HDR support require
+  that explicit conversion first. See ADR 0010 for the bounded raster support.
 - Platform presets remove GPS data by default (setting).
 
 **Deletions.** Duplicate and empty-folder removal move items to the Trash by
 default. Permanent deletion is an opt-in setting and always asks for
-confirmation in a panel.
+confirmation in an alert.
 
 ### 3.6 History and undo
 
@@ -309,7 +392,11 @@ confirmation in a panel.
   termination and crashes cannot provide this orderly shutdown guarantee.
 - The completion notification offers **Undo** and **Show in Finder**. The menu
   bar shows the last 10 batches with Undo.
-- A batch produces one notification, whatever its size.
+- A batch produces at most one notification under section 6, whatever its size.
+- New-file transforms use Derived history records, including the actual final
+  path and commit-time stamp. Undo removes the created output by moving it to
+  the Trash and leaves the source untouched. Staging, verification, history
+  flush, cancellation, and stamp checks are never bypassed for new-file mode.
 
 ### 3.7 Native dependencies
 
@@ -340,9 +427,20 @@ xcframeworks into `Vendor/build/` (ignored by git, cached in CI).
 `Vendor/deps.lock` and the license and patent files of each source. The app
 shows it in Settings > About.
 
-**Clean-room rule.** Do not open, copy or translate source code from GPL, LGPL
-or AGPL projects, including FFmpeg, LAME, gifski, pngquant, libimagequant and
-Clop. Use published specifications and papers instead.
+**Source policy.** GPL, LGPL, and AGPL sources, including FFmpeg, LAME, gifski,
+pngquant, libimagequant, and Clop, may be read to study architecture and
+algorithms. Their code must never be copied, translated, adapted, or incorporated
+into MacEase. Implement independently using platform APIs, specifications, and
+papers. This supersedes ADR 0004's prohibition on reading those sources.
+
+Flect is Apache-2.0 and is the interaction reference. Its developer's permission
+to study or reuse it does not replace license terms. MacEase independently
+implements the design in Swift and reuses only facts and data, such as extension
+lists, menu taxonomy, and preset values. No Flect code or assets are reused.
+If code is ever copied, retain the Apache-2.0 license and applicable notices,
+mark modifications, and include NOTICE and attribution in
+`THIRD_PARTY_NOTICES.txt` as required by the license and project policy.
+See `adr/0013-flect-style-menu-first-direction.md`.
 
 ### 3.8 In-house formats
 
@@ -367,34 +465,57 @@ Ogg pages use libogg; the in-house code only arranges packets and granule positi
 
 ## 4. Finder menu
 
-### 4.1 Scope
+### 4.1 Scope and selection
 
-- `directoryURLs` is `/`, which covers every mounted volume (verified for
-  local folders; external and network volumes are checked during
-  implementation and added explicitly if Finder requires it).
-- Item menu: `contextualMenuForItems`. Container menu (right-click on a folder's
-  background): `contextualMenuForContainer`, showing folder operations for the
-  targeted folder.
-- `menu(for:)` must return within 30 ms for 1,000 selected items. The extension
-  classifies by filename extension only, using the `MenuCatalog` table. The host
-  re-checks the real content type and skips mismatched items with a reason.
+- `directoryURLs` is `/`, covering mounted volumes. Local folders are verified;
+  external and network volumes require release checks.
+- Item menus use `contextualMenuForItems`. Folder-background menus use
+  `contextualMenuForContainer` and the targeted folder's operations.
+- `menu(for:)` returns within 30 ms for 1,000 selected items. Classification and
+  pruning use filenames, extensions, and per-kind counts only. The extension
+  never reads selection contents, sizes, HDR metadata, or animation frames.
+  The host checks real content types and skips mismatches with a reason.
+- Size-aware compression pruning, Finder icon progress, and nested SF Symbols
+  require successful platform spikes before adoption. Until then, size presets
+  remain visible and the host reports files already below the target. No
+  synchronous GIF probing or persistent progress badges are used.
 
-### 4.2 Structure
+### 4.2 Structure and pruning
 
-- One top-level item **MacEase ▸** (verified to appear at the top level of the
-  context menu, not inside Quick Actions).
-- Single-kind selection: `MacEase ▸ <Operation> ▸ <Preset>`.
-- Mixed selection: `MacEase ▸ <Kind> (n) ▸ <Operation> ▸ <Preset>`. Four levels
-  are verified.
-- Operations without choices are leaves. Operations with choices end with a
-  separator and **Custom…**, which opens a panel.
-- Kinds: Images, Videos, Audio, PDFs, Text, Archives, JAR, Folders. Operations
-  available for any file (checksum) appear under **All Files** in mixed
-  selections and at the end of single-kind menus.
-- Hidden operations (Settings > General > Menu Items) are not written to the
-  menu file. Apple Intelligence items are written only when
-  `SystemLanguageModel.default.availability` is `.available`. JAR items are
-  written only when a Java runtime is found with `/usr/libexec/java_home`.
+One top-level **MacEase ▸** uses `wand.and.sparkles`. A single kind exposes
+operations directly, with choices one level below. Mixed selections retain
+`MacEase ▸ Kind (n) ▸ Operation ▸ Choice`, at most four levels. Counts and
+single-selection limits use that kind's subset. Unknown files and packages
+receive All Files operations. Folder selection never enables recursive media
+operations.
+
+Only image/video Resize and image/video/audio Compress have **Custom Size…**.
+Flip leaves share Rotate. Video animation leaves share Convert. JSON commands
+are flat operation-level leaves. Separators divide preset groups under schema 2.
+There are no category headers inside homogeneous menus, redundant option forms,
+or fifth-level submenus. Format leaves use plain names such as **PNG**.
+Ellipses indicate input, review, or confirmation, not immediate processing.
+
+Selection rules:
+
+- Canonical aliases include jpg/jpeg/jpe, tif/tiff, heic/heif/hif, aif/aiff,
+  and ogg/oga. A conversion target is hidden only when it is a no-op for every
+  selected file of that kind. A mixed-format selection can still normalize to
+  one format. Audio M4A AAC and ALAC leaves are never pruned by extension,
+  because the codec is unknown without reading the file.
+- Text structural conversion requires one canonical source format and offers
+  only its valid targets. Generic text formats can still derive TXT. JSON
+  Pretty Print, Minify, and Sort Keys appear only when all Text inputs are JSON.
+- Trim for video or audio, Choose Frame, Extract Pages, and Copy as Base64
+  require exactly one input of that kind. PDF Merge requires two or more PDFs.
+  Make PDF supports one image directly and opens page ordering for two or more.
+- Analyze combines all selected folder roots in one report. It has no
+  single-folder limit. Repeated and overlapping roots are counted once.
+- Hidden operations and individual leaves are removed before serialization.
+  Empty submenus and redundant separators disappear after selection pruning.
+  The host validates count, type, capability, and parameters again on invocation.
+- Apple Intelligence items require availability and the saved AI toggle. JAR
+  Decompile requires a Java runtime found with `/usr/libexec/java_home`.
 
 ### 4.3 Classification
 
@@ -404,73 +525,176 @@ Ogg pages use libogg; the in-house code only arranges packets and granule positi
 | video | mp4, m4v, mov, mkv, webm, avi, flv |
 | audio | mp3, m4a, aac, wav, aif, aiff, flac, ogg, oga, opus, caf |
 | pdf | pdf |
-| text | txt, csv, tsv, json, xml, ini, cfg, conf, md, log, yaml, yml |
-| archive | zip, 7z, tar, gz, tgz, bz2, xz, rar |
+| text | txt, text, md, markdown, log, csv, tsv, ini, cfg, conf, json, xml, yaml, yml, toml, html, htm, css, js, mjs, cjs, ts, tsx, jsx, c, h, cpp, hpp, cc, hh, cs, java, kt, py, rb, go, rs, php, pl, lua, sh, bash, bat, cmd, ps1, psm1, sql, srt, vtt, asc, tex, rst, env, props, properties, gradle, cmake, m, mm, swift, vb, r, jl |
+| archive | zip, 7z, tar, gz, tgz, bz2, xz, rar, including compound tar.gz names |
 | jar | jar |
-| folder | directories (packages such as `.app` are treated as files and get only All Files operations) |
+| folder | Directories. Packages such as `.app` are files with only All Files operations. |
+
+M4A remains Audio. Flect's classification of M4A as Video is not adopted.
+Scripts and source files are decoded as text and never executed.
+
+### 4.4 Menu groups and defaults
+
+The first table gives operation order. Semicolons delimit entries there; only
+the word `separator` inserts a menu separator. In the second table, semicolons
+divide preset groups and render as separators. `hidden` means hidden only on
+new installs. Single leaves and count constraints follow section 4.2. All Files
+Checksum follows a separator in single-kind file menus, or an **All Files (n)** submenu in mixed
+menus.
+
+| Kind | Operation order and grouped choices |
+| --- | --- |
+| Images | Resize; Compress; Convert; Rotate; Background; Remove Metadata; Recognize Text; separator; Make PDF; Make Icon; Trim Borders; Copy as Base64 (hidden); separator; Rename with Apple Intelligence…; Ask Apple Intelligence… |
+| Videos | Resize; Trim…; Thumbnail; Subtitles; Compress; Rotate; Convert; Extract Audio; Frame Rate; Remove Audio; Background; separator; Ask Apple Intelligence… |
+| Audio | Convert; Subtitles; Compress; Normalize Loudness; Trim…; separator; Ask Apple Intelligence… |
+| PDFs | Merge…; Export as Images; Export as Text; Compress; Rotate; Extract Pages…; Split into Pages; separator; Rename with Apple Intelligence… |
+| Text | Convert; Encoding; Line Endings; separator when JSON commands survive; Pretty Print; Minify; Sort Keys |
+| Folders | Compress; Rename…; Folder Tree; Analyze…; separator; Remove Duplicates… or Remove Duplicates under an automatic keep policy; Remove Empty Folders…; separator; Rename Contents with Apple Intelligence… |
+| Archives / JAR | Extract / Decompile |
+
+| Submenu | Groups in display order |
+| --- | --- |
+| Image Resize | 75%, 50%, 25%; Long Edge 3840 px (hidden), 2560 px (hidden), 1920 px, 1080 px; Custom Size… |
+| Image Compress | Discord (20 MB), X (5 MB), Instagram (8 MB), Email (18 MB), Web; High Quality, Medium Quality, Low Quality; Custom Size… |
+| Image Convert | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL; GIF, TIFF, BMP (hidden); ICO (hidden), ICNS (hidden), SVG, PDF; SDR when applicable, HDR if qualified under section 8.12 |
+| Image and video Rotate | 90° Right, 90° Left, 180°, 45° (hidden, editable extra-angle slot); Flip Horizontal, Flip Vertical |
+| Background | Remove, Green Screen, Blue Screen, Custom Color, Blur; Color Key for images only |
+| Remove Metadata / Recognize Text | All, Location Only, Selected Fields / Copy Text, Save as .txt, Show |
+| Make Icon | macOS Icon (.icns), iOS AppIcon Set, Windows Icon (.ico) |
+| Video Resize | 50%; 2160p (4K) (hidden), 1080p, 720p, 480p; Custom Size… |
+| Video Thumbnail | First Frame, Middle Frame; Choose Frame… |
+| Audio and video Subtitles | SRT, WebVTT, Plain Text; Translated SRT |
+| Video Compress | Discord (20 MB), X, Instagram Reels, LINE, Email (18 MB); 10 MB, 25 MB, 50 MB, 100 MB (hidden); High Quality, Medium Quality, Low Quality; Custom Size… |
+| Video Convert | MP4, MOV, M4V (hidden), MKV, WebM, AVI (hidden), FLV (hidden); GIF, GIF for X (15 MB), Animated WebP, APNG (hidden); SDR when applicable, HDR if qualified |
+| Extract Audio | M4A, MP3, AAC, WAV, AIFF (hidden), FLAC, OGG (Vorbis) (hidden), Opus (hidden) |
+| Audio Convert | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG (Vorbis), Opus |
+| Audio Compress | 192 kbps, 128 kbps, 96 kbps, 64 kbps; Custom Size… |
+| Normalize Loudness / Frame Rate | −14 LUFS, −16 LUFS, −23 LUFS / 24 fps, 30 fps, 60 fps |
+| Encoding / Line Endings | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS / LF (macOS, Linux), CRLF (Windows) |
+| Folder Compress / Folder Tree | ZIP, 7z, TAR, tar.gz / Copy, Save as .txt, Save as .md |
+| Checksum | SHA-256, MD5, SHA-1 (hidden), SHA-512 (hidden) |
+
+Platform size labels are generated from saved preset limits, never hardcoded
+beside editable values. General percentage, pixel, angle, and byte-target slots
+are editable in Finder Menu. Text conversion pairs are specified in section 8.13.
 
 ## 5. Panels
 
-Panels are small SwiftUI windows opened by the host, centered on the active
-screen, always in front, dismissed with Esc. Each remembers its last values per
-operation.
+Windows appear only for essential per-run input, destructive review, and results.
+They use native title bars, system controls, grouped forms, and system colors.
+Flect supplies interaction structure. Finder copy windows and macOS Settings
+supply layout conventions. Decorative cards, gradients, custom glass content,
+and repeated explanatory labels are excluded, consistent with the
+[Impeccable slop catalog](https://impeccable.style/slop/) and
+[Apple menu guidance](https://developer.apple.com/design/human-interface-guidelines/menus).
+
+Input panels center on the active screen, accept Return for the action and Esc
+for Cancel, and focus the first field. They validate inline and disable invalid
+actions. Forms are about 420 pt wide, media panels 600 pt, with content-driven
+heights that support larger text. Keyboard and VoiceOver provide alternatives
+to dragging. Reduce Motion, Reduce Transparency, and Increase Contrast use
+system behavior. Values are remembered only for retained panels.
 
 | Panel | Used by | Contents |
 | --- | --- | --- |
-| Size | resize (image, video), icon set | Mode (percent, width, height, fit box, long edge), value fields, aspect lock, preview of resulting dimensions for the first file |
-| Target size | compress (all kinds) | Size in MB (decimal) or quality slider, platform preset picker, options (allow downscale, allow fps reduction, strip GPS) |
-| Angle | rotate | Angle field and dial, fill (transparent or color) |
-| Trim | video and audio trim, LINE preset over the limit | AVPlayerView trimming UI for MP4, MOV, M4V and audio; for MKV, WebM, AVI and FLV a thumbnail strip (one frame every 1/20 of the duration) with numeric start and end fields; exact or keyframe mode |
-| Frame picker | thumbnail, GIF range | Same media view as Trim with a single playhead |
-| GIF options | video to GIF, animated WebP, APNG | Range, width, fps, colors, dithering, loop, estimated size |
-| Background | image and video background | Mode (subject, person; color key with eyedropper and tolerance for images only), output (transparent, green #00B140, blue #0047BB, custom color, blur radius), video output format |
-| Page order | PDF merge, images to PDF | Thumbnails with drag to reorder, remove |
-| Page select | PDF extract | Page range field and thumbnails |
-| Rename | batch rename | Prefix, suffix, find and replace, numbering (start, step, digits), date (creation or EXIF), live preview table |
-| AI rename | AI rename | Suggested names table, editable, apply all or selected |
-| Duplicates | remove duplicates | Groups with keep-one selection, total reclaimable size, Trash or permanent |
-| Empty folders | remove empty | List with checkboxes |
-| Analyze | analyze folder | Total size, file count, largest 50 files, size by type chart, duplicate and empty summaries, export as Markdown |
-| Text result | OCR, checksum, tree | Read-only text with Copy and Save |
-| Password | archive extract | Secure field, remember for this batch |
-| Custom (AI) | natural-language custom | Prompt field, parsed plan shown as operation and parameters, Run |
-| Subtitles | video subtitles | Spoken language, format (SRT, VTT, TXT), optional translation target |
-| Extract audio | extract audio | Format, bitrate for lossy formats (Automatic copies the stream when possible) |
+| Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
+| Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint, live byte equivalent. No quality/platform picker or processing toggles. |
+| Trim | Single video or audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
+| Frame picker | Single video Choose Frame… | Preview and timestamp. |
+| Page order | PDF Merge, Make PDF with multiple images | Thumbnails, reorder/remove, Move Up and Move Down. |
+| Page select | Single PDF Extract Pages… | Page ranges and thumbnails. |
+| Rename / AI rename | Rename requests | Prefix, suffix, find/replace, numbering (start, step, digits), creation/EXIF date, live preview table; AI suggestions remain editable and require confirmation. |
+| Duplicates | Ask every time, the default keep policy | Verified groups with keep-one choices, oldest/newest proposals, reclaimable bytes, Move to Trash. Permanent deletion requires an additional alert. |
+| Analyze | Selected folder roots | One combined report, named roots, totals, largest 50 files, size by type, duplicate and empty summaries, exports. |
+| Text result | OCR Show, multi-file checksum, report details | Read-only text, Copy and Save. |
+| Password / Encoding | Engine requests | Secure archive password field remembered only for the batch, or ambiguous source text encoding. |
+| Ask Apple Intelligence | Natural-language requests | Prompt, validated plan, explicit Run. |
+| Panel failure | Failed panel preparation | Actionable failure and retry or close. |
 
-## 6. Progress and notifications
+Angle, Animation, Background, Subtitles, Extract Audio, and generic Options
+panels are removed. Their values move to Settings as listed in section 7.
+The Empty Folders checklist is replaced by a confirmation alert after scanning
+in Activity. It lists at most 12 paths and the remaining count, with Move to
+Trash and Cancel. Permanent deletion uses Delete Permanently and defaults to
+Cancel. No excluded or unreadable descendant can make a parent deletable.
 
-- A menu bar extra shows an icon that animates while jobs run, a list of active
-  batches with progress and Cancel, the last 10 batches with Undo, Settings,
-  Check for Updates and Quit.
-- `UserNotifications` sends one notification per batch on completion: success
-  count, skipped and failed counts with the first reason, actions **Undo** and
-  **Show in Finder**. Failures-only batches use a failure title.
-- Notification permission is requested during onboarding. Without it, results
-  are visible in the menu bar only.
+## 6. Progress and feedback
+
+One shared **Activity** window shows all running batches. It is enabled by
+default and appears only if a batch is still running after 0.8 seconds. It is a
+nonactivating, closable NSPanel at normal level, about 420 pt wide, with an
+autosaved frame on the active space. It never takes focus from Finder. Scans
+for duplicates, empty folders, and Analyze use the same window.
+
+Each batch row shows operation and count, current filename, completed/total,
+a determinate progress bar or indeterminate scan, and a separately labelled
+Stop button. Rows use spacing rather than cards. Status is **Done.**,
+**Finished with {n} problems.**, **Cancelled.**, or **Failed.** Problems expand
+inline with filenames and actionable reasons. Only failures use the error
+color. Finished rows offer Show in Finder and Undo when applicable. VoiceOver
+reads progress and announces completion.
+
+General settings default to close after success on, after cancel on, after
+failure off. Success with warnings or skips stays visible. The window closes
+when no rows remain. Closing Activity hides it without cancelling jobs. Stop
+cancels the chosen batch. Turning Show progress window off keeps menu-bar and
+notification feedback.
+
+The menu bar keeps active batches, Cancel, Results, and the last 10 batches
+with Undo and Show in Finder. **Show Progress** appears while jobs run. The
+busy symbol alternates only when Reduce Motion is off.
+
+`UserNotifications` sends at most one completion banner per batch, with counts,
+the first problem, Undo, and Show in Finder. A completed row retained and visible
+in Activity suppresses its duplicate banner. Successful rows that auto-close
+still produce the banner. Failure-only batches notify when Activity is disabled
+or was closed by the user. Notification denial leaves results in Activity and
+the menu bar. Stale-menu and permission notifications remain actionable.
+
+Invalid inputs become per-item skipped or failed results while valid items
+continue. Per-file problems never open modal alerts. Panels validate inline.
+Alerts remain for blocking app states, failed history flush on quit,
+Remove Empty confirmation, and permanent-delete confirmation.
 
 ## 7. Settings
 
-SwiftUI settings window with these tabs. Every value has a default and is stored
-in the host's `UserDefaults`, except presets (section 9).
+Settings uses a resizable `NavigationSplitView` sidebar and grouped detail forms,
+with a minimum size of 720 × 520 pt. Changes apply immediately and persist in
+host `UserDefaults`, except preset overrides in section 9. There are no Apply
+or OK buttons. Language changes ask before relaunch because active jobs stop.
 
-| Tab | Settings |
+| Page | Settings and defaults |
 | --- | --- |
-| General | Language (System, English, Japanese; changing asks, then relaunches the host), launch at login (`SMAppService.mainApp`), notifications, menu item visibility per operation, permanent delete opt-in |
-| Images | Default quality per format (JPEG, HEIC, WebP, AVIF, JXL), PNG compression (lossless optimize on convert), GIF dithering, metadata fields to strip (EXIF, GPS, maker notes, comments, XMP, IPTC), keep GPS on platform presets, color key default and tolerance, background colors |
-| Video | Codec for re-encode (Auto, H.264, HEVC), quality mode (speed or quality), allow downscale and fps reduction in target-size compression, trim mode default (keyframe or exact), rotation fill color, GIF defaults, background output format default |
-| Audio | Default bitrate per format, MP3 mode (CBR or VBR), loudness target (−14, −16, −23 LUFS), extract audio default format |
-| Folders | Duplicate matching (size and hash then byte compare; option to ignore hidden files), excluded folder names (`.git`, `node_modules`, `.Trash`, user-added), empty folder definition (ignore `.DS_Store`), rename defaults, archive format default, exclude `.DS_Store`, `__MACOSX` and AppleDouble files from new archives |
-| Text | Unmappable character policy for Shift_JIS (fail, `?`, numeric character reference), JSON indent (2, 4, tab), key sort scope (recursive or top level), CSV type inference |
-| OCR & AI | OCR languages and output default (clipboard, file, panel), subtitle language and output format, translation target language, AI features on or off |
-| Presets | Platform preset editor (section 9) with reset to defaults |
-| Advanced | Concurrency limit, rotate URL token, clear history, open logs, Copy Diagnostics (versions, OS, recent log lines), Full Disk Access shortcut |
-| About | Version, links, license, third-party notices |
+| General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
+| Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
+| Images | Per-format quality, PNG optimization, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
+| Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, trim accuracy, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
+| Audio | Per-format bitrate, MP3 CBR/VBR, loudness defaults and editable loudness menu values, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode), extract default format for AI plans only. |
+| Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), exclusions, folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
+| Text | Shift_JIS policy (fail default, ?, numeric references, or validated custom substitute), JSON indent (2, 4, tab), comparison (ordinal default, case-insensitive, natural), ascending/descending (ascending), recursive/root-only (recursive), pinned keys (empty), primitive-array sorting (off), CSV type inference (off). PDF section: page image resolution (144 dpi), layout (pages folder default, loose files optional). |
+| Text Recognition & Intelligence | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, AI on/off. Audio and video share subtitle settings. |
+| Advanced | Concurrency, token rotation, clear history, logs, diagnostics, Full Disk Access, Reset All Settings… with confirmation. Reset preserves history and preset overrides unless explicitly selected. |
+| About | Version, links, MIT license, third-party notices. |
+
+Per-preset visibility uses stable operation/preset IDs and preserves hidden
+operation choices during migration. Default-hidden leaves in section 4.4 apply
+only to new installs. Existing installs retain their menu visibility, including
+when they never customized it. New visibility defaults never overwrite a user's
+choices. Unsupported capabilities remain unavailable regardless of visibility.
+Saved changes rewrite menu schema 2 and its catalog hash.
+
+No removed panel retains an exclusive value. Image/video fill, masks, background
+colors and format, animation options, subtitle languages, extracted-audio bitrate,
+convert quality, SVG colors, PDF dpi/layout, custom frame rate, custom loudness,
+and metadata fields are reachable in their Settings pages and used by planners.
+The arbitrary-angle dial is replaced by one editable extra-angle leaf.
 
 ## 8. Operations
 
 Columns: **ID** is the stable operation identifier. **Mode** is the commit mode
-from section 3.5. Presets listed are the menu leaves; every operation with
-presets also has **Custom…**.
+from section 3.5. Transform resolves through the output-mode switch. Presets
+are menu leaves with groups and visibility from section 4. Only Resize and
+Compress offer Custom Size…. Essential input windows are listed in section 5.
 
 ### 8.1 Images
 
@@ -480,16 +704,16 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `image.resize` | 25%, 50%, 75%, long edge 1080, 1920, 2560, 3840 | Replace | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Custom asks for it |
-| `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Replace | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
-| `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, ICO, ICNS, SVG, PDF | Replace (Derived for RAW and DNG inputs) | Animated inputs keep all frames when the target holds animation (GIF, PNG written as APNG, WebP), otherwise frame 0 with a warning; multi-page TIFF to PDF keeps all pages, other targets use page 1; SVG output uses the tracer (Custom chooses colors) |
-| `image.rotate` | 90° right, 90° left, 180°, Custom | Replace | Multiples of 90° on JPEG without gain maps change only the orientation tag (lossless); HDR JPEG rotates base and gain-map pixels together; other angles rotate pixels with transparent corners, or the fill color when the format has no alpha, subject to the HDR preservation guard in section 3.5 |
-| `image.flip` | Horizontal, Vertical | Replace | Pixel flip, orientation reset to 1 |
-| `image.trimBorders` | — | Replace | Removes uniform borders matching the corner color within tolerance |
-| `image.background` | Remove, Green back, Blue back, Custom color, Blur, Color key | Replace | Subject mask from Vision `GenerateForegroundInstanceMaskRequest` (all instances), person mask option, or color key with tolerance; mask edges feathered 1 px; Remove outputs alpha and converts to PNG when the source format has no alpha (JPEG, BMP) |
-| `image.stripMetadata` | All, GPS only, Settings selection | Replace | Pixels untouched for JPEG (`CGImageDestinationCopyImageSource`), PNG and TIFF (stored pixels with new metadata); HEIC re-encodes at the settings quality because macOS keeps its metadata otherwise (ADR 0010) |
+| `image.resize` | 25%, 50%, 75%, long edge 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
+| `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Transform | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
+| `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
+| `image.rotate` | 90° right, 90° left, 180°, extra angle from Settings | Transform | Multiples of 90° on JPEG without gain maps change only the orientation tag (lossless); HDR JPEG rotates base and gain-map pixels together; other angles rotate pixels with transparent corners, or the fill color when the format has no alpha, subject to the HDR preservation guard in section 3.5 |
+| `image.flip` | Horizontal, Vertical | Transform | Pixel flip, orientation reset to 1 |
+| `image.trimBorders` | — | Transform | Removes uniform borders matching the corner color within tolerance |
+| `image.background` | Remove, Green Screen, Blue Screen, Custom Color, Blur, Color Key | Transform | Subject mask from Vision `GenerateForegroundInstanceMaskRequest` (all instances), person mask option, or color key with tolerance; mask edges feathered 1 px; Remove outputs alpha and converts to PNG when the source format has no alpha (JPEG, BMP) |
+| `image.stripMetadata` | All, Location Only, Selected Fields | Transform | Pixels untouched for JPEG (`CGImageDestinationCopyImageSource`), PNG and TIFF (stored pixels with new metadata); HEIC re-encodes at the settings quality because macOS keeps its metadata otherwise (ADR 0010) |
 | `image.ocr` | Copy text, Save as .txt, Show | Clipboard, Derived, Report | Vision `RecognizeTextRequest` accurate, language correction on, languages from settings with automatic detection |
-| `image.toPDF` | — | Derived | One PDF from all selected images in Finder order; Page order panel when more than one image |
+| `image.toPDF` | — | Derived | One PDF from all selected images, initially in natural filename order; Page order panel when more than one image |
 | `image.iconSet` | macOS icon (.icns), iOS AppIcon set, Windows icon (.ico) | Derived | Non-square inputs are padded to square with transparency; AppIcon set writes `Contents.json` and the sizes Xcode 26 expects |
 | `image.copyBase64` | — | Clipboard | `data:` URI with the correct MIME type; refuses files over 10 MB |
 | `image.aiRename` | — | Rename | Section 10 |
@@ -506,14 +730,17 @@ Vorbis through libopus and libvorbis; FLAC through AudioToolbox. Unsupported
 codecs (DTS, WMA, WMV, Sorenson H.263, VP6, Screen Video, RealVideo) fail with
 a message naming the codec.
 
-Replace operations refuse inputs with more than one video track or more than
-one audio track before writing an output, because the current pipeline selects
-only the first track of each kind. Derived operations may use those first tracks.
-Replacement also refuses streams the pipeline cannot preserve, including
+Transform operations in either output mode refuse inputs with more than one
+video track or more than one audio track before writing an output, because the
+pipeline selects the first track of each kind. Explicit exports such as
+thumbnails, animation, and audio extraction select the required tracks and
+report omitted streams. A new-file Transform is not permission to drop streams.
+Transforms also refuse streams the pipeline cannot preserve, including
 subtitles, attachments, chapters and data or timecode tracks. The input exposes
 these skipped streams so they cannot disappear silently. Removing audio only
-permits the requested audio omission; derived outputs may omit other streams
-because they keep the original (ADR 0010).
+permits the requested audio omission. Explicit Derived exports report other
+stream omissions while keeping the original. No frame, stream, metadata, alpha,
+or channel loss is silent.
 
 Resize, flip, frame-rate changes and exact trim preserve input alpha when
 re-encoding MOV through HEVC with alpha or ProRes 4444, and WebM through VP9
@@ -522,31 +749,32 @@ stream-copy edits retain their existing alpha (ADR 0010).
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `video.resize` | 50%, 2160p, 1080p, 720p, 480p | Replace | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
-| `video.trim` | — (panel) | Replace | Keyframe mode copies streams and starts at the keyframe at or before the mark; exact mode re-encodes |
-| `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Replace | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
-| `video.rotate` | 90° right, 90° left, 180°, Custom | Replace | Multiples of 90° in MP4 and MOV set the track transform without re-encoding; other angles and containers re-encode with the fill color |
-| `video.flip` | Horizontal, Vertical | Replace | Re-encode |
-| `video.fps` | 24, 30, 60 | Replace | Frame dropping or duplication by timestamp; re-encode |
-| `video.removeAudio` | — | Replace | Remux without audio tracks |
-| `video.convert` | MP4, MOV, M4V, MKV, WebM, AVI, FLV | Replace | Remux when the target container holds the source codecs; otherwise MP4, MOV, M4V and FLV use H.264 or HEVC with AAC, MKV uses H.264 and AAC, WebM uses VP9 and Opus, AVI uses MJPEG and PCM |
-| `video.toGIF` | 480 px 10 fps, 480 px 15 fps, 720 px 15 fps, X (15 MB) | Derived | In-house GIF encoder; X preset respects 15 MB, 1280×1080 and 350 frames |
-| `video.toAnimatedWebP` | 480 px 15 fps, 720 px 24 fps | Derived | libwebp animation encoder |
-| `video.toAPNG` | 480 px 15 fps | Derived | ImageIO APNG writer |
-| `video.thumbnail` | First frame, Middle frame, Choose… | Derived | PNG or JPEG per settings, full resolution |
-| `video.extractAudio` | MP3, M4A, AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; a bitrate chosen in the Custom panel always encodes |
+| `video.resize` | 50%, 2160p, 1080p, 720p, 480p | Transform | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
+| `video.trim` | — (panel) | Transform | Keyframe mode copies streams and starts at the keyframe at or before the mark; exact mode re-encodes |
+| `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Transform | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
+| `video.rotate` | 90° right, 90° left, 180°, extra angle from Settings | Transform | Multiples of 90° in MP4 and MOV set the track transform without re-encoding; other angles and containers re-encode with the fill color |
+| `video.flip` | Horizontal, Vertical | Transform | Re-encode |
+| `video.fps` | 24, 30, 60 | Transform | Frame dropping or duplication by timestamp; re-encode |
+| `video.removeAudio` | — | Transform | Remux without audio tracks |
+| `video.convert` | MP4, MOV, M4V, MKV, WebM, AVI, FLV | Transform | Remux when the target container holds the source codecs; otherwise MP4/MOV/M4V use H.264 or HEVC with AAC, FLV uses H.264 and AAC, MKV uses H.264/HEVC/VP9 with compatible AAC/Opus, WebM uses VP9 and Opus, AVI uses MJPEG and PCM |
+| `video.toGIF` | GIF, GIF for X (15 MB), under Convert | Derived | In-house GIF encoder; regular GIF uses saved animation defaults, full duration unless a saved range is set; X preset respects 15 MB, 1280×1080 and 350 frames |
+| `video.toAnimatedWebP` | Animated WebP, under Convert | Derived | libwebp animation encoder using saved animation defaults |
+| `video.toAPNG` | APNG, under Convert | Derived | ImageIO APNG writer using saved animation defaults |
+| `video.thumbnail` | First Frame, Middle Frame, Choose Frame… | Derived | PNG or JPEG per Settings, with saved quality and optional width limit |
+| `video.extractAudio` | MP3, M4A, AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; Automatic bitrate copies when possible; an explicit bitrate in Settings always encodes |
 | `video.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Speech framework `SpeechAnalyzer` with `SpeechTranscriber` and audio time ranges; language from settings or the system locale; cues split at sentence boundaries, at most 42 characters per line and 2 lines; translation with the Translation framework |
-| `video.background` | Remove, Green back, Blue back, Custom color, Blur | Derived | Section 8.11 |
+| `video.background` | Remove, Green Screen, Blue Screen, Custom Color, Blur | Derived | Section 8.11 |
 | `video.aiCustom` | — | Depends on plan | Section 10 |
 
 ### 8.3 Audio
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `audio.convert` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Replace | Bitrates from settings; tags (title, artist, album, artwork) copied where the target supports them |
-| `audio.compress` | 64, 96, 128, 192 kbps | Replace | Re-encodes in the same lossy format, or AAC in M4A for lossless sources and for MP3 below 128 kbps (ADR 0010) |
-| `audio.normalize` | −14 LUFS, −16 LUFS, −23 LUFS | Replace | ITU-R BS.1770-4 integrated loudness; gain only, capped so the 4× oversampled true peak stays at or below −1 dBTP; the notification reports when the cap stopped short of the target |
-| `audio.trim` | — (panel) | Replace | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy |
+| `audio.convert` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Transform | Bitrates from settings; tags (title, artist, album, artwork) copied where the target supports them |
+| `audio.compress` | 64, 96, 128, 192 kbps | Transform | Re-encodes in the same lossy format, or AAC in M4A for lossless sources and for MP3 below 128 kbps (ADR 0010) |
+| `audio.normalize` | −14 LUFS, −16 LUFS, −23 LUFS | Transform | ITU-R BS.1770-4 integrated loudness; gain only, capped so the 4× oversampled true peak stays at or below −1 dBTP; the notification reports when the cap stopped short of the target |
+| `audio.trim` | — (panel) | Transform | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy |
+| `audio.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Same on-device transcription, translation, settings, and cue rules as video subtitles; no video track required |
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
 
 Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
@@ -555,14 +783,14 @@ WAV input includes RF64 and BW64. Their mandatory first `ds64` chunk supplies
 ranges are checked against those lengths and the file before replacement.
 The optional size table is capped at 4,096 entries before accumulation.
 AVAudioFile supplies native decoding (ADR 0010).
-Audio replacement likewise refuses extra streams or chapters that its output
-cannot preserve before writing (ADR 0010).
+Audio Transform in either output mode refuses extra streams or chapters that
+its output cannot preserve before writing (ADR 0010).
 
 Chained Ogg streams are not supported. Input initialization scans Ogg pages
 and rejects a new logical stream after EOS before writing any output. The
 original is kept (ADR 0010).
 
-Audio replacements preserve the source speaker layout whenever the output
+Audio transforms preserve the source speaker layout whenever the output
 encoder can represent it. Unsupported layouts fail before writing instead of
 downmixing. The current MP3 and Opus implementations accept only mono and
 stereo; multichannel Opus requires a future multistream implementation
@@ -577,29 +805,53 @@ their channel count.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `folder.removeDuplicates` | — (panel) | Trash | Candidates grouped by size, then SHA-256, then byte comparison; excluded folder names from settings; nothing is removed without the panel |
-| `folder.removeEmpty` | — (panel) | Trash | Recursive; a folder containing only `.DS_Store` counts as empty by default |
-| `folder.tree` | Copy, Save as .txt, Save as .md | Clipboard, Derived | Unicode box-drawing tree, folders first, sorted like Finder, excluded names skipped |
+| `folder.removeDuplicates` | — (review under Ask) | Trash | Candidates pass saved filters, then size, SHA-256, and byte equality. Ask opens the keep-one panel; Keep oldest/newest proposes by modification date and moves only redundant verified copies to Trash without a panel. Equal timestamps use normalized path order. Permanent deletion always requires an alert |
+| `folder.removeEmpty` | — (confirmation alert) | Trash | Recursive scan followed by the section 5 alert; selected roots are retained. Only `.DS_Store` may be ignored by default; ordinary zero-byte files remain user content |
+| `folder.tree` | Copy, Save as .txt, Save as .md | Clipboard, Derived | Unicode box-drawing tree, folders first, natural order, optional folders-only output; global and Tree exclusions combined; symlinks not followed, packages not traversed |
 | `folder.rename` | — (panel) | Rename | Renames the selected items, or the folder's direct children when one folder is selected |
 | `folder.aiRename` | — | Rename | Section 10 |
-| `folder.analyze` | — | Report | Panel; Markdown export is Derived |
+| `folder.analyze` | — | Report | One combined report with named roots, aggregate totals, largest files, duplicate/reclaimable and empty summaries. CSV, JSON, HTML, TXT, and Markdown exports are always Derived |
 | `folder.compress` | ZIP, 7z, TAR, tar.gz | Derived | libarchive; one archive per selected folder, or one archive for a multi-item selection named after the parent folder |
+
+**Folder filters and exclusions.** Duplicate filters include minimum bytes,
+ignore-empty, optional filename match, and optional modification-time match.
+Name matching is case-insensitive; time matching uses modification timestamps
+at whole-second resolution. Filters reduce candidates and never replace hash
+and byte comparison. At least one copy per verified group is always retained.
+There is no size-only or head-hash deletion mode and no Delete All choice.
+
+Global scan exclusions and per-Tree, per-Analyze, and per-Rename exclusions
+cover folder names, file names, and extensions. Rules split on newline or
+semicolon, match case-insensitively with `*` and `?`, and normalize an optional
+leading extension dot. Tree and Analyze add their rules to global rules;
+Rename has its own scope. Defaults exclude `.git`, `node_modules`, and `.Trash`.
+Rules are visible, resettable, and previewable in Settings. Symlinks and packages
+remain traversal boundaries. Excluded or unreadable children never prove an
+ancestor empty or authorize its removal.
+
+Analyze normalizes selected roots, removes duplicates and nested roots, and
+counts each filesystem file identity once. The report retains the requested
+root labels and identifies aliases or overlaps. CSV uses UTF-8 BOM and RFC 4180
+quoting, with spreadsheet-formula protection for filenames. JSON, HTML, TXT,
+and Markdown use UTF-8 without BOM. HTML escapes filenames and contains no
+active content or network references. Report saves never overwrite, even when
+the save panel offers replacement, and remain undoable.
 
 ### 8.5 Archives
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `archive.extract` | — | Derived | ZIP, 7z, TAR, gz, bz2, xz, tar.gz, RAR (read only) through libarchive into a new folder named after the archive (or into the parent when the archive has a single top-level folder); extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
+| `archive.extract` | — | Derived | ZIP, 7z, TAR, gz, bz2, xz, tar.gz, RAR (read only) through libarchive into a fresh collision-safe folder named after the archive stem, including when the archive has a single top-level folder; extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
 
 ### 8.6 PDFs
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `pdf.merge` | — (Page order panel when needed) | Derived | One PDF from the selection in Finder order |
-| `pdf.toImages` | PNG, JPEG | Derived | Folder of pages at 144 dpi (settable) |
+| `pdf.merge` | — (Page order panel when needed) | Derived | One PDF, initially in natural filename order, with page ordering before processing |
+| `pdf.toImages` | PNG, JPEG | Derived | 144 dpi from Settings; pages-folder layout by default, optional loose pages with section 3.5 names. Whole output is staged and verified before commit; loose outputs commit without overwrites and retain per-file Undo after partial commit or cancellation |
 | `pdf.toText` | — | Derived | `PDFDocument.string`, pages separated by form feed; scanned PDFs fall back to Vision OCR per page |
-| `pdf.compress` | — | Replace | PDFKit write options `saveImagesAsJPEGOption` and `optimizeImagesForScreenOption`; kept only when smaller than the input |
-| `pdf.rotate` | 90° right, 90° left, 180° | Replace | All pages |
+| `pdf.compress` | — | Transform | PDFKit write options `saveImagesAsJPEGOption` and `optimizeImagesForScreenOption`; kept only when smaller than the input |
+| `pdf.rotate` | 90° right, 90° left, 180° | Transform | All pages |
 | `pdf.extractPages` | — (panel) | Derived | Selected pages to a new PDF |
 | `pdf.split` | — | Derived | One PDF per page in a folder |
 | `pdf.aiRename` | — | Rename | Section 10 |
@@ -608,17 +860,43 @@ Quick Look already previews PDFs on macOS, so there is no preview operation.
 
 Locked PDFs are refused. Unlocked encrypted PDFs support Derived operations
 when their permissions allow them: page images require printing; text, merge,
-page extraction and split require copying. Compress and rotate still refuse
-encrypted inputs because replacement would discard protection (ADR 0010).
+page extraction and split require copying. Compress and rotate refuse
+encrypted inputs in either output mode because the writers cannot preserve
+protection (ADR 0010).
 
 ### 8.7 Text
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `text.encoding` | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS | Replace | Input detection order: BOM, strict UTF-8, CP932, EUC-JP; ambiguous input asks in a panel; Shift_JIS means CP932 (`kCFStringEncodingDOSJapanese`) with the unmappable policy from settings |
-| `text.lineEndings` | LF, CRLF | Replace | Mixed endings are normalized |
-| `text.convert` | CSV→JSON, CSV→XML, CSV→HTML, CSV→Markdown, JSON→CSV, JSON→XML, XML→JSON, INI→JSON, INI→XML | Derived | CSV per RFC 4180 with delimiter detection among `,` `;` and tab, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
-| `text.json` | Pretty print, Minify, Sort keys | Replace | Key sort is lexicographic by Unicode scalar, recursive or top level per settings; invalid JSON fails with line and column |
+| `text.encoding` | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS | Transform | Input detection order: BOM, strict UTF-8, CP932, EUC-JP; ambiguous input asks in a panel; Shift_JIS means CP932 (`kCFStringEncodingDOSJapanese`) with the unmappable policy from settings |
+| `text.lineEndings` | LF, CRLF | Transform | Mixed endings are normalized |
+| `text.convert` | Source-appropriate TXT, CSV, JSON, XML, HTML, Markdown targets (section 8.13) | Derived | CSV per RFC 4180 with delimiter detection among comma, semicolon, tab, and pipe, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
+| `text.json` | Pretty print, Minify, Sort keys | Transform | Flat Pretty Print, Minify, Sort Keys leaves for JSON only. Deterministic sort options below; invalid JSON fails with line and column |
+
+**Text semantics.** Derive-to-TXT copies decoded content without interpreting
+Markdown, HTML, scripts, or source code. It always preserves the source, uses
+`stem.txt`, and writes UTF-8 without BOM. TXT/text aliases have no redundant
+TXT conversion leaf. Encoding and line-ending actions apply to every classified
+text extension, including mixed text formats. Undecodable or ambiguous inputs
+require the existing encoding flow rather than a silent UTF-8 guess.
+
+JSON Sort Keys supports ordinal Unicode-scalar, case-insensitive, and natural
+comparison, ascending or descending, recursive or root-only scope, and an
+ordered pinned-key list. Pinning is case-insensitive and precedes other keys.
+Comparators use ordinal tie-breaking for deterministic output. Optional
+primitive-array sorting uses serialized JSON values as lexical keys, not numeric
+order, and defaults off because ordering changes meaning. Object-containing
+arrays retain their order. Formatting preserves values, including numeric
+precision, and retains the selected indentation policy. Strict JSON remains
+the input contract; comments and trailing commas are not silently discarded.
+
+OCR files share the encoding writer. UTF-8, UTF-8 BOM, UTF-16 LE BOM, and
+Shift_JIS/CP932 are available. A custom substitute must be nonempty, one Unicode
+scalar, and encodable in CP932. Invalid substitutes fail inline validation.
+Unmappable characters follow the saved fail, replacement, or numeric-reference
+policy, with visible warnings for any substitution. Clipboard and Show outputs
+keep the native Unicode text. Empty OCR or transcription produces no file and
+a visible reason. Audio/video subtitle outputs use `stem.srt`, `.vtt`, or `.txt`.
 
 ### 8.8 JAR
 
@@ -630,7 +908,7 @@ encrypted inputs because replacement would discard protection (ADR 0010).
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `any.checksum` | SHA-256, MD5 | Clipboard and Report | One line per file `hash  name`; Text result panel for more than one file |
+| `any.checksum` | SHA-256, MD5, SHA-1, SHA-512 | Clipboard and Report | One line per file `hash  name`; Text result panel for more than one file |
 
 ### 8.10 Target-size compression
 
@@ -672,13 +950,184 @@ encrypted inputs because replacement would discard protection (ADR 0010).
 - Outputs: transparent HEVC with alpha in MOV (default), ProRes 4444 in MOV,
   VP9 with alpha in WebM (BlockAdditions); or green, blue, custom color or
   blurred background in MP4 with H.264 or HEVC.
-- Output name: `<name> (background removed).<ext>`.
+- Output name: `stem_background.<ext>`, always Derived.
+
+### 8.12 HDR and SDR conversion
+
+Image and Video > Convert contain **SDR**, meaning HDR to SDR. **HDR** is added
+only if the experimental SDR expansion below passes its quality gate. Neither
+operation opens an extra options window. Both honor the output-mode switch,
+while unsupported preservation requirements still refuse Replace.
+
+| Operation | Menu leaf | Mode |
+| --- | --- | --- |
+| `image.hdrToSDR` | Image > Convert > SDR | Transform |
+| `video.hdrToSDR` | Video > Convert > SDR | Transform |
+| Experimental SDR expansion | Convert > HDR, only after qualification | Transform, with Expanded from SDR labelling |
+
+**Detection.** The host inspects decoded transfer functions, color primaries,
+auxiliary gain maps and calibration, and available mastering or content-light
+metadata. Recognized inputs include Apple capture gain maps, ISO 21496-1 gain
+maps, PQ/HLG HEIC, AVIF, and JPEG XL, and HEVC HLG/PQ video including the
+supported Dolby Vision 8.4 base layer. Bit depth, a wide-gamut profile, a file
+extension, or mastering metadata alone does not prove genuine HDR. Capture
+provenance and signalled HDR are distinguished from known SDR-expanded content.
+Unknown provenance is reported as unknown, never asserted to be captured HDR.
+
+SDR conversion applies only to HDR content. Finder Sync can identify only
+potentially HDR-capable extensions, not the transfer function or capture origin.
+It offers the candidate SDR leaf for those formats, with no content probing.
+The host validates it and skips ordinary SDR inputs with an explicit reason.
+This conservative menu visibility is not proof that a file is HDR. Known
+SDR-expanded inputs retain that label in results and never acquire a claim of
+genuine HDR through conversion.
+
+**Images to SDR.** ImageIO SDR decoding, such as
+`kCGImageSourceDecodeToSDR`, or a color-managed Core Image tone-mapping path
+reconstructs HDR from the base and gain map or PQ/HLG signal. It maps highlight
+roll-off, exposure, and gamut into the selected SDR space, sRGB or Display P3,
+with the corresponding ICC profile. Display P3 is wide-gamut SDR, not an HDR
+transfer function. A transfer-tag change or hard clipping is not tone mapping.
+Only the SDR output drops the gain map and obsolete HDR signalling. Other
+metadata is preserved subject to section 3.5. The original remains recoverable
+under either commit mode.
+
+**Video to SDR.** AVFoundation/VideoToolbox performs HDR-to-SDR tone mapping
+into BT.709 primaries, transfer, and matrix. The Dolby Vision 8.4 route uses the
+HLG-compatible base layer and reports that the output is SDR without Dolby
+Vision dynamic metadata. Unsupported Dolby Vision profiles or missing required
+base-layer information fail explicitly. Audio, timing, supported streams, and
+non-HDR metadata retain the section 8.2 guarantees. Alpha-bearing sources need
+a compatible output path or fail before writing.
+
+**Quality gate.** HDR-to-SDR release acceptance uses real gain-map captures and
+synthetic PQ/HLG ramps, grayscale, saturated colors, highlight detail, and video
+temporal patterns. Decoded results must show a monotonic grayscale response,
+neutral grays, preserved highlight distinctions without hard clipping, no
+unexplained hue or exposure shift, and stable mapping across frames. Encoded
+color tags and actual decoded luminance must agree. Results are compared with
+the color-managed platform reference and viewed on HDR and SDR displays.
+Record fixtures, measured tolerances, and device findings in `docs/spikes.md`.
+Both new-file and Replace, metadata, cancellation, and Undo require acceptance.
+A metadata-only check is insufficient.
+
+**Experimental SDR to HDR.** Evaluate a native Core Image gain-map generation
+or equivalent controlled expansion path. It must be labelled **Expanded from
+SDR**, never recovered or genuine captured HDR. No missing highlights can be
+invented as source detail. Validate the SDR base round trip, gain-map calibration,
+HDR display appearance, lack of halos/banding or color shifts, and interoperability
+with ImageIO consumers. It ships only if it provides a meaningful, reliable
+improvement and passes documented quality tolerances on real images and test
+patterns. Record findings in `docs/spikes.md`. If the gate fails, omit HDR from
+the shipped menu. Do not ship a tag-only PQ/HLG rewrite or promise general
+SDR-to-HDR video support without equivalent evidence.
+
+### 8.13 Target conversion matrix
+
+These are target pairs, not evidence of an implemented or tested codec path.
+Each row defines all source-to-target pairs in that row. Availability requires
+a native macOS framework or the approved permissive/in-house backend in
+sections 3.7–3.8. Container extensions do not guarantee that every contained
+codec works. The host validates actual codecs before writing. No FFmpeg CLI,
+Windows component, or unapproved dependency is introduced to fill a pair.
+
+For still images, **I** is PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF,
+BMP, ICO, ICNS, SVG, and PDF. For video, **V** is MP4, MOV, M4V, MKV, WebM,
+AVI, and FLV. For audio, **A** is MP3, M4A (AAC), M4A (ALAC), raw AAC, WAV,
+AIFF, FLAC, OGG (Vorbis), and Opus. “Except own format” uses the canonical
+aliases in section 4.2. It suppresses only all-selection no-ops. An M4A source
+still exposes both codec choices.
+
+| Image inputs | Target pairs |
+| --- | --- |
+| PNG, JPEG/JPE, WebP, HEIC/HEIF/HIF, ICO, GIF still, SVG | Each input to every I target except its own format. PDF output always derives. These include Flect's PNG/JPG/WebP/HEIC/ICO/GIF/SVG pairs. |
+| AVIF, JPEG XL, TIFF/TIF, BMP, ICNS | Each input to every I target except its own format; PDF output always derives. |
+| DNG, CR2, CR3, NEF, ARW, RAF, ORF, RW2 | Each decodable RAW input to every I target, always Derived. |
+| Animated GIF, APNG, animated WebP, supported ImageIO sequences | GIF, APNG, animated WebP, retaining all frames/timing. Static targets refuse frame loss. HEICS writing is unsupported. |
+| Multi-page TIFF | Multi-page PDF or TIFF with every page preserved; other destinations refuse page loss. |
+| Any supported image | OCR to TXT; Make Icon (`image.iconSet`) to ICNS, ICO, or AppIcon set; Make PDF from selected images. These exports always derive. Convert > ICNS/ICO are separate Transform actions. |
+
+SVG input blocks scripts and network loads. SVG output explicitly selects
+traced paths (1–8 colors) or Base64-embedded PNG with dimensions and viewBox.
+Embedded PNG is a raster wrapper. Opaque targets cannot silently flatten alpha.
+A Derived conversion can use the chosen background color only with a visible
+warning. Replace refuses alpha loss. HDR-capable inputs additionally have the
+section 8.12 SDR path.
+
+| Video inputs | Target pairs and codec rules |
+| --- | --- |
+| MP4, MOV, M4V, MKV, WebM, AVI, FLV with supported video | Each input to every V target except its own container. Remux compatible streams first; otherwise use the validated output tuples below. |
+| Every supported video input | GIF, animated WebP, APNG exports; PNG/JPEG thumbnail; every A format through Extract Audio if an audio track exists; SRT/VTT/TXT and translated SRT through Subtitles. |
+| HEVC PQ/HLG and supported Dolby Vision 8.4 | SDR in a compatible MP4/MOV/M4V output under section 8.12. |
+
+MP4/MOV/M4V encode H.264 or HEVC with AAC. FLV encodes H.264 with AAC.
+MKV encodes H.264, HEVC, or VP9 with AAC or Opus. WebM encodes VP9 with Opus.
+AVI encodes MJPEG with PCM. Compatible existing AV1 packets may be remuxed into
+containers that support them; this does not provide AV1 encoding. Alpha
+re-encoding uses HEVC-alpha/ProRes 4444 MOV or VP9-alpha WebM. Flect's M4A
+video-conversion target is covered by MacEase's always-derived Extract Audio >
+M4A. Audio-only M4A stays in Audio and never pretends to contain video.
+
+| Audio inputs | Target pairs |
+| --- | --- |
+| MP3, WAV, AIFF/AIF, raw AAC, OGG/OGA Vorbis | Each input to every A target except its own format. AIF and AIFF share one target. |
+| M4A AAC or ALAC, FLAC, Opus, CAF | Each input to every A target. Same-format leaves may be pruned where the codec is known by extension; M4A variants remain visible. CAF is an input, not a target. |
+| Every supported audio input | SRT, VTT, TXT, translated SRT via the shared subtitle pipeline, always Derived. |
+
+Lossy rates and MP3 CBR/VBR come from Settings. Lossless output retains source
+precision and speaker layout where supported, rather than forcing 16-bit PCM.
+Unsupported layout, extra stream, or metadata preservation fails as specified
+in sections 3.5 and 8.3. WMA is excluded from both A and the input list.
+
+| Text source | Structural or decoded-text targets |
+| --- | --- |
+| CSV | TXT, JSON, XML, HTML, Markdown. Structural targets require a header and at least one row. |
+| JSON | TXT, CSV, XML. CSV requires an array of flat objects. |
+| XML | TXT, JSON, with the documented attribute/text mapping. |
+| INI, CFG, CONF | TXT, JSON, XML. CFG/CONF share INI key-value semantics. |
+| TXT, TEXT | Encoding and line-ending conversions; no redundant TXT target. |
+| Every other text extension in section 4.3 | TXT, preserving decoded content. This includes Markdown, HTML, TSV, YAML, TOML, subtitles, and source code. |
+| Every classified text source | UTF-8, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS encoding; LF or CRLF endings. |
+| JSON only | Pretty Print, Minify, Sort Keys in the same extension. |
+
+Structural and TXT conversions always derive. CSV output uses UTF-8 BOM;
+other structural outputs use UTF-8 without BOM. Encoding and JSON edits honor
+the output mode. Format conversion does not claim lossless XML round trips.
+Any unsupported mapping fails with an offending path rather than dropping values.
+
+| Other sources | Target pairs |
+| --- | --- |
+| PDF | PNG or JPEG pages, TXT; selected pages to PDF; one PDF per page; two or more PDFs to merged PDF. Exports always derive. |
+| Selected images | One PDF through Make PDF; icon files or an AppIcon set through Make Icon. These exports always derive. |
+| Selected folders | ZIP, 7z, TAR, tar.gz, one archive per root; explicit aggregate creation retains section 8.4 behavior. |
+| ZIP, 7z, TAR, GZ/TGZ/tar.gz, BZ2, XZ, RAR | Extracted tree, subject to password, path/link, quarantine, and expansion limits. No archive-to-archive menu or RAR creation. |
+| JAR | CFR source directory, Java required. |
+| Analyze | CSV, JSON, HTML, TXT, Markdown, from one combined multi-root report. |
+| Folder Tree | Clipboard, TXT, Markdown; optional folders-only. |
+
+**Evaluated and deferred.** WMA decode/encode and extraction need a maintainable
+permissive ASF/WMA backend. AV1 video encoding needs timed-video rate control,
+container integration, quality, performance, cancellation, and target-size proof;
+libaom AVIF still support does not establish those capabilities. AVI MPEG-4
+Part 2/MP3 encoding parity remains deferred; native MJPEG/PCM is the v1 target.
+Alternative local transcription backends need demonstrated language/accuracy
+benefit, licensed models, offline asset management, memory, and cancellation
+acceptance. Apple Speech remains the v1 backend. None of these deferred choices
+appears as a supported menu target.
+
+**Safety boundaries retained.** Do not copy Flect behavior that silently drops
+frames, streams, metadata, alpha, or channels, treats an oversize result as
+successful target compression, removes byte-equality proof, deletes every
+copy of a duplicate group, overwrites reports, or abandons durable Undo.
+New-file mode does not relax these boundaries. Explicit exports disclose their
+scope and omissions. Favorites, menu reordering, recursive folder media actions,
+and cloud workflows are not parity requirements.
 
 ## 9. Presets
 
 Platform presets ship as `Packages/MacEaseKit/Sources/Engine/Resources/platform-presets.json`.
 User edits are stored in `~/Library/Application Support/MacEase/platform-presets.json`
-and win over the bundled file per preset ID. Settings > Presets can reset each
+and win over the bundled file per preset ID. Settings > Finder Menu can reset each
 preset.
 
 Schema: `{ "id", "name": {"en", "ja"}, "image": {...}?, "gif": {...}?, "video": {...}?, "audio": {...}? }`
@@ -696,14 +1145,28 @@ combinations are rejected on save and before execution. Omitted formats default
 to MP4; omitted codecs default to H.264 and AAC. WebM requires explicit VP9
 and Opus selections (ADR 0010).
 
-Defaults (checked October 2026; values change, so they are editable):
+General menu slots are editable and resettable alongside platform presets.
+Percentage, pixel, byte-target, and angle edits preserve stable IDs, validate
+inline, and publish resolved values and labels in a new catalog version.
+Existing stored byte limits retain their units. MacEase uses decimal MB
+(1,000,000 bytes), not Flect's MiB values behind MB labels. Invalid values or
+codec/container tuples fail on save and again during planning.
+
+Animation defaults are width 480 px, 15 fps, 256 colors where applicable,
+ordered dithering, infinite loop, and full duration. Settings can change these
+without an extra per-run animation panel. The GIF for X preset retains its
+size, dimensions, and frame-count limits. Frame rate and loudness expose saved
+editable values without generic Custom panels.
+
+Bundled defaults below remain editable product values, not a guarantee of an
+external service's current upload limits:
 
 | ID | Image | GIF | Video |
 | --- | --- | --- | --- |
 | `discord` | 20,000,000 B | 20,000,000 B | 20,000,000 B, MP4 H.264 + AAC |
 | `x` | 5,000,000 B, JPEG/PNG/WebP | 15,000,000 B, ≤ 1280×1080, ≤ 350 frames | 512,000,000 B, ≤ 1920×1080, MP4 H.264 + AAC |
 | `instagram` | 8,000,000 B, JPEG, width ≤ 1440, aspect 4:5 to 1.91:1 (crop) | — | Reels: 9:16 1080×1920 (crop default, letterbox option), MP4 H.264 + AAC |
-| `line` | — | — | ≤ 300 s (longer inputs open Trim one second under the limit, then compress, ADR 0010), ≤ 1920×1080, MP4 H.264 + AAC |
+| `line` | — | — | ≤ 300 s (one over-limit input opens Trim one second under the limit, then compresses; a multi-input request skips over-limit items with a reason, ADR 0010 as amended here), ≤ 1920×1080, MP4 H.264 + AAC |
 | `email` | 18,000,000 B (25 MB attachment limit minus Base64 overhead) | 18,000,000 B | 18,000,000 B, MP4 H.264 + AAC |
 | `web` | WebP, long edge ≤ 1920, quality 80 | — | — |
 
@@ -713,12 +1176,12 @@ Shown only when `SystemLanguageModel.default.availability == .available` and
 AI features are on in settings. The host refreshes the menu file when
 availability changes.
 
-**Custom (natural language)** (`image.aiCustom`, `video.aiCustom`, `audio.aiCustom`). The user
+**Ask Apple Intelligence (natural language)** (`image.aiCustom`, `video.aiCustom`, `audio.aiCustom`). The user
 writes a request such as "WebP under 1 MB, long edge 1600". A
 `LanguageModelSession` with guided generation (`@Generable` plan of one to
 three steps, each an operation ID and one of its menu presets) turns it into a
-plan restricted to the operations of the selected kind (ADR 0010). The Custom
-panel shows the plan in plain words; nothing runs until the user presses Run.
+plan restricted to the operations of the selected kind (ADR 0010). The Ask
+Apple Intelligence panel shows the plan in plain words; nothing runs until the user presses Run.
 Plans that reference unknown operations or presets are rejected with the
 reason.
 
@@ -736,18 +1199,33 @@ reason.
 
 ## 11. Onboarding and first launch
 
-Shown at first launch and from Settings > General:
+One **Welcome** window replaces the multi-page wizard. It shows the app icon,
+**Right-click and done.**, one sentence describing the Finder workflow, and a
+static MacEase screenshot of Resize > 50%, with descriptive alternative text.
+No Flect tagline, illustration, or asset is reused.
 
-1. **Location check.** If the app runs from an App Translocation path (path
-   contains `/AppTranslocation/`) or outside `/Applications` and
-   `~/Applications`, explain how to move it to Applications and quit.
-2. **Finder extension.** If the extension is not enabled, show steps and a button
-   calling `FIFinderSyncController.showExtensionManagementInterface()`.
-3. **Notifications.** Request authorization.
-4. **Folder access.** Explain that macOS asks once per protected location
-   (Desktop, Documents, Downloads, removable and network volumes) the first time
-   MacEase processes a file there, with an optional shortcut to Full Disk Access.
-5. **Launch at login** toggle (default on), so the menu responds instantly.
+The checklist contains Finder extension status with Turn On…, Notifications
+with Allow, and Launch at login with its default-on switch. A short note explains
+first-use protected-folder prompts for Desktop, Documents, Downloads, removable,
+and network volumes, plus a Full Disk Access shortcut. Status refreshes when
+the app activates. Done permits incomplete permission rows.
+
+If translocated or outside `/Applications` and `~/Applications`, the checklist
+is replaced by Move MacEase to Applications guidance and Quit MacEase. Done is
+disabled until relocation. The regular window has no pages, dots, or step
+animation. It supports keyboard navigation, VoiceOver states, larger text, and
+Reduce Motion.
+
+After Done, if Finder Sync remains disabled, the menu bar shows Turn On Finder
+Extension… until it is enabled. Settings > General > Show Welcome Window…
+reopens this window.
+
+A normal launch without an operation, reopening the running app from Finder,
+Spotlight or Dock, and `macease://open` all show Welcome if onboarding is
+incomplete, otherwise Settings. `applicationShouldHandleReopen` uses the same
+routing. A Finder run request routes directly to its operation and essential
+panel or Activity, without opening Settings as a side effect. The extension's
+Open MacEase fallback follows the same open route.
 
 ## 12. Updates
 
@@ -870,6 +1348,19 @@ check.
   models) check the capability first and call `XCTSkip` (or Swift Testing
   `.enabled(if:)`) when it is missing. `make test-device` runs the full suite
   locally on a real Mac.
+- Target-direction acceptance covers schema-2 grouping after pruning, per-leaf
+  visibility and migration, stale catalogs after value edits, mixed-kind counts,
+  single-input limits, every scheduled conversion pair, and explicit deferred
+  capabilities. Menu presence alone does not prove a conversion works.
+- Real-Mac acceptance exercises Finder invocation, retained panels, Activity's
+  0.8-second delay and focus behavior, notification deduplication, Settings,
+  Welcome/reopen/open routing, VoiceOver, larger text, light/dark appearance,
+  Reduce Motion, Reduce Transparency, and Increase Contrast.
+- Both output modes require device checks of actual final names and formats,
+  original retention or Trash identity, collision races, cancellation, partial
+  batch failure, history persistence, and stamp-checked Undo. Folder exports,
+  loose PDF pages, and reports must never overwrite occupied destinations.
+  HDR acceptance follows section 8.12, including display checks.
 - Performance measurements live in `scripts/bench.sh` and are not part of CI.
 - Before each release, the operator runs the manual checklist in
   `docs/spikes.md` on macOS 26 and macOS 27 (menu levels, transport, menu file
@@ -912,7 +1403,11 @@ check.
 
 - Intel Macs and macOS earlier than 26.
 - Mac App Store, notarization, automatic update installation.
-- AV1 video encoding, WMA and WMV decoding, RAR creation, DRM-protected media.
+- Evaluated but deferred: AV1 video encoding, WMA read/write, AVI MPEG-4
+  Part 2/MP3 encoding, and alternative transcription backends (section 8.13).
+- WMV decoding, RAR creation, DRM-protected media.
+- General SDR-to-HDR promotion without the experimental quality gate in
+  section 8.12. Unqualified HDR output is not part of the shipping target.
 - Recursive media processing of folder contents (media operations act on
   selected files only).
 - Cloud upload, sharing, accounts, telemetry, crash reporting services.
@@ -922,9 +1417,18 @@ check.
 
 ## Changelog
 
+- 2026-10-21: Adopt the Flect-style menu-first target v1, schema-2 preset
+  groups and selection pruning, essential panels, Activity feedback, sidebar
+  Settings, per-preset visibility, and single Welcome/open routing. Default
+  transforms to collision-safe new files with Undo; retain optional safe
+  Replace. Expand functional and conversion scope, define HDR-to-SDR and the
+  experimental SDR-to-HDR quality gate, and permit copyleft source study
+  without code reuse. See `adr/0013-flect-style-menu-first-direction.md`.
+
 - 2026-10-21: Compare structured HDR calibration by value, decode ISO RGB
   auxiliary rasters through Core Image, and normalize gain-map orientation
-  independently from the base image (ADR 0012).
+  independently from the base image
+  (`adr/0012-gain-map-calibration-and-raster-decoding.md`).
 
 - 2026-10-21: Preserve ISO and Apple HDR gain-map geometry and calibration
   across supported JPEG/HEIC edits. Refuse unsupported map transformations
