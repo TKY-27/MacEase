@@ -16,6 +16,7 @@ struct MediaInput {
     let video: MediaTrack?
     let audio: MediaTrack?
     let hasMultipleTracks: Bool
+    let skippedStreams: Set<SkippedMediaStream>
     let duration: Int64
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
@@ -40,10 +41,14 @@ struct MediaInput {
         let audio = opened.tracks.first { !$0.isVideo }
         let hasMultipleTracks =
             opened.tracks.filter(\.isVideo).count > 1 || opened.tracks.filter { !$0.isVideo }.count > 1
+        var skippedStreams = opened.skippedStreams
+        for track in opened.tracks where track.number != video?.number && track.number != audio?.number {
+            skippedStreams.insert(.track(track.number))
+        }
         let duration = try opened.duration ?? Self.scanDuration(try demuxer())
         return MediaInput(
             url: url, backend: backend, video: video, audio: audio, hasMultipleTracks: hasMultipleTracks,
-            duration: duration, transform: .identity)
+            skippedStreams: skippedStreams, duration: duration, transform: .identity)
     }
 
     /// Median spacing of the first frames.
@@ -81,6 +86,15 @@ struct MediaInput {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+        let allTracks = try await asset.load(.tracks)
+        var skippedStreams: Set<SkippedMediaStream> = []
+        for track in allTracks {
+            let type = track.mediaType
+            if type == .video, track.trackID == videoTracks.first?.trackID { continue }
+            if type == .audio, track.trackID == audioTracks.first?.trackID { continue }
+            skippedStreams.insert(.track(Int(track.trackID)))
+        }
+        if !(try await asset.load(.availableChapterLocales)).isEmpty { skippedStreams.insert(.chapter) }
         let videoTrack = videoTracks.first
         let audioTrack = audioTracks.first
         let duration = SampleBuffers.nanoseconds(try await asset.load(.duration))
@@ -89,16 +103,21 @@ struct MediaInput {
         if let videoTrack {
             video = try await AssetTracks.describe(videoTrack, number: 1)
             transform = try await videoTrack.load(.preferredTransform)
+            guard transform.a.isFinite, transform.b.isFinite, transform.c.isFinite,
+                transform.d.isFinite, transform.tx.isFinite, transform.ty.isFinite
+            else { throw EngineError.decodeFailed("video transform out of range") }
         }
         var audio: MediaTrack?
         if let audioTrack { audio = try await AssetTracks.describe(audioTrack, number: 2) }
         return MediaInput(
             url: url, backend: .asset(asset, video: videoTrack, audio: audioTrack), video: video, audio: audio,
-            hasMultipleTracks: videoTracks.count > 1 || audioTracks.count > 1, duration: duration, transform: transform)
+            hasMultipleTracks: videoTracks.count > 1 || audioTracks.count > 1, skippedStreams: skippedStreams,
+            duration: duration, transform: transform)
     }
 
     func requireSingleTracksForReplacement() throws {
         if hasMultipleTracks { throw EngineError.invalidInput(.multipleTracks) }
+        if !skippedStreams.isEmpty { throw EngineError.invalidInput(.unpreservedStreams) }
     }
 
     private static let frameRateProbe = 32

@@ -42,13 +42,26 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   presets are rejected with the reason.
 - **Video tracks (8.2).** The video pipeline selects the first video and audio
   tracks. Replace operations reject inputs with more than one track of either
-  kind before writing. Derived outputs may use the first tracks.
+  kind before writing. Replacement also rejects skipped subtitles, attachments,
+  chapters, data and timecode streams. Derived outputs may use the first tracks.
+  Demuxers report skipped streams explicitly; preservation is deferred instead
+  of silently removing content. Matroska inputs with unknown-size clusters
+  conservatively refuse replacement because later streams cannot be ruled out.
+  FLV script events that cannot be regenerated also refuse replacement.
+- **Audio auxiliary content (8.3).** Replacements refuse chapters, timed data
+  and attachments that the audio writers cannot carry. Preflight checks cover
+  MPEG-4 tracks and chapters, ID3 frames, FLAC metadata blocks and PCM container
+  chunks. Unrecognized structures fail conservatively before writing; ordinary
+  descriptive tags retain the existing selected-tag policy. Full auxiliary
+  content remuxing is deferred.
 - **Language setting (7).** Changing the language asks before relaunching,
   because running jobs stop.
 - **Chained Ogg (8.3).** Multiple logical streams in sequence are unsupported.
   The reader scans pages before decoding and rejects a new logical stream
   after EOS with a typed invalid-input error. No output is written and the
-  original is kept. Multi-chain decoding is deferred.
+  original is kept. Multiplexed logical streams also fail during this preflight
+  so replacing audio cannot discard another stream. Multi-stream decoding is
+  deferred.
 - **Audio layouts (8.3).** Replacement never silently downmixes. Unsupported
   layouts fail before writing. The current MP3 and Opus implementations are
   limited to mono and stereo. Opus multistream support requires changes to

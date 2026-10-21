@@ -35,7 +35,7 @@ enum VideoCompressor {
         {
             throw EngineError.invalidInput(.tooLong(limitSeconds: maximum))
         }
-        var edit = geometry(input, limits: destination.limits)
+        var edit = try geometry(input, limits: destination.limits)
         var encoding = VideoEncoding(
             codec: destination.codec, width: edit.size?.width ?? input.displaySize.evened().width,
             height: edit.size?.height ?? input.displaySize.evened().height,
@@ -197,15 +197,20 @@ enum VideoCompressor {
             limits: limits, target: target, quality: quality)
     }
 
-    private static func geometry(_ input: MediaInput, limits: MediaLimits) -> FrameEdit {
+    private static func geometry(_ input: MediaInput, limits: MediaLimits) throws -> FrameEdit {
+        guard limits.maxWidth.map({ $0 > 0 }) ?? true,
+            limits.maxHeight.map({ $0 > 0 }) ?? true,
+            limits.aspect.map(\.isValid) ?? true
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
         var edit = FrameEdit(rotation: input.displayRotation, aspect: limits.aspect)
-        let natural = FrameProcessor.outputSize(source: input.codedSize, edit: edit)
+        let natural = try FrameProcessor.outputSize(source: input.codedSize, edit: edit)
         let scale = min(
             1, Double(limits.maxWidth ?? natural.width) / Double(natural.width),
             Double(limits.maxHeight ?? natural.height) / Double(natural.height))
-        edit.size = PixelSize(
-            width: Int(Double(natural.width) * scale), height: Int(Double(natural.height) * scale)
-        ).evened()
+        guard let width = Int(exactly: (Double(natural.width) * scale).rounded(.towardZero)),
+            let height = Int(exactly: (Double(natural.height) * scale).rounded(.towardZero))
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        edit.size = PixelSize(width: width, height: height).evened()
         if let aspect = edit.aspect {
             let sourceRatio = Double(input.displaySize.width) / Double(input.displaySize.height)
             if (aspect.min.value...aspect.max.value).contains(sourceRatio) { edit.aspect = nil }

@@ -52,17 +52,21 @@ enum ImagePixels {
 
     /// Clockwise; the canvas grows to fit.
     static func rotated(_ image: CGImage, degrees: Double, fill: CGColor?) throws -> CGImage {
+        guard degrees.isFinite else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let quarterTurns = degrees / 90
         if quarterTurns == quarterTurns.rounded() {
             let orientations: [CGImagePropertyOrientation] = [.up, .right, .down, .left]
-            let index = ((Int(quarterTurns) % 4) + 4) % 4
+            let normalized = quarterTurns.truncatingRemainder(dividingBy: 4)
+            let index = ((Int(normalized) % 4) + 4) % 4
             return try oriented(image, orientations[index])
         }
         let radians = degrees * .pi / 180
         let width = Double(image.width)
         let height = Double(image.height)
-        let canvasWidth = Int((abs(width * cos(radians)) + abs(height * sin(radians))).rounded(.up))
-        let canvasHeight = Int((abs(width * sin(radians)) + abs(height * cos(radians))).rounded(.up))
+        guard
+            let canvasWidth = Int(exactly: (abs(width * cos(radians)) + abs(height * sin(radians))).rounded(.up)),
+            let canvasHeight = Int(exactly: (abs(width * sin(radians)) + abs(height * cos(radians))).rounded(.up))
+        else { throw FrameMemoryBudget.exceeded }
         return try draw(width: canvasWidth, height: canvasHeight, like: image, fill: fill) { context in
             context.translateBy(x: Double(canvasWidth) / 2, y: Double(canvasHeight) / 2)
             context.rotate(by: -radians)

@@ -93,6 +93,9 @@ enum VideoAnimations {
             let maxBytes = limits.targetBytes, let maxWidth = limits.maxWidth,
             let maxHeight = limits.maxHeight, let maxFrames = limits.maxFrames
         else { throw EngineError.invalidInput(.malformed("X GIF limits are missing")) }
+        guard maxFrames > 0, maxWidth > 0, maxHeight > 0 else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
 
         let input = try await MediaInput.open(url)
         let seconds = Double(input.duration) / Double(Nanoseconds.perSecond)
@@ -101,8 +104,8 @@ enum VideoAnimations {
         rendering.colors = min(max(context.settings.video.gifColors, 2), 256)
         rendering.dithering = context.settings.image.gifDithering
         rendering.loops = context.settings.video.gifLoops
-        rendering.framesPerSecond = min(
-            rendering.framesPerSecond, max(1, Int((Double(maxFrames) / seconds).rounded(.down))))
+        let limitedRate = min(Double(rendering.framesPerSecond), (Double(maxFrames) / seconds).rounded(.down))
+        rendering.framesPerSecond = max(1, Int(limitedRate))
         let frameLimit = Int64(maxFrames)
         let minimumFrameDuration = input.duration / frameLimit + (input.duration % frameLimit == 0 ? 0 : 1)
 

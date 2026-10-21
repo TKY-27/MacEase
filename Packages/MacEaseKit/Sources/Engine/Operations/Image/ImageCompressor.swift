@@ -244,6 +244,11 @@ enum ImageCompressor {
     /// Applies aspect, maximum dimensions and maximum frames.
     static func fitted(_ frames: [ImageFrame], to limits: MediaLimits?) throws -> [ImageFrame] {
         guard let limits else { return frames }
+        guard limits.maxFrames.map({ $0 > 0 }) ?? true,
+            limits.maxWidth.map({ $0 > 0 }) ?? true,
+            limits.maxHeight.map({ $0 > 0 }) ?? true,
+            limits.aspect.map(\.isValid) ?? true
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
         var result = frames
         if let maxFrames = limits.maxFrames, result.count > maxFrames {
             result = decimated(result, stride: Int((Double(result.count) / Double(maxFrames)).rounded(.up)))
@@ -269,6 +274,7 @@ enum ImageCompressor {
         let height = Double(image.height)
         let ratio = width / height
         let goal = min(max(ratio, aspect.min.value), aspect.max.value)
+        guard goal.isFinite, goal > 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
         guard abs(goal - ratio) > shapeTolerance else { return image }
         switch aspect.fit {
         case .crop:
@@ -279,8 +285,9 @@ enum ImageCompressor {
                 width: cropWidth, height: cropHeight)
             return try ImagePixels.cropped(image, to: rect)
         case .letterbox:
-            let canvasWidth = goal > ratio ? Int((height * goal).rounded()) : image.width
-            let canvasHeight = goal > ratio ? image.height : Int((width / goal).rounded())
+            guard let canvasWidth = Int(exactly: (goal > ratio ? height * goal : width).rounded()),
+                let canvasHeight = Int(exactly: (goal > ratio ? height : width / goal).rounded())
+            else { throw EngineError.invalidInput(.invalidNumericParameter) }
             return try ImagePixels.padded(
                 image, width: canvasWidth, height: canvasHeight, fill: ImagePixels.color(letterboxFill))
         }

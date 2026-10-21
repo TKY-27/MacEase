@@ -6,6 +6,7 @@ enum FLACBlock {
     static let marker = Data("fLaC".utf8)
     static let streamInfo: UInt8 = 0
     static let padding: UInt8 = 1
+    static let seekTable: UInt8 = 3
     static let vorbisComment: UInt8 = 4
     static let picture: UInt8 = 6
     static let lastFlag: UInt8 = 0x80
@@ -66,6 +67,18 @@ enum FLACBlock {
 }
 
 public enum FLACMetadata {
+    public static func hasUnpreservedContent(in url: URL) throws -> Bool {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        let blocks = try FLACBlock.read(reader).blocks
+        let pictures = blocks.filter { $0.type == FLACBlock.picture }.count
+        let regenerated: Set<UInt8> = [
+            FLACBlock.streamInfo, FLACBlock.padding, FLACBlock.seekTable, FLACBlock.vorbisComment,
+            FLACBlock.picture,
+        ]
+        return pictures > 1 || blocks.contains { !regenerated.contains($0.type) }
+    }
+
     public static func tags(in url: URL) throws -> AudioTags {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }

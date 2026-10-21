@@ -70,6 +70,7 @@ final class VideoPCMSource {
                         block, atOffset: 0, dataLength: bytes.count, destination: destination)
                 }
                 guard status == noErr else { throw EngineError.decodeFailed("PCM block copy (\(status))") }
+                guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
                 if !samples.isEmpty {
                     return (samples, SampleBuffers.nanoseconds(sample.presentationTimeStamp))
                 }
@@ -245,6 +246,7 @@ final class AudioEncodeStage: StreamStage {
 
     private func encoded(_ samples: [Float]) throws -> [MediaPacket] {
         guard !samples.isEmpty else { return [] }
+        guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
         let (following, overflow) = inputFrames.addingReportingOverflow(Int64(samples.count / channels))
         guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
         inputFrames = following

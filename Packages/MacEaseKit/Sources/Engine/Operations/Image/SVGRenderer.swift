@@ -17,6 +17,10 @@ enum SVGRenderer {
 
     static func render(_ svg: Data) async throws -> CGImage {
         let size = SVGSize.parse(svg)
+        guard let width = Int(exactly: size.width.rounded(.towardZero)),
+            let height = Int(exactly: size.height.rounded(.towardZero)),
+            width > 0, height > 0
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -38,7 +42,7 @@ enum SVGRenderer {
             throw EngineError.decodeFailed("SVG snapshot")
         }
         return try ImagePixels.draw(
-            width: Int(size.width), height: Int(size.height), like: image, fill: nil
+            width: width, height: height, like: image, fill: nil
         ) { context in
             context.draw(image, in: CGRect(origin: .zero, size: size))
         }

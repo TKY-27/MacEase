@@ -6,6 +6,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
     private static let maximumClusterTimestamp: Int64 = 1 << 62
 
     public private(set) var tracks: [MediaTrack] = []
+    public private(set) var skippedStreams: Set<SkippedMediaStream> = []
     public private(set) var duration: Int64?
     public private(set) var docType = ""
 
@@ -36,17 +37,33 @@ public struct MatroskaDemuxer: MediaDemuxer {
         let fileSize = file.size
         segmentEnd = segment.size.map { min(segment.dataStart + $0, fileSize) } ?? fileSize
         position = segment.dataStart
+        var firstCluster: Int64?
         while position < segmentEnd {
+            try Task.checkCancellation()
             let element = try EBML.readHeader(file, at: position)
-            if element.id == MatroskaID.cluster { break }
-            guard let size = element.size else { throw FormatError.corrupt("unknown-size top-level element") }
+            if element.id == MatroskaID.cluster, firstCluster == nil { firstCluster = position }
+            guard let size = element.size else {
+                if element.id == MatroskaID.cluster {
+                    skippedStreams.insert(.unknown)
+                    break
+                }
+                throw FormatError.corrupt("unknown-size top-level element")
+            }
             switch element.id {
-            case MatroskaID.info: try parseInfo(element)
-            case MatroskaID.tracks: try parseTracks(element)
-            default: break
+            case MatroskaID.info where firstCluster == nil: try parseInfo(element)
+            case MatroskaID.tracks where firstCluster == nil: try parseTracks(element)
+            case MatroskaID.tracks: skippedStreams.insert(.unknown)
+            case MatroskaID.attachments: skippedStreams.insert(.attachment)
+            case MatroskaID.chapters: skippedStreams.insert(.chapter)
+            case MatroskaID.info, MatroskaID.seekHead, MatroskaID.cues, MatroskaID.void, MatroskaID.crc32,
+                MatroskaID.tags,
+                MatroskaID.cluster:
+                break
+            default: skippedStreams.insert(.unknown)
             }
             position = element.dataStart + size
         }
+        position = firstCluster ?? position
         guard !tracks.isEmpty else { throw FormatError.corrupt("no tracks before the first cluster") }
     }
 
@@ -145,7 +162,10 @@ public struct MatroskaDemuxer: MediaDemuxer {
             }
             guard number > 0 else { throw FormatError.corrupt("track number 0") }
             if let encodings { strippedHeaders[number] = try strippedHeader(encodings) }
-            guard type == MatroskaValue.videoTrack || type == MatroskaValue.audioTrack else { continue }
+            guard type == MatroskaValue.videoTrack || type == MatroskaValue.audioTrack else {
+                skippedStreams.insert(.track(number))
+                continue
+            }
             if type == MatroskaValue.videoTrack {
                 _ = try VideoDecoders.checkedFrameBytes(width: width, height: height)
             } else {

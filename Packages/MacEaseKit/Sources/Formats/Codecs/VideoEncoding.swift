@@ -60,7 +60,7 @@ public enum VideoEncoders {
     public static func make(_ settings: VideoEncoding, track number: Int) throws -> any VideoFrameEncoder {
         guard settings.width > 0, settings.height > 0,
             Int32(exactly: settings.width) != nil, Int32(exactly: settings.height) != nil,
-            settings.frameDuration > 0
+            settings.frameDuration > 0, settings.quality.isFinite, (0...1).contains(settings.quality)
         else {
             throw FormatError.corrupt(
                 String(localized: "Video encoding settings out of range", comment: "Invalid video metadata"))

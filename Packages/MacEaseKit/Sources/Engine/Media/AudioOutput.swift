@@ -57,6 +57,7 @@ public enum AudioFormat: String, Codable, CaseIterable, Sendable {
     /// Ascending; empty for lossless formats.
     public func supportedKilobits(sampleRate: Double, channels: Int) throws -> [Int] {
         try validateChannels(channels)
+        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
         let rate = Int(outputSampleRate(sampleRate))
         switch self {
         case .mp3: return MP3EncoderOptions.constantBitrates
@@ -167,11 +168,12 @@ public final class AudioFileEncoder {
         tags: AudioTags = AudioTags()
     ) throws {
         let format = target.format
-        let rate = format.outputSampleRate(sampleRate)
-        try format.validateChannels(channels)
         let count = channels
         let losslessDepth = bitDepth.map { $0 <= Self.defaultDepth ? Self.defaultDepth : Self.highDepth }
         do {
+            try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
+            let rate = format.outputSampleRate(sampleRate)
+            try format.validateChannels(channels)
             let kilobits =
                 format.isLossy && target.variableQuality == nil
                 ? try format.nearestKilobits(target.kilobits, sampleRate: sampleRate, channels: channels)

@@ -38,6 +38,14 @@ public struct AspectRange: Codable, Hashable, Sendable {
     public var max: AspectRatio
     public var fit: AspectFit
 
+    var isValid: Bool {
+        let values = [min.width, min.height, max.width, max.height]
+        let lower = min.value
+        let upper = max.value
+        return values.allSatisfy { $0.isFinite && $0 > 0 }
+            && lower.isFinite && upper.isFinite && lower > 0 && lower <= upper
+    }
+
     public init(min: AspectRatio, max: AspectRatio, fit: AspectFit) {
         self.min = min
         self.max = max

@@ -1,7 +1,9 @@
 import AVFoundation
 import Foundation
+import ImageIO
 import MenuCatalog
 import Testing
+import UniformTypeIdentifiers
 
 @testable import Engine
 @testable import Formats
@@ -95,6 +97,43 @@ import Testing
         #expect(demuxer.tracks.last?.codec == .pcm(bits: 16, float: false, bigEndian: false))
         #expect(try decodedVideo(demuxer) == 48)
         #expect(try decodedAudio(demuxer) > 80_000)
+    }
+
+    @Test func convertingFloatPCMMatroskaToAVIRejectsNaNWithoutTouchingSource() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "InvalidPCM-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let source = folder.appending(path: "invalid.mkv")
+        let image = try ImageFixtures.canvas(width: 16, height: 16) { context in
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+        }
+        let frame = NSMutableData()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(frame, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let video = MediaTrack(number: 1, kind: .video(width: 16, height: 16), codec: .mjpeg)
+        let audio = MediaTrack(
+            number: 2, kind: .audio(sampleRate: 48_000, channels: 1),
+            codec: .pcm(bits: 32, float: true, bigEndian: false))
+        var muxer = try MatroskaMuxer(url: source, tracks: [video, audio], webm: false)
+        try muxer.write(
+            MediaPacket(
+                track: video.number, timestamp: 0, duration: 40 * Nanoseconds.perMillisecond,
+                isKeyframe: true, payload: frame as Data))
+        try muxer.write(
+            MediaPacket(track: audio.number, timestamp: 0, isKeyframe: true, payload: Data([0, 0, 192, 127])))
+        try muxer.finish()
+        let original = try Data(contentsOf: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.nonFiniteAudioSample) {
+            try await VideoEdits.run(.convert(.avi), url: source, context: context)
+        }
+        #expect(try Data(contentsOf: source) == original)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "invalid.avi").path))
     }
 
     @Test func matroskaAcceptsReencodedAAC() async throws {

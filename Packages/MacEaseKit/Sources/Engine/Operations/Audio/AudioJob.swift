@@ -1,3 +1,4 @@
+import AVFoundation
 import Accelerate
 import Formats
 import Foundation
@@ -9,13 +10,33 @@ public enum AudioTargetSize {
 
     /// The largest fitting supported bitrate.
     public static func kilobits(forBytes bytes: Int64, seconds: Double, supported: [Int]) -> Int? {
-        guard seconds > 0, bytes > 0 else { return nil }
+        guard seconds.isFinite, seconds > 0, bytes > 0 else { return nil }
         let budget = Double(bytes) * 8 / seconds / 1_000 * (1 - overheadShare)
         return supported.last { Double($0) <= budget }
     }
 }
 
 enum AudioJob {
+    private static let id3Version3: UInt8 = 3
+    private static let id3Version4: UInt8 = 4
+    private static let id3FooterFlag: UInt8 = 0x10
+    private static let id3FrameIDLength = 4
+    private static let id3FrameSizeEnd = 8
+    private static let id3SynchsafeBits = 7
+    private static let byteBits = 8
+    private static let cafHeaderBytes = 12
+    private static let riffHeaderBytes = 8
+    private static let cafFirstChunk: UInt64 = 8
+    private static let riffFirstChunk: UInt64 = 12
+    private static let wavePreservedChunks: Set<String> = [
+        "fmt ", "fact", "data", "ds64", "JUNK", "PAD ", "FLLR", "PEAK", "ID3 ", "id3 ",
+    ]
+    private static let aiffPreservedChunks: Set<String> = [
+        "COMM", "SSND", "FVER", "CHAN", "FLLR", "NAME", "AUTH", "(c) ", "ANNO", "COMT", "ID3 ", "id3 ",
+    ]
+    private static let cafPreservedChunks: Set<String> = [
+        "desc", "data", "pakt", "kuki", "chan", "info", "free", "strg",
+    ]
     private static let peakCeiling = -1.0
     /// Gain changes below this are inaudible.
     private static let negligibleDecibels = 0.05
@@ -41,6 +62,121 @@ enum AudioJob {
         }
     }
 
+    private static func requirePreservableContent(_ input: AudioInput) async throws {
+        if input.container == .mpeg4 {
+            let asset = AVURLAsset(url: input.url)
+            let tracks = try await asset.load(.tracks)
+            let chapters = try await asset.load(.availableChapterLocales)
+            guard tracks.count == 1, tracks[0].mediaType == .audio, chapters.isEmpty else {
+                throw EngineError.invalidInput(.unpreservedStreams)
+            }
+        }
+        if input.container == .mp3 || input.container == .flac {
+            guard try !hasUnpreservedID3Content(input.url) else { throw EngineError.invalidInput(.unpreservedStreams) }
+        }
+        if input.container == .flac, try FLACMetadata.hasUnpreservedContent(in: input.url) {
+            throw EngineError.invalidInput(.unpreservedStreams)
+        }
+        if input.container == .wave || input.container == .aiff || input.container == .caf,
+            try hasUnpreservedChunks(input.url, container: input.container)
+        {
+            throw EngineError.invalidInput(.unpreservedStreams)
+        }
+    }
+
+    private static func hasUnpreservedID3Content(
+        _ url: URL, startingAt start: UInt64 = 0, within length: UInt64? = nil, requireTag: Bool = false
+    ) throws -> Bool {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        try reader.seek(toOffset: start)
+        let prefix = [UInt8](try reader.read(upToCount: ID3Tag.headerLength) ?? Data())
+        guard let tagLength = ID3Tag.length(prefix: prefix), prefix.count == ID3Tag.headerLength else {
+            return requireTag
+        }
+        if let length, UInt64(tagLength) > length { throw EngineError.decodeFailed("ID3 tag out of range") }
+        guard prefix[3] == id3Version3 || prefix[3] == id3Version4 else { return true }
+        if prefix[5] & ~id3FooterFlag != 0 { return true }
+        let tagEnd = start + UInt64(tagLength - (prefix[5] & id3FooterFlag != 0 ? ID3Tag.headerLength : 0))
+        var offset = start + UInt64(ID3Tag.headerLength)
+        var artworkCount = 0
+        let unpreservedFrames: Set<String> = ["CHAP", "CTOC", "SYLT", "ETCO", "GEOB", "PRIV", "MLLT", "SYTC"]
+        while offset + UInt64(ID3Tag.headerLength) <= tagEnd {
+            try Task.checkCancellation()
+            try reader.seek(toOffset: offset)
+            let frame = [UInt8](try reader.read(upToCount: ID3Tag.headerLength) ?? Data())
+            guard frame.count == ID3Tag.headerLength else { throw EngineError.decodeFailed("truncated ID3 frame") }
+            if frame[0..<id3FrameIDLength].allSatisfy({ $0 == 0 }) { break }
+            let name = String(decoding: frame[0..<id3FrameIDLength], as: UTF8.self)
+            if unpreservedFrames.contains(name) { return true }
+            if name == "APIC" {
+                artworkCount += 1
+                if artworkCount > 1 { return true }
+            }
+            if prefix[3] == id3Version4,
+                frame[id3FrameIDLength..<id3FrameSizeEnd].contains(where: { $0 & 0x80 != 0 })
+            {
+                throw EngineError.decodeFailed("ID3 frame size out of range")
+            }
+            let size = frame[id3FrameIDLength..<id3FrameSizeEnd].reduce(0) {
+                $0 << (prefix[3] == id3Version4 ? id3SynchsafeBits : byteBits) | Int($1)
+            }
+            guard size > 0, UInt64(size) <= tagEnd - offset - UInt64(ID3Tag.headerLength) else {
+                throw EngineError.decodeFailed("ID3 frame out of range")
+            }
+            offset += UInt64(ID3Tag.headerLength + size)
+        }
+        return false
+    }
+
+    private static func hasUnpreservedChunks(_ url: URL, container: AudioContainer) throws -> Bool {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        let fileSize = try reader.seekToEnd()
+        let firstChunk = container == .caf ? cafFirstChunk : riffFirstChunk
+        let headerBytes = container == .caf ? cafHeaderBytes : riffHeaderBytes
+        var offset = firstChunk
+        while offset + UInt64(headerBytes) <= fileSize {
+            try Task.checkCancellation()
+            try reader.seek(toOffset: offset)
+            let header = [UInt8](try reader.read(upToCount: headerBytes) ?? Data())
+            guard header.count == headerBytes else { throw EngineError.decodeFailed("truncated audio chunk") }
+            let name = String(decoding: header[0..<4], as: UTF8.self)
+            let lengthBytes = header[4..<headerBytes]
+            let size =
+                container == .wave
+                ? lengthBytes.reversed().reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+                : lengthBytes.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+            guard size <= fileSize - offset - UInt64(headerBytes) else {
+                if container == .caf, name == "data", size == UInt64.max { return false }
+                throw EngineError.decodeFailed("audio chunk out of range")
+            }
+            if container == .wave {
+                if name == "LIST" {
+                    guard size >= 4 else { throw EngineError.decodeFailed("truncated audio list") }
+                    let list = [UInt8](try reader.read(upToCount: 4) ?? Data())
+                    guard list.count == 4 else { throw EngineError.decodeFailed("truncated audio list") }
+                    if String(decoding: list, as: UTF8.self) != "INFO" { return true }
+                } else if !wavePreservedChunks.contains(name) {
+                    return true
+                }
+            } else if container == .aiff {
+                if !aiffPreservedChunks.contains(name) { return true }
+            } else if !cafPreservedChunks.contains(name) {
+                return true
+            }
+            if name == "ID3 " || name == "id3 " {
+                if try hasUnpreservedID3Content(
+                    url, startingAt: offset + UInt64(headerBytes), within: size, requireTag: true)
+                {
+                    return true
+                }
+            }
+            offset += UInt64(headerBytes) + size + (container == .caf ? 0 : size % 2)
+        }
+        return false
+    }
+
     /// Lossless sources become AAC in M4A.
     private static func compressedFormat(_ input: AudioInput, kilobits: Int?) throws -> AudioFormat {
         let format = input.codec.isLossy && input.sameFormat.isLossy ? input.sameFormat : .m4aAAC
@@ -54,6 +190,7 @@ enum AudioJob {
         async throws -> ItemResult
     {
         guard try fileSize(url) > bytes else { return .skipped(.alreadyDone) }
+        try await requirePreservableContent(input)
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         var format = try compressedFormat(input, kilobits: nil)
         try format.validateLayout(input)
@@ -102,6 +239,7 @@ enum AudioJob {
     private static func normalize(_ url: URL, input: AudioInput, to target: Double, context: ItemContext)
         async throws -> ItemResult
     {
+        guard target.isFinite else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let meter: LoudnessMeter
         do {
             meter = try LoudnessMeter(sampleRate: input.sampleRate, channels: input.channels)
@@ -132,8 +270,10 @@ enum AudioJob {
     private static func trim(_ url: URL, input: AudioInput, start: Double, end: Double, context: ItemContext)
         async throws -> ItemResult
     {
-        let first = Int64((max(start, 0) * input.sampleRate).rounded())
-        var last = Int64((end * input.sampleRate).rounded())
+        guard start.isFinite, end.isFinite,
+            let first = Int64(exactly: (max(start, 0) * input.sampleRate).rounded()),
+            var last = Int64(exactly: (end * input.sampleRate).rounded())
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
         if let total = input.frameCount {
             if first == 0, last >= total { return .skipped(.alreadyDone) }
             last = min(last, total)
@@ -147,6 +287,7 @@ enum AudioJob {
         _ url: URL, with input: AudioInput, target: AudioTarget, frames: Range<Int64>? = nil, gain: Float = 1,
         progressStart: Double = 0, context: ItemContext
     ) async throws -> ItemResult {
+        try await requirePreservableContent(input)
         try target.format.validateLayout(input)
         let tags = await tags(of: input, context: context)
         if !tags.isEmpty, !target.format.holdsTags { context.warn(.metadataDropped) }

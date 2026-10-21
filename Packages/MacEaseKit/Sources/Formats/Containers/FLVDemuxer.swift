@@ -8,6 +8,7 @@ public struct FLVDemuxer: MediaDemuxer {
     private static let previousTagSizeLength = MemoryLayout<UInt32>.size
 
     public private(set) var tracks: [MediaTrack] = []
+    public private(set) var skippedStreams: Set<SkippedMediaStream> = []
     public private(set) var duration: Int64?
 
     private let file: RandomAccessFile
@@ -32,6 +33,16 @@ public struct FLVDemuxer: MediaDemuxer {
         firstTag = Int64(UInt32(bigEndian: header, at: 5)) + Int64(Self.previousTagSizeLength)
         position = firstTag
         try probe()
+        position = firstTag
+        while let tag = try nextTag() {
+            try Task.checkCancellation()
+            switch tag.type {
+            case FLV.scriptTag where try !FLV.isRegeneratedMetadata(tag.body):
+                skippedStreams.insert(.metadata)
+            case FLV.audioTag, FLV.videoTag, FLV.scriptTag: break
+            default: skippedStreams.insert(.unknown)
+            }
+        }
         position = firstTag
     }
 

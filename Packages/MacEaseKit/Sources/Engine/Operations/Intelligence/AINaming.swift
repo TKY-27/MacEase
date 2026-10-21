@@ -79,7 +79,11 @@ public enum AINaming {
         if try ContentSniffer.matches(url, kind: .pdf) {
             guard let page = PDFDocument(url: url)?.page(at: 0) else { throw EngineError.invalidInput(.noPages) }
             let bounds = page.bounds(for: .cropBox)
-            let dpi = Int(Double(previewEdge) / max(bounds.width, bounds.height) * PDFExport.pointsPerInch)
+            let edge = max(bounds.width, bounds.height)
+            guard edge.isFinite, edge > 0,
+                let dpi = Int(exactly: (Double(previewEdge) / edge * PDFExport.pointsPerInch).rounded(.towardZero)),
+                dpi > 0
+            else { throw EngineError.invalidInput(.invalidNumericParameter) }
             return try PDFExport.render(page, dpi: dpi)
         }
         let options: [CFString: Any] = [

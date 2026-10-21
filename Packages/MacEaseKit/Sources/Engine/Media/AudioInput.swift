@@ -81,7 +81,7 @@ public struct AudioInput: Sendable {
         } catch {
             throw EngineError.fromAudio(error)
         }
-        guard sampleRate > 0, channels > 0 else { throw EngineError.decodeFailed("no audio stream") }
+        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
     }
 
     /// A fresh decoder positioned at the start.
@@ -231,11 +231,14 @@ final class AudioFileReader: PCMSource {
             try file.read(into: buffer, frameCount: Self.chunkFrames)
             let samples = PCMFormat.samples(buffer)
             guard !samples.isEmpty else { break }
+            guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
             guard let reorder else { return samples }
             let reordered = try reorder.convert(samples)
+            guard reordered.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
             if !reordered.isEmpty { return reordered }
         }
         guard let tail = try reorder?.finish(), !tail.isEmpty else { return nil }
+        guard tail.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
         return tail
     }
 }

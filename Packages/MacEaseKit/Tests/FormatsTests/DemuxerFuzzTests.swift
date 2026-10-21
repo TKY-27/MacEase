@@ -121,6 +121,7 @@ import Testing
         do {
             try readFully(url, byteCount: bytes.count)
         } catch is FormatError {
+        } catch is OggReadError {
         } catch let failure as NSError where failure.domain == NSOSStatusErrorDomain {
         } catch let failure as NSError where failure.domain == "com.apple.coreaudio.avfaudio" {
         }

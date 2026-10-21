@@ -144,29 +144,31 @@ enum Subtitles {
         }
     }
 
-    static func srt(_ cues: [SubtitleCue]) -> String {
-        cues.enumerated().map { index, cue in
-            "\(index + 1)\n\(timestamp(cue.start, separator: ",")) --> \(timestamp(cue.end, separator: ","))\n"
+    static func srt(_ cues: [SubtitleCue]) throws -> String {
+        try cues.enumerated().map { index, cue in
+            "\(index + 1)\n\(try timestamp(cue.start, separator: ",")) --> \(try timestamp(cue.end, separator: ","))\n"
                 + cue.lines.joined(separator: "\n") + "\n"
         }.joined(separator: "\n")
     }
 
-    static func vtt(_ cues: [SubtitleCue]) -> String {
+    static func vtt(_ cues: [SubtitleCue]) throws -> String {
         "WEBVTT\n\n"
-            + cues.map { cue in
-                "\(timestamp(cue.start, separator: ".")) --> \(timestamp(cue.end, separator: "."))\n"
+            + (try cues.map { cue in
+                "\(try timestamp(cue.start, separator: ".")) --> \(try timestamp(cue.end, separator: "."))\n"
                     + cue.lines.joined(separator: "\n") + "\n"
-            }.joined(separator: "\n")
+            }.joined(separator: "\n"))
     }
 
     static func plainText(_ cues: [SubtitleCue]) -> String {
         cues.map { $0.lines.joined(separator: " ") }.joined(separator: "\n") + "\n"
     }
 
-    private static func timestamp(_ seconds: Double, separator: String) -> String {
+    private static func timestamp(_ seconds: Double, separator: String) throws -> String {
         let millisecondsPerSecond = 1_000
         let secondsPerMinute = 60
-        let total = Int((seconds * Double(millisecondsPerSecond)).rounded())
+        guard seconds.isFinite, seconds >= 0,
+            let total = Int(exactly: (seconds * Double(millisecondsPerSecond)).rounded())
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let (wholeSeconds, milliseconds) = total.quotientAndRemainder(dividingBy: millisecondsPerSecond)
         let (wholeMinutes, secondsPart) = wholeSeconds.quotientAndRemainder(dividingBy: secondsPerMinute)
         let (hours, minutes) = wholeMinutes.quotientAndRemainder(dividingBy: secondsPerMinute)

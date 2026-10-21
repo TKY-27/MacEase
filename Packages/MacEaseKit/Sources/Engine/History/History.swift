@@ -255,7 +255,7 @@ public actor HistoryStore {
         do {
             try checkAcceptingCommits()
             guard !runningBatches.contains(id) else { throw UndoFailure.batchRunning }
-            let outcomes = try undoRecordedBatch(id)
+            let outcomes = try await undoRecordedBatch(id)
             await commitGate.release()
             return outcomes
         } catch {
@@ -264,17 +264,24 @@ public actor HistoryStore {
         }
     }
 
-    private func undoRecordedBatch(_ id: UUID) throws -> [UndoOutcome] {
+    private func undoRecordedBatch(_ id: UUID) async throws -> [UndoOutcome] {
         guard let index = records.firstIndex(where: { $0.id == id }), !records[index].undone else { return [] }
+        let batch = records[index]
         var outcomes: [UndoOutcome] = []
         var failed: [CommitRecord] = []
-        for entry in records[index].items.reversed() {
-            let outcome = committer.undo(entry)
+        for entry in batch.items.reversed() {
+            let outcome = await committer.undo(entry)
             outcomes.append(outcome)
             if case .failed = outcome { failed.insert(entry, at: 0) }
         }
-        records[index].items = failed
-        records[index].undone = failed.isEmpty
+        guard let currentIndex = records.firstIndex(where: { $0.id == id && $0.date == batch.date }),
+            records[currentIndex].items.starts(with: batch.items)
+        else {
+            return outcomes
+        }
+        let appended = records[currentIndex].items.dropFirst(batch.items.count)
+        records[currentIndex].items = failed + appended
+        records[currentIndex].undone = records[currentIndex].items.isEmpty
         dirty = true
         try save()
         return outcomes

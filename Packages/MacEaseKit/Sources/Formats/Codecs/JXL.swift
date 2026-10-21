@@ -10,6 +10,7 @@ public enum JXLEncoder {
     private static let effort: Int64 = 7
 
     public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
+        guard quality.isFinite else { throw FormatError.encoderFailure("invalid JXL quality") }
         guard UInt32(exactly: pixels.width) != nil, UInt32(exactly: pixels.height) != nil,
             pixels.width > 0, pixels.height > 0
         else {

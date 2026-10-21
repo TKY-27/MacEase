@@ -175,6 +175,69 @@ import Testing
         #expect(try await run(.videoRemoveAudio, preset: nil, on: result) == .skipped(.nothingToRemove))
     }
 
+    @Test func replacementsRefuseMatroskaSubtitleWithoutChangingOriginal() async throws {
+        let source = URL(filePath: #filePath).deletingLastPathComponent()
+            .appending(path: "../FormatsTests/Resources/ffmpeg-mpeg4-ac3-srt.mkv")
+        let url = try TestVolume.makeFolder().appending(path: "subtitled.mkv")
+        try FileManager.default.copyItem(at: source, to: url)
+        let original = try Data(contentsOf: url)
+        let input = try await MediaInput.open(url)
+        #expect(input.skippedStreams.contains(.track(3)))
+        for (operation, preset) in [
+            (OperationID.videoRemoveAudio, nil), (.videoConvert, "mp4"), (.videoCompress, "quality-high"),
+        ] {
+            #expect(try await run(operation, preset: preset, on: url) == .failed(.invalidInput(.unpreservedStreams)))
+            #expect(try Data(contentsOf: url) == original)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).count == 1)
+    }
+
+    @Test(arguments: [SkippedMediaStream.chapter, .attachment, .unknown])
+    func replacementRefusesLateMatroskaContent(stream: SkippedMediaStream) async throws {
+        let url = try TestVolume.makeFolder().appending(path: "late-content.mkv")
+        let video = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .vp9)
+        var muxer = try MatroskaMuxer(url: url, tracks: [video], webm: false)
+        try muxer.write(MediaPacket(track: 1, timestamp: 0, isKeyframe: true, payload: Data([1])))
+        try muxer.finish()
+        var bytes = try Data(contentsOf: url)
+        let segmentID = Data([0x18, 0x53, 0x80, 0x67])
+        let segmentStart = try #require(bytes.range(of: segmentID))
+        let sizeStart = segmentStart.upperBound
+        let segmentHeaderBytes = 8
+        let contentID: [UInt8] =
+            switch stream {
+            case .chapter: [0x10, 0x43, 0xA7, 0x70]
+            case .attachment: [0x19, 0x41, 0xA4, 0x69]
+            default: [0x1A, 0x45, 0xDF, 0xA4]
+            }
+        bytes.append(contentsOf: contentID + [0x80])
+        let size = bytes.count - sizeStart - segmentHeaderBytes
+        for index in 1..<segmentHeaderBytes {
+            bytes[sizeStart + index] = UInt8(size >> ((segmentHeaderBytes - 1 - index) * 8) & 0xFF)
+        }
+        try bytes.write(to: url)
+        let input = try await MediaInput.open(url)
+        #expect(input.skippedStreams.contains(stream))
+        #expect(try await run(.videoConvert, preset: "mp4", on: url) == .failed(.invalidInput(.unpreservedStreams)))
+        #expect(try Data(contentsOf: url) == bytes)
+    }
+
+    @Test func replacementRefusesUnmappedAVIStream() async throws {
+        let source = URL(filePath: #filePath).deletingLastPathComponent()
+            .appending(path: "../FormatsTests/Resources/ffmpeg-mpeg4-ac3.avi")
+        let url = try TestVolume.makeFolder().appending(path: "unmapped.avi")
+        var bytes = try Data(contentsOf: source)
+        let marker = try #require(bytes.range(of: Data("auds".utf8)))
+        bytes.replaceSubrange(marker, with: Data("txts".utf8))
+        try bytes.write(to: url)
+        let input = try await MediaInput.open(url)
+        #expect(input.skippedStreams.contains(.track(2)))
+        #expect(
+            try await run(.videoCompress, preset: "quality-high", on: url)
+                == .failed(.invalidInput(.unpreservedStreams)))
+        #expect(try Data(contentsOf: url) == bytes)
+    }
+
     @Test func rotateRightAngleInMOVOnlyChangesTheTransform() async throws {
         let url = try fixture("ffmpeg-h264-aac.mp4")
         let before = try #require(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
@@ -222,7 +285,7 @@ import Testing
         source.hasAlpha = true
         let input = MediaInput(
             url: URL(filePath: "/transparent.mkv"), backend: .matroska, video: source, audio: nil,
-            hasMultipleTracks: false, duration: Nanoseconds.perSecond, transform: .identity)
+            hasMultipleTracks: false, skippedStreams: [], duration: Nanoseconds.perSecond, transform: .identity)
         for operation in [VideoOperation.resize(.percent(50)), .convert(.mov)] {
             #expect(throws: EngineError.videoAlphaUnsupported) {
                 try VideoEdits.plan(operation, input: input, source: source, settings: VideoSettings())

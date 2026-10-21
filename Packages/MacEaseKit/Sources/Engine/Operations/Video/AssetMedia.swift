@@ -15,7 +15,14 @@ enum AssetTracks {
                 number: number, kind: .video(width: Int(size.width), height: Int(size.height)),
                 codec: videoCodec(subtype), codecPrivate: VideoFormat.decoderConfiguration(of: format))
             let rate = try await track.load(.nominalFrameRate)
-            if rate > 0 { described.defaultDuration = Int64((Double(Nanoseconds.perSecond) / Double(rate)).rounded()) }
+            guard rate.isFinite, rate >= 0 else { throw EngineError.decodeFailed("video frame rate out of range") }
+            if rate > 0 {
+                let duration = (Double(Nanoseconds.perSecond) / Double(rate)).rounded()
+                guard duration.isFinite, duration < Double(Int64.max) else {
+                    throw EngineError.decodeFailed("video frame duration out of range")
+                }
+                described.defaultDuration = Int64(duration)
+            }
             described.hasAlpha = VideoFormat.containsAlpha(format)
             return described
         }

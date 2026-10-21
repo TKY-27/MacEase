@@ -49,9 +49,10 @@ struct FileCommitter: Sendable {
                     : try AvailableName.url(for: output.name, in: directory)
             do {
                 return try coordinate(replacing: original, destination: destination) { target, final in
-                    try Task.checkCancellation()
                     guard try FileStamp(of: target) == expectedStamp else { throw Failure.changedSinceScan }
-                    try FinderAttributes(of: target).apply(to: output.url)
+                    let attributes = try FinderAttributes(of: target)
+                    try Task.checkCancellation()
+                    try attributes.apply(to: output.url)
                     if keepsName || changesCase {
                         let kept = try replaceKeepingName(
                             original: target, output: output, cloneDirectory: cloneDirectory)
@@ -138,7 +139,7 @@ struct FileCommitter: Sendable {
                 ? directory.appending(path: newName)
                 : try AvailableName.url(for: newName, in: directory)
             return try coordinate(
-                moving: url, to: destination, beforeMove: Task.checkCancellation, includingIdentity: true)
+                moving: url, to: destination, includingIdentity: true)
         }
     }
 
@@ -205,12 +206,22 @@ struct FileCommitter: Sendable {
         return trashed as URL
     }
 
-    func undo(_ record: CommitRecord) -> UndoOutcome {
+    func undo(_ record: CommitRecord) async -> UndoOutcome {
+        let cancellation = OSAllocatedUnfairLock(initialState: false)
+        return await withTaskCancellationHandler {
+            undoCoordinated(record, cancellation: cancellation)
+        } onCancel: {
+            cancellation.withLock { $0 = true }
+        }
+    }
+
+    private func undoCoordinated(_ record: CommitRecord, cancellation: OSAllocatedUnfairLock<Bool>) -> UndoOutcome {
         do {
             return try Self.namingLock.withLock { _ in
                 switch record {
                 case .replaced(let original, let trashed, let output, let stamp, let trashStamp):
-                    return try coordinateUndo(paths: [original, trashed, output]) { urls in
+                    return try coordinateUndo(paths: [original, trashed, output], cancellation: cancellation) {
+                        urls, checkCancellation in
                         let originalURL = urls[0]
                         let trashedURL = urls[1]
                         let outputURL = urls[2]
@@ -227,6 +238,7 @@ struct FileCommitter: Sendable {
                         {
                             return .skipped(.undoOriginalOccupied, path: original)
                         }
+                        try checkCancellation()
                         let trashedOutput = try trashCoordinated(outputURL)
                         do {
                             try FileManager.default.moveItem(at: trashedURL, to: originalURL)
@@ -237,15 +249,17 @@ struct FileCommitter: Sendable {
                         return .restored
                     }
                 case .derived(let output, let stamp):
-                    return try coordinateUndo(paths: [output]) { urls in
+                    return try coordinateUndo(paths: [output], cancellation: cancellation) { urls, checkCancellation in
                         guard let stamp, stamp.matches(urls[0].path) else {
                             return .skipped(.undoOutputChanged, path: output)
                         }
+                        try checkCancellation()
                         _ = try trashCoordinated(urls[0])
                         return .restored
                     }
                 case .renamed(let from, let to, let stamp):
-                    return try coordinateUndo(paths: [from, to]) { urls in
+                    return try coordinateUndo(paths: [from, to], cancellation: cancellation) {
+                        urls, checkCancellation in
                         guard let stamp, stamp.matches(urls[1].path) else {
                             return .skipped(.undoOutputChanged, path: to)
                         }
@@ -254,17 +268,20 @@ struct FileCommitter: Sendable {
                         guard caseOnly || !FileManager.default.fileExists(atPath: urls[0].path) else {
                             return .skipped(.undoOriginalOccupied, path: from)
                         }
+                        try checkCancellation()
                         try FileManager.default.moveItem(at: urls[1], to: urls[0])
                         return .restored
                     }
                 case .removed(let original, let trashed, let trashStamp):
-                    return try coordinateUndo(paths: [original, trashed]) { urls in
+                    return try coordinateUndo(paths: [original, trashed], cancellation: cancellation) {
+                        urls, checkCancellation in
                         guard let trashStamp, trashStamp.matchesIdentity(urls[1].path) else {
                             return .skipped(.undoTrashItemMissing, path: original)
                         }
                         guard !FileManager.default.fileExists(atPath: urls[0].path) else {
                             return .skipped(.undoOriginalOccupied, path: original)
                         }
+                        try checkCancellation()
                         try FileManager.default.moveItem(at: urls[1], to: urls[0])
                         return .restored
                     }
@@ -282,7 +299,8 @@ struct FileCommitter: Sendable {
     }
 
     private func coordinateUndo(
-        paths: [String], _ body: @escaping @Sendable ([URL]) throws -> UndoOutcome
+        paths: [String], cancellation: OSAllocatedUnfairLock<Bool>,
+        _ body: @escaping @Sendable ([URL], @Sendable () throws -> Void) throws -> UndoOutcome
     ) throws -> UndoOutcome {
         var intents: [NSFileAccessIntent] = []
         let references = paths.map { path in
@@ -299,7 +317,10 @@ struct FileCommitter: Sendable {
             result.withLock { outcome in
                 outcome = Result {
                     if let error { throw error }
-                    return try body(references.map(\.url))
+                    return try body(references.map(\.url)) {
+                        try Task.checkCancellation()
+                        if cancellation.withLock({ $0 }) { throw CancellationError() }
+                    }
                 }
             }
             completed.signal()
@@ -391,7 +412,7 @@ struct FileCommitter: Sendable {
     }
 
     private func coordinate(
-        moving source: URL, to destination: URL, beforeMove: () throws -> Void = {},
+        moving source: URL, to destination: URL,
         includingIdentity: Bool = false
     ) throws -> Committed {
         var coordinationError: NSError?
@@ -404,7 +425,7 @@ struct FileCommitter: Sendable {
             error: &coordinationError
         ) { from, to in
             result = Result {
-                try beforeMove()
+                try Task.checkCancellation()
                 try FileManager.default.moveItem(at: from, to: to)
                 return Committed(output: to, stamp: outputStamp(of: to, includingIdentity: includingIdentity))
             }

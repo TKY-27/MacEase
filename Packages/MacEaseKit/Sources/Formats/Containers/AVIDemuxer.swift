@@ -11,6 +11,7 @@ public struct AVIDemuxer: MediaDemuxer {
     private static let maximumMediaChunk: Int64 = 1 << 28
 
     public private(set) var tracks: [MediaTrack] = []
+    public private(set) var skippedStreams: Set<SkippedMediaStream> = []
     public private(set) var duration: Int64?
 
     private struct StreamInfo {
@@ -176,6 +177,8 @@ public struct AVIDemuxer: MediaDemuxer {
             )
             if format.count > AVI.waveFormatExSize { track.codecPrivate = Data(format[AVI.waveFormatExSize...]) }
             tracks.append(track)
+        } else {
+            skippedStreams.insert(.track(number))
         }
         streams.append(info)
         if superIndex.count >= AVI.indexHeaderSize { try parseSuperIndex(superIndex, stream: index) }

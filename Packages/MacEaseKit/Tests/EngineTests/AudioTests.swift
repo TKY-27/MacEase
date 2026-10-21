@@ -70,6 +70,56 @@ private func surroundAAC() throws -> URL {
     return input
 }
 
+@Test(arguments: ["CHAP", "GEOB"])
+func audioReplacementRefusesID3Payload(frameID: String) async throws {
+    let url = try await source("payload.mp3", format: .mp3)
+    let audio = try Data(contentsOf: url)
+    var body = Data()
+    if frameID == "CHAP" {
+        body.append(contentsOf: "chapter1".utf8)
+        body.append(0)
+        body.append(Data(repeating: 0, count: 4))
+        body.append(contentsOf: [0, 0, 3, 232])
+        body.append(Data(repeating: 0xFF, count: 8))
+    } else {
+        body.append(0)
+        body.append(contentsOf: "application/octet-stream".utf8)
+        body.append(contentsOf: [0, 0, 0, 1, 2, 3])
+    }
+    let frame = Data(frameID.utf8) + Data([0, 0, 0, UInt8(body.count), 0, 0]) + body
+    let tag = Data("ID3".utf8) + Data([4, 0, 0, 0, 0, 0, UInt8(frame.count)]) + frame
+    let original = tag + audio
+    try original.write(to: url)
+    let outcome = try await run(.audioConvert, .convert(.wav), on: url)
+    #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams))])
+    #expect(try Data(contentsOf: url) == original)
+    #expect(outcome.outcome.record == nil)
+}
+
+@Test(arguments: ["cue ", "bext"])
+func audioReplacementRefusesWaveAncillaryContent(chunkID: String) async throws {
+    let url = try await source("marked.wav", format: .wav)
+    var original = try Data(contentsOf: url)
+    var body =
+        chunkID == "cue "
+        ? Data([1, 0, 0, 0]) + Data(repeating: 0, count: 8)
+            + Data("data".utf8) + Data(repeating: 0, count: 12)
+        : Data(repeating: 0, count: 602)
+    if chunkID == "bext" { body[338] = 1 }
+    let length = UInt32(body.count)
+    let size = Data((0..<4).map { UInt8(length >> ($0 * 8) & 0xFF) })
+    original.append(Data(chunkID.utf8) + size + body)
+    let riffSize = UInt32(original.count - 8)
+    for offset in 0..<4 { original[4 + offset] = UInt8(riffSize >> (offset * 8) & 0xFF) }
+    try original.write(to: url)
+    let noOp = try await run(.audioConvert, .convert(.wav), on: url)
+    #expect(noOp.outcome.outcomes == [.skipped(.alreadyDone)])
+    let outcome = try await run(.audioConvert, .convert(.mp3), on: url)
+    #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams))])
+    #expect(try Data(contentsOf: url) == original)
+    #expect(outcome.outcome.record == nil)
+}
+
 private func generatedSurroundAAC() async throws -> URL {
     let input = try TestVolume.makeFolder().appending(path: "generated-surround.m4a")
     let sampleRate = 48_000.0

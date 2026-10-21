@@ -48,8 +48,8 @@ enum VideoSubtitles {
         }
         let text: String =
             switch request.format {
-            case .srt: Subtitles.srt(cues)
-            case .vtt: Subtitles.vtt(cues)
+            case .srt: try Subtitles.srt(cues)
+            case .vtt: try Subtitles.vtt(cues)
             case .txt: Subtitles.plainText(cues)
             }
         let name = url.deletingPathExtension().lastPathComponent + suffix + "." + request.format.rawValue

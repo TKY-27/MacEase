@@ -111,10 +111,19 @@ public struct MediaPacket: Hashable, Sendable {
 
 public protocol MediaDemuxer {
     var tracks: [MediaTrack] { get }
+    var skippedStreams: Set<SkippedMediaStream> { get }
     /// Nanoseconds, when the container states it.
     var duration: Int64? { get }
     /// File order; `nil` at the end.
     mutating func nextPacket() throws -> MediaPacket?
+}
+
+public enum SkippedMediaStream: Hashable, Sendable {
+    case track(Int)
+    case attachment
+    case chapter
+    case metadata
+    case unknown
 }
 
 public protocol MediaMuxer {

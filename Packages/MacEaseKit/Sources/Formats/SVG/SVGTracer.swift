@@ -65,7 +65,8 @@ public enum SVGTracer {
     private static func number(_ value: Double) -> String {
         guard value.isFinite else { return "0" }
         let rounded = (value * 100).rounded() / 100
-        return rounded == rounded.rounded() ? String(Int(rounded)) : String(rounded)
+        if rounded == rounded.rounded(), let integer = Int(exactly: rounded) { return String(integer) }
+        return String(rounded)
     }
 
     struct Labels {

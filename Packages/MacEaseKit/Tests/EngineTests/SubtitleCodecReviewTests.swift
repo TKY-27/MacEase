@@ -32,7 +32,7 @@ import Testing
         let source = MediaTrack(number: 1, kind: .video(width: 160, height: 96), codec: sourceCodec)
         let input = MediaInput(
             url: URL(fileURLWithPath: "source.mkv"), backend: .matroska, video: source, audio: nil,
-            hasMultipleTracks: false, duration: 2 * Nanoseconds.perSecond, transform: .identity)
+            hasMultipleTracks: false, skippedStreams: [], duration: 2 * Nanoseconds.perSecond, transform: .identity)
         var settings = VideoSettings()
         settings.codec = preference
 

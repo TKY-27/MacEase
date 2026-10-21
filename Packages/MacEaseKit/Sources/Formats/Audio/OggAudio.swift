@@ -102,7 +102,9 @@ public final class OggAudioReader: PCMSource {
                 finished = true
                 return try emit(pageEnd: nil, endsStream: false)
             }
-            pending += try decode(packet.data)
+            let decoded = try decode(packet.data)
+            guard decoded.allSatisfy(\.isFinite) else { throw FormatError.nonFiniteAudioSample }
+            pending += decoded
             guard packet.granule >= -1 else {
                 throw FormatError.corrupt(
                     String(localized: "Ogg granule out of range", comment: "Invalid audio timeline"))
@@ -132,7 +134,9 @@ public final class OggAudioReader: PCMSource {
         defer { pending = [] }
         guard end > first else { return [] }
         let kept = pending[Int(first - start) * channels..<Int(end - start) * channels]
-        return gain == 1 ? Array(kept) : kept.map { $0 * gain }
+        let samples = gain == 1 ? Array(kept) : kept.map { $0 * gain }
+        guard samples.allSatisfy(\.isFinite) else { throw FormatError.nonFiniteAudioSample }
+        return samples
     }
 }
 

@@ -69,12 +69,14 @@ enum PDFExport {
         let scale = Double(dpi) / pointsPerInch
         let scaledWidth = ((isQuarterTurned ? bounds.height : bounds.width) * scale).rounded()
         let scaledHeight = ((isQuarterTurned ? bounds.width : bounds.height) * scale).rounded()
-        guard scaledWidth * scaledHeight <= Double(maximumPixels) else {
+        guard scaledWidth.isFinite, scaledHeight.isFinite,
+            scaledWidth > 0, scaledHeight > 0,
+            scaledWidth * scaledHeight <= Double(maximumPixels),
+            let width = Int(exactly: scaledWidth), let height = Int(exactly: scaledHeight)
+        else {
             throw EngineError.invalidInput(.malformed("page is too large to render at \(dpi) dpi"))
         }
-        let width = Int(scaledWidth)
-        let height = Int(scaledHeight)
-        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
             let canvas = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                 bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)

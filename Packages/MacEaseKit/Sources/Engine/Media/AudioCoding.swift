@@ -474,6 +474,7 @@ public final class AudioPacketDecoder {
         } catch {
             throw EngineError.fromAudio(error)
         }
+        guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
         if let padding = packet.discardPadding, padding > 0 {
             let frames = Int(try Nanoseconds.scale(padding, by: Int64(sampleRate), over: Nanoseconds.perSecond))
             samples.removeLast(min(samples.count, frames * channels))

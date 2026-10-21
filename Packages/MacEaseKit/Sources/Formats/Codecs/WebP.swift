@@ -30,6 +30,7 @@ public enum WebPEncoder {
     }
 
     static func configuration(quality: Double) throws -> WebPConfig {
+        guard quality.isFinite else { throw FormatError.encoderFailure("invalid WebP config") }
         var config = WebPConfig()
         guard WebPConfigInit(&config) != 0 else { throw FormatError.encoderFailure("WebP version mismatch") }
         config.quality = Float(min(max(quality, 0), losslessQuality))
@@ -129,7 +130,7 @@ public final class WebPAnimationEncoder {
             let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
             let (frameBytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 4)
             guard width > 0, height > 0, Int32(exactly: width) != nil, Int32(exactly: height) != nil,
-                !pixelOverflow, !byteOverflow, maximumEncodedBytes > 0
+                !pixelOverflow, !byteOverflow, maximumEncodedBytes > 0, quality.isFinite
             else {
                 throw FormatError.encoderFailure("invalid WebP animation dimensions or size limit")
             }

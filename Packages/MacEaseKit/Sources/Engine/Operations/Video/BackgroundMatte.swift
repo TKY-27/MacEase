@@ -117,10 +117,13 @@ final class BackgroundMatte {
 
     /// Pixels, so history never chains filters.
     private func materialized(_ mask: CIImage, extent: CGRect) throws -> CIImage {
+        guard let width = Int(exactly: extent.width), let height = Int(exactly: extent.height),
+            width > 0, height > 0
+        else { throw EngineError.decodeFailed("matte dimensions out of range") }
         if maskPool == nil {
             let attributes: [CFString: Any] = [
                 kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_OneComponent8,
-                kCVPixelBufferWidthKey: Int(extent.width), kCVPixelBufferHeightKey: Int(extent.height),
+                kCVPixelBufferWidthKey: width, kCVPixelBufferHeightKey: height,
                 kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
             ]
             CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &maskPool)

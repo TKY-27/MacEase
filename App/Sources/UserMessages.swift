@@ -8,6 +8,8 @@ enum UserMessages {
         switch error {
         case .decodeFailed:
             String(localized: "“\(file)” could not be read.")
+        case .nonFiniteAudioSample:
+            String(localized: "“\(file)” contains non-finite audio samples and could not be decoded.")
         case .encodeFailed:
             String(localized: "“\(file)” could not be converted.")
         case .commitFailed:
@@ -165,6 +167,11 @@ enum UserMessages {
                     "“\(file)” has multiple audio or video tracks. Replacement supports at most one of each.",
                 comment: "Replacement would discard additional tracks"
             )
+        case .unpreservedStreams:
+            String(
+                localized:
+                    "“\(file)” contains streams or chapters that this operation cannot preserve. The original was kept."
+            )
         case .frameMemoryExceeded:
             String(
                 localized: "“\(file)” exceeds the frame memory budget. Use fewer or smaller frames.",
@@ -182,6 +189,8 @@ enum UserMessages {
                 localized: "Choose an animation range within “\(file)” and a supported frame rate.",
                 comment: "Range must fit the source"
             )
+        case .invalidNumericParameter:
+            String(localized: "Choose finite numeric values within the supported range.")
         }
     }
 

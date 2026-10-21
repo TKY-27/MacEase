@@ -24,9 +24,14 @@ public struct MediaPreview: Sendable {
     public func frames(at seconds: [Double], width: Int) async throws -> [CGImage] {
         let input = try await MediaInput.open(url)
         let display = input.displaySize
-        guard display.width > 0 else { throw EngineError.invalidInput(.malformed("no video track")) }
-        let height = max(1, Int((Double(display.height) * Double(width) / Double(display.width)).rounded()))
-        let edit = FrameEdit(rotation: input.displayRotation, size: PixelSize(width: width, height: height).evened())
+        guard display.width > 0, display.height > 0 else {
+            throw EngineError.invalidInput(.malformed("no video track"))
+        }
+        guard width > 0,
+            let height = Int(exactly: (Double(display.height) * Double(width) / Double(display.width)).rounded())
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        let edit = FrameEdit(
+            rotation: input.displayRotation, size: PixelSize(width: width, height: max(1, height)).evened())
         var images: [CGImage] = []
         for second in seconds {
             let (lastFrameStart, startOverflow) = input.duration.subtractingReportingOverflow(input.frameDuration)

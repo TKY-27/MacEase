@@ -50,6 +50,7 @@ enum VideoEdits {
             plan.startsAtKeyframe = mode == .keyframe
             return plan
         case .rotate(let degrees, let fill):
+            guard degrees.isFinite else { throw EngineError.invalidInput(.invalidNumericParameter) }
             if degrees.truncatingRemainder(dividingBy: 90) == 0, container == .mp4 || container == .mov {
                 var plan = TranscodePlan(container: container, video: .copy, audio: .copy)
                 plan.transform = rotated(input.transform, by: degrees, source: source)
@@ -65,6 +66,9 @@ enum VideoEdits {
             edit.flipsVertically = !horizontally
             return try reencoded(input, source: source, edit: edit, settings: settings)
         case .frameRate(let framesPerSecond):
+            guard framesPerSecond > 0, framesPerSecond <= Int(Nanoseconds.perSecond) else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
             var plan = try reencoded(input, source: source, edit: baked(input), settings: settings)
             if case .encode(var encoding, let edit) = plan.video {
                 encoding.frameDuration = Nanoseconds.perSecond / Int64(framesPerSecond)
@@ -89,7 +93,7 @@ enum VideoEdits {
         _ input: MediaInput, source: MediaTrack, edit: FrameEdit, settings: VideoSettings
     ) throws -> TranscodePlan {
         var encoding = try alphaEncoding(input, source: source, settings: settings)
-        let size = FrameProcessor.outputSize(source: input.codedSize, edit: edit)
+        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit)
         encoding.width = size.width
         encoding.height = size.height
         return TranscodePlan(container: input.container, video: .encode(encoding, edit), audio: .copy)
@@ -180,11 +184,12 @@ enum VideoEdits {
             case .size(let width, let height):
                 min(Double(width) / Double(display.width), Double(height) / Double(display.height))
             }
+        guard scale.isFinite, scale > 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
         guard scale < 1 else { throw SkipError(.noUpscale) }
-        return PixelSize(
-            width: Int((Double(display.width) * scale).rounded()),
-            height: Int((Double(display.height) * scale).rounded())
-        ).evened()
+        guard let width = Int(exactly: (Double(display.width) * scale).rounded()),
+            let height = Int(exactly: (Double(display.height) * scale).rounded())
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        return PixelSize(width: width, height: height).evened()
     }
 
     /// Maps coded pixels to the display.

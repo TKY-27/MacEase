@@ -53,7 +53,7 @@ import Testing
         let demuxer = try MatroskaDemuxer(url: url)
         let input = MediaInput(
             url: url, backend: .matroska, video: demuxer.tracks.first, audio: nil,
-            hasMultipleTracks: false, duration: 0, transform: .identity)
+            hasMultipleTracks: false, skippedStreams: [], duration: 0, transform: .identity)
         let output = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-reordered-output.mkv")
         await #expect(throws: EngineError.decodeFailed("media timestamp out of range")) {
             try await Transcoder.run(

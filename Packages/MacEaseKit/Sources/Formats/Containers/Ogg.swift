@@ -66,6 +66,7 @@ package final class OggPacketWriter {
 
 package enum OggReadError: Error, Equatable, Sendable {
     case chainedStream
+    case multiplexedStream
 }
 
 final class OggPacketReader {
@@ -101,7 +102,7 @@ final class OggPacketReader {
             if reachedEOS, ogg_page_bos(&page) != 0 { throw OggReadError.chainedStream }
             let pageSerial = ogg_page_serialno(&page)
             if firstSerial == nil { firstSerial = pageSerial }
-            guard pageSerial == firstSerial else { continue }
+            guard pageSerial == firstSerial else { throw OggReadError.multiplexedStream }
             let granule = ogg_page_granulepos(&page)
             if granule >= 0 { lastGranule = granule }
             if ogg_page_eos(&page) != 0 { reachedEOS = true }

@@ -37,10 +37,13 @@ final class FrameProcessor {
     private let background: CIImage?
     let size: PixelSize
 
-    static func outputSize(source: PixelSize, edit: FrameEdit) -> PixelSize {
+    static func outputSize(source: PixelSize, edit: FrameEdit) throws -> PixelSize {
         let geometry = orientation(edit, width: Double(source.width), height: Double(source.height))
         let bounds = viewport(source: source, edit: edit, geometry: geometry)
-        let natural = PixelSize(width: Int(bounds.width.rounded()), height: Int(bounds.height.rounded()))
+        guard let width = Int(exactly: bounds.width.rounded()),
+            let height = Int(exactly: bounds.height.rounded()), width > 0, height > 0
+        else { throw EngineError.decodeFailed("video dimensions out of range") }
+        let natural = PixelSize(width: width, height: height)
         return (edit.size ?? natural).evened()
     }
 
@@ -48,7 +51,7 @@ final class FrameProcessor {
         geometry = Self.orientation(edit, width: Double(source.width), height: Double(source.height))
         let bounds = Self.viewport(source: source, edit: edit, geometry: geometry)
         viewport = bounds
-        size = Self.outputSize(source: source, edit: edit)
+        size = try Self.outputSize(source: source, edit: edit)
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0

@@ -38,10 +38,16 @@ import Testing
         #expect(words.last?.end == 6)
     }
 
-    @Test func writesSRTAndVTT() {
+    @Test func writesSRTAndVTT() throws {
         let cues = [SubtitleCue(start: 3661.5, end: 3662.25, lines: ["a", "b"])]
-        #expect(Subtitles.srt(cues) == "1\n01:01:01,500 --> 01:01:02,250\na\nb\n")
-        #expect(Subtitles.vtt(cues) == "WEBVTT\n\n01:01:01.500 --> 01:01:02.250\na\nb\n")
+        #expect(try Subtitles.srt(cues) == "1\n01:01:01,500 --> 01:01:02,250\na\nb\n")
+        #expect(try Subtitles.vtt(cues) == "WEBVTT\n\n01:01:01.500 --> 01:01:02.250\na\nb\n")
+    }
+
+    @Test(arguments: [Double.nan, .infinity, Double.greatestFiniteMagnitude])
+    func rejectsUnrepresentableCueTime(seconds: Double) {
+        let cues = [SubtitleCue(start: 0, end: seconds, lines: ["speech"])]
+        #expect(throws: EngineError.invalidInput(.invalidNumericParameter)) { try Subtitles.srt(cues) }
     }
 
     @Test(

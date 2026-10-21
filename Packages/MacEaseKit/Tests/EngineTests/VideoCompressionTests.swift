@@ -134,6 +134,23 @@ import Testing
         #expect(opened.audio?.codec == .aac)
     }
 
+    @Test(arguments: [
+        AspectRange(min: AspectRatio(width: 2, height: 1), max: AspectRatio(width: 1, height: 1), fit: .crop),
+        AspectRange(min: AspectRatio(width: .nan, height: 1), max: AspectRatio(width: 2, height: 1), fit: .crop),
+    ])
+    func malformedAspectPreservesOriginal(aspect: AspectRange) async throws {
+        let url = try fixture()
+        let original = try Data(contentsOf: url)
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        var preset = try #require(library.bundled.first { $0.id == "instagram" })
+        preset.video?.aspect = aspect
+
+        let result = try await run(VideoCompression(goal: .platform(preset)), on: url)
+
+        #expect(result == .failed(.invalidInput(.invalidNumericParameter)))
+        #expect(try Data(contentsOf: url) == original)
+    }
+
     @Test func instagramCropsToPortraitWithoutStretching() async throws {
         let url = try fixture()
         let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)

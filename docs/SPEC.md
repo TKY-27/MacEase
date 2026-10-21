@@ -215,6 +215,9 @@ its history record; undo skips an output whose stamp is unavailable.
 
 All commits go through `NSFileCoordinator` so iCloud Drive and File Provider
 locations stay consistent; reading a dataless cloud file downloads it first.
+Replace, derived, rename, removal and undo check cancellation inside the
+coordinated section immediately before the first mutation. Once a mutation
+starts, its commit or rollback completes without another cancellation check.
 
 **Names.** A derived output or a renamed replace output that collides with an
 existing name gets ` (2)`, ` (3)` and so on before the extension.
@@ -495,6 +498,11 @@ a message naming the codec.
 Replace operations refuse inputs with more than one video track or more than
 one audio track before writing an output, because the current pipeline selects
 only the first track of each kind. Derived operations may use those first tracks.
+Replacement also refuses streams the pipeline cannot preserve, including
+subtitles, attachments, chapters and data or timecode tracks. The input exposes
+these skipped streams so they cannot disappear silently. Removing audio only
+permits the requested audio omission; derived outputs may omit other streams
+because they keep the original (ADR 0010).
 
 Resize, flip, frame-rate changes and exact trim preserve input alpha when
 re-encoding MOV through HEVC with alpha or ProRes 4444, and WebM through VP9
@@ -531,6 +539,8 @@ stream-copy edits retain their existing alpha (ADR 0010).
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
 
 Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
+Audio replacement likewise refuses extra streams or chapters that its output
+cannot preserve before writing (ADR 0010).
 
 Chained Ogg streams are not supported. Input initialization scans Ogg pages
 and rejects a new logical stream after EOS before writing any output. The
@@ -724,6 +734,9 @@ check.
 - Errors are typed per domain (decode, encode, commit, unsupported codec,
   permission, cancelled, target unreachable, invalid input). Each maps to a
   localized, actionable message naming the file.
+- Non-finite audio samples fail decoding with a typed error. Floating-point
+  input values must be finite and representable before integer conversion;
+  invalid operation parameters fail validation.
 - Expected per-item errors end the item as failed; the batch continues. There
   are no silent fallbacks: a fallback path (for example dav1d instead of
   VideoToolbox) is a defined behavior, not error recovery.
@@ -842,6 +855,10 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Non-finite samples and invalid numeric parameters fail safely.
+  Media replacements reject unpreserved streams before writing (ADR 0010).
+  All commit modes and undo check cancellation inside file coordination.
 
 - 2026-10-21: Chained Ogg inputs fail before writing and retain the original
   (ADR 0010). Input validation rejects special filesystem entries before

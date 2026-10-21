@@ -676,6 +676,16 @@
         }
       }
     },
+    "Choose finite numeric values within the supported range.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応している範囲内の有効な数値を指定してください。"
+          }
+        }
+      }
+    },
     "Choose…": {
       "localizations": {
         "ja": {
@@ -8348,6 +8358,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” には連結された Ogg ストリームが含まれていますが、MacEase は対応していません。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "“%@” contains non-finite audio samples and could not be decoded.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” には数値として無効な音声サンプルが含まれているため、デコードできませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” contains streams or chapters that this operation cannot preserve. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” には、この操作で保持できないストリームまたはチャプタが含まれています。元のファイルはそのまま残しています。"
           }
         }
       }

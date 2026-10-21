@@ -101,7 +101,7 @@ enum ImageEdits {
 
     static func resize(_ url: URL, _ resize: ImageResize, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
-        let (width, height) = targetSize(of: document.first, resize.size)
+        let (width, height) = try targetSize(of: document.first, resize.size)
         let grows = width > document.first.width || height > document.first.height
         if grows, !resize.allowsUpscale { return .skipped(.noUpscale) }
         let format = document.writableFormat
@@ -110,7 +110,7 @@ enum ImageEdits {
         }
     }
 
-    static func targetSize(of image: CGImage, _ size: ImageSize) -> (width: Int, height: Int) {
+    static func targetSize(of image: CGImage, _ size: ImageSize) throws -> (width: Int, height: Int) {
         let width = Double(image.width)
         let height = Double(image.height)
         let scale: Double
@@ -120,9 +120,15 @@ enum ImageEdits {
         case .height(let target): scale = Double(target) / height
         case .fit(let boxWidth, let boxHeight): scale = min(Double(boxWidth) / width, Double(boxHeight) / height)
         case .longEdge(let edge): scale = Double(edge) / max(width, height)
-        case .exact(let targetWidth, let targetHeight): return (max(1, targetWidth), max(1, targetHeight))
+        case .exact(let targetWidth, let targetHeight):
+            guard targetWidth > 0, targetHeight > 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            return (targetWidth, targetHeight)
         }
-        return (max(1, Int((width * scale).rounded())), max(1, Int((height * scale).rounded())))
+        guard scale.isFinite, scale > 0,
+            let targetWidth = Int(exactly: (width * scale).rounded()),
+            let targetHeight = Int(exactly: (height * scale).rounded())
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        return (max(1, targetWidth), max(1, targetHeight))
     }
 
     static func convert(_ url: URL, _ conversion: ImageConversion, context: ItemContext) async throws -> ItemResult {

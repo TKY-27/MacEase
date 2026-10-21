@@ -159,6 +159,14 @@ import Testing
         }
     }
 
+    @Test(arguments: [Double.nan, .infinity, -.infinity])
+    func avifRejectsNonFiniteQuality(quality: Double) {
+        let pixels = PixelBuffer(width: 1, height: 1, rgba: [0, 0, 0, 255])
+        #expect(throws: FormatError.encoderFailure("invalid AVIF quality")) {
+            try AVIFEncoder.encode(pixels, quality: quality)
+        }
+    }
+
     @Test func pngRejectsUnrepresentableRasterBeforeFiltering() {
         let raster = PNGRaster(width: Int.max, height: 1, colorType: .rgba, bitDepth: 8, samples: [])
         #expect(throws: FormatError.corrupt(String(localized: "PNG raster out of range"))) {

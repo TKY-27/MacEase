@@ -120,6 +120,34 @@ enum FLV {
         return numbers
     }
 
+    static func isRegeneratedMetadata(_ body: [UInt8]) throws -> Bool {
+        var offset = 0
+        guard body.first == amfString, try readString(body, &offset) == "onMetaData",
+            offset < body.count, body[offset] == 8 || body[offset] == 3
+        else { return false }
+        let array = body[offset] == 8
+        offset += 1
+        if array { try skip(4, body, &offset) }
+        let numericKeys: Set<String> = [
+            "duration", "width", "height", "videocodecid", "audiocodecid", "audiosamplerate",
+        ]
+        while offset < body.count {
+            let key = try readKey(body, &offset)
+            if key.isEmpty, offset < body.count, body[offset] == 9 { return offset + 1 == body.count }
+            guard offset < body.count else { throw FormatError.corrupt("truncated AMF0") }
+            let type = body[offset]
+            offset += 1
+            if key == "stereo", type == 1 {
+                try skip(1, body, &offset)
+            } else if numericKeys.contains(key), type == 0 {
+                try skip(8, body, &offset)
+            } else {
+                return false
+            }
+        }
+        return false
+    }
+
     private static func readString(_ body: [UInt8], _ offset: inout Int) throws -> String {
         guard offset + 3 <= body.count, body[offset] == 2 else { throw FormatError.corrupt("AMF0 string expected") }
         offset += 1

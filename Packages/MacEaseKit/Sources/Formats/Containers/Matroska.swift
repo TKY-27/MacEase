@@ -69,6 +69,7 @@ enum MatroskaID {
     static let cueTrack: UInt32 = 0xF7
     static let cueClusterPosition: UInt32 = 0xF1
     static let void: UInt32 = 0xEC
+    static let crc32: UInt32 = 0xBF
 
     static let topLevel: Set<UInt32> = [seekHead, info, tracks, cluster, cues, tags, chapters, attachments]
 }

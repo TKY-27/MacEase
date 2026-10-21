@@ -9,6 +9,7 @@ public enum AVIFEncoder {
     static let bitDepth: UInt32 = 8
 
     public static func encode(_ pixels: PixelBuffer, quality: Double, xmp: Data? = nil) throws -> Data {
+        guard quality.isFinite else { throw FormatError.encoderFailure("invalid AVIF quality") }
         guard UInt32(exactly: pixels.width) != nil, UInt32(exactly: pixels.height) != nil,
             pixels.width > 0, pixels.height > 0, pixels.width <= Int(UInt32.max) / 4
         else {
