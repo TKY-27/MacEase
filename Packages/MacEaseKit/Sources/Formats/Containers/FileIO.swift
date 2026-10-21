@@ -1,5 +1,12 @@
 import Foundation
 
+extension FileHandle {
+    /// Unpooled loops accumulate each read's autoreleased buffer.
+    public func readChunk(upToCount count: Int) throws -> Data? {
+        try autoreleasepool { try read(upToCount: count) }
+    }
+}
+
 /// Random-access reads through a sliding window.
 final class RandomAccessFile {
     private static let windowSize = 1 << 20
@@ -28,9 +35,9 @@ final class RandomAccessFile {
         }
         try handle.seek(toOffset: UInt64(offset))
         if count > Self.windowSize {
-            return [UInt8](try handle.read(upToCount: count) ?? Data())
+            return [UInt8](try handle.readChunk(upToCount: count) ?? Data())
         }
-        window = [UInt8](try handle.read(upToCount: Self.windowSize) ?? Data())
+        window = [UInt8](try handle.readChunk(upToCount: Self.windowSize) ?? Data())
         windowStart = offset
         guard window.count >= count else { throw FormatError.corrupt("short read") }
         return Array(window[0..<count])

@@ -149,7 +149,7 @@ final class OggPacketReader {
         var page = ogg_page()
         while ogg_sync_pageout(sync, &page) != 1 {
             try Task.checkCancellation()
-            let chunk = try fileReader.read(upToCount: Self.readSize) ?? Data()
+            let chunk = try fileReader.readChunk(upToCount: Self.readSize) ?? Data()
             guard !chunk.isEmpty else { return nil }
             guard let buffer = ogg_sync_buffer(sync, chunk.count) else { throw FormatError.io("ogg_sync_buffer") }
             chunk.copyBytes(to: UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: UInt8.self), count: chunk.count)

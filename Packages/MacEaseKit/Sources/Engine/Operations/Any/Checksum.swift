@@ -1,4 +1,5 @@
 import CryptoKit
+import Formats
 import Foundation
 import MenuCatalog
 
@@ -26,7 +27,7 @@ enum Checksum {
         defer { try? reader.close() }
         let total = max(1, try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 1)
         var processed = 0
-        while let chunk = try reader.read(upToCount: chunkSize), !chunk.isEmpty {
+        while let chunk = try reader.readChunk(upToCount: chunkSize), !chunk.isEmpty {
             try Task.checkCancellation()
             hasher.update(data: chunk)
             processed += chunk.count

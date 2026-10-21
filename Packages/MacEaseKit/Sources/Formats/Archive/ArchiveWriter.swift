@@ -95,7 +95,7 @@ public enum ArchiveWriter {
         guard member.isRegularFile else { return }
         let reader = try FileHandle(forReadingFrom: URL(fileURLWithPath: member.path))
         defer { try? reader.close() }
-        while let chunk = try reader.read(upToCount: chunkSize), !chunk.isEmpty {
+        while let chunk = try reader.readChunk(upToCount: chunkSize), !chunk.isEmpty {
             try Task.checkCancellation()
             let count = chunk.withUnsafeBytes { archive_write_data(archive, $0.baseAddress, $0.count) }
             guard count == chunk.count else { throw FormatError.encoderFailure(ArchiveListing.message(archive)) }
