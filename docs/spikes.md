@@ -111,6 +111,7 @@ zip, 2 h Opus, 400 MB UTF-8 log, 200 MB JSON.
 | 400 MB UTF-8 text to UTF-16 | 3.2–3.9 GB, 16–21 s | 1.8–2.0 GB, 3–4 s |
 | 40 MB UTF-16 text to CRLF | 340 MB | 195 MB |
 | 200 MB JSON pretty-print | 2.5 GB | unchanged |
+| Images to PDF, six / twelve distinct 12 MP photos | 264 MB / refused (`frameMemoryExceeded`) | 141 MB / 194 MB |
 
 | Question | Result |
 | --- | --- |

@@ -1574,7 +1574,8 @@ formatting of 200–400 MB files still peak at 1.2–2.5 GB, above the target.
 
 - 2026-10-21: Record measured section 16 memory, idle and storage results.
   Chunked file reads no longer accumulate whole files, text line-ending and
-  UTF-16 conversions drop redundant copies, and release DMGs use LZMA (ULMO).
+  UTF-16 conversions drop redundant copies, Images to PDF streams pages instead
+  of refusing large selections, and release DMGs use LZMA (ULMO).
 
 - 2026-10-21: Replace TOMLKit with vendored toml++ 3.4.0 behind an owned C
   bridge, preserving typed mappings and limits while releasing conversion
