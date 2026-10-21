@@ -66,6 +66,7 @@ import Testing
             codecPrivate: encoder.codecPrivate)
         track.codecDelay = Int64(encoder.delay) * Nanoseconds.perSecond / Int64(rate)
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).mkv")
+        defer { try? FileManager.default.removeItem(at: url) }
         var muxer = try MatroskaMuxer(url: url, tracks: [track], webm: codec != .aac)
         var position: Int64 = 0
         for packet in packets {
