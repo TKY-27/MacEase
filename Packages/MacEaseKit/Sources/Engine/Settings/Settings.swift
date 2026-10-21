@@ -59,6 +59,18 @@ public enum MP3Mode: String, Codable, CaseIterable, Sendable {
     case vbr
 }
 
+public enum ForegroundMask: String, Codable, CaseIterable, Sendable {
+    case subject
+    case person
+
+    public var source: MaskSource {
+        switch self {
+        case .subject: .subject
+        case .person: .person
+        }
+    }
+}
+
 public enum UnmappablePolicy: String, Codable, CaseIterable, Sendable {
     case fail
     case questionMark
@@ -103,21 +115,35 @@ public struct ImageSettings: Codable, Equatable, Sendable {
     public var greenBackground = RGBColor.chromaGreen
     public var blueBackground = RGBColor.chromaBlue
     public var customBackground = RGBColor.white
+    public var backgroundMask = ForegroundMask.subject
+    public var backgroundBlurRadius = Int(BackgroundOptions.defaultBlurRadius)
+    public var rotationFillsWithColor = false
+    public var rotationFill = RGBColor.white
+    public var svgColors = SVGColors.default
 
     public init() {}
 }
 
 public struct VideoSettings: Codable, Equatable, Sendable {
+    public static let frameRateRange = 1...120
+    public static let animationTimeRange = 0.0...86_400.0
+
     public var codec = VideoCodecChoice.auto
     public var priority = EncodePriority.quality
     public var allowDownscale = true
     public var allowFrameRateReduction = true
+    public var frameRateFilm = 24
+    public var frameRateStandard = 30
+    public var frameRateSmooth = 60
     public var trimMode = TrimMode.keyframe
     public var rotationFill = RGBColor.black
     public var gifWidth = 480
     public var gifFrameRate = 15
     public var gifColors = 256
     public var gifLoops = true
+    public var gifStartSeconds = 0.0
+    public var gifEndSeconds = 0.0
+    public var backgroundMask = ForegroundMask.person
     public var transparentFormat = TransparentVideoFormat.hevcAlpha
     public var thumbnailFormat = StillFormat.png
 
@@ -125,6 +151,8 @@ public struct VideoSettings: Codable, Equatable, Sendable {
 }
 
 public struct AudioSettings: Codable, Equatable, Sendable {
+    public static let loudnessRange = -40.0 ... -5.0
+
     public var mp3Bitrate = 192
     public var aacBitrate = 192
     public var opusBitrate = 128
@@ -132,7 +160,10 @@ public struct AudioSettings: Codable, Equatable, Sendable {
     public var mp3Mode = MP3Mode.cbr
     public var mp3VBRQuality = 2
     public var loudnessTarget = -14.0
+    public var loudnessStreaming = -16.0
+    public var loudnessBroadcast = -23.0
     public var extractFormat = "m4a"
+    public var extractedAudioBitrate: Int?
 
     public init() {}
 }
@@ -159,6 +190,7 @@ public struct TextSettings: Codable, Equatable, Sendable {
     public var jsonIndent = JSONIndent.two
     public var keySortScope = KeySortScope.recursive
     public var csvTypeInference = false
+    public var pdfImageDPI = PDFOperation.defaultDPI
 
     public init() {}
 }
@@ -188,6 +220,8 @@ public struct Settings: Codable, Equatable, Sendable {
     public var permanentDelete = false
     /// Zero means half of the active processors.
     public var concurrencyLimit = 0
+    public var extraRotationEnabled = false
+    public var extraRotationDegrees = 45.0
     public var image = ImageSettings()
     public var video = VideoSettings()
     public var audio = AudioSettings()
@@ -198,7 +232,8 @@ public struct Settings: Codable, Equatable, Sendable {
     public var platformPresets = PresetLibrary.bundledPresets
 
     private enum CodingKeys: String, CodingKey {
-        case outputMode, permanentDelete, concurrencyLimit, image, video, audio, folder, text, intelligence
+        case outputMode, permanentDelete, concurrencyLimit, extraRotationEnabled, extraRotationDegrees
+        case image, video, audio, folder, text, intelligence
     }
 
     public init() {}

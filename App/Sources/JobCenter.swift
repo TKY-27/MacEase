@@ -50,12 +50,28 @@ final class JobCenter {
 
     func start(entry: MenuEntry, inputs: [URL]) {
         guard !terminating else { return }
+        let inputs = inputs.filter { input in
+            let kind = FileKind(fileURL: input)
+            return entry.kind == .any ? kind != .folder : kind == entry.kind
+        }
+        guard MenuLayout.isApplicable(entry, selection: inputs) else {
+            logger.error("Selection no longer permits \(entry.op.rawValue, privacy: .public)")
+            return
+        }
         let preset = entry.isCustom ? nil : entry.preset
         // Finder selection order is unreliable.
         let ordersPages = [OperationID.imageToPDF, .pdfMerge].contains(entry.op) && inputs.count > 1
-        guard !ordersPages,
-            let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.planning)
-        else {
+        let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.planning)
+        if !ordersPages, options == nil, preset != nil, preset != "choose-frame" {
+            let alert = NSAlert()
+            alert.messageText = MenuStrings.operationName(entry.op)
+            alert.informativeText = String(
+                localized: "Saved values are invalid. Review this operation in Settings.",
+                comment: "Explains rejected saved parameters")
+            alert.runModal()
+            return
+        }
+        guard !ordersPages, let options else {
             var failures: [String] = []
             let inputs = inputs.filter { input in
                 do {

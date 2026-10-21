@@ -171,9 +171,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         urls.forEach { router?.route($0) }
     }
 
-    /// Slider drags fire many changes per second.
     private func settingsChanged() {
-        if currentMenuInputs != menuInputs { refreshMenuFile() }
+        refreshMenuFile()
         let width = settings.settings.effectiveConcurrency
         if let engine = jobs?.engine { Task { await engine.setConcurrency(width) } }
     }
@@ -200,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func writeMenuFile() throws {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
-            visibleOperations: inputs
+            visibleOperations: inputs, settings: settings.planning
         )
         menuInputs = inputs
     }

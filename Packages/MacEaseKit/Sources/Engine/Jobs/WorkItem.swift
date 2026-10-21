@@ -48,6 +48,8 @@ public struct StagedFile: Sendable {
 public enum OutputCheck: Sendable {
     case image
     case media
+    case sdrImage
+    case sdrVideo
     /// Decoded fully with MacEase's own audio decoders.
     case audio
     case archive
@@ -97,6 +99,8 @@ public enum ItemWarning: Equatable, Sendable {
     case originalKept
     case outputNameUnchanged
     case metadataDropped
+    case hdrProvenanceUnknown
+    case dolbyVisionRemoved
 }
 
 public final class ItemContext: Sendable {

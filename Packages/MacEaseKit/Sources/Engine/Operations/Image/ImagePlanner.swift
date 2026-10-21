@@ -15,8 +15,15 @@ public enum ImagePlanner {
         switch op {
         case .imageResize: return resize(preset)
         case .imageCompress: return compression(preset, settings: settings).map(ImageOperation.compress)
-        case .imageConvert: return ImageFormat(rawValue: preset).map { .convert(ImageConversion(format: $0)) }
-        case .imageRotate: return rotationDegrees[preset].map { .rotate(degrees: $0, fill: nil) }
+        case .imageConvert:
+            return ImageFormat(rawValue: preset).map {
+                .convert(ImageConversion(format: $0, svgColors: settings.image.svgColors))
+            }
+        case .imageRotate:
+            let degrees = preset == "extra-angle" ? settings.extraRotationDegrees : rotationDegrees[preset]
+            return degrees.map {
+                .rotate(degrees: $0, fill: settings.image.rotationFillsWithColor ? settings.image.rotationFill : nil)
+            }
         case .imageFlip: return FlipAxis(rawValue: preset).map(ImageOperation.flip)
         case .imageBackground: return background(preset, settings: settings.image).map(ImageOperation.background)
         case .imageStripMetadata:
@@ -54,6 +61,7 @@ public enum ImagePlanner {
         case .resize(let resize): try await ImageEdits.resize(url, resize, context: context)
         case .compress(let compression): try await ImageCompressor.compress(url, compression, context: context)
         case .convert(let conversion): try await ImageEdits.convert(url, conversion, context: context)
+        case .hdrToSDR: try ImageSDR.convert(url, context: context)
         case .rotate(let degrees, let fill):
             try await ImageEdits.rotate(url, degrees: degrees, fill: fill, context: context)
         case .flip(let axis): try await ImageEdits.flip(url, axis, context: context)
@@ -94,11 +102,13 @@ public enum ImagePlanner {
 
     private static func background(_ preset: String, settings: ImageSettings) -> BackgroundOptions? {
         switch preset {
-        case "remove": BackgroundOptions(mask: .subject, fill: .transparent)
-        case "green": BackgroundOptions(mask: .subject, fill: .color(settings.greenBackground))
-        case "blue": BackgroundOptions(mask: .subject, fill: .color(settings.blueBackground))
-        case "color": BackgroundOptions(mask: .subject, fill: .color(settings.customBackground))
-        case "blur": BackgroundOptions(mask: .subject, fill: .blur(radius: BackgroundOptions.defaultBlurRadius))
+        case "remove": BackgroundOptions(mask: settings.backgroundMask.source, fill: .transparent)
+        case "green": BackgroundOptions(mask: settings.backgroundMask.source, fill: .color(settings.greenBackground))
+        case "blue": BackgroundOptions(mask: settings.backgroundMask.source, fill: .color(settings.blueBackground))
+        case "color": BackgroundOptions(mask: settings.backgroundMask.source, fill: .color(settings.customBackground))
+        case "blur":
+            BackgroundOptions(
+                mask: settings.backgroundMask.source, fill: .blur(radius: Double(settings.backgroundBlurRadius)))
         case "color-key":
             BackgroundOptions(
                 mask: .colorKey(settings.colorKey, tolerance: settings.colorKeyTolerance), fill: .transparent)

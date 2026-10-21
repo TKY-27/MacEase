@@ -12,13 +12,40 @@ struct ImageGainMap {
     private static let maximumRasterBytes = 64 * 1_024 * 1_024
 
     static func read(_ source: CGImageSource, at index: Int) throws -> [Self] {
+        try payloads(source, at: index).map { gainMap in
+            try Self(
+                type: gainMap.type,
+                payload: rasterPayload(gainMap.payload, source: source, index: index, type: gainMap.type))
+        }
+    }
+
+    static func contains(in source: CGImageSource, at index: Int) throws -> Bool {
+        let gainMaps = try payloads(source, at: index)
+        for gainMap in gainMaps {
+            let contents = gainMap.payload as NSDictionary
+            let raster = contents[kCGImageAuxiliaryDataInfoDataDescription] as? [CFString: Any]
+            let channels = 4
+            guard try metadata(gainMap.payload) != nil,
+                let width = raster?[kCGImagePropertyWidth] as? Int,
+                let height = raster?[kCGImagePropertyHeight] as? Int,
+                width > 0, height > 0, width <= maximumRasterBytes / channels,
+                height <= maximumRasterBytes / (width * channels)
+            else { throw EngineError.imageGainMapUnsupported }
+            if let pixels = contents[kCGImageAuxiliaryDataInfoData] as? Data, pixels.count > maximumRasterBytes {
+                throw EngineError.imageGainMapUnsupported
+            }
+        }
+        return !gainMaps.isEmpty
+    }
+
+    private static func payloads(_ source: CGImageSource, at index: Int) throws -> [Self] {
         let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any]
         let contents = properties?[kCGImagePropertyFileContentsDictionary] as? [CFString: Any]
         let images = contents?[kCGImagePropertyImages] as? [[CFString: Any]]
         let auxiliary = images?.flatMap { $0[kCGImagePropertyAuxiliaryData] as? [[CFString: Any]] ?? [] } ?? []
         return try [kCGImageAuxiliaryDataTypeISOGainMap, kCGImageAuxiliaryDataTypeHDRGainMap].compactMap { type in
             if let payload = CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, index, type) {
-                return try Self(type: type, payload: rasterPayload(payload, source: source, index: index, type: type))
+                return Self(type: type, payload: payload)
             }
             guard !auxiliary.contains(where: { $0[kCGImagePropertyAuxiliaryDataType] as? String == type as String })
             else {

@@ -50,6 +50,7 @@ public struct AnimationRendering: Codable, Hashable, Sendable {
 }
 
 public enum VideoOperation: Codable, Hashable, Sendable {
+    case hdrToSDR
     case resize(VideoResize)
     case trim(start: Double, end: Double, mode: TrimMode)
     /// Clockwise degrees.
@@ -71,7 +72,8 @@ public enum VideoOperation: Codable, Hashable, Sendable {
 }
 
 enum VideoPlanner {
-    private static let animationPresets: [String: (width: Int, framesPerSecond: Int)] = [
+    private static let degreesPerTurn = 360.0
+    private static let legacyAnimationPresets: [String: (width: Int, framesPerSecond: Int)] = [
         "480-10": (480, 10), "480-15": (480, 15), "720-15": (720, 15), "720-24": (720, 24),
     ]
 
@@ -84,18 +86,32 @@ enum VideoPlanner {
             return Int(preset.dropLast()).map { .resize(.lines($0)) }
         case .videoRotate:
             let degrees: [String: Double] = ["right-90": 90, "left-90": 270, "180": 180]
-            return degrees[preset].map { .rotate(degrees: $0, fill: settings.video.rotationFill) }
+            guard let angle = preset == "extra-angle" ? settings.extraRotationDegrees : degrees[preset], angle.isFinite
+            else { return nil }
+            let normalized = (angle.truncatingRemainder(dividingBy: degreesPerTurn) + degreesPerTurn)
+                .truncatingRemainder(dividingBy: degreesPerTurn)
+            return .rotate(degrees: normalized, fill: settings.video.rotationFill)
         case .videoFlip:
             return preset == "horizontal" || preset == "vertical" ? .flip(horizontally: preset == "horizontal") : nil
         case .videoFPS:
-            return Int(preset).map(VideoOperation.frameRate)
+            let frameRate: Int
+            switch preset {
+            case "24": frameRate = settings.video.frameRateFilm
+            case "30": frameRate = settings.video.frameRateStandard
+            case "60": frameRate = settings.video.frameRateSmooth
+            default: return nil
+            }
+            guard VideoSettings.frameRateRange.contains(frameRate) else { return nil }
+            return .frameRate(frameRate)
         case .videoConvert:
             return OutputContainer(rawValue: preset).map(VideoOperation.convert)
         case .videoCompress:
             return compression(preset, settings: settings).map(VideoOperation.compress)
         case .videoExtractAudio:
-            if preset == "m4a" { return .extractAudio(.m4aAAC) }
-            return AudioFormat(rawValue: preset).map { .extractAudio($0) }
+            if preset == "m4a" { return .extractAudio(.m4aAAC, kilobits: settings.audio.extractedAudioBitrate) }
+            return AudioFormat(rawValue: preset).map {
+                .extractAudio($0, kilobits: settings.audio.extractedAudioBitrate)
+            }
         case .videoThumbnail:
             return ["first": VideoStill.first, "middle": .middle][preset].map(VideoOperation.still)
         case .videoToGIF:
@@ -128,10 +144,12 @@ enum VideoPlanner {
         let fills: [String: BackgroundFill] = [
             "remove": .transparent, "green": .color(settings.image.greenBackground),
             "blue": .color(settings.image.blueBackground), "color": .color(settings.image.customBackground),
-            "blur": .blur(radius: BackgroundOptions.defaultBlurRadius),
+            "blur": .blur(radius: Double(settings.image.backgroundBlurRadius)),
         ]
         return fills[preset].map {
-            VideoBackgroundRequest(mask: .person, fill: $0, transparentFormat: settings.video.transparentFormat)
+            VideoBackgroundRequest(
+                mask: settings.video.backgroundMask.source, fill: $0,
+                transparentFormat: settings.video.transparentFormat)
         }
     }
 
@@ -157,11 +175,25 @@ enum VideoPlanner {
     }
 
     private static func animation(_ preset: String, settings: Settings) -> AnimationRendering? {
-        guard let sizes = animationPresets[preset] else { return nil }
-        var rendering = AnimationRendering(width: sizes.width, framesPerSecond: sizes.framesPerSecond)
+        let start = settings.video.gifStartSeconds
+        let end = settings.video.gifEndSeconds
+        guard start.isFinite, end.isFinite, VideoSettings.animationTimeRange.contains(start),
+            VideoSettings.animationTimeRange.contains(end), end == 0 || end > start
+        else { return nil }
+        let size: (width: Int, framesPerSecond: Int)
+        if preset == "settings" {
+            size = (settings.video.gifWidth, settings.video.gifFrameRate)
+        } else if let legacy = legacyAnimationPresets[preset] {
+            size = legacy
+        } else {
+            return nil
+        }
+        var rendering = AnimationRendering(width: size.width, framesPerSecond: size.framesPerSecond)
         rendering.colors = settings.video.gifColors
         rendering.dithering = settings.image.gifDithering
         rendering.loops = settings.video.gifLoops
+        rendering.start = start > 0 ? start : nil
+        rendering.end = end > 0 ? end : nil
         return rendering
     }
 
@@ -170,6 +202,7 @@ enum VideoPlanner {
         let items = inputs.map { url in
             OperationPlanner.validated(url, kind: .video, lane: lane) { context in
                 switch operation {
+                case .hdrToSDR: try await VideoSDR.run(url: url, context: context)
                 case .compress(let compression): try await VideoCompressor.run(compression, url: url, context: context)
                 case .extractAudio(let format, let kilobits):
                     try await VideoAudio.extract(format, kilobits: kilobits, url: url, context: context)
@@ -195,7 +228,7 @@ extension VideoOperation {
         case .removeAudio, .still, .gif, .apng, .webP, .gifX, .extractAudio, .subtitles: false
         case .trim(_, _, let mode): mode == .exact
         case .convert(let container): container != .webm && container != .avi
-        case .resize, .rotate, .flip, .frameRate, .compress, .background: true
+        case .resize, .rotate, .flip, .frameRate, .compress, .background, .hdrToSDR: true
         }
     }
 }

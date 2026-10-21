@@ -5,12 +5,16 @@ enum TextConverter {
     private static let csvRoot = "rows"
     private static let csvRecord = "row"
 
-    static func convert(_ data: Data, _ conversion: TextConversion, settings: TextSettings, title: String) throws
+    static func convert(
+        _ data: Data, _ conversion: TextConversion, settings: TextSettings, title: String,
+        source: SourceTextEncoding? = nil
+    ) throws
         -> String
     {
-        let text = { try TextEncoding.decode(data).text }
+        let text = { try TextEncoding.decode(data, assuming: source).text }
         let indent = settings.jsonIndent.unit
         switch conversion {
+        case .toTXT: return try text()
         case .csvToJSON:
             let objects = try CSVTable(parsing: text()).objects(inferringTypes: settings.csvTypeInference)
             return objects.serialized(indent: indent) + "\n"

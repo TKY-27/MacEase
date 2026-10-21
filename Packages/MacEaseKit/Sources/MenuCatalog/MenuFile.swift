@@ -8,12 +8,55 @@ public struct MenuEntry: Codable, Hashable, Sendable {
     public let preset: String?
     public let kind: FileKind
     public let path: [String]
+    public let separatorBefore: Bool
+    public let operationSeparatorBefore: Bool
+    public let targetBytes: Int64?
+    public let parameterVersion: String?
+    public let minimumSelection: Int
+    public let maximumSelection: Int?
+    public let sourceFormats: Set<String>?
+    public let targetFormat: String?
+    public let requiresSingleSourceFormat: Bool
+    public let rotationDegrees: Double?
+    public let frameRate: Int?
+    public let targetLoudness: Double?
 
-    public init(op: OperationID, preset: String?, path: [String]) {
+    public init(
+        op: OperationID, preset: String?, path: [String], separatorBefore: Bool = false,
+        operationSeparatorBefore: Bool = false, targetBytes: Int64? = nil, parameterVersion: String? = nil,
+        rotationDegrees: Double? = nil, frameRate: Int? = nil, targetLoudness: Double? = nil
+    ) {
         self.op = op
         self.preset = preset
         self.kind = op.kind
         self.path = path
+        self.separatorBefore = separatorBefore
+        self.operationSeparatorBefore = operationSeparatorBefore
+        self.targetBytes = targetBytes
+        self.parameterVersion = parameterVersion
+        self.minimumSelection = op.minimumSelection
+        self.maximumSelection = preset == "choose-frame" ? 1 : op.maximumSelection
+        self.requiresSingleSourceFormat = op == .textConvert
+        self.rotationDegrees = rotationDegrees
+        self.frameRate = frameRate
+        self.targetLoudness = targetLoudness
+        switch op {
+        case .textJSON: self.sourceFormats = ["json"]
+        case .textConvert:
+            self.sourceFormats = preset.flatMap { preset in
+                guard preset != "txt", let source = preset.split(separator: "-").first else { return nil }
+                return [String(source)]
+            }
+        default: self.sourceFormats = nil
+        }
+        switch op {
+        case .imageConvert, .videoConvert:
+            self.targetFormat = preset.map(FileKind.canonicalFormat)
+        case .audioConvert:
+            self.targetFormat = preset.flatMap { $0.hasPrefix("m4a-") ? nil : FileKind.canonicalFormat($0) }
+        case .textConvert: self.targetFormat = preset == "txt" ? "txt" : nil
+        default: self.targetFormat = nil
+        }
     }
 
     public var isCustom: Bool { preset == Self.customPreset }
@@ -28,7 +71,7 @@ public struct KindTitle: Codable, Hashable, Sendable {
 }
 
 public struct MenuFile: Codable, Equatable, Sendable {
-    public static let currentSchema = 1
+    public static let currentSchema = 2
 
     public let schema: Int
     public let catalogVersion: String
@@ -49,7 +92,18 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public static func version(of entries: [MenuEntry]) -> String {
         let unitSeparator = "\u{1F}"
         let canonical = entries.map { entry in
-            ([entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue] + entry.path).joined(separator: unitSeparator)
+            let constraints: [String] = [
+                String(entry.separatorBefore), String(entry.operationSeparatorBefore),
+                entry.targetBytes.map { String($0) } ?? "", entry.parameterVersion ?? "",
+                String(entry.minimumSelection),
+                entry.maximumSelection.map { String($0) } ?? "",
+                entry.sourceFormats.map { $0.sorted().joined(separator: ",") } ?? "",
+                entry.targetFormat ?? "", String(entry.requiresSingleSourceFormat),
+                entry.rotationDegrees.map { String($0) } ?? "",
+                entry.frameRate.map { String($0) } ?? "", entry.targetLoudness.map { String($0) } ?? "",
+            ]
+            return ([entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue] + constraints + entry.path)
+                .joined(separator: unitSeparator)
         }.joined(separator: "\u{1E}")
         return SHA256.hash(data: Data(canonical.utf8)).hexEncoded
     }
@@ -65,7 +119,10 @@ public struct MenuFile: Codable, Equatable, Sendable {
     }
 
     public init(json: Data) throws {
-        self = try JSONDecoder().decode(MenuFile.self, from: json)
+        let decoder = JSONDecoder()
+        let schema = try decoder.decode(MenuSchema.self, from: json).schema
+        guard schema == Self.currentSchema else { throw MenuFileError.unsupportedSchema(schema) }
+        self = try decoder.decode(MenuFile.self, from: json)
     }
 }
 
@@ -86,25 +143,89 @@ public struct MenuTitles: Sendable {
     }
 }
 
+public enum MenuFileError: Error, Equatable, Sendable {
+    case unsupportedSchema(Int)
+}
+
+private struct MenuSchema: Decodable {
+    let schema: Int
+}
+
 extension MenuFile {
     public init(
         token: String,
         hostAvailable: Bool,
         visibleOperations: [OperationID],
-        titles: MenuTitles
+        titles: MenuTitles,
+        hiddenEntries: Set<String> = [],
+        extraRotationDegrees: Double? = nil,
+        frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
+        sizeTargets: [String: Int64] = [:], parameterVersion: String? = nil
     ) {
         var entries: [MenuEntry] = []
-        for op in visibleOperations {
-            let opTitle = titles.operation(op)
-            guard op.offersCustom else {
-                entries.append(MenuEntry(op: op, preset: nil, path: [opTitle]))
+        let visible = Set(visibleOperations)
+        let animations: Set<OperationID> = [.videoToGIF, .videoToAnimatedWebP, .videoToAPNG]
+        var hasAnimations = false
+        var operationBoundaries: Set<FileKind> = []
+        for op in OperationID.menuOrder {
+            if op.startsGroup { operationBoundaries.insert(op.kind) }
+            guard visible.contains(op) else { continue }
+            let parent: OperationID =
+                switch op {
+                case .imageFlip: .imageRotate
+                case .videoFlip: .videoRotate
+                case .videoToGIF, .videoToAnimatedWebP, .videoToAPNG: .videoConvert
+                default: op
+                }
+            let opTitle = titles.operation(parent)
+            var groups = op.presetGroups
+            if extraRotationDegrees != nil, op == .imageRotate || op == .videoRotate {
+                groups[0].append("extra-angle")
+            }
+            if op.offersCustom { groups.append([MenuEntry.customPreset]) }
+            if groups.isEmpty {
+                if !hiddenEntries.contains("\(op.rawValue)/") {
+                    entries.append(
+                        MenuEntry(
+                            op: op, preset: nil, path: [opTitle],
+                            operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
+                            parameterVersion: parameterVersion))
+                }
                 continue
             }
-            for preset in op.presets + [MenuEntry.customPreset] {
-                entries.append(MenuEntry(op: op, preset: preset, path: [opTitle, titles.preset(op, preset)]))
+            for (groupIndex, presets) in groups.enumerated() {
+                let presets = presets.filter { !hiddenEntries.contains("\(op.rawValue)/\($0)") }
+                for (presetIndex, preset) in presets.enumerated() {
+                    let flat = op == .textJSON
+                    let boundary =
+                        groupIndex > 0 || op == .imageFlip || op == .videoFlip
+                        || (animations.contains(op) && !hasAnimations)
+                    entries.append(
+                        MenuEntry(
+                            op: op, preset: preset,
+                            path: flat ? [titles.preset(op, preset)] : [opTitle, titles.preset(op, preset)],
+                            separatorBefore: presetIndex == 0 && boundary,
+                            operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
+                            targetBytes: sizeTargets["\(op.rawValue)/\(preset)"], parameterVersion: parameterVersion,
+                            rotationDegrees: preset == "extra-angle" ? extraRotationDegrees : nil,
+                            frameRate: op == .videoFPS ? frameRates[preset] : nil,
+                            targetLoudness: op == .audioNormalize ? loudnessTargets[preset] : nil))
+                    if animations.contains(op) { hasAnimations = true }
+                }
             }
         }
         let kinds = Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, titles.kind($0)) })
         self.init(token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds)
+    }
+}
+
+extension OperationID {
+    fileprivate var startsGroup: Bool {
+        switch self {
+        case .imageToPDF, .imageAIRename, .videoAICustom, .audioAICustom, .pdfAIRename,
+            .textJSON, .folderRemoveDuplicates, .folderAIRename:
+            true
+        default: false
+        }
     }
 }

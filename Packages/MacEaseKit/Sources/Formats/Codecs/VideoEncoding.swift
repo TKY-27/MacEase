@@ -26,6 +26,8 @@ public struct VideoEncoding: Sendable {
     public var keyframeInterval = 2 * Nanoseconds.perSecond
     /// ProRes 4444 keeps alpha regardless.
     public var alpha = false
+    /// Off keeps variable source frame durations exact.
+    public var allowsFrameReordering = true
 
     public init(codec: Codec, width: Int, height: Int, frameDuration: Int64, bitrate: Int?) {
         self.codec = codec
@@ -118,7 +120,7 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
         if settings.codec != .prores4444 {
             properties[kVTCompressionPropertyKey_ProfileLevel] =
                 settings.codec == .h264 ? kVTProfileLevel_H264_High_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
-            properties[kVTCompressionPropertyKey_AllowFrameReordering] = true
+            properties[kVTCompressionPropertyKey_AllowFrameReordering] = settings.allowsFrameReordering
             properties[kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration] =
                 Double(settings.keyframeInterval) / Double(Nanoseconds.perSecond)
             if let bitrate = settings.bitrate {

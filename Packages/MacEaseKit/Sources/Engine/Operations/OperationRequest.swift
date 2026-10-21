@@ -25,10 +25,10 @@ public enum OperationPlanner {
         case .video: VideoPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.video)
         case .folder: FolderPlanner.options(for: op, preset: preset).map(OperationOptions.folder)
         case .archive: ArchivePlanner.options(for: op, preset: preset).map(OperationOptions.archive)
-        case .pdf: PDFPlanner.operation(for: op, preset: preset).map(OperationOptions.pdf)
+        case .pdf: PDFPlanner.operation(for: op, preset: preset, settings: settings).map(OperationOptions.pdf)
         case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
         case .jar: JARDecompiler.bundledOperation.map(OperationOptions.jar)
-        case .audio: AudioPlanner.options(for: op, preset: preset).map(OperationOptions.audio)
+        case .audio: AudioPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.audio)
         case .image: ImagePlanner.operation(for: op, preset: preset, settings: settings).map(OperationOptions.image)
         }
     }
@@ -49,6 +49,29 @@ public enum OperationPlanner {
 
     private static func plannedBatch(for request: OperationRequest, settings: Settings) -> Batch {
         let inputs = targeted(request.inputs, kind: request.op.kind)
+        let usesResolvedInputs: Bool
+        switch request.options {
+        case .rename(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
+            .folder(.exportAnalysis(_)):
+            usesResolvedInputs = true
+        default:
+            usesResolvedInputs = false
+        }
+        if (!usesResolvedInputs && inputs.count < request.op.minimumSelection)
+            || request.op.maximumSelection.map({ inputs.count > $0 }) ?? false
+        {
+            let rejected = WorkItem(inputs: inputs) { _ in
+                if inputs.count < request.op.minimumSelection {
+                    throw EngineError.invalidInput(.tooFewFiles(minimum: request.op.minimumSelection))
+                }
+                throw EngineError.invalidInput(
+                    .malformed(
+                        String(
+                            localized: "This operation cannot use the selected number of files.",
+                            comment: "Rejects stale selection counts")))
+            }
+            return Batch(operation: request.op, items: [rejected])
+        }
         switch request.options {
         case .checksum(let algorithm):
             let items = inputs.map { url in
@@ -66,7 +89,29 @@ public enum OperationPlanner {
             }
             return Batch(operation: request.op, items: items)
         case .video(let operation):
-            return VideoPlanner.batch(operation, op: request.op, inputs: inputs)
+            let batch = VideoPlanner.batch(operation, op: request.op, inputs: inputs)
+            guard case .extractAudio(let format, let kilobits?) = operation, format.isLossy else { return batch }
+            let checked = batch.items.map { planned in
+                WorkItem(inputs: planned.inputs, lane: planned.lane) { context in
+                    for source in planned.inputs {
+                        let media = try await MediaInput.open(source)
+                        guard let audio = media.audio, case .audio(let sampleRate, let channels) = audio.kind else {
+                            throw EngineError.invalidInput(.unsupportedFileType)
+                        }
+                        let supported = try format.supportedKilobits(sampleRate: sampleRate, channels: channels)
+                        guard supported.contains(kilobits) else {
+                            throw EngineError.invalidInput(
+                                .malformed(
+                                    String(
+                                        localized:
+                                            "The selected audio bitrate is unavailable for this format and source.",
+                                        comment: "Prevents silent bitrate changes")))
+                        }
+                    }
+                    return try await planned.body(context)
+                }
+            }
+            return Batch(operation: batch.operation, items: checked)
         case .folder(let operation):
             return FolderPlanner.batch(operation, op: request.op, folders: inputs, settings: settings)
         case .archive(let operation):

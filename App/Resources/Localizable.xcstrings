@@ -11,17 +11,6 @@
         }
       }
     },
-    "%@ LUFS": {
-      "comment": "Loudness target such as -14 LUFS",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ LUFS"
-          }
-        }
-      }
-    },
     "%@ failed": {
       "comment": "Notification title when every item failed",
       "localizations": {
@@ -334,6 +323,17 @@
         }
       }
     },
+    "Animated Images": {
+      "comment": "Animation export defaults",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメーション画像"
+          }
+        }
+      }
+    },
     "Another file now uses the name “%@”.": {
       "localizations": {
         "ja": {
@@ -531,6 +531,17 @@
         }
       }
     },
+    "Automatic (copy when possible)": {
+      "comment": "Automatic extraction preserves compatible streams",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動 (可能な場合はコピー)"
+          }
+        }
+      }
+    },
     "Automatic keeps the original audio when the format allows.": {
       "localizations": {
         "ja": {
@@ -557,6 +568,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "背景"
+          }
+        }
+      }
+    },
+    "Background mask": {
+      "comment": "Saved video foreground mask",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景マスク"
           }
         }
       }
@@ -602,6 +624,17 @@
         }
       }
     },
+    "Blur radius (pixels)": {
+      "comment": "Saved background blur radius",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ぼかし半径 (ピクセル)"
+          }
+        }
+      }
+    },
     "Blurred": {
       "comment": "Background output",
       "localizations": {
@@ -609,6 +642,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "ぼかし"
+          }
+        }
+      }
+    },
+    "Broadcast (LUFS)": {
+      "comment": "Broadcast loudness preset",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放送 (LUFS)"
           }
         }
       }
@@ -1188,6 +1232,7 @@
       }
     },
     "Dithering": {
+      "comment": "Animation palette dithering",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1311,6 +1356,17 @@
         }
       }
     },
+    "End (seconds, 0 for full duration)": {
+      "comment": "Animated image end time",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了 (秒、0 で最後まで)"
+          }
+        }
+      }
+    },
     "Enter a name in both languages.": {
       "localizations": {
         "ja": {
@@ -1384,6 +1440,17 @@
         }
       }
     },
+    "Extra angle (degrees): %@": {
+      "comment": "Editable extra rotation angle",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加角度 (度): %@"
+          }
+        }
+      }
+    },
     "Extract": {
       "comment": "Password panel action",
       "localizations": {
@@ -1401,6 +1468,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "音声の抽出形式"
+          }
+        }
+      }
+    },
+    "Extracted audio bitrate": {
+      "comment": "Saved audio extraction rate",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "抽出する音声のビットレート"
           }
         }
       }
@@ -1451,6 +1529,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "塗りつぶしの色"
+          }
+        }
+      }
+    },
+    "Fill empty corners with a color": {
+      "comment": "Image rotation background policy",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空いた角を色で塗りつぶす"
+          }
+        }
+      }
+    },
+    "Film (fps)": {
+      "comment": "Film frame rate slot",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルム (fps)"
           }
         }
       }
@@ -1559,6 +1659,17 @@
         }
       }
     },
+    "Foreground mask": {
+      "comment": "Saved foreground mask",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前景マスク"
+          }
+        }
+      }
+    },
     "Format": {
       "localizations": {
         "ja": {
@@ -1579,12 +1690,34 @@
         }
       }
     },
+    "Frame Rate Menu": {
+      "comment": "Editable frame rate presets",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームレートメニュー"
+          }
+        }
+      }
+    },
     "Frame rate (fps)": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "フレームレート (fps)"
+          }
+        }
+      }
+    },
+    "Frame rates must be between 1 and 120 fps.": {
+      "comment": "Explains invalid frame rate",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームレートは 1 fps から 120 fps の範囲で指定してください。"
           }
         }
       }
@@ -1616,16 +1749,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "GIF"
-          }
-        }
-      }
-    },
-    "GIF Defaults": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF のデフォルト設定"
           }
         }
       }
@@ -2095,12 +2218,13 @@
         }
       }
     },
-    "Loudness target": {
+    "Loudness targets must be between −40 and −5 LUFS.": {
+      "comment": "Explains invalid loudness",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "目標ラウドネス"
+            "value": "ラウドネスの目標値は −40 LUFS から −5 LUFS の範囲で指定してください。"
           }
         }
       }
@@ -2744,6 +2868,17 @@
         }
       }
     },
+    "PDF": {
+      "comment": "PDF export defaults",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF"
+          }
+        }
+      }
+    },
     "PNG optimization was skipped to stay within the memory budget.": {
       "localizations": {
         "ja": {
@@ -2760,6 +2895,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld ページ目"
+          }
+        }
+      }
+    },
+    "Page image resolution (dpi)": {
+      "comment": "Saved PDF raster resolution",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ画像の解像度 (dpi)"
           }
         }
       }
@@ -2853,6 +2999,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "完全に削除したフォルダは復元できません。"
+          }
+        }
+      }
+    },
+    "Person": {
+      "comment": "Foreground mask choice",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人物"
           }
         }
       }
@@ -3291,17 +3448,6 @@
         }
       }
     },
-    "Resolution (dpi)": {
-      "comment": "PDF to images panel field",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "解像度 (dpi)"
-          }
-        }
-      }
-    },
     "Restore Defaults": {
       "localizations": {
         "ja": {
@@ -3384,7 +3530,19 @@
         }
       }
     },
+    "Rotation": {
+      "comment": "Rotation defaults",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回転"
+          }
+        }
+      }
+    },
     "Rotation fill": {
+      "comment": "Saved rotation background color",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -3401,6 +3559,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "実行"
+          }
+        }
+      }
+    },
+    "SVG": {
+      "comment": "SVG export defaults",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVG"
           }
         }
       }
@@ -3432,6 +3601,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” として保存しました。"
+          }
+        }
+      }
+    },
+    "Saved values are invalid. Review this operation in Settings.": {
+      "comment": "Explains rejected saved parameters",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存値が無効です。この操作の設定を「設定」で確認してください。"
           }
         }
       }
@@ -3518,6 +3698,17 @@
         }
       }
     },
+    "Show extra rotation angle": {
+      "comment": "Extra rotation preset visibility",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加の回転角度を表示"
+          }
+        }
+      }
+    },
     "Show in Finder": {
       "comment": "Notification action that reveals outputs",
       "localizations": {
@@ -3565,6 +3756,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "種類別のサイズ"
+          }
+        }
+      }
+    },
+    "Smooth (fps)": {
+      "comment": "Smooth frame rate slot",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑らか (fps)"
           }
         }
       }
@@ -3630,8 +3832,30 @@
         }
       }
     },
+    "Standard (LUFS)": {
+      "comment": "Standard loudness preset",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準 (LUFS)"
+          }
+        }
+      }
+    },
+    "Standard (fps)": {
+      "comment": "Standard frame rate slot",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準 (fps)"
+          }
+        }
+      }
+    },
     "Start (seconds)": {
-      "comment": "Trim field",
+      "comment": "Animated image start time",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -3692,12 +3916,34 @@
         }
       }
     },
+    "Streaming (LUFS)": {
+      "comment": "Streaming loudness preset",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリーミング (LUFS)"
+          }
+        }
+      }
+    },
     "Strip Metadata": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "メタデータの削除"
+          }
+        }
+      }
+    },
+    "Subject": {
+      "comment": "Foreground mask choice",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被写体"
           }
         }
       }
@@ -3770,17 +4016,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "タブ"
-          }
-        }
-      }
-    },
-    "Target loudness (LUFS)": {
-      "comment": "Normalize panel field",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目標ラウドネス (LUFS)"
           }
         }
       }
@@ -3873,6 +4108,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "MacEase のメニューが更新されました"
+          }
+        }
+      }
+    },
+    "The SDR output does not contain Dolby Vision dynamic metadata.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDR 出力には Dolby Vision のダイナミックメタデータが含まれません。"
           }
         }
       }
@@ -4010,6 +4255,16 @@
         }
       }
     },
+    "The source signals HDR, but its capture or expansion origin is unknown.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースは HDR を示していますが、撮影由来か拡張由来かは不明です。"
+          }
+        }
+      }
+    },
     "The text encoding of “%@” could not be detected.": {
       "localizations": {
         "ja": {
@@ -4139,6 +4394,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "合計サイズ"
+          }
+        }
+      }
+    },
+    "Tracing colors": {
+      "comment": "Saved SVG palette size",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トレースする色数"
           }
         }
       }
@@ -4306,6 +4572,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "この一括処理のすべてのアーカイブ (%lld 個) に使用"
+          }
+        }
+      }
+    },
+    "Use times from 0 to 86400 seconds, with the end after the start.": {
+      "comment": "Explains invalid animation range",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間は 0 秒から 86400 秒の範囲で指定し、終了時刻は開始時刻より後にしてください。"
           }
         }
       }
@@ -5972,6 +6249,74 @@
         }
       }
     },
+    "menu.preset.audio.normalize.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ LUFS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ LUFS"
+          }
+        }
+      }
+    },
+    "menu.preset.custom-size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Size…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムサイズ…"
+          }
+        }
+      }
+    },
+    "menu.preset.flip.horizontal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flip Horizontal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左右反転"
+          }
+        }
+      }
+    },
+    "menu.preset.flip.vertical": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flip Vertical"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下反転"
+          }
+        }
+      }
+    },
     "menu.preset.folder.compress.7z": {
       "extractionState": "manual",
       "localizations": {
@@ -6992,6 +7337,40 @@
         }
       }
     },
+    "menu.preset.platform-size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (%@ MB)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (%@ MB)"
+          }
+        }
+      }
+    },
+    "menu.preset.rotate.extra-angle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@°"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@°"
+          }
+        }
+      }
+    },
     "menu.preset.text.convert.csv-html": {
       "extractionState": "manual",
       "localizations": {
@@ -7124,6 +7503,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "JSON → XML"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.csv": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.html": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTML"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.json": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.txt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TXT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TXT"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.xml": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XML"
           }
         }
       }
@@ -7927,6 +8408,23 @@
         }
       }
     },
+    "menu.preset.video.fps.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld fps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld fps"
+          }
+        }
+      }
+    },
     "menu.preset.video.resize.1080p": {
       "extractionState": "manual",
       "localizations": {
@@ -8131,6 +8629,23 @@
         }
       }
     },
+    "menu.preset.video.thumbnail.choose-frame": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Frame…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームを選択…"
+          }
+        }
+      }
+    },
     "menu.preset.video.thumbnail.custom": {
       "extractionState": "manual",
       "localizations": {
@@ -8199,6 +8714,23 @@
         }
       }
     },
+    "menu.preset.video.toAPNG.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APNG"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APNG"
+          }
+        }
+      }
+    },
     "menu.preset.video.toAnimatedWebP.480-15": {
       "extractionState": "manual",
       "localizations": {
@@ -8229,6 +8761,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "720 px、24 fps"
+          }
+        }
+      }
+    },
+    "menu.preset.video.toAnimatedWebP.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animated WebP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメーション WebP"
           }
         }
       }
@@ -8284,6 +8833,23 @@
         }
       }
     },
+    "menu.preset.video.toGIF.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF"
+          }
+        }
+      }
+    },
     "menu.preset.video.toGIF.x": {
       "extractionState": "manual",
       "localizations": {
@@ -8297,6 +8863,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "X (15 MB)"
+          }
+        }
+      }
+    },
+    "menu.preset.video.toGIF.x-export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF for X (15 MB)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "X 用 GIF (15 MB)"
           }
         }
       }
@@ -8502,6 +9085,16 @@
         }
       }
     },
+    "“%@” did not produce a verified SDR output. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” から検証済みの SDR 出力を作成できませんでした。元のファイルはそのまま残しました。"
+          }
+        }
+      }
+    },
     "“%@” does not allow copying. Ask the PDF owner for a copy with permission.": {
       "localizations": {
         "ja": {
@@ -8580,6 +9173,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” はフォルダです。"
+          }
+        }
+      }
+    },
+    "“%@” is already SDR and was kept without re-encoding.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” はすでに SDR のため、再エンコードせずにそのまま残しました。"
           }
         }
       }
@@ -8732,6 +9335,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%1$@” は MacEase が対応していない %2$@ を使用しています。"
+          }
+        }
+      }
+    },
+    "“%@” uses HDR content that cannot be safely converted to SDR. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” には安全に SDR に変換できない HDR コンテンツが含まれています。元のファイルはそのまま残しました。"
           }
         }
       }

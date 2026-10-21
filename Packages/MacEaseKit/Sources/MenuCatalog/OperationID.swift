@@ -86,37 +86,25 @@ public enum OperationRequirement: String, Codable, Sendable {
 }
 
 extension OperationID {
-    /// Menu leaves in order, excluding Custom….
     public var presets: [String] {
         switch self {
-        case .imageResize:
-            ["percent-25", "percent-50", "percent-75", "long-1080", "long-1920", "long-2560", "long-3840"]
-        case .imageCompress:
-            ["discord", "x", "instagram", "email", "web", "quality-high", "quality-medium", "quality-low"]
-        case .imageConvert:
-            ["png", "jpeg", "heic", "webp", "avif", "jxl", "gif", "tiff", "bmp", "ico", "icns", "svg", "pdf"]
+        case .imageResize, .imageCompress, .imageConvert, .videoResize, .videoCompress,
+            .videoThumbnail, .videoSubtitles:
+            presetGroups.flatMap { $0 }
         case .imageRotate, .videoRotate: ["right-90", "left-90", "180"]
         case .imageFlip, .videoFlip: ["horizontal", "vertical"]
         case .imageBackground: ["remove", "green", "blue", "color", "blur", "color-key"]
         case .imageStripMetadata: ["all", "gps", "settings"]
         case .imageOCR: ["copy", "save", "show"]
         case .imageIconSet: ["icns", "appiconset", "ico"]
-        case .videoResize: ["percent-50", "2160p", "1080p", "720p", "480p"]
-        case .videoCompress:
-            [
-                "discord", "x", "instagram", "line", "email", "mb-10", "mb-25", "mb-50", "mb-100", "quality-high",
-                "quality-medium", "quality-low",
-            ]
         case .videoFPS: ["24", "30", "60"]
         case .videoConvert: ["mp4", "mov", "m4v", "mkv", "webm", "avi", "flv"]
-        case .videoToGIF: ["480-10", "480-15", "720-15", "x"]
-        case .videoToAnimatedWebP: ["480-15", "720-24"]
-        case .videoToAPNG: ["480-15"]
-        case .videoThumbnail: ["first", "middle"]
+        case .videoToGIF: ["settings", "x"]
+        case .videoToAnimatedWebP: ["settings"]
+        case .videoToAPNG: ["settings"]
         case .videoExtractAudio, .audioConvert: audioFormatPresets
-        case .videoSubtitles: ["srt", "vtt", "txt", "translated-srt"]
         case .videoBackground: ["remove", "green", "blue", "color", "blur"]
-        case .audioCompress: ["64", "96", "128", "192"]
+        case .audioCompress: ["192", "128", "96", "64"]
         case .audioNormalize: ["lufs-14", "lufs-16", "lufs-23"]
         case .folderTree: ["copy", "txt", "md"]
         case .folderCompress: ["zip", "7z", "tar", "tar.gz"]
@@ -127,7 +115,7 @@ extension OperationID {
         case .textConvert:
             [
                 "csv-json", "csv-xml", "csv-html", "csv-md", "json-csv", "json-xml", "xml-json", "ini-json",
-                "ini-xml",
+                "ini-xml", "txt",
             ]
         case .textJSON: ["pretty", "minify", "sort"]
         case .anyChecksum: ["sha256", "md5"]
@@ -138,11 +126,58 @@ extension OperationID {
     private var audioFormatPresets: [String] {
         switch self {
         case .audioConvert: ["mp3", "m4a-aac", "m4a-alac", "aac", "wav", "aiff", "flac", "ogg", "opus"]
-        default: ["mp3", "m4a", "aac", "wav", "aiff", "flac", "ogg", "opus"]
+        default: ["m4a", "mp3", "aac", "wav", "aiff", "flac", "ogg", "opus"]
         }
     }
 
-    public var offersCustom: Bool { !presets.isEmpty }
+    public var offersCustom: Bool {
+        switch self {
+        case .imageResize, .videoResize, .imageCompress, .videoCompress, .audioCompress: true
+        default: false
+        }
+    }
+
+    public var presetGroups: [[String]] {
+        switch self {
+        case .imageResize:
+            [["percent-75", "percent-50", "percent-25"], ["long-3840", "long-2560", "long-1920", "long-1080"]]
+        case .imageCompress:
+            [["discord", "x", "instagram", "email", "web"], ["quality-high", "quality-medium", "quality-low"]]
+        case .imageConvert:
+            [["png", "jpeg", "heic", "webp", "avif", "jxl"], ["gif", "tiff", "bmp"], ["ico", "icns", "svg", "pdf"]]
+        case .videoResize:
+            [["percent-50"], ["2160p", "1080p", "720p", "480p"]]
+        case .videoCompress:
+            [
+                ["discord", "x", "instagram", "line", "email"], ["mb-10", "mb-25", "mb-50", "mb-100"],
+                ["quality-high", "quality-medium", "quality-low"],
+            ]
+        case .videoThumbnail: [["first", "middle"], ["choose-frame"]]
+        case .videoSubtitles: [["srt", "vtt", "txt"], ["translated-srt"]]
+        default: presets.isEmpty ? [] : [presets]
+        }
+    }
+
+    public var maximumSelection: Int? {
+        switch self {
+        case .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64: 1
+        default: nil
+        }
+    }
+
+    public static let menuOrder: [OperationID] = [
+        .imageResize, .imageCompress, .imageConvert, .imageRotate, .imageFlip, .imageBackground,
+        .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTrimBorders, .imageCopyBase64,
+        .imageAIRename, .imageAICustom,
+        .videoResize, .videoTrim, .videoThumbnail, .videoSubtitles, .videoCompress, .videoRotate,
+        .videoFlip, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoExtractAudio,
+        .videoFPS, .videoRemoveAudio, .videoBackground, .videoAICustom,
+        .audioConvert, .audioCompress, .audioNormalize, .audioTrim, .audioAICustom,
+        .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit, .pdfAIRename,
+        .textConvert, .textEncoding, .textLineEndings, .textJSON,
+        .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
+        .folderRemoveEmpty, .folderAIRename, .archiveExtract, .jarDecompile, .anyChecksum,
+    ]
 
     public var requirement: OperationRequirement? {
         switch self {

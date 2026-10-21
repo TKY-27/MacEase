@@ -169,6 +169,7 @@ public enum ImageOperation: Codable, Hashable, Sendable {
     case resize(ImageResize)
     case compress(ImageCompression)
     case convert(ImageConversion)
+    case hdrToSDR
     /// Clockwise; `nil` fill means transparent corners.
     case rotate(degrees: Double, fill: RGBColor?)
     case flip(FlipAxis)

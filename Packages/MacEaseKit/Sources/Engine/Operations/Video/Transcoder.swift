@@ -7,6 +7,7 @@ struct TranscodePlan {
     enum Video {
         case copy
         case encode(VideoEncoding, FrameEdit)
+        case toneMapToSDR(VideoEncoding)
     }
 
     enum Audio {
@@ -74,16 +75,34 @@ enum Transcoder {
         guard !stages.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
         var primed: [[MediaPacket]] = []
         for stage in stages { primed.append(try await prime(stage)) }
-        let tracks = try stages.map { stage in
+        var tracks = try stages.map { stage in
             guard let output = stage.output else { throw EngineError.encodeFailed("stream produced nothing") }
             return output
+        }
+        var metadata: [AVMetadataItem] = []
+        if case .toneMapToSDR = plan.video,
+            case .asset(let asset, let video, let audio) = input.backend
+        {
+            metadata = try await asset.load(.metadata)
+            for index in tracks.indices {
+                if let track = tracks[index].track.isVideo ? video : audio {
+                    tracks[index].metadata = try await track.load(.metadata)
+                    tracks[index].languageCode = try await track.load(.languageCode)
+                    tracks[index].extendedLanguageTag = try await track.load(.extendedLanguageTag)
+                    tracks[index].preferredVolume = try await track.load(.preferredVolume)
+                    tracks[index].isEnabled = try await track.load(.isEnabled)
+                }
+            }
         }
         // FLV alone cannot store negative decode times.
         let firstDecode = primed.flatMap { $0 }.compactMap(\.decodeTimestamp).min() ?? start
         let origin = plan.container == .flv ? min(start, firstDecode) : start
-        let transform: CGAffineTransform =
-            if case .copy = plan.video { plan.transform ?? input.transform } else { .identity }
-        var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform)
+        let transform: CGAffineTransform
+        switch plan.video {
+        case .copy, .toneMapToSDR: transform = plan.transform ?? input.transform
+        default: transform = .identity
+        }
+        var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform, metadata: metadata)
         var queues = primed
         do {
             while let index = try await earliest(stages, queues, sink: sink) {
@@ -159,6 +178,8 @@ enum Transcoder {
         case .encode(let encoding, let edit):
             try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end)
+        case .toneMapToSDR(let encoding):
+            try SDRFrameEncodeStage(input: input, encoding: encoding)
         }
     }
 

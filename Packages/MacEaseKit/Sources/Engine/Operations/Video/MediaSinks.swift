@@ -47,6 +47,11 @@ struct OutputTrack {
     var track: MediaTrack
     /// Wins over one rebuilt from `track`.
     var format: CMFormatDescription?
+    var metadata: [AVMetadataItem] = []
+    var languageCode: String?
+    var extendedLanguageTag: String?
+    var preferredVolume: Float = 1
+    var isEnabled = true
 }
 
 protocol PacketSink {
@@ -62,10 +67,12 @@ protocol PacketSink {
 
 enum Sinks {
     static func make(
-        _ container: OutputContainer, url: URL, tracks: [OutputTrack], transform: CGAffineTransform
+        _ container: OutputContainer, url: URL, tracks: [OutputTrack], transform: CGAffineTransform,
+        metadata: [AVMetadataItem] = []
     ) throws -> any PacketSink {
         if let fileType = container.fileType {
-            return try AssetWriterSink(url: url, fileType: fileType, tracks: tracks, transform: transform)
+            return try AssetWriterSink(
+                url: url, fileType: fileType, tracks: tracks, transform: transform, metadata: metadata)
         }
         let described = tracks.map(\.track)
         switch container {
@@ -103,8 +110,12 @@ final class AssetWriterSink: PacketSink {
     private let writer: AVAssetWriter
     private var inputs: [Int: (input: AVAssetWriterInput, format: CMFormatDescription)] = [:]
 
-    init(url: URL, fileType: AVFileType, tracks: [OutputTrack], transform: CGAffineTransform) throws {
+    init(
+        url: URL, fileType: AVFileType, tracks: [OutputTrack], transform: CGAffineTransform,
+        metadata: [AVMetadataItem] = []
+    ) throws {
         writer = try AVAssetWriter(outputURL: url, fileType: fileType)
+        writer.metadata = metadata
         writer.shouldOptimizeForNetworkUse = true
         for output in tracks {
             let format =
@@ -114,6 +125,11 @@ final class AssetWriterSink: PacketSink {
             let input = AVAssetWriterInput(
                 mediaType: output.track.isVideo ? .video : .audio, outputSettings: nil, sourceFormatHint: format)
             input.expectsMediaDataInRealTime = false
+            input.metadata = output.metadata
+            input.languageCode = output.languageCode
+            input.extendedLanguageTag = output.extendedLanguageTag
+            input.marksOutputTrackAsEnabled = output.isEnabled
+            if !output.track.isVideo { input.preferredVolume = output.preferredVolume }
             if output.track.isVideo { input.transform = transform }
             guard writer.canAdd(input) else {
                 throw EngineError.encodeFailed("\(output.track.codec.displayName) cannot go into \(fileType.rawValue)")

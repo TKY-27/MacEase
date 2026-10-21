@@ -25,8 +25,13 @@ enum OutputVerifier {
             }
             var actualBudget = FrameMemoryBudget()
             try actualBudget.reserve(image)
+        case .sdrImage:
+            try ImageSDR.verify(file.url)
         case .media:
             try await verifyMedia(file.url)
+        case .sdrVideo:
+            try await verifyMedia(file.url)
+            try await VideoSDR.verify(file.url)
         case .audio:
             try verifyAudio(file.url)
         case .pdf:

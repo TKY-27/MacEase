@@ -245,7 +245,7 @@ private let japanese = "日本語のテキストです。\n二行目"
         var settings = Settings()
         settings.text.jsonIndent = .tab
         let semicolon = try await converted(.csvToJSON, name: "semi.csv", input: "a;b\n1,5;2\n", settings: settings)
-        let tab = try await converted(.csvToJSON, name: "tab.tsv", input: "a\tb\n1;5\t2\n", settings: settings)
+        let tab = try await converted(.csvToJSON, name: "tab.csv", input: "a\tb\n1;5\t2\n", settings: settings)
 
         #expect(semicolon == "[\n\t{\n\t\t\"a\": \"1,5\",\n\t\t\"b\": \"2\"\n\t}\n]\n")
         #expect(tab == "[\n\t{\n\t\t\"a\": \"1;5\",\n\t\t\"b\": \"2\"\n\t}\n]\n")

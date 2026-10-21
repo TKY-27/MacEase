@@ -7,6 +7,8 @@ struct ImageSettingsView: View {
     @Bindable var store: SettingsStore
 
     private static let toleranceRange = 0.0...1.0
+    private static let blurRadiusRange = 0...100
+    private static let svgColorRange = 1...8
 
     var body: some View {
         Form {
@@ -36,6 +38,16 @@ struct ImageSettingsView: View {
                 }
             }
             Section("Background") {
+                Picker(
+                    String(localized: "Foreground mask", comment: "Saved foreground mask"),
+                    selection: $store.settings.image.backgroundMask
+                ) {
+                    ForEach(ForegroundMask.allCases, id: \.self) { mask in Text(mask.title).tag(mask) }
+                }
+                NumberField(
+                    title: Text(String(localized: "Blur radius (pixels)", comment: "Saved background blur radius")),
+                    value: $store.settings.image.backgroundBlurRadius,
+                    range: Self.blurRadiusRange)
                 ColorPicker("Color key", selection: $store.settings.image.colorKey.color, supportsOpacity: false)
                 LabeledContent {
                     Slider(value: $store.settings.image.colorKeyTolerance, in: Self.toleranceRange) {
@@ -53,6 +65,22 @@ struct ImageSettingsView: View {
                 ColorPicker(
                     "Custom background", selection: $store.settings.image.customBackground.color,
                     supportsOpacity: false)
+            }
+            Section(String(localized: "Rotation", comment: "Rotation defaults")) {
+                Toggle(
+                    String(localized: "Fill empty corners with a color", comment: "Image rotation background policy"),
+                    isOn: $store.settings.image.rotationFillsWithColor)
+                if store.settings.image.rotationFillsWithColor {
+                    ColorPicker(
+                        String(localized: "Rotation fill", comment: "Saved rotation background color"),
+                        selection: $store.settings.image.rotationFill.color, supportsOpacity: false)
+                }
+            }
+            Section(String(localized: "SVG", comment: "SVG export defaults")) {
+                NumberField(
+                    title: Text(String(localized: "Tracing colors", comment: "Saved SVG palette size")),
+                    value: $store.settings.image.svgColors,
+                    range: Self.svgColorRange)
             }
         }
     }
@@ -72,6 +100,8 @@ struct ImageSettingsView: View {
 
 struct VideoSettingsView: View {
     @Bindable var store: SettingsStore
+    @State private var rejectedFrameRate = false
+    @State private var rejectedAnimationRange = false
 
     private static let gifWidthRange = 16...3840
     private static let gifFrameRateRange = 1...50
@@ -91,22 +121,79 @@ struct VideoSettingsView: View {
                     ForEach(TrimMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 ColorPicker(
-                    "Rotation fill", selection: $store.settings.video.rotationFill.color, supportsOpacity: false)
+                    String(localized: "Rotation fill", comment: "Saved rotation background color"),
+                    selection: $store.settings.video.rotationFill.color, supportsOpacity: false)
             }
             Section("Target-Size Compression") {
                 Toggle("Allow lower resolution", isOn: $store.settings.video.allowDownscale)
                 Toggle("Allow lower frame rate", isOn: $store.settings.video.allowFrameRateReduction)
             }
-            Section("GIF Defaults") {
+            Section(String(localized: "Frame Rate Menu", comment: "Editable frame rate presets")) {
+                TextField(
+                    String(localized: "Film (fps)", comment: "Film frame rate slot"),
+                    value: frameRate(\.frameRateFilm),
+                    format: .number.grouping(.never))
+                TextField(
+                    String(localized: "Standard (fps)", comment: "Standard frame rate slot"),
+                    value: frameRate(\.frameRateStandard),
+                    format: .number.grouping(.never))
+                TextField(
+                    String(localized: "Smooth (fps)", comment: "Smooth frame rate slot"),
+                    value: frameRate(\.frameRateSmooth),
+                    format: .number.grouping(.never))
+                if rejectedFrameRate || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateFilm)
+                    || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateStandard)
+                    || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateSmooth)
+                {
+                    Text(
+                        String(
+                            localized: "Frame rates must be between 1 and 120 fps.",
+                            comment: "Explains invalid frame rate")
+                    )
+                    .foregroundStyle(.red)
+                }
+            }
+            Section(String(localized: "Animated Images", comment: "Animation export defaults")) {
                 NumberField(
                     title: Text("Width (pixels)"), value: $store.settings.video.gifWidth, range: Self.gifWidthRange)
                 NumberField(
                     title: Text("Frame rate (fps)"), value: $store.settings.video.gifFrameRate,
                     range: Self.gifFrameRateRange)
                 NumberField(title: Text("Colors"), value: $store.settings.video.gifColors, range: Self.gifColorRange)
+                Picker(
+                    String(localized: "Dithering", comment: "Animation palette dithering"),
+                    selection: $store.settings.image.gifDithering
+                ) {
+                    ForEach(Dithering.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 Toggle("Loop", isOn: $store.settings.video.gifLoops)
+                SecondsField(
+                    title: String(localized: "Start (seconds)", comment: "Animated image start time"),
+                    value: animationTime(\.gifStartSeconds))
+                SecondsField(
+                    title: String(localized: "End (seconds, 0 for full duration)", comment: "Animated image end time"),
+                    value: animationTime(\.gifEndSeconds))
+                if rejectedAnimationRange
+                    || !VideoSettings.animationTimeRange.contains(store.settings.video.gifStartSeconds)
+                    || !VideoSettings.animationTimeRange.contains(store.settings.video.gifEndSeconds)
+                    || (store.settings.video.gifEndSeconds > 0
+                        && store.settings.video.gifEndSeconds <= store.settings.video.gifStartSeconds)
+                {
+                    Text(
+                        String(
+                            localized: "Use times from 0 to 86400 seconds, with the end after the start.",
+                            comment: "Explains invalid animation range")
+                    )
+                    .foregroundStyle(.red)
+                }
             }
             Section("Output") {
+                Picker(
+                    String(localized: "Background mask", comment: "Saved video foreground mask"),
+                    selection: $store.settings.video.backgroundMask
+                ) {
+                    ForEach(ForegroundMask.allCases, id: \.self) { mask in Text(mask.title).tag(mask) }
+                }
                 Picker("Transparent video format", selection: $store.settings.video.transparentFormat) {
                     ForEach(TransparentVideoFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -118,17 +205,40 @@ struct VideoSettingsView: View {
             }
         }
     }
+    private func animationTime(_ keyPath: WritableKeyPath<VideoSettings, Double>) -> Binding<Double> {
+        Binding {
+            store.settings.video[keyPath: keyPath]
+        } set: { seconds in
+            var candidate = store.settings.video
+            candidate[keyPath: keyPath] = seconds
+            rejectedAnimationRange =
+                !VideoSettings.animationTimeRange.contains(seconds)
+                || (candidate.gifEndSeconds > 0 && candidate.gifEndSeconds <= candidate.gifStartSeconds)
+            if !rejectedAnimationRange { store.settings.video[keyPath: keyPath] = seconds }
+        }
+    }
+
+    private func frameRate(_ keyPath: WritableKeyPath<VideoSettings, Int>) -> Binding<Int> {
+        Binding {
+            store.settings.video[keyPath: keyPath]
+        } set: { rate in
+            rejectedFrameRate = !VideoSettings.frameRateRange.contains(rate)
+            if !rejectedFrameRate { store.settings.video[keyPath: keyPath] = rate }
+        }
+    }
+
 }
 
 struct AudioSettingsView: View {
     @Bindable var store: SettingsStore
+    @State private var rejectedLoudness = false
 
     nonisolated fileprivate static let mp3Bitrates = [64, 96, 128, 160, 192, 224, 256, 320]
     nonisolated fileprivate static let aacBitrates = [64, 96, 128, 160, 192, 256, 320]
     nonisolated fileprivate static let opusBitrates = [32, 48, 64, 96, 128, 160, 192, 256]
     nonisolated fileprivate static let vorbisBitrates = [64, 96, 128, 160, 192, 256, 320]
     private static let vbrQualities = 0...9
-    private static let loudnessTargets = [-14.0, -16.0, -23.0]
+    private static let extractionBitrates = [64, 96, 128, 160, 192, 256]
 
     var body: some View {
         Form {
@@ -152,18 +262,57 @@ struct AudioSettingsView: View {
                 }
             }
             Section {
-                Picker("Loudness target", selection: $store.settings.audio.loudnessTarget) {
-                    ForEach(Self.loudnessTargets, id: \.self) { target in
-                        Text("\(target, format: .number) LUFS", comment: "Loudness target such as -14 LUFS")
-                            .tag(target)
-                    }
+                TextField(
+                    String(localized: "Standard (LUFS)", comment: "Standard loudness preset"),
+                    value: loudness(\.loudnessTarget), format: .number)
+                TextField(
+                    String(localized: "Streaming (LUFS)", comment: "Streaming loudness preset"),
+                    value: loudness(\.loudnessStreaming), format: .number)
+                TextField(
+                    String(localized: "Broadcast (LUFS)", comment: "Broadcast loudness preset"),
+                    value: loudness(\.loudnessBroadcast), format: .number)
+                if rejectedLoudness || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessTarget)
+                    || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessStreaming)
+                    || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessBroadcast)
+                {
+                    Text(
+                        String(
+                            localized: "Loudness targets must be between −40 and −5 LUFS.",
+                            comment: "Explains invalid loudness")
+                    )
+                    .foregroundStyle(.red)
                 }
                 Picker("Extract audio as", selection: $store.settings.audio.extractFormat) {
                     ForEach(OperationID.videoExtractAudio.presets, id: \.self) { format in
                         Text(MenuStrings.preset(.videoExtractAudio, format)).tag(format)
                     }
                 }
+                Picker(
+                    String(localized: "Extracted audio bitrate", comment: "Saved audio extraction rate"),
+                    selection: $store.settings.audio.extractedAudioBitrate
+                ) {
+                    Text(
+                        String(
+                            localized: "Automatic (copy when possible)",
+                            comment: "Automatic extraction preserves compatible streams")
+                    ).tag(Int?.none)
+                    ForEach(Self.extractionBitrates, id: \.self) { rate in
+                        Text(
+                            "\(rate) kbps",
+                            comment: "Extracted audio bitrate"
+                        ).tag(Int?.some(rate))
+                    }
+                }
             }
+        }
+    }
+
+    private func loudness(_ keyPath: WritableKeyPath<AudioSettings, Double>) -> Binding<Double> {
+        Binding {
+            store.settings.audio[keyPath: keyPath]
+        } set: { target in
+            rejectedLoudness = !AudioSettings.loudnessRange.contains(target)
+            if !rejectedLoudness { store.settings.audio[keyPath: keyPath] = target }
         }
     }
 
@@ -195,6 +344,15 @@ extension Dithering {
         case .floydSteinberg: String(localized: "Floyd–Steinberg", comment: "GIF dithering method")
         case .ordered: String(localized: "Ordered", comment: "GIF dithering method")
         case .none: String(localized: "None", comment: "GIF dithering method")
+        }
+    }
+}
+
+extension ForegroundMask {
+    fileprivate var title: String {
+        switch self {
+        case .subject: String(localized: "Subject", comment: "Foreground mask choice")
+        case .person: String(localized: "Person", comment: "Foreground mask choice")
         }
     }
 }

@@ -11,6 +11,8 @@ public enum EngineError: Error, Equatable, Sendable {
     case unsupportedCodec(String)
     case audioChannelLayoutUnsupported
     case imageGainMapUnsupported
+    case hdrConversionUnsupported
+    case sdrVerificationFailed
     case videoAlphaUnsupported
     case videoDisplayTransformUnsupported
     case duplicateArchiveRootName(String)
@@ -94,6 +96,7 @@ public enum SkipReason: Equatable, Sendable {
     case isDirectory
     case notADirectory
     case alreadyDone
+    case alreadySDR
     case outputNotSmaller
     case noUpscale
     case nothingToRemove

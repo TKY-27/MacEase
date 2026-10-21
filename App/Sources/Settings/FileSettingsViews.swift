@@ -92,6 +92,8 @@ struct FolderSettingsView: View {
 struct TextSettingsView: View {
     @Bindable var store: SettingsStore
 
+    private static let pdfDPIRange = 72...600
+
     var body: some View {
         Form {
             Section {
@@ -117,6 +119,13 @@ struct TextSettingsView: View {
                     Text("Detect numbers and booleans")
                     Text("When off, every CSV value converts as text.")
                 }
+            }
+            Section(String(localized: "PDF", comment: "PDF export defaults")) {
+                NumberField(
+                    title: Text(
+                        String(localized: "Page image resolution (dpi)", comment: "Saved PDF raster resolution")),
+                    value: $store.settings.text.pdfImageDPI,
+                    range: Self.pdfDPIRange)
             }
         }
     }

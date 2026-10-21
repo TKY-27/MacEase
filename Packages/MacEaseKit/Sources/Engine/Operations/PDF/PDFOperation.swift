@@ -28,11 +28,11 @@ public enum PDFOperation: Codable, Hashable, Sendable {
 }
 
 enum PDFPlanner {
-    static func operation(for op: OperationID, preset: String?) -> PDFOperation? {
+    static func operation(for op: OperationID, preset: String?, settings: Settings) -> PDFOperation? {
         switch (op, preset) {
         case (.pdfMerge, nil): .merge(pages: nil)
         case (.pdfToImages, let preset?):
-            StillFormat(rawValue: preset).map { .toImages($0, dpi: PDFOperation.defaultDPI) }
+            StillFormat(rawValue: preset).map { .toImages($0, dpi: settings.text.pdfImageDPI) }
         case (.pdfToText, nil): .toText
         case (.pdfCompress, nil): .compress
         case (.pdfRotate, "right-90"): .rotate(degrees: 90)

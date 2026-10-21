@@ -18,9 +18,7 @@ public enum AudioOperation: Codable, Hashable, Sendable {
 }
 
 enum AudioPlanner {
-    private static let loudnessPresetPrefix = "lufs-"
-
-    static func options(for op: OperationID, preset: String?) -> AudioOperation? {
+    static func options(for op: OperationID, preset: String?, settings: Settings) -> AudioOperation? {
         guard let preset, op.presets.contains(preset) else { return nil }
         switch op {
         case .audioConvert:
@@ -28,7 +26,15 @@ enum AudioPlanner {
         case .audioCompress:
             return Int(preset).map { .compress(.kilobits($0)) }
         case .audioNormalize:
-            return Double(preset.dropFirst(loudnessPresetPrefix.count)).map { .normalize(targetLoudness: -$0) }
+            let target: Double
+            switch preset {
+            case "lufs-14": target = settings.audio.loudnessTarget
+            case "lufs-16": target = settings.audio.loudnessStreaming
+            case "lufs-23": target = settings.audio.loudnessBroadcast
+            default: return nil
+            }
+            guard target.isFinite, AudioSettings.loudnessRange.contains(target) else { return nil }
+            return .normalize(targetLoudness: target)
         default:
             return nil
         }

@@ -252,7 +252,7 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
         let compressions = OperationID.audioCompress.presets.compactMap {
             OperationPlanner.options(for: .audioCompress, preset: $0, settings: settings)
         }
-        #expect(compressions == [64, 96, 128, 192].map { .audio(.compress(.kilobits($0))) })
+        #expect(compressions == [192, 128, 96, 64].map { .audio(.compress(.kilobits($0))) })
         let loudness = OperationID.audioNormalize.presets.compactMap {
             OperationPlanner.options(for: .audioNormalize, preset: $0, settings: settings)
         }

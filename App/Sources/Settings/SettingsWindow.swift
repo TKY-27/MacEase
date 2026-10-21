@@ -28,7 +28,7 @@ enum SettingsWindow {
         let intelligence = IntelligenceSettingsView(store: store)
         tabs.addTabViewItem(
             tab(String(localized: "OCR & AI", comment: "Settings tab"), "text.viewfinder", intelligence))
-        let presets = PresetSettingsView(supportDirectory: supportDirectory)
+        let presets = PresetSettingsView(store: store, supportDirectory: supportDirectory)
         tabs.addTabViewItem(tab(String(localized: "Presets", comment: "Settings tab"), "square.stack.3d.up", presets))
         let advanced = AdvancedSettingsView(store: store, jobs: jobs, rotateToken: rotateToken)
         tabs.addTabViewItem(tab(String(localized: "Advanced", comment: "Settings tab"), "gearshape.2", advanced))

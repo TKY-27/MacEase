@@ -5,7 +5,7 @@ public enum TextOperation: Codable, Hashable, Sendable {
     /// `source` is the panel's choice when ambiguous.
     case encoding(TextEncodingTarget, source: SourceTextEncoding?)
     case lineEndings(LineEnding)
-    case convert(TextConversion)
+    case convert(TextConversion, source: SourceTextEncoding? = nil)
     case json(JSONFormatting)
 }
 
@@ -31,6 +31,7 @@ public enum LineEnding: String, Codable, CaseIterable, Sendable {
 }
 
 public enum TextConversion: String, Codable, CaseIterable, Sendable {
+    case toTXT = "txt"
     case csvToJSON = "csv-json"
     case csvToXML = "csv-xml"
     case csvToHTML = "csv-html"
@@ -43,6 +44,7 @@ public enum TextConversion: String, Codable, CaseIterable, Sendable {
 
     var outputExtension: String {
         switch self {
+        case .toTXT: "txt"
         case .csvToJSON, .xmlToJSON, .iniToJSON: "json"
         case .csvToXML, .jsonToXML, .iniToXML: "xml"
         case .csvToHTML: "html"
@@ -64,7 +66,7 @@ enum TextPlanner {
         return switch op {
         case .textEncoding: TextEncodingTarget(rawValue: preset).map { .encoding($0, source: nil) }
         case .textLineEndings: LineEnding(rawValue: preset).map(TextOperation.lineEndings)
-        case .textConvert: TextConversion(rawValue: preset).map(TextOperation.convert)
+        case .textConvert: TextConversion(rawValue: preset).map { .convert($0) }
         case .textJSON: JSONFormatting(rawValue: preset).map(TextOperation.json)
         default: nil
         }
@@ -73,7 +75,13 @@ enum TextPlanner {
     static func batch(_ operation: TextOperation, op: OperationID, inputs: [URL]) -> Batch {
         let items = inputs.map { url in
             OperationPlanner.validated(url, kind: .text) { context in
-                try run(operation, on: url, settings: context.settings.text, context: context)
+                if case .convert(let conversion, _) = operation {
+                    let entry = MenuEntry(op: .textConvert, preset: conversion.rawValue, path: [])
+                    guard MenuLayout.isApplicable(entry, selection: inputs) else {
+                        throw EngineError.invalidInput(.unsupportedFileType)
+                    }
+                }
+                return try run(operation, on: url, settings: context.settings.text, context: context)
             }
         }
         return Batch(operation: op, items: items)
@@ -97,9 +105,9 @@ enum TextPlanner {
         case .json(let formatting):
             let output = try JSONFormatter.format(TextEncoding.decode(input).text, formatting, settings: settings)
             return try replace(url, input: input, output: Data(output.utf8), encoding: .utf8, context: context)
-        case .convert(let conversion):
+        case .convert(let conversion, let source):
             let title = url.deletingPathExtension().lastPathComponent
-            let output = try TextConverter.convert(input, conversion, settings: settings, title: title)
+            let output = try TextConverter.convert(input, conversion, settings: settings, title: title, source: source)
             let name = "\(title).\(conversion.outputExtension)"
             let staged = try context.stagingURL(for: url, name: name)
             try Data(output.utf8).write(to: staged)

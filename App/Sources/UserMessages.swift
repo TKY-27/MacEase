@@ -26,6 +26,11 @@ enum UserMessages {
                 localized:
                     "“\(file)” could not be edited because its HDR gain map cannot be preserved. The original was kept."
             )
+        case .hdrConversionUnsupported:
+            String(
+                localized: "“\(file)” uses HDR content that cannot be safely converted to SDR. The original was kept.")
+        case .sdrVerificationFailed:
+            String(localized: "“\(file)” did not produce a verified SDR output. The original was kept.")
         case .videoAlphaUnsupported:
             String(
                 localized:
@@ -71,6 +76,8 @@ enum UserMessages {
             String(localized: "“\(file)” is not a folder.")
         case .alreadyDone:
             String(localized: "“\(file)” needed no change.")
+        case .alreadySDR:
+            String(localized: "“\(file)” is already SDR and was kept without re-encoding.")
         case .outputNotSmaller:
             String(localized: "“\(file)” is already as small as it gets.")
         case .noUpscale:
@@ -120,6 +127,10 @@ enum UserMessages {
             )
         case .metadataDropped:
             String(localized: "The output format cannot hold the original metadata.")
+        case .hdrProvenanceUnknown:
+            String(localized: "The source signals HDR, but its capture or expansion origin is unknown.")
+        case .dolbyVisionRemoved:
+            String(localized: "The SDR output does not contain Dolby Vision dynamic metadata.")
         }
     }
 

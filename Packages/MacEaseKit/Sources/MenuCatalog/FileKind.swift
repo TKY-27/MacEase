@@ -20,7 +20,13 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
             .video: ["mp4", "m4v", "mov", "mkv", "webm", "avi", "flv"],
             .audio: ["mp3", "m4a", "aac", "wav", "aif", "aiff", "flac", "ogg", "oga", "opus", "caf"],
             .pdf: ["pdf"],
-            .text: ["txt", "csv", "tsv", "json", "xml", "ini", "cfg", "conf", "md", "log", "yaml", "yml"],
+            .text: [
+                "txt", "text", "md", "markdown", "log", "csv", "tsv", "ini", "cfg", "conf", "json", "xml",
+                "yaml", "yml", "toml", "html", "htm", "css", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+                "c", "h", "cpp", "hpp", "cc", "hh", "cs", "java", "kt", "py", "rb", "go", "rs", "php",
+                "pl", "lua", "sh", "bash", "bat", "cmd", "ps1", "psm1", "sql", "srt", "vtt", "asc",
+                "tex", "rst", "env", "props", "properties", "gradle", "cmake", "m", "mm", "swift", "vb", "r", "jl",
+            ],
             .archive: ["zip", "7z", "tar", "gz", "tgz", "bz2", "xz", "rar"],
             .jar: ["jar"],
         ]
@@ -54,6 +60,22 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
         let pathExtension = fileURL.pathExtension.lowercased()
         let isPackage = fileURL.hasDirectoryPath && Self.packageExtensions.contains(pathExtension)
         self.init(pathExtension: pathExtension, isFolder: fileURL.hasDirectoryPath && !isPackage)
+    }
+
+    public static func canonicalFormat(_ pathExtension: String) -> String {
+        switch pathExtension.lowercased() {
+        case "jpg", "jpe", "jpeg": "jpeg"
+        case "tif", "tiff": "tiff"
+        case "heif", "hif", "heic": "heic"
+        case "aif", "aiff": "aiff"
+        case "oga", "ogg": "ogg"
+        case "text", "txt": "txt"
+        case "cfg", "conf", "ini": "ini"
+        case "markdown", "md": "md"
+        case "htm", "html": "html"
+        case "yml", "yaml": "yaml"
+        default: pathExtension.lowercased()
+        }
     }
 
     public static let menuOrder: [FileKind] = [.image, .video, .audio, .pdf, .text, .archive, .jar, .folder, .any]

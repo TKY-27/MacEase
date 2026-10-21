@@ -30,6 +30,13 @@ final class PanelCoordinator {
             logger.error("No \(op.kind.rawValue, privacy: .public) inputs for \(op.rawValue, privacy: .public)")
             return
         }
+        guard inputs.count >= op.minimumSelection,
+            op.maximumSelection.map({ inputs.count <= $0 }) ?? true,
+            entry.preset != "choose-frame" || inputs.count == 1
+        else {
+            logger.error("Invalid selection count for \(op.rawValue, privacy: .public)")
+            return
+        }
         switch op {
         case .imageResize, .videoResize: showSize(op, inputs)
         case .imageCompress: showTargetSize(op, inputs, family: .image)
@@ -39,15 +46,10 @@ final class PanelCoordinator {
                 allowsDownscale: video.allowDownscale, allowsFrameRateReduction: video.allowFrameRateReduction)
             showTargetSize(op, inputs, family: .video, defaults: defaults)
         case .audioCompress: showTargetSize(op, inputs, family: .audio)
-        case .imageRotate, .videoRotate: showAngle(op, inputs)
-        case .videoTrim, .audioTrim: inputs.forEach { presentTrim(op, file: $0, prefill: nil) }
-        case .videoThumbnail: inputs.forEach { showFramePicker(op, file: $0) }
-        case .videoToGIF, .videoToAPNG, .videoToAnimatedWebP: showAnimation(op, inputs)
-        case .imageBackground, .videoBackground: showBackground(op, inputs)
-        case .videoSubtitles: showSubtitles(op, inputs)
-        case .videoExtractAudio: showExtractAudio(op, inputs)
+        case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
+        case .videoThumbnail where entry.preset == "choose-frame": showFramePicker(op, file: inputs[0])
         case .imageToPDF, .pdfMerge: showPageOrder(op, inputs)
-        case .pdfExtractPages: inputs.forEach { showPageSelect(op, file: $0) }
+        case .pdfExtractPages: showPageSelect(op, file: inputs[0])
         case .folderRename: showRename(op, inputs)
         case .imageAIRename, .pdfAIRename, .folderAIRename: showAIRename(op, inputs)
         case .folderRemoveDuplicates: showDuplicates(op, inputs)
@@ -55,7 +57,7 @@ final class PanelCoordinator {
         case .folderAnalyze: inputs.forEach { showAnalysis(op, folder: $0) }
         case .imageAICustom, .videoAICustom, .audioAICustom: showCustomAI(op, inputs)
         default:
-            if !showOptions(op, inputs) { logger.error("No panel for \(op.rawValue, privacy: .public)") }
+            logger.error("No panel for \(op.rawValue, privacy: .public)")
         }
     }
 
@@ -116,7 +118,13 @@ final class PanelCoordinator {
         case (.archive, .passwordRequired), (.archive, .wrongPassword):
             showPassword(request.op, files, wasWrong: reason == .wrongPassword)
         case (.text(.encoding(let target, _)), .textEncodingUndetected):
-            files.forEach { showEncoding(request.op, file: $0, target: target) }
+            files.forEach { file in
+                showEncoding(request.op, file: file) { .encoding(target, source: $0) }
+            }
+        case (.text(.convert(let conversion, _)), .textEncodingUndetected):
+            files.forEach { file in
+                showEncoding(request.op, file: file) { .convert(conversion, source: $0) }
+            }
         case (.video(.compress), .tooLong(let limit)):
             let prefill = 0...max(limit - Self.trimHeadroomSeconds, 0)
             files.forEach {
@@ -202,127 +210,11 @@ final class PanelCoordinator {
         }
     }
 
-    private func showAngle(_ op: OperationID, _ inputs: [URL]) {
-        let isVideo = op == .videoRotate
-        let choice = PanelMemory.value(for: op, default: AngleChoice(fill: store.settings.video.rotationFill))
-        host.show(title: MenuStrings.operationName(op)) { close in
-            AnglePanel(offersTransparency: !isVideo, choice: choice, cancel: close) { choice in
-                let options: OperationOptions =
-                    isVideo
-                    ? .video(.rotate(degrees: Self.positiveDegrees(choice.degrees), fill: choice.fill))
-                    : .image(.rotate(degrees: choice.degrees, fill: choice.fillsTransparent ? nil : choice.fill))
-                self.finish(op, choice, options, inputs, close: close)
-            }
-        }
-    }
-
-    private static let fullTurn = 360.0
-
-    /// Video presets express left turns as 270.
-    private static func positiveDegrees(_ degrees: Double) -> Double {
-        (degrees.truncatingRemainder(dividingBy: fullTurn) + fullTurn).truncatingRemainder(dividingBy: fullTurn)
-    }
-
     private func showFramePicker(_ op: OperationID, file: URL) {
         host.show(title: MenuStrings.operationName(op)) { close in
             FramePickerPanel(url: file, close: close) { seconds in
                 close()
                 self.launch(op, .video(.still(.at(seconds: seconds))), [file])
-            }
-        }
-    }
-
-    private func showAnimation(_ op: OperationID, _ inputs: [URL]) {
-        let settings = store.settings
-        let defaults = AnimationChoice(
-            width: settings.video.gifWidth, framesPerSecond: settings.video.gifFrameRate,
-            colors: settings.video.gifColors, dithering: settings.image.gifDithering, loops: settings.video.gifLoops)
-        let format: AnimationFormat =
-            switch op {
-            case .videoToGIF: .gif
-            case .videoToAnimatedWebP: .webP
-            default: .apng
-            }
-        let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: MenuStrings.operationName(op)) { close in
-            AnimationPanel(firstFile: inputs[0], format: format, choice: choice, cancel: close) { choice in
-                let rendering = choice.rendering
-                let options: OperationOptions =
-                    switch format {
-                    case .gif: .video(.gif(rendering))
-                    case .apng: .video(.apng(rendering))
-                    case .webP: .video(.webP(rendering))
-                    }
-                self.finish(op, choice, options, inputs, close: close)
-            }
-        }
-    }
-
-    private func showBackground(_ op: OperationID, _ inputs: [URL]) {
-        let image = store.settings.image
-        let isVideo = op == .videoBackground
-        let defaults = BackgroundChoice(
-            mask: isVideo ? .person : .subject, keyColor: image.colorKey, tolerance: image.colorKeyTolerance,
-            customColor: image.customBackground, videoFormat: store.settings.video.transparentFormat)
-        let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: MenuStrings.operationName(op)) { close in
-            BackgroundPanel(isVideo: isVideo, choice: choice, cancel: close) { choice in
-                let options = choice.imageOptions(green: image.greenBackground, blue: image.blueBackground)
-                let operation: OperationOptions =
-                    isVideo
-                    ? .video(
-                        .background(
-                            VideoBackgroundRequest(
-                                mask: options.mask, fill: options.fill, transparentFormat: choice.videoFormat)))
-                    : .image(.background(options))
-                self.finish(op, choice, operation, inputs, close: close)
-            }
-        }
-    }
-
-    private func showSubtitles(_ op: OperationID, _ inputs: [URL]) {
-        let settings = store.settings.intelligence
-        let defaults = SubtitleChoice(
-            language: settings.subtitleLanguage, format: settings.subtitleFormat,
-            translationTarget: settings.translationTarget)
-        let choice = PanelMemory.value(for: op, default: defaults)
-        host.show(title: MenuStrings.operationName(op)) { close in
-            SubtitlesPanel(choice: choice, cancel: close) { choice in
-                self.finish(op, choice, .video(.subtitles(choice.request)), inputs, close: close)
-            }
-        }
-    }
-
-    /// Source sample rates are unknown here.
-    private static let bitrateProbe = (sampleRate: 48_000.0, channels: 2)
-
-    private func showExtractAudio(_ op: OperationID, _ inputs: [URL]) {
-        let settings = store.settings
-        let formats = op.presets.compactMap { preset -> ExtractAudioFormat? in
-            guard
-                case .video(.extractAudio(let format, _)) = OperationPlanner.options(
-                    for: op, preset: preset, settings: settings)
-            else { return nil }
-            let bitrates: [Int]
-            do {
-                let supported = try format.supportedKilobits(
-                    sampleRate: Self.bitrateProbe.sampleRate, channels: Self.bitrateProbe.channels)
-                bitrates = format.bitrateChoices.filter(supported.contains)
-            } catch {
-                let failure = error as NSError
-                logger.error(
-                    "No bitrates for \(preset, privacy: .private) (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
-                )
-                bitrates = []
-            }
-            return ExtractAudioFormat(preset: preset, format: format, bitrates: bitrates)
-        }
-        var choice = PanelMemory.value(for: op, default: ExtractAudioChoice(preset: settings.audio.extractFormat))
-        // Presets can disappear between releases.
-        if !formats.contains(where: { $0.preset == choice.preset }) { choice.preset = formats.first?.preset ?? "" }
-        host.show(title: MenuStrings.operationName(op)) { close in
-            ExtractAudioPanel(formats: formats, choice: choice, cancel: close) { choice, format in
-                self.finish(op, choice, .video(.extractAudio(format, kilobits: choice.kilobits)), inputs, close: close)
             }
         }
     }
@@ -521,106 +413,19 @@ final class PanelCoordinator {
         }
     }
 
-    private func showEncoding(_ op: OperationID, file: URL, target: TextEncodingTarget) {
+    private func showEncoding(
+        _ op: OperationID, file: URL, operation: @escaping (SourceTextEncoding) -> TextOperation
+    ) {
         let encoding = PanelMemory.value(for: op, default: SourceTextEncoding.cp932)
         host.show(title: MenuStrings.operationName(op)) { close in
             EncodingPanel(file: file, encoding: encoding, cancel: close) { source in
-                self.finish(op, source, .text(.encoding(target, source: source)), [file], close: close)
+                self.finish(op, source, .text(operation(source)), [file], close: close)
             }
         }
-    }
-
-    /// Custom… for operations without a dedicated panel.
-    private func showOptions(_ op: OperationID, _ inputs: [URL]) -> Bool {
-        let settings = store.settings
-        var choices = op.presets.map { OptionChoice(id: $0, title: MenuStrings.preset(op, $0)) }
-        var number: OptionNumber?
-        var build: (String, Int, Int) -> OperationOptions? = { preset, _, _ in
-            OperationPlanner.options(for: op, preset: preset, settings: settings)
-        }
-        switch op {
-        case .anyChecksum:
-            choices = ChecksumAlgorithm.allCases.map { OptionChoice(id: $0.rawValue, title: $0.title) }
-            build = { id, _, _ in ChecksumAlgorithm(rawValue: id).map(OperationOptions.checksum) }
-        case .videoFPS:
-            choices = []
-            number = OptionNumber(
-                title: String(localized: "Frame rate (fps)"), range: OptionLimits.frameRates,
-                initial: OptionLimits.defaultFrameRate)
-            build = { _, rate, _ in .video(.frameRate(rate)) }
-        case .audioNormalize:
-            choices = []
-            number = OptionNumber(
-                title: String(localized: "Target loudness (LUFS)", comment: "Normalize panel field"),
-                range: OptionLimits.loudness, initial: Int(settings.audio.loudnessTarget))
-            build = { _, loudness, _ in .audio(.normalize(targetLoudness: Double(loudness))) }
-        case .pdfToImages:
-            number = OptionNumber(
-                title: String(localized: "Resolution (dpi)", comment: "PDF to images panel field"),
-                range: OptionLimits.dpi, initial: PDFOperation.defaultDPI)
-            build = { id, dpi, _ in StillFormat(rawValue: id).map { .pdf(.toImages($0, dpi: dpi)) } }
-        case .imageConvert:
-            number = OptionNumber(
-                title: String(localized: "Quality", comment: "Convert panel field"), range: OptionLimits.quality,
-                initial: settings.image.jpegQuality)
-            build = { id, quality, colors in
-                ImageFormat(rawValue: id).map {
-                    .image(.convert(ImageConversion(format: $0, quality: quality, svgColors: colors)))
-                }
-            }
-        default:
-            break
-        }
-        choices = choices.filter { build($0.id, number?.initial ?? 0, SVGColors.default) != nil }
-        guard !choices.isEmpty || number != nil else { return false }
-        let remembered = PanelMemory.value(
-            for: op, default: OptionMemory(choice: choices.first?.id ?? "", number: number?.initial ?? 0))
-        // Presets can disappear between releases.
-        let choice = choices.contains { $0.id == remembered.choice } ? remembered.choice : choices.first?.id ?? ""
-        let title = MenuStrings.operationName(op)
-        host.show(title: title) { close in
-            OptionsPanel(
-                choiceTitle: title, choices: choices, number: number,
-                actionTitle: String(localized: "Run", comment: "Options panel action"),
-                offersSVGColors: op == .imageConvert,
-                selection: choice, value: remembered.number, svgColors: remembered.svgColors ?? SVGColors.default,
-                cancel: close
-            ) { choice, value, colors in
-                guard let options = build(choice, value, colors) else { return }
-                self.finish(
-                    op, OptionMemory(choice: choice, number: value, svgColors: colors), options, inputs, close: close)
-            }
-        }
-        return true
     }
 
     private func showFailure(_ op: OperationID, _ error: any Error, file: URL) {
         let message = UserMessages.describe(EngineError.wrapping(error, path: file.path), file: file.lastPathComponent)
         host.show(title: MenuStrings.operationName(op)) { close in PanelFailure(message: message, close: close) }
-    }
-}
-
-private struct OptionMemory: Codable {
-    let choice: String
-    let number: Int
-    var svgColors: Int?
-}
-
-private enum OptionLimits {
-    static let frameRates = 1...120
-    static let defaultFrameRate = 30
-    static let loudness = -40 ... -5
-    static let dpi = 36...600
-    static let quality = 0...100
-}
-
-extension ChecksumAlgorithm {
-    fileprivate var title: String {
-        switch self {
-        case .sha256: "SHA-256"
-        case .sha1: "SHA-1"
-        case .sha512: "SHA-512"
-        case .md5: "MD5"
-        }
     }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Valid edits save immediately, like other settings.
 struct PresetSettingsView: View {
+    @Bindable var store: SettingsStore
     @State private var library: PresetLibrary?
     @State private var presets: [PlatformPreset] = []
     @State private var editedIDs: Set<String> = []
@@ -11,14 +12,23 @@ struct PresetSettingsView: View {
     @State private var confirmsReset = false
     @State private var failure: String?
 
-    private let supportDirectory: URL
-
-    init(supportDirectory: URL) {
-        self.supportDirectory = supportDirectory
-    }
+    let supportDirectory: URL
+    private static let rotationRange = -360.0...360.0
 
     var body: some View {
         Form {
+            Section {
+                Toggle(
+                    String(localized: "Show extra rotation angle", comment: "Extra rotation preset visibility"),
+                    isOn: $store.settings.extraRotationEnabled)
+                if store.settings.extraRotationEnabled {
+                    Stepper(
+                        String(
+                            localized: "Extra angle (degrees): \(store.settings.extraRotationDegrees.formatted())",
+                            comment: "Editable extra rotation angle"),
+                        value: $store.settings.extraRotationDegrees, in: Self.rotationRange)
+                }
+            }
             Section {
                 Picker("Preset", selection: $selectedID) {
                     ForEach(presets) { preset in
@@ -82,6 +92,7 @@ struct PresetSettingsView: View {
             presets = try library.presets()
             editedIDs = Set(try library.overrides().map(\.id))
             failure = nil
+            store.onChange?()
         } catch {
             failure = String(localized: "The preset could not be saved: \(error.localizedDescription)")
         }
@@ -95,6 +106,7 @@ struct PresetSettingsView: View {
             return
         }
         load()
+        store.onChange?()
     }
 
     static func name(of preset: PlatformPreset) -> String {

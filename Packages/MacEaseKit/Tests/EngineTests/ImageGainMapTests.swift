@@ -165,7 +165,7 @@ import UniformTypeIdentifiers
     }
 }
 
-private enum GainMapVariant: CaseIterable {
+enum GainMapVariant: CaseIterable {
     case apple, isoMono, isoRGB
 
     var type: CFString {
@@ -173,7 +173,7 @@ private enum GainMapVariant: CaseIterable {
     }
 }
 
-private enum GainMapFixture: CaseIterable {
+enum GainMapFixture: CaseIterable {
     case appleJPEG, appleHEIC, isoMonoJPEG, isoMonoHEIC, isoRGBJPEG, isoRGBHEIC
 
     var variant: GainMapVariant {
@@ -339,7 +339,7 @@ private enum GainMapExif: UInt32, CaseIterable {
         }
     }
 
-    private static func fixture(_ url: URL, variant: GainMapVariant, heic: Bool) throws {
+    static func fixture(_ url: URL, variant: GainMapVariant, heic: Bool) throws {
         let base = CIImage(cgImage: try ImageFixtures.photo(width: width, height: height))
         let gray: [CGFloat] = [0.35, 0.55, 0.75, 0.95]
         let map = tiles(gray.map { CIColor(red: $0, green: $0, blue: $0) })
