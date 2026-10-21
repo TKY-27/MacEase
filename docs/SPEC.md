@@ -532,6 +532,10 @@ stream-copy edits retain their existing alpha (ADR 0010).
 
 Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
 
+Chained Ogg streams are not supported. Input initialization scans Ogg pages
+and rejects a new logical stream after EOS before writing any output. The
+original is kept (ADR 0010).
+
 Audio replacements preserve the source speaker layout whenever the output
 encoder can represent it. Unsupported layouts fail before writing instead of
 downmixing. The current MP3 and Opus implementations accept only mono and
@@ -714,6 +718,9 @@ check.
 
 ## 13. Error handling
 
+- Input validation accepts only regular files and directories after resolving
+  symlinks. Special filesystem entries are rejected before content reads,
+  including panel previews.
 - Errors are typed per domain (decode, encode, commit, unsupported codec,
   permission, cancelled, target unreachable, invalid input). Each maps to a
   localized, actionable message naming the file.
@@ -835,6 +842,10 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Chained Ogg inputs fail before writing and retain the original
+  (ADR 0010). Input validation rejects special filesystem entries before
+  operation or preview reads.
 
 - 2026-10-21: Audio replacements preserve supported speaker layouts, video
   edits preserve supported alpha, and AVI index traversal rejects overlapping

@@ -85,6 +85,7 @@ struct AnimationPanel: View {
         }
         .task {
             do {
+                try OperationPlanner.validateInput(firstFile)
                 preview = try await MediaPreview(videoAt: firstFile)
             } catch {
                 let failure = error as NSError

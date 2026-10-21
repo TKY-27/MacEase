@@ -83,7 +83,7 @@ public struct RenameRules: Codable, Hashable, Sendable {
     }
 
     private func newName(for url: URL, index: Int) throws -> String {
-        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        let values = try ContentSniffer.inputValues(url)
         let isFolder = values.isDirectory == true && values.isPackage != true
         let original = url.lastPathComponent
         let pathExtension = isFolder ? "" : (original as NSString).pathExtension

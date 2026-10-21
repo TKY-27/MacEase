@@ -64,23 +64,26 @@ package final class OggPacketWriter {
     }
 }
 
-/// First logical stream only; chains end it.
+package enum OggReadError: Error, Equatable, Sendable {
+    case chainedStream
+}
+
 final class OggPacketReader {
     private static let readSize = 1 << 16
-    private static let capturePattern = Array("OggS".utf8)
-    private static let granuleOffset = 6
-    private static let serialOffset = 14
-    private static let pageHeaderLength = 27
 
-    private let handle: FileHandle
+    private let fileReader: FileHandle
     private let sync = UnsafeMutablePointer<ogg_sync_state>.allocate(capacity: 1)
     private let stream = UnsafeMutablePointer<ogg_stream_state>.allocate(capacity: 1)
     private(set) var serial: Int32?
+    private(set) var lastGranule: Int64?
     private var ended = false
 
     init(url: URL) throws {
-        handle = try FileHandle(forReadingFrom: url)
+        fileReader = try FileHandle(forReadingFrom: url)
         ogg_sync_init(sync)
+        try validateSingleStream()
+        try fileReader.seek(toOffset: 0)
+        ogg_sync_reset(sync)
     }
 
     deinit {
@@ -88,31 +91,21 @@ final class OggPacketReader {
         ogg_sync_clear(sync)
         sync.deallocate()
         stream.deallocate()
-        try? handle.close()
+        try? fileReader.close()
     }
 
-    /// Last page's granule, from the tail.
-    func lastGranule() throws -> Int64? {
-        guard let serial else { return nil }
-        let resume = try handle.offset()
-        defer { try? handle.seek(toOffset: resume) }
-        let size = try handle.seekToEnd()
-        let start = size - min(size, UInt64(Self.readSize))
-        try handle.seek(toOffset: start)
-        let tail = [UInt8](try handle.read(upToCount: Self.readSize) ?? Data())
-        var index = tail.count - Self.pageHeaderLength
-        while index >= 0 {
-            if tail[index..<(index + Self.capturePattern.count)].elementsEqual(Self.capturePattern),
-                Int32(bitPattern: UInt32(littleEndian: tail, at: index + Self.serialOffset)) == serial
-            {
-                let low = UInt64(UInt32(littleEndian: tail, at: index + Self.granuleOffset))
-                let high = UInt64(UInt32(littleEndian: tail, at: index + Self.granuleOffset + 4))
-                let granule = Int64(bitPattern: high << 32 | low)
-                if granule >= 0 { return granule }
-            }
-            index -= 1
+    private func validateSingleStream() throws {
+        var firstSerial: Int32?
+        var reachedEOS = false
+        while var page = try nextPage() {
+            if reachedEOS, ogg_page_bos(&page) != 0 { throw OggReadError.chainedStream }
+            let pageSerial = ogg_page_serialno(&page)
+            if firstSerial == nil { firstSerial = pageSerial }
+            guard pageSerial == firstSerial else { continue }
+            let granule = ogg_page_granulepos(&page)
+            if granule >= 0 { lastGranule = granule }
+            if ogg_page_eos(&page) != 0 { reachedEOS = true }
         }
-        return nil
     }
 
     func next() throws -> OggPacket? {
@@ -137,16 +130,8 @@ final class OggPacketReader {
         }
     }
 
-    /// `false` at the end of the file.
     private func pageIn() throws -> Bool {
-        var page = ogg_page()
-        while ogg_sync_pageout(sync, &page) != 1 {
-            let chunk = try handle.read(upToCount: Self.readSize) ?? Data()
-            guard !chunk.isEmpty else { return false }
-            guard let buffer = ogg_sync_buffer(sync, chunk.count) else { throw FormatError.io("ogg_sync_buffer") }
-            chunk.copyBytes(to: UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: UInt8.self), count: chunk.count)
-            ogg_sync_wrote(sync, chunk.count)
-        }
+        guard var page = try nextPage() else { return false }
         let pageSerial = ogg_page_serialno(&page)
         if serial == nil {
             guard ogg_page_bos(&page) != 0 else { throw FormatError.corrupt("Ogg stream has no first page") }
@@ -157,5 +142,18 @@ final class OggPacketReader {
             throw FormatError.corrupt("Ogg page rejected")
         }
         return true
+    }
+
+    private func nextPage() throws -> ogg_page? {
+        var page = ogg_page()
+        while ogg_sync_pageout(sync, &page) != 1 {
+            try Task.checkCancellation()
+            let chunk = try fileReader.read(upToCount: Self.readSize) ?? Data()
+            guard !chunk.isEmpty else { return nil }
+            guard let buffer = ogg_sync_buffer(sync, chunk.count) else { throw FormatError.io("ogg_sync_buffer") }
+            chunk.copyBytes(to: UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: UInt8.self), count: chunk.count)
+            ogg_sync_wrote(sync, chunk.count)
+        }
+        return page
     }
 }

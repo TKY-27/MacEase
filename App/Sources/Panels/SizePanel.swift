@@ -93,6 +93,7 @@ struct SizePanel: View {
 
     private static func dimensions(of url: URL, isVideo: Bool) async -> CGSize? {
         do {
+            try OperationPlanner.validateInput(url)
             if isVideo {
                 let preview = try await MediaPreview(videoAt: url)
                 return CGSize(width: preview.displayWidth, height: preview.displayHeight)

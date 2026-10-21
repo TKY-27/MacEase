@@ -45,6 +45,10 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   kind before writing. Derived outputs may use the first tracks.
 - **Language setting (7).** Changing the language asks before relaunching,
   because running jobs stop.
+- **Chained Ogg (8.3).** Multiple logical streams in sequence are unsupported.
+  The reader scans pages before decoding and rejects a new logical stream
+  after EOS with a typed invalid-input error. No output is written and the
+  original is kept. Multi-chain decoding is deferred.
 - **Audio layouts (8.3).** Replacement never silently downmixes. Unsupported
   layouts fail before writing. The current MP3 and Opus implementations are
   limited to mono and stereo. Opus multistream support requires changes to

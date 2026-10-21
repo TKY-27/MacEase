@@ -8342,6 +8342,16 @@
         }
       }
     },
+    "“%@” contains chained Ogg streams, which MacEase does not support. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” には連結された Ogg ストリームが含まれていますが、MacEase は対応していません。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” could not be converted because the output cannot preserve its audio channel layout. The original was kept.": {
       "localizations": {
         "ja": {
@@ -8521,6 +8531,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” はフォルダではありません。"
+          }
+        }
+      }
+    },
+    "“%@” is not a regular file or folder. Select a regular file or folder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” は通常のファイルまたはフォルダではありません。通常のファイルかフォルダを選択してください。"
           }
         }
       }

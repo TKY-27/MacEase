@@ -27,6 +27,7 @@ enum LoadedMedia {
     }
 
     static func load(_ url: URL, isVideo: Bool) async throws -> LoadedMedia {
+        try OperationPlanner.validateInput(url)
         if playerExtensions.contains(url.pathExtension.lowercased()) {
             let asset = AVURLAsset(url: url)
             let (playable, duration) = try await asset.load(.isPlayable, .duration)

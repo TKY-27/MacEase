@@ -170,6 +170,13 @@ enum UserMessages {
                 localized: "“\(file)” exceeds the frame memory budget. Use fewer or smaller frames.",
                 comment: "Limit protects available memory"
             )
+        case .chainedStream:
+            String(
+                localized:
+                    "“\(file)” contains chained Ogg streams, which MacEase does not support. The original was kept."
+            )
+        case .unsupportedFileType:
+            String(localized: "“\(file)” is not a regular file or folder. Select a regular file or folder.")
         case .invalidAnimationRange:
             String(
                 localized: "Choose an animation range within “\(file)” and a supported frame rate.",

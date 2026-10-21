@@ -70,7 +70,7 @@ struct EncodingPanel: View {
     let run: (SourceTextEncoding) -> Void
 
     @State private var sample: Data?
-    @State private var sampleUnreadable = false
+    @State private var previewFailure: String?
 
     nonisolated private static let sampleBytes = 600
 
@@ -97,6 +97,7 @@ struct EncodingPanel: View {
             let file = file
             do {
                 sample = try await offMain {
+                    try OperationPlanner.validateInput(file)
                     let sampleReader = try FileHandle(forReadingFrom: file)
                     defer {
                         do {
@@ -115,7 +116,8 @@ struct EncodingPanel: View {
                 Logger(category: "panels").error(
                     "Encoding preview unreadable (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
                 )
-                sampleUnreadable = true
+                previewFailure = UserMessages.describe(
+                    EngineError.wrapping(error, path: file.path), file: file.lastPathComponent)
             }
         }
     }
@@ -123,7 +125,7 @@ struct EncodingPanel: View {
     private static let previewLines = 6
 
     private var preview: String {
-        if sampleUnreadable { return String(localized: "No preview available.", comment: "Panel preview failure") }
+        if let previewFailure { return previewFailure }
         guard let sample else { return "" }
         return String(data: sample, encoding: encoding.foundationEncoding)
             ?? String(

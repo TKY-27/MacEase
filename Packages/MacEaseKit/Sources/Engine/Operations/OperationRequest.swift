@@ -14,6 +14,10 @@ public struct OperationRequest: Sendable {
 }
 
 public enum OperationPlanner {
+    public static func validateInput(_ url: URL) throws {
+        _ = try ContentSniffer.inputValues(url)
+    }
+
     /// `nil` when a panel must ask first.
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
@@ -41,7 +45,12 @@ public enum OperationPlanner {
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
         case .rename(let plans):
-            let items = plans.map { plan in WorkItem(inputs: [plan.url]) { _ in .rename([plan]) } }
+            let items = plans.map { plan in
+                WorkItem(inputs: [plan.url]) { _ in
+                    try validateInput(plan.url)
+                    return .rename([plan])
+                }
+            }
             return Batch(operation: request.op, items: items)
         case .video(let operation):
             return VideoPlanner.batch(operation, op: request.op, inputs: inputs)
@@ -88,7 +97,7 @@ public enum OperationPlanner {
     ) -> WorkItem {
         WorkItem(inputs: urls, lane: lane) { context in
             for url in urls {
-                let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+                let values = try ContentSniffer.inputValues(url)
                 if kind != .folder, values.isDirectory == true { return .skipped(.isDirectory) }
                 guard try ContentSniffer.matches(url, kind: kind) else {
                     return .skipped(.kindMismatch(expected: kind))

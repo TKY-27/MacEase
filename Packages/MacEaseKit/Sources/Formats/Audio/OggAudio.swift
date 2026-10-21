@@ -83,7 +83,7 @@ public final class OggAudioReader: PCMSource {
         } else {
             throw FormatError.unsupported(Self.codecName(first.data))
         }
-        if let granule = try reader.lastGranule() {
+        if let granule = reader.lastGranule {
             frameCount = max(0, granule - preSkip)
         } else {
             frameCount = nil

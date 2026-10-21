@@ -66,6 +66,8 @@ public enum InvalidInput: Equatable, Sendable {
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
     case multipleTracks
+    case chainedStream
+    case unsupportedFileType
     case frameMemoryExceeded
     case invalidAnimationRange
 }
@@ -111,6 +113,7 @@ extension EngineError {
         otherwise: (String) -> EngineError = EngineError.unexpected
     ) -> EngineError {
         if let engineError = error as? EngineError { return engineError }
+        if error is OggReadError { return .invalidInput(.chainedStream) }
         if let archiveError = error as? ArchiveError { return ArchivePlanner.engineError(archiveError) }
         if let format = error as? FormatError { return EngineError(format) }
         if error is CancellationError { return .cancelled }

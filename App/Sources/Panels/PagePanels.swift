@@ -13,6 +13,7 @@ struct PageEntry: Identifiable, Hashable, Sendable {
     static func entries(for files: [URL], splitsPages: Bool) throws -> [PageEntry] {
         guard splitsPages else { return files.map { PageEntry(file: $0, pageIndex: nil) } }
         return try files.flatMap { file in
+            try OperationPlanner.validateInput(file)
             guard let document = PDFDocument(url: file) else { throw EngineError.decodeFailed("PDF does not open") }
             return (0..<document.pageCount).map { PageEntry(file: file, pageIndex: $0) }
         }
@@ -40,6 +41,7 @@ enum PageThumbnail {
     }
 
     private static func render(_ entry: PageEntry) throws -> CGImage {
+        try OperationPlanner.validateInput(entry.file)
         if let pageIndex = entry.pageIndex {
             let edge = CGFloat(maxPixelEdge)
             guard let page = PDFDocument(url: entry.file)?.page(at: pageIndex),

@@ -56,6 +56,25 @@ final class JobCenter {
         guard !ordersPages,
             let options = OperationPlanner.options(for: entry.op, preset: preset, settings: settings.planning)
         else {
+            var failures: [String] = []
+            let inputs = inputs.filter { input in
+                do {
+                    try OperationPlanner.validateInput(input)
+                    return true
+                } catch {
+                    failures.append(
+                        UserMessages.describe(
+                            EngineError.wrapping(error, path: input.path), file: input.lastPathComponent))
+                    return false
+                }
+            }
+            if !failures.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = MenuStrings.operationName(entry.op)
+                alert.informativeText = failures.joined(separator: "\n")
+                alert.runModal()
+            }
+            guard !inputs.isEmpty else { return }
             if let presentPanel {
                 presentPanel(entry, inputs)
             } else {

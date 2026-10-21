@@ -4,8 +4,17 @@ import MenuCatalog
 enum ContentSniffer {
     private static let headerLength = 4096
 
+    static func inputValues(_ url: URL) throws -> URLResourceValues {
+        let values = try url.resolvingSymlinksInPath().resourceValues(
+            forKeys: [.isRegularFileKey, .isDirectoryKey, .isPackageKey])
+        guard values.isRegularFile == true || values.isDirectory == true else {
+            throw EngineError.invalidInput(.unsupportedFileType)
+        }
+        return values
+    }
+
     static func matches(_ url: URL, kind: FileKind) throws -> Bool {
-        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        let values = try inputValues(url)
         let isFolder = values.isDirectory == true && values.isPackage != true
         switch kind {
         case .folder: return isFolder
