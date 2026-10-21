@@ -90,7 +90,8 @@ build it yourself from source instead (see below).
 3. If a batch takes more than a moment, the Activity window shows its progress
    without taking focus from Finder, and you can stop it there. When the batch
    finishes, a notification offers **Undo** and **Show in Finder**. Problems
-   stay listed in the Activity window.
+   and skipped files stay listed in the Activity window. Folder scans for
+   duplicates, empty folders and Analyze also show their progress there.
 
 By default, results are saved as new files next to the originals. In
 **Settings > General** you can replace originals instead; the original then
@@ -99,8 +100,9 @@ moves to the Trash and **Undo** puts it back.
 <img src="docs/images/compress-en.png" width="420" alt="The Custom Size panel for Compress with a 10 MB target">
 
 Open **Settings** from the menu bar icon. The **Finder Menu** page shows or
-hides individual menu items and edits platform presets; the other pages set
-defaults for each kind of file.
+hides individual menu items, edits menu values such as resize percentages and
+compress sizes, and edits platform presets; the other pages set defaults for
+each kind of file.
 
 <img src="docs/images/settings-en.png" width="640" alt="MacEase Settings, General page">
 
