@@ -3,6 +3,7 @@ import Foundation
 /// Keeps test trashing off the user's Trash.
 enum TestVolume {
     nonisolated(unsafe) private static var mountPoint = ""
+    nonisolated(unsafe) private static var imageFolder = ""
 
     static let root: URL = {
         let base = FileManager.default.temporaryDirectory.appending(path: "MacEaseTests-\(UUID().uuidString)")
@@ -18,12 +19,15 @@ enum TestVolume {
             fatalError("Test volume setup failed: \(error)")
         }
         mountPoint = mount.path
+        imageFolder = base.path
         atexit {
             let hdiutil = Process()
             hdiutil.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
             hdiutil.arguments = ["detach", "-force", TestVolume.mountPoint]
             try? hdiutil.run()
             hdiutil.waitUntilExit()
+            // Each image is about 100 MB.
+            try? FileManager.default.removeItem(atPath: TestVolume.imageFolder)
         }
         return mount
     }()
