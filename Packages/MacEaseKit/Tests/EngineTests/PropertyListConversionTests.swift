@@ -1,4 +1,5 @@
 import CoreFoundation
+import Darwin
 import Foundation
 import Testing
 
@@ -164,6 +165,71 @@ import Testing
             #"<!DOCTYPE plist [<!ENTITY name "expanded">]><plist version="1.0"><dict><key>&name;</key><string>value</string></dict></plist>"#
         #expect(throws: EngineError.invalidInput(.malformed("XML entity declarations are not supported"))) {
             _ = try PropertyListConversion.json(from: Data(xml.utf8), indent: "")
+        }
+    }
+
+    @Test func boundsSharedBinaryStringExpansionBeforeSerialization() async {
+        await #expect(processExitsWith: .success) {
+            let sharedScalarBytes = 1024 * 1024
+            let referenceCount = 3_000
+            let maximumSourceBytes = 2 * sharedScalarBytes
+            let maximumResidentGrowth = 64 * sharedScalarBytes
+            let maximumRejectionTime = Duration.seconds(5)
+            let shared = NSString(string: String(repeating: "x", count: sharedScalarBytes))
+            let references = Array(repeating: shared, count: referenceCount)
+            let source = try PropertyListSerialization.data(
+                fromPropertyList: references, format: .binary, options: 0)
+            #expect(source.count < maximumSourceBytes)
+
+            var usage = rusage()
+            try #require(getrusage(RUSAGE_SELF, &usage) == 0)
+            let baselinePeak = usage.ru_maxrss
+            let duration = ContinuousClock().measure {
+                #expect(throws: EngineError.invalidInput(.malformed("JSON output exceeds 8 MiB"))) {
+                    _ = try PropertyListConversion.json(from: source, indent: "")
+                }
+            }
+            try #require(getrusage(RUSAGE_SELF, &usage) == 0)
+            #expect(usage.ru_maxrss <= baselinePeak + maximumResidentGrowth)
+            #expect(duration < maximumRejectionTime)
+        }
+    }
+
+    @Test func includesFinalNewlineInJSONOutputLimit() throws {
+        let maximumBytes = ConversionInput.maximumBytes
+        let repeatedCount = 7
+        let sharedBytes = 1024 * 1024
+        let framing = "[\n" + Array(repeating: "\"\"", count: repeatedCount + 1).joined(separator: ",\n") + "\n]\n"
+        let finalBytes = maximumBytes - framing.utf8.count - repeatedCount * sharedBytes
+        let shared = NSString(string: String(repeating: "x", count: sharedBytes))
+        let entries: [NSString] =
+            Array(repeating: shared, count: repeatedCount)
+            + [NSString(string: String(repeating: "y", count: finalBytes))]
+        let source = try PropertyListSerialization.data(
+            fromPropertyList: entries, format: .binary, options: 0)
+        #expect(source.count < maximumBytes)
+        let output = try PropertyListConversion.json(from: source, indent: "")
+        #expect(output.utf8.count == maximumBytes)
+        #expect(output.hasSuffix("\"\n]\n"))
+
+        let oversized =
+            Array(repeating: shared, count: repeatedCount)
+            + [NSString(string: String(repeating: "y", count: finalBytes + 1))]
+        let oversizedSource = try PropertyListSerialization.data(
+            fromPropertyList: oversized, format: .binary, options: 0)
+        #expect(throws: EngineError.invalidInput(.malformed("JSON output exceeds 8 MiB"))) {
+            _ = try PropertyListConversion.json(from: oversizedSource, indent: "")
+        }
+    }
+
+    @Test func boundsEscapedJSONOutputWhileWriting() throws {
+        let controlCharacterCount = 2 * 1024 * 1024
+        let controlCharacters = String(repeating: "\u{0001}", count: controlCharacterCount)
+        let source = try PropertyListSerialization.data(
+            fromPropertyList: [controlCharacters], format: .binary, options: 0)
+        #expect(source.count < ConversionInput.maximumBytes)
+        #expect(throws: EngineError.invalidInput(.malformed("JSON output exceeds 8 MiB"))) {
+            _ = try PropertyListConversion.json(from: source, indent: "")
         }
     }
 }

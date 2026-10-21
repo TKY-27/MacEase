@@ -45,7 +45,7 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         self.targetLoudness = targetLoudness
         switch op {
         case .imageHDRToSDR: self.sourceFormats = ["heic", "jpeg", "avif", "jxl", "png"]
-        case .videoHDRToSDR: self.sourceFormats = ["mov", "mp4", "m4v", "mkv"]
+        case .videoHDRToSDR: self.sourceFormats = ["mov", "mp4", "m4v"]
         case .imageConvert where !["png", "jpeg", "tiff"].contains(preset):
             self.sourceFormats = FileKind.imageConversionSources
         case .textJSON: self.sourceFormats = ["json"]

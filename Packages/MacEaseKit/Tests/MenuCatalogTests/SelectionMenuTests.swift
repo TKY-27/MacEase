@@ -15,7 +15,7 @@ import Testing
 
     @Test(arguments: [
         (OperationID.imageHDRToSDR, ["heic", "heif", "hif", "jpg", "jpeg", "jpe", "avif", "jxl", "png"]),
-        (.videoHDRToSDR, ["mov", "mp4", "m4v", "mkv"]),
+        (.videoHDRToSDR, ["mov", "mp4", "m4v"]),
     ])
     func sdrUsesConvertAndOnlyCandidateFormats(op: OperationID, extensions: [String]) throws {
         let file = catalog()
@@ -27,7 +27,7 @@ import Testing
         for suffix in extensions {
             #expect(MenuLayout.isApplicable(entry, selection: [URL(fileURLWithPath: "/absent/source.\(suffix)")]))
         }
-        let excluded = op == .imageHDRToSDR ? ["webp", "gif", "tiff", "svg", "dng"] : ["webm", "avi", "flv"]
+        let excluded = op == .imageHDRToSDR ? ["webp", "gif", "tiff", "svg", "dng"] : ["mkv", "webm", "avi", "flv"]
         for suffix in excluded {
             #expect(!MenuLayout.isApplicable(entry, selection: [URL(fileURLWithPath: "/absent/source.\(suffix)")]))
         }

@@ -70,12 +70,17 @@ enum ImageMetadata {
         let count = CGImageSourceGetCount(source)
         let primary = CGImageSourceGetPrimaryImageIndex(source)
         let metadata = CGImageSourceCopyMetadataAtIndex(source, primary, nil)
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, primary, nil) as? [CFString: Any] ?? [:]
-        let hasMakerNotes = makerDictionaries.contains { properties[$0] != nil }
-        let removable = metadata.map { topLevelTags(of: $0) }?.contains { path, _ in
-            field(ofTagAt: path).map(fields.contains) ?? false
+        let removable = try (0..<count).contains { index in
+            try Task.checkCancellation()
+            let pageMetadata = CGImageSourceCopyMetadataAtIndex(source, index, nil)
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
+            let hasMakerNotes = makerDictionaries.contains { properties[$0] != nil }
+            let hasSelectedTags = pageMetadata.map { topLevelTags(of: $0) }?.contains { path, _ in
+                field(ofTagAt: path).map(fields.contains) ?? false
+            }
+            return hasSelectedTags == true || (fields.contains(.makerNotes) && hasMakerNotes)
         }
-        guard removable == true || (fields.contains(.makerNotes) && hasMakerNotes) else {
+        guard removable else {
             return .skipped(.nothingToRemove)
         }
         let gainMaps = try ImageGainMap.read(source, at: primary)
@@ -88,8 +93,10 @@ enum ImageMetadata {
         var output = StagedFile(url: staged, name: url.lastPathComponent, check: .image)
         if type.conforms(to: .jpeg), !losesCalibration {
             try copy(source, to: staged, type: type, metadata: kept)
-        } else if count == 1, type.conforms(to: .png) || type.conforms(to: .tiff) && !type.conforms(to: .rawImage) {
-            try rewrite(source, to: staged, type: type, metadata: kept)
+        } else if (count == 1 && type.conforms(to: .png))
+            || (type.conforms(to: .tiff) && !type.conforms(to: .rawImage))
+        {
+            try rewrite(source, to: staged, type: type, removing: fields)
         } else {
             let loaded = try await ImageDocument.load(url)
             guard let format = loaded.format else { return .skipped(.nothingToRemove) }
@@ -133,16 +140,29 @@ enum ImageMetadata {
         }
     }
 
-    /// Lossless formats re-encode the stored pixels exactly.
-    private static func rewrite(_ source: CGImageSource, to url: URL, type: UTType, metadata: CGImageMetadata?) throws {
-        var budget = FrameMemoryBudget.renderedPage
-        try budget.reserve(source: source, index: 0)
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil),
-            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+    private static func rewrite(
+        _ source: CGImageSource, to url: URL, type: UTType, removing fields: Set<MetadataField>
+    ) throws {
+        let count = CGImageSourceGetCount(source)
+        var budget = count == 1 ? FrameMemoryBudget.renderedPage : .retainedImages
+        for index in 0..<count {
+            try Task.checkCancellation()
+            try budget.reserve(source: source, index: index)
+        }
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, count, nil)
         else { throw EngineError.encodeFailed(type.identifier) }
-        var actualBudget = FrameMemoryBudget.renderedPage
-        try actualBudget.reserve(image)
-        CGImageDestinationAddImageAndMetadata(destination, image, metadata, nil)
+        var actualBudget = count == 1 ? FrameMemoryBudget.renderedPage : .retainedImages
+        for index in 0..<count {
+            try Task.checkCancellation()
+            try autoreleasepool {
+                guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else {
+                    throw EngineError.decodeFailed(type.identifier)
+                }
+                try actualBudget.reserve(image)
+                let metadata = CGImageSourceCopyMetadataAtIndex(source, index, nil)
+                CGImageDestinationAddImageAndMetadata(destination, image, filtered(metadata, removing: fields), nil)
+            }
+        }
         guard CGImageDestinationFinalize(destination) else { throw EngineError.encodeFailed(type.identifier) }
     }
 

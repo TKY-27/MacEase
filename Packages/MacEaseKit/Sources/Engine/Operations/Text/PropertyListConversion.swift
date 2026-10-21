@@ -14,10 +14,13 @@ enum PropertyListConversion {
         let propertyList = try PropertyListSerialization.propertyList(
             from: bytes, options: [], format: &format)
         var nodes = 0
-        let value = try jsonValue(propertyList, depth: 0, nodes: &nodes)
-        let output = value.serialized(indent: indent) + "\n"
-        guard output.utf8.count <= maximumBytes else { throw failure("JSON output exceeds 8 MiB") }
-        return output
+        var expandedBytes = 0
+        let value = try jsonValue(propertyList, depth: 0, nodes: &nodes, expandedBytes: &expandedBytes)
+        do {
+            return try value.serialized(indent: indent, maximumBytes: maximumBytes - "\n".utf8.count) + "\n"
+        } catch EngineError.invalidInput(.malformed(_)) {
+            throw failure("JSON output exceeds 8 MiB")
+        }
     }
 
     static func plist(from text: String, format: PropertyListSerialization.PropertyListFormat) throws
@@ -35,15 +38,22 @@ enum PropertyListConversion {
         let decoded = try PropertyListSerialization.propertyList(from: output, options: [], format: nil)
         var expectedNodes = 0
         var decodedNodes = 0
-        let expectedValue = try jsonValue(propertyList, depth: 0, nodes: &expectedNodes)
-        let decodedValue = try jsonValue(decoded, depth: 0, nodes: &decodedNodes)
+        var expectedExpandedBytes = 0
+        var decodedExpandedBytes = 0
+        let expectedValue = try jsonValue(
+            propertyList, depth: 0, nodes: &expectedNodes, expandedBytes: &expectedExpandedBytes)
+        let decodedValue = try jsonValue(
+            decoded, depth: 0, nodes: &decodedNodes, expandedBytes: &decodedExpandedBytes)
         guard expectedValue.serialized(indent: "") == decodedValue.serialized(indent: "") else {
             throw failure("This property list format cannot preserve the supplied values")
         }
         return output
     }
 
-    private static func jsonValue(_ value: Any, depth: Int, nodes: inout Int) throws -> JSONValue {
+    private static func jsonValue(
+        _ value: Any, depth: Int, nodes: inout Int, expandedBytes: inout Int
+    ) throws -> JSONValue {
+        try Task.checkCancellation()
         try account(depth, nodes: &nodes)
         if let date = value as? Date {
             try account(extra: 2, nodes: &nodes)
@@ -55,24 +65,46 @@ enum PropertyListConversion {
             guard formatter.date(from: timestamp) == date else {
                 throw failure("Date precision exceeds milliseconds")
             }
+            try accountExpanded(timestamp.utf8.count, expandedBytes: &expandedBytes)
             return tagged("date", timestamp)
         }
         if let payload = value as? Data {
             try account(extra: 2, nodes: &nodes)
+            let inputGroupBytes = 3
+            let outputGroupBytes = 4
+            let encodedBytes = ((payload.count + inputGroupBytes - 1) / inputGroupBytes) * outputGroupBytes
+            try accountExpanded(encodedBytes, expandedBytes: &expandedBytes)
             return tagged("data", payload.base64EncodedString())
         }
         if let number = value as? NSNumber {
-            if CFGetTypeID(number) == CFBooleanGetTypeID() { return .bool(number.boolValue) }
-            return try jsonNumber(number)
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                let literal = number.boolValue ? "true" : "false"
+                try accountExpanded(literal.utf8.count, expandedBytes: &expandedBytes)
+                return .bool(number.boolValue)
+            }
+            let literal = try jsonNumber(number)
+            try accountExpanded(literal.utf8.count, expandedBytes: &expandedBytes)
+            return .number(literal)
         }
-        if let string = value as? String { return .string(string) }
+        if let string = value as? String {
+            try accountExpanded(string.utf8.count, expandedBytes: &expandedBytes)
+            return .string(string)
+        }
         if let array = value as? [Any] {
-            return .array(try array.map { try jsonValue($0, depth: depth + 1, nodes: &nodes) })
+            return .array(
+                try array.map {
+                    try jsonValue($0, depth: depth + 1, nodes: &nodes, expandedBytes: &expandedBytes)
+                })
         }
         if let dictionary = value as? [String: Any] {
             var members: JSONMembers = []
             for (key, child) in dictionary.sorted(by: { scalarOrder($0.key, $1.key) }) {
-                members.append((key, try jsonValue(child, depth: depth + 1, nodes: &nodes)))
+                try accountExpanded(key.utf8.count, expandedBytes: &expandedBytes)
+                members.append(
+                    (
+                        key,
+                        try jsonValue(child, depth: depth + 1, nodes: &nodes, expandedBytes: &expandedBytes)
+                    ))
             }
             let object = JSONValue.object(members)
             guard dictionary[tagKey] != nil else { return object }
@@ -82,20 +114,20 @@ enum PropertyListConversion {
         throw failure("Property list contains an unsupported value")
     }
 
-    private static func jsonNumber(_ number: NSNumber) throws -> JSONValue {
+    private static func jsonNumber(_ number: NSNumber) throws -> String {
         let type = String(cString: number.objCType)
         if ["c", "s", "i", "l", "q"].contains(type) {
-            return .number(String(number.int64Value))
+            return String(number.int64Value)
         }
         if ["C", "S", "I", "L", "Q"].contains(type) {
             guard number.stringValue.first != "-", let integer = Int64(number.stringValue) else {
                 throw failure("Integer exceeds signed 64-bit range")
             }
-            return .number(String(integer))
+            return String(integer)
         }
         let real = number.doubleValue
         guard real.isFinite else { throw failure("Non-finite numbers are unsupported") }
-        return .number(String(real))
+        return String(real)
     }
 
     private static func propertyListValue(_ value: JSONValue, depth: Int, nodes: inout Int) throws
@@ -198,6 +230,11 @@ enum PropertyListConversion {
     private static func account(extra: Int, nodes: inout Int) throws {
         nodes += extra
         guard nodes <= maximumNodes else { throw failure("Conversion exceeds 100000 values") }
+    }
+
+    private static func accountExpanded(_ bytes: Int, expandedBytes: inout Int) throws {
+        guard bytes <= maximumBytes - expandedBytes else { throw failure("JSON output exceeds 8 MiB") }
+        expandedBytes += bytes
     }
 
     static func account(_ depth: Int, nodes: inout Int) throws {

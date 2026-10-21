@@ -635,6 +635,23 @@ import VideoToolbox
         #expect(outputTitles == sourceTitles)
     }
 
+    @Test(arguments: ["mkv", "webm", "avi", "flv"])
+    func unsupportedContainersRefuseBeforeOpening(suffix: String) async throws {
+        let directory = try folder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
+        let source = directory.appending(path: "unsupported.\(suffix)")
+        let original = Data("unsupported container".utf8)
+        try original.write(to: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: directory), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.invalidInput(.unsupportedFileType)) {
+            try await VideoSDR.run(url: source, context: context)
+        }
+        #expect(try Data(contentsOf: source) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [source.lastPathComponent])
+    }
+
     @Test func ordinarySDRSkipsWithoutWriting() async throws {
         let directory = try folder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }

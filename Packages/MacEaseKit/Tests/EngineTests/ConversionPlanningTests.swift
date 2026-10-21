@@ -8,6 +8,9 @@ import Testing
     @Test(arguments: [
         (OperationID.imageHDRToSDR, OperationOptions.image(.hdrToSDR), "webp"),
         (.videoHDRToSDR, .video(.hdrToSDR), "webm"),
+        (.videoHDRToSDR, .video(.hdrToSDR), "mkv"),
+        (.videoHDRToSDR, .video(.hdrToSDR), "avi"),
+        (.videoHDRToSDR, .video(.hdrToSDR), "flv"),
     ])
     func staleHDRRequestsRejectNonCandidateFormats(op: OperationID, options: OperationOptions, suffix: String)
         async throws

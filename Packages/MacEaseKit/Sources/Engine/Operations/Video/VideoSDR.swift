@@ -3,6 +3,7 @@ import CoreMedia
 import CoreVideo
 import Formats
 import Foundation
+import MenuCatalog
 
 enum VideoSDR {
     private static let quality = 0.9
@@ -20,6 +21,10 @@ enum VideoSDR {
     }
 
     static func classification(_ url: URL) async throws -> HDRClassification {
+        let entry = MenuEntry(op: .videoHDRToSDR, preset: nil, path: [])
+        guard MenuLayout.isApplicable(entry, selection: [url]) else {
+            throw EngineError.invalidInput(.unsupportedFileType)
+        }
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard !tracks.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
