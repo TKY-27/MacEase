@@ -6,6 +6,74 @@ import Testing
 private typealias Fixture = ContainerFixtures
 
 @Suite struct AVITests {
+    @Test func rejectsRepeatedAndOverlappingOpenDMLIndexes() throws {
+        var track = MediaTrack(number: 1, kind: .video(width: 16, height: 16), codec: .mjpeg)
+        track.defaultDuration = 40 * Nanoseconds.perMillisecond
+        let url = Fixture.temporaryURL("repeated-index.avi")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
+        var muxer = try AVIMuxer(url: url, tracks: [track])
+        for frame in 0..<2 {
+            try muxer.write(
+                MediaPacket(
+                    track: 1, timestamp: Int64(frame) * 40 * Nanoseconds.perMillisecond,
+                    isKeyframe: frame == 0, payload: Data([UInt8(frame)])))
+        }
+        try muxer.finish()
+
+        var valid = try AVIDemuxer(url: url)
+        #expect(try Fixture.packets(&valid).map(\.isKeyframe) == [true, false])
+
+        let original = try Data(contentsOf: url)
+        let indexChunk = try #require(original.range(of: Data("indx".utf8)))
+        let firstEntry = indexChunk.lowerBound + 8 + AVI.indexHeaderSize
+        let secondEntry = firstEntry + AVI.superIndexEntrySize
+        let bytes = [UInt8](original)
+        let offset =
+            UInt64(UInt32(littleEndian: bytes, at: firstEntry))
+            | UInt64(UInt32(littleEndian: bytes, at: firstEntry + 4)) << 32
+        for delta in [UInt64(0), 1] {
+            var malformed = original
+            malformed.replaceSubrange(
+                (indexChunk.lowerBound + 12)..<(indexChunk.lowerBound + 16),
+                with: [2, 0, 0, 0])
+            malformed.replaceSubrange(
+                secondEntry..<(secondEntry + AVI.superIndexEntrySize),
+                with: original[firstEntry..<(firstEntry + AVI.superIndexEntrySize)])
+            var repeatedOffset = Data()
+            repeatedOffset.appendLittleEndian(offset - delta)
+            malformed.replaceSubrange(secondEntry..<(secondEntry + 8), with: repeatedOffset)
+            try malformed.write(to: url)
+            #expect(throws: FormatError.corrupt("overlapping AVI index references")) {
+                try AVIDemuxer(url: url)
+            }
+        }
+
+        let shortIndexSize = AVI.indexHeaderSize + AVI.superIndexEntrySize
+        let fullIndexSize = Int(UInt32(littleEndian: bytes, at: indexChunk.lowerBound + 4))
+        var duplicate = original
+        var shortSize = Data()
+        shortSize.appendLittleEndian(UInt32(shortIndexSize))
+        duplicate.replaceSubrange((indexChunk.lowerBound + 4)..<(indexChunk.lowerBound + 8), with: shortSize)
+        var followingIndex = Data("indx".utf8)
+        followingIndex.appendLittleEndian(UInt32(fullIndexSize - shortIndexSize - 8))
+        followingIndex.append(original[(indexChunk.lowerBound + 8)..<(indexChunk.lowerBound + 8 + shortIndexSize)])
+        duplicate.replaceSubrange(secondEntry..<(secondEntry + followingIndex.count), with: followingIndex)
+        try duplicate.write(to: url)
+        #expect(throws: FormatError.corrupt("duplicate AVI stream index")) {
+            try AVIDemuxer(url: url)
+        }
+    }
+
+    @Test func cancelledInitializationStopsBeforeIndexTraversal() async {
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            #expect(throws: CancellationError.self) {
+                try AVIDemuxer(url: Fixture.resource("ffmpeg-mjpeg-pcm.avi"))
+            }
+        }
+        await task.value
+    }
+
     @Test(arguments: [Data([0, 0, 0, 0]), Data([1, 64, 0, 0])])
     func rejectsInvalidVideoWidth(bytes: Data) throws {
         var avi = try Data(contentsOf: Fixture.resource("ffmpeg-mjpeg-pcm.avi"))

@@ -496,6 +496,11 @@ Replace operations refuse inputs with more than one video track or more than
 one audio track before writing an output, because the current pipeline selects
 only the first track of each kind. Derived operations may use those first tracks.
 
+Resize, flip, frame-rate changes and exact trim preserve input alpha when
+re-encoding MOV through HEVC with alpha or ProRes 4444, and WebM through VP9
+with alpha. Other containers reject these alpha re-encodes before writing;
+stream-copy edits retain their existing alpha (ADR 0010).
+
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `video.resize` | 50%, 2160p, 1080p, 720p, 480p | Replace | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
@@ -526,6 +531,14 @@ only the first track of each kind. Derived operations may use those first tracks
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
 
 Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
+
+Audio replacements preserve the source speaker layout whenever the output
+encoder can represent it. Unsupported layouts fail before writing instead of
+downmixing. The current MP3 and Opus implementations accept only mono and
+stereo; multichannel Opus requires a future multistream implementation
+(ADR 0010). AAC output supports at most six channels; raw ADTS output refuses
+quadraphonic layouts. Unknown speaker layouts are rejected instead of being
+interpreted solely from their channel count.
 
 ### 8.4 Folders
 
@@ -711,6 +724,12 @@ check.
   ten minutes of synthesized silence in total per operation. The remaining
   budget is checked before filling each gap so sparse malformed timelines
   cannot trigger unbounded output work.
+- AVI indexes reject duplicate or overlapping OpenDML chunk references.
+  Index reads are capped at the smaller of the file size and 128 MiB;
+  records are capped at the smaller of the file size divided by the index
+  entry width and 4,000,000. OpenDML references are capped at 65,536.
+  These limits are checked before index allocation or record accumulation,
+  and index traversal checks cancellation (ADR 0010).
 - Permission errors from TCC tell the user which location needs access and link
   to the relevant System Settings pane.
 - Unexpected errors are logged with `Logger` (subsystem `io.github.tky27.MacEase`)
@@ -816,6 +835,10 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Audio replacements preserve supported speaker layouts, video
+  edits preserve supported alpha, and AVI index traversal rejects overlapping
+  references and enforces cumulative budgets (ADR 0010).
 
 - 2026-10-21: Output stamps are captured before commit coordination ends.
   Report saving and Analyze export choose a destination, retain colliding

@@ -8,6 +8,8 @@ public enum EngineError: Error, Equatable, Sendable {
     case encodeFailed(String)
     case commitFailed(String)
     case unsupportedCodec(String)
+    case audioChannelLayoutUnsupported
+    case videoAlphaUnsupported
     case duplicateArchiveRootName(String)
     case permissionDenied(PermissionLocation)
     case cancelled

@@ -12,6 +12,17 @@ public enum VideoFormat {
     private static let avcPictureParameterSet: UInt8 = 8
     private static let maximumSequenceSets = 31
 
+    public static func containsAlpha(_ format: CMFormatDescription) -> Bool {
+        if let declared = CMFormatDescriptionGetExtension(
+            format, extensionKey: kCMFormatDescriptionExtension_ContainsAlphaChannel) as? Bool
+        {
+            return declared
+        }
+        let subtype = CMFormatDescriptionGetMediaSubType(format)
+        return subtype == kCMVideoCodecType_AppleProRes4444 || subtype == kCMVideoCodecType_AppleProRes4444XQ
+            || subtype == kCMVideoCodecType_HEVCWithAlpha
+    }
+
     public static func codecType(_ codec: MediaCodec) -> CMVideoCodecType? {
         switch codec {
         case .h264: kCMVideoCodecType_H264

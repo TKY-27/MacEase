@@ -35,7 +35,7 @@ enum VideoEdits {
             return TranscodePlan(container: container, video: .copy, audio: nil)
         case .convert(let target):
             guard target != container else { throw SkipError(.alreadyDone) }
-            return conversion(
+            return try conversion(
                 to: target, input: input, source: source, settings: settings, audioSettings: audioSettings)
         case .trim(let start, let end, let mode):
             let range = try Nanoseconds.from(seconds: start)..<(try Nanoseconds.from(seconds: end))
@@ -43,7 +43,8 @@ enum VideoEdits {
                 throw EngineError.invalidInput(.malformed("empty trim range"))
             }
             let video: TranscodePlan.Video =
-                mode == .keyframe ? .copy : .encode(encoding(input, source: source, settings: settings), baked(input))
+                mode == .keyframe
+                ? .copy : .encode(try alphaEncoding(input, source: source, settings: settings), baked(input))
             var plan = TranscodePlan(container: container, video: video, audio: .copy)
             plan.range = range
             plan.startsAtKeyframe = mode == .keyframe
@@ -57,14 +58,14 @@ enum VideoEdits {
             var edit = baked(input)
             edit.rotation += degrees
             edit.fill = fill
-            return reencoded(input, source: source, edit: edit, settings: settings)
+            return try reencoded(input, source: source, edit: edit, settings: settings)
         case .flip(let horizontally):
             var edit = baked(input)
             edit.flipsHorizontally = horizontally
             edit.flipsVertically = !horizontally
-            return reencoded(input, source: source, edit: edit, settings: settings)
+            return try reencoded(input, source: source, edit: edit, settings: settings)
         case .frameRate(let framesPerSecond):
-            var plan = reencoded(input, source: source, edit: baked(input), settings: settings)
+            var plan = try reencoded(input, source: source, edit: baked(input), settings: settings)
             if case .encode(var encoding, let edit) = plan.video {
                 encoding.frameDuration = Nanoseconds.perSecond / Int64(framesPerSecond)
                 plan.video = .encode(encoding, edit)
@@ -73,7 +74,7 @@ enum VideoEdits {
         case .resize(let resize):
             var edit = baked(input)
             edit.size = try resized(input.displaySize, resize)
-            return reencoded(input, source: source, edit: edit, settings: settings)
+            return try reencoded(input, source: source, edit: edit, settings: settings)
         case .still, .gif, .apng, .webP, .gifX, .extractAudio, .compress, .subtitles, .background:
             throw EngineError.unexpected("not an in-place edit")
         }
@@ -86,8 +87,8 @@ enum VideoEdits {
 
     private static func reencoded(
         _ input: MediaInput, source: MediaTrack, edit: FrameEdit, settings: VideoSettings
-    ) -> TranscodePlan {
-        var encoding = encoding(input, source: source, settings: settings)
+    ) throws -> TranscodePlan {
+        var encoding = try alphaEncoding(input, source: source, settings: settings)
         let size = FrameProcessor.outputSize(source: input.codedSize, edit: edit)
         encoding.width = size.width
         encoding.height = size.height
@@ -101,6 +102,25 @@ enum VideoEdits {
             codec: codec, width: size.width, height: size.height, frameDuration: input.frameDuration, bitrate: nil)
         encoding.quality = defaultQuality
         return encoding
+    }
+
+    private static func alphaEncoding(
+        _ input: MediaInput, source: MediaTrack, settings: VideoSettings, container: OutputContainer? = nil
+    )
+        throws -> VideoEncoding
+    {
+        var selected = encoding(input, source: source, settings: settings)
+        guard source.hasAlpha else { return selected }
+        if source.codec != .vp9 {
+            guard case .asset = input.backend else { throw EngineError.videoAlphaUnsupported }
+        }
+        switch container ?? input.container {
+        case .mov: selected.codec = source.codec == .prores ? .prores4444 : .hevc
+        case .webm: selected.codec = .vp9
+        case .mp4, .m4v, .mkv, .avi, .flv: throw EngineError.videoAlphaUnsupported
+        }
+        selected.alpha = true
+        return selected
     }
 
     static func codec(for container: OutputContainer, source: MediaCodec, settings: VideoSettings)
@@ -122,14 +142,19 @@ enum VideoEdits {
     private static func conversion(
         to target: OutputContainer, input: MediaInput, source: MediaTrack, settings: VideoSettings,
         audioSettings: AudioSettings
-    ) -> TranscodePlan {
+    ) throws -> TranscodePlan {
         let audioFits =
             input.audio.map { track in
                 target.holds(track.codec)
                     && (target != .avi || track.codec == .pcm(bits: 16, float: false, bigEndian: false))
             } ?? true
         let videoFits = target.holds(source.codec) && (input.transform == .identity || target.fileType != nil)
-        if videoFits && audioFits {
+        let hasAssetFormat = if case .asset = input.backend { true } else { false }
+        let alphaCopyFits =
+            !source.hasAlpha
+            || (target == .mov && hasAssetFormat && (source.codec == .hevc || source.codec == .prores))
+            || ((target == .webm || target == .mkv) && source.codec == .vp9)
+        if videoFits && audioFits && alphaCopyFits {
             return TranscodePlan(container: target, video: .copy, audio: input.audio == nil ? nil : .copy)
         }
         let audio: TranscodePlan.Audio? = input.audio.map { _ in
@@ -139,8 +164,10 @@ enum VideoEdits {
             default: return .encode(.aac, kilobits: audioSettings.aacBitrate)
             }
         }
-        var encoding = encoding(input, source: source, settings: settings)
-        encoding.codec = target == .mkv ? .h264 : codec(for: target, source: source.codec, settings: settings)
+        var encoding = try alphaEncoding(input, source: source, settings: settings, container: target)
+        if !source.hasAlpha {
+            encoding.codec = target == .mkv ? .h264 : codec(for: target, source: source.codec, settings: settings)
+        }
         return TranscodePlan(container: target, video: .encode(encoding, baked(input)), audio: audio)
     }
 

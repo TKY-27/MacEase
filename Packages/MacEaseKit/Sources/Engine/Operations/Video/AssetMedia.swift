@@ -16,7 +16,7 @@ enum AssetTracks {
                 codec: videoCodec(subtype), codecPrivate: VideoFormat.decoderConfiguration(of: format))
             let rate = try await track.load(.nominalFrameRate)
             if rate > 0 { described.defaultDuration = Int64((Double(Nanoseconds.perSecond) / Double(rate)).rounded()) }
-            described.hasAlpha = subtype == kCMVideoCodecType_HEVCWithAlpha
+            described.hasAlpha = VideoFormat.containsAlpha(format)
             return described
         }
         guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else {

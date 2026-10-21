@@ -62,6 +62,35 @@ private func fileSize(_ url: URL) throws -> Int64 {
     Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
 }
 
+private func surroundAAC() throws -> URL {
+    let fixture = URL(filePath: #filePath).deletingLastPathComponent()
+        .appending(path: "../FormatsTests/Resources/ffmpeg-aac-51-center.m4a")
+    let input = try TestVolume.makeFolder().appending(path: "surround.m4a")
+    try FileManager.default.copyItem(at: fixture, to: input)
+    return input
+}
+
+private func generatedSurroundAAC() async throws -> URL {
+    let input = try TestVolume.makeFolder().appending(path: "generated-surround.m4a")
+    let sampleRate = 48_000.0
+    let channels = 6
+    let samples = (0..<Int(sampleRate)).flatMap { frame -> [Float] in
+        let centre = Float(0.2 * sin(2 * Double.pi * 440 * Double(frame) / sampleRate))
+        return [0, 0, centre, 0, 0, 0]
+    }
+    try await AudioSignals.write(
+        samples, to: input, format: .m4aAAC, sampleRate: sampleRate, channels: channels, kilobits: 384)
+    return input
+}
+
+private func channelEnergy(_ samples: [Float], channels: Int) -> [Double] {
+    (0..<channels).map { channel in
+        stride(from: channel, to: samples.count, by: channels).reduce(0) {
+            $0 + Double(samples[$1] * samples[$1])
+        }
+    }
+}
+
 @Suite struct AudioPlanningTests {
     @Test func everyMenuPresetMaps() {
         let settings = Settings()
@@ -95,6 +124,20 @@ private func fileSize(_ url: URL) throws -> Int64 {
 }
 
 @Suite struct AudioConvertTests {
+    @Test(arguments: [AudioFormat.mp3, .opus])
+    func unsupportedSurroundEncoderKeepsOriginal(format: AudioFormat) async throws {
+        let input = try await source(
+            "surround.wav", format: .wav,
+            samples: AudioSignals.music(seconds: 0.5, sampleRate: 48_000, channels: 6), sampleRate: 48_000,
+            channels: 6)
+
+        let result = try await run(.audioConvert, .convert(format), on: input)
+
+        #expect(result.outcome.outcomes == [.failed(.audioChannelLayoutUnsupported)])
+        #expect(FileManager.default.fileExists(atPath: input.path))
+        #expect(result.outcome.record == nil)
+    }
+
     @Test(arguments: AudioFormat.allCases.filter { !$0.rawValue.hasPrefix("caf") })
     func convertsFLACWithTags(format: AudioFormat) async throws {
         let tags = AudioTags(title: "Song", artist: "Band", album: "Record", artwork: AudioSignals.pngArtwork())
@@ -232,6 +275,25 @@ private func fileSize(_ url: URL) throws -> Int64 {
 }
 
 @Suite struct AudioNormalizeTests {
+    @Test func surroundAACRemainsSurround() async throws {
+        let input = try await generatedSurroundAAC()
+        let original = try AudioSignals.decode(input)
+        let loudness = try #require(try measure(input).integratedLoudness)
+
+        let result = try await run(.audioNormalize, .normalize(targetLoudness: loudness - 6), on: input)
+
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        let decoded = try AudioSignals.decode(output)
+        #expect(decoded.input.channels == 6)
+        #expect(decoded.input.codec == .aac)
+        let originalEnergy = channelEnergy(original.samples, channels: 6)
+        let outputEnergy = channelEnergy(decoded.samples, channels: 6)
+        let originalOthers = originalEnergy.enumerated().filter { $0.offset != 2 }.map(\.element).max() ?? 0
+        let outputOthers = outputEnergy.enumerated().filter { $0.offset != 2 }.map(\.element).max() ?? 0
+        #expect(originalEnergy[2] > originalOthers * 100)
+        #expect(outputEnergy[2] > outputOthers * 100)
+    }
+
     @Test(arguments: [AudioFormat.wav, .flac, .mp3, .opus])
     func reachesTheTargetLoudness(format: AudioFormat) async throws {
         let input = try await source(
@@ -274,6 +336,21 @@ private func fileSize(_ url: URL) throws -> Int64 {
 }
 
 @Suite struct AudioTrimTests {
+    @Test func surroundAACTrimKeepsCentreChannel() async throws {
+        let input = try surroundAAC()
+
+        let result = try await run(.audioTrim, .trim(start: 0.1, end: 0.3), on: input)
+
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        let (decoded, samples) = try AudioSignals.decode(output)
+        #expect(decoded.channels == 6)
+        #expect(decoded.codec == .aac)
+        #expect(abs(Double(samples.count / 6) / decoded.sampleRate - 0.2) < 0.03)
+        let energy = channelEnergy(samples, channels: 6)
+        let otherEnergy = energy.enumerated().filter { $0.offset != 2 }.map(\.element).max() ?? 0
+        #expect(energy[2] > otherEnergy * 100)
+    }
+
     @Test(arguments: [AudioFormat.wav, .flac, .aiff, .m4aALAC])
     func losslessTrimIsSampleExact(format: AudioFormat) async throws {
         let quantized = AudioSignals.music().map { ($0 * 32_768).rounded() / 32_768 }

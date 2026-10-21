@@ -4,6 +4,10 @@ import Foundation
 public struct AVIDemuxer: MediaDemuxer {
     private static let maximumHeaderChunk = 1 << 20
     private static let maximumIndexChunk = 1 << 26
+    private static let maximumIndexBytes: Int64 = 1 << 27
+    private static let maximumIndexRecords: Int64 = 4_000_000
+    private static let maximumIndexReferences = 65_536
+    private static let cancellationInterval = 4_096
     private static let maximumMediaChunk: Int64 = 1 << 28
 
     public private(set) var tracks: [MediaTrack] = []
@@ -19,17 +23,29 @@ public struct AVIDemuxer: MediaDemuxer {
         var bytesSeen: Int64 = 0
     }
 
+    private struct IndexReference {
+        let offset: Int64
+        let size: Int
+        let stream: Int
+
+        var end: Int64 { offset + Int64(size) }
+    }
+
     private let file: RandomAccessFile
     private var streams: [StreamInfo] = []
     private(set) var segments: [Range<Int64>] = []
     private var segmentIndex = 0
     private var position: Int64 = 0
     private var listEnds: [Int64] = []
+    private var indexReferences: [IndexReference] = []
+    private var indexBytesRead: Int64 = 0
+    private var indexRecordsRead: Int64 = 0
 
     public init(url: URL) throws {
         file = try RandomAccessFile(url: url)
         var offset: Int64 = 0
         while offset + 12 <= file.size {
+            try Task.checkCancellation()
             let id = try fourCC(at: offset)
             let size = Int64(try uint32(at: offset + 4))
             let form = try fourCC(at: offset + 8)
@@ -41,6 +57,7 @@ public struct AVIDemuxer: MediaDemuxer {
             let end = size == 0 ? file.size : min(offset + 8 + size, file.size)
             var child = offset + 12
             while child + 8 <= end {
+                try Task.checkCancellation()
                 let childID = try fourCC(at: child)
                 let childSize = Int64(try uint32(at: child + 4))
                 let childEnd = childSize == 0 && childID == "LIST" ? end : min(child + 8 + childSize, end)
@@ -59,6 +76,7 @@ public struct AVIDemuxer: MediaDemuxer {
             }
             offset = end + (end - offset) % 2
         }
+        try parseStandardIndexes()
         guard !tracks.isEmpty, !segments.isEmpty else { throw FormatError.corrupt("AVI without streams or movi") }
         position = segments[0].lowerBound
     }
@@ -76,6 +94,7 @@ public struct AVIDemuxer: MediaDemuxer {
         var microsecondsPerFrame: Int64 = 0
         var totalFrames: Int64 = 0
         while offset + 8 <= end {
+            try Task.checkCancellation()
             let id = try fourCC(at: offset)
             let size = Int64(try uint32(at: offset + 4))
             if id == "avih", size >= AVI.mainHeaderSize {
@@ -102,9 +121,17 @@ public struct AVIDemuxer: MediaDemuxer {
         var format: [UInt8] = []
         var superIndex: [UInt8] = []
         while offset + 8 <= end {
+            try Task.checkCancellation()
             let id = try fourCC(at: offset)
             let size = Int(try uint32(at: offset + 4))
             guard size <= Self.maximumHeaderChunk else { throw FormatError.corrupt("oversized stream header") }
+            if id == "indx" {
+                guard superIndex.isEmpty else { throw FormatError.corrupt("duplicate AVI stream index") }
+                guard Int64(size) <= min(file.size, Self.maximumIndexBytes) - indexBytesRead else {
+                    throw FormatError.corrupt("AVI index budget exceeded")
+                }
+                indexBytesRead += Int64(size)
+            }
             let payload = try file.bytes(at: offset + 8, count: size)
             switch id {
             case "strh": header = payload
@@ -184,10 +211,18 @@ public struct AVIDemuxer: MediaDemuxer {
 
     /// Keyframe flags in each stream's chunk order.
     private mutating func parseLegacyIndex(_ start: Int64, _ size: Int64) throws {
-        guard streams.allSatisfy({ $0.keyframes.isEmpty }) else { return }
+        guard indexReferences.isEmpty, streams.allSatisfy({ $0.keyframes.isEmpty }) else { return }
         let count = Int(size) / AVI.legacyIndexEntrySize
+        let bytes = Int64(count * AVI.legacyIndexEntrySize)
+        guard bytes <= min(file.size, Self.maximumIndexBytes) - indexBytesRead,
+            Int64(count) <= min(file.size / Int64(AVI.legacyIndexEntrySize), Self.maximumIndexRecords)
+                - indexRecordsRead
+        else { throw FormatError.corrupt("AVI index budget exceeded") }
+        indexBytesRead += bytes
+        indexRecordsRead += Int64(count)
         let entries = try file.bytes(at: start, count: count * AVI.legacyIndexEntrySize)
         for entry in 0..<count {
+            if entry.isMultiple(of: Self.cancellationInterval) { try Task.checkCancellation() }
             let base = entry * AVI.legacyIndexEntrySize
             let id = String(decoding: entries[base..<(base + 4)], as: UTF8.self)
             guard let stream = Self.streamNumber(id) else { continue }
@@ -204,21 +239,52 @@ public struct AVIDemuxer: MediaDemuxer {
             throw FormatError.corrupt("indx entry count exceeds its chunk")
         }
         for entry in 0..<entries {
+            if entry.isMultiple(of: Self.cancellationInterval) { try Task.checkCancellation() }
             let base = AVI.indexHeaderSize + entry * AVI.superIndexEntrySize
             let low = UInt64(UInt32(littleEndian: index, at: base))
             let offset = UInt64(UInt32(littleEndian: index, at: base + 4)) << 32 | low
             let size = Int(UInt32(littleEndian: index, at: base + 8))
-            guard offset < UInt64(file.size), size > 8 + AVI.indexHeaderSize, size <= Self.maximumIndexChunk else {
+            guard offset < UInt64(file.size), size > 8 + AVI.indexHeaderSize,
+                size <= Self.maximumIndexChunk, Int64(offset) <= file.size - Int64(size)
+            else {
                 throw FormatError.corrupt("indx entry out of range")
             }
-            let chunk = try file.bytes(at: Int64(offset) + 8, count: size - 8)
+            guard indexReferences.count < Self.maximumIndexReferences,
+                Int64(size - 8) <= min(file.size, Self.maximumIndexBytes) - indexBytesRead
+            else { throw FormatError.corrupt("AVI index budget exceeded") }
+            indexBytesRead += Int64(size - 8)
+            indexReferences.append(IndexReference(offset: Int64(offset), size: size, stream: stream))
+        }
+    }
+
+    private mutating func parseStandardIndexes() throws {
+        try Task.checkCancellation()
+        let sorted = indexReferences.sorted { $0.offset < $1.offset }
+        for index in sorted.indices.dropFirst() {
+            guard sorted[index - 1].end <= sorted[index].offset else {
+                throw FormatError.corrupt("overlapping AVI index references")
+            }
+        }
+        if !indexReferences.isEmpty {
+            for stream in streams.indices { streams[stream].keyframes = [] }
+        }
+        for (referenceNumber, reference) in indexReferences.enumerated() {
+            if referenceNumber.isMultiple(of: Self.cancellationInterval) { try Task.checkCancellation() }
+            let chunk = try file.bytes(at: reference.offset + 8, count: reference.size - 8)
             let count = Int(UInt32(littleEndian: chunk, at: 4))
             guard count <= (chunk.count - AVI.indexHeaderSize) / AVI.standardIndexEntrySize else {
                 throw FormatError.corrupt("ix entry count exceeds its chunk")
             }
-            for item in 0..<count {
-                let sizeField = AVI.indexHeaderSize + item * AVI.standardIndexEntrySize + 4
-                streams[stream].keyframes.append(UInt32(littleEndian: chunk, at: sizeField) & AVI.deltaFrameBit == 0)
+            guard
+                Int64(count) <= min(file.size / Int64(AVI.standardIndexEntrySize), Self.maximumIndexRecords)
+                    - indexRecordsRead
+            else { throw FormatError.corrupt("AVI index budget exceeded") }
+            indexRecordsRead += Int64(count)
+            for record in 0..<count {
+                if record.isMultiple(of: Self.cancellationInterval) { try Task.checkCancellation() }
+                let sizeField = AVI.indexHeaderSize + record * AVI.standardIndexEntrySize + 4
+                streams[reference.stream].keyframes.append(
+                    UInt32(littleEndian: chunk, at: sizeField) & AVI.deltaFrameBit == 0)
             }
         }
     }

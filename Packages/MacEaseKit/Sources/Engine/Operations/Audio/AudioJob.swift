@@ -55,13 +55,15 @@ enum AudioJob {
     {
         guard try fileSize(url) > bytes else { return .skipped(.alreadyDone) }
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
-        let tags = await tags(of: input, context: context)
         var format = try compressedFormat(input, kilobits: nil)
+        try format.validateLayout(input)
+        let tags = await tags(of: input, context: context)
         var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         var budget = bytes - tagBytes(tags, format: format)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
         if planned == nil, format == .mp3 {
             format = .m4aAAC
+            try format.validateLayout(input)
             supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
             budget = bytes - tagBytes(tags, format: format)
             planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
@@ -145,6 +147,7 @@ enum AudioJob {
         _ url: URL, with input: AudioInput, target: AudioTarget, frames: Range<Int64>? = nil, gain: Float = 1,
         progressStart: Double = 0, context: ItemContext
     ) async throws -> ItemResult {
+        try target.format.validateLayout(input)
         let tags = await tags(of: input, context: context)
         if !tags.isEmpty, !target.format.holdsTags { context.warn(.metadataDropped) }
         let staged = try context.stagingURL(for: url, name: outputName(for: url, format: target.format))

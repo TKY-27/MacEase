@@ -45,8 +45,28 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   kind before writing. Derived outputs may use the first tracks.
 - **Language setting (7).** Changing the language asks before relaunching,
   because running jobs stop.
+- **Audio layouts (8.3).** Replacement never silently downmixes. Unsupported
+  layouts fail before writing. The current MP3 and Opus implementations are
+  limited to mono and stereo. Opus multistream support requires changes to
+  its codec and Ogg mapping implementation and is deferred. AAC output is
+  limited to six channels; raw ADTS refuses quadraphonic layouts because its
+  channel configuration would describe different speakers. Unknown source
+  layouts are rejected. Recognized layouts are converted to canonical PCM
+  speaker order; 5.1 accepts MPEG layouts A, B, C and D.
+- **Video alpha (8.2).** Resize, flip, frame-rate changes and exact trim keep
+  alpha through HEVC with alpha or ProRes 4444 in MOV, and VP9 in WebM.
+  Other containers reject alpha re-encodes before writing. Stream-copy paths
+  preserve alpha when the destination can carry it. HEVC and ProRes alpha
+  require an AVFoundation source format description; custom containers support
+  VP9 alpha through BlockAdditions.
+- **AVI index budgets (13).** Duplicate and overlapping OpenDML references
+  are rejected before reading their chunks. Total index reads cannot exceed
+  the file size or 128 MiB; total records cannot exceed the file size divided
+  by the entry width or 4,000,000. At most 65,536 OpenDML references are
+  accepted. These bounded checks and cancellation prevent amplified reads
+  and keyframe allocation without redesigning the demuxer.
 
 ## Consequences
 
-SPEC.md sections 7, 8.1, 8.2, 8.3, 8.5, 8.10, 9 and 10 describe these behaviors.
+SPEC.md sections 7, 8.1, 8.2, 8.3, 8.5, 8.10, 9, 10 and 13 describe these behaviors.
 Users of large grainy clips get a smaller frame instead of a failure.

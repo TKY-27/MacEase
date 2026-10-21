@@ -8342,12 +8342,32 @@
         }
       }
     },
+    "“%@” could not be converted because the output cannot preserve its audio channel layout. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力形式で音声のチャンネル構成を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” could not be converted.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "“%@” を変換できませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” could not be edited because the output container cannot preserve transparency. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力コンテナで透明部分を保持できないため、“%@” を編集できませんでした。元のファイルはそのまま残しています。"
           }
         }
       }

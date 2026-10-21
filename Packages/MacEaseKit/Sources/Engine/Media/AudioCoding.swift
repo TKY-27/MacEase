@@ -5,21 +5,52 @@ import Foundation
 
 /// Speaker layouts make downmixing possible.
 enum PCMFormat {
-    static func make(sampleRate: Double, channels: Int) throws -> AVAudioFormat {
-        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
+    static func layoutTag(channels: Int) -> AudioChannelLayoutTag {
+        switch channels {
+        case 1: kAudioChannelLayoutTag_Mono
+        case 2: kAudioChannelLayoutTag_Stereo
+        case 3: kAudioChannelLayoutTag_MPEG_3_0_A
+        case 4: kAudioChannelLayoutTag_Quadraphonic
+        case 5: kAudioChannelLayoutTag_MPEG_5_0_A
+        case 6: kAudioChannelLayoutTag_MPEG_5_1_A
+        case 7: kAudioChannelLayoutTag_MPEG_6_1_A
+        case 8: kAudioChannelLayoutTag_MPEG_7_1_C
+        default: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
+        }
+    }
+
+    static func supportsLayout(_ tag: AudioChannelLayoutTag?, channels: Int) -> Bool {
+        guard channels > 2 else { return tag.map { $0 == layoutTag(channels: channels) } ?? true }
+        guard let tag else { return false }
+        if channels == 6 {
+            return [
+                kAudioChannelLayoutTag_MPEG_5_1_A, kAudioChannelLayoutTag_MPEG_5_1_B,
+                kAudioChannelLayoutTag_MPEG_5_1_C, kAudioChannelLayoutTag_MPEG_5_1_D,
+            ].contains(tag)
+        }
+        return tag == layoutTag(channels: channels)
+    }
+
+    static func aacLayout(channels: Int) throws -> AVAudioChannelLayout {
         let tag: AudioChannelLayoutTag =
             switch channels {
             case 1: kAudioChannelLayoutTag_Mono
             case 2: kAudioChannelLayoutTag_Stereo
-            case 3: kAudioChannelLayoutTag_MPEG_3_0_A
-            case 4: kAudioChannelLayoutTag_Quadraphonic
-            case 5: kAudioChannelLayoutTag_MPEG_5_0_A
-            case 6: kAudioChannelLayoutTag_MPEG_5_1_A
-            case 7: kAudioChannelLayoutTag_MPEG_6_1_A
-            case 8: kAudioChannelLayoutTag_MPEG_7_1_C
-            default: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
+            case 3: kAudioChannelLayoutTag_AAC_3_0
+            case 4: kAudioChannelLayoutTag_AAC_Quadraphonic
+            case 5: kAudioChannelLayoutTag_AAC_5_0
+            case 6: kAudioChannelLayoutTag_AAC_5_1
+            default: throw EngineError.audioChannelLayoutUnsupported
             }
         guard let layout = AVAudioChannelLayout(layoutTag: tag) else {
+            throw EngineError.audioChannelLayoutUnsupported
+        }
+        return layout
+    }
+
+    static func make(sampleRate: Double, channels: Int) throws -> AVAudioFormat {
+        try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
+        guard let layout = AVAudioChannelLayout(layoutTag: layoutTag(channels: channels)) else {
             throw EngineError.unsupportedCodec("\(channels) audio channels")
         }
         return AVAudioFormat(
@@ -179,9 +210,11 @@ final class AACEncoder {
         AVAudioFormat, AVAudioFormat, AVAudioConverter
     ) {
         let input = try PCMFormat.make(sampleRate: Double(sampleRate), channels: channels)
-        let settings: [String: Any] = [
+        var settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: channels,
         ]
+        let layout = try PCMFormat.aacLayout(channels: channels)
+        settings[AVChannelLayoutKey] = Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size)
         guard let output = AVAudioFormat(settings: settings), let converter = AVAudioConverter(from: input, to: output)
         else { throw EngineError.unsupportedCodec("AAC at \(sampleRate) Hz with \(channels) channels") }
         return (input, output, converter)

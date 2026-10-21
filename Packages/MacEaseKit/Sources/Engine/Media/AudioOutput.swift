@@ -56,17 +56,24 @@ public enum AudioFormat: String, Codable, CaseIterable, Sendable {
 
     /// Ascending; empty for lossless formats.
     public func supportedKilobits(sampleRate: Double, channels: Int) throws -> [Int] {
+        try validateChannels(channels)
         let rate = Int(outputSampleRate(sampleRate))
-        let count = outputChannels(channels)
-        return switch self {
-        case .mp3: MP3EncoderOptions.constantBitrates
-        case .m4aAAC, .aac: try AACEncoder.applicableKilobits(sampleRate: rate, channels: count)
-        case .opus: Self.opusKilobits
-        case .ogg:
-            Self.vorbisCandidates.filter {
-                VorbisAudioEncoder.accepts(sampleRate: rate, channels: count, bitrate: $0 * 1_000)
+        switch self {
+        case .mp3: return MP3EncoderOptions.constantBitrates
+        case .m4aAAC, .aac:
+            do {
+                let bitrates = try AACEncoder.applicableKilobits(sampleRate: rate, channels: channels)
+                if bitrates.isEmpty, channels > 2 { throw EngineError.audioChannelLayoutUnsupported }
+                return bitrates
+            } catch EngineError.unsupportedCodec(_) where channels > 2 {
+                throw EngineError.audioChannelLayoutUnsupported
             }
-        default: []
+        case .opus: return Self.opusKilobits
+        case .ogg:
+            return Self.vorbisCandidates.filter {
+                VorbisAudioEncoder.accepts(sampleRate: rate, channels: channels, bitrate: $0 * 1_000)
+            }
+        default: return []
         }
     }
 
@@ -89,7 +96,23 @@ public enum AudioFormat: String, Codable, CaseIterable, Sendable {
     }
 
     func outputChannels(_ channels: Int) -> Int {
-        isLossy ? min(channels, 2) : channels
+        channels
+    }
+
+    func validateChannels(_ channels: Int) throws {
+        if ((self == .mp3 || self == .opus) && channels > 2)
+            || (self == .aac && (channels == 4 || channels > 6))
+            || (self == .m4aAAC && channels > 6)
+        {
+            throw EngineError.audioChannelLayoutUnsupported
+        }
+    }
+
+    func validateLayout(_ input: AudioInput) throws {
+        try validateChannels(input.channels)
+        guard PCMFormat.supportsLayout(input.channelLayoutTag, channels: input.channels) else {
+            throw EngineError.audioChannelLayoutUnsupported
+        }
     }
 }
 
@@ -145,7 +168,8 @@ public final class AudioFileEncoder {
     ) throws {
         let format = target.format
         let rate = format.outputSampleRate(sampleRate)
-        let count = format.outputChannels(channels)
+        try format.validateChannels(channels)
+        let count = channels
         let losslessDepth = bitDepth.map { $0 <= Self.defaultDepth ? Self.defaultDepth : Self.highDepth }
         do {
             let kilobits =
@@ -268,22 +292,28 @@ private final class MPEG4Sink: AudioSink {
     init(url: URL, sampleRate: Double, channels: Int, codec: StoredCodec, tags: AudioTags) throws {
         format = try PCMFormat.make(sampleRate: sampleRate, channels: channels)
         var settings: [String: Any] = [AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: channels]
-        if let layout = format.channelLayout {
-            settings[AVChannelLayoutKey] = Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size)
-        }
         switch codec {
         case .aac(let bitrate):
+            let layout = try PCMFormat.aacLayout(channels: channels)
+            settings[AVChannelLayoutKey] = Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size)
             settings[AVFormatIDKey] = kAudioFormatMPEG4AAC
             settings[AVEncoderBitRateKey] = bitrate
             // Constant bitrate keeps target sizes predictable.
             settings[AVEncoderBitRateStrategyKey] = AVAudioBitRateStrategy_Constant
         case .alac(let bits):
+            if let layout = format.channelLayout {
+                settings[AVChannelLayoutKey] = Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size)
+            }
             settings[AVFormatIDKey] = kAudioFormatAppleLossless
             settings[AVEncoderBitDepthHintKey] = bits
         case .pcm:
             throw EngineError.unsupportedCodec("PCM in M4A")
         }
         writer = try AVAssetWriter(outputURL: url, fileType: .m4a)
+        guard writer.canApply(outputSettings: settings, forMediaType: .audio) else {
+            if channels > 2 { throw EngineError.audioChannelLayoutUnsupported }
+            throw EngineError.encodeFailed("M4A writer rejected the audio settings")
+        }
         input = AVAssetWriterInput(mediaType: .audio, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
         guard writer.canAdd(input) else { throw EngineError.encodeFailed("M4A writer rejected the audio settings") }

@@ -42,6 +42,7 @@ public struct AudioInput: Sendable {
     public let codec: AudioCodec
     public let sampleRate: Double
     public let channels: Int
+    let channelLayoutTag: AudioChannelLayoutTag?
     /// Integer depth of PCM and lossless sources.
     public let bitDepth: Int?
     public let isFloat: Bool
@@ -57,6 +58,7 @@ public struct AudioInput: Sendable {
                 codec = reader.codec == .opus ? .opus : .vorbis
                 sampleRate = reader.sampleRate
                 channels = reader.channels
+                channelLayoutTag = PCMFormat.layoutTag(channels: reader.channels)
                 bitDepth = nil
                 isFloat = false
                 frameCount = reader.frameCount
@@ -71,6 +73,7 @@ public struct AudioInput: Sendable {
                 codec = Self.codec(description.mFormatID)
                 sampleRate = description.mSampleRate
                 channels = Int(description.mChannelsPerFrame)
+                channelLayoutTag = file.fileFormat.channelLayout?.layout.pointee.mChannelLayoutTag
                 isFloat = codec == .pcm && description.mFormatFlags & kAudioFormatFlagIsFloat != 0
                 bitDepth = Self.bitDepth(codec: codec, description: description)
                 frameCount = file.length

@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreVideo
 import Formats
 import Foundation
 import ImageIO
@@ -56,6 +57,67 @@ import Testing
         let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseMultiTrack-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
+    }
+
+    private func transparentVideo(in container: OutputContainer = .mov) async throws -> URL {
+        let url = try TestVolume.makeFolder().appending(path: "transparent.\(container.fileExtension)")
+        let width = 64
+        let height = 48
+        let frameDuration = Nanoseconds.perSecond / 12
+        var encoding = VideoEncoding(
+            codec: container == .webm ? .vp9 : .hevc, width: width, height: height, frameDuration: frameDuration,
+            bitrate: nil)
+        encoding.alpha = true
+        var encoder = try VideoEncoders.make(encoding, track: 1)
+        var packets: [MediaPacket] = []
+        for index in 0..<12 {
+            var image: CVPixelBuffer?
+            let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any]] as CFDictionary
+            try #require(
+                CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, attributes, &image)
+                    == kCVReturnSuccess)
+            let frame = try #require(image)
+            try #require(CVPixelBufferLockBaseAddress(frame, []) == kCVReturnSuccess)
+            do {
+                defer { CVPixelBufferUnlockBaseAddress(frame, []) }
+                let pixels = try #require(CVPixelBufferGetBaseAddress(frame)).assumingMemoryBound(to: UInt8.self)
+                let rowBytes = CVPixelBufferGetBytesPerRow(frame)
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let offset = y * rowBytes + x * 4
+                        pixels[offset] = x < width / 2 ? 0 : 240
+                        pixels[offset + 1] = 0
+                        pixels[offset + 2] = 0
+                        pixels[offset + 3] = x < width / 2 ? 0 : 255
+                    }
+                }
+            }
+            packets += try encoder.encode(frame, timestamp: Int64(index) * frameDuration)
+        }
+        packets += try encoder.finish()
+        let output = OutputTrack(track: encoder.track, format: encoder.formatDescription)
+        var sink = try Sinks.make(container, url: url, tracks: [output], transform: .identity)
+        for packet in packets.sorted(by: { ($0.decodeTimestamp ?? $0.timestamp) < ($1.decodeTimestamp ?? $1.timestamp) }
+        ) {
+            try await sink.write(packet)
+        }
+        sink.endTrack(1)
+        try await sink.finish()
+        return url
+    }
+
+    private func expectTransparentVideo(_ url: URL, width: Int) async throws {
+        let asset = AVURLAsset(url: url)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let format = try #require(try await track.load(.formatDescriptions).first)
+        #expect(VideoFormat.containsAlpha(format))
+        #expect(try await track.load(.naturalSize).width == Double(width))
+        let (picture, _) = try await AVAssetImageGenerator(asset: asset).image(at: .zero)
+        let pixels = try PixelBuffer(cgImage: picture)
+        let left = (pixels.height / 2 * pixels.width + pixels.width / 4) * 4 + 3
+        let right = (pixels.height / 2 * pixels.width + pixels.width * 3 / 4) * 4 + 3
+        #expect(pixels.rgba[left] < 16)
+        #expect(pixels.rgba[right] > 240)
     }
 
     @Test(arguments: [true, false])
@@ -129,6 +191,43 @@ import Testing
         let track = try #require(try await AVURLAsset(url: result).loadTracks(withMediaType: .video).first)
         #expect(try await track.load(.naturalSize) == CGSize(width: 80, height: 48))
         #expect(try await run(.videoResize, preset: "1080p", on: result) == .skipped(.noUpscale))
+    }
+
+    @Test func resizeKeepsHEVCAlphaPixels() async throws {
+        let url = try await transparentVideo()
+        let input = try await MediaInput.open(url)
+        #expect(input.video?.hasAlpha == true)
+        let result = try output(try await run(.videoResize, preset: "percent-50", on: url))
+        #expect(result.pathExtension == "mov")
+        try await expectTransparentVideo(result, width: 32)
+    }
+
+    @Test func alphaConversionToMP4FailsBeforeReplacement() async throws {
+        let url = try await transparentVideo()
+        let original = try Data(contentsOf: url)
+        #expect(try await run(.videoConvert, preset: "mp4", on: url) == .failed(.videoAlphaUnsupported))
+        #expect(try Data(contentsOf: url) == original)
+    }
+
+    @Test func vp9AlphaRemuxesFromWebMToMatroska() async throws {
+        let url = try await transparentVideo(in: .webm)
+        let result = try output(try await run(.videoConvert, preset: "mkv", on: url))
+        var demuxer = try MatroskaDemuxer(url: result)
+        #expect(demuxer.tracks.first?.hasAlpha == true)
+        #expect(try demuxer.nextPacket()?.additional != nil)
+    }
+
+    @Test func customContainerHEVCAlphaFailsBeforeEncoding() throws {
+        var source = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .hevc)
+        source.hasAlpha = true
+        let input = MediaInput(
+            url: URL(filePath: "/transparent.mkv"), backend: .matroska, video: source, audio: nil,
+            hasMultipleTracks: false, duration: Nanoseconds.perSecond, transform: .identity)
+        for operation in [VideoOperation.resize(.percent(50)), .convert(.mov)] {
+            #expect(throws: EngineError.videoAlphaUnsupported) {
+                try VideoEdits.plan(operation, input: input, source: source, settings: VideoSettings())
+            }
+        }
     }
 
     @Test func convertsToEveryContainerThatHoldsTheStreams() async throws {
