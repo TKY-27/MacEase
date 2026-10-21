@@ -28,7 +28,13 @@ final class JobCenter {
         let summary: BatchSummary
     }
 
+    private struct RunningJob {
+        let cancel: @MainActor () -> Void
+        let waitForCompletion: @MainActor () async -> Void
+    }
+
     private static let recentCount = 10
+    private static let terminationCleanupTimeout: TimeInterval = 5
 
     private(set) var active: [ActiveBatch] = []
     private(set) var recent: [BatchRecord] = []
@@ -39,7 +45,7 @@ final class JobCenter {
     @ObservationIgnored let engine: JobEngine
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let notifier: BatchNotifier
-    @ObservationIgnored private var cancellers: [UUID: @MainActor () -> Void] = [:]
+    @ObservationIgnored private var runningJobs: [UUID: RunningJob] = [:]
     @ObservationIgnored var presentReport: ((String, OperationID) -> Void)?
     @ObservationIgnored var presentPanel: ((MenuEntry, [URL]) -> Void)?
     /// `false` when no panel can answer it.
@@ -136,7 +142,7 @@ final class JobCenter {
             self.finish(outcome, request: request, activeID: id)
             return outcome
         }
-        cancellers[id] = task.cancel
+        runningJobs[id] = RunningJob(cancel: task.cancel, waitForCompletion: { _ = await task.value })
         return task
     }
 
@@ -156,7 +162,7 @@ final class JobCenter {
             self.active[index].progress = max(self.active[index].progress, fraction)
         }
         let task = Task.detached { try work(reporter.report) }
-        cancellers[id] = task.cancel
+        runningJobs[id] = RunningJob(cancel: task.cancel, waitForCompletion: { _ = await task.result })
         defer {
             forget(id)
             onScanEnd?(id)
@@ -168,7 +174,7 @@ final class JobCenter {
     }
 
     func cancel(_ id: UUID) {
-        cancellers[id]?()
+        runningJobs[id]?.cancel()
     }
 
     func canUndo(_ id: UUID) -> Bool {
@@ -177,14 +183,42 @@ final class JobCenter {
 
     func prepareForTermination() async throws {
         terminating = true
-        for cancel in cancellers.values { cancel() }
+        let pendingJobs = Array(runningJobs.values)
+        for job in pendingJobs { job.cancel() }
         let pendingUndos = Array(undoTasks.values)
+        await waitForCleanup(of: pendingJobs)
         for task in pendingUndos { await task.value }
         do {
             try await engine.prepareForTermination()
         } catch {
             terminating = false
             throw error
+        }
+    }
+
+    private func waitForCleanup(of jobs: [RunningJob]) async {
+        guard !jobs.isEmpty else { return }
+        let completion = AsyncStream<Bool>.makeStream()
+        let waiter = Task {
+            for job in jobs { await job.waitForCompletion() }
+            completion.continuation.yield(true)
+            completion.continuation.finish()
+        }
+        let timeout = DispatchWorkItem {
+            completion.continuation.yield(false)
+            completion.continuation.finish()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.terminationCleanupTimeout, execute: timeout)
+        defer {
+            waiter.cancel()
+            timeout.cancel()
+            completion.continuation.finish()
+        }
+        for await finished in completion.stream {
+            if !finished {
+                logger.warning("Job cleanup timed out during termination; remaining staging will be retried at launch")
+            }
+            break
         }
     }
 
@@ -256,7 +290,7 @@ final class JobCenter {
     }
 
     private func forget(_ id: UUID) {
-        cancellers[id] = nil
+        runningJobs[id] = nil
         active.removeAll { $0.id == id }
     }
 

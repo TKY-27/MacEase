@@ -95,7 +95,7 @@ public final class JobEngine: Sendable {
             for (index, workItem) in batch.items.enumerated() {
                 group.addTask {
                     let context = ItemContext(settings: settings, staging: self.staging) { fraction in
-                        progress(tracker.update(index, fraction: fraction))
+                        tracker.update(index, fraction: fraction, report: progress)
                     }
                     let (outcome, text) = await self.perform(workItem, of: batch, context: context, tracker: tracker)
                     context.progress(1)
@@ -310,13 +310,15 @@ private final class BatchTracker: Sendable {
         fractions = Mutex([Double](repeating: 0, count: itemCount))
     }
 
-    func update(_ index: Int, fraction: Double) -> BatchProgress {
+    /// Reporting under the lock keeps order.
+    func update(_ index: Int, fraction: Double, report: (BatchProgress) -> Void) {
         fractions.withLock { values in
             values[index] = fraction
-            return BatchProgress(
-                fraction: values.reduce(0, +) / Double(values.count),
-                completedItems: values.count { $0 >= 1 },
-                currentItem: values.firstIndex { $0 > 0 && $0 < 1 } ?? values.firstIndex { $0 < 1 })
+            report(
+                BatchProgress(
+                    fraction: values.reduce(0, +) / Double(values.count),
+                    completedItems: values.count { $0 >= 1 },
+                    currentItem: values.firstIndex { $0 > 0 && $0 < 1 } ?? values.firstIndex { $0 < 1 }))
         }
     }
 

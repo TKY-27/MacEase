@@ -4,8 +4,14 @@ import os
 
 /// Registry lets a crash be cleaned later.
 public final class StagingArea: Sendable {
+    private struct Paths {
+        var live: Set<String> = []
+        var tracked: Set<String> = []
+        var registryLoaded = false
+    }
+
     private let registry: URL
-    private let live = Mutex<Set<String>>([])
+    private let paths = Mutex(Paths())
     private let logger = Logger(category: "staging")
 
     public init(supportDirectory: URL) {
@@ -13,48 +19,71 @@ public final class StagingArea: Sendable {
     }
 
     func makeDirectory(for original: URL) throws -> URL {
-        let directory = try FileManager.default.url(
-            for: .itemReplacementDirectory,
-            in: .userDomainMask,
-            appropriateFor: original,
-            create: true
-        )
-        try live.withLock { paths in
-            paths.insert(directory.path)
-            try persist(paths)
+        try paths.withLock { paths in
+            try loadRegistry(into: &paths)
+            let directory = try FileManager.default.url(
+                for: .itemReplacementDirectory,
+                in: .userDomainMask,
+                appropriateFor: original,
+                create: true
+            )
+            let tracked = paths.tracked.union([directory.path])
+            do {
+                try persist(tracked)
+            } catch {
+                if !delete(directory) { paths.tracked.insert(directory.path) }
+                throw error
+            }
+            paths.tracked = tracked
+            paths.live.insert(directory.path)
+            return directory
         }
-        return directory
     }
 
     func remove(_ directory: URL) {
-        delete(directory)
-        live.withLock { paths in
-            paths.remove(directory.path)
-            persistLogging(paths)
+        paths.withLock { paths in
+            guard paths.tracked.contains(directory.path) else { return }
+            if delete(directory) { paths.tracked.remove(directory.path) }
+            paths.live.remove(directory.path)
+            persistLogging(paths.tracked)
         }
     }
 
     /// Removes directories left by a previous run.
     public func removeStale() {
-        guard FileManager.default.fileExists(atPath: registry.path) else { return }
-        let stale: [String]
+        paths.withLock { paths in
+            do {
+                try loadRegistry(into: &paths)
+            } catch {
+                logger.error(
+                    "Staging registry unreadable at \(self.registry.path, privacy: .private): \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                )
+                return
+            }
+            guard !paths.tracked.isEmpty else { return }
+            for path in paths.tracked.subtracting(paths.live) {
+                let directory = URL(fileURLWithPath: path, isDirectory: true)
+                guard Self.isItemReplacementDirectory(directory) else {
+                    logger.error("Skipped a registry entry that is not a staging directory")
+                    paths.tracked.remove(path)
+                    continue
+                }
+                if delete(directory) { paths.tracked.remove(path) }
+            }
+            persistLogging(paths.tracked)
+        }
+    }
+
+    private func loadRegistry(into paths: inout Paths) throws {
+        guard !paths.registryLoaded else { return }
         do {
-            stale = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
-        } catch {
-            logger.error(
-                "Staging registry unreadable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
-            )
+            let stale = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
+            paths.tracked.formUnion(stale)
+        } catch CocoaError.fileReadNoSuchFile {
+            paths.registryLoaded = true
             return
         }
-        for path in stale {
-            let directory = URL(fileURLWithPath: path, isDirectory: true)
-            guard Self.isItemReplacementDirectory(directory) else {
-                logger.error("Skipped a registry entry that is not a staging directory")
-                continue
-            }
-            delete(directory)
-        }
-        live.withLock { persistLogging($0) }
+        paths.registryLoaded = true
     }
 
     static func isItemReplacementDirectory(_ url: URL) -> Bool {
@@ -62,15 +91,17 @@ public final class StagingArea: Sendable {
             && url.deletingLastPathComponent().lastPathComponent == "TemporaryItems"
     }
 
-    private func delete(_ directory: URL) {
+    private func delete(_ directory: URL) -> Bool {
         do {
             try FileManager.default.removeItem(at: directory)
-        } catch CocoaError.fileNoSuchFile {
-            return
+            return true
+        } catch CocoaError.fileNoSuchFile where !FileManager.default.fileExists(atPath: directory.path) {
+            return true
         } catch {
             logger.error(
-                "Staging removal failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                "Staging removal failed at \(directory.path, privacy: .private): \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
+            return false
         }
     }
 
@@ -83,7 +114,7 @@ public final class StagingArea: Sendable {
             try persist(paths)
         } catch {
             logger.error(
-                "Staging registry write failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                "Staging registry write failed at \(self.registry.path, privacy: .private): \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
         }
     }

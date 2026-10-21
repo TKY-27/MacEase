@@ -229,6 +229,10 @@ where `destination` is the resolved output location. Staging is on that volume
 and outside the user's folder (so cloud-synced
 folders never see partial files). Staging is removed on success, failure and
 cancel. Stale staging directories from a crash are removed at host launch.
+Failed removals remain registered for later sweeps and launches; only successful
+removal or confirmed absence clears a staging path. Sweeps never remove live staging.
+An unreadable registry blocks new staging until it can be loaded, preserving
+existing recovery records.
 
 **Verification before commit.** The output must be non-empty and must open with
 the decoder for its type (ImageIO source with at least one image, AVAsset with
@@ -386,9 +390,11 @@ confirmation in an alert.
 - Replace and removal records are saved without throttling before the commit
   gate is released. Other records may be coalesced for up to one second and
   are flushed at batch completion. Failed saves remain dirty for retry.
-- Normal application termination stops new requests, cancels pending work and
-  waits for accepted undo requests. An engine termination barrier then waits
-  for the current commit and its record, seals further commits and undo, and
+- Normal application termination stops new requests, snapshots and cancels pending
+  jobs, and waits asynchronously up to five seconds for their cleanup. A timeout
+  is logged; remaining staging stays registered for launch recovery. Accepted
+  undo requests still finish without this timeout. An engine termination barrier
+  then waits for the current commit and its record, seals further commits and undo, and
   flushes history. AppKit defers termination until this completes off the main
   actor. A flush failure cancels termination and allows a retry. Forced process
   termination and crashes cannot provide this orderly shutdown guarantee.
@@ -1553,6 +1559,10 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Retain failed staging removals for later recovery and wait up to
+  five seconds for cancelled jobs during normal quit, while preserving accepted
+  undo requests and the history termination barrier (ADR 0017).
 
 - 2026-10-21: Replace TOMLKit with vendored toml++ 3.4.0 behind an owned C
   bridge, preserving typed mappings and limits while releasing conversion
