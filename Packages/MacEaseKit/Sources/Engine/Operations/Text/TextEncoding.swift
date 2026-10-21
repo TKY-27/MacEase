@@ -10,8 +10,6 @@ public enum TextEncoding {
     private static let utf16BigEndianBOM: [UInt8] = [0xFE, 0xFF]
     private static let carriageReturn: UInt8 = 0x0D
     private static let lineFeed: UInt8 = 0x0A
-    private static let byteWidth: UInt16 = 8
-    private static let lowByteMask: UInt16 = 0xFF
     private static let legacyCandidates: [SourceTextEncoding] = [.cp932, .eucJP]
 
     struct Decoded {
@@ -44,7 +42,7 @@ public enum TextEncoding {
         switch target {
         case .utf8: return (Data(text.utf8), .utf8, false)
         case .utf8BOM: return (Data(utf8BOM + text.utf8), .utf8, false)
-        case .utf16: return (Data(utf16LittleEndianBOM + bytes(of: Array(text.utf16), bigEndian: false)), .utf16, false)
+        case .utf16: return (utf16Data(text.utf16, bigEndian: false), .utf16, false)
         case .shiftJIS:
             let result = try cp932Data(text, unmappable: unmappable, substitute: substitute)
             return (result.data, cp932, result.replaced)
@@ -57,16 +55,17 @@ public enum TextEncoding {
         to ending: LineEnding
     ) throws -> (data: Data, encoding: String.Encoding) {
         let decoded = try decodingAmbiguous(data)
+        let encoding = decoded.source.foundation
         let endingBytes = ending == .crlf ? [carriageReturn, lineFeed] : [lineFeed]
         switch decoded.source {
         case .utf16LittleEndian, .utf16BigEndian:
-            let bigEndian = decoded.source == .utf16BigEndian
-            let units = Array(decoded.text.utf16)
-            let normalizedUnits = normalized(units, ending: endingBytes.map(UInt16.init))
-            let bom = bigEndian ? utf16BigEndianBOM : utf16LittleEndianBOM
-            return (Data(bom + bytes(of: normalizedUnits, bigEndian: bigEndian)), decoded.source.foundation)
+            let units: [UInt16] = normalized(decoded.text.utf16, ending: endingBytes.map(UInt16.init))
+            return (utf16Data(units, bigEndian: decoded.source == .utf16BigEndian), encoding)
         case .utf8, .cp932, .eucJP:
-            return (Data(normalized(Array(data), ending: endingBytes)), decoded.source.foundation)
+            // Frees the decoded text before copying.
+            _ = consume decoded
+            let bytes: [UInt8] = normalized(data, ending: endingBytes)
+            return (Data(bytes), encoding)
         }
     }
 
@@ -135,31 +134,41 @@ public enum TextEncoding {
         return (data, replaced)
     }
 
-    private static func normalized<Unit: FixedWidthInteger>(_ units: [Unit], ending: [Unit]) -> [Unit] {
-        let carriageReturn = Unit(Self.carriageReturn)
-        let lineFeed = Unit(Self.lineFeed)
-        var result: [Unit] = []
-        result.reserveCapacity(units.count)
-        var index = 0
-        while index < units.count {
-            let unit = units[index]
+    private static func normalized<Output: RangeReplaceableCollection>(
+        _ units: some Collection<Output.Element>, ending: [Output.Element]
+    ) -> Output where Output.Element: FixedWidthInteger {
+        let carriageReturn = Output.Element(Self.carriageReturn)
+        let lineFeed = Output.Element(Self.lineFeed)
+        var result = Output()
+        // Untouched capacity stays virtual; regrowth copies everything.
+        result.reserveCapacity(units.count * ending.count)
+        var afterCarriageReturn = false
+        for unit in units {
+            defer { afterCarriageReturn = unit == carriageReturn }
+            if unit == lineFeed, afterCarriageReturn { continue }
             if unit == carriageReturn || unit == lineFeed {
-                result += ending
-                if unit == carriageReturn, index + 1 < units.count, units[index + 1] == lineFeed { index += 1 }
+                result.append(contentsOf: ending)
             } else {
                 result.append(unit)
             }
-            index += 1
         }
         return result
     }
 
-    private static func bytes(of units: [UInt16], bigEndian: Bool) -> [UInt8] {
-        units.flatMap { unit in
-            let high = UInt8(unit >> byteWidth)
-            let low = UInt8(unit & lowByteMask)
-            return bigEndian ? [high, low] : [low, high]
+    private static func utf16Data(_ units: some Collection<UInt16>, bigEndian: Bool) -> Data {
+        let bom = bigEndian ? utf16BigEndianBOM : utf16LittleEndianBOM
+        let unitBytes = MemoryLayout<UInt16>.size
+        var output = Data(count: bom.count + units.count * unitBytes)
+        output.withUnsafeMutableBytes { buffer in
+            buffer.copyBytes(from: bom)
+            var offset = bom.count
+            for unit in units {
+                buffer.storeBytes(
+                    of: bigEndian ? unit.bigEndian : unit.littleEndian, toByteOffset: offset, as: UInt16.self)
+                offset += unitBytes
+            }
         }
+        return output
     }
 }
 
