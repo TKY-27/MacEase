@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   character, JSON key comparison, order, keys first and list sorting, SVG
   conversion by tracing or embedding a PNG, and PDF page images in a new
   folder or next to the PDF.
+- Text > Convert turns Markdown into HTML or PDF, YAML and TOML into JSON, and
+  JSON into YAML or TOML. Raw HTML and scripts in Markdown are left out, and
+  values that cannot convert exactly stop the conversion with their location.
 
 ### Changed
 

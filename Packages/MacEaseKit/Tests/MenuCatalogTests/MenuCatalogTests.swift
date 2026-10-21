@@ -266,8 +266,13 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 
     private static let textTargets: [(String, Set<String>)] = [
         ("csv", Set(["csv-json", "csv-xml", "csv-html", "csv-md", "txt"])),
-        ("json", Set(["json-csv", "json-xml", "json-plist-xml", "json-plist-binary", "txt"])),
+        (
+            "json",
+            Set(["json-csv", "json-xml", "json-plist-xml", "json-plist-binary", "json-yaml", "json-toml", "txt"])
+        ),
         ("xml", Set(["xml-json", "txt"])),
+        ("md", Set(["md-html", "md-pdf", "txt"])), ("markdown", Set(["md-html", "md-pdf", "txt"])),
+        ("yaml", Set(["yaml-json", "txt"])), ("yml", Set(["yaml-json", "txt"])), ("toml", Set(["toml-json", "txt"])),
         ("html", Set(["html-pdf", "html-txt", "txt"])), ("htm", Set(["html-pdf", "html-txt", "txt"])),
         ("srt", Set(["srt-vtt", "txt"])), ("vtt", Set(["vtt-srt", "txt"])),
         ("cfg", Set(["ini-json", "ini-xml", "txt"])), ("tsv", Set(["txt"])),

@@ -123,7 +123,8 @@ extension OperationID {
         case .textConvert:
             [
                 "csv-json", "csv-xml", "csv-html", "csv-md", "json-csv", "json-xml", "xml-json", "ini-json",
-                "ini-xml", "html-pdf", "html-txt", "json-plist-xml", "json-plist-binary", "srt-vtt", "vtt-srt", "txt",
+                "ini-xml", "html-pdf", "html-txt", "json-plist-xml", "json-plist-binary", "json-yaml", "json-toml",
+                "yaml-json", "toml-json", "md-html", "md-pdf", "srt-vtt", "vtt-srt", "txt",
             ]
         case .documentConvert: ["pdf", "txt"]
         case .plistConvert: ["json"]

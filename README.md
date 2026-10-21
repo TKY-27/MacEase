@@ -39,7 +39,8 @@ entirely on your Mac, and is free and open source under the MIT License.
 - **PDFs:** merge, split, extract pages, rotate, compress, export pages as images
   or text.
 - **Text:** change encoding (UTF-8, UTF-16, Shift_JIS) and line endings, convert
-  between CSV, JSON, XML, HTML, Markdown and INI, pretty-print and sort JSON.
+  between CSV, JSON, XML, HTML, Markdown, INI, YAML and TOML, render Markdown
+  to HTML or PDF, pretty-print and sort JSON.
 - **Apple Intelligence:** describe what you want in plain words, or rename files
   by their content, on supported Macs.
 - **Platform presets:** one click to fit Discord, X, Instagram, LINE, email or

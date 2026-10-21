@@ -45,7 +45,7 @@ enum MenuStrings {
             return String(localized: "menu.preset.image.convert.tga", defaultValue: "TGA")
         case (.pdfToImages, "tiff"):
             return String(localized: "menu.preset.pdf.toImages.tiff", defaultValue: "TIFF")
-        case (.documentConvert, "pdf"), (.textConvert, "html-pdf"):
+        case (.documentConvert, "pdf"), (.textConvert, "html-pdf"), (.textConvert, "md-pdf"):
             return String(localized: "menu.preset.document.convert.pdf", defaultValue: "PDF")
         case (.documentConvert, "txt"):
             return String(localized: "menu.preset.document.convert.txt", defaultValue: "TXT")
@@ -86,16 +86,21 @@ enum MenuStrings {
             return String(localized: "menu.preset.flip.vertical", defaultValue: "Flip Vertical")
         case (.textConvert, "txt"):
             return String(localized: "menu.preset.text.convert.target.txt", defaultValue: "TXT")
-        case (.textConvert, "csv-json"), (.textConvert, "xml-json"), (.textConvert, "ini-json"):
+        case (.textConvert, "csv-json"), (.textConvert, "xml-json"), (.textConvert, "ini-json"),
+            (.textConvert, "yaml-json"), (.textConvert, "toml-json"):
             return String(localized: "menu.preset.text.convert.target.json", defaultValue: "JSON")
         case (.textConvert, "json-csv"):
             return String(localized: "menu.preset.text.convert.target.csv", defaultValue: "CSV")
         case (.textConvert, "csv-xml"), (.textConvert, "json-xml"), (.textConvert, "ini-xml"):
             return String(localized: "menu.preset.text.convert.target.xml", defaultValue: "XML")
-        case (.textConvert, "csv-html"):
+        case (.textConvert, "csv-html"), (.textConvert, "md-html"):
             return String(localized: "menu.preset.text.convert.target.html", defaultValue: "HTML")
         case (.textConvert, "csv-md"):
             return String(localized: "menu.preset.text.convert.target.markdown", defaultValue: "Markdown")
+        case (.textConvert, "json-yaml"):
+            return String(localized: "menu.preset.text.convert.target.yaml", defaultValue: "YAML")
+        case (.textConvert, "json-toml"):
+            return String(localized: "menu.preset.text.convert.target.toml", defaultValue: "TOML")
         case (.anyChecksum, "sha1"): return "SHA-1"
         case (.anyChecksum, "sha512"): return "SHA-512"
         default: break

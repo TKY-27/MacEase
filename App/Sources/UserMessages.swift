@@ -137,6 +137,8 @@ enum UserMessages {
             String(
                 localized:
                     "PSD conversion uses the stored composite image. Layers are not preserved; the original was kept.")
+        case .markdownUnsafeContentOmitted:
+            String(localized: "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.")
         case .pngOptimizationSkipped:
             String(localized: "PNG optimization was skipped to stay within the memory budget.")
         case .unmappableCharactersReplaced:

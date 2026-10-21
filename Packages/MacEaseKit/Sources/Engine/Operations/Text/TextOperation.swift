@@ -47,19 +47,27 @@ public enum TextConversion: String, Codable, CaseIterable, Sendable {
     case jsonToBinaryPlist = "json-plist-binary"
     case srtToVTT = "srt-vtt"
     case vttToSRT = "vtt-srt"
+    case markdownToHTML = "md-html"
+    case markdownToPDF = "md-pdf"
+    case yamlToJSON = "yaml-json"
+    case jsonToYAML = "json-yaml"
+    case tomlToJSON = "toml-json"
+    case jsonToTOML = "json-toml"
 
     var outputExtension: String {
         switch self {
         case .toTXT, .htmlToText: "txt"
-        case .htmlToPDF: "pdf"
+        case .htmlToPDF, .markdownToPDF: "pdf"
         case .jsonToXMLPlist, .jsonToBinaryPlist: "plist"
         case .srtToVTT: "vtt"
         case .vttToSRT: "srt"
-        case .csvToJSON, .xmlToJSON, .iniToJSON: "json"
+        case .csvToJSON, .xmlToJSON, .iniToJSON, .yamlToJSON, .tomlToJSON: "json"
         case .csvToXML, .jsonToXML, .iniToXML: "xml"
-        case .csvToHTML: "html"
+        case .csvToHTML, .markdownToHTML: "html"
         case .csvToMarkdown: "md"
         case .jsonToCSV: "csv"
+        case .jsonToYAML: "yaml"
+        case .jsonToTOML: "toml"
         }
     }
 }
@@ -113,8 +121,12 @@ enum TextPlanner {
         switch operation {
         case .convert(.htmlToPDF, _), .convert(.htmlToText, _),
             .convert(.jsonToXMLPlist, _), .convert(.jsonToBinaryPlist, _),
-            .convert(.srtToVTT, _), .convert(.vttToSRT, _):
+            .convert(.srtToVTT, _), .convert(.vttToSRT, _), .convert(.yamlToJSON, _), .convert(.jsonToYAML, _):
             input = try ConversionInput.read(url)
+        case .convert(.markdownToHTML, _), .convert(.markdownToPDF, _):
+            input = try ConversionInput.read(url, limit: Int64(MarkdownConversion.maximumBytes))
+        case .convert(.tomlToJSON, _), .convert(.jsonToTOML, _):
+            input = try ConversionInput.read(url, limit: Int64(TOMLConversion.maximumBytes))
         default:
             input = try Data(contentsOf: url)
         }
@@ -146,6 +158,23 @@ enum TextPlanner {
                     from: TextEncoding.decode(input, assuming: source).text,
                     format: conversion == .jsonToXMLPlist ? .xml : .binary)
                 check = .plist
+                context.warn(.structuredTextFormattingLost)
+            case .markdownToHTML, .markdownToPDF:
+                let html = try MarkdownConversion.html(TextEncoding.decode(input, assuming: source).text, title: title)
+                context.warn(.markdownUnsafeContentOmitted)
+                if conversion == .markdownToPDF {
+                    bytes = try await HTMLDocument.convert(html, source: url, toPDF: true)
+                    check = .pdf
+                    context.warn(.htmlOfflineContent)
+                } else {
+                    bytes = Data(html.utf8)
+                    check = .text(.utf8)
+                }
+            case .yamlToJSON, .jsonToYAML, .tomlToJSON, .jsonToTOML:
+                let output = try TextConverter.convert(
+                    input, conversion, settings: settings, title: title, source: source)
+                bytes = Data(output.utf8)
+                check = .text(.utf8)
                 context.warn(.structuredTextFormattingLost)
             default:
                 let output = try TextConverter.convert(

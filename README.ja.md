@@ -22,7 +22,7 @@ macOS標準のクイックアクションでも一部はできますが、対応
 - **フォルダ:** 重複ファイル・空フォルダの削除、ツリー出力、一括リネーム、容量の分析、ZIP・7z・TAR・tar.gzへの圧縮
 - **アーカイブ:** ZIP・7z・TAR・gz・bz2・xz・RARの展開
 - **PDF:** 結合、分割、ページ抽出、回転、圧縮、画像やテキストへの書き出し
-- **テキスト:** 文字コード(UTF-8・UTF-16・Shift_JIS)と改行コードの変更、CSV・JSON・XML・HTML・Markdown・INIの相互変換、JSONの整形とキーのソート
+- **テキスト:** 文字コード(UTF-8・UTF-16・Shift_JIS)と改行コードの変更、CSV・JSON・XML・HTML・Markdown・INI・YAML・TOMLの相互変換、MarkdownからHTML・PDFへの書き出し、JSONの整形とキーのソート
 - **Apple Intelligence:** やりたいことを言葉で指定したり、中身に応じてファイル名を付けたりできます(対応するMacのみ)
 - **プラットフォーム別プリセット:** Discord・X・Instagram・LINE・メール・Web向けにワンクリックで最適化。プリセットは編集できます
 

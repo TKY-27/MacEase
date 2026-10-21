@@ -21,7 +21,9 @@ import Testing
 
     @Test(arguments: [
         ("html", "html-pdf"), ("htm", "html-txt"), ("json", "json-plist-xml"),
-        ("json", "json-plist-binary"), ("srt", "srt-vtt"), ("vtt", "vtt-srt"),
+        ("json", "json-plist-binary"), ("srt", "srt-vtt"), ("vtt", "vtt-srt"), ("md", "md-html"),
+        ("markdown", "md-pdf"), ("yaml", "yaml-json"), ("yml", "yaml-json"), ("json", "json-yaml"),
+        ("toml", "toml-json"), ("json", "json-toml"),
     ])
     func textLeavesRequireTheirSource(suffix: String, preset: String) throws {
         let source = URL(fileURLWithPath: "/samples/source.\(suffix)")

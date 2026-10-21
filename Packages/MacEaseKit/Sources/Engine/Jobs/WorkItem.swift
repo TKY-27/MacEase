@@ -106,6 +106,7 @@ public enum ItemWarning: Equatable, Sendable {
     case documentLayoutChanged
     case htmlOfflineContent
     case structuredTextFormattingLost
+    case markdownUnsafeContentOmitted
 }
 
 public final class ItemContext: Sendable {
