@@ -45,6 +45,10 @@ public struct AVIDemuxer: MediaDemuxer {
                 let childSize = Int64(try uint32(at: child + 4))
                 let childEnd = childSize == 0 && childID == "LIST" ? end : min(child + 8 + childSize, end)
                 if childID == "LIST" {
+                    guard child + 12 <= childEnd else {
+                        throw FormatError.corrupt(
+                            String(localized: "Truncated AVI list type", comment: "Rejects incomplete LIST chunks"))
+                    }
                     let listType = try fourCC(at: child + 8)
                     if listType == "hdrl" { try parseHeaderList(child + 12, childEnd) }
                     if listType == "movi" { segments.append((child + 12)..<childEnd) }
@@ -187,7 +191,7 @@ public struct AVIDemuxer: MediaDemuxer {
             let base = entry * AVI.legacyIndexEntrySize
             let id = String(decoding: entries[base..<(base + 4)], as: UTF8.self)
             guard let stream = Self.streamNumber(id) else { continue }
-            guard stream < streams.count else { throw FormatError.corrupt("idx1 names a missing stream") }
+            guard streams.indices.contains(stream) else { throw FormatError.corrupt("idx1 names a missing stream") }
             let flags = UInt32(littleEndian: entries, at: base + 4)
             streams[stream].keyframes.append(flags & AVI.keyframeFlag != 0)
         }
@@ -220,10 +224,13 @@ public struct AVIDemuxer: MediaDemuxer {
     }
 
     static func streamNumber(_ id: String) -> Int? {
-        let digits = id.prefix(2)
+        let digits = id.utf8.prefix(2)
         let kind = id.suffix(2)
-        guard ["dc", "db", "wb", "pc"].contains(kind) else { return nil }
-        return Int(digits)
+        let decimalDigits = UInt8(ascii: "0")...UInt8(ascii: "9")
+        guard id.utf8.count == 4, digits.allSatisfy({ decimalDigits.contains($0) }),
+            ["dc", "db", "wb", "pc"].contains(kind)
+        else { return nil }
+        return Int(String(decoding: digits, as: UTF8.self))
     }
 
     public mutating func nextPacket() throws -> MediaPacket? {
@@ -248,7 +255,7 @@ public struct AVIDemuxer: MediaDemuxer {
             let dataStart = position + 8
             position = dataStart + size + size % 2
             guard dataStart + size <= file.size else { throw FormatError.corrupt("truncated AVI chunk") }
-            guard let stream = Self.streamNumber(id), stream < streams.count else { continue }
+            guard let stream = Self.streamNumber(id), streams.indices.contains(stream) else { continue }
             guard size <= Self.maximumMediaChunk else { throw FormatError.corrupt("oversized AVI chunk") }
             guard let track = tracks.first(where: { $0.number == stream + 1 }) else { continue }
             let payload = Data(try file.bytes(at: dataStart, count: Int(size)))

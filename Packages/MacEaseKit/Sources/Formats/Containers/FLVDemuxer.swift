@@ -5,6 +5,7 @@ public struct FLVDemuxer: MediaDemuxer {
     private static let probeTags = 2_000
     private static let encryptedBit: UInt8 = 0x20
     private static let enhancedVideoBit: UInt8 = 0x80
+    private static let previousTagSizeLength = MemoryLayout<UInt32>.size
 
     public private(set) var tracks: [MediaTrack] = []
     public private(set) var duration: Int64?
@@ -21,12 +22,14 @@ public struct FLVDemuxer: MediaDemuxer {
 
     public init(url: URL) throws {
         file = try RandomAccessFile(url: url)
-        guard file.size >= Int64(FLV.fileHeaderSize + 4) else { throw FormatError.corrupt("not an FLV file") }
+        guard file.size >= Int64(FLV.fileHeaderSize + Self.previousTagSizeLength) else {
+            throw FormatError.corrupt("not an FLV file")
+        }
         let header = try file.bytes(at: 0, count: FLV.fileHeaderSize)
         guard header[0..<3].elementsEqual("FLV".utf8), header[3] == 1 else {
             throw FormatError.corrupt("not an FLV file")
         }
-        firstTag = Int64(UInt32(bigEndian: header, at: 5)) + 4
+        firstTag = Int64(UInt32(bigEndian: header, at: 5)) + Int64(Self.previousTagSizeLength)
         position = firstTag
         try probe()
         position = firstTag
@@ -108,8 +111,9 @@ public struct FLVDemuxer: MediaDemuxer {
         let size = Int(header[1]) << 16 | Int(header[2]) << 8 | Int(header[3])
         let timestamp = Int64(header[7]) << 24 | Int64(header[4]) << 16 | Int64(header[5]) << 8 | Int64(header[6])
         let bodyStart = position + Int64(FLV.tagHeaderSize)
-        guard bodyStart + Int64(size) <= file.size else { throw FormatError.corrupt("truncated FLV tag") }
-        position = bodyStart + Int64(size) + 4
+        let tagEnd = bodyStart + Int64(size) + Int64(Self.previousTagSizeLength)
+        guard tagEnd <= file.size else { throw FormatError.corrupt("truncated FLV tag") }
+        position = tagEnd
         return Tag(type: header[0] & 0x1F, timestamp: timestamp, body: try file.bytes(at: bodyStart, count: size))
     }
 
