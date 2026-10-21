@@ -9,15 +9,20 @@ final class RequestRouter {
     private let jobs: JobCenter
     private let menuFile: () -> MenuFile?
     private let notifier: BatchNotifier
+    private let openApp: () -> Void
     private let logger = Logger(category: "requests")
+    /// The extension's Open MacEase fallback.
+    private static let openHost = "open"
 
     init(
-        configuration: HostConfiguration, jobs: JobCenter, notifier: BatchNotifier, menuFile: @escaping () -> MenuFile?
+        configuration: HostConfiguration, jobs: JobCenter, notifier: BatchNotifier,
+        menuFile: @escaping () -> MenuFile?, openApp: @escaping () -> Void
     ) {
         self.configuration = configuration
         self.jobs = jobs
         self.notifier = notifier
         self.menuFile = menuFile
+        self.openApp = openApp
     }
 
     func route(_ url: URL) {
@@ -25,6 +30,9 @@ final class RequestRouter {
         do {
             request = try RunRequest(url: url, scheme: configuration.urlScheme)
         } catch .notARunRequest {
+            if url.scheme?.lowercased() == configuration.urlScheme.lowercased(), url.host() == Self.openHost {
+                openApp()
+            }
             return
         } catch {
             let failure = error as NSError

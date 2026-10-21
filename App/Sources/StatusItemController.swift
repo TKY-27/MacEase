@@ -1,5 +1,6 @@
 import AppKit
 import Engine
+import FinderSync
 import MenuCatalog
 import SwiftUI
 
@@ -79,6 +80,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if !FIFinderSyncController.isExtensionEnabled {
+            menu.addItem(
+                ClosureMenuItem(title: String(localized: "Turn On Finder Extension…", comment: "Menu bar item")) {
+                    FIFinderSyncController.showExtensionManagementInterface()
+                })
+            menu.addItem(.separator())
+        }
         if !jobs.active.isEmpty {
             menu.addItem(
                 ClosureMenuItem(title: String(localized: "Show Progress", comment: "Menu bar item")) {
