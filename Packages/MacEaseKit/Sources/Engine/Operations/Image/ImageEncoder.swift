@@ -365,15 +365,24 @@ enum ImageEncoder {
         guard let consumer = CGDataConsumer(data: data as CFMutableData),
             let context = CGContext(consumer: consumer, mediaBox: nil, nil)
         else { throw EngineError.encodeFailed("PDF context") }
-        for (page, pixelsPerInch) in pages {
-            let scale = pointsPerInch / max(pixelsPerInch, 1)
-            var box = CGRect(x: 0, y: 0, width: Double(page.width) * scale, height: Double(page.height) * scale)
-            context.beginPage(mediaBox: &box)
-            context.interpolationQuality = .high
-            context.draw(page, in: box)
-            context.endPage()
-        }
+        for (page, pixelsPerInch) in pages { addPDFPage(page, pixelsPerInch: pixelsPerInch, to: context) }
         context.closePDF()
         return data as Data
+    }
+
+    static func pdfContext(writingTo url: URL) throws -> CGContext {
+        guard let context = CGContext(url as CFURL, mediaBox: nil, nil) else {
+            throw EngineError.encodeFailed("PDF context")
+        }
+        return context
+    }
+
+    static func addPDFPage(_ page: CGImage, pixelsPerInch: Double, to context: CGContext) {
+        let scale = pointsPerInch / max(pixelsPerInch, 1)
+        var box = CGRect(x: 0, y: 0, width: Double(page.width) * scale, height: Double(page.height) * scale)
+        context.beginPage(mediaBox: &box)
+        context.interpolationQuality = .high
+        context.draw(page, in: box)
+        context.endPage()
     }
 }
