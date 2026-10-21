@@ -3,6 +3,7 @@ import Foundation
 
 enum EncodedImageInput {
     static let maximumBytes = ImageMemoryLimits.encodedBytes
+    private static let blockBytes = 64 * 1024
 
     static func read(_ url: URL) throws -> Data {
         try Task.checkCancellation()
@@ -15,8 +16,8 @@ enum EncodedImageInput {
         do {
             while payload.count <= maximumBytes {
                 try Task.checkCancellation()
-                let requested = Int(maximumBytes) + 1 - payload.count
-                guard let chunk = try reader.read(upToCount: requested), !chunk.isEmpty else { break }
+                let requested = min(blockBytes, Int(maximumBytes) + 1 - payload.count)
+                guard let chunk = try reader.readChunk(upToCount: requested), !chunk.isEmpty else { break }
                 payload.append(chunk)
             }
         } catch {

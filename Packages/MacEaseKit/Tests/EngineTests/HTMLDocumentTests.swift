@@ -27,6 +27,7 @@ import Testing
 
     @Test func loadsLocalStylesButBlocksExternalStyles() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseHTML-\(UUID().uuidString)")
+        TestTemporaryFolders.register(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(".local { display:none }".utf8).write(to: directory.appending(path: "style.css"))
         let html = """
@@ -42,6 +43,7 @@ import Testing
 
     @Test func rejectsLocalResourcesOutsideSourceFolder() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseHTML-\(UUID().uuidString)")
+        TestTemporaryFolders.register(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(
             at: directory.appending(path: "outside.css"), withDestinationURL: URL(fileURLWithPath: "/etc/passwd"))

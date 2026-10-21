@@ -7,6 +7,7 @@ import Testing
 @Suite struct ArchiveExtractorTests {
     private func temporaryFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appending(path: "archive-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let resolved = try #require(realpath(folder.path, nil))
         defer { free(resolved) }

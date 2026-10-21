@@ -69,6 +69,7 @@ import Testing
 
     @Test func webPRejectsCompressedOutputOverItsBudget() throws {
         let output = FileManager.default.temporaryDirectory.appending(path: "stream-\(UUID().uuidString).webp")
+        TestTemporaryFolders.register(output)
         let encoder = try WebPAnimationEncoder.Stream(
             width: Self.side, height: Self.side, quality: 100, loops: false, maximumEncodedBytes: 1)
         try encoder.add(pixels(transparent: false).makeCGImage(), duration: 1 / Self.framesPerSecond)

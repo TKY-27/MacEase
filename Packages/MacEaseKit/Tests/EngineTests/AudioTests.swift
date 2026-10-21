@@ -27,6 +27,7 @@ private func run(_ op: OperationID, _ operation: AudioOperation, on input: URL, 
     var settings = settings
     settings.outputMode = .replace
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+    TestTemporaryFolders.register(support)
     let engine = try JobEngine(supportDirectory: support, concurrency: 2)
     let batch = OperationPlanner.batch(
         for: OperationRequest(op: op, options: .audio(operation), inputs: [input]), settings: settings)
@@ -393,6 +394,7 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
     @Test func undoRestoresTheOriginal() async throws {
         let input = try await source("undo.wav", format: .wav)
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         var settings = Settings()
         settings.outputMode = .replace

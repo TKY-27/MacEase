@@ -132,6 +132,7 @@ enum ImageFixtures {
 
     static func engine() throws -> JobEngine {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         return try JobEngine(supportDirectory: support, concurrency: 2)
     }
 

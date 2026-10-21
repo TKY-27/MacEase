@@ -18,6 +18,7 @@ import Testing
     private func run(_ op: OperationID, preset: String, on url: URL) async throws -> URL {
         let options = try #require(OperationPlanner.options(for: op, preset: preset, settings: Settings()))
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let batch = OperationPlanner.batch(
             for: OperationRequest(op: op, options: options, inputs: [url]), settings: Settings())

@@ -6,6 +6,7 @@ import Testing
 @Suite struct ArchiveListingTests {
     @Test func acceptsARealZipAndRejectsGarbage() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "archive-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         let content = folder.appending(path: "content")
         try FileManager.default.createDirectory(at: content, withIntermediateDirectories: true)
         try Data("hello".utf8).write(to: content.appending(path: "a.txt"))

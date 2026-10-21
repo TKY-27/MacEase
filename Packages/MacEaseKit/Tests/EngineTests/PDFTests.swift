@@ -19,6 +19,7 @@ private func runPDF(
     var settings = settings
     settings.outputMode = .replace
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEasePDFSupport-\(UUID().uuidString)")
+    TestTemporaryFolders.register(support)
     let engine = try JobEngine(supportDirectory: support, concurrency: 2)
     let request = OperationRequest(op: op, options: .pdf(operation), inputs: inputs)
     return await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) { _ in }

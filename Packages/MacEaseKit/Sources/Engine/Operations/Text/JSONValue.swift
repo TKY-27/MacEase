@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 typealias JSONMembers = [(key: String, value: JSONValue)]
@@ -106,7 +107,7 @@ enum JSONValue {
         return .orderedSame
     }
 
-    private func write(indent: String?, level: Int, append: (String) throws -> Void) rethrows {
+    fileprivate func write(indent: String?, level: Int, append: (String) throws -> Void) rethrows {
         switch self {
         case .object(let members):
             guard !members.isEmpty else {
@@ -175,15 +176,43 @@ enum JSONValue {
 }
 
 enum JSONFormatter {
-    static func format(_ text: String, _ formatting: JSONFormatting, settings: TextSettings) throws -> String {
+    private static let outputChunkBytes = 64 * 1024
+
+    static func write(_ text: String, _ formatting: JSONFormatting, settings: TextSettings, to destination: URL) throws
+    {
         let value = try JSONParser.parse(text)
-        switch formatting {
-        case .pretty: return value.serialized(indent: settings.jsonIndent.unit) + "\n"
-        case .minify: return value.serialized(indent: nil)
-        case .sortKeys:
-            let sorted = value.sortingKeys(settings: settings, recursive: settings.keySortScope == .recursive)
-            return sorted.serialized(indent: settings.jsonIndent.unit) + "\n"
+        let output =
+            formatting == .sortKeys
+            ? value.sortingKeys(settings: settings, recursive: settings.keySortScope == .recursive) : value
+        let indentation = formatting == .minify ? nil : settings.jsonIndent.unit
+        try Task.checkCancellation()
+
+        let descriptor = Darwin.open(destination.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var buffer = Data()
+        buffer.reserveCapacity(outputChunkBytes)
+        try output.write(indent: indentation, level: 0) { fragment in
+            var utf8Fragment = fragment
+            try utf8Fragment.withUTF8 { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    try Task.checkCancellation()
+                    let count = min(outputChunkBytes - buffer.count, bytes.count - offset)
+                    buffer.append(contentsOf: bytes[offset..<(offset + count)])
+                    offset += count
+                    if buffer.count == outputChunkBytes {
+                        try file.write(contentsOf: buffer)
+                        buffer.removeAll(keepingCapacity: true)
+                    }
+                }
+            }
         }
+        if formatting != .minify { buffer.append(UInt8(ascii: "\n")) }
+        try Task.checkCancellation()
+        if !buffer.isEmpty { try file.write(contentsOf: buffer) }
+        try file.close()
+
     }
 }
 

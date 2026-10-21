@@ -7,12 +7,14 @@ import Testing
 @Suite(.serialized) struct TextClassificationTests {
     private func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "MacEaseTextInput-\(UUID().uuidString)")
+        TestTemporaryFolders.register(url)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     private func convert(_ conversion: TextConversion, source: URL) async throws -> BatchOutcome {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseTextSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let settings = Settings()
         let request = OperationRequest(op: .textConvert, options: .text(.convert(conversion)), inputs: [source])

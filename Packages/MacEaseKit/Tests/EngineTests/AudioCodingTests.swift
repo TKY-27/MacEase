@@ -26,6 +26,7 @@ enum AudioSignals {
 
     static func temporaryFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseAudio-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }

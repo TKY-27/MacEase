@@ -37,44 +37,16 @@ public enum TextEncoding {
         _ text: String,
         as target: TextEncodingTarget,
         unmappable: UnmappablePolicy,
-        substitute: String = "?"
+        substitute: String = "?",
+        startingLine: Int = 1
     ) throws -> (data: Data, encoding: String.Encoding, replaced: Bool) {
         switch target {
         case .utf8: return (Data(text.utf8), .utf8, false)
         case .utf8BOM: return (Data(utf8BOM + text.utf8), .utf8, false)
         case .utf16: return (utf16Data(text.utf16, bigEndian: false), .utf16, false)
         case .shiftJIS:
-            let result = try cp932Data(text, unmappable: unmappable, substitute: substitute)
+            let result = try cp932Data(text, unmappable: unmappable, substitute: substitute, startingLine: startingLine)
             return (result.data, cp932, result.replaced)
-        }
-    }
-
-    /// Multibyte units never contain CR or LF.
-    static func normalizingLineEndings(
-        _ data: Data,
-        to ending: LineEnding
-    ) throws -> (data: Data, encoding: String.Encoding) {
-        let decoded = try decodingAmbiguous(data)
-        let encoding = decoded.source.foundation
-        let endingBytes = ending == .crlf ? [carriageReturn, lineFeed] : [lineFeed]
-        switch decoded.source {
-        case .utf16LittleEndian, .utf16BigEndian:
-            let units: [UInt16] = normalized(decoded.text.utf16, ending: endingBytes.map(UInt16.init))
-            return (utf16Data(units, bigEndian: decoded.source == .utf16BigEndian), encoding)
-        case .utf8, .cp932, .eucJP:
-            // Frees the decoded text before copying.
-            _ = consume decoded
-            let bytes: [UInt8] = normalized(data, ending: endingBytes)
-            return (Data(bytes), encoding)
-        }
-    }
-
-    /// Kept bytes make ambiguity harmless.
-    private static func decodingAmbiguous(_ data: Data) throws -> Decoded {
-        do {
-            return try decode(data)
-        } catch EngineError.invalidInput(.textEncodingUndetected) {
-            return try decode(data, assuming: legacyCandidates[0])
         }
     }
 
@@ -85,7 +57,7 @@ public enum TextEncoding {
         return Decoded(text: text, source: source)
     }
 
-    private static func byteOrderMark(of data: Data) -> (SourceTextEncoding, Int)? {
+    static func byteOrderMark(of data: Data) -> (SourceTextEncoding, Int)? {
         if data.starts(with: utf8BOM) { return (.utf8, utf8BOM.count) }
         if data.starts(with: utf16LittleEndianBOM) { return (.utf16LittleEndian, utf16LittleEndianBOM.count) }
         if data.starts(with: utf16BigEndianBOM) { return (.utf16BigEndian, utf16BigEndianBOM.count) }
@@ -97,7 +69,7 @@ public enum TextEncoding {
     }
 
     private static func cp932Data(
-        _ text: String, unmappable: UnmappablePolicy, substitute: String
+        _ text: String, unmappable: UnmappablePolicy, substitute: String, startingLine: Int
     ) throws -> (data: Data, replaced: Bool) {
         let replacement: Data?
         if unmappable == .custom {
@@ -111,7 +83,7 @@ public enum TextEncoding {
         if let data = text.data(using: cp932) { return (data, false) }
         var data = Data()
         var replaced = false
-        var line = 1
+        var line = startingLine
         for character in text {
             if let bytes = String(character).data(using: cp932) {
                 data.append(bytes)
@@ -134,15 +106,15 @@ public enum TextEncoding {
         return (data, replaced)
     }
 
-    private static func normalized<Output: RangeReplaceableCollection>(
-        _ units: some Collection<Output.Element>, ending: [Output.Element]
+    @inline(__always)
+    static func normalized<Output: RangeReplaceableCollection>(
+        _ units: some Collection<Output.Element>, ending: [Output.Element], afterCarriageReturn: inout Bool
     ) -> Output where Output.Element: FixedWidthInteger {
         let carriageReturn = Output.Element(Self.carriageReturn)
         let lineFeed = Output.Element(Self.lineFeed)
         var result = Output()
         // Untouched capacity stays virtual; regrowth copies everything.
         result.reserveCapacity(units.count * ending.count)
-        var afterCarriageReturn = false
         for unit in units {
             defer { afterCarriageReturn = unit == carriageReturn }
             if unit == lineFeed, afterCarriageReturn { continue }
@@ -155,7 +127,7 @@ public enum TextEncoding {
         return result
     }
 
-    private static func utf16Data(_ units: some Collection<UInt16>, bigEndian: Bool) -> Data {
+    static func utf16Data(_ units: some Collection<UInt16>, bigEndian: Bool) -> Data {
         let bom = bigEndian ? utf16BigEndianBOM : utf16LittleEndianBOM
         let unitBytes = MemoryLayout<UInt16>.size
         var output = Data(count: bom.count + units.count * unitBytes)

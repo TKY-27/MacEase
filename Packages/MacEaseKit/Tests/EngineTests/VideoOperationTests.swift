@@ -23,6 +23,7 @@ import Testing
 
     private func run(_ op: OperationID, options: OperationOptions, on url: URL) async throws -> ItemOutcome {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 2)
         var settings = Settings()
         settings.outputMode = .replace
@@ -57,6 +58,7 @@ import Testing
 
     private func multitrackFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseMultiTrack-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }

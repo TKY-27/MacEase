@@ -1,4 +1,5 @@
 import Darwin
+import Formats
 import Foundation
 
 enum ConversionInput {
@@ -17,7 +18,7 @@ enum ConversionInput {
             throw EngineError.invalidInput(.tooLarge(limitBytes: limit))
         }
         var bytes = Data()
-        while let block = try reader.read(upToCount: blockBytes), !block.isEmpty {
+        while let block = try reader.readChunk(upToCount: blockBytes), !block.isEmpty {
             try Task.checkCancellation()
             guard Int64(block.count) <= limit - Int64(bytes.count) else {
                 throw EngineError.invalidInput(.tooLarge(limitBytes: limit))

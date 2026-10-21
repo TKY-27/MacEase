@@ -7,6 +7,7 @@ import Testing
 
 private func makeEngine(concurrency: Int = 2) throws -> JobEngine {
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+    TestTemporaryFolders.register(support)
     return try JobEngine(supportDirectory: support, concurrency: concurrency)
 }
 
@@ -40,6 +41,7 @@ private func read(_ url: URL) throws -> String {
 
 private func makeReplacementFolder() throws -> URL {
     let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseCommit-\(UUID().uuidString)")
+    TestTemporaryFolders.register(folder)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     return folder
 }
@@ -644,6 +646,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
 
     @Test func historyKeepsTheLastHundredBatchesAcrossLaunches() async throws {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let store = HistoryStore(supportDirectory: support)
         for index in 0..<105 {
@@ -665,6 +668,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         let original = folder.appending(path: "reload.txt")
         try write("old", to: original)
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let outcome = await engine.run(
             Batch(operation: .textLineEndings, items: [replacing(original, name: "reload.txt", text: "new")]),
@@ -679,6 +683,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
 
     @Test func unreadableHistoryIsSetAsideNotFatal() async throws {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         try write("{ not json", to: support.appending(path: "history.json"))
         let store = HistoryStore(supportDirectory: support)
@@ -718,6 +723,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
 
     @Test func staleStagingCleanupOnlyTouchesStagingDirectories() throws {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let precious = try TestVolume.makeFolder()
         try write("keep", to: precious.appending(path: "file.txt"))

@@ -32,6 +32,7 @@ import UniformTypeIdentifiers
         try Data([2]).write(to: second)
         let plans = [RenamePlan(url: first, newName: "Sunset.png"), RenamePlan(url: second, newName: "Sunset.png")]
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let batch = OperationPlanner.batch(
             for: OperationRequest(op: .imageAIRename, options: .rename(plans), inputs: [first, second]),

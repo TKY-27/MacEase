@@ -116,6 +116,7 @@ import Testing
 
     private func temporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseText-\(UUID().uuidString)")
+        TestTemporaryFolders.register(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }

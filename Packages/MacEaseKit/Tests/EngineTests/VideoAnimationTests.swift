@@ -126,6 +126,7 @@ import Testing
     ) async throws -> URL {
         let options = try #require(OperationPlanner.options(for: operation, preset: preset, settings: settings))
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let request = OperationRequest(op: operation, options: options, inputs: [input])
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {

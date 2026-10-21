@@ -136,3 +136,61 @@ zip, 2 h Opus, 400 MB UTF-8 log, 200 MB JSON.
    enabled state survive.
 6. Undo a replace batch from the notification and from the menu bar.
 7. Run `scripts/bench.sh` and record results in the release notes.
+
+## Streaming text and eager-input memory (2026-10-22)
+
+Environment: Apple M5, macOS 27.0.1, Swift 6.4, shared machine under high load.
+Standalone Swift executables compile the production conversion sources with
+`-O -whole-module-optimization -swift-version 6 -warnings-as-errors`.
+Minimal type stubs replace unrelated engine settings and errors. Timed text
+work includes input reading, conversion, staged writing and text verification.
+It excludes the host, JobEngine, unchanged-file comparison and final commit.
+Input files are generated, never memory-mapped. Baseline verification maps
+only its own staged output; the new verifier streams it.
+
+`/usr/bin/time -l` prints elapsed time but cannot obtain `kern.clockrate` under
+this sandbox. Maximum resident size below comes from `getrusage(RUSAGE_SELF)`
+inside the executable, in bytes, converted to decimal MB. These RSS values
+are not the peak-footprint measurements in the earlier table.
+
+| Workload | Before maximum RSS | After maximum RSS | Runs per side |
+| --- | --- | --- | --- |
+| Read 200 MB through EncodedImageInput | 407.45 MB | 209.40 MB | 1 |
+| 400 MB UTF-8 to UTF-16 | 1,616 MB | 7.70 MB | 1 |
+| 400 MB UTF-8 to CRLF | 1,050–1,600 MB | 8.13–8.16 MB | 5 interleaved pairs |
+| 200 MB JSON records to pretty JSON | 1,186 MB | 917 MB | 1 |
+
+The text fixture repeats `aa\rB\nc\r\nd\n` to exactly 400,000,000
+bytes. UTF-16 output is 800,000,002 bytes including the BOM; CRLF output is
+520,000,000 bytes. The JSON fixture is an array of 400,000 records with short
+keys and padded string values, totaling 200,000,000 bytes.
+The eager-input fixture is a compact JSON object with one `payload` string
+containing 199,999,986 ASCII `x` bytes, totaling 200,000,000 bytes. This measures
+opaque encoded-input reading, not image decoding. The timed region hashes
+every returned byte so lazy page residency cannot hide a copy.
+Every before/after output hash matches; an independent fixture checker
+verifies the text outputs and parses the JSON records.
+
+CRLF elapsed medians are 3.43 s before and 1.85 s after, with ranges
+3.33–4.18 s and 1.62–2.21 s. Single UTF-16 times are 3.61 s and 3.43 s;
+single JSON times are 4.57 s and 4.00 s. Shared-machine load and single runs
+limit timing conclusions. A preliminary executable without whole-module
+optimization measured a large normalization slowdown; it does not represent
+the production Release configuration and is excluded from these comparisons.
+
+The text path retains only bounded chunks, while eager image input still
+retains its required payload. JSON streams output but retains decoded input,
+parser bytes and its value tree. Its result depends on document structure;
+this fixture does not establish arbitrary-JSON or full-app 1.5 GB acceptance.
+The existing total-file input policies are unchanged. Shift_JIS alone refuses
+a single grapheme above 1 MiB, preserving per-character replacement behavior
+without unbounded combining-sequence retention (ADR 0021).
+
+Focused Swift Testing coverage checks five source encodings, multibyte and
+CRLF boundaries, BOM precedence, ambiguity, replacement policies and line
+numbers, incomplete input, cancellation, the grapheme guard, staged bytes,
+output verification and unchanged skips. Real child-process exit tests in
+both test targets verify registered support-folder removal, including duplicate
+registration. PlanningTests (23 tests) and ArchiveExtractorTests (5 tests) also
+leave no new matching support or scratch directories after process exit.
+The full test run, app GUI and full-app Instruments measurements are not run.

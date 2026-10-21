@@ -72,6 +72,7 @@ import Testing
 
     @Test func checksumLeavesRunKnownVectors() throws {
         let source = FileManager.default.temporaryDirectory.appending(path: "MacEaseMenuValue-\(UUID().uuidString).txt")
+        TestTemporaryFolders.register(source)
         try Data("abc".utf8).write(to: source)
         defer {
             do {

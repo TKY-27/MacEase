@@ -215,6 +215,7 @@ struct AttributedDocumentTests {
 
     private func withFolder(_ body: (URL) throws -> Void) throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "MacEaseDocuments-\(UUID().uuidString)")
+        TestTemporaryFolders.register(url)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
         try body(url)
         try FileManager.default.removeItem(at: url)

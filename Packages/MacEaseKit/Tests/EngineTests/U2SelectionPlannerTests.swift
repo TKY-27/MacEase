@@ -7,6 +7,7 @@ import Testing
 @Suite struct U2SelectionPlannerTests {
     private func folder() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEase-U2-\(UUID().uuidString)")
+        TestTemporaryFolders.register(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }

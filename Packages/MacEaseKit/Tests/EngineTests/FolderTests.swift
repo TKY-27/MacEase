@@ -29,6 +29,7 @@ func runOperation(
     settings: Settings = Settings()
 ) async throws -> BatchOutcome {
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+    TestTemporaryFolders.register(support)
     let engine = try JobEngine(supportDirectory: support, concurrency: 2)
     let batch = OperationPlanner.batch(
         for: OperationRequest(op: op, options: options, inputs: inputs), settings: settings)

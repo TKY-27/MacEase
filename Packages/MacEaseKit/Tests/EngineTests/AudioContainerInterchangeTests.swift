@@ -39,6 +39,7 @@ import Testing
         var settings = Settings()
         settings.outputMode = .newFile
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let batch = OperationPlanner.batch(
             for: OperationRequest(op: .audioConvert, options: .audio(.convert(format)), inputs: [source]),
@@ -67,6 +68,7 @@ import Testing
         var settings = Settings()
         settings.outputMode = .newFile
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let batch = OperationPlanner.batch(
             for: OperationRequest(op: .audioConvert, options: .audio(.convert(.cafPCM)), inputs: [source]),

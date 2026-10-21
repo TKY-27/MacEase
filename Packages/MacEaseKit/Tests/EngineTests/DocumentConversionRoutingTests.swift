@@ -43,6 +43,7 @@ import Testing
     @Test(arguments: [Settings.OutputMode.newFile, .replace])
     func structuredConversionsKeepSourcesAndResolveCollisions(_ mode: Settings.OutputMode) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseConversion-\(UUID().uuidString)")
+        TestTemporaryFolders.register(directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let source = directory.appending(path: "source.json")
         let original = Data(#"{"enabled":true,"count":9223372036854775807}"#.utf8)

@@ -7,6 +7,7 @@ import Testing
 @Suite struct RemovalSafetyTests {
     private func makeFolder() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseRemoval-\(UUID().uuidString)")
+        TestTemporaryFolders.register(root)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }

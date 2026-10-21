@@ -55,6 +55,7 @@ import Testing
             url: url, backend: .matroska, video: demuxer.tracks.first, audio: nil,
             hasMultipleTracks: false, skippedStreams: [], duration: 0, transform: .identity)
         let output = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-reordered-output.mkv")
+        TestTemporaryFolders.register(output)
         await #expect(throws: EngineError.decodeFailed("media timestamp out of range")) {
             try await Transcoder.run(
                 input, plan: TranscodePlan(container: .mkv, video: .copy, audio: nil), to: output
@@ -66,6 +67,7 @@ import Testing
 
     private func writeContainer(_ name: String, clusters: [[UInt8]], codecID: String = "V_VP8") throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
+        TestTemporaryFolders.register(url)
         let header = element([0x1A, 0x45, 0xDF, 0xA3], element([0x42, 0x82], Array("matroska".utf8)))
         let metadata = element([0x15, 0x49, 0xA9, 0x66], element([0x2A, 0xD7, 0xB1], unsigned: timestampScale))
         let video = element(

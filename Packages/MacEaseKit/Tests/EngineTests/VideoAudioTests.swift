@@ -20,6 +20,7 @@ import UniformTypeIdentifiers
     private func run(_ operation: OperationID, preset: String, on url: URL) async throws -> URL {
         let options = try #require(OperationPlanner.options(for: operation, preset: preset, settings: Settings()))
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         var settings = Settings()
         settings.outputMode = .replace
@@ -103,6 +104,7 @@ import UniformTypeIdentifiers
 
     @Test func convertingFloatPCMMatroskaToAVIRejectsNaNWithoutTouchingSource() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "InvalidPCM-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let source = folder.appending(path: "invalid.mkv")
@@ -191,6 +193,7 @@ import UniformTypeIdentifiers
 
     @Test func stagedPCMCopyPreservesSignedEndpoints() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "VideoPCM-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appending(path: "pcm.mkv")
@@ -222,6 +225,7 @@ import UniformTypeIdentifiers
 
     @Test func sparseMatroskaAudioRejectsExcessiveSilenceInBothEncoders() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "SparseAudio-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
         let source = folder.appending(path: "sparse.mkv")
@@ -256,6 +260,7 @@ import UniformTypeIdentifiers
 
     @Test func repeatedSparsePacketsShareOneSilenceBudget() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "RepeatedSparseAudio-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
         let source = folder.appending(path: "repeated.mkv")

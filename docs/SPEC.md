@@ -359,8 +359,10 @@ confirmation in an alert.
 
 ### 3.6 History and undo
 
-- History is persisted in `~/Library/Application Support/MacEase/history.json`
-  and keeps the last 100 batches.
+- History keeps the last 100 batches in
+  `~/Library/Application Support/MacEase/history.json`, with recent appends in
+  the adjacent `history.journal`. Existing version-1 snapshots remain readable
+  without migration steps. Both files have owner-only permissions.
 - Each record holds the operation, time, and per item: original path, Trash URL
   (replace), output path, rename old and new names, and a commit-time output
   stamp. File stamps contain size and modification date. Rename stamps also
@@ -400,9 +402,25 @@ confirmation in an alert.
   their detection guarantee.
 - An undo attempt consumes restored and skipped entries; only failed entries
   remain retryable in that batch.
-- Replace and removal records are saved without throttling before the commit
-  gate is released. Other records may be coalesced for up to one second and
-  are flushed at batch completion. Failed saves remain dirty for retry.
+- Replace and removal records append newline-delimited JSON deltas with
+  increasing sequence numbers. The journal and its containing directory are
+  synchronized before the commit gate is released. Each delta holds only the
+  newly committed entries and their batch metadata, so a batch writes bytes
+  proportional to its records instead of repeatedly rewriting growing history.
+  Other records may be coalesced for up to one second and are flushed at batch
+  completion. Failed appends remain pending for retry.
+- Batch completion, launch recovery and orderly quit compact history. A staged
+  snapshot containing the applied sequence is synchronized, atomically renamed
+  over `history.json`, and its directory synchronized before resetting and
+  synchronizing the journal. Replay ignores already checkpointed sequences,
+  applies later sequences exactly once, and ignores only an unterminated final
+  record. That torn suffix is removed before further appends. Complete malformed
+  records or missing sequences block further mutations without discarding the
+  recovery files. Compaction stays synchronous on the history actor; undo and
+  commits retain their shared gate. Failed snapshot writes remain retryable,
+  and undo or clear changes must reach a snapshot before later durable appends.
+  These guarantees cover application crashes and forced termination, not
+  hardware power loss. See ADR 0020.
 - Normal application termination stops new requests, snapshots and cancels pending
   jobs, and waits asynchronously up to five seconds for their cleanup. A timeout
   is logged; remaining staging stays registered for launch recovery. Accepted
@@ -943,6 +961,16 @@ protection (ADR 0010).
 | `text.lineEndings` | LF, CRLF | Transform | Mixed endings are normalized |
 | `text.convert` | Source-appropriate TXT, CSV, JSON, XML, HTML, Markdown, PDF, property list, YAML, TOML, SRT, WebVTT targets (section 8.13) | Derived | CSV per RFC 4180 with delimiter detection among comma, semicolon, tab, and pipe, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
 | `text.json` | Pretty print, Minify, Sort keys | Transform | Flat Pretty Print, Minify, Sort Keys leaves for JSON only. Deterministic sort options below; invalid JSON fails with line and column |
+
+Encoding and line-ending transforms read 64 KiB chunks and write directly to
+staging. Detection validates the complete input without mapping user files.
+Incomplete multibyte characters and CRLF pairs carry across chunk boundaries;
+BOM precedence, byte order, legacy ambiguity, replacement policies and unchanged
+skips remain intact. Output text verification also decodes in chunks.
+Shift_JIS preserves whole-character replacement behavior by retaining the final
+grapheme. A single grapheme larger than 1 MiB in UTF-8 is refused explicitly
+before it can accumulate without bound. This is not a total-file limit;
+UTF-8 and UTF-16 output do not need this grapheme limit (ADR 0021).
 
 `document.convert` exports DOCX, ODT, RTF, and RTFD to PDF or TXT.
 `plist.convert` exports binary or XML property lists to JSON. Both always use
@@ -1526,8 +1554,19 @@ the file in a scratch volume; run it under `/usr/bin/time -l` to read peak
 memory. Measured on 2026-10-21 (Apple M5, macOS 27.0.1, details in
 `docs/spikes.md`): media, PDF, archive, checksum and folder-compress items
 peak at or below 520 MB; the idle host uses 15 MB after launch and 44 MB after
-twelve heavy batches at about 0.1% CPU. Text encoding, line-ending and JSON
-formatting of 200–400 MB files still peak at 1.2–2.5 GB, above the target.
+twelve heavy batches at about 0.1% CPU. Those measurements put text encoding,
+line-ending and JSON formatting of 200–400 MB files at 1.2–2.5 GB.
+
+The 2026-10-22 Release follow-up measures generated-file conversion, staged
+writing and output verification in a standalone executable. A 400 MB UTF-8
+fixture peaks at about 8 MB RSS for UTF-16 or CRLF output. This excludes the
+host, JobEngine and final commit, so it does not establish full-app acceptance.
+JSON formatting streams serialized output through the existing parser and
+serializer. It still retains decoded input, parser bytes and a JSON value tree;
+sorting can retain another tree. The 200 MB record fixture peaks at 917 MB RSS,
+but memory depends on document shape and can still exceed 1.5 GB. Arbitrary
+large JSON does not meet the memory target yet. No new total-file cap is added.
+See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## 17. Testing
 
@@ -1611,6 +1650,15 @@ formatting of 200–400 MB files still peak at 1.2–2.5 GB, above the target.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Stream text encoding, line-ending transforms and verification;
+  bound Shift_JIS grapheme retention, stream JSON serialization and record
+  remaining parser-memory limits (ADR 0021). Drain eager-input read pools and
+  remove registered test support folders at process exit.
+
+- 2026-10-22: Journal Trash-backed history deltas with immediate synchronization,
+  checkpointed replay and atomic compaction, preserving undo, stamps and
+  100-batch retention while making per-batch history writes linear (ADR 0020).
 
 - 2026-10-21: Apply explicit image property-loss warnings in new-file mode,
   configured-background flattening, shared HDR-to-SDR tone mapping, and typed

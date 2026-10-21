@@ -117,89 +117,93 @@ enum TextPlanner {
         settings: TextSettings,
         context: ItemContext
     ) async throws -> ItemResult {
-        let input: Data
         switch operation {
-        case .convert(.htmlToPDF, _), .convert(.htmlToText, _),
-            .convert(.jsonToXMLPlist, _), .convert(.jsonToBinaryPlist, _),
-            .convert(.srtToVTT, _), .convert(.vttToSRT, _), .convert(.yamlToJSON, _), .convert(.jsonToYAML, _):
+        case .encoding(let target, let source):
+            let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
+            let result = try StreamingText.transcode(
+                url, to: staged, target: target, source: source, settings: settings)
+            if result.replaced { context.warn(.unmappableCharactersReplaced) }
+            return try replacement(url, staged: staged, encoding: result.encoding)
+        case .lineEndings(let ending):
+            let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
+            let encoding = try StreamingText.normalize(url, to: staged, ending: ending)
+            return try replacement(url, staged: staged, encoding: encoding)
+        case .json(let formatting):
+            let input = try Data(contentsOf: url)
+            let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
+            try JSONFormatter.write(TextEncoding.decode(input).text, formatting, settings: settings, to: staged)
+            return try replacement(url, staged: staged, encoding: .utf8)
+        case .convert(let conversion, let source):
+            return try await convert(conversion, source: source, on: url, settings: settings, context: context)
+        }
+    }
+
+    private static func convert(
+        _ conversion: TextConversion, source: SourceTextEncoding?, on url: URL, settings: TextSettings,
+        context: ItemContext
+    ) async throws -> ItemResult {
+        let input: Data
+        switch conversion {
+        case .htmlToPDF, .htmlToText,
+            .jsonToXMLPlist, .jsonToBinaryPlist,
+            .srtToVTT, .vttToSRT, .yamlToJSON, .jsonToYAML:
             input = try ConversionInput.read(url)
-        case .convert(.markdownToHTML, _), .convert(.markdownToPDF, _):
+        case .markdownToHTML, .markdownToPDF:
             input = try ConversionInput.read(url, limit: Int64(MarkdownConversion.maximumBytes))
-        case .convert(.tomlToJSON, _), .convert(.jsonToTOML, _):
+        case .tomlToJSON, .jsonToTOML:
             input = try ConversionInput.read(url, limit: Int64(TOMLConversion.maximumBytes))
         default:
             input = try Data(contentsOf: url)
         }
-        switch operation {
-        case .encoding(let target, let source):
-            let decoded = try TextEncoding.decode(input, assuming: source)
-            let output = try TextEncoding.encode(
-                decoded.text, as: target, unmappable: settings.unmappable, substitute: settings.shiftJISSubstitute)
-            if output.replaced { context.warn(.unmappableCharactersReplaced) }
-            return try replace(url, input: input, output: output.data, encoding: output.encoding, context: context)
-        case .lineEndings(let ending):
-            let output = try TextEncoding.normalizingLineEndings(input, to: ending)
-            return try replace(url, input: input, output: output.data, encoding: output.encoding, context: context)
-        case .json(let formatting):
-            let output = try JSONFormatter.format(TextEncoding.decode(input).text, formatting, settings: settings)
-            return try replace(url, input: input, output: Data(output.utf8), encoding: .utf8, context: context)
-        case .convert(let conversion, let source):
-            let title = url.deletingPathExtension().lastPathComponent
-            let bytes: Data
-            let check: OutputCheck
-            switch conversion {
-            case .htmlToPDF, .htmlToText:
-                let html = try TextEncoding.decode(input, assuming: source).text
-                bytes = try await HTMLDocument.convert(html, source: url, toPDF: conversion == .htmlToPDF)
-                check = conversion == .htmlToPDF ? .pdf : .text(.utf8)
+        let title = url.deletingPathExtension().lastPathComponent
+        let bytes: Data
+        let check: OutputCheck
+        switch conversion {
+        case .htmlToPDF, .htmlToText:
+            let html = try TextEncoding.decode(input, assuming: source).text
+            bytes = try await HTMLDocument.convert(html, source: url, toPDF: conversion == .htmlToPDF)
+            check = conversion == .htmlToPDF ? .pdf : .text(.utf8)
+            context.warn(.htmlOfflineContent)
+        case .jsonToXMLPlist, .jsonToBinaryPlist:
+            bytes = try PropertyListConversion.plist(
+                from: TextEncoding.decode(input, assuming: source).text,
+                format: conversion == .jsonToXMLPlist ? .xml : .binary)
+            check = .plist
+            context.warn(.structuredTextFormattingLost)
+        case .markdownToHTML, .markdownToPDF:
+            let html = try MarkdownConversion.html(TextEncoding.decode(input, assuming: source).text, title: title)
+            context.warn(.markdownUnsafeContentOmitted)
+            if conversion == .markdownToPDF {
+                bytes = try await HTMLDocument.convert(html, source: url, toPDF: true)
+                check = .pdf
                 context.warn(.htmlOfflineContent)
-            case .jsonToXMLPlist, .jsonToBinaryPlist:
-                bytes = try PropertyListConversion.plist(
-                    from: TextEncoding.decode(input, assuming: source).text,
-                    format: conversion == .jsonToXMLPlist ? .xml : .binary)
-                check = .plist
-                context.warn(.structuredTextFormattingLost)
-            case .markdownToHTML, .markdownToPDF:
-                let html = try MarkdownConversion.html(TextEncoding.decode(input, assuming: source).text, title: title)
-                context.warn(.markdownUnsafeContentOmitted)
-                if conversion == .markdownToPDF {
-                    bytes = try await HTMLDocument.convert(html, source: url, toPDF: true)
-                    check = .pdf
-                    context.warn(.htmlOfflineContent)
-                } else {
-                    bytes = Data(html.utf8)
-                    check = .text(.utf8)
-                }
-            case .yamlToJSON, .jsonToYAML, .tomlToJSON, .jsonToTOML:
-                let output = try TextConverter.convert(
-                    input, conversion, settings: settings, title: title, source: source)
-                bytes = Data(output.utf8)
-                check = .text(.utf8)
-                context.warn(.structuredTextFormattingLost)
-            default:
-                let output = try TextConverter.convert(
-                    input, conversion, settings: settings, title: title, source: source)
-                bytes = Data(output.utf8)
+            } else {
+                bytes = Data(html.utf8)
                 check = .text(.utf8)
             }
-            try Task.checkCancellation()
-            let name = "\(title).\(conversion.outputExtension)"
-            let staged = try context.stagingURL(for: url, name: name)
-            try bytes.write(to: staged)
-            return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: check)])
+        case .yamlToJSON, .jsonToYAML, .tomlToJSON, .jsonToTOML:
+            let output = try TextConverter.convert(
+                input, conversion, settings: settings, title: title, source: source)
+            bytes = Data(output.utf8)
+            check = .text(.utf8)
+            context.warn(.structuredTextFormattingLost)
+        default:
+            let output = try TextConverter.convert(
+                input, conversion, settings: settings, title: title, source: source)
+            bytes = Data(output.utf8)
+            check = .text(.utf8)
         }
+        try Task.checkCancellation()
+        let name = "\(title).\(conversion.outputExtension)"
+        let staged = try context.stagingURL(for: url, name: name)
+        try bytes.write(to: staged)
+        return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: check)])
     }
 
-    private static func replace(
-        _ url: URL,
-        input: Data,
-        output: Data,
-        encoding: String.Encoding,
-        context: ItemContext
+    private static func replacement(
+        _ url: URL, staged: URL, encoding: String.Encoding
     ) throws -> ItemResult {
-        guard output != input else { return .skipped(.alreadyDone) }
-        let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
-        try output.write(to: staged)
+        if try StreamingText.equalContents(url, staged) { return .skipped(.alreadyDone) }
         return .replace(
             original: url, output: StagedFile(url: staged, name: url.lastPathComponent, check: .text(encoding)))
     }

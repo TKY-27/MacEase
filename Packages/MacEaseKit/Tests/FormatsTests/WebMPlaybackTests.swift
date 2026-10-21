@@ -38,6 +38,7 @@ import WebKit
         }
         packets.sort { ($0.timestamp, $0.track) < ($1.timestamp, $1.track) }
         let folder = FileManager.default.temporaryDirectory.appending(path: "webm-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appending(path: "clip.webm")
         var muxer = try MatroskaMuxer(url: url, tracks: [video, audio], webm: true)

@@ -88,6 +88,7 @@ extension Fixtures {
 
     @Test func animatedGradientMeetsQualityAndBeatsImageIO() async throws {
         let video = FileManager.default.temporaryDirectory.appending(path: "gradient-\(UUID().uuidString).mp4")
+        TestTemporaryFolders.register(video)
         try await VideoFixture.write(Fixtures.gradientFrames(), fps: 15, to: video)
         let frames = try await VideoFixture.frames(of: video, count: 30, fps: 15)
         let gif = try GIFEncoder.encode(

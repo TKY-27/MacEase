@@ -59,6 +59,7 @@ import VideoToolbox
 
     private func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "VideoSDR-\(UUID().uuidString)")
+        TestTemporaryFolders.register(url)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

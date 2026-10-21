@@ -56,6 +56,7 @@ private func decompileBatch(_ inputs: [URL]) -> Batch {
 
 private func makeEngine() throws -> JobEngine {
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseJARSupport-\(UUID().uuidString)")
+    TestTemporaryFolders.register(support)
     return try JobEngine(supportDirectory: support, concurrency: 2)
 }
 

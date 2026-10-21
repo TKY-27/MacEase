@@ -92,6 +92,7 @@ import VideoToolbox
 
     @Test func stagedCompressionMeetsByteBoundsBeforeCommit() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "VideoStaging-\(UUID().uuidString)")
+        TestTemporaryFolders.register(folder)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let url = try await texturedClip(in: folder)

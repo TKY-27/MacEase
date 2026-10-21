@@ -16,6 +16,7 @@ import Testing
         output.append(finish.trailingBytes)
         if let xing = finish.xingFrame { output.replaceSubrange(0..<xing.count, with: xing) }
         let url = FileManager.default.temporaryDirectory.appending(path: "mp3-\(UUID().uuidString).mp3")
+        TestTemporaryFolders.register(url)
         try output.write(to: url)
         return url
     }
