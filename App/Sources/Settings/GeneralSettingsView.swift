@@ -35,6 +35,21 @@ struct GeneralSettingsView: View {
                 }
             }
             Section {
+                Toggle(isOn: $store.showsActivity) {
+                    Text("Show progress window")
+                    Text("Appears when a batch takes more than a moment. Finder keeps focus.")
+                }
+                LabeledContent("Close automatically") {
+                    VStack(alignment: .leading) {
+                        Toggle("After success", isOn: $store.activityClosesAfterSuccess)
+                        Toggle("After cancel", isOn: $store.activityClosesAfterCancel)
+                        Toggle("After failure", isOn: $store.activityClosesAfterFailure)
+                    }
+                    .toggleStyle(.checkbox)
+                }
+                .disabled(!store.showsActivity)
+            }
+            Section {
                 LabeledContent {
                     Button("Customize…") { showsMenuItems = true }
                 } label: {

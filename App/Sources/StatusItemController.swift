@@ -8,16 +8,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let jobs: JobCenter
     private let updates: UpdateChecker
+    private let showProgress: () -> Void
     private let openSettings: () -> Void
     private var animationTimer: Timer?
     private var animationFrame = 0
     private static let animationInterval: TimeInterval = 0.4
     private static let idleSymbol = "wand.and.sparkles"
     private static let busySymbols = ["wand.and.sparkles", "wand.and.sparkles.inverse"]
+    private static let reducedMotionBusySymbol = "wand.and.sparkles.inverse"
 
-    init(jobs: JobCenter, updates: UpdateChecker, openSettings: @escaping () -> Void) {
+    init(
+        jobs: JobCenter, updates: UpdateChecker, showProgress: @escaping () -> Void,
+        openSettings: @escaping () -> Void
+    ) {
         self.jobs = jobs
         self.updates = updates
+        self.showProgress = showProgress
         self.openSettings = openSettings
         super.init()
         let menu = NSMenu()
@@ -39,19 +45,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func updateAnimation() {
-        if jobs.isBusy, animationTimer == nil {
+        if jobs.isBusy, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            stopAnimation(showing: Self.reducedMotionBusySymbol)
+        } else if jobs.isBusy, animationTimer == nil {
             animationTimer = Timer.scheduledTimer(withTimeInterval: Self.animationInterval, repeats: true) {
                 [weak self] _ in
                 Task { @MainActor in self?.advanceAnimation() }
             }
         } else if !jobs.isBusy {
-            animationTimer?.invalidate()
-            animationTimer = nil
-            setSymbol(Self.idleSymbol)
+            stopAnimation(showing: Self.idleSymbol)
         }
     }
 
+    private func stopAnimation(showing symbol: String) {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        setSymbol(symbol)
+    }
+
     private func advanceAnimation() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            return stopAnimation(showing: Self.reducedMotionBusySymbol)
+        }
         animationFrame = (animationFrame + 1) % Self.busySymbols.count
         setSymbol(Self.busySymbols[animationFrame])
     }
@@ -65,6 +80,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         if !jobs.active.isEmpty {
+            menu.addItem(
+                ClosureMenuItem(title: String(localized: "Show Progress", comment: "Menu bar item")) {
+                    [showProgress] in
+                    showProgress()
+                })
+            menu.addItem(.separator())
             menu.addItem(
                 NSMenuItem.sectionHeader(title: String(localized: "In Progress", comment: "Menu bar section title")))
             for batch in jobs.active {

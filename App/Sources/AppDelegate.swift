@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var notifier = BatchNotifier(settings: settings)
     private var jobs: JobCenter?
     private var panels: PanelCoordinator?
+    private var activity: ActivityWindow?
     private var router: RequestRouter?
     private var statusItem: StatusItemController?
     private var menuFile: MenuFile?
@@ -55,13 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
         jobs.askAgain = { [weak panels] in panels?.askAgain($0, files: $1, reason: $2) ?? false }
+        let activity = ActivityWindow(jobs: jobs, settings: settings)
+        self.activity = activity
+        jobs.onStart = { [weak activity] in activity?.started($0) }
+        jobs.showsFinished = { [weak activity] in activity?.finished($0, outcome: $1) ?? false }
         router = RequestRouter(configuration: configuration, jobs: jobs, notifier: notifier) { [weak self] in
             self?.menuFile
         }
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
         makeWindows(jobs: jobs)
-        statusItem = StatusItemController(jobs: jobs, updates: updates) { [weak self] in self?.settingsWindow?.show() }
+        statusItem = StatusItemController(
+            jobs: jobs, updates: updates, showProgress: { [weak activity] in activity?.show() }
+        ) { [weak self] in self?.settingsWindow?.show() }
         NSApp.mainMenu = MainMenu.make { [weak self] in self?.settingsWindow?.show() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
         updates.onNewRelease = { [notifier] release in
