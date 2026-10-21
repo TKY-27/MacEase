@@ -7,20 +7,34 @@ import Vision
 /// Masks the subject and replaces the background.
 enum ImageBackground {
     static let featherRadius = 1.0
+    private static let maskWorkspaceCopies: Int64 = 4
     /// Largest RGB distance, so tolerance spans 0...1.
     private static let maximumDistance = (3.0 * 255 * 255).squareRoot()
 
     static func replace(_ url: URL, _ options: BackgroundOptions, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
+        var workspace = FrameMemoryBudget()
+        for frame in document.frames {
+            try workspace.reserve(frame.image)
+        }
+        var firstWorkspace = workspace
+        try firstWorkspace.reserve(
+            width: document.first.width, height: document.first.height,
+            bytesPerPixel: document.first.bitsPerComponent > 8 ? 8 : 4, frameCount: maskWorkspaceCopies)
         guard let firstMask = try await mask(for: document.first, source: options.mask) else {
             return .skipped(.nothingToRemove)
         }
         let source = document.writableFormat
         let format = options.fill == .transparent && !source.holdsAlpha ? .png : source
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in
+            var frameWorkspace = workspace
+            if document.isAnimated, image !== document.first { try frameWorkspace.reserve(image) }
+            try frameWorkspace.reserve(
+                width: image.width, height: image.height,
+                bytesPerPixel: image.bitsPerComponent > 8 ? 8 : 4, frameCount: maskWorkspaceCopies)
             let found = image === document.first ? firstMask : try await mask(for: image, source: options.mask)
             guard let found else { return image }
-            return try composite(image, mask: found, fill: options.fill)
+            return try autoreleasepool { try composite(image, mask: found, fill: options.fill) }
         }
     }
 
@@ -39,7 +53,8 @@ enum ImageBackground {
                 cvPixelBuffer: try observation.generateScaledMask(
                     for: observation.allInstances, scaledToImageFrom: handler))
         case .colorKey(let key, let tolerance):
-            guard let keyed = try colorKeyMask(image, key: key, tolerance: tolerance) else { return nil }
+            guard let keyed = try autoreleasepool(invoking: { try colorKeyMask(image, key: key, tolerance: tolerance) })
+            else { return nil }
             raw = keyed
         }
         let extent = CGRect(x: 0, y: 0, width: image.width, height: image.height)

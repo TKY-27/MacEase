@@ -10,8 +10,6 @@ enum PDFExport {
     private static let pageSeparator = "\u{0C}"
     private static let textExtension = "txt"
     private static let percent = 100.0
-    /// Keeps one page bitmap near 400 MB.
-    private static let maximumPixels = 100_000_000
 
     static func images(of url: URL, format: StillFormat, dpi: Int, context: ItemContext) throws -> ItemResult {
         let document = try PDFEditing.open(url)
@@ -25,16 +23,19 @@ enum PDFExport {
         let base = PDFEditing.baseName(of: url)
         for index in 0..<document.pageCount {
             try Task.checkCancellation()
-            let image = try render(try PDFEditing.page(index, in: document), dpi: dpi)
-            let name = PDFEditing.pageFileName(
-                base: base, index: index, count: document.pageCount, extension: pathExtension)
-            let target = folder.appending(path: name)
-            guard
-                let destination = CGImageDestinationCreateWithURL(target as CFURL, type.identifier as CFString, 1, nil)
-            else { throw EngineError.encodeFailed("image destination unavailable") }
-            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
-            guard CGImageDestinationFinalize(destination) else {
-                throw EngineError.encodeFailed("page image write failed")
+            try autoreleasepool {
+                let image = try render(try PDFEditing.page(index, in: document), dpi: dpi)
+                let name = PDFEditing.pageFileName(
+                    base: base, index: index, count: document.pageCount, extension: pathExtension)
+                let target = folder.appending(path: name)
+                guard
+                    let destination = CGImageDestinationCreateWithURL(
+                        target as CFURL, type.identifier as CFString, 1, nil)
+                else { throw EngineError.encodeFailed("image destination unavailable") }
+                CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+                guard CGImageDestinationFinalize(destination) else {
+                    throw EngineError.encodeFailed("page image write failed")
+                }
             }
             context.progress(Double(index + 1) / Double(document.pageCount))
         }
@@ -49,7 +50,9 @@ enum PDFExport {
             let page = try PDFEditing.page(index, in: document)
             let embedded = page.string ?? ""
             if embedded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                pages.append(try await recognizedText(on: page, languages: context.settings.intelligence.ocrLanguages))
+                let image = try render(page, dpi: ocrDPI)
+                pages.append(
+                    try await TextRecognition.text(in: image, languages: context.settings.intelligence.ocrLanguages))
             } else {
                 pages.append(embedded)
             }
@@ -64,6 +67,7 @@ enum PDFExport {
 
     /// On white, as PDF pages assume paper.
     static func render(_ page: PDFPage, dpi: Int) throws -> CGImage {
+        var budget = FrameMemoryBudget.renderedPage
         let bounds = page.bounds(for: .cropBox)
         let isQuarterTurned = page.rotation % 180 != 0
         let scale = Double(dpi) / pointsPerInch
@@ -71,11 +75,11 @@ enum PDFExport {
         let scaledHeight = ((isQuarterTurned ? bounds.width : bounds.height) * scale).rounded()
         guard scaledWidth.isFinite, scaledHeight.isFinite,
             scaledWidth > 0, scaledHeight > 0,
-            scaledWidth * scaledHeight <= Double(maximumPixels),
             let width = Int(exactly: scaledWidth), let height = Int(exactly: scaledHeight)
         else {
             throw EngineError.invalidInput(.malformed("page is too large to render at \(dpi) dpi"))
         }
+        try budget.reserve(width: width, height: height)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
             let canvas = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -89,7 +93,4 @@ enum PDFExport {
         return image
     }
 
-    private static func recognizedText(on page: PDFPage, languages: [String]) async throws -> String {
-        try await TextRecognition.text(in: try render(page, dpi: ocrDPI), languages: languages)
-    }
 }

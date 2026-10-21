@@ -202,7 +202,7 @@ enum VideoCompressor {
             limits.maxHeight.map({ $0 > 0 }) ?? true,
             limits.aspect.map(\.isValid) ?? true
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
-        var edit = FrameEdit(rotation: input.displayRotation, aspect: limits.aspect)
+        var edit = FrameEdit(displayOrientation: try input.displayOrientation, aspect: limits.aspect)
         let natural = try FrameProcessor.outputSize(source: input.codedSize, edit: edit)
         let scale = min(
             1, Double(limits.maxWidth ?? natural.width) / Double(natural.width),

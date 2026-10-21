@@ -106,6 +106,51 @@ import Testing
         return url
     }
 
+    private func patternedH264Video(transform: CGAffineTransform) async throws -> URL {
+        let url = try TestVolume.makeFolder().appending(path: "patterned.mov")
+        let width = 64
+        let height = 48
+        let frameDuration = Nanoseconds.perSecond / 12
+        let encoding = VideoEncoding(
+            codec: .h264, width: width, height: height, frameDuration: frameDuration, bitrate: nil)
+        var encoder = try VideoEncoders.make(encoding, track: 1)
+        var packets: [MediaPacket] = []
+        for index in 0..<12 {
+            var image: CVPixelBuffer?
+            let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any]] as CFDictionary
+            try #require(
+                CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, attributes, &image)
+                    == kCVReturnSuccess)
+            let frame = try #require(image)
+            try #require(CVPixelBufferLockBaseAddress(frame, []) == kCVReturnSuccess)
+            do {
+                defer { CVPixelBufferUnlockBaseAddress(frame, []) }
+                let pixels = try #require(CVPixelBufferGetBaseAddress(frame)).assumingMemoryBound(to: UInt8.self)
+                let rowBytes = CVPixelBufferGetBytesPerRow(frame)
+                for y in 0..<height {
+                    for x in 0..<width {
+                        let offset = y * rowBytes + x * 4
+                        pixels[offset] = x < width / 2 ? 0 : 255
+                        pixels[offset + 1] = 0
+                        pixels[offset + 2] = x < width / 2 ? 255 : 0
+                        pixels[offset + 3] = 255
+                    }
+                }
+            }
+            packets += try encoder.encode(frame, timestamp: Int64(index) * frameDuration)
+        }
+        packets += try encoder.finish()
+        let outputTrack = OutputTrack(track: encoder.track, format: encoder.formatDescription)
+        var sink = try Sinks.make(.mov, url: url, tracks: [outputTrack], transform: transform)
+        for packet in packets.sorted(by: { ($0.decodeTimestamp ?? $0.timestamp) < ($1.decodeTimestamp ?? $1.timestamp) }
+        ) {
+            try await sink.write(packet)
+        }
+        sink.endTrack(1)
+        try await sink.finish()
+        return url
+    }
+
     private func expectTransparentVideo(_ url: URL, width: Int) async throws {
         let asset = AVURLAsset(url: url)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
@@ -254,6 +299,92 @@ import Testing
         let track = try #require(try await AVURLAsset(url: result).loadTracks(withMediaType: .video).first)
         #expect(try await track.load(.naturalSize) == CGSize(width: 80, height: 48))
         #expect(try await run(.videoResize, preset: "1080p", on: result) == .skipped(.noUpscale))
+    }
+
+    @Test func resizeBakesHorizontalMirrorIntoPixels() async throws {
+        let mirror = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 64, ty: 0)
+        let url = try await patternedH264Video(transform: mirror)
+        let sourceTrack = try #require(try await AVURLAsset(url: url).loadTracks(withMediaType: .video).first)
+        #expect(try await sourceTrack.load(.preferredTransform).a == -1)
+        let result = try output(try await run(.videoResize, preset: "percent-50", on: url))
+        let asset = AVURLAsset(url: result)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        #expect(try await track.load(.preferredTransform) == .identity)
+        #expect(try await track.load(.naturalSize) == CGSize(width: 32, height: 24))
+        let (picture, _) = try await AVAssetImageGenerator(asset: asset).image(at: .zero)
+        let pixels = try PixelBuffer(cgImage: picture)
+        let left = (pixels.height / 2 * pixels.width + pixels.width / 4) * 4
+        let right = (pixels.height / 2 * pixels.width + pixels.width * 3 / 4) * 4
+        #expect(pixels.rgba[left + 2] > 180 && pixels.rgba[left] < 80)
+        #expect(pixels.rgba[right] > 180 && pixels.rgba[right + 2] < 80)
+    }
+
+    @Test func containerCopyPreservesHorizontalMirrorMatrix() async throws {
+        let mirror = CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 64, ty: 0)
+        let url = try await patternedH264Video(transform: mirror)
+        let sourceTrack = try #require(try await AVURLAsset(url: url).loadTracks(withMediaType: .video).first)
+        let sourceTransform = try await sourceTrack.load(.preferredTransform)
+        let result = try output(try await run(.videoConvert, preset: "mp4", on: url))
+        let outputTrack = try #require(try await AVURLAsset(url: result).loadTracks(withMediaType: .video).first)
+        #expect(try await outputTrack.load(.preferredTransform) == sourceTransform)
+    }
+
+    @Test func resizeBakesDiagonalMirrorIntoPixels() async throws {
+        let mirror = CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
+        let url = try await patternedH264Video(transform: mirror)
+        let result = try output(try await run(.videoResize, preset: "percent-50", on: url))
+        let asset = AVURLAsset(url: result)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        #expect(try await track.load(.preferredTransform) == .identity)
+        #expect(try await track.load(.naturalSize) == CGSize(width: 24, height: 32))
+        let (picture, _) = try await AVAssetImageGenerator(asset: asset).image(at: .zero)
+        let pixels = try PixelBuffer(cgImage: picture)
+        let top = (pixels.height / 4 * pixels.width + pixels.width / 2) * 4
+        let bottom = (pixels.height * 3 / 4 * pixels.width + pixels.width / 2) * 4
+        #expect(pixels.rgba[top] > 180 && pixels.rgba[top + 2] < 80)
+        #expect(pixels.rgba[bottom + 2] > 180 && pixels.rgba[bottom] < 80)
+    }
+
+    @Test func acceptsOrthogonalVideoDisplayMatrices() throws {
+        let orientations: [(CGAffineTransform, Bool)] = [
+            (.identity, false),
+            (CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 48, ty: 0), true),
+            (CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 64), true),
+            (CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: 64, ty: 48), false),
+            (CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 64, ty: 0), false),
+            (CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: 48), false),
+            (CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0), true),
+            (CGAffineTransform(a: 0, b: -1, c: -1, d: 0, tx: 48, ty: 64), true),
+        ]
+        for (transform, quarterTurned) in orientations {
+            let orientation = try VideoDisplayOrientation(transform)
+            let size = try FrameProcessor.outputSize(
+                source: PixelSize(width: 64, height: 48), edit: FrameEdit(displayOrientation: orientation))
+            #expect(size == (quarterTurned ? PixelSize(width: 48, height: 64) : PixelSize(width: 64, height: 48)))
+        }
+    }
+
+    @Test func rejectsUnsupportedVideoDisplayMatrices() throws {
+        let source = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .h264)
+        let unsupported = [
+            CGAffineTransform(a: 1, b: 0, c: 0.25, d: 1, tx: 0, ty: 0),
+            CGAffineTransform(a: 1, b: 0, c: 0.0001, d: 1, tx: 0, ty: 0),
+            CGAffineTransform(rotationAngle: .pi / 6),
+            CGAffineTransform(rotationAngle: .pi / 180_000),
+            CGAffineTransform(a: .infinity, b: 0, c: 0, d: 1, tx: 0, ty: 0),
+        ]
+        for transform in unsupported {
+            let input = MediaInput(
+                url: URL(filePath: "/unsupported.mov"), backend: .matroska, video: source, audio: nil,
+                hasMultipleTracks: false, skippedStreams: [], duration: Nanoseconds.perSecond,
+                transform: transform)
+            #expect(throws: EngineError.videoDisplayTransformUnsupported) {
+                try input.requireSingleTracksForReplacement()
+            }
+            #expect(throws: EngineError.videoDisplayTransformUnsupported) {
+                try VideoEdits.plan(.resize(.percent(50)), input: input, source: source, settings: VideoSettings())
+            }
+        }
     }
 
     @Test func resizeKeepsHEVCAlphaPixels() async throws {

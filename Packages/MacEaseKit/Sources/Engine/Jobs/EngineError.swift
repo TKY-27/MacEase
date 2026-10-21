@@ -11,6 +11,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case unsupportedCodec(String)
     case audioChannelLayoutUnsupported
     case videoAlphaUnsupported
+    case videoDisplayTransformUnsupported
     case duplicateArchiveRootName(String)
     case permissionDenied(PermissionLocation)
     case cancelled
@@ -104,6 +105,8 @@ extension EngineError {
     init(_ format: FormatError) {
         switch format {
         case .nonFiniteAudioSample: self = .nonFiniteAudioSample
+        case .frameMemoryExceeded: self = .invalidInput(.frameMemoryExceeded)
+        case .inputTooLarge(let limitBytes): self = .invalidInput(.tooLarge(limitBytes: limitBytes))
         case .unsupported(let name): self = .unsupportedCodec(name)
         case .corrupt(let detail), .decoderFailure(let detail): self = .decodeFailed(detail)
         case .encoderFailure(let detail): self = .encodeFailed(detail)

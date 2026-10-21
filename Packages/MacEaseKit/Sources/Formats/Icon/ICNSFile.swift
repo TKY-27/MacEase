@@ -40,17 +40,89 @@ public enum ICNSFile {
     }
 
     public static func read(_ file: Data) throws -> [PixelBuffer] {
+        let (elements, order) = try parse(file)
+        var budget = DecodedImageBudget()
+        for type in order {
+            try Task.checkCancellation()
+            guard let payload = elements[type], let dimensions = try dimensions(of: payload, type: type) else {
+                continue
+            }
+            try budget.reserve(width: dimensions.width, height: dimensions.height)
+        }
+        var images: [PixelBuffer] = []
+        var actualBudget = DecodedImageBudget()
+        for type in order {
+            try Task.checkCancellation()
+            guard let payload = elements[type] else { continue }
+            if let legacy = legacyRLE[type] {
+                let image = try decodeLegacy(payload, type: type, size: legacy.size, mask: elements[legacy.mask])
+                try actualBudget.reserve(width: image.width, height: image.height)
+                images.append(image)
+            } else if let image = try decodeEncoded(payload) {
+                try actualBudget.reserve(width: image.width, height: image.height)
+                images.append(image)
+            }
+        }
+        guard !images.isEmpty else { throw FormatError.unsupported("no readable ICNS element") }
+        return images
+    }
+
+    public static func readLargest(_ file: Data) throws -> PixelBuffer {
+        let (elements, selected, dimensions) = try largestElement(in: file)
+        guard let payload = elements[selected] else { throw FormatError.corrupt("ICNS element missing") }
+        var budget = DecodedImageBudget()
+        try budget.reserve(width: dimensions.width, height: dimensions.height)
+        if let legacy = legacyRLE[selected] {
+            return try decodeLegacy(payload, type: selected, size: legacy.size, mask: elements[legacy.mask])
+        }
+        guard let image = try decodeEncoded(payload) else {
+            throw FormatError.unsupported("no readable ICNS element")
+        }
+        return image
+    }
+
+    public static func largestDimensions(_ file: Data) throws -> (width: Int, height: Int) {
+        try largestElement(in: file).dimensions
+    }
+
+    private static func largestElement(
+        in file: Data
+    ) throws -> (elements: [String: [UInt8]], selected: String, dimensions: (width: Int, height: Int)) {
+        let (elements, order) = try parse(file)
+        var selected: String?
+        var selectedWidth = 0
+        var selectedHeight = 0
+        for type in order {
+            try Task.checkCancellation()
+            guard let payload = elements[type], let dimensions = try dimensions(of: payload, type: type) else {
+                continue
+            }
+            if dimensions.width > selectedWidth {
+                selected = type
+                selectedWidth = dimensions.width
+                selectedHeight = dimensions.height
+            }
+        }
+        guard let selected else { throw FormatError.unsupported("no readable ICNS element") }
+        return (elements, selected, (selectedWidth, selectedHeight))
+    }
+
+    private static func parse(_ file: Data) throws -> ([String: [UInt8]], [String]) {
+        try DecodedImageBudget.validateEncodedData(file)
         let bytes = [UInt8](file)
         guard bytes.count >= 8, String(decoding: bytes[0..<4], as: UTF8.self) == "icns" else {
             throw FormatError.corrupt("not an ICNS file")
         }
         var elements: [String: [UInt8]] = [:]
         var order: [String] = []
+        var entryBudget = DecodedImageBudget()
         var offset = 8
         while offset + 8 <= bytes.count {
+            try Task.checkCancellation()
+            try entryBudget.reserve(width: 1, height: 1)
             let type = String(decoding: bytes[offset..<(offset + 4)], as: UTF8.self)
             let length = Int(UInt32(bigEndian: bytes, at: offset + 4))
-            guard length >= 8, offset + length <= bytes.count else {
+            guard length >= 8, length <= bytes.count - offset else {
                 throw FormatError.corrupt("ICNS element out of range")
             }
             guard elements[type] == nil else {
@@ -61,20 +133,17 @@ public enum ICNSFile {
             order.append(type)
             offset += length
         }
-        var images: [PixelBuffer] = []
-        for type in order {
-            guard let payload = elements[type] else { continue }
-            if let legacy = legacyRLE[type] {
-                images.append(try decodeLegacy(payload, type: type, size: legacy.size, mask: elements[legacy.mask]))
-            } else if let image = try decodeEncoded(payload) {
-                images.append(image)
-            }
-        }
-        guard !images.isEmpty else { throw FormatError.unsupported("no readable ICNS element") }
-        return images
+        guard offset == bytes.count else { throw FormatError.corrupt("truncated ICNS element") }
+        return (elements, order)
     }
 
     private static let jpeg2000Signature: [UInt8] = [0x00, 0x00, 0x00, 0x0C, 0x6A, 0x50, 0x20, 0x20]
+
+    private static func dimensions(of payload: [UInt8], type: String) throws -> (width: Int, height: Int)? {
+        if let legacy = legacyRLE[type] { return (legacy.size, legacy.size) }
+        guard payload.starts(with: PNGFile.signature) || payload.starts(with: jpeg2000Signature) else { return nil }
+        return try EmbeddedImage.dimensions(Data(payload), maximumEdge: maximumEdge)
+    }
 
     /// `nil` for non-image elements such as TOC.
     private static func decodeEncoded(_ payload: [UInt8]) throws -> PixelBuffer? {

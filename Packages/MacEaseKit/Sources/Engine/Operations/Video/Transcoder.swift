@@ -44,6 +44,11 @@ enum Transcoder {
     static func run(
         _ input: MediaInput, plan: TranscodePlan, to url: URL, progress: (Double) -> Void
     ) async throws {
+        if case .copy = plan.video, plan.container.fileType == nil,
+            (plan.transform ?? input.transform) != .identity
+        {
+            throw EngineError.videoDisplayTransformUnsupported
+        }
         let start = try await startTime(input, plan: plan)
         // Streams may outlast the container's stated duration.
         let end = plan.range?.upperBound ?? .max

@@ -31,7 +31,8 @@ public struct MediaPreview: Sendable {
             let height = Int(exactly: (Double(display.height) * Double(width) / Double(display.width)).rounded())
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let edit = FrameEdit(
-            rotation: input.displayRotation, size: PixelSize(width: width, height: max(1, height)).evened())
+            displayOrientation: try input.displayOrientation,
+            size: PixelSize(width: width, height: max(1, height)).evened())
         var images: [CGImage] = []
         for second in seconds {
             let (lastFrameStart, startOverflow) = input.duration.subtractingReportingOverflow(input.frameDuration)

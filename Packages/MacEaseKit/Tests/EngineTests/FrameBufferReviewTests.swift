@@ -49,7 +49,7 @@ private let canAllocateVideoFrames: Bool = {
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
         let source = folder.appending(path: "pages.tiff")
         let image = try ImageFixtures.disc(size: 2_048)
-        try ImageFixtures.write(Array(repeating: image, count: 7), as: .tiff, to: source)
+        try ImageFixtures.write(Array(repeating: image, count: 16), as: .tiff, to: source)
         await #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
             _ = try await ImageDocument.load(source)
         }

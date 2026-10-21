@@ -30,12 +30,13 @@ enum ImageExports {
     static func pdf(from inputs: [URL], context: ItemContext) async throws -> ItemResult {
         guard let first = inputs.first else { return .skipped(.nothingToRemove) }
         var pages: [(image: CGImage, pixelsPerInch: Double)] = []
+        var budget = FrameMemoryBudget.retainedImages
         for (index, url) in inputs.enumerated() {
             try Task.checkCancellation()
             guard try ContentSniffer.matches(url, kind: .image) else {
                 throw EngineError.decodeFailed(url.lastPathComponent)
             }
-            let document = try await ImageDocument.load(url)
+            let document = try await ImageDocument.load(url, budget: &budget)
             let images = document.isMultiPage ? document.frames.map(\.image) : [document.first]
             pages += images.map { ($0, document.pixelsPerInch) }
             context.progress(Double(index + 1) / Double(inputs.count + 1))

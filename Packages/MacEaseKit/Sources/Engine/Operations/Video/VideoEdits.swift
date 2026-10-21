@@ -28,6 +28,7 @@ enum VideoEdits {
         _ operation: VideoOperation, input: MediaInput, source: MediaTrack, settings: VideoSettings,
         audioSettings: AudioSettings = AudioSettings()
     ) throws -> TranscodePlan {
+        _ = try input.displayOrientation
         let container = input.container
         switch operation {
         case .removeAudio:
@@ -44,7 +45,7 @@ enum VideoEdits {
             }
             let video: TranscodePlan.Video =
                 mode == .keyframe
-                ? .copy : .encode(try alphaEncoding(input, source: source, settings: settings), baked(input))
+                ? .copy : .encode(try alphaEncoding(input, source: source, settings: settings), try baked(input))
             var plan = TranscodePlan(container: container, video: video, audio: .copy)
             plan.range = range
             plan.startsAtKeyframe = mode == .keyframe
@@ -56,12 +57,12 @@ enum VideoEdits {
                 plan.transform = rotated(input.transform, by: degrees, source: source)
                 return plan
             }
-            var edit = baked(input)
+            var edit = try baked(input)
             edit.rotation += degrees
             edit.fill = fill
             return try reencoded(input, source: source, edit: edit, settings: settings)
         case .flip(let horizontally):
-            var edit = baked(input)
+            var edit = try baked(input)
             edit.flipsHorizontally = horizontally
             edit.flipsVertically = !horizontally
             return try reencoded(input, source: source, edit: edit, settings: settings)
@@ -76,7 +77,7 @@ enum VideoEdits {
             }
             return plan
         case .resize(let resize):
-            var edit = baked(input)
+            var edit = try baked(input)
             edit.size = try resized(input.displaySize, resize)
             return try reencoded(input, source: source, edit: edit, settings: settings)
         case .still, .gif, .apng, .webP, .gifX, .extractAudio, .compress, .subtitles, .background:
@@ -84,9 +85,8 @@ enum VideoEdits {
         }
     }
 
-    /// Re-encodes bake the stored rotation into pixels.
-    private static func baked(_ input: MediaInput) -> FrameEdit {
-        FrameEdit(rotation: input.displayRotation)
+    private static func baked(_ input: MediaInput) throws -> FrameEdit {
+        FrameEdit(displayOrientation: try input.displayOrientation)
     }
 
     private static func reencoded(
@@ -172,7 +172,7 @@ enum VideoEdits {
         if !source.hasAlpha {
             encoding.codec = target == .mkv ? .h264 : codec(for: target, source: source.codec, settings: settings)
         }
-        return TranscodePlan(container: target, video: .encode(encoding, baked(input)), audio: audio)
+        return TranscodePlan(container: target, video: .encode(encoding, try baked(input)), audio: audio)
     }
 
     private static func resized(_ display: PixelSize, _ resize: VideoResize) throws -> PixelSize {

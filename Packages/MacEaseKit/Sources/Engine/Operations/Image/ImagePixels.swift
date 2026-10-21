@@ -17,6 +17,7 @@ enum ImagePixels {
             throw FrameMemoryBudget.exceeded
         }
         var budget = FrameMemoryBudget()
+        try budget.reserve(reference)
         try budget.reserve(
             width: width, height: height,
             bytesPerPixel: reference.bitsPerComponent > 8 ? 8 : 4)
@@ -91,6 +92,7 @@ enum ImagePixels {
         width: Int, height: Int, like reference: CGImage, fill: CGColor?, _ body: (CGContext) -> Void
     ) throws -> CGImage {
         var budget = FrameMemoryBudget()
+        try budget.reserve(reference)
         try budget.reserve(width: width, height: height)
         guard
             let context = CGContext(

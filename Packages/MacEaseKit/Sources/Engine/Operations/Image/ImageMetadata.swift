@@ -67,6 +67,7 @@ enum ImageMetadata {
             }
             return .skipped(.nothingToRemove)
         }
+        let count = CGImageSourceGetCount(source)
         let primary = CGImageSourceGetPrimaryImageIndex(source)
         let metadata = CGImageSourceCopyMetadataAtIndex(source, primary, nil)
         let properties = CGImageSourceCopyPropertiesAtIndex(source, primary, nil) as? [CFString: Any] ?? [:]
@@ -80,7 +81,6 @@ enum ImageMetadata {
         let kept = filtered(metadata, removing: fields)
         let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
         let output = StagedFile(url: staged, name: url.lastPathComponent, check: .image)
-        let count = CGImageSourceGetCount(source)
         if type.conforms(to: .jpeg) {
             try copy(source, to: staged, type: type, metadata: kept)
         } else if count == 1, type.conforms(to: .png) || type.conforms(to: .tiff) && !type.conforms(to: .rawImage) {
@@ -91,8 +91,15 @@ enum ImageMetadata {
             var options = ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image)
             options.metadata = kept
             options.gainMap = document.gainMap
-            let frames = ImageOutput.frames(of: document, for: format, context: context)
-            try ImageEncoder.encode(frames, as: format, options: options).write(to: staged)
+            let keptCount = ImageOutput.keptFrameCount(of: document, for: format, context: context)
+            if document.isAnimated, keptCount > 1 {
+                try await ImageEncoder.encodeStreaming(
+                    frameCount: keptCount, as: format, options: options, to: staged
+                ) { index in try document.frame(at: index) }
+            } else {
+                let frames = Array(document.frames.prefix(keptCount))
+                try ImageEncoder.encode(frames, as: format, options: options).write(to: staged)
+            }
         }
         return .replace(original: url, output: output)
     }
@@ -111,9 +118,13 @@ enum ImageMetadata {
 
     /// Lossless formats re-encode the stored pixels exactly.
     private static func rewrite(_ source: CGImageSource, to url: URL, type: UTType, metadata: CGImageMetadata?) throws {
+        var budget = FrameMemoryBudget.renderedPage
+        try budget.reserve(source: source, index: 0)
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil),
             let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { throw EngineError.encodeFailed(type.identifier) }
+        var actualBudget = FrameMemoryBudget.renderedPage
+        try actualBudget.reserve(image)
         CGImageDestinationAddImageAndMetadata(destination, image, metadata, nil)
         guard CGImageDestinationFinalize(destination) else { throw EngineError.encodeFailed(type.identifier) }
     }

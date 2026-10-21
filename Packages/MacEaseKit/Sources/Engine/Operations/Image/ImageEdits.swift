@@ -29,20 +29,27 @@ enum ImageOutput {
         return options
     }
 
-    /// Warns about frames `format` drops.
-    static func frames(of document: ImageDocument, for format: ImageFormat, context: ItemContext) -> [ImageFrame] {
+    static func keptFrameCount(of document: ImageDocument, for format: ImageFormat, context: ItemContext) -> Int {
         if document.isAnimated, document.contentType.conforms(to: .heics), format == .heic {
-            return document.frames
+            return document.frameCount
         }
         if document.isAnimated, !format.holdsAnimation {
             context.warn(.firstFrameOnly)
-            return [document.frames[0]]
+            return 1
         }
         if document.isMultiPage, ![.tiff, .pdf].contains(format) {
             context.warn(.firstPageOnly)
-            return [document.frames[0]]
+            return 1
         }
-        return document.frames
+        return document.frameCount
+    }
+
+    static func frames(of document: ImageDocument, for format: ImageFormat, context: ItemContext) throws
+        -> [ImageFrame]
+    {
+        let count = keptFrameCount(of: document, for: format, context: context)
+        guard count <= document.frames.count else { throw EngineError.unsupportedCodec("streaming required") }
+        return Array(document.frames.prefix(count))
     }
 
     static func outputName(for document: ImageDocument, format: ImageFormat) -> String {
@@ -66,7 +73,13 @@ enum ImageOutput {
         let name = outputName(for: document, format: format)
         let staged = try context.stagingURL(for: document.url, name: name)
         try data.write(to: staged)
-        let file = StagedFile(url: staged, name: name, check: check(for: format))
+        return self.staged(staged, for: document, as: format, derived: derived)
+    }
+
+    static func staged(_ url: URL, for document: ImageDocument, as format: ImageFormat, derived: Bool = false)
+        -> ItemResult
+    {
+        let file = StagedFile(url: url, name: outputName(for: document, format: format), check: check(for: format))
         if derived || document.format == nil { return .derived(nextTo: document.url, outputs: [file]) }
         return .replace(original: document.url, output: file)
     }
@@ -77,7 +90,22 @@ enum ImageOutput {
         adjust: (inout EncodeOptions) -> Void = { _ in },
         _ transform: (CGImage) async throws -> CGImage
     ) async throws -> ItemResult {
-        var frames = frames(of: document, for: format, context: context)
+        if document.isAnimated {
+            let count = keptFrameCount(of: document, for: format, context: context)
+            var options = defaultOptions(for: document, format: format, settings: context.settings.image)
+            options.gainMap = keepsGainMap ? document.gainMap : nil
+            adjust(&options)
+            let staged = try context.stagingURL(for: document.url, name: outputName(for: document, format: format))
+            try await ImageEncoder.encodeStreaming(frameCount: count, as: format, options: options, to: staged) {
+                index in
+                let frame = try document.frame(at: index)
+                let image = try await transform(frame.image)
+                context.progress(Double(index + 1) / Double(count + 1))
+                return ImageFrame(image: image, duration: frame.duration)
+            }
+            return self.staged(staged, for: document, as: format)
+        }
+        var frames = try frames(of: document, for: format, context: context)
         var retainedBudget = FrameMemoryBudget()
         for frame in document.frames { try retainedBudget.reserve(frame.image) }
         for index in frames.indices {
@@ -90,7 +118,8 @@ enum ImageOutput {
         options.gainMap = keepsGainMap ? document.gainMap : nil
         adjust(&options)
         return try stage(
-            ImageEncoder.encode(frames, as: format, options: options), for: document, as: format, context: context)
+            ImageEncoder.encode(frames, as: format, options: options, retaining: document.frames.map(\.image)),
+            for: document, as: format, context: context)
     }
 }
 
@@ -106,7 +135,8 @@ enum ImageEdits {
         if grows, !resize.allowsUpscale { return .skipped(.noUpscale) }
         let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: true, context: context) {
-            try ImagePixels.scaled($0, width: width, height: height)
+            image in
+            try autoreleasepool { try ImagePixels.scaled(image, width: width, height: height) }
         }
     }
 
@@ -134,15 +164,38 @@ enum ImageEdits {
     static func convert(_ url: URL, _ conversion: ImageConversion, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
         if conversion.format == document.format { return .skipped(.alreadyDone) }
-        var frames = ImageOutput.frames(of: document, for: conversion.format, context: context)
-        if conversion.format == .gif, frames.count == 1 { frames[0].duration = 0 }
+        let count = ImageOutput.keptFrameCount(of: document, for: conversion.format, context: context)
         var options = ImageOutput.defaultOptions(
             for: document, format: conversion.format, settings: context.settings.image)
         options.quality = conversion.quality.map(Double.init) ?? options.quality
         options.svgColors = conversion.svgColors
         options.optimizesPNG = context.settings.image.optimizePNGOnConvert
         options.gainMap = document.gainMap
-        let data = try ImageEncoder.encode(frames, as: conversion.format, options: options)
+        if document.isAnimated, count > 1 {
+            let staged = try context.stagingURL(
+                for: url, name: ImageOutput.outputName(for: document, format: conversion.format))
+            try await ImageEncoder.encodeStreaming(
+                frameCount: count, as: conversion.format, options: options, to: staged
+            ) { index in
+                let frame = try document.frame(at: index)
+                context.progress(Double(index + 1) / Double(count + 1))
+                return frame
+            }
+            return ImageOutput.staged(staged, for: document, as: conversion.format, derived: document.isRaw)
+        }
+        var frames = Array(document.frames.prefix(count))
+        if conversion.format == .gif, frames.count == 1 { frames[0].duration = 0 }
+        let retained = document.frames.map(\.image)
+        if conversion.format == .png, options.optimizesPNG {
+            do {
+                try ImageEncoder.validateWorkspace(frames, format: .png, options: options, retaining: retained)
+            } catch EngineError.invalidInput(.frameMemoryExceeded) {
+                options.optimizesPNG = false
+                try ImageEncoder.validateWorkspace(frames, format: .png, options: options, retaining: retained)
+                context.warn(.pngOptimizationSkipped)
+            }
+        }
+        let data = try ImageEncoder.encode(frames, as: conversion.format, options: options, retaining: retained)
         return try ImageOutput.stage(
             data, for: document, as: conversion.format, derived: document.isRaw, context: context)
     }
@@ -159,7 +212,8 @@ enum ImageEdits {
         let document = try await ImageDocument.load(url)
         let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
-            try ImagePixels.rotated($0, degrees: degrees, fill: fill.map(ImagePixels.color))
+            image in
+            try autoreleasepool { try ImagePixels.rotated(image, degrees: degrees, fill: fill.map(ImagePixels.color)) }
         }
     }
 
@@ -167,27 +221,37 @@ enum ImageEdits {
         let document = try await ImageDocument.load(url)
         let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
-            try ImagePixels.flipped($0, axis)
+            image in
+            try autoreleasepool { try ImagePixels.flipped(image, axis) }
         }
     }
 
     static func trimBorders(_ url: URL, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
         let canvas = document.first
+        var retained = FrameMemoryBudget()
+        for frame in document.frames { try retained.reserve(frame.image) }
         var content = CGRect.null
-        for frame in document.frames {
+        for index in 0..<document.frameCount {
             try Task.checkCancellation()
-            if let bounds = contentBounds(of: try PixelBuffer(cgImage: frame.image)) {
-                content = content.union(bounds)
+            let bounds = try autoreleasepool { () throws -> CGRect? in
+                let frame = try document.frame(at: index)
+                var frameWorkspace = retained
+                if document.isAnimated && index > 0 { try frameWorkspace.reserve(frame.image) }
+                try frameWorkspace.reserve(width: frame.image.width, height: frame.image.height, frameCount: 2)
+                return contentBounds(of: try PixelBuffer(cgImage: frame.image))
             }
+            if let bounds { content = content.union(bounds) }
         }
         guard !content.isNull,
             content.width < Double(canvas.width) || content.height < Double(canvas.height)
         else { return .skipped(.nothingToRemove) }
         let format = document.writableFormat
         return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in
-            let page = content.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return page.isEmpty ? image : try ImagePixels.cropped(image, to: page)
+            try autoreleasepool {
+                let page = content.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                return page.isEmpty ? image : try ImagePixels.cropped(image, to: page)
+            }
         }
     }
 

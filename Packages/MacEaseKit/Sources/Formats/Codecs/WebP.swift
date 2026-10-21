@@ -112,6 +112,7 @@ public final class WebPAnimationEncoder {
         private let height: Int
         private let quality: Double
         private let loops: Bool
+        private let xmp: Data?
         private let maximumEncodedBytes: Int
         private let mux: OpaquePointer
         private let chunkFrameLimit: Int
@@ -126,7 +127,9 @@ public final class WebPAnimationEncoder {
         private var hasTransparency = false
         private var finished = false
 
-        public init(width: Int, height: Int, quality: Double, loops: Bool, maximumEncodedBytes: Int) throws {
+        public init(width: Int, height: Int, quality: Double, loops: Bool, maximumEncodedBytes: Int, xmp: Data? = nil)
+            throws
+        {
             let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
             let (frameBytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 4)
             guard width > 0, height > 0, Int32(exactly: width) != nil, Int32(exactly: height) != nil,
@@ -139,6 +142,7 @@ public final class WebPAnimationEncoder {
             self.height = height
             self.quality = quality
             self.loops = loops
+            self.xmp = xmp
             self.maximumEncodedBytes = maximumEncodedBytes
             self.mux = mux
             self.chunkFrameLimit = min(Self.maximumChunkFrames, max(1, Self.maximumChunkPixelsBytes / frameBytes))
@@ -186,7 +190,7 @@ public final class WebPAnimationEncoder {
             guard !finished else { throw FormatError.encoderFailure("WebP animation already finished") }
             guard totalFrameCount > 0 else { throw FormatError.encoderFailure("no frames") }
             try flushChunk()
-            for chunk in WebPEncoder.metadataChunks(colorSpace: colorSpace ?? PixelBuffer.sRGB, xmp: nil) {
+            for chunk in WebPEncoder.metadataChunks(colorSpace: colorSpace ?? PixelBuffer.sRGB, xmp: xmp) {
                 let status = chunk.payload.withUnsafeBytes { payload in
                     var metadata = WebPData(bytes: payload.bindMemory(to: UInt8.self).baseAddress, size: payload.count)
                     return WebPMuxSetChunk(mux, chunk.fourCC, &metadata, 1)

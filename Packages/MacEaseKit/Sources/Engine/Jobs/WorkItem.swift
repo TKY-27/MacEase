@@ -90,6 +90,7 @@ public enum ItemResult: Sendable {
 public enum ItemWarning: Equatable, Sendable {
     case firstFrameOnly
     case firstPageOnly
+    case pngOptimizationSkipped
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
     case originalKept

@@ -16,10 +16,15 @@ enum OutputVerifier {
         guard (values.fileSize ?? 0) > 0 else { throw EngineError.encodeFailed("empty output") }
         switch file.check {
         case .image:
-            guard let source = CGImageSourceCreateWithURL(file.url as CFURL, nil),
-                CGImageSourceGetCount(source) > 0,
-                CGImageSourceCreateImageAtIndex(source, 0, nil) != nil
+            guard let source = CGImageSourceCreateWithURL(file.url as CFURL, nil), CGImageSourceGetCount(source) > 0
             else { throw EngineError.encodeFailed("output image does not decode") }
+            var budget = FrameMemoryBudget()
+            try budget.reserve(source: source, index: 0)
+            guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                throw EngineError.encodeFailed("output image does not decode")
+            }
+            var actualBudget = FrameMemoryBudget()
+            try actualBudget.reserve(image)
         case .media:
             try await verifyMedia(file.url)
         case .audio:

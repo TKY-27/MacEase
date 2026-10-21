@@ -82,8 +82,82 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   by the entry width or 4,000,000. At most 65,536 OpenDML references are
   accepted. These bounded checks and cancellation prevent amplified reads
   and keyframe allocation without redesigning the demuxer.
+- **Image decode budgets (8.1, 8.6, 13, 16).** The previous global 100 MB
+  cap rejects ordinary 48 MP camera images. The revised budget separates a
+  frame's size, retained frames and an operation's working buffers. Of the
+  1.5 GB resident target, 500 MB is reserved for frameworks and 1 GB for
+  explicit buffers. Dimensions are checked before decoding, with aligned rows
+  and actual decoded strides checked separately. The allocation estimates
+  are as follows. They require Instruments validation for resident memory.
+
+  | Path | Explicit buffers charged |
+  | --- | --- |
+  | Still decode and output verification | One frame, at most 1 GB |
+  | Retained TIFF and image-to-PDF | Up to 250 MB, reserving four sets for originals, transformed frames, pixel conversion and encoder output |
+  | Animated image edits | One decoded frame per step, plus bounded decoder, transform and streaming-writer buffers; completed frames do not accumulate |
+  | Core Image and bitmap geometry | Source plus destination, using their separate dimensions and depths |
+  | Border detection | Retained images plus provider bytes and RGBA pixels |
+  | ImageIO encode | Retained images plus one output-sized buffer, plus one flattening canvas for opaque formats |
+  | Background replacement | Retained images plus four RGBA-equivalent buffers for converted pixels, coverage, mask provider and compositing |
+  | SVG tracing | 100 MB RGBA-expanded source cap, plus the encoder workspace check |
+  | WebP, JXL and GIF | Retained images plus three RGBA-equivalent buffers for pixel conversion, codec working pixels and output |
+  | AVIF | Retained images plus four RGBA-equivalent buffers for pixel conversion, mutable RGBA, YUV and output |
+  | Quantized PNG | Retained images plus three RGBA-equivalent buffers for pixel conversion, palette rasters and filtered output |
+  | Optimized lossless PNG | Retained images plus six RGBA-equivalent buffers for decoded pixels, provider bytes, RGBA pixels, candidate rasters, filtered samples and encoded output |
+  | PDF rendering and lossless metadata rewrite | Three buffers, at most one third of 1 GB each |
+  | SVG | Two encoded copies plus three rendered buffers |
+  | Video animation export | Existing 32 MB output-frame cap and streaming encoder; completed frames are released |
+
+  PNG conversion preflights both the optimized and ordinary lossless paths.
+  If only optimization exceeds the budget, conversion uses ordinary lossless
+  ImageIO encoding and reports `pngOptimizationSkipped`. This defined fallback
+  keeps pixels and dimensions unchanged. A request that also exceeds ordinary
+  encoding's workspace still fails with the typed memory error. Target-size
+  PNG compression reports the same warning and tries palette candidates if
+  only lossless optimization exceeds the budget.
+
+  Animated GIF, APNG, WebP and HEICS inputs use a reusable ImageIO source.
+  Resize, rotate, flip, conversion, metadata stripping and compression feed
+  each decoded frame to the output writer and release completed frames.
+  Border trimming first scans every frame for the union of content bounds.
+  Compression retries decode again, retaining timing summaries rather than
+  pixels. GIF uses the existing streaming writer with per-frame palettes;
+  APNG uses an ImageIO destination and WebP uses bounded encoding chunks.
+  WebP payload accumulation uses the 250 MB encoded-byte budget and fails
+  with the existing memory-limit error when exceeded.
+  This removes the retained-animation cap without increasing frame limits.
+  HEICS output remains unsupported and fails explicitly; HEICS input can
+  be converted to a supported animated format without dropping frames.
+
+  Encoders also charge distinct retained source images supplied by transforms
+  and compression plans. No frame budget grows with pages already exported
+  by PDF-to-images or recognized by PDF OCR. PDF-to-images drains an
+  autorelease pool per page. Images-to-PDF still retains its inputs and keeps
+  a cumulative cap.
+
+  ICO still rejects shared or overlapping payloads before decoding and keeps
+  only its largest fallback representation. ICNS retains sequential traversal.
+  Both icon readers keep their 100 MB cumulative decoded-pixel and entry
+  accounting cap. Eager encoded input has a separate 250 MB cap, a quarter
+  of the explicit working budget, allowing real large PNG files while leaving
+  space for input copies and icon decoding. ImageIO reads ordinary stills
+  from URLs instead of eagerly copying their entire encoded input.
+
+  A single 200 MP 8-bit RGBA source fits the individual-frame budget, but two
+  full-resolution copies already consume 1.6 GB. Full-resolution 200 MP
+  conversion, geometry, border detection, compression and OCR are not accepted
+  as complete coverage by this change. Tiled transforms and streaming codecs
+  are required to satisfy that request under section 16. This bounded repair
+  rejects oversized workspaces with the existing typed error rather than
+  increasing the resident target or silently reducing resolution.
+- **Video display transforms (8.2, 13).** Re-encoding applies all eight
+  right-angle rotation and reflection combinations to pixels. Copies keep the
+  source display matrix only in containers that support it. Source matrices
+  containing shear, scaling or non-right-angle rotation are refused before
+  replacement. Arbitrary rotations explicitly requested by the user still
+  work. Supporting other source matrices is deferred.
 
 ## Consequences
 
-SPEC.md sections 7, 8.1, 8.2, 8.3, 8.5, 8.10, 9, 10 and 13 describe these behaviors.
+SPEC.md sections 7, 8.1, 8.2, 8.3, 8.5, 8.6, 8.10, 9, 10 and 13 describe these behaviors.
 Users of large grainy clips get a smaller frame instead of a failure.

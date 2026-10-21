@@ -2,10 +2,55 @@ import CoreImage
 import CoreVideo
 import Foundation
 
+enum VideoDisplayOrientation: Hashable, Sendable {
+    case identity, right, left, halfTurn
+    case horizontalMirror, verticalMirror, diagonalMirror, oppositeDiagonalMirror
+
+    private static let floatingPointTolerance: CGFloat = 1e-10
+
+    init(_ transform: CGAffineTransform) throws {
+        let coefficients = [transform.a, transform.b, transform.c, transform.d]
+        guard coefficients.allSatisfy(\.isFinite), transform.tx.isFinite, transform.ty.isFinite,
+            coefficients.allSatisfy({ abs($0) <= 1 + Self.floatingPointTolerance })
+        else { throw EngineError.videoDisplayTransformUnsupported }
+        let rounded = coefficients.map { Int($0.rounded()) }
+        guard zip(coefficients, rounded).allSatisfy({ abs($0.0 - CGFloat($0.1)) <= Self.floatingPointTolerance })
+        else { throw EngineError.videoDisplayTransformUnsupported }
+        switch rounded {
+        case [1, 0, 0, 1]: self = .identity
+        case [0, 1, -1, 0]: self = .right
+        case [0, -1, 1, 0]: self = .left
+        case [-1, 0, 0, -1]: self = .halfTurn
+        case [-1, 0, 0, 1]: self = .horizontalMirror
+        case [1, 0, 0, -1]: self = .verticalMirror
+        case [0, 1, 1, 0]: self = .diagonalMirror
+        case [0, -1, -1, 0]: self = .oppositeDiagonalMirror
+        default: throw EngineError.videoDisplayTransformUnsupported
+        }
+    }
+
+    var pixelTransform: CGAffineTransform {
+        let coefficients: (CGFloat, CGFloat, CGFloat, CGFloat) =
+            switch self {
+            case .identity: (1, 0, 0, 1)
+            case .right: (0, -1, 1, 0)
+            case .left: (0, 1, -1, 0)
+            case .halfTurn: (-1, 0, 0, -1)
+            case .horizontalMirror: (-1, 0, 0, 1)
+            case .verticalMirror: (1, 0, 0, -1)
+            case .diagonalMirror: (0, -1, -1, 0)
+            case .oppositeDiagonalMirror: (0, 1, 1, 0)
+            }
+        return CGAffineTransform(
+            a: coefficients.0, b: coefficients.1, c: coefficients.2, d: coefficients.3, tx: 0, ty: 0)
+    }
+}
+
 /// Geometry applied to every re-encoded frame.
 struct FrameEdit: Hashable, Sendable {
     /// Clockwise degrees.
     var rotation: Double = 0
+    var displayOrientation: VideoDisplayOrientation = .identity
     var flipsHorizontally = false
     var flipsVertically = false
     var fill = RGBColor.black
@@ -88,6 +133,7 @@ final class FrameProcessor {
     /// Y-up space: clockwise turns are negative.
     private static func orientation(_ edit: FrameEdit, width: Double, height: Double) -> CGAffineTransform {
         var transform = CGAffineTransform(translationX: -width / 2, y: -height / 2)
+        transform = transform.concatenating(edit.displayOrientation.pixelTransform)
         if edit.flipsHorizontally { transform = transform.concatenating(CGAffineTransform(scaleX: -1, y: 1)) }
         if edit.flipsVertically { transform = transform.concatenating(CGAffineTransform(scaleX: 1, y: -1)) }
         transform = transform.concatenating(CGAffineTransform(rotationAngle: -edit.rotation * .pi / 180))

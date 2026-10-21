@@ -23,11 +23,15 @@ enum ImageEncoder {
     static let maximumICOEdge = 256
     /// Fill behind transparency in opaque formats.
     static let opaqueBackground = RGBColor.white
+    private static let maximumTracingBytes: Int64 = 100_000_000
     private static let pointsPerInch = 72.0
 
-    static func encode(_ frames: [ImageFrame], as format: ImageFormat, options: EncodeOptions) throws -> Data {
+    static func encode(
+        _ frames: [ImageFrame], as format: ImageFormat, options: EncodeOptions,
+        retaining retained: [CGImage] = []
+    ) throws -> Data {
         guard let first = frames.first else { throw EngineError.encodeFailed("no frames") }
-        try FrameMemoryBudget.validate(images: frames.map(\.image))
+        try validateWorkspace(frames, format: format, options: options, retaining: retained)
         if format == .heic, frames.count > 1 { throw EngineError.unsupportedCodec("HEICS") }
         switch format {
         case .gif:
@@ -67,6 +71,152 @@ enum ImageEncoder {
             return try pdf(frames.map { ($0.image, options.pixelsPerInch) })
         case .png, .jpeg, .heic, .tiff, .bmp:
             return try imageIO(frames, as: format, options: options)
+        }
+    }
+
+    static func encodeStreaming(
+        frameCount: Int, as format: ImageFormat, options: EncodeOptions, to url: URL,
+        frameAt: (Int) async throws -> ImageFrame
+    ) async throws {
+        guard frameCount > 0 else { throw EngineError.encodeFailed("no frames") }
+        if format == .heic, frameCount > 1 { throw EngineError.unsupportedCodec("HEICS") }
+        let first = try await frameAt(0)
+        if frameCount == 1 {
+            try encode([first], as: format, options: options).write(to: url)
+            return
+        }
+        var options = options
+        if format == .png {
+            options.optimizesPNG = false
+            options.pngColors = nil
+        }
+        try validateWorkspace([first], format: format, options: options, streaming: true)
+        switch format {
+        case .gif:
+            let gifOptions = GIFOptions(
+                colors: options.gifColors, dithering: options.dithering,
+                loops: options.loops, paletteScope: .perFrame)
+            let encoder = try GIFEncoder.Stream(
+                width: first.image.width, height: first.image.height, options: gifOptions, to: url)
+            try encoder.add(GIFFrame(pixels: PixelBuffer(cgImage: first.image), duration: first.duration))
+            for index in 1..<frameCount {
+                try Task.checkCancellation()
+                try await autoreleasepoolFrame(index, frameAt: frameAt) { frame in
+                    try validateWorkspace(
+                        [frame], format: format, options: options, retaining: [first.image], streaming: true)
+                    try encoder.add(GIFFrame(pixels: PixelBuffer(cgImage: frame.image), duration: frame.duration))
+                }
+            }
+            try encoder.finish()
+        case .webp:
+            do {
+                let encoder = try WebPAnimationEncoder.Stream(
+                    width: first.image.width, height: first.image.height, quality: options.quality,
+                    loops: options.loops, maximumEncodedBytes: Int(ImageMemoryLimits.encodedBytes),
+                    xmp: xmp(options.metadata))
+                try encoder.add(first.image, duration: first.duration)
+                for index in 1..<frameCount {
+                    try Task.checkCancellation()
+                    try await autoreleasepoolFrame(index, frameAt: frameAt) { frame in
+                        try validateWorkspace(
+                            [frame], format: format, options: options, retaining: [first.image], streaming: true)
+                        try encoder.add(frame.image, duration: frame.duration)
+                    }
+                }
+                try encoder.finish(to: url)
+            } catch WebPAnimationEncoder.Stream.Error.encodedSizeExceeded {
+                throw FrameMemoryBudget.exceeded
+            }
+        case .png:
+            try await imageIOStreaming(
+                first: first, frameCount: frameCount, as: format, options: options, to: url, frameAt: frameAt)
+        default:
+            throw EngineError.unsupportedCodec(format.rawValue)
+        }
+    }
+
+    private static func autoreleasepoolFrame(
+        _ index: Int, frameAt: (Int) async throws -> ImageFrame,
+        consume: (ImageFrame) throws -> Void
+    ) async throws {
+        let frame = try await frameAt(index)
+        try autoreleasepool { try consume(frame) }
+    }
+
+    private static func imageIOStreaming(
+        first: ImageFrame, frameCount: Int, as format: ImageFormat, options: EncodeOptions, to url: URL,
+        frameAt: (Int) async throws -> ImageFrame
+    ) async throws {
+        guard
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL, format.contentType.identifier as CFString, frameCount, nil)
+        else { throw EngineError.unsupportedCodec(format.rawValue) }
+        let metadata = format.holdsMetadata ? upright(options.metadata) : nil
+        let animation = format.holdsAnimation ? AnimationKeys(type: format.contentType) : nil
+        if let animation {
+            CGImageDestinationSetProperties(
+                destination, [animation.dictionary: [animation.loopCount: options.loops ? 0 : 1]] as CFDictionary)
+        }
+        func add(_ frame: ImageFrame) throws {
+            try validateWorkspace(
+                [frame], format: format, options: options, retaining: [first.image], streaming: true)
+            var settings: [CFString: Any] = [:]
+            if let animation {
+                let duration = try imageIODuration(frame.duration, format: format)
+                settings[animation.dictionary] = [
+                    animation.delay: duration, animation.unclampedDelay: duration,
+                ]
+            }
+            CGImageDestinationAddImageAndMetadata(destination, frame.image, metadata, settings as CFDictionary)
+        }
+        try add(first)
+        for index in 1..<frameCount {
+            try Task.checkCancellation()
+            try await autoreleasepoolFrame(index, frameAt: frameAt, consume: add)
+        }
+        guard CGImageDestinationFinalize(destination) else { throw EngineError.encodeFailed(format.rawValue) }
+    }
+
+    private static func imageIODuration(_ duration: Double, format: ImageFormat) throws -> Double {
+        guard duration.isFinite, duration >= 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        guard format == .png, duration > 0 else { return duration }
+        // ImageIO truncates decoded Float delays.
+        let rounded = Float(duration).nextUp
+        guard rounded.isFinite else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        return Double(rounded)
+    }
+
+    static func validateWorkspace(
+        _ frames: [ImageFrame], format: ImageFormat, options: EncodeOptions, retaining retained: [CGImage] = [],
+        streaming: Bool = false
+    ) throws {
+        if format == .svg {
+            var tracingBudget = FrameMemoryBudget(limitBytes: maximumTracingBytes)
+            for frame in frames {
+                try tracingBudget.reserve(width: frame.image.width, height: frame.image.height)
+            }
+        }
+        let pixelCopies: Int64
+        switch format {
+        case .png where options.optimizesPNG && options.pngColors == nil:
+            pixelCopies = 6
+        case .avif: pixelCopies = 4
+        case .webp, .jxl, .svg: pixelCopies = 3
+        case .gif: pixelCopies = 3
+        case .png where options.pngColors != nil: pixelCopies = 3
+        default: pixelCopies = format.holdsAlpha ? 1 : 2
+        }
+        var budget = FrameMemoryBudget()
+        var seen = Set<ObjectIdentifier>()
+        for image in retained + frames.map(\.image) where seen.insert(ObjectIdentifier(image)).inserted {
+            try budget.reserve(image)
+        }
+        let streamCopies: Int64 = streaming && format == .gif ? 2 : streaming && format == .webp ? 1 : 0
+        for frame in frames {
+            try budget.reserve(
+                width: frame.image.width, height: frame.image.height,
+                bytesPerPixel: frame.image.bitsPerComponent > 8 ? 8 : 4,
+                frameCount: pixelCopies + streamCopies)
         }
     }
 
@@ -117,7 +267,8 @@ enum ImageEncoder {
                 destination, [keys.dictionary: [keys.loopCount: options.loops ? 0 : 1]] as CFDictionary)
             for frame in frames {
                 var frameSettings = settings
-                frameSettings[keys.dictionary] = [keys.delay: frame.duration, keys.unclampedDelay: frame.duration]
+                let duration = try imageIODuration(frame.duration, format: format)
+                frameSettings[keys.dictionary] = [keys.delay: duration, keys.unclampedDelay: duration]
                 CGImageDestinationAddImageAndMetadata(destination, frame.image, metadata, frameSettings as CFDictionary)
             }
         } else {

@@ -22,10 +22,12 @@ struct ImageDocument {
     let metadata: CGImageMetadata?
     let gainMap: CFDictionary?
     let pixelsPerInch: Double
+    private let animationSource: CGImageSource?
 
     static let defaultPixelsPerInch = 72.0
 
     var first: CGImage { frames[0].image }
+    var frameCount: Int { animationSource.map(CGImageSourceGetCount) ?? frames.count }
     var isRaw: Bool { contentType.conforms(to: .rawImage) }
     var isMultiPage: Bool { !isAnimated && frames.count > 1 }
 
@@ -37,7 +39,8 @@ struct ImageDocument {
     init(
         url: URL, contentType: UTType, frames: [ImageFrame], isAnimated: Bool = false, loops: Bool = true,
         metadata: CGImageMetadata? = nil, gainMap: CFDictionary? = nil,
-        pixelsPerInch: Double = ImageDocument.defaultPixelsPerInch
+        pixelsPerInch: Double = ImageDocument.defaultPixelsPerInch,
+        animationSource: CGImageSource? = nil
     ) {
         self.url = url
         self.contentType = contentType
@@ -48,79 +51,154 @@ struct ImageDocument {
         self.metadata = metadata
         self.gainMap = gainMap
         self.pixelsPerInch = pixelsPerInch
+        self.animationSource = animationSource
+    }
+
+    func frame(at index: Int) throws -> ImageFrame {
+        guard (0..<frameCount).contains(index) else { throw EngineError.decodeFailed(url.lastPathComponent) }
+        guard let animationSource else { return frames[index] }
+        if index == 0 { return frames[0] }
+        return try Self.decodeFrame(
+            animationSource, index: index, url: url, animation: AnimationKeys(type: contentType))
+    }
+
+    func frameDuration(at index: Int) throws -> Double {
+        guard (0..<frameCount).contains(index) else { throw EngineError.decodeFailed(url.lastPathComponent) }
+        guard let animationSource else { return frames[index].duration }
+        let properties = CGImageSourceCopyPropertiesAtIndex(animationSource, index, nil) as? [CFString: Any] ?? [:]
+        return AnimationKeys(type: contentType)?.delay(in: properties) ?? 0
     }
 
     static func load(_ url: URL) async throws -> ImageDocument {
+        var budget = FrameMemoryBudget()
+        return try await load(url, budget: &budget)
+    }
+
+    static func load(_ url: URL, budget: inout FrameMemoryBudget) async throws -> ImageDocument {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         if let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions), CGImageSourceGetCount(source) > 0,
             let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) })
         {
+            if type.conforms(to: .ico) {
+                try ICOFile.validateStructure(try EncodedImageInput.read(url))
+            }
             do {
-                return try decode(source, type: type, url: url)
+                return try decode(source, type: type, url: url, budget: &budget)
             } catch EngineError.decodeFailed where type.conforms(to: .ico) || type.conforms(to: .icns) {
-                return try decodeIcon(try Data(contentsOf: url), url: url)
+                return try decodeIcon(try EncodedImageInput.read(url), url: url, budget: &budget)
             }
         }
-        let data = try Data(contentsOf: url)
-        if SVGRenderer.isSVG(data) {
-            let image = try await SVGRenderer.render(data)
+        let fileBytes = try EncodedImageInput.read(url)
+        if SVGRenderer.isSVG(fileBytes) {
+            let dimensions = try SVGRenderer.dimensions(fileBytes)
+            var preflight = budget
+            try preflight.reserve(width: dimensions.width, height: dimensions.height)
+            let image = try await SVGRenderer.render(fileBytes)
+            var actual = budget
+            try actual.reserve(image)
+            budget = actual
             return ImageDocument(url: url, contentType: .svg, frames: [ImageFrame(image: image, duration: 0)])
         }
-        return try decodeIcon(data, url: url)
+        return try decodeIcon(fileBytes, url: url, budget: &budget)
     }
 
-    private static func decode(_ source: CGImageSource, type: UTType, url: URL) throws -> ImageDocument {
+    private static func decode(
+        _ source: CGImageSource, type: UTType, url: URL, budget: inout FrameMemoryBudget
+    ) throws -> ImageDocument {
         let count = CGImageSourceGetCount(source)
-        var frameBudget = FrameMemoryBudget()
-        try frameBudget.reserve(width: 1, height: 1, frameCount: Int64(count))
         let animation = AnimationKeys(type: type)
         let isAnimated = count > 1 && animation != nil
         let indices: [Int]
-        if isAnimated || type.conforms(to: .tiff) && !type.conforms(to: .rawImage) {
+        if isAnimated {
+            indices = [0]
+        } else if type.conforms(to: .tiff) && !type.conforms(to: .rawImage) {
             indices = Array(0..<count)
         } else if type.conforms(to: .ico) || type.conforms(to: .icns) {
-            indices = [largestIndex(in: source)]
+            indices = [try largestIndex(in: source)]
         } else {
             indices = [CGImageSourceGetPrimaryImageIndex(source)]
         }
-        var pixelBudget = FrameMemoryBudget()
-        for index in indices {
-            guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
-                let width = properties[kCGImagePropertyPixelWidth] as? Int,
-                let height = properties[kCGImagePropertyPixelHeight] as? Int
-            else { throw EngineError.decodeFailed(url.lastPathComponent) }
-            let depth = properties[kCGImagePropertyDepth] as? Int ?? 8
-            let componentBytes = depth > 16 ? 4 : depth > 8 ? 2 : 1
-            try pixelBudget.reserve(width: width, height: height, bytesPerPixel: 4 * componentBytes)
-        }
-        let frames = try indices.map { index in
-            guard let raw = CGImageSourceCreateImageAtIndex(source, index, nil) else {
-                throw EngineError.decodeFailed(url.lastPathComponent)
+        var retained = FrameMemoryBudget.retainedImages
+        var preflight = budget
+        for position in 0..<(isAnimated ? count : indices.count) {
+            try Task.checkCancellation()
+            let index = isAnimated ? position : indices[position]
+            var rawBudget = FrameMemoryBudget()
+            try rawBudget.reserve(source: source, index: index)
+            if isAnimated {
+                var frameBudget = FrameMemoryBudget()
+                try frameBudget.reserve(source: source, index: index, oriented: true)
+            } else {
+                try preflight.reserve(source: source, index: index, oriented: true)
+                if indices.count > 1 { try retained.reserve(source: source, index: index, oriented: true) }
             }
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
-            let orientation =
-                (properties[kCGImagePropertyOrientation] as? UInt32)
-                .flatMap(CGImagePropertyOrientation.init(rawValue:)) ?? .up
-            return ImageFrame(
-                image: try ImagePixels.oriented(raw, orientation),
-                duration: isAnimated ? animation?.delay(in: properties) ?? 0 : 0)
+        }
+        var actualBudget = budget
+        var retainedActual = FrameMemoryBudget.retainedImages
+        let frames = try indices.map { index in
+            try Task.checkCancellation()
+            let frame = try decodeFrame(source, index: index, url: url, animation: animation)
+            try actualBudget.reserve(frame.image)
+            if indices.count > 1 { try retainedActual.reserve(frame.image) }
+            return frame
         }
         let primary = indices[0]
         let properties = CGImageSourceCopyPropertiesAtIndex(source, primary, nil) as? [CFString: Any] ?? [:]
         let container = CGImageSourceCopyProperties(source, nil) as? [CFString: Any] ?? [:]
-        return ImageDocument(
+        let document = ImageDocument(
             url: url, contentType: type, frames: frames, isAnimated: isAnimated,
             loops: animation?.loopCount(in: container).map { $0 == 0 } ?? true,
             metadata: CGImageSourceCopyMetadataAtIndex(source, primary, nil),
             gainMap: CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, primary, kCGImageAuxiliaryDataTypeISOGainMap),
-            pixelsPerInch: (properties[kCGImagePropertyDPIWidth] as? Double) ?? defaultPixelsPerInch
+            pixelsPerInch: (properties[kCGImagePropertyDPIWidth] as? Double) ?? defaultPixelsPerInch,
+            animationSource: isAnimated ? source : nil
         )
+        budget = actualBudget
+        return document
     }
 
-    private static func largestIndex(in source: CGImageSource) -> Int {
-        (0..<CGImageSourceGetCount(source)).max { left, right in
-            pixelWidth(source, left) < pixelWidth(source, right)
-        } ?? 0
+    private static func decodeFrame(
+        _ source: CGImageSource, index: Int, url: URL, animation: AnimationKeys?
+    ) throws -> ImageFrame {
+        try autoreleasepool {
+            try Task.checkCancellation()
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
+            let orientation =
+                (properties[kCGImagePropertyOrientation] as? UInt32)
+                .flatMap(CGImagePropertyOrientation.init(rawValue:)) ?? .up
+            var preflight = FrameMemoryBudget()
+            try preflight.reserve(source: source, index: index)
+            if orientation != .up { try preflight.reserve(source: source, index: index, oriented: true) }
+            guard let raw = CGImageSourceCreateImageAtIndex(source, index, nil) else {
+                throw EngineError.decodeFailed(url.lastPathComponent)
+            }
+            var actual = FrameMemoryBudget()
+            try actual.reserve(raw)
+            if orientation != .up {
+                var projected = actual
+                try projected.reserve(
+                    width: orientation.swapsAxes ? raw.height : raw.width,
+                    height: orientation.swapsAxes ? raw.width : raw.height,
+                    bytesPerPixel: raw.bitsPerComponent > 8 ? 8 : 4)
+            }
+            let oriented = try ImagePixels.oriented(raw, orientation)
+            if oriented !== raw { try actual.reserve(oriented) }
+            return ImageFrame(image: oriented, duration: animation?.delay(in: properties) ?? 0)
+        }
+    }
+
+    private static func largestIndex(in source: CGImageSource) throws -> Int {
+        var largest = 0
+        var width = 0
+        for index in 0..<CGImageSourceGetCount(source) {
+            try Task.checkCancellation()
+            let candidate = pixelWidth(source, index)
+            if candidate > width {
+                largest = index
+                width = candidate
+            }
+        }
+        return largest
     }
 
     private static func pixelWidth(_ source: CGImageSource, _ index: Int) -> Int {
@@ -131,24 +209,32 @@ struct ImageDocument {
     private static let icoSignature = Data([0, 0, 1, 0])
     private static let icnsSignature = Data("icns".utf8)
 
-    private static func decodeIcon(_ data: Data, url: URL) throws -> ImageDocument {
+    private static func decodeIcon(_ fileBytes: Data, url: URL, budget: inout FrameMemoryBudget) throws -> ImageDocument
+    {
         let type: UTType
-        let images: [PixelBuffer]
+        let image: PixelBuffer
         do {
-            if data.starts(with: icoSignature) {
-                (type, images) = (.ico, try ICOFile.read(data))
-            } else if data.starts(with: icnsSignature) {
-                (type, images) = (.icns, try ICNSFile.read(data))
+            if fileBytes.starts(with: icoSignature) {
+                let dimensions = try ICOFile.largestDimensions(fileBytes)
+                var preflight = budget
+                try preflight.reserve(width: dimensions.width, height: dimensions.height)
+                (type, image) = (.ico, try ICOFile.readLargest(fileBytes))
+            } else if fileBytes.starts(with: icnsSignature) {
+                let dimensions = try ICNSFile.largestDimensions(fileBytes)
+                var preflight = budget
+                try preflight.reserve(width: dimensions.width, height: dimensions.height)
+                (type, image) = (.icns, try ICNSFile.readLargest(fileBytes))
             } else {
                 throw EngineError.decodeFailed(url.lastPathComponent)
             }
-        } catch is FormatError {
-            throw EngineError.decodeFailed(url.lastPathComponent)
+        } catch let error as FormatError {
+            throw EngineError(error)
         }
-        guard let largest = images.max(by: { $0.width < $1.width }) else {
-            throw EngineError.decodeFailed(url.lastPathComponent)
-        }
-        let frame = ImageFrame(image: try largest.makeCGImage(), duration: 0)
+        let rendered = try image.makeCGImage()
+        var actual = budget
+        try actual.reserve(rendered)
+        budget = actual
+        let frame = ImageFrame(image: rendered, duration: 0)
         return ImageDocument(url: url, contentType: type, frames: [frame])
     }
 }

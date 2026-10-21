@@ -82,7 +82,7 @@ enum VideoBackgroundRemoval {
             encoding.codec = context.settings.video.codec == .hevc ? .hevc : .h264
         }
         var plan = TranscodePlan(
-            container: container, video: .encode(encoding, FrameEdit(rotation: input.displayRotation)),
+            container: container, video: .encode(encoding, FrameEdit(displayOrientation: try input.displayOrientation)),
             audio: audio(for: input, in: container, settings: context.settings.audio))
         plan.matte = BackgroundMatte(source: request.mask, fill: request.fill)
         let name = url.deletingPathExtension().lastPathComponent + " (background removed)." + container.fileExtension

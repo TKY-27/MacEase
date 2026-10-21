@@ -750,6 +750,40 @@ check.
   entry width and 4,000,000. OpenDML references are capped at 65,536.
   These limits are checked before index allocation or record accumulation,
   and index traversal checks cancellation (ADR 0010).
+- Image memory checks separate individual frames from retained frame sets.
+  The 1.5 GB resident target reserves 500 MB for frameworks and leaves 1 GB
+  for explicit working buffers. A single decoded frame can use that 1 GB,
+  including aligned rows and frame overhead. Animated image edits decode,
+  transform and encode one frame at a time. Border trimming uses a separate
+  bounds-union pass; compression retries decode again and retain only timing
+  summaries. GIF output uses per-frame palettes through the streaming writer;
+  APNG and WebP use incremental writers. TIFF pages and image-to-PDF inputs
+  retain the 250 MB cumulative cap. Transform and encoder checks
+  account for additional pixel copies before allocation. Limits are estimates
+  of explicit allocations, not a substitute for the Instruments acceptance
+  check in section 16. Full-resolution 200 MP transforms and encoders remain
+  limited by their additional buffers; accepting a 200 MP source does not
+  imply that every operation fits. Broader support requires tiled processing.
+  PNG conversion omits optional lossless optimization when only that step
+  exceeds the workspace limit, and reports a warning. Pixels and resolution
+  are preserved. PNG target-size compression also reports that warning and
+  continues with its palette candidates when lossless optimization exceeds
+  the budget.
+- PDF-to-images and PDF OCR release each rendered page before the next.
+  Each rendered page has a one-third share of the 1 GB working budget for
+  its canvas, snapshot and writer or recognition buffer. Completed pages
+  do not consume later pages' pixel budgets.
+- ICO directory ranges must be disjoint. The icon fallback decodes only the
+  largest representation. ICNS chunks are traversed sequentially. Icons keep
+  their 100 MB cumulative decode and traversal cap. Eager encoded input reads
+  have a separate 250 MB cap before copying. ImageIO and PDFKit do not expose
+  payload offsets, so retained-image budgets and cancellation bound their
+  traversal without adding format parsers (ADR 0010).
+- Video re-encodes bake right-angle display rotations and mirroring into
+  pixels. Stream copies retain the complete display matrix when the output
+  supports it. Sheared, scaled and non-right-angle source display matrices
+  fail before replacement. User-requested arbitrary-angle rotation remains
+  supported (ADR 0010).
 - Permission errors from TCC tell the user which location needs access and link
   to the relevant System Settings pane.
 - Unexpected errors are logged with `Logger` (subsystem `io.github.tky27.MacEase`)
@@ -855,6 +889,20 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Stream animated image edits and compression passes instead of
+  retaining every decoded frame. Border trimming retains only union bounds;
+  frame timing and per-frame allocation checks remain intact (ADR 0010).
+
+- 2026-10-21: Separate still-frame, retained-image and encoded-input budgets.
+  PDF page export releases completed pages. Transformation and encoder
+  workspace checks replace the global ten-copy assumption. Generic 200 MP
+  operation support still requires tiled processing (ADR 0010).
+
+- 2026-10-21: Multi-image decode and PDF rendering enforce cumulative pixel
+  budgets; ICO rejects shared ranges and its fallback keeps one image.
+  Video edits preserve display mirroring and reject unsupported source
+  matrices before replacement (ADR 0010).
 
 - 2026-10-21: Non-finite samples and invalid numeric parameters fail safely.
   Media replacements reject unpreserved streams before writing (ADR 0010).

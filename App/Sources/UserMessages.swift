@@ -26,6 +26,11 @@ enum UserMessages {
                 localized:
                     "“\(file)” could not be edited because the output container cannot preserve transparency. The original was kept."
             )
+        case .videoDisplayTransformUnsupported:
+            String(
+                localized:
+                    "“\(file)” uses an unsupported video display transform. The original was kept."
+            )
         case .duplicateArchiveRootName(let name):
             String(
                 localized: "Multiple selected folders are named “\(name)”. Rename one before creating the archive.",
@@ -89,6 +94,8 @@ enum UserMessages {
         switch warning {
         case .firstFrameOnly:
             String(localized: "Only the first frame was kept because the format has no animation.")
+        case .pngOptimizationSkipped:
+            String(localized: "PNG optimization was skipped to stay within the memory budget.")
         case .firstPageOnly:
             String(localized: "Only the first page was kept.")
         case .loudnessLimitedByPeak(let reached):

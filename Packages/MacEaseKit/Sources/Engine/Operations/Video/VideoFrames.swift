@@ -19,7 +19,8 @@ enum VideoStills {
         let (end, endOverflow) = time.addingReportingOverflow(frameSpan)
         guard !spanOverflow, !endOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
         let sampler = try await FrameSampler(
-            input: input, frameDuration: input.frameDuration, edit: FrameEdit(rotation: input.displayRotation),
+            input: input, frameDuration: input.frameDuration,
+            edit: FrameEdit(displayOrientation: try input.displayOrientation),
             start: time, end: end)
         guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
         let format = context.settings.video.thumbnailFormat
@@ -211,7 +212,7 @@ enum VideoAnimations {
         }
 
         func consume(context: ItemContext, frameBody: (CGImage) throws -> Void) async throws {
-            let edit = FrameEdit(rotation: input.displayRotation, size: size)
+            let edit = FrameEdit(displayOrientation: try input.displayOrientation, size: size)
             let sampler = try await FrameSampler(
                 input: input, frameDuration: interval, edit: edit, start: start, end: end)
             var sampledCount = 0

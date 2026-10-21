@@ -103,9 +103,7 @@ struct MediaInput {
         if let videoTrack {
             video = try await AssetTracks.describe(videoTrack, number: 1)
             transform = try await videoTrack.load(.preferredTransform)
-            guard transform.a.isFinite, transform.b.isFinite, transform.c.isFinite,
-                transform.d.isFinite, transform.tx.isFinite, transform.ty.isFinite
-            else { throw EngineError.decodeFailed("video transform out of range") }
+            _ = try VideoDisplayOrientation(transform)
         }
         var audio: MediaTrack?
         if let audioTrack { audio = try await AssetTracks.describe(audioTrack, number: 2) }
@@ -118,6 +116,7 @@ struct MediaInput {
     func requireSingleTracksForReplacement() throws {
         if hasMultipleTracks { throw EngineError.invalidInput(.multipleTracks) }
         if !skippedStreams.isEmpty { throw EngineError.invalidInput(.unpreservedStreams) }
+        _ = try VideoDisplayOrientation(transform)
     }
 
     private static let frameRateProbe = 32
@@ -143,6 +142,10 @@ struct MediaInput {
         let quarterTurns = Int((displayRotation / 90).rounded()) % 2
         let coded = codedSize
         return quarterTurns == 1 ? PixelSize(width: coded.height, height: coded.width) : coded
+    }
+
+    var displayOrientation: VideoDisplayOrientation {
+        get throws { try VideoDisplayOrientation(transform) }
     }
 
     var frameDuration: Int64 {

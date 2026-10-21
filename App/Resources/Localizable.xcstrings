@@ -2744,6 +2744,16 @@
         }
       }
     },
+    "PNG optimization was skipped to stay within the memory budget.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリの上限を超えないよう、PNG の最適化を省略しました。"
+          }
+        }
+      }
+    },
     "Page %lld": {
       "localizations": {
         "ja": {
@@ -8652,6 +8662,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%1$@” は MacEase が対応していない %2$@ を使用しています。"
+          }
+        }
+      }
+    },
+    "“%@” uses an unsupported video display transform. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” は対応していない表示変換を使用しているため、元のファイルはそのまま残しています。"
           }
         }
       }

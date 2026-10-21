@@ -51,6 +51,57 @@ private typealias Fixture = ImageFixtures
         #expect(inputs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
+    @Test func toPDFRejectsCombinedDecodedPages() async throws {
+        let folder = try TestVolume.makeFolder()
+        let edge = 3_600
+        var inputs: [URL] = []
+        for index in 0..<5 {
+            let image = try Fixture.canvas(width: edge, height: edge) { canvas in
+                canvas.setFillColor(CGColor(gray: 1, alpha: 1))
+                canvas.fill(CGRect(x: 0, y: 0, width: edge, height: edge))
+            }
+            let url = folder.appending(path: "large-page\(index).png")
+            inputs.append(try Fixture.write([image], as: .png, to: url))
+        }
+        let originals = try inputs.map { try Data(contentsOf: $0) }
+
+        let outcome = try await Fixture.run(.imageToPDF, preset: nil, inputs: inputs)
+
+        #expect(outcome.outcomes == [.failed(.invalidInput(.frameMemoryExceeded))])
+        #expect(try inputs.map { try Data(contentsOf: $0) } == originals)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "large-page0.pdf").path))
+    }
+
+    @Test func orientedPageChecksRotatedRowsBeforeRendering() async throws {
+        let folder = try TestVolume.makeFolder()
+        let width = 1_000
+        let height = 65
+        let image = try Fixture.canvas(width: width, height: height) { canvas in
+            canvas.setFillColor(CGColor(gray: 1, alpha: 1))
+            canvas.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        let source = try Fixture.write(
+            [image], as: .tiff, to: folder.appending(path: "rotated.tiff"),
+            frameProperties: [kCGImagePropertyOrientation: CGImagePropertyOrientation.right.rawValue])
+        #expect(try Fixture.properties(source)[kCGImagePropertyOrientation] as? UInt32 == 6)
+        var budget = FrameMemoryBudget()
+        let reserveForRotatedRows: Int64 = 290_000
+        let rowAlignment: Int64 = 64
+        let frameOverhead: Int64 = 1_024
+        let fillerHeight = Int((FrameMemoryBudget.maximumBytes - reserveForRotatedRows - frameOverhead) / rowAlignment)
+        try budget.reserve(width: 1, height: fillerHeight)
+        var rawProbe = budget
+        try rawProbe.reserve(width: width, height: height)
+        var rotatedProbe = budget
+        #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
+            try rotatedProbe.reserve(width: height, height: width)
+        }
+
+        await #expect(throws: EngineError.invalidInput(.frameMemoryExceeded)) {
+            _ = try await ImageDocument.load(source, budget: &budget)
+        }
+    }
+
     @Test func iconSetsPadToSquareAndHoldEverySize() async throws {
         let folder = try TestVolume.makeFolder()
         let wide = try Fixture.photo(width: 300, height: 200)

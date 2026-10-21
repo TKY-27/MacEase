@@ -13,14 +13,25 @@ enum SVGRenderer {
     nonisolated static let defaultEdge = 1024.0
     nonisolated static let maximumEdge = 8192.0
     private static let blockEverything = #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}}]"#
+    private static let renderingCopies: Int64 = 3
+    private static let encodedCopies: Int64 = 2
     private static let ruleListIdentifier = "MacEaseSVGBlockAll"
 
-    static func render(_ svg: Data) async throws -> CGImage {
+    nonisolated static func dimensions(_ svg: Data) throws -> (width: Int, height: Int) {
         let size = SVGSize.parse(svg)
         guard let width = Int(exactly: size.width.rounded(.towardZero)),
             let height = Int(exactly: size.height.rounded(.towardZero)),
             width > 0, height > 0
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        return (width, height)
+    }
+
+    static func render(_ svg: Data) async throws -> CGImage {
+        let size = SVGSize.parse(svg)
+        let (width, height) = try dimensions(svg)
+        var budget = FrameMemoryBudget(
+            limitBytes: FrameMemoryBudget.maximumBytes - Int64(svg.count) * encodedCopies)
+        try budget.reserve(width: width, height: height, frameCount: renderingCopies)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false

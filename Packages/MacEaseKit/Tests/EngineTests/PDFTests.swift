@@ -171,6 +171,50 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
         #expect(try pixelSize(of: jpegFolder.appending(path: "deck 1.jpg")) == (200, 100))
     }
 
+    @Test func toImagesStreamsA3AndA2PagesAt300DPI() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "paper.pdf")
+        let boxes =
+            Array(repeating: CGRect(x: 0, y: 0, width: 842, height: 1_191), count: 4)
+            + [CGRect(x: 0, y: 0, width: 1_191, height: 1_684)]
+        let writer = try #require(CGContext(source as CFURL, mediaBox: nil, nil))
+        for var box in boxes {
+            writer.beginPage(mediaBox: &box)
+            writer.endPage()
+        }
+        writer.closePDF()
+        let original = try Data(contentsOf: source)
+        let outcome = try await runPDF(.toImages(.png, dpi: 300), op: .pdfToImages, on: [source])
+        let output = source.deletingPathExtension()
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        for index in boxes.indices {
+            let page = output.appending(path: "paper \(index + 1).png")
+            let properties = try ImageFixtures.properties(page)
+            #expect(properties[kCGImagePropertyPixelWidth] as? Int == (index < 4 ? 3_508 : 4_963))
+            #expect(properties[kCGImagePropertyPixelHeight] as? Int == (index < 4 ? 4_963 : 7_017))
+        }
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func toImagesRejectsAnOversizedPageBeforeRendering() async throws {
+        let folder = try TestVolume.makeFolder()
+        let url = folder.appending(path: "large-pages.pdf")
+        var box = CGRect(x: 0, y: 0, width: 10_000, height: 10_000)
+        let writer = try #require(CGContext(url as CFURL, mediaBox: &box, nil))
+        for _ in 0..<3 {
+            writer.beginPDFPage(nil)
+            writer.endPDFPage()
+        }
+        writer.closePDF()
+        let original = try Data(contentsOf: url)
+
+        let outcome = try await runPDF(.toImages(.png, dpi: 144), op: .pdfToImages, on: [url])
+
+        #expect(outcome.outcomes == [.failed(.invalidInput(.frameMemoryExceeded))])
+        #expect(try Data(contentsOf: url) == original)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "large-pages").path))
+    }
+
     @Test(.requires(.textRecognition) { await TextRecognition.isAvailable })
     func toTextSeparatesPagesWithFormFeedsAndRecognizesScans() async throws {
         let url = try makePDF("mixed.pdf", pages: [.text("Alpha"), .scan("HELLO 42"), .text("Gamma")])
