@@ -46,7 +46,7 @@ final class PanelCoordinator {
         case .imageAIRename, .pdfAIRename, .folderAIRename: showAIRename(op, inputs)
         case .folderRemoveDuplicates: showDuplicates(op, inputs)
         case .folderRemoveEmpty: showEmptyFolders(op, inputs)
-        case .folderAnalyze: inputs.forEach { showAnalysis(op, folder: $0) }
+        case .folderAnalyze: showAnalysis(op, inputs)
         case .imageAICustom, .videoAICustom, .audioAICustom: showCustomAI(op, inputs)
         default:
             logger.error("No panel for \(op.rawValue, privacy: .public)")
@@ -277,15 +277,29 @@ final class PanelCoordinator {
         }
     }
 
+    /// Scans show in Activity, not a panel.
+    private func scan<Result: Sendable>(
+        _ op: OperationID, _ folders: [URL],
+        _ work: @escaping @Sendable (_ progress: @escaping @Sendable (Double) -> Void) throws -> Result,
+        then present: @escaping (Result) -> Void
+    ) {
+        Task {
+            do {
+                present(try await jobs.scan(op, folders: folders, work))
+            } catch is CancellationError {
+                return
+            } catch {
+                showFailure(op, error, file: folders[0])
+            }
+        }
+    }
+
     private func showDuplicates(_ op: OperationID, _ inputs: [URL]) {
         let settings = store.settings
-        host.show(title: MenuStrings.operationName(op)) { close in
-            ScanningPanel(
-                title: String(localized: "Looking for duplicates…", comment: "Scan progress"), subject: inputs[0],
-                close: close
-            ) { progress in
-                try DuplicateScanner.groups(in: inputs, settings: settings.folder, progress: progress)
-            } content: { groups in
+        scan(op, inputs) { progress in
+            try DuplicateScanner.groups(in: inputs, settings: settings.folder, progress: progress)
+        } then: { groups in
+            self.host.show(title: MenuStrings.operationName(op)) { close in
                 DuplicatesPanel(
                     groups: groups, roots: inputs, allowsPermanentDelete: settings.permanentDelete, cancel: close
                 ) { removals, permanently in
@@ -297,43 +311,94 @@ final class PanelCoordinator {
     }
 
     private func showEmptyFolders(_ op: OperationID, _ inputs: [URL]) {
-        let settings = store.settings
-        host.show(title: MenuStrings.operationName(op)) { close in
-            ScanningPanel(
-                title: String(localized: "Looking for empty folders…", comment: "Scan progress"), subject: inputs[0],
-                close: close
-            ) { progress in
-                try EmptyFolderScanner.folders(in: inputs, settings: settings.folder, progress: progress)
-            } content: { folders in
-                EmptyFoldersPanel(
-                    folders: folders, roots: inputs, allowsPermanentDelete: settings.permanentDelete, cancel: close
-                ) { folders, permanently in
-                    close()
-                    self.launch(op, .folder(.removeEmpty(folders, permanently: permanently)), inputs)
+        let settings = store.settings.folder
+        scan(op, inputs) { progress in
+            try EmptyFolderScanner.folders(in: inputs, settings: settings, progress: progress)
+        } then: { folders in
+            guard !folders.isEmpty else {
+                self.host.show(title: MenuStrings.operationName(op)) { close in
+                    NothingFound(
+                        message: String(localized: "No empty folders found.", comment: "Empty folders panel"),
+                        close: close)
+                }
+                return
+            }
+            guard let permanently = self.confirmEmptyRemoval(folders, roots: inputs) else { return }
+            self.launch(op, .folder(.removeEmpty(folders, permanently: permanently)), inputs)
+        }
+    }
+
+    private static let listedEmptyFolders = 12
+
+    /// `nil` when cancelled.
+    private func confirmEmptyRemoval(_ folders: [URL], roots: [URL]) -> Bool? {
+        let listed = folders.prefix(Self.listedEmptyFolders).map { relativePath($0, roots: roots) }
+        var lines = listed
+        if folders.count > listed.count {
+            lines.append(
+                String(
+                    localized: "…and \(folders.count - listed.count) more",
+                    comment: "Remaining count after the listed empty folders"))
+        }
+        let alert = NSAlert()
+        alert.messageText = String(
+            AttributedString(
+                localized: "Move ^[\(folders.count) empty folder](inflect: true) to the Trash?",
+                comment: "Remove Empty Folders confirmation"
+            ).characters)
+        alert.informativeText = lines.joined(separator: "\n")
+        alert.addButton(withTitle: String(localized: "Move to Trash", comment: "Empty folders panel action"))
+        alert.addButton(withTitle: String(localized: "Cancel", comment: "Panel button"))
+        if store.settings.permanentDelete {
+            alert.addButton(withTitle: String(localized: "Delete Permanently…")).hasDestructiveAction = true
+        }
+        NSApp.activate()
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return false
+        case .alertThirdButtonReturn: return confirmPermanentDelete(folders.count) ? true : nil
+        default: return nil
+        }
+    }
+
+    private func confirmPermanentDelete(_ count: Int) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(localized: "Delete \(count) folders permanently?")
+        alert.informativeText = String(localized: "Permanently deleted folders cannot be restored.")
+        alert.addButton(withTitle: String(localized: "Cancel", comment: "Panel button"))
+        alert.addButton(withTitle: String(localized: "Delete Permanently")).hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    private func showAnalysis(_ op: OperationID, _ folders: [URL]) {
+        let settings = store.settings.folder
+        scan(op, folders) { progress in
+            try FolderAnalysis.scan(folders, settings: settings, progress: progress)
+        } then: { analysis in
+            let names = analysis.roots.map(\.requested.lastPathComponent).formatted(.list(type: .and))
+            self.host.show(title: "\(MenuStrings.operationName(op)): \(names)") { close in
+                AnalyzePanel(analysis: analysis, format: settings.analysisExportFormat, close: close) { format in
+                    self.export(analysis, as: format, operation: op)
                 }
             }
         }
     }
 
-    private func showAnalysis(_ op: OperationID, folder: URL) {
-        let settings = store.settings.folder
-        host.show(title: "\(MenuStrings.operationName(op)): \(folder.lastPathComponent)") { close in
-            ScanningPanel(
-                title: String(localized: "Analyzing…", comment: "Scan progress"), subject: folder, close: close
-            ) { progress in
-                try FolderAnalysis.scan(folder, settings: settings, progress: progress)
-            } content: { analysis in
-                AnalyzePanel(analysis: analysis, close: close) {
-                    guard let markdownType = UTType(filenameExtension: "md", conformingTo: .text) else {
-                        self.showFailure(op, EngineError.commitFailed("Markdown type unavailable"), file: folder)
-                        return
-                    }
-                    self.saveReport(
-                        analysis.markdown, suggestedName: "\(folder.lastPathComponent) analysis.md", operation: op,
-                        contentType: markdownType)
-                }
-            }
+    private func export(_ analysis: FolderAnalysis, as format: AnalysisExportFormat, operation op: OperationID) {
+        let report: String
+        do {
+            report = try analysis.serialized(as: format)
+        } catch {
+            showFailure(op, error, file: analysis.folder)
+            return
         }
+        guard let contentType = UTType(filenameExtension: format.pathExtension, conformingTo: .text) else {
+            showFailure(op, EngineError.commitFailed("\(format.rawValue) type unavailable"), file: analysis.folder)
+            return
+        }
+        saveReport(
+            report, suggestedName: "\(analysis.folder.lastPathComponent) analysis.\(format.pathExtension)",
+            operation: op, contentType: contentType)
     }
 
     private func showCustomAI(_ op: OperationID, _ inputs: [URL]) {

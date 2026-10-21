@@ -13,6 +13,7 @@ final class JobCenter {
         let batchID: UUID
         let operation: OperationID
         let fileNames: [String]
+        var isScan = false
         var progress = 0.0
         var completedItems = 0
         var currentItem: Int?
@@ -38,13 +39,14 @@ final class JobCenter {
     @ObservationIgnored let engine: JobEngine
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let notifier: BatchNotifier
-    @ObservationIgnored private var tasks: [UUID: Task<BatchOutcome?, Never>] = [:]
+    @ObservationIgnored private var cancellers: [UUID: @MainActor () -> Void] = [:]
     @ObservationIgnored var presentReport: ((String, OperationID) -> Void)?
     @ObservationIgnored var presentPanel: ((MenuEntry, [URL]) -> Void)?
     /// `false` when no panel can answer it.
     @ObservationIgnored var askAgain: ((OperationRequest, [URL], InvalidInput) -> Bool)?
     @ObservationIgnored var presentFailure: ((OperationID, String) -> Void)?
     @ObservationIgnored var onStart: ((ActiveBatch) -> Void)?
+    @ObservationIgnored var onScanEnd: ((UUID) -> Void)?
     /// `true` when Activity keeps the result visible.
     @ObservationIgnored var showsFinished: ((ActiveBatch, BatchOutcome) -> Bool)?
     @ObservationIgnored private let logger = Logger(category: "jobs")
@@ -134,12 +136,39 @@ final class JobCenter {
             self.finish(outcome, request: request, activeID: id)
             return outcome
         }
-        tasks[id] = task
+        cancellers[id] = task.cancel
         return task
     }
 
+    /// Activity shows scans; Stop cancels them.
+    func scan<Result: Sendable>(
+        _ op: OperationID, folders: [URL],
+        _ work: @escaping @Sendable (_ progress: @escaping @Sendable (Double) -> Void) throws -> Result
+    ) async throws -> Result {
+        guard !terminating else { throw CancellationError() }
+        let id = UUID()
+        let started = ActiveBatch(
+            id: id, batchID: id, operation: op, fileNames: folders.map(\.lastPathComponent), isScan: true)
+        active.append(started)
+        onStart?(started)
+        let reporter = ProgressReporter { fraction in
+            guard let index = self.active.firstIndex(where: { $0.id == id }) else { return }
+            self.active[index].progress = max(self.active[index].progress, fraction)
+        }
+        let task = Task.detached { try work(reporter.report) }
+        cancellers[id] = task.cancel
+        defer {
+            forget(id)
+            onScanEnd?(id)
+        }
+        let result = try await task.value
+        // Stop can arrive after the final check.
+        if task.isCancelled { throw CancellationError() }
+        return result
+    }
+
     func cancel(_ id: UUID) {
-        tasks[id]?.cancel()
+        cancellers[id]?()
     }
 
     func canUndo(_ id: UUID) -> Bool {
@@ -148,7 +177,7 @@ final class JobCenter {
 
     func prepareForTermination() async throws {
         terminating = true
-        for task in tasks.values { task.cancel() }
+        for cancel in cancellers.values { cancel() }
         let pendingUndos = Array(undoTasks.values)
         for task in pendingUndos { await task.value }
         do {
@@ -227,7 +256,7 @@ final class JobCenter {
     }
 
     private func forget(_ id: UUID) {
-        tasks[id] = nil
+        cancellers[id] = nil
         active.removeAll { $0.id == id }
     }
 

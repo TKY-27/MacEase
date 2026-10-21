@@ -2,52 +2,14 @@ import Charts
 import Engine
 import SwiftUI
 
-/// Scans off the main actor.
-struct ScanningPanel<Result: Sendable, Content: View>: View {
-    let title: String
-    /// Named in error messages.
-    let subject: URL
-    let close: () -> Void
-    let scan: @Sendable (_ progress: @escaping @Sendable (Double) -> Void) throws -> Result
-    @ViewBuilder let content: (Result) -> Content
-
-    @State private var result: Result?
-    @State private var fraction = 0.0
-    @State private var failure: String?
-
-    var body: some View {
-        Group {
-            if let result {
-                content(result)
-            } else if let failure {
-                PanelFailure(message: failure, close: close)
-            } else {
-                ScanProgress(title: title, fraction: fraction, cancel: close)
-            }
-        }
-        .task {
-            let reporter = ProgressReporter { fraction = $0 }
-            let scan = scan
-            do {
-                result = try await offMain { try scan(reporter.report) }
-            } catch is CancellationError {
-                return
-            } catch {
-                failure = UserMessages.describe(
-                    EngineError.wrapping(error, path: subject.path), file: subject.lastPathComponent)
-            }
-        }
-    }
-}
-
 /// Paths below the scanned folders.
-private func relativePath(_ url: URL, roots: [URL]) -> String {
+func relativePath(_ url: URL, roots: [URL]) -> String {
     let parent = roots.first { url.path.hasPrefix($0.path + "/") }?.deletingLastPathComponent().path
     guard let parent else { return url.path }
     return String(url.path.dropFirst(parent.count + 1))
 }
 
-private struct NothingFound: View {
+struct NothingFound: View {
     let message: String
     let close: () -> Void
 
@@ -141,66 +103,11 @@ struct DuplicatesPanel: View {
     }
 }
 
-struct EmptyFoldersPanel: View {
-    let folders: [URL]
-    let roots: [URL]
-    let allowsPermanentDelete: Bool
-    let cancel: () -> Void
-    let run: (_ folders: [URL], _ permanently: Bool) -> Void
-
-    @State private var excluded = Set<URL>()
-    @State private var confirmsPermanentDelete = false
-
-    var body: some View {
-        if folders.isEmpty {
-            NothingFound(
-                message: String(localized: "No empty folders found.", comment: "Empty folders panel"), close: cancel)
-        } else {
-            VStack(spacing: 0) {
-                List(folders, id: \.self) { folder in
-                    Toggle(relativePath(folder, roots: roots), isOn: includes(folder))
-                }
-                .frame(height: PanelLayout.listHeight)
-                PanelBar(
-                    actionTitle: String(localized: "Move to Trash", comment: "Empty folders panel action"),
-                    canRun: !selected.isEmpty, cancel: cancel
-                ) {
-                    run(selected, false)
-                } accessory: {
-                    if allowsPermanentDelete {
-                        Button("Delete Permanently…", role: .destructive) { confirmsPermanentDelete = true }
-                            .disabled(selected.isEmpty)
-                    }
-                }
-            }
-            .frame(width: PanelLayout.wideWidth)
-            .confirmationDialog(
-                Text("Delete \(selected.count) folders permanently?"), isPresented: $confirmsPermanentDelete
-            ) {
-                Button("Delete Permanently", role: .destructive) { run(selected, true) }
-            } message: {
-                Text("Permanently deleted folders cannot be restored.")
-            }
-        }
-    }
-
-    private var selected: [URL] {
-        folders.filter { !excluded.contains($0) }
-    }
-
-    private func includes(_ folder: URL) -> Binding<Bool> {
-        Binding {
-            !excluded.contains(folder)
-        } set: { included in
-            if included { excluded.remove(folder) } else { excluded.insert(folder) }
-        }
-    }
-}
-
 struct AnalyzePanel: View {
     let analysis: FolderAnalysis
+    @State var format: AnalysisExportFormat
     let close: () -> Void
-    let export: () -> Void
+    let export: (AnalysisExportFormat) -> Void
 
     private static let chartedTypes = 8
     private static let chartHeight: CGFloat = 120
@@ -209,6 +116,11 @@ struct AnalyzePanel: View {
         VStack(spacing: 0) {
             Form {
                 Section {
+                    if analysis.roots.count > 1 {
+                        LabeledContent(String(localized: "Folders", comment: "Analyzed folder roots")) {
+                            Text(analysis.roots.map(\.requested.lastPathComponent).formatted(.list(type: .and)))
+                        }
+                    }
                     LabeledContent("Total size", value: analysis.totalBytes.fileSize)
                     LabeledContent("Files", value: analysis.fileCount.formatted())
                     LabeledContent("Duplicates") {
@@ -237,13 +149,21 @@ struct AnalyzePanel: View {
             .scrollDisabled(true)
             .fixedSize(horizontal: false, vertical: true)
             Table(analysis.largestFiles) {
-                TableColumn("Largest Files") { Text(relativePath($0.url, roots: [analysis.folder])) }
+                TableColumn("Largest Files") { Text(relativePath($0.url, roots: analysis.roots.map(\.canonical))) }
                 TableColumn("Size") { Text($0.bytes.fileSize).monospacedDigit() }
             }
             .frame(height: PanelLayout.listHeight)
             PanelBar(
-                actionTitle: String(localized: "Export as Markdown", comment: "Analyze panel action"),
-                cancelTitle: String(localized: "Done", comment: "Panel button"), cancel: close, run: export)
+                actionTitle: String(localized: "Export…", comment: "Analyze panel action"),
+                cancelTitle: String(localized: "Done", comment: "Panel button"), cancel: close
+            ) {
+                export(format)
+            } accessory: {
+                Picker(String(localized: "Format", comment: "Analysis export format"), selection: $format) {
+                    ForEach(AnalysisExportFormat.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .fixedSize()
+            }
         }
         .frame(width: PanelLayout.wideWidth)
     }
@@ -259,4 +179,16 @@ struct AnalyzePanel: View {
 
 extension SizedFile: @retroactive Identifiable {
     public var id: URL { url }
+}
+
+extension AnalysisExportFormat {
+    var title: String {
+        switch self {
+        case .csv: "CSV"
+        case .json: "JSON"
+        case .html: "HTML"
+        case .txt: String(localized: "Plain Text", comment: "Analysis export format")
+        case .markdown: "Markdown"
+        }
+    }
 }
