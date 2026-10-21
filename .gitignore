@@ -14,6 +14,7 @@ build/
 .build/
 .swiftpm/
 Package.resolved
+!Packages/MacEaseKit/Package.resolved
 
 # Vendored native dependencies (built by scripts/build-deps.sh)
 Vendor/build
