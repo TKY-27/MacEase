@@ -556,7 +556,7 @@ menus.
 | --- | --- |
 | Image Resize | 75%, 50%, 25%; Long Edge 3840 px (hidden), 2560 px (hidden), 1920 px, 1080 px; Custom Size… |
 | Image Compress | Discord (20 MB), X (5 MB), Instagram (8 MB), Email (18 MB), Web; High Quality, Medium Quality, Low Quality; Custom Size… |
-| Image Convert | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL; GIF, TIFF, BMP (hidden); ICO (hidden), ICNS (hidden), SVG, PDF; SDR when applicable, HDR if qualified under section 8.12 |
+| Image Convert | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL; GIF, TIFF, BMP (hidden); ICO (hidden), ICNS (hidden), SVG, PDF; SDR when applicable (section 8.12) |
 | Image and video Rotate | 90° Right, 90° Left, 180°, 45° (hidden, editable extra-angle slot); Flip Horizontal, Flip Vertical |
 | Background | Remove, Green Screen, Blue Screen, Custom Color, Blur; Color Key for images only |
 | Remove Metadata / Recognize Text | All, Location Only, Selected Fields / Copy Text, Save as .txt, Show |
@@ -565,7 +565,7 @@ menus.
 | Video Thumbnail | First Frame, Middle Frame; Choose Frame… |
 | Audio and video Subtitles | SRT, WebVTT, Plain Text; Translated SRT |
 | Video Compress | Discord (20 MB), X, Instagram Reels, LINE, Email (18 MB); 10 MB, 25 MB, 50 MB, 100 MB (hidden); High Quality, Medium Quality, Low Quality; Custom Size… |
-| Video Convert | MP4, MOV, M4V (hidden), MKV, WebM, AVI (hidden), FLV (hidden); GIF, GIF for X (15 MB), Animated WebP, APNG (hidden); SDR when applicable, HDR if qualified |
+| Video Convert | MP4, MOV, M4V (hidden), MKV, WebM, AVI (hidden), FLV (hidden); GIF, GIF for X (15 MB), Animated WebP, APNG (hidden); SDR when applicable |
 | Extract Audio | M4A, MP3, AAC, WAV, AIFF (hidden), FLAC, OGG (Vorbis) (hidden), Opus (hidden) |
 | Audio Convert | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG (Vorbis), Opus |
 | Audio Compress | 192 kbps, 128 kbps, 96 kbps, 64 kbps; Custom Size… |
@@ -954,16 +954,14 @@ a visible reason. Audio/video subtitle outputs use `stem.srt`, `.vtt`, or `.txt`
 
 ### 8.12 HDR and SDR conversion
 
-Image and Video > Convert contain **SDR**, meaning HDR to SDR. **HDR** is added
-only if the experimental SDR expansion below passes its quality gate. Neither
-operation opens an extra options window. Both honor the output-mode switch,
+Image and Video > Convert contain **SDR**, meaning HDR to SDR. It opens no
+extra options window. Both honor the output-mode switch,
 while unsupported preservation requirements still refuse Replace.
 
 | Operation | Menu leaf | Mode |
 | --- | --- | --- |
 | `image.hdrToSDR` | Image > Convert > SDR | Transform |
 | `video.hdrToSDR` | Video > Convert > SDR | Transform |
-| Experimental SDR expansion | Convert > HDR, only after qualification | Transform, with Expanded from SDR labelling |
 
 **Detection.** The host inspects decoded transfer functions, color primaries,
 auxiliary gain maps and calibration, and available mastering or content-light
@@ -1010,17 +1008,6 @@ the color-managed platform reference and viewed on HDR and SDR displays.
 Record fixtures, measured tolerances, and device findings in `docs/spikes.md`.
 Both new-file and Replace, metadata, cancellation, and Undo require acceptance.
 A metadata-only check is insufficient.
-
-**Experimental SDR to HDR.** Evaluate a native Core Image gain-map generation
-or equivalent controlled expansion path. It must be labelled **Expanded from
-SDR**, never recovered or genuine captured HDR. No missing highlights can be
-invented as source detail. Validate the SDR base round trip, gain-map calibration,
-HDR display appearance, lack of halos/banding or color shifts, and interoperability
-with ImageIO consumers. It ships only if it provides a meaningful, reliable
-improvement and passes documented quality tolerances on real images and test
-patterns. Record findings in `docs/spikes.md`. If the gate fails, omit HDR from
-the shipped menu. Do not ship a tag-only PQ/HLG rewrite or promise general
-SDR-to-HDR video support without equivalent evidence.
 
 ### 8.13 Target conversion matrix
 
@@ -1406,8 +1393,7 @@ check.
 - Evaluated but deferred: AV1 video encoding, WMA read/write, AVI MPEG-4
   Part 2/MP3 encoding, and alternative transcription backends (section 8.13).
 - WMV decoding, RAR creation, DRM-protected media.
-- General SDR-to-HDR promotion without the experimental quality gate in
-  section 8.12. Unqualified HDR output is not part of the shipping target.
+- SDR-to-HDR conversion of any kind (owner decision, 2026-10-21).
 - Recursive media processing of folder contents (media operations act on
   selected files only).
 - Cloud upload, sharing, accounts, telemetry, crash reporting services.
@@ -1416,6 +1402,10 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Drop SDR-to-HDR conversion from the target; HDR-to-SDR stays.
+  Prefer proven, license-compatible libraries and components over custom
+  implementations when they give a better result (ADR 0013).
 
 - 2026-10-21: Adopt the Flect-style menu-first target v1, schema-2 preset
   groups and selection pruning, essential panels, Activity feedback, sidebar

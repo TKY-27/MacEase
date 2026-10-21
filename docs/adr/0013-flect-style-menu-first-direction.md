@@ -64,9 +64,12 @@ safeguards remain in force.
   Bundled dependencies remain permissive, pinned, and recorded in SPEC 3.7.
 - Include explicit image and video HDR-to-SDR conversion with real tone mapping,
   content detection, color management, preservation checks, and device quality
-  acceptance. Investigate SDR-to-HDR only as labelled SDR expansion. Ship it
-  only if meaningful and reliable under SPEC 8.12's quality gate. No tag-only
-  conversion or claim of recovered captured HDR is acceptable.
+  acceptance. SDR-to-HDR conversion is out of scope (owner decision).
+- Prefer proven libraries, frameworks and components to custom code when
+  they give a better result in quality, reliability or maintenance. Verify
+  each license before use: permissive licenses (MIT, BSD, Apache-2.0, zlib,
+  ISC and similar) with their notices recorded in THIRD_PARTY_NOTICES and
+  SPEC 3.7; GPL-family code is never incorporated.
 
 ## Consequences
 
