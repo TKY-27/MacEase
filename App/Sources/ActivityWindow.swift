@@ -51,6 +51,11 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         return true
     }
 
+    func scanEnded(_ id: UUID) {
+        log.rows.removeAll { $0.id == id }
+        hideIfEmpty()
+    }
+
     func show() {
         guard !log.rows.isEmpty else { return }
         for index in log.rows.indices { log.rows[index].dismissed = false }
@@ -147,7 +152,9 @@ private struct ActivityResult {
     }
 
     let status: Status
+    /// Includes skips, which are not problems.
     let problems: [ActivityProblem]
+    let skipped: Int
     let details: String
     let hasHistory: Bool
 
@@ -155,6 +162,7 @@ private struct ActivityResult {
         var problems: [ActivityProblem] = []
         var succeeded = 0
         var failed = 0
+        var skipped = 0
         for (result, inputs) in zip(outcome.outcomes, outcome.inputs) {
             let file = inputs.first?.lastPathComponent ?? ""
             switch result {
@@ -168,6 +176,7 @@ private struct ActivityResult {
                         isFailure: false)
                 }
             case .skipped(let reason):
+                skipped += 1
                 problems.append(ActivityProblem(message: UserMessages.describe(reason, file: file), isFailure: false))
             case .failed(.cancelled):
                 break
@@ -190,6 +199,7 @@ private struct ActivityResult {
             status = problems.isEmpty ? .done : .problems
         }
         self.problems = problems
+        self.skipped = skipped
         details = BatchSummary(outcome).details
         hasHistory = outcome.record != nil
     }
@@ -199,6 +209,15 @@ private struct ActivityResult {
         case .done: String(localized: "Done.", comment: "Activity status")
         case .cancelled: String(localized: "Cancelled.", comment: "Activity status")
         case .failed: String(localized: "Failed.", comment: "Activity status")
+        case .problems where skipped == problems.count:
+            String(localized: "Finished — \(skipped) skipped.", comment: "Activity status without problems")
+        case .problems where skipped > 0:
+            String(
+                AttributedString(
+                    localized:
+                        "Finished with ^[\(problems.count - skipped) problem](inflect: true), \(skipped) skipped.",
+                    comment: "Activity status"
+                ).characters)
         case .problems:
             String(
                 AttributedString(
@@ -273,7 +292,12 @@ private struct ActivityRowView: View {
         HStack(spacing: Self.lineSpacing * 2) {
             VStack(alignment: .leading, spacing: Self.lineSpacing) {
                 title
-                ProgressView(value: batch.progress)
+                if batch.isScan, batch.progress == 0 {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView(value: batch.progress)
+                }
                 Text(runningStatus(batch))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -297,6 +321,11 @@ private struct ActivityRowView: View {
     }
 
     private func runningStatus(_ batch: JobCenter.ActiveBatch) -> String {
+        if batch.isScan {
+            return String(
+                localized: "Scanning \(batch.fileNames.formatted(.list(type: .and)))…",
+                comment: "Activity status while scanning folders")
+        }
         let file = batch.currentFileName ?? batch.fileNames.first ?? ""
         guard batch.itemCount > 1 else { return file }
         return String(
@@ -324,7 +353,7 @@ private struct ActivityRowView: View {
         }
         HStack {
             if result.problems.count > Self.visibleProblems {
-                Button(String(localized: "Show All Problems…", comment: "Activity button")) {
+                Button(String(localized: "Show All…", comment: "Activity button listing every problem and skip")) {
                     jobs.presentReport?(result.details, row.operation)
                 }
             }

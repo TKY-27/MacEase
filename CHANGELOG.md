@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as single sizes or formats, alongside the extra rotation angle and the
   platform preset editor.
 - Reset All Settings in Settings > Advanced.
+- Remove Duplicates can keep the oldest or newest copy without asking, and
+  can skip small or empty files or require matching names or modification
+  times. Copies are still compared byte by byte.
+- Exclusion rules for folders, files and extensions, for all folder scans or
+  for one feature such as Folder Tree or Analyze.
+- Analyze combines several selected folders in one report and exports CSV,
+  JSON, HTML, plain text or Markdown.
+- Editable menu values for resize percentages, long edges, video heights,
+  compress sizes and the extra rotation angle, with inline validation and
+  reset.
+- Settings for the OCR text file encoding, a custom Shift_JIS replacement
+  character, JSON key comparison, order, keys first and list sorting, SVG
+  conversion by tracing or embedding a PNG, and PDF page images in a new
+  folder or next to the PDF.
 
 ### Changed
 
@@ -28,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Custom Size for Resize asks only for width and height; Custom Size for
   Compress asks only for a size in megabytes. Their other choices come from
   Settings. The menu bar's busy icon stays still when Reduce Motion is on.
+- Scans for duplicates, empty folders and Analyze show their progress in the
+  Activity window. Remove Empty Folders asks for confirmation in an alert
+  instead of a checklist window.
+- The Activity window reports skipped files separately, for example
+  "Finished — 3 skipped.", instead of counting them as problems.
 
 - Updated the target v1 specification and ADR policy for Flect-style menu-first
   interaction, new-file output by default, HDR/SDR scope, and independent Swift

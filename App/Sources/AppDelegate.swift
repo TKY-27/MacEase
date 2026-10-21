@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.activity = activity
         jobs.onStart = { [weak activity] in activity?.started($0) }
         jobs.showsFinished = { [weak activity] in activity?.finished($0, outcome: $1) ?? false }
+        jobs.onScanEnd = { [weak activity] in activity?.scanEnded($0) }
         router = RequestRouter(
             configuration: configuration, jobs: jobs, notifier: notifier,
             menuFile: { [weak self] in self?.menuFile },

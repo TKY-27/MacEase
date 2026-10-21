@@ -81,26 +81,6 @@ extension PanelBar where Accessory == EmptyView {
     }
 }
 
-/// Determinate progress with a Cancel button.
-struct ScanProgress: View {
-    let title: String
-    let fraction: Double
-    let cancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: PanelLayout.rowSpacing) {
-            ProgressView(value: fraction) { Text(title) }
-            HStack {
-                Spacer()
-                Button("Cancel", action: cancel)
-                    .keyboardShortcut(.cancelAction)
-            }
-        }
-        .padding()
-        .frame(width: PanelLayout.width)
-    }
-}
-
 struct PanelFailure: View {
     let message: String
     let close: () -> Void

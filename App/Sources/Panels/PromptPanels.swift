@@ -144,7 +144,7 @@ extension SourceTextEncoding {
         }
     }
 
-    fileprivate var foundationEncoding: String.Encoding {
+    var foundationEncoding: String.Encoding {
         switch self {
         case .utf8: .utf8
         case .utf16LittleEndian: .utf16LittleEndian

@@ -76,12 +76,37 @@ struct ImageSettingsView: View {
                         selection: $store.settings.image.rotationFill.color, supportsOpacity: false)
                 }
             }
-            Section(String(localized: "SVG", comment: "SVG export defaults")) {
-                NumberField(
-                    title: Text(String(localized: "Tracing colors", comment: "Saved SVG palette size")),
-                    value: $store.settings.image.svgColors,
-                    range: Self.svgColorRange)
+            Section {
+                Picker(
+                    String(localized: "Convert to SVG by", comment: "SVG mode"),
+                    selection: $store.settings.image.svgMode
+                ) {
+                    Text(String(localized: "Tracing shapes", comment: "SVG mode")).tag(SVGMode.trace)
+                    Text(String(localized: "Embedding a PNG", comment: "SVG mode")).tag(SVGMode.embeddedPNG)
+                }
+                if store.settings.image.svgMode == .trace {
+                    NumberField(
+                        title: Text(String(localized: "Tracing colors", comment: "Saved SVG palette size")),
+                        value: $store.settings.image.svgColors,
+                        range: Self.svgColorRange)
+                }
+            } header: {
+                Text(String(localized: "SVG", comment: "SVG export defaults"))
+            } footer: {
+                Text(svgFooter)
+                    .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var svgFooter: String {
+        switch store.settings.image.svgMode {
+        case .trace:
+            String(localized: "Draws editable vector shapes with a few colors.", comment: "SVG mode footer")
+        case .embeddedPNG:
+            String(
+                localized: "Keeps every pixel inside the SVG file. The result is not vector art.",
+                comment: "SVG mode footer")
         }
     }
 

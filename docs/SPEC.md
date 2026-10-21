@@ -609,8 +609,8 @@ system behavior. Values are remembered only for retained panels.
 | Page order | PDF Merge, Make PDF with multiple images | Thumbnails, reorder/remove, Move Up and Move Down. |
 | Page select | Single PDF Extract Pages… | Page ranges and thumbnails. |
 | Rename / AI rename | Rename requests | Prefix, suffix, find/replace, numbering (start, step, digits), creation/EXIF date, live preview table; AI suggestions remain editable and require confirmation. |
-| Duplicates | Ask every time, the default keep policy | Verified groups with keep-one choices, oldest/newest proposals, reclaimable bytes, Move to Trash. Permanent deletion requires an additional alert. |
-| Analyze | Selected folder roots | One combined report, named roots, totals, largest 50 files, size by type, duplicate and empty summaries, exports. |
+| Duplicates | Ask every time, the default keep policy | Opens after the scan finishes in Activity. Verified groups with keep-one choices, oldest/newest proposals, reclaimable bytes, Move to Trash. Permanent deletion requires an additional alert. |
+| Analyze | Selected folder roots | Opens after the scan finishes in Activity. One combined report, named roots, totals, largest 50 files, size by type, duplicate and empty summaries, and Export… with a format pop-up (CSV, JSON, HTML, Plain Text, Markdown) that starts at the Settings default. |
 | Text result | OCR Show, multi-file checksum, report details | Read-only text, Copy and Save. |
 | Password / Encoding | Engine requests | Secure archive password field remembered only for the batch, or ambiguous source text encoding. |
 | Ask Apple Intelligence | Natural-language requests | Prompt, validated plan, explicit Run. |
@@ -634,9 +634,12 @@ for duplicates, empty folders, and Analyze use the same window.
 Each batch row shows operation and count, current filename, completed/total,
 a determinate progress bar or indeterminate scan, and a separately labelled
 Stop button. Rows use spacing rather than cards. Status is **Done.**,
-**Finished with {n} problems.**, **Cancelled.**, or **Failed.** Problems expand
-inline with filenames and actionable reasons. Only failures use the error
-color. Finished rows offer Show in Finder and Undo when applicable. VoiceOver
+**Finished with {n} problems.**, **Finished — {n} skipped.**,
+**Finished with {n} problems, {m} skipped.**, **Cancelled.**, or **Failed.**
+Skipped items are not problems. Problems and skips expand inline with
+filenames and actionable reasons. Only failures use the error color.
+Scan rows read **Scanning {folders}…** with an indeterminate bar until the
+scan reports progress; Stop cancels the scan and opens nothing. Finished rows offer Show in Finder and Undo when applicable. VoiceOver
 reads progress and announces completion.
 
 General settings default to close after success on, after cancel on, after
@@ -675,11 +678,16 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 | Images | Per-format quality, PNG optimization, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
 | Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, trim accuracy, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
 | Audio | Per-format bitrate, MP3 CBR/VBR, loudness defaults and editable loudness menu values, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode), extract default format for AI plans only. |
-| Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), exclusions, folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
+| Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), excluded folder names plus an Exclusion Rules sheet for folder, file, and extension patterns per scope (all folder scans, Remove Duplicates, Remove Empty Folders, Folder Tree, Analyze, Rename), folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
 | Text | Shift_JIS policy (fail default, ?, numeric references, or validated custom substitute), JSON indent (2, 4, tab), comparison (ordinal default, case-insensitive, natural), ascending/descending (ascending), recursive/root-only (recursive), pinned keys (empty), primitive-array sorting (off), CSV type inference (off). PDF section: page image resolution (144 dpi), layout (pages folder default, loose files optional). |
-| Text Recognition & Intelligence | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, AI on/off. Audio and video share subtitle settings. |
+| Text Recognition & AI | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, AI on/off. Audio and video share subtitle settings. |
 | Advanced | Concurrency, token rotation, clear history, logs, diagnostics, Full Disk Access, Reset All Settings… with confirmation. Reset preserves history and preset overrides unless explicitly selected. |
 | About | Version, links, MIT license, third-party notices. |
+
+Rarely changed options sit one click deeper: duplicate matching filters
+behind **Matching**, pinned keys and primitive-array sorting behind **More
+Sort Options**. Numeric menu values keep invalid text visible beside an inline
+message and never save it.
 
 Per-preset visibility uses stable operation/preset IDs and preserves hidden
 operation choices during migration. Default-hidden leaves in section 4.4 apply
@@ -1503,6 +1511,14 @@ check.
   typed plist/JSON, and plain-text SRT/WebVTT conversions through Finder and
   Derived commits. Document fidelity, resource, and mapping limits (ADR 0014).
   Markdown HTML/PDF and YAML/TOML mappings await verified package integration.
+
+- 2026-10-21: Wire the new folder, text and menu settings into Settings: duplicate filters and keep
+  policy, exclusion rules per scope, OCR file encoding, custom Shift_JIS
+  substitute, JSON sort options, SVG mode, PDF page layout, and editable menu
+  values with inline validation and reset. Duplicate, Empty Folders, and Analyze
+  scans run in Activity; Analyze exports in five formats and combines roots.
+  Activity counts skips separately from problems. The sidebar page is named
+  Text Recognition & AI.
 
 - 2026-10-21: Implement U5 engine settings for verified duplicate filters and
   automatic Trash retention, shared feature exclusions, OCR encodings and
