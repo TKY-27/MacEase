@@ -67,6 +67,31 @@ struct NumberField: View {
     }
 }
 
+/// Form DisclosureGroups ignore accessibility presses.
+struct MoreOptionsRow: View {
+    let title: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            isExpanded.toggle()
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            isExpanded
+                ? Text("Hide \(title)", comment: "Collapse a group of options")
+                : Text("Show \(title)", comment: "Expand a group of options"))
+    }
+}
+
 struct ProblemLabel: View {
     let text: String
 

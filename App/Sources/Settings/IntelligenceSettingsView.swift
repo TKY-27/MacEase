@@ -12,7 +12,7 @@ struct IntelligenceSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Text Recognition (OCR)") {
+            Section {
                 LabeledContent {
                     Button("Choose…") { showsOCRLanguages = true }
                 } label: {
@@ -24,11 +24,37 @@ struct IntelligenceSettingsView: View {
                     Text("Save as text file").tag(TextOutput.file)
                     Text("Show in a window").tag(TextOutput.panel)
                 }
+                Picker(
+                    String(localized: "Text file encoding", comment: "Saved OCR text encoding"),
+                    selection: $store.settings.intelligence.ocrFileEncoding
+                ) {
+                    ForEach(TextEncodingTarget.allCases, id: \.self) { encoding in
+                        Text(MenuStrings.preset(.textEncoding, encoding.rawValue)).tag(encoding)
+                    }
+                }
+            } header: {
+                Text("Text Recognition (OCR)")
+            } footer: {
+                if store.settings.intelligence.ocrFileEncoding == .shiftJIS {
+                    Text(
+                        String(
+                            localized: "Characters Shift_JIS cannot encode follow the policy in Text.",
+                            comment: "OCR Shift_JIS policy pointer")
+                    )
+                    .foregroundStyle(.secondary)
+                }
             }
-            Section("Subtitles") {
+            Section {
                 SpokenLanguagePicker(selection: $store.settings.intelligence.subtitleLanguage)
                 SubtitleFormatPicker(selection: $store.settings.intelligence.subtitleFormat)
                 TranslationLanguagePicker(selection: $store.settings.intelligence.translationTarget)
+            } header: {
+                Text("Subtitles")
+            } footer: {
+                Text(
+                    String(localized: "Used for both audio and video files.", comment: "Shared subtitle settings")
+                )
+                .foregroundStyle(.secondary)
             }
             Section {
                 Toggle(isOn: $store.settings.intelligence.aiEnabled) {

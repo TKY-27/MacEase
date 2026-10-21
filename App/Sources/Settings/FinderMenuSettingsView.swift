@@ -1,6 +1,7 @@
 import Engine
 import MenuCatalog
 import SwiftUI
+import os
 
 struct FinderMenuSettingsView: View {
     @Bindable var store: SettingsStore
@@ -9,7 +10,15 @@ struct FinderMenuSettingsView: View {
     @State private var editsPresets = false
 
     private static let kinds: [FileKind] = [.image, .video, .audio, .pdf, .text, .folder, .archive, .jar, .any]
-    private static let rotationRange = -360.0...360.0
+
+    /// Adjacent slots sharing an operation and unit.
+    private static let slotRows: [[MenuValueSlot]] = MenuValues.slots.reduce(into: []) { rows, slot in
+        if let last = rows.last?.last, last.unit == slot.unit, last.operation == slot.operation {
+            rows[rows.count - 1].append(slot)
+        } else {
+            rows.append([slot])
+        }
+    }
 
     var body: some View {
         let titles = MenuStrings.titles(settings: store.planning)
@@ -38,19 +47,26 @@ struct FinderMenuSettingsView: View {
                         .disabled(store.hiddenEntries.isEmpty)
                 }
             }
-            Section("Rotation") {
+            Section {
+                ForEach(Self.slotRows, id: \.first?.id) { slots in
+                    MenuValueRow(store: store, slots: slots)
+                }
                 Toggle(isOn: $store.settings.extraRotationEnabled) {
                     Text("Extra angle")
                     Text("Adds one more angle to Rotate.")
                 }
                 if store.settings.extraRotationEnabled {
-                    LabeledContent("Angle") {
-                        Stepper(value: $store.settings.extraRotationDegrees, in: Self.rotationRange) {
-                            Text("\(store.settings.extraRotationDegrees.formatted())°", comment: "Extra rotation angle")
-                                .monospacedDigit()
-                        }
-                    }
+                    ExtraAngleRow(store: store)
                 }
+            } header: {
+                Text(String(localized: "Menu Values", comment: "Editable Finder menu values"))
+            } footer: {
+                Text(
+                    String(
+                        localized: "Edited values replace the menu items in place. Sizes use 1 MB = 1,000,000 bytes.",
+                        comment: "Editable Finder menu values footer")
+                )
+                .foregroundStyle(.secondary)
             }
             Section {
                 LabeledContent {
@@ -179,6 +195,188 @@ private struct PresetSheet: View {
             .padding()
         }
         .frame(width: Self.width, height: Self.height)
+    }
+}
+
+private struct MenuValueRow: View {
+    @Bindable var store: SettingsStore
+    let slots: [MenuValueSlot]
+    /// Typed text per slot, kept while invalid.
+    @State private var drafts: [String: String] = [:]
+
+    private static let fieldWidth: CGFloat = 56
+    private static let spacing: CGFloat = 6
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
+            LabeledContent {
+                HStack(spacing: Self.spacing) {
+                    ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
+                        TextField(text: text(of: slot)) {
+                            Text(verbatim: "\(unitName) \(index + 1)")
+                        }
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: Self.fieldWidth)
+                    }
+                    Text(verbatim: unitSymbol)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+            } label: {
+                Text(title)
+                Text(unitName)
+            }
+            ResetButton(name: title, isDisabled: isDefault) {
+                for slot in slots { store.settings.menuValues.reset(slot.id) }
+                drafts = [:]
+            }
+        }
+        if slots.contains(where: { !isValid(drafts[$0.id], for: $0) }) {
+            Text(
+                String(
+                    localized:
+                        "Use whole numbers from \(slots[0].range.lowerBound.formatted()) to \(slots[0].range.upperBound.formatted()).",
+                    comment: "Explains an invalid menu value")
+            )
+            .foregroundStyle(.red)
+        }
+    }
+
+    private var op: OperationID? { slots[0].operation }
+
+    private var title: String {
+        guard let op else { return slots[0].id }
+        return String(
+            localized: "\(MenuStrings.kind(op.kind)) ▸ \(MenuStrings.operationName(op))",
+            comment: "Menu value row: kind and operation")
+    }
+
+    private var unitName: String {
+        switch slots[0].unit {
+        case .percent: String(localized: "Percentages", comment: "Menu value unit")
+        case .pixels where op == .imageResize: String(localized: "Long edge in pixels", comment: "Menu value unit")
+        case .pixels: String(localized: "Height in pixels", comment: "Menu value unit")
+        case .megabytes: String(localized: "Target sizes in MB", comment: "Menu value unit")
+        }
+    }
+
+    private var unitSymbol: String {
+        switch slots[0].unit {
+        case .percent: "%"
+        case .pixels: "px"
+        case .megabytes: "MB"
+        }
+    }
+
+    private var isDefault: Bool {
+        slots.allSatisfy {
+            store.settings.menuValues.value(for: $0.id) == $0.defaultValue && isValid(drafts[$0.id], for: $0)
+        }
+    }
+
+    private func isValid(_ draft: String?, for slot: MenuValueSlot) -> Bool {
+        draft.map { Int($0).map(slot.range.contains) ?? false } ?? true
+    }
+
+    private func text(of slot: MenuValueSlot) -> Binding<String> {
+        Binding {
+            drafts[slot.id] ?? String(store.settings.menuValues.value(for: slot.id) ?? slot.defaultValue)
+        } set: { text in
+            drafts[slot.id] = text
+            guard isValid(text, for: slot), let value = Int(text) else { return }
+            var values = store.settings.menuValues
+            do {
+                try values.set(value, for: slot.id)
+                store.settings.menuValues = values
+            } catch {
+                Logger(category: "settings").error("Validated menu value rejected for \(slot.id, privacy: .public)")
+            }
+        }
+    }
+}
+
+private struct ExtraAngleRow: View {
+    @Bindable var store: SettingsStore
+    @State private var draft: String?
+
+    private static let defaultDegrees = Settings().extraRotationDegrees
+    private static let fieldWidth: CGFloat = 64
+    private static let spacing: CGFloat = 6
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
+            LabeledContent {
+                HStack(spacing: Self.spacing) {
+                    TextField(text: degrees) { Text("Angle") }
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: Self.fieldWidth)
+                    Text(verbatim: "°")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+            } label: {
+                Text("Angle")
+            }
+            ResetButton(
+                name: String(localized: "Angle"),
+                isDisabled: store.settings.extraRotationDegrees == Self.defaultDegrees
+                    && draft.map { Self.degrees(from: $0) != nil } ?? true
+            ) {
+                store.settings.extraRotationDegrees = Self.defaultDegrees
+                draft = nil
+            }
+        }
+        if draft.map({ Self.degrees(from: $0) == nil }) ?? false {
+            Text(
+                String(
+                    localized:
+                        "Use degrees from \(Settings.extraRotationRange.lowerBound.formatted()) to \(Settings.extraRotationRange.upperBound.formatted()).",
+                    comment: "Explains an invalid extra rotation angle")
+            )
+            .foregroundStyle(.red)
+        }
+    }
+
+    private var degrees: Binding<String> {
+        Binding {
+            draft ?? store.settings.extraRotationDegrees.formatted(.number.grouping(.never))
+        } set: { text in
+            draft = text
+            if let degrees = Self.degrees(from: text) { store.settings.extraRotationDegrees = degrees }
+        }
+    }
+
+    private static func degrees(from text: String) -> Double? {
+        guard let degrees = try? FloatingPointFormatStyle<Double>.number.parseStrategy.parse(text),
+            degrees.isFinite, Settings.extraRotationRange.contains(degrees)
+        else { return nil }
+        return degrees
+    }
+}
+
+private struct ResetButton: View {
+    let name: String
+    let isDisabled: Bool
+    let reset: () -> Void
+
+    var body: some View {
+        Button(action: reset) {
+            Image(systemName: "arrow.counterclockwise")
+        }
+        .buttonStyle(.borderless)
+        .disabled(isDisabled)
+        .help(String(localized: "Reset to default", comment: "Menu value reset button"))
+        .accessibilityLabel(Text("Reset \(name)", comment: "Menu value reset button for VoiceOver"))
+    }
+}
+
+extension MenuValueSlot {
+    fileprivate var operation: OperationID? {
+        id.split(separator: "/").first.flatMap { OperationID(rawValue: String($0)) }
     }
 }
 
