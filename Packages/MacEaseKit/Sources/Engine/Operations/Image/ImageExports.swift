@@ -34,26 +34,23 @@ enum ImageExports {
     /// One page per input, in order.
     static func pdf(from inputs: [URL], context: ItemContext) async throws -> ItemResult {
         guard let first = inputs.first else { return .skipped(.nothingToRemove) }
-        var pages: [(image: CGImage, pixelsPerInch: Double)] = []
-        var budget = FrameMemoryBudget.retainedImages
+        let name = (first.lastPathComponent as NSString).deletingPathExtension + ".pdf"
+        let staged = try context.stagingURL(for: first, name: name)
+        // Streams pages, decoding one input at once.
+        let pdf = try ImageEncoder.pdfContext(writingTo: staged)
         for (index, url) in inputs.enumerated() {
             try Task.checkCancellation()
             guard try ContentSniffer.matches(url, kind: .image) else {
                 throw EngineError.decodeFailed(url.lastPathComponent)
             }
-            let loaded = try await ImageDocument.load(url, budget: &budget)
+            let loaded = try await ImageDocument.load(url)
             let document = try ImageOutput.prepared(loaded, as: .pdf, context: context, derived: true)
-            if document.toneMapsHDR {
-                for frame in document.frames { try budget.reserve(frame.image) }
-            }
             guard !document.isAnimated else { throw EngineError.imageSequenceUnsupported }
             let images = document.isMultiPage ? document.frames.map(\.image) : [document.first]
-            pages += images.map { ($0, document.pixelsPerInch) }
+            for image in images { ImageEncoder.addPDFPage(image, pixelsPerInch: document.pixelsPerInch, to: pdf) }
             context.progress(Double(index + 1) / Double(inputs.count + 1))
         }
-        let name = (first.lastPathComponent as NSString).deletingPathExtension + ".pdf"
-        let staged = try context.stagingURL(for: first, name: name)
-        try ImageEncoder.pdf(pages).write(to: staged)
+        pdf.closePDF()
         return .derived(nextTo: first, outputs: [StagedFile(url: staged, name: name, check: .pdf)])
     }
 

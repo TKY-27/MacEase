@@ -88,6 +88,40 @@ Commands: `swift build --package-path Packages/MacEaseKit`,
 and `make lint` pass. macOS 26 runtime, full-package tests, upstream compliance
 suites, app GUI, and release binary-size comparisons were not run.
 
+## Memory and storage measurements (2026-10-21)
+
+Environment: Apple M5, 24 GB, macOS 27.0.1 (26A434), Xcode 27.1, shared
+machine (timings vary by up to 3×; memory is stable across runs). Each item
+ran alone through `scripts/bench.sh <operation> <file> [preset]` under
+`/usr/bin/time -l`; values are peak memory footprint. Generated fixtures: 4K
+HEIC, 48 MP JPEG, 60 s 1080p H.264 15 Mbps MP4 and MKV, 30 s clip, 20 s 4K
+HDR10 HEVC, 300-frame 800×450 GIF, 200-page PDF, 1 GB folder and its 539 MB
+zip, 2 h Opus, 400 MB UTF-8 log, 200 MB JSON.
+
+| Item | Before | After |
+| --- | --- | --- |
+| 4K HEIC resize 50%, 48 MP JPEG → HEIC | 172 MB, 410 MB | unchanged |
+| 1080p 60 s compress, 30 s to GIF, GIF resize | 111, 83, 72 MB | unchanged |
+| 200-page PDF to PNG, 1 GB zip extract, 4K HDR10 to SDR | 34, 7, 186 MB | unchanged |
+| SHA-256 of a 539 MB file | 522 MB | 8 MB |
+| Compress a 1 GB folder to zip | 1,038 MB | 10 MB |
+| 2 h Opus → AAC | 143 MB | 26 MB |
+| 1080p MKV → MP4 (remux) | 118–336 MB, 4–5 s | 25–32 MB, 0.6 s |
+| 400 MB UTF-8 text to CRLF | 2.0–2.4 GB | 1.2–1.6 GB |
+| 400 MB UTF-8 text to UTF-16 | 3.2–3.9 GB, 16–21 s | 1.8–2.0 GB, 3–4 s |
+| 40 MB UTF-16 text to CRLF | 340 MB | 195 MB |
+| 200 MB JSON pretty-print | 2.5 GB | unchanged |
+| Images to PDF, six / twelve distinct 12 MP photos | 264 MB / refused (`frameMemoryExceeded`) | 141 MB / 194 MB |
+
+| Question | Result |
+| --- | --- |
+| Why did chunked reads hold whole files? | `FileHandle.read(upToCount:)` returns autoreleased buffers; a loop inside one task never drained them. Reading inside `autoreleasepool` keeps memory flat. Outputs were byte-identical, or identical in packets and zip CRCs where container timestamps differ. |
+| Where did text conversions peak? | Decoded text kept alive during conversion, an `Array(data)` copy, result regrowth, and per-unit arrays when writing UTF-16. Outputs stayed byte-identical on UTF-8, UTF-16 LE/BE and Shift_JIS fixtures with mixed CR, LF and CRLF. |
+| Idle host (isolated Release build, own support folder) | 15 MB footprint after launch. After twelve batches including the text and folder items: 283 MB before, 44 MB after, 60 s later. Idle CPU 0.03–0.1%. `leaks` reports about 415 system-framework objects (20 KB) in both builds. |
+| Release bundle | Archived app 21.9 MB; executable 19.0 MB, already stripped and dead-stripped. Native codecs are 14.4 MB of it, Swift 4.7 MB, `cfr.jar` 2.1 MB. DMG: UDZO 11.9 MB, ULFO 11.2 MB, ULMO 8.8 MB. |
+| History writes | Each Trash-backed record rewrites the whole `history.json`: 1,000 removals took 3 s and wrote about 118 MB; 3,000 took 17 s and about 1 GB. |
+| Temporary files | Each benchmark run left its sparse image folder and support folders; Formats tests left about 11 files per run (714 files, 16 MB found). |
+
 ## Release checklist (manual, run on macOS 26.x and 27.x)
 
 1. Install the DMG on a clean user account, clear quarantine with Open Anyway,

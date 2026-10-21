@@ -8,8 +8,23 @@ enum ContainerFixtures {
         try #require(Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Resources"))
     }
 
+    nonisolated(unsafe) private static var scratchPath = ""
+
+    /// Removed at exit; tests keep outputs.
+    private static let scratch: URL = {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "MacEaseFormatsTests-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            fatalError("Scratch folder setup failed: \(error)")
+        }
+        scratchPath = folder.path
+        atexit { try? FileManager.default.removeItem(atPath: ContainerFixtures.scratchPath) }
+        return folder
+    }()
+
     static func temporaryURL(_ name: String) -> URL {
-        FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
+        scratch.appending(path: "\(UUID().uuidString)-\(name)")
     }
 
     static func packets(_ demuxer: inout some MediaDemuxer) throws -> [MediaPacket] {

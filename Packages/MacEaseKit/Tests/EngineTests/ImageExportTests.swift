@@ -51,7 +51,7 @@ private typealias Fixture = ImageFixtures
         #expect(inputs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
-    @Test func toPDFRejectsCombinedDecodedPages() async throws {
+    @Test func toPDFStreamsPagesBeyondOneImageBudget() async throws {
         let folder = try TestVolume.makeFolder()
         let edge = 3_600
         var inputs: [URL] = []
@@ -67,9 +67,9 @@ private typealias Fixture = ImageFixtures
 
         let outcome = try await Fixture.run(.imageToPDF, preset: nil, inputs: inputs)
 
-        #expect(outcome.outcomes == [.failed(.invalidInput(.frameMemoryExceeded))])
+        let document = try #require(PDFDocument(url: try Fixture.output(of: outcome)))
+        #expect(document.pageCount == inputs.count)
         #expect(try inputs.map { try Data(contentsOf: $0) } == originals)
-        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "large-page0.pdf").path))
     }
 
     @Test func orientedPageChecksRotatedRowsBeforeRendering() async throws {

@@ -4,10 +4,6 @@ import Testing
 @testable import Formats
 
 @Suite struct MatroskaTests {
-    private func temporaryURL(_ name: String) -> URL {
-        FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString)-\(name)")
-    }
-
     private func syntheticPackets() -> (tracks: [MediaTrack], packets: [MediaPacket]) {
         var video = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .vp9)
         video.hasAlpha = true
@@ -37,7 +33,7 @@ import Testing
 
     @Test func roundTripPreservesPacketsAndTimestamps() throws {
         let (tracks, packets) = syntheticPackets()
-        let url = temporaryURL("round.webm")
+        let url = ContainerFixtures.temporaryURL("round.webm")
         var muxer = try MatroskaMuxer(url: url, tracks: tracks, webm: true)
         for packet in packets { try muxer.write(packet) }
         try muxer.finish()
@@ -64,7 +60,7 @@ import Testing
     @Test func webmRefusesCodecsOutsideTheProfile() {
         let track = MediaTrack(number: 1, kind: .video(width: 16, height: 16), codec: .h264)
         #expect(throws: FormatError.self) {
-            try MatroskaMuxer(url: temporaryURL("bad.webm"), tracks: [track], webm: true)
+            try MatroskaMuxer(url: ContainerFixtures.temporaryURL("bad.webm"), tracks: [track], webm: true)
         }
     }
 
@@ -82,12 +78,12 @@ import Testing
 
     @Test func rejectsTruncatedFiles() throws {
         let (tracks, packets) = syntheticPackets()
-        let url = temporaryURL("cut.mkv")
+        let url = ContainerFixtures.temporaryURL("cut.mkv")
         var muxer = try MatroskaMuxer(url: url, tracks: tracks, webm: false)
         for packet in packets.prefix(20) { try muxer.write(packet) }
         try muxer.finish()
         let bytes = try Data(contentsOf: url)
-        let cut = temporaryURL("cut2.mkv")
+        let cut = ContainerFixtures.temporaryURL("cut2.mkv")
         try bytes.prefix(bytes.count / 2).write(to: cut)
         #expect(throws: FormatError.self) {
             var demuxer = try MatroskaDemuxer(url: cut)
@@ -122,7 +118,7 @@ import Testing
             track: 2, timestamp: 9 * frame, isKeyframe: true, payload: Data([1]))
         last.discardPadding = 12_500_000
         packets.append(last)
-        let url = temporaryURL("round.webm")
+        let url = ContainerFixtures.temporaryURL("round.webm")
         defer { try? FileManager.default.removeItem(at: url) }
         var muxer = try MatroskaMuxer(url: url, tracks: [video, audio], webm: true)
         for packet in packets { try muxer.write(packet) }
@@ -141,13 +137,13 @@ import Testing
     @Test func refusesTrackNumberZero() {
         let track = MediaTrack(number: 0, kind: .audio(sampleRate: 48_000, channels: 2), codec: .opus)
         #expect(throws: FormatError.self) {
-            try MatroskaMuxer(url: temporaryURL("zero.webm"), tracks: [track], webm: true)
+            try MatroskaMuxer(url: ContainerFixtures.temporaryURL("zero.webm"), tracks: [track], webm: true)
         }
     }
 
     @Test(arguments: [(0, 16), (16, 0), (16_385, 16), (16, 16_385), (Int.max, Int.max)])
     func rejectsInvalidVideoDimensions(width: Int, height: Int) throws {
-        let url = temporaryURL("dimensions.mkv")
+        let url = ContainerFixtures.temporaryURL("dimensions.mkv")
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
         let track = MediaTrack(number: 1, kind: .video(width: width, height: height), codec: .vp9)
         var muxer = try MatroskaMuxer(url: url, tracks: [track], webm: false)
@@ -158,7 +154,7 @@ import Testing
     }
 
     @Test func acceptsMaximumVideoDimension() throws {
-        let url = temporaryURL("maximum-dimension.mkv")
+        let url = ContainerFixtures.temporaryURL("maximum-dimension.mkv")
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) } }
         let track = MediaTrack(number: 1, kind: .video(width: 16_384, height: 1), codec: .vp9)
         var muxer = try MatroskaMuxer(url: url, tracks: [track], webm: false)

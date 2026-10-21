@@ -41,7 +41,7 @@ enum OutputVerifier {
         case .plist:
             _ = try PropertyListSerialization.propertyList(from: Data(contentsOf: file.url), options: [], format: nil)
         case .text(let encoding):
-            guard String(data: try Data(contentsOf: file.url), encoding: encoding) != nil else {
+            guard String(data: try Data(contentsOf: file.url, options: .mappedIfSafe), encoding: encoding) != nil else {
                 throw EngineError.encodeFailed("output text is not valid in its encoding")
             }
         case .svg:

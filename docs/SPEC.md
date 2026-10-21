@@ -1521,6 +1521,14 @@ check.
 | Large batches | 1,000 images processed without UI stalls; menu bar stays responsive | Manual |
 | Idle | Host idle CPU ≈ 0%, resident memory ≤ 80 MB | Manual |
 
+`scripts/bench.sh <operation> <file> [preset]` runs one operation on a copy of
+the file in a scratch volume; run it under `/usr/bin/time -l` to read peak
+memory. Measured on 2026-10-21 (Apple M5, macOS 27.0.1, details in
+`docs/spikes.md`): media, PDF, archive, checksum and folder-compress items
+peak at or below 520 MB; the idle host uses 15 MB after launch and 44 MB after
+twelve heavy batches at about 0.1% CPU. Text encoding, line-ending and JSON
+formatting of 200–400 MB files still peak at 1.2–2.5 GB, above the target.
+
 ## 17. Testing
 
 - `swift test` in `Packages/MacEaseKit` covers classification, menu model,
@@ -1616,6 +1624,11 @@ check.
 - 2026-10-22: Retain failed staging removals for later recovery and wait up to
   five seconds for cancelled jobs during normal quit, while preserving accepted
   undo requests and the history termination barrier (ADR 0017).
+
+- 2026-10-21: Record measured section 16 memory, idle and storage results.
+  Chunked file reads no longer accumulate whole files, text line-ending and
+  UTF-16 conversions drop redundant copies, Images to PDF streams pages instead
+  of refusing large selections, and release DMGs use LZMA (ULMO).
 
 - 2026-10-21: Replace TOMLKit with vendored toml++ 3.4.0 behind an owned C
   bridge, preserving typed mappings and limits while releasing conversion
