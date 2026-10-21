@@ -44,6 +44,17 @@
         }
       }
     },
+    "%@ ▸ %@": {
+      "comment": "Menu value row: kind and operation",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ▸ %@"
+          }
+        }
+      }
+    },
     "%@, page %lld": {
       "comment": "Page order row",
       "localizations": {
@@ -62,17 +73,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@：%@"
-          }
-        }
-      }
-    },
-    "%@°": {
-      "comment": "Extra rotation angle",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@°"
           }
         }
       }
@@ -335,6 +335,17 @@
         }
       }
     },
+    "All folder scans": {
+      "comment": "Exclusion scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのフォルダスキャン"
+          }
+        }
+      }
+    },
     "Allow": {
       "localizations": {
         "ja": {
@@ -405,13 +416,13 @@
         }
       }
     },
-    "Analyzing…": {
-      "comment": "Scan progress",
+    "Analyze export format": {
+      "comment": "Default analysis export format",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "分析中…"
+            "value": "分析結果の書き出し形式"
           }
         }
       }
@@ -497,6 +508,17 @@
         }
       }
     },
+    "Applies to": {
+      "comment": "Exclusion scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用先"
+          }
+        }
+      }
+    },
     "Applies to Compress items that target a size.": {
       "localizations": {
         "ja": {
@@ -540,6 +562,17 @@
         }
       }
     },
+    "Applies to the Encoding menu and to recognized text saved as Shift_JIS.": {
+      "comment": "Shift_JIS policy scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字コードメニューと、Shift_JIS で保存する認識済みテキストに適用されます。"
+          }
+        }
+      }
+    },
     "Applies to videos": {
       "comment": "Preset section toggle",
       "localizations": {
@@ -577,6 +610,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "アーカイブ"
+          }
+        }
+      }
+    },
+    "Ascending": {
+      "comment": "Sort direction",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昇順"
+          }
+        }
+      }
+    },
+    "Ask every time": {
+      "comment": "Duplicate keep policy",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎回確認"
           }
         }
       }
@@ -718,6 +773,17 @@
         }
       }
     },
+    "By character code": {
+      "comment": "JSON ordinal key comparison",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字コード順"
+          }
+        }
+      }
+    },
     "CSV": {
       "localizations": {
         "ja": {
@@ -755,6 +821,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Shift_JIS で表現できない文字"
+          }
+        }
+      }
+    },
+    "Characters Shift_JIS cannot encode follow the policy in Text.": {
+      "comment": "OCR Shift_JIS policy pointer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift_JIS で表現できない文字には、「テキスト」で設定した方法を適用します。"
           }
         }
       }
@@ -838,6 +915,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "履歴を消去…"
+          }
+        }
+      }
+    },
+    "Clear Rules": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールを消去"
           }
         }
       }
@@ -935,6 +1022,17 @@
         }
       }
     },
+    "Compare keys": {
+      "comment": "JSON key comparison",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーの比較方法"
+          }
+        }
+      }
+    },
     "Compress": {
       "comment": "Target size panel action",
       "localizations": {
@@ -977,12 +1075,45 @@
         }
       }
     },
+    "Convert to SVG by": {
+      "comment": "SVG mode",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVG への変換方法"
+          }
+        }
+      }
+    },
     "Convert, compress and tidy files from the Finder menu.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "Finder のメニューからファイルを変換・圧縮・整理できます。"
+          }
+        }
+      }
+    },
+    "Copies are compared byte by byte, then you choose which to keep.": {
+      "comment": "Duplicate keep policy footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーを 1 バイトずつ比較し、残すファイルを選びます。"
+          }
+        }
+      }
+    },
+    "Copies are compared byte by byte. The others move to the Trash without asking.": {
+      "comment": "Duplicate keep policy footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーを 1 バイトずつ比較し、確認せずにほかのファイルをゴミ箱に移動します。"
           }
         }
       }
@@ -1014,6 +1145,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "クリップボードにコピー"
+          }
+        }
+      }
+    },
+    "Copy to keep": {
+      "comment": "Duplicate keep policy",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残すコピー"
           }
         }
       }
@@ -1180,6 +1322,17 @@
         }
       }
     },
+    "Descending": {
+      "comment": "Sort direction",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "降順"
+          }
+        }
+      }
+    },
     "Describe what to do": {
       "localizations": {
         "ja": {
@@ -1304,22 +1457,23 @@
         }
       }
     },
+    "Draws editable vector shapes with a few colors.": {
+      "comment": "SVG mode footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "少ない色数で編集可能なベクター図形を描画します。"
+          }
+        }
+      }
+    },
     "Duplicates": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "重複ファイル"
-          }
-        }
-      }
-    },
-    "Duplicates and Empty Folders": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重複ファイルと空のフォルダ"
           }
         }
       }
@@ -1366,12 +1520,45 @@
         }
       }
     },
+    "Edit Rules…": {
+      "comment": "Opens folder exclusion patterns",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールを編集…"
+          }
+        }
+      }
+    },
+    "Edited values replace the menu items in place. Sizes use 1 MB = 1,000,000 bytes.": {
+      "comment": "Editable Finder menu values footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集した値はメニュー項目に反映されます。サイズは 1 MB = 1,000,000 バイトとして扱います。"
+          }
+        }
+      }
+    },
     "Edited. MacEase uses your values for this preset.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "編集済みです。MacEase はこのプリセットに指定した値を使用します。"
+          }
+        }
+      }
+    },
+    "Embedding a PNG": {
+      "comment": "SVG mode",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PNG を埋め込む"
           }
         }
       }
@@ -1439,6 +1626,28 @@
         }
       }
     },
+    "Enter one character that Shift_JIS can encode.": {
+      "comment": "Explains an invalid Shift_JIS substitute",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift_JIS で表現できる文字を 1 文字入力してください。"
+          }
+        }
+      }
+    },
+    "Enter one path per line. End folder paths with /.": {
+      "comment": "Exclusion preview instructions",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 行に 1 つのパスを入力します。フォルダのパスは / で終えてください。"
+          }
+        }
+      }
+    },
     "Enter page numbers between 1 and %lld, such as 1-3, 5.": {
       "localizations": {
         "ja": {
@@ -1481,12 +1690,34 @@
         }
       }
     },
+    "Excluded": {
+      "comment": "Exclusion preview result",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除外"
+          }
+        }
+      }
+    },
     "Excluded Folders": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "除外するフォルダ"
+          }
+        }
+      }
+    },
+    "Exclusion Rules": {
+      "comment": "Folder exclusion sheet title",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除外ルール"
           }
         }
       }
@@ -1502,13 +1733,24 @@
         }
       }
     },
-    "Export as Markdown": {
+    "Export…": {
       "comment": "Analyze panel action",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Markdown として書き出す"
+            "value": "書き出す…"
+          }
+        }
+      }
+    },
+    "Extensions": {
+      "comment": "Extension exclusion patterns",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張子"
           }
         }
       }
@@ -1567,6 +1809,7 @@
       }
     },
     "Files": {
+      "comment": "File name exclusion patterns",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1659,6 +1902,17 @@
         }
       }
     },
+    "Finished with ^[%lld problem](inflect: true), %lld skipped.": {
+      "comment": "Activity status",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件の問題が発生して終了しました。%lld 件をスキップしました。"
+          }
+        }
+      }
+    },
     "Finished with ^[%lld problem](inflect: true).": {
       "comment": "Activity status",
       "localizations": {
@@ -1670,6 +1924,17 @@
         }
       }
     },
+    "Finished — %lld skipped.": {
+      "comment": "Activity status without problems",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了 — %lld 件をスキップしました。"
+          }
+        }
+      }
+    },
     "Floyd–Steinberg": {
       "comment": "GIF dithering method",
       "localizations": {
@@ -1677,6 +1942,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Floyd–Steinberg"
+          }
+        }
+      }
+    },
+    "Folder Tree lists folders only": {
+      "comment": "Folder Tree omits files",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダツリーにはフォルダのみ表示"
           }
         }
       }
@@ -1702,7 +1978,7 @@
       }
     },
     "Folders": {
-      "comment": "Settings page",
+      "comment": "Folder name exclusion patterns",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1899,12 +2175,34 @@
         }
       }
     },
+    "Height in pixels": {
+      "comment": "Menu value unit",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高さ（ピクセル）"
+          }
+        }
+      }
+    },
     "Hidden items stay available in Settings. Unsupported items never appear.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "非表示の項目は設定で引き続き利用できます。対応していない項目は表示されません。"
+          }
+        }
+      }
+    },
+    "Hide %@": {
+      "comment": "Collapse a group of options",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を非表示"
           }
         }
       }
@@ -1971,12 +2269,34 @@
         }
       }
     },
+    "Ignore empty files": {
+      "comment": "Duplicate filter",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のファイルを無視"
+          }
+        }
+      }
+    },
     "Ignore hidden files when finding duplicates": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "重複ファイルの検索時に隠しファイルを無視"
+          }
+        }
+      }
+    },
+    "Ignoring case": {
+      "comment": "JSON case-insensitive key comparison",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大文字と小文字を区別しない"
           }
         }
       }
@@ -2003,22 +2323,34 @@
         }
       }
     },
+    "In a new folder": {
+      "comment": "PDF page image layout",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいフォルダに保存"
+          }
+        }
+      }
+    },
+    "Included": {
+      "comment": "Exclusion preview result",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象"
+          }
+        }
+      }
+    },
     "Indent": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "インデント"
-          }
-        }
-      }
-    },
-    "JSON": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "JSON"
           }
         }
       }
@@ -2065,12 +2397,67 @@
         }
       }
     },
+    "Keep newest": {
+      "comment": "Duplicate keep policy",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最も新しいファイルを残す"
+          }
+        }
+      }
+    },
+    "Keep oldest": {
+      "comment": "Duplicate keep policy",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最も古いファイルを残す"
+          }
+        }
+      }
+    },
+    "Keeps every pixel inside the SVG file. The result is not vector art.": {
+      "comment": "SVG mode footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのピクセルを SVG ファイル内に保持します。出力はベクター画像ではありません。"
+          }
+        }
+      }
+    },
     "Keeps the Finder menu instant.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "Finder のメニューからすぐに操作できます。"
+          }
+        }
+      }
+    },
+    "Keys first": {
+      "comment": "JSON pinned keys",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先するキー"
+          }
+        }
+      }
+    },
+    "Keys first are separated by commas and keep their order.": {
+      "comment": "JSON pinned keys help",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先するキーはカンマで区切り、指定した順序を保ちます。"
           }
         }
       }
@@ -2217,24 +2604,13 @@
         }
       }
     },
-    "Looking for duplicates…": {
-      "comment": "Scan progress",
+    "Long edge in pixels": {
+      "comment": "Menu value unit",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "重複ファイルを検索中…"
-          }
-        }
-      }
-    },
-    "Looking for empty folders…": {
-      "comment": "Scan progress",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "空のフォルダを検索中…"
+            "value": "長辺（ピクセル）"
           }
         }
       }
@@ -2405,6 +2781,27 @@
         }
       }
     },
+    "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown の変換では、スクリプトなどの生 HTML と安全でないリンクを除外します。"
+          }
+        }
+      }
+    },
+    "Matching": {
+      "comment": "Duplicate candidate filters",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致条件"
+          }
+        }
+      }
+    },
     "Max duration (seconds)": {
       "localizations": {
         "ja": {
@@ -2465,6 +2862,17 @@
         }
       }
     },
+    "Menu Values": {
+      "comment": "Editable Finder menu values",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューの値"
+          }
+        }
+      }
+    },
     "Merge": {
       "comment": "Page order action for PDFs",
       "localizations": {
@@ -2476,12 +2884,34 @@
         }
       }
     },
+    "Minimum size (bytes)": {
+      "comment": "Duplicate size filter",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小サイズ（バイト）"
+          }
+        }
+      }
+    },
     "Mode": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "モード"
+          }
+        }
+      }
+    },
+    "More Sort Options": {
+      "comment": "Advanced JSON sort options",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の並べ替えオプション"
           }
         }
       }
@@ -2517,8 +2947,19 @@
         }
       }
     },
+    "Move ^[%lld empty folder](inflect: true) to the Trash?": {
+      "comment": "Remove Empty Folders confirmation",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個の空のフォルダをゴミ箱に移動しますか？"
+          }
+        }
+      }
+    },
     "Move to Trash": {
-      "comment": "Empty folders panel action",
+      "comment": "Duplicates panel action",
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -2559,12 +3000,34 @@
         }
       }
     },
+    "Natural (2 before 10)": {
+      "comment": "JSON natural key comparison",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自然順（2 を 10 より前に）"
+          }
+        }
+      }
+    },
     "New Name": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "新しい名前"
+          }
+        }
+      }
+    },
+    "Next to the PDF": {
+      "comment": "PDF page image layout",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF と同じ場所に保存"
           }
         }
       }
@@ -2725,6 +3188,17 @@
         }
       }
     },
+    "Off by default, because list order often carries meaning.": {
+      "comment": "JSON primitive array sorting",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リストの順序に意味がある場合が多いため、デフォルトではオフです。"
+          }
+        }
+      }
+    },
     "On": {
       "comment": "Welcome checklist state",
       "localizations": {
@@ -2732,6 +3206,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "オン"
+          }
+        }
+      }
+    },
+    "Only files modified at the same time": {
+      "comment": "Duplicate filter",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ時刻に変更されたファイルのみ"
+          }
+        }
+      }
+    },
+    "Only files with the same name": {
+      "comment": "Duplicate filter",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ名前のファイルのみ"
           }
         }
       }
@@ -2828,6 +3324,17 @@
         }
       }
     },
+    "Order": {
+      "comment": "JSON key sort direction",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "順序"
+          }
+        }
+      }
+    },
     "Ordered": {
       "comment": "GIF dithering method",
       "localizations": {
@@ -2911,6 +3418,17 @@
         }
       }
     },
+    "Page images": {
+      "comment": "PDF page image layout",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ画像"
+          }
+        }
+      }
+    },
     "Pages": {
       "localizations": {
         "ja": {
@@ -2952,6 +3470,28 @@
         }
       }
     },
+    "Pattern rules": {
+      "comment": "Folder exclusion patterns",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パターンルール"
+          }
+        }
+      }
+    },
+    "Percentages": {
+      "comment": "Menu value unit",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "割合"
+          }
+        }
+      }
+    },
     "Permanently deleted files cannot be restored.": {
       "localizations": {
         "ja": {
@@ -2989,6 +3529,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "撮影日 (EXIF)"
+          }
+        }
+      }
+    },
+    "Plain Text": {
+      "comment": "Analysis export format",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレーンテキスト"
           }
         }
       }
@@ -3312,6 +3863,39 @@
         }
       }
     },
+    "Replace with another character": {
+      "comment": "Shift_JIS custom substitute",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の文字に置き換える"
+          }
+        }
+      }
+    },
+    "Replacement character": {
+      "comment": "Shift_JIS custom substitute",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置換文字"
+          }
+        }
+      }
+    },
+    "Reports": {
+      "comment": "Folder Tree and Analyze defaults",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レポート"
+          }
+        }
+      }
+    },
     "Request": {
       "localizations": {
         "ja": {
@@ -3354,6 +3938,17 @@
         }
       }
     },
+    "Reset %@": {
+      "comment": "Menu value reset button for VoiceOver",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ をリセット"
+          }
+        }
+      }
+    },
     "Reset All Settings…": {
       "localizations": {
         "ja": {
@@ -3370,6 +3965,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべての設定をリセットしますか？"
+          }
+        }
+      }
+    },
+    "Reset to default": {
+      "comment": "Menu value reset button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトに戻す"
           }
         }
       }
@@ -3489,6 +4095,17 @@
         }
       }
     },
+    "Rules for all folder scans also apply.": {
+      "comment": "Exclusion scope combination",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのフォルダスキャンに適用するルールも適用されます。"
+          }
+        }
+      }
+    },
     "Run": {
       "comment": "Custom AI panel action",
       "localizations": {
@@ -3507,6 +4124,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "SVG"
+          }
+        }
+      }
+    },
+    "Sample paths": {
+      "comment": "Exclusion preview input",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンプルのパス"
           }
         }
       }
@@ -3564,6 +4192,17 @@
         }
       }
     },
+    "Scanning %@…": {
+      "comment": "Activity status while scanning folders",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ をスキャン中…"
+          }
+        }
+      }
+    },
     "Select All": {
       "comment": "Edit menu item",
       "localizations": {
@@ -3592,6 +4231,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder でファイルを選択して右クリックし、MacEase を選ぶと、変換、圧縮、サイズ変更などを行えます。"
+          }
+        }
+      }
+    },
+    "Separate rules with semicolons. * matches any text and ? one character. Case is ignored.": {
+      "comment": "Exclusion pattern syntax",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールはセミコロンで区切ります。* は任意の文字列、? は任意の 1 文字に一致します。大文字と小文字は区別しません。"
           }
         }
       }
@@ -3637,6 +4287,17 @@
         }
       }
     },
+    "Show %@": {
+      "comment": "Expand a group of options",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を表示"
+          }
+        }
+      }
+    },
     "Show %@ results in Finder": {
       "comment": "Activity reveal button for VoiceOver",
       "localizations": {
@@ -3658,13 +4319,13 @@
         }
       }
     },
-    "Show All Problems…": {
-      "comment": "Activity button",
+    "Show All…": {
+      "comment": "Activity button listing every problem and skip",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての問題を表示…"
+            "value": "すべてを表示…"
           }
         }
       }
@@ -3762,6 +4423,17 @@
         }
       }
     },
+    "Skip folders, files and extensions by pattern, per feature.": {
+      "comment": "Pattern rules summary",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機能ごとに、パターンを指定してフォルダ、ファイル、拡張子を除外します。"
+          }
+        }
+      }
+    },
     "Smooth (fps)": {
       "comment": "Smooth frame rate slot",
       "localizations": {
@@ -3799,6 +4471,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "キーのソート"
+          }
+        }
+      }
+    },
+    "Sort lists of plain values": {
+      "comment": "JSON primitive array sorting",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単純な値のリストを並べ替える"
           }
         }
       }
@@ -4053,6 +4736,17 @@
         }
       }
     },
+    "Target sizes in MB": {
+      "comment": "Menu value unit",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標サイズ（MB）"
+          }
+        }
+      }
+    },
     "Target-Size Compression": {
       "localizations": {
         "ja": {
@@ -4091,6 +4785,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキスト認識 (OCR)"
+          }
+        }
+      }
+    },
+    "Text file encoding": {
+      "comment": "Saved OCR text encoding",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストファイルの文字コード"
           }
         }
       }
@@ -4425,6 +5130,17 @@
         }
       }
     },
+    "Tracing shapes": {
+      "comment": "SVG mode",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "図形をトレース"
+          }
+        }
+      }
+    },
     "Translate into": {
       "localizations": {
         "ja": {
@@ -4582,6 +5298,17 @@
         }
       }
     },
+    "Use degrees from %@ to %@.": {
+      "comment": "Explains an invalid extra rotation angle",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 度から %@ 度までを入力してください。"
+          }
+        }
+      }
+    },
     "Use for all %lld archives in this batch": {
       "localizations": {
         "ja": {
@@ -4599,6 +5326,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "時間は 0 秒から 86400 秒の範囲で指定し、終了時刻は開始時刻より後にしてください。"
+          }
+        }
+      }
+    },
+    "Use whole numbers from %@ to %@.": {
+      "comment": "Explains an invalid menu value",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から %@ までの整数を入力してください。"
+          }
+        }
+      }
+    },
+    "Used for both audio and video files.": {
+      "comment": "Shared subtitle settings",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声ファイルと動画ファイルの両方に適用されます。"
           }
         }
       }
@@ -9905,6 +10654,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@”: %@"
+          }
+        }
+      }
+    },
+    "…and %lld more": {
+      "comment": "Remaining count after the listed empty folders",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "…ほか %lld 件"
           }
         }
       }

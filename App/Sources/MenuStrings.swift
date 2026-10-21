@@ -110,7 +110,12 @@ enum MenuStrings {
 
     static func titles(settings: Settings) -> MenuTitles {
         MenuTitles(
-            operation: operation,
+            operation: { op in
+                if op == .folderRemoveDuplicates, settings.folder.duplicateKeepPolicy != .ask {
+                    return operationName(op)
+                }
+                return operation(op)
+            },
             preset: { op, presetID in
                 let slotID = "\(op.rawValue)/\(presetID)"
                 if let slot = MenuValues.slots.first(where: { $0.id == slotID }),
@@ -118,31 +123,35 @@ enum MenuStrings {
                 {
                     if slot.defaultValue == value { return preset(op, presetID) }
                     switch slot.unit {
-                    case .percent: return String(localized: "\(value)%")
+                    case .percent: return String(format: String(localized: "%lld%%"), value)
                     case .pixels:
-                        if op == .imageResize { return String(localized: "Long Edge \(value) px") }
-                        return String(localized: "\(value)p")
-                    case .megabytes: return String(localized: "\(value) MB")
+                        if op == .imageResize {
+                            return String(format: String(localized: "Long Edge %lld px"), value)
+                        }
+                        return String(format: String(localized: "%lldp"), value)
+                    case .megabytes: return String(format: String(localized: "%lld MB"), value)
                     }
                 }
                 if presetID == "extra-angle" {
                     return String(
                         localized: "menu.preset.rotate.extra-angle",
-                        defaultValue: "\(settings.extraRotationDegrees.formatted())°")
+                        defaultValue: "\(settings.extraRotationDegrees.formatted(.number.grouping(.never)))°")
                 }
                 if op == .videoFPS, let rate = frameRates(settings)[presetID] {
-                    return String(localized: "menu.preset.video.fps.value", defaultValue: "\(rate) fps")
+                    return String(
+                        format: String(localized: "menu.preset.video.fps.value", defaultValue: "%lld fps"), rate)
                 }
                 if op == .audioNormalize, let loudness = loudnessTargets(settings)[presetID] {
                     return String(
-                        localized: "menu.preset.audio.normalize.value", defaultValue: "\(loudness.formatted()) LUFS")
+                        localized: "menu.preset.audio.normalize.value",
+                        defaultValue: "\(loudness.formatted(.number.grouping(.never))) LUFS")
                 }
                 if op == .imageCompress || op == .videoCompress,
                     let platform = settings.platformPresets.first(where: { $0.id == presetID })
                 {
                     let limits = op == .imageCompress ? platform.image : platform.video
                     if let bytes = limits?.maxBytes {
-                        let megabytes = (Double(bytes) / bytesPerMegabyte).formatted()
+                        let megabytes = (Double(bytes) / bytesPerMegabyte).formatted(.number.grouping(.never))
                         let name = platform.name.localized(languageCode: Bundle.main.preferredLocalizations.first)
                         return String(
                             localized: "menu.preset.platform-size", defaultValue: "\(name) (\(megabytes) MB)")

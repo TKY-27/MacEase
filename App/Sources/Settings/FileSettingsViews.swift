@@ -177,38 +177,10 @@ struct FolderSettingsView: View {
 
 private struct ExclusionRulesSheet: View {
     @Binding var folder: FolderSettings
-    @State private var scope = Scope.all
+    @State private var scope = FolderExclusionScope.all
+    @State private var samplePaths = "build/\nreport.log\nphoto.jpg"
 
-    enum Scope: CaseIterable {
-        case all
-        case duplicates
-        case empty
-        case tree
-        case analyze
-        case rename
-
-        var rules: WritableKeyPath<FolderSettings, FolderExclusions> {
-            switch self {
-            case .all: \.scanExclusions
-            case .duplicates: \.duplicateExclusions
-            case .empty: \.emptyExclusions
-            case .tree: \.treeExclusions
-            case .analyze: \.analyzeExclusions
-            case .rename: \.renameExclusions
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .all: String(localized: "All folder scans", comment: "Exclusion scope")
-            case .duplicates: MenuStrings.operationName(.folderRemoveDuplicates)
-            case .empty: MenuStrings.operationName(.folderRemoveEmpty)
-            case .tree: MenuStrings.operationName(.folderTree)
-            case .analyze: MenuStrings.operationName(.folderAnalyze)
-            case .rename: MenuStrings.operationName(.folderRename)
-            }
-        }
-    }
+    private static let sampleLineRange = 3...5
 
     var body: some View {
         ChecklistSheet(resetTitle: "Clear Rules", canReset: folder[keyPath: scope.rules] != FolderExclusions()) {
@@ -216,7 +188,7 @@ private struct ExclusionRulesSheet: View {
         } content: {
             Section {
                 Picker(String(localized: "Applies to", comment: "Exclusion scope"), selection: $scope) {
-                    ForEach(Scope.allCases, id: \.self) { Text($0.title).tag($0) }
+                    ForEach(FolderExclusionScope.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 TextField(
                     String(localized: "Folders", comment: "Folder name exclusion patterns"),
@@ -236,6 +208,39 @@ private struct ExclusionRulesSheet: View {
                 Text(rulesFooter)
                     .foregroundStyle(.secondary)
             }
+            Section {
+                TextField(
+                    String(localized: "Sample paths", comment: "Exclusion preview input"),
+                    text: $samplePaths, axis: .vertical
+                )
+                .lineLimit(Self.sampleLineRange)
+                let filter = FolderFilter(settings: folder, scope: scope)
+                ForEach(Array(samplePaths.split(whereSeparator: \.isNewline).enumerated()), id: \.offset) { _, path in
+                    let isFolder = path.hasSuffix("/")
+                    let url = URL(fileURLWithPath: String(path), isDirectory: isFolder, relativeTo: URL(filePath: "/"))
+                    let excluded =
+                        filter.excludes(url, isFolder: isFolder)
+                        || filter.excludesFolderOrAncestor(isFolder ? url : url.deletingLastPathComponent())
+                    LabeledContent {
+                        if excluded {
+                            Text("Excluded", comment: "Exclusion preview result")
+                        } else {
+                            Text("Included", comment: "Exclusion preview result")
+                        }
+                    } label: {
+                        Text(verbatim: String(path))
+                            .lineLimit(nil)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            } header: {
+                Text(String(localized: "Preview", comment: "Exclusion rule preview"))
+            } footer: {
+                Text(
+                    String(
+                        localized: "Enter one path per line. End folder paths with /.",
+                        comment: "Exclusion preview instructions"))
+            }
         }
     }
 
@@ -246,6 +251,30 @@ private struct ExclusionRulesSheet: View {
         guard scope != .all else { return syntax }
         return syntax + " "
             + String(localized: "Rules for all folder scans also apply.", comment: "Exclusion scope combination")
+    }
+}
+
+private extension FolderExclusionScope {
+    var rules: WritableKeyPath<FolderSettings, FolderExclusions> {
+        switch self {
+        case .all: \.scanExclusions
+        case .duplicates: \.duplicateExclusions
+        case .empty: \.emptyExclusions
+        case .tree: \.treeExclusions
+        case .analyze: \.analyzeExclusions
+        case .rename: \.renameExclusions
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .all: String(localized: "All folder scans", comment: "Exclusion scope")
+        case .duplicates: MenuStrings.operationName(.folderRemoveDuplicates)
+        case .empty: MenuStrings.operationName(.folderRemoveEmpty)
+        case .tree: MenuStrings.operationName(.folderTree)
+        case .analyze: MenuStrings.operationName(.folderAnalyze)
+        case .rename: MenuStrings.operationName(.folderRename)
+        }
     }
 }
 
@@ -279,7 +308,7 @@ struct TextSettingsView: View {
                     TextField(
                         String(localized: "Replacement character", comment: "Shift_JIS custom substitute"),
                         text: $substitute, prompt: Text(verbatim: "〓"))
-                    if !Self.isEncodableSubstitute(substitute) {
+                    if !TextEncoding.isValidShiftJISSubstitute(substitute) {
                         Text(
                             String(
                                 localized: "Enter one character that Shift_JIS can encode.",
@@ -297,7 +326,9 @@ struct TextSettingsView: View {
                 .foregroundStyle(.secondary)
             }
             .onChange(of: substitute) {
-                if Self.isEncodableSubstitute(substitute) { store.settings.text.shiftJISSubstitute = substitute }
+                if TextEncoding.isValidShiftJISSubstitute(substitute) {
+                    store.settings.text.shiftJISSubstitute = substitute
+                }
             }
             Section {
                 Picker("Indent", selection: $store.settings.text.jsonIndent) {
@@ -385,7 +416,4 @@ struct TextSettingsView: View {
         }
     }
 
-    private static func isEncodableSubstitute(_ text: String) -> Bool {
-        text.unicodeScalars.count == 1 && text.data(using: SourceTextEncoding.cp932.foundationEncoding) != nil
-    }
 }

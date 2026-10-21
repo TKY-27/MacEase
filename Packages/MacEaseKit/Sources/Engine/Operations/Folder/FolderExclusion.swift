@@ -1,7 +1,8 @@
 import Darwin
 import Foundation
 
-enum FolderExclusionScope {
+public enum FolderExclusionScope: CaseIterable, Sendable {
+    case all
     case duplicates
     case empty
     case tree
@@ -9,15 +10,16 @@ enum FolderExclusionScope {
     case rename
 }
 
-struct FolderFilter {
+public struct FolderFilter: Sendable {
     private let literalFolderNames: Set<String>
     private let folderPatterns: [String]
     private let filePatterns: [String]
     private let extensionPatterns: [String]
 
-    init(settings: FolderSettings, scope: FolderExclusionScope) {
+    public init(settings: FolderSettings, scope: FolderExclusionScope) {
         let specific: FolderExclusions
         switch scope {
+        case .all: specific = FolderExclusions()
         case .duplicates: specific = settings.duplicateExclusions
         case .empty: specific = settings.emptyExclusions
         case .tree: specific = settings.treeExclusions
@@ -38,7 +40,7 @@ struct FolderFilter {
         extensionPatterns = []
     }
 
-    func excludes(_ url: URL, isFolder: Bool) -> Bool {
+    public func excludes(_ url: URL, isFolder: Bool) -> Bool {
         let name = url.lastPathComponent.lowercased()
         if isFolder { return literalFolderNames.contains(name) || folderPatterns.contains { Self.matches($0, name) } }
         if filePatterns.contains(where: { Self.matches($0, name) }) { return true }
@@ -46,7 +48,7 @@ struct FolderFilter {
         return extensionPatterns.contains { Self.matches($0, pathExtension) }
     }
 
-    func excludesFolderOrAncestor(_ folder: URL) -> Bool {
+    public func excludesFolderOrAncestor(_ folder: URL) -> Bool {
         for candidate in [folder.standardizedFileURL, folder.resolvingSymlinksInPath().standardizedFileURL] {
             var current = candidate
             while current.pathComponents.count > 1 {

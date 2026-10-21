@@ -34,6 +34,19 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 }
 
 @Suite struct MenuFileTests {
+    @Test func duplicateTitleChangesInvalidatePreviousCatalogs() {
+        let ask = MenuFile(
+            token: "token", hostAvailable: true,
+            entries: [MenuEntry(op: .folderRemoveDuplicates, preset: nil, path: ["Remove Duplicates…"])],
+            kinds: [.folder: "Folders"])
+        let automatic = MenuFile(
+            token: "token", hostAvailable: true,
+            entries: [MenuEntry(op: .folderRemoveDuplicates, preset: nil, path: ["Remove Duplicates"])],
+            kinds: [.folder: "Folders"])
+
+        #expect(ask.catalogVersion != automatic.catalogVersion)
+    }
+
     @Test func everyOperationWithPresetsEndsWithCustom() {
         let file = menuFile()
         for op in OperationID.allCases where op.offersCustom {

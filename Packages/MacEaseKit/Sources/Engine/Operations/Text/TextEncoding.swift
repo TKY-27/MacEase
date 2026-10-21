@@ -1,7 +1,7 @@
 import CoreFoundation
 import Foundation
 
-enum TextEncoding {
+public enum TextEncoding {
     static let cp932 = String.Encoding(
         rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
 
@@ -93,12 +93,16 @@ enum TextEncoding {
         return nil
     }
 
+    public static func isValidShiftJISSubstitute(_ substitute: String) -> Bool {
+        substitute.unicodeScalars.count == 1 && substitute.data(using: cp932) != nil
+    }
+
     private static func cp932Data(
         _ text: String, unmappable: UnmappablePolicy, substitute: String
     ) throws -> (data: Data, replaced: Bool) {
         let replacement: Data?
         if unmappable == .custom {
-            guard substitute.unicodeScalars.count == 1, let encoded = substitute.data(using: cp932) else {
+            guard isValidShiftJISSubstitute(substitute), let encoded = substitute.data(using: cp932) else {
                 throw EngineError.invalidInput(.malformed("Shift_JIS substitute must be one encodable character"))
             }
             replacement = encoded
