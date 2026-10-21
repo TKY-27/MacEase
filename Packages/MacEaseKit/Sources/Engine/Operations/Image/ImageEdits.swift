@@ -24,6 +24,7 @@ enum ImageOutput {
         var options = EncodeOptions(quality: settings.quality(for: format))
         options.loops = document.loops
         options.metadata = document.metadata
+        options.gainMaps = [.jpeg, .heic].contains(format) ? document.gainMaps : []
         options.dithering = settings.gifDithering
         options.pixelsPerInch = document.pixelsPerInch
         return options
@@ -86,15 +87,14 @@ enum ImageOutput {
 
     /// Transforms every kept frame, then encodes.
     static func transformed(
-        _ document: ImageDocument, as format: ImageFormat, keepsGainMap: Bool, context: ItemContext,
-        adjust: (inout EncodeOptions) -> Void = { _ in },
+        _ document: ImageDocument, as format: ImageFormat, context: ItemContext,
+        geometry: (CGImage, CGImage) -> GainMapGeometry,
         _ transform: (CGImage) async throws -> CGImage
     ) async throws -> ItemResult {
         if document.isAnimated {
             let count = keptFrameCount(of: document, for: format, context: context)
-            var options = defaultOptions(for: document, format: format, settings: context.settings.image)
-            options.gainMap = keepsGainMap ? document.gainMap : nil
-            adjust(&options)
+            let options = defaultOptions(for: document, format: format, settings: context.settings.image)
+            guard options.gainMaps.isEmpty else { throw EngineError.imageGainMapUnsupported }
             let staged = try context.stagingURL(for: document.url, name: outputName(for: document, format: format))
             try await ImageEncoder.encodeStreaming(frameCount: count, as: format, options: options, to: staged) {
                 index in
@@ -115,8 +115,9 @@ enum ImageOutput {
             context.progress(Double(index + 1) / Double(frames.count + 1))
         }
         var options = defaultOptions(for: document, format: format, settings: context.settings.image)
-        options.gainMap = keepsGainMap ? document.gainMap : nil
-        adjust(&options)
+        options.gainMaps = try options.gainMaps.map {
+            try $0.applying(geometry(document.first, frames[0].image))
+        }
         return try stage(
             ImageEncoder.encode(frames, as: format, options: options, retaining: document.frames.map(\.image)),
             for: document, as: format, context: context)
@@ -134,7 +135,9 @@ enum ImageEdits {
         let grows = width > document.first.width || height > document.first.height
         if grows, !resize.allowsUpscale { return .skipped(.noUpscale) }
         let format = document.writableFormat
-        return try await ImageOutput.transformed(document, as: format, keepsGainMap: true, context: context) {
+        return try await ImageOutput.transformed(
+            document, as: format, context: context, geometry: GainMapGeometry.resize
+        ) {
             image in
             try autoreleasepool { try ImagePixels.scaled(image, width: width, height: height) }
         }
@@ -170,7 +173,6 @@ enum ImageEdits {
         options.quality = conversion.quality.map(Double.init) ?? options.quality
         options.svgColors = conversion.svgColors
         options.optimizesPNG = context.settings.image.optimizePNGOnConvert
-        options.gainMap = document.gainMap
         if document.isAnimated, count > 1 {
             let staged = try context.stagingURL(
                 for: url, name: ImageOutput.outputName(for: document, format: conversion.format))
@@ -211,7 +213,12 @@ enum ImageEdits {
         }
         let document = try await ImageDocument.load(url)
         let format = document.writableFormat
-        return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
+        return try await ImageOutput.transformed(
+            document, as: format, context: context,
+            geometry: { source, output in
+                GainMapGeometry.rotation(source, to: output, degrees: degrees)
+            }
+        ) {
             image in
             try autoreleasepool { try ImagePixels.rotated(image, degrees: degrees, fill: fill.map(ImagePixels.color)) }
         }
@@ -220,7 +227,14 @@ enum ImageEdits {
     static func flip(_ url: URL, _ axis: FlipAxis, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
         let format = document.writableFormat
-        return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) {
+        return try await ImageOutput.transformed(
+            document, as: format, context: context,
+            geometry: { source, _ in
+                GainMapGeometry.orientation(
+                    CGSize(width: source.width, height: source.height),
+                    axis == .horizontal ? .upMirrored : .downMirrored)
+            }
+        ) {
             image in
             try autoreleasepool { try ImagePixels.flipped(image, axis) }
         }
@@ -247,7 +261,12 @@ enum ImageEdits {
             content.width < Double(canvas.width) || content.height < Double(canvas.height)
         else { return .skipped(.nothingToRemove) }
         let format = document.writableFormat
-        return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in
+        return try await ImageOutput.transformed(
+            document, as: format, context: context,
+            geometry: { source, _ in
+                GainMapGeometry.crop(source, to: content)
+            }
+        ) { image in
             try autoreleasepool {
                 let page = content.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
                 return page.isEmpty ? image : try ImagePixels.cropped(image, to: page)

@@ -8422,6 +8422,16 @@
         }
       }
     },
+    "“%@” could not be edited because its HDR gain map cannot be preserved. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR ゲインマップを保持できないため、“%@” を編集できませんでした。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” could not be edited because the output container cannot preserve transparency. The original was kept.": {
       "localizations": {
         "ja": {

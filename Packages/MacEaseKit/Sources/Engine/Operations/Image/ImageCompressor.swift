@@ -42,15 +42,17 @@ enum ImageCompressor {
         if document.isAnimated, document.contentType.conforms(to: .heics), format == .heic {
             throw EngineError.unsupportedCodec("HEICS")
         }
+        var gainMaps = [.jpeg, .heic].contains(format) ? document.gainMaps : []
+        let frames = try fitted(
+            ImageOutput.frames(of: document, for: format, context: context), to: limits, gainMaps: &gainMaps)
         var plan = Plan(
-            format: format,
-            frames: try fitted(ImageOutput.frames(of: document, for: format, context: context), to: limits),
+            format: format, frames: frames,
             options: ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image))
+        plan.options.gainMaps = gainMaps
         plan.retained = document.frames.map(\.image)
         if compression.stripsGPS { plan.options.metadata = ImageMetadata.filtered(document.metadata, removing: [.gps]) }
         let sizes = { (frames: [ImageFrame]) in frames.map { [$0.image.width, $0.image.height] } }
         let unchanged = format == document.format && sizes(plan.frames) == sizes(document.frames)
-        if sameShape(plan.frames[0].image, document.first) { plan.options.gainMap = document.gainMap }
         let originalBytes = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
 
         guard let target = targetBytes(for: compression.goal, limits: limits) else {
@@ -77,12 +79,6 @@ enum ImageCompressor {
         let stripped = try await ImageMetadata.strip(url, fields: [.gps], context: context)
         if case .skipped = stripped { return .skipped(reason) }
         return stripped
-    }
-
-    /// Gain maps survive scaling, not crops.
-    private static func sameShape(_ output: CGImage, _ source: CGImage) -> Bool {
-        let outputRatio = Double(output.width) / Double(output.height)
-        return abs(outputRatio - Double(source.width) / Double(source.height)) < shapeTolerance
     }
 
     private static func limits(for goal: CompressionGoal, document: ImageDocument) throws -> MediaLimits? {
@@ -260,13 +256,24 @@ enum ImageCompressor {
             let image = scaled.frames[index].image
             let width = max(1, Int((Double(image.width) * factor).rounded()))
             let height = max(1, Int((Double(image.height) * factor).rounded()))
-            scaled.frames[index].image = try ImagePixels.scaled(image, width: width, height: height)
+            let resized = try ImagePixels.scaled(image, width: width, height: height)
+            if index == 0 {
+                scaled.options.gainMaps = try plan.options.gainMaps.map { try $0.applying(.resize(image, to: resized)) }
+            }
+            scaled.frames[index].image = resized
         }
         return scaled
     }
 
     /// Applies aspect, maximum dimensions and maximum frames.
     static func fitted(_ frames: [ImageFrame], to limits: MediaLimits?) throws -> [ImageFrame] {
+        var gainMaps: [ImageGainMap] = []
+        return try fitted(frames, to: limits, gainMaps: &gainMaps)
+    }
+
+    private static func fitted(_ frames: [ImageFrame], to limits: MediaLimits?, gainMaps: inout [ImageGainMap]) throws
+        -> [ImageFrame]
+    {
         guard let limits else { return frames }
         guard limits.maxFrames.map({ $0 > 0 }) ?? true,
             limits.maxWidth.map({ $0 > 0 }) ?? true,
@@ -279,41 +286,64 @@ enum ImageCompressor {
         }
         for index in result.indices {
             var image = result[index].image
-            if let aspect = limits.aspect { image = try reshaped(image, aspect) }
+            if let aspect = limits.aspect {
+                let original = image
+                let rect = try reshapeBounds(image, aspect)
+                image = try reshaped(image, aspect)
+                if index == 0 {
+                    gainMaps = try gainMaps.map { try $0.applying(.crop(original, to: rect)) }
+                }
+            }
             let widthScale = limits.maxWidth.map { Double($0) / Double(image.width) } ?? 1
             let heightScale = limits.maxHeight.map { Double($0) / Double(image.height) } ?? 1
             let scale = min(widthScale, heightScale)
             if scale < 1 {
-                image = try ImagePixels.scaled(
+                let resized = try ImagePixels.scaled(
                     image, width: max(1, Int((Double(image.width) * scale).rounded())),
                     height: max(1, Int((Double(image.height) * scale).rounded())))
+                if index == 0 {
+                    gainMaps = try gainMaps.map { try $0.applying(.resize(image, to: resized)) }
+                }
+                image = resized
             }
             result[index].image = image
         }
         return result
     }
 
-    private static func reshaped(_ image: CGImage, _ aspect: AspectRange) throws -> CGImage {
+    private static func reshapeBounds(_ image: CGImage, _ aspect: AspectRange) throws -> CGRect {
         let width = Double(image.width)
         let height = Double(image.height)
         let ratio = width / height
         let goal = min(max(ratio, aspect.min.value), aspect.max.value)
         guard goal.isFinite, goal > 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
-        guard abs(goal - ratio) > shapeTolerance else { return image }
+        guard abs(goal - ratio) > shapeTolerance else {
+            return CGRect(x: 0, y: 0, width: width, height: height)
+        }
+        let outputWidth: Double
+        let outputHeight: Double
         switch aspect.fit {
         case .crop:
-            let cropWidth = goal < ratio ? (height * goal).rounded() : width
-            let cropHeight = goal < ratio ? height : (width / goal).rounded()
-            let rect = CGRect(
-                x: ((width - cropWidth) / 2).rounded(), y: ((height - cropHeight) / 2).rounded(),
-                width: cropWidth, height: cropHeight)
-            return try ImagePixels.cropped(image, to: rect)
+            outputWidth = goal < ratio ? (height * goal).rounded() : width
+            outputHeight = goal < ratio ? height : (width / goal).rounded()
         case .letterbox:
-            guard let canvasWidth = Int(exactly: (goal > ratio ? height * goal : width).rounded()),
-                let canvasHeight = Int(exactly: (goal > ratio ? height : width / goal).rounded())
-            else { throw EngineError.invalidInput(.invalidNumericParameter) }
-            return try ImagePixels.padded(
-                image, width: canvasWidth, height: canvasHeight, fill: ImagePixels.color(letterboxFill))
+            outputWidth = (goal > ratio ? height * goal : width).rounded()
+            outputHeight = (goal > ratio ? height : width / goal).rounded()
+        }
+        return CGRect(
+            x: ((width - outputWidth) / 2).rounded(.up), y: ((height - outputHeight) / 2).rounded(.up),
+            width: outputWidth, height: outputHeight)
+    }
+
+    private static func reshaped(_ image: CGImage, _ aspect: AspectRange) throws -> CGImage {
+        let rect = try reshapeBounds(image, aspect)
+        switch aspect.fit {
+        case .crop: return try ImagePixels.cropped(image, to: rect)
+        case .letterbox:
+            guard let width = Int(exactly: rect.width), let height = Int(exactly: rect.height) else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
+            return try ImagePixels.padded(image, width: width, height: height, fill: ImagePixels.color(letterboxFill))
         }
     }
 

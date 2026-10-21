@@ -21,6 +21,11 @@ enum UserMessages {
                 localized:
                     "“\(file)” could not be converted because the output cannot preserve its audio channel layout. The original was kept."
             )
+        case .imageGainMapUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be edited because its HDR gain map cannot be preserved. The original was kept."
+            )
         case .videoAlphaUnsupported:
             String(
                 localized:

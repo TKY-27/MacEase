@@ -182,6 +182,63 @@ private func channelEnergy(_ samples: [Float], channels: Int) -> [Double] {
     }
 }
 
+@Test(arguments: [3, 5])
+func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
+    let folder = try TestVolume.makeFolder()
+    let sampleRate = 48_000.0
+    let samples = (0..<Int(sampleRate)).flatMap { frame -> [Float] in
+        let centre = Float(0.2 * sin(2 * Double.pi * 440 * Double(frame) / sampleRate))
+        return (0..<channels).map { $0 == 2 ? centre : 0 }
+    }
+    let fixture = folder.appending(path: "generated-\(channels).m4a")
+    try await AudioSignals.write(
+        samples, to: fixture, format: .m4aAAC, sampleRate: sampleRate, channels: channels, kilobits: 384)
+    let expectedTag = channels == 3 ? kAudioChannelLayoutTag_AAC_3_0 : kAudioChannelLayoutTag_AAC_5_0
+    #expect(try AudioInput(url: fixture).channelLayoutTag == expectedTag)
+
+    let loudness = try #require(try measure(fixture).integratedLoudness)
+    let operations: [(OperationID, AudioOperation, Engine.AudioCodec)] = [
+        (.audioConvert, .convert(.wav), .pcm),
+        (.audioTrim, .trim(start: 0.1, end: 0.7), .aac),
+        (.audioNormalize, .normalize(targetLoudness: loudness - 6), .aac),
+    ]
+    for (index, operation) in operations.enumerated() {
+        let input = folder.appending(path: "\(index)-generated-\(channels).m4a")
+        try FileManager.default.copyItem(at: fixture, to: input)
+        let result = try await run(operation.0, operation.1, on: input)
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        let decoded = try AudioSignals.decode(output)
+        #expect(decoded.input.channels == channels)
+        #expect(decoded.input.codec == operation.2)
+        let energy = channelEnergy(decoded.samples, channels: channels)
+        let otherEnergy = energy.enumerated().filter { $0.offset != 2 }.map(\.element).max() ?? 0
+        #expect(energy[2] > otherEnergy * 100)
+    }
+}
+
+@Test func aacFourChannelCentreSurroundFailsBeforeReplacement() async throws {
+    let fixture = URL(filePath: #filePath).deletingLastPathComponent()
+        .appending(path: "Resources/ffmpeg-aac-40-center.m4a")
+    let audio = try AudioInput(url: fixture)
+    #expect(audio.channels == 4)
+    #expect(audio.channelLayoutTag == kAudioChannelLayoutTag_AAC_4_0)
+    let original = try Data(contentsOf: fixture)
+    let folder = try TestVolume.makeFolder()
+    let operations: [(OperationID, AudioOperation)] = [
+        (.audioConvert, .convert(.wav)),
+        (.audioConvert, .convert(.aac)),
+        (.audioTrim, .trim(start: 0.1, end: 0.7)),
+        (.audioNormalize, .normalize(targetLoudness: -20)),
+    ]
+    for (index, operation) in operations.enumerated() {
+        let input = folder.appending(path: "unsupported-\(index).m4a")
+        try FileManager.default.copyItem(at: fixture, to: input)
+        let result = try await run(operation.0, operation.1, on: input)
+        #expect(result.outcome.outcomes == [.failed(.audioChannelLayoutUnsupported)])
+        #expect(try Data(contentsOf: input) == original)
+    }
+}
+
 @Suite struct AudioPlanningTests {
     @Test func everyMenuPresetMaps() {
         let settings = Settings()

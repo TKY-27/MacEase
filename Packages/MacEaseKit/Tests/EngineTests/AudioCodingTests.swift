@@ -61,6 +61,27 @@ enum AudioSignals {
 }
 
 @Suite struct AudioCodingTests {
+    @Test func knownAACSpeakerLayoutsAreAccepted() {
+        for tag in [kAudioChannelLayoutTag_MPEG_3_0_A, kAudioChannelLayoutTag_AAC_3_0] {
+            #expect(PCMFormat.supportsLayout(tag, channels: 3))
+        }
+        #expect(PCMFormat.supportsLayout(kAudioChannelLayoutTag_AAC_Quadraphonic, channels: 4))
+        #expect(!PCMFormat.supportsLayout(kAudioChannelLayoutTag_MPEG_4_0_A, channels: 4))
+        #expect(!PCMFormat.supportsLayout(kAudioChannelLayoutTag_AAC_4_0, channels: 4))
+        for tag in [
+            kAudioChannelLayoutTag_MPEG_5_0_A, kAudioChannelLayoutTag_MPEG_5_0_B,
+            kAudioChannelLayoutTag_MPEG_5_0_C, kAudioChannelLayoutTag_AAC_5_0,
+        ] {
+            #expect(PCMFormat.supportsLayout(tag, channels: 5))
+        }
+        for tag in [
+            kAudioChannelLayoutTag_MPEG_5_1_A, kAudioChannelLayoutTag_MPEG_5_1_B,
+            kAudioChannelLayoutTag_MPEG_5_1_C, kAudioChannelLayoutTag_AAC_5_1,
+        ] {
+            #expect(PCMFormat.supportsLayout(tag, channels: 6))
+        }
+    }
+
     /// Slack covers encoder delay and padding.
     @Test(arguments: [
         (AudioFormat.wav, 0), (.aiff, 0), (.flac, 0), (.cafPCM, 0), (.cafALAC, 0), (.m4aALAC, 0), (.m4aAAC, 0),

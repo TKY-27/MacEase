@@ -22,13 +22,24 @@ enum PCMFormat {
     static func supportsLayout(_ tag: AudioChannelLayoutTag?, channels: Int) -> Bool {
         guard channels > 2 else { return tag.map { $0 == layoutTag(channels: channels) } ?? true }
         guard let tag else { return false }
-        if channels == 6 {
+        switch channels {
+        case 3:
+            return [kAudioChannelLayoutTag_MPEG_3_0_A, kAudioChannelLayoutTag_AAC_3_0].contains(tag)
+        case 4:
+            return tag == kAudioChannelLayoutTag_AAC_Quadraphonic
+        case 5:
+            return [
+                kAudioChannelLayoutTag_MPEG_5_0_A, kAudioChannelLayoutTag_MPEG_5_0_B,
+                kAudioChannelLayoutTag_MPEG_5_0_C, kAudioChannelLayoutTag_AAC_5_0,
+            ].contains(tag)
+        case 6:
             return [
                 kAudioChannelLayoutTag_MPEG_5_1_A, kAudioChannelLayoutTag_MPEG_5_1_B,
-                kAudioChannelLayoutTag_MPEG_5_1_C, kAudioChannelLayoutTag_MPEG_5_1_D,
+                kAudioChannelLayoutTag_MPEG_5_1_C, kAudioChannelLayoutTag_AAC_5_1,
             ].contains(tag)
+        default:
+            return tag == layoutTag(channels: channels)
         }
-        return tag == layoutTag(channels: channels)
     }
 
     static func aacLayout(channels: Int) throws -> AVAudioChannelLayout {

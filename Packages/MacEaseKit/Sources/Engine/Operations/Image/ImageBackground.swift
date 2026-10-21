@@ -13,6 +13,11 @@ enum ImageBackground {
 
     static func replace(_ url: URL, _ options: BackgroundOptions, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
+        let source = document.writableFormat
+        let format = options.fill == .transparent && !source.holdsAlpha ? .png : source
+        if [.jpeg, .heic].contains(format), !document.gainMaps.isEmpty {
+            throw EngineError.imageGainMapUnsupported
+        }
         var workspace = FrameMemoryBudget()
         for frame in document.frames {
             try workspace.reserve(frame.image)
@@ -24,9 +29,9 @@ enum ImageBackground {
         guard let firstMask = try await mask(for: document.first, source: options.mask) else {
             return .skipped(.nothingToRemove)
         }
-        let source = document.writableFormat
-        let format = options.fill == .transparent && !source.holdsAlpha ? .png : source
-        return try await ImageOutput.transformed(document, as: format, keepsGainMap: false, context: context) { image in
+        return try await ImageOutput.transformed(
+            document, as: format, context: context, geometry: GainMapGeometry.resize
+        ) { image in
             var frameWorkspace = workspace
             if document.isAnimated, image !== document.first { try frameWorkspace.reserve(image) }
             try frameWorkspace.reserve(

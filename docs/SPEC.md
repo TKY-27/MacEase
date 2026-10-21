@@ -236,8 +236,19 @@ rule, and the host tells the user the final name when it changed.
   them, and dropped silently when it cannot (BMP, ICO, GIF, SVG). Metadata strip
   operations are the exception.
 - Pixel rotation sets EXIF Orientation to 1.
-- ISO HDR gain maps are kept for HEIC and JPEG outputs through ImageIO auxiliary
-  data. Other targets tone-map to SDR.
+- ISO 21496-1 and Apple HDR gain maps are kept for HEIC and JPEG outputs
+  through ImageIO auxiliary data, including their calibration metadata.
+  Geometry edits transform the map at its own resolution. Encoding verifies
+  map dimensions, pixel samples and calibration values before replacement,
+  including nested ISO channel metadata. Core Image decodes ISO RGB maps
+  whose ImageIO payload exposes planar YCbCr without raster bytes; color
+  management is disabled and ImageIO writes packed RGB auxiliary samples.
+  Explicit auxiliary orientation takes precedence over the base orientation,
+  and pixel transforms normalize both to upright (ADR 0012).
+  Unreadable or unsupported maps fail with a typed error. Background changes
+  and added canvas pixels, including non-right-angle rotations and letterbox
+  presets, refuse HDR replacement until neutral gain can be derived reliably.
+  Other targets tone-map to SDR. See ADR 0010 for the bounded raster support.
 - Platform presets remove GPS data by default (setting).
 
 **Deletions.** Duplicate and empty-folder removal move items to the Trash by
@@ -472,7 +483,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 | `image.resize` | 25%, 50%, 75%, long edge 1080, 1920, 2560, 3840 | Replace | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Custom asks for it |
 | `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Replace | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
 | `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, ICO, ICNS, SVG, PDF | Replace (Derived for RAW and DNG inputs) | Animated inputs keep all frames when the target holds animation (GIF, PNG written as APNG, WebP), otherwise frame 0 with a warning; multi-page TIFF to PDF keeps all pages, other targets use page 1; SVG output uses the tracer (Custom chooses colors) |
-| `image.rotate` | 90° right, 90° left, 180°, Custom | Replace | Multiples of 90° on JPEG change only the orientation tag (lossless); other angles rotate pixels with transparent corners, or the fill color when the format has no alpha |
+| `image.rotate` | 90° right, 90° left, 180°, Custom | Replace | Multiples of 90° on JPEG without gain maps change only the orientation tag (lossless); HDR JPEG rotates base and gain-map pixels together; other angles rotate pixels with transparent corners, or the fill color when the format has no alpha, subject to the HDR preservation guard in section 3.5 |
 | `image.flip` | Horizontal, Vertical | Replace | Pixel flip, orientation reset to 1 |
 | `image.trimBorders` | — | Replace | Removes uniform borders matching the corner color within tolerance |
 | `image.background` | Remove, Green back, Blue back, Custom color, Blur, Color key | Replace | Subject mask from Vision `GenerateForegroundInstanceMaskRequest` (all instances), person mask option, or color key with tolerance; mask edges feathered 1 px; Remove outputs alpha and converts to PNG when the source format has no alpha (JPEG, BMP) |
@@ -556,8 +567,11 @@ encoder can represent it. Unsupported layouts fail before writing instead of
 downmixing. The current MP3 and Opus implementations accept only mono and
 stereo; multichannel Opus requires a future multistream implementation
 (ADR 0010). AAC output supports at most six channels; raw ADTS output refuses
-quadraphonic layouts. Unknown speaker layouts are rejected instead of being
-interpreted solely from their channel count.
+quadraphonic layouts. Recognized 3.0 and 5.0 AAC tags, including engine output,
+are converted to canonical PCM speaker order. Center-surround AAC 4.0 remains
+unsupported by the current codec path and fails before PCM reads (ADR 0010).
+Unknown speaker layouts are rejected instead of being interpreted solely from
+their channel count.
 
 ### 8.4 Folders
 
@@ -907,6 +921,15 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Compare structured HDR calibration by value, decode ISO RGB
+  auxiliary rasters through Core Image, and normalize gain-map orientation
+  independently from the base image (ADR 0012).
+
+- 2026-10-21: Preserve ISO and Apple HDR gain-map geometry and calibration
+  across supported JPEG/HEIC edits. Refuse unsupported map transformations
+  before replacement. Accept engine-written 3.0/5.0 AAC layouts; retain the
+  typed guard for center-surround AAC 4.0 after codec verification (ADR 0010).
 
 - 2026-10-21: Accept RF64/BW64 WAV inputs with ds64 size checks. Permit
   unlocked encrypted PDFs for Derived operations according to permissions,

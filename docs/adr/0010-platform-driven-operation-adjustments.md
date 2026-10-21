@@ -31,6 +31,23 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   keeps EXIF, GPS, IPTC and maker notes in HEIC under every option, so HEIC
   strips re-encode at the settings quality. PNG and TIFF strips write the
   stored pixels with new metadata; decoded pixels stay identical.
+- **HDR gain maps (3.5, 8.1).** Keep both ISO 21496-1 and Apple auxiliary
+  types for JPEG/HEIC outputs. Flip, right-angle rotation, resize, border
+  trimming, preset crops and compression resizes transform the map using
+  the base image's geometry at the map's resolution. Preserve calibration
+  metadata and verify encoded dimensions, representative pixel values and
+  calibration tags. Metadata stripping keeps gain-map calibration.
+  Support interleaved 8-bit monochrome, RGB, RGBA and BGRA maps. Each source
+  and output map raster is capped at 64 MiB before transformation allocation;
+  encoded-map buffers also count toward the encoder workspace budget.
+  Other raster layouts and advertised maps that ImageIO cannot retrieve fail
+  with `imageGainMapUnsupported`. Background replacement and added canvas
+  pixels, including non-right-angle rotations and letterbox presets, fail
+  with the same error because a neutral encoded gain cannot be inferred from
+  arbitrary calibration safely. Full HDR recompositing and additional raster
+  layouts are deferred. Removing Apple maker notes also refuses replacement
+  when an Apple gain map is present because those notes can carry HDR
+  calibration. Original files remain untouched on refusal.
 - **Image target size (8.10).** AVIF (libaom quantizer steps) and HEIC
   (coarse quality steps) cannot always land within 92% of the target; outputs
   still stay at or under it.
@@ -90,7 +107,25 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
   limited to six channels; raw ADTS refuses quadraphonic layouts because its
   channel configuration would describe different speakers. Unknown source
   layouts are rejected. Recognized layouts are converted to canonical PCM
-  speaker order; 5.1 accepts MPEG layouts A, B, C and D.
+  speaker order; 3.0 accepts MPEG A and B, and 5.0/5.1 accept MPEG A, B,
+  C and D, including the AAC tags emitted by the engine. Quadraphonic AAC
+  remains supported. Center-surround AAC 4.0 is a different speaker set and
+  remains rejected before decoding or writing. On the verification Mac,
+  AVAudioFile opens a genuine AAC 4.0 input but refuses PCM reads, and AVAssetWriter silently
+  emits quadraphonic AAC when requested to write AAC 4.0, losing a center-only
+  signal. Supporting that layout requires a different codec path; accepting
+  its tag alone would lose audio. Normalization validates layout before its
+  analysis pass as well as before replacement.
+
+  The AAC 4.0 regression fixture is a one-second, 48 kHz center-only tone,
+  generated using the installed FFmpeg executable without reading its source:
+
+  ```sh
+  ffmpeg -f lavfi -i 'aevalsrc=0|0|0.2*sin(2*PI*440*t)|0:s=48000:d=1:channel_layout=4.0' -c:a aac -b:a 384k ffmpeg-aac-40-center.m4a
+  ```
+
+  The checked-in fixture SHA-256 is
+  `76271691bdc84e68be035ba01d5ac552394f9ac6fe72c487576e9dc0fc5416d8`.
 - **Video alpha (8.2).** Resize, flip, frame-rate changes and exact trim keep
   alpha through HEVC with alpha or ProRes 4444 in MOV, and VP9 in WebM.
   Other containers reject alpha re-encodes before writing. Stream-copy paths

@@ -327,6 +327,8 @@ enum AudioJob {
         async throws -> ItemResult
     {
         guard target.isFinite else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        let output = AudioTarget.defaults(for: input.sameFormat, settings: context.settings.audio)
+        try output.format.validateLayout(input)
         let meter: LoudnessMeter
         do {
             meter = try LoudnessMeter(sampleRate: input.sampleRate, channels: input.channels)
@@ -348,7 +350,6 @@ enum AudioJob {
         if wanted - gain >= negligibleDecibels {
             context.warn(.loudnessLimitedByPeak(reachedLUFS: loudness + gain))
         }
-        let output = AudioTarget.defaults(for: input.sameFormat, settings: context.settings.audio)
         return try await replace(
             url, with: input, target: output, gain: Float(pow(10, gain / 20)), progressStart: measureShare,
             context: context)

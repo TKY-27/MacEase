@@ -115,7 +115,7 @@ private func stagedOutput(_ result: ItemResult, replacing original: URL) throws 
         let document = try await ImageDocument.load(input)
         let output = try stagedOutput(
             try await ImageOutput.transformed(
-                document, as: document.writableFormat, keepsGainMap: true, context: context
+                document, as: document.writableFormat, context: context, geometry: GainMapGeometry.resize
             ) {
                 image in
                 try ImagePixels.draw(width: 16, height: 16, like: image, fill: nil) { graphics in

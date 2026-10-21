@@ -7,7 +7,7 @@ struct EncodeOptions {
     var quality: Double
     var loops = true
     var metadata: CGImageMetadata?
-    var gainMap: CFDictionary?
+    var gainMaps: [ImageGainMap] = []
     var optimizesPNG = false
     /// `nil` keeps PNG lossless.
     var pngColors: Int?
@@ -211,6 +211,14 @@ enum ImageEncoder {
         for image in retained + frames.map(\.image) where seen.insert(ObjectIdentifier(image)).inserted {
             try budget.reserve(image)
         }
+        if [.jpeg, .heic].contains(format) {
+            for gainMap in options.gainMaps {
+                guard let contents = gainMap.payload as? [CFString: Any],
+                    let pixels = contents[kCGImageAuxiliaryDataInfoData] as? Data
+                else { throw EngineError.imageGainMapUnsupported }
+                try budget.reserve(width: pixels.count, height: 1, bytesPerPixel: 1)
+            }
+        }
         let streamCopies: Int64 = streaming && format == .gif ? 2 : streaming && format == .webp ? 1 : 0
         for frame in frames {
             try budget.reserve(
@@ -277,11 +285,19 @@ enum ImageEncoder {
                 let image = format.holdsAlpha ? frame.image : try flattened(frame.image)
                 CGImageDestinationAddImageAndMetadata(destination, image, metadata, settings as CFDictionary)
             }
-            if let gainMap = options.gainMap, [.jpeg, .heic].contains(format) {
-                CGImageDestinationAddAuxiliaryDataInfo(destination, kCGImageAuxiliaryDataTypeISOGainMap, gainMap)
+            if [.jpeg, .heic].contains(format) {
+                for gainMap in options.gainMaps {
+                    CGImageDestinationAddAuxiliaryDataInfo(destination, gainMap.type, gainMap.payload)
+                }
             }
         }
         guard CGImageDestinationFinalize(destination) else { throw EngineError.encodeFailed(format.rawValue) }
+        if [.jpeg, .heic].contains(format), !options.gainMaps.isEmpty {
+            guard let source = CGImageSourceCreateWithData(data, nil) else {
+                throw EngineError.imageGainMapUnsupported
+            }
+            try ImageGainMap.verify(options.gainMaps, in: source)
+        }
         return data as Data
     }
 

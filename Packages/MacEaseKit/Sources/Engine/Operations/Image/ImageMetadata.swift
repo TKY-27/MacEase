@@ -78,6 +78,10 @@ enum ImageMetadata {
         guard removable == true || (fields.contains(.makerNotes) && hasMakerNotes) else {
             return .skipped(.nothingToRemove)
         }
+        let gainMaps = try ImageGainMap.read(source, at: primary)
+        if fields.contains(.makerNotes), gainMaps.contains(where: { $0.type == kCGImageAuxiliaryDataTypeHDRGainMap }) {
+            throw EngineError.imageGainMapUnsupported
+        }
         let kept = filtered(metadata, removing: fields)
         let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
         let output = StagedFile(url: staged, name: url.lastPathComponent, check: .image)
@@ -90,7 +94,6 @@ enum ImageMetadata {
             guard let format = document.format else { return .skipped(.nothingToRemove) }
             var options = ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image)
             options.metadata = kept
-            options.gainMap = document.gainMap
             let keptCount = ImageOutput.keptFrameCount(of: document, for: format, context: context)
             if document.isAnimated, keptCount > 1 {
                 try await ImageEncoder.encodeStreaming(
@@ -100,6 +103,12 @@ enum ImageMetadata {
                 let frames = Array(document.frames.prefix(keptCount))
                 try ImageEncoder.encode(frames, as: format, options: options).write(to: staged)
             }
+        }
+        if type.conforms(to: .jpeg) {
+            guard let written = CGImageSourceCreateWithURL(staged as CFURL, nil) else {
+                throw EngineError.imageGainMapUnsupported
+            }
+            try ImageGainMap.verify(gainMaps, in: written)
         }
         return .replace(original: url, output: output)
     }
@@ -135,6 +144,7 @@ enum ImageMetadata {
             let identifier = CGImageSourceGetType(source), UTType(identifier as String)?.conforms(to: .jpeg) == true,
             CGImageSourceGetCount(source) == 1
         else { return nil }
+        guard try ImageGainMap.read(source, at: 0).isEmpty else { return nil }
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let current = properties[kCGImagePropertyOrientation] as? UInt32 ?? 1
         let rotated = Orientation.rotating(current, clockwiseQuarterTurns: quarterTurns)

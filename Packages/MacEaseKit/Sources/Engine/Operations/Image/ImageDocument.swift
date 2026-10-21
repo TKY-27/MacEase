@@ -20,7 +20,7 @@ struct ImageDocument {
     let isAnimated: Bool
     let loops: Bool
     let metadata: CGImageMetadata?
-    let gainMap: CFDictionary?
+    let gainMaps: [ImageGainMap]
     let pixelsPerInch: Double
     private let animationSource: CGImageSource?
 
@@ -38,7 +38,7 @@ struct ImageDocument {
 
     init(
         url: URL, contentType: UTType, frames: [ImageFrame], isAnimated: Bool = false, loops: Bool = true,
-        metadata: CGImageMetadata? = nil, gainMap: CFDictionary? = nil,
+        metadata: CGImageMetadata? = nil, gainMaps: [ImageGainMap] = [],
         pixelsPerInch: Double = ImageDocument.defaultPixelsPerInch,
         animationSource: CGImageSource? = nil
     ) {
@@ -49,7 +49,7 @@ struct ImageDocument {
         self.isAnimated = isAnimated
         self.loops = loops
         self.metadata = metadata
-        self.gainMap = gainMap
+        self.gainMaps = gainMaps
         self.pixelsPerInch = pixelsPerInch
         self.animationSource = animationSource
     }
@@ -145,11 +145,17 @@ struct ImageDocument {
         let primary = indices[0]
         let properties = CGImageSourceCopyPropertiesAtIndex(source, primary, nil) as? [CFString: Any] ?? [:]
         let container = CGImageSourceCopyProperties(source, nil) as? [CFString: Any] ?? [:]
+        let orientation =
+            (properties[kCGImagePropertyOrientation] as? UInt32)
+            .flatMap(CGImagePropertyOrientation.init(rawValue:)) ?? .up
+        let gainMaps = try ImageGainMap.read(source, at: primary).map { gainMap in
+            try gainMap.oriented(orientation)
+        }
         let document = ImageDocument(
             url: url, contentType: type, frames: frames, isAnimated: isAnimated,
             loops: animation?.loopCount(in: container).map { $0 == 0 } ?? true,
             metadata: CGImageSourceCopyMetadataAtIndex(source, primary, nil),
-            gainMap: CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, primary, kCGImageAuxiliaryDataTypeISOGainMap),
+            gainMaps: gainMaps,
             pixelsPerInch: (properties[kCGImagePropertyDPIWidth] as? Double) ?? defaultPixelsPerInch,
             animationSource: isAnimated ? source : nil
         )
