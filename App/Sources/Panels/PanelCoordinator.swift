@@ -404,7 +404,13 @@ final class PanelCoordinator {
     }
 
     private func showFailure(_ op: OperationID, _ error: any Error, file: URL) {
-        let message = UserMessages.describe(EngineError.wrapping(error, path: file.path), file: file.lastPathComponent)
+        showFailure(
+            op,
+            message: UserMessages.describe(
+                EngineError.wrapping(error, path: file.path), file: file.lastPathComponent))
+    }
+
+    func showFailure(_ op: OperationID, message: String) {
         host.show(title: MenuStrings.operationName(op)) { close in PanelFailure(message: message, close: close) }
     }
 }

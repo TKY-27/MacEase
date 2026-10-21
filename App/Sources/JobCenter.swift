@@ -43,6 +43,7 @@ final class JobCenter {
     @ObservationIgnored var presentPanel: ((MenuEntry, [URL]) -> Void)?
     /// `false` when no panel can answer it.
     @ObservationIgnored var askAgain: ((OperationRequest, [URL], InvalidInput) -> Bool)?
+    @ObservationIgnored var presentFailure: ((OperationID, String) -> Void)?
     @ObservationIgnored var onStart: ((ActiveBatch) -> Void)?
     /// `true` when Activity keeps the result visible.
     @ObservationIgnored var showsFinished: ((ActiveBatch, BatchOutcome) -> Bool)?
@@ -92,10 +93,12 @@ final class JobCenter {
                     return false
                 }
             }
-            if !failures.isEmpty {
-                notifier.notify(title: MenuStrings.operationName(entry.op), body: failures.joined(separator: "\n"))
+            let failureText = failures.joined(separator: "\n")
+            guard !inputs.isEmpty else {
+                presentFailure?(entry.op, failureText)
+                return
             }
-            guard !inputs.isEmpty else { return }
+            if !failures.isEmpty { notifier.notify(title: MenuStrings.operationName(entry.op), body: failureText) }
             if let presentPanel {
                 presentPanel(entry, inputs)
             } else {
@@ -249,8 +252,17 @@ final class JobCenter {
         }
         let asked = questions.first.map { askAgain?(request, questions.map(\.0), $0.1) ?? false } ?? false
         let shownInActivity = batch.map { showsFinished?($0, outcome) ?? false } ?? false
-        if !shownInActivity, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
+        // Only the banner can open Privacy settings.
+        let needsBanner = !shownInActivity || Self.deniedPermission(outcome)
+        if needsBanner, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
+    }
+
+    private static func deniedPermission(_ outcome: BatchOutcome) -> Bool {
+        outcome.outcomes.contains { result in
+            guard case .failed(.permissionDenied) = result else { return false }
+            return true
+        }
     }
 
     private static func asksUser(_ reason: InvalidInput) -> Bool {

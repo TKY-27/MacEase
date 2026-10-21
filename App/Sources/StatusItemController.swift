@@ -8,6 +8,7 @@ import SwiftUI
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let jobs: JobCenter
+    private let settings: SettingsStore
     private let updates: UpdateChecker
     private let showProgress: () -> Void
     private let openSettings: () -> Void
@@ -19,10 +20,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private static let reducedMotionBusySymbol = "wand.and.sparkles.inverse"
 
     init(
-        jobs: JobCenter, updates: UpdateChecker, showProgress: @escaping () -> Void,
+        jobs: JobCenter, settings: SettingsStore, updates: UpdateChecker, showProgress: @escaping () -> Void,
         openSettings: @escaping () -> Void
     ) {
         self.jobs = jobs
+        self.settings = settings
         self.updates = updates
         self.showProgress = showProgress
         self.openSettings = openSettings
@@ -80,7 +82,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        if !FIFinderSyncController.isExtensionEnabled {
+        if settings.onboardingCompleted, !FIFinderSyncController.isExtensionEnabled {
             menu.addItem(
                 ClosureMenuItem(title: String(localized: "Turn On Finder Extension…", comment: "Menu bar item")) {
                     FIFinderSyncController.showExtensionManagementInterface()

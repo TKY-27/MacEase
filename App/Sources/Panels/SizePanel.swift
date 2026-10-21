@@ -83,7 +83,9 @@ struct SizePanel: View {
         if outOfRange {
             ProblemLabel(
                 text: String(
-                    localized: "Enter sizes from 1 to 65,535 pixels.", comment: "Size panel validation"))
+                    localized:
+                        "Enter sizes from \(SizeChoice.pixelRange.lowerBound) to \(SizeChoice.pixelRange.upperBound) pixels.",
+                    comment: "Size panel validation"))
         } else {
             Text("Leave one field empty to keep proportions. Fill both to fit inside.")
                 .foregroundStyle(.secondary)

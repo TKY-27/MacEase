@@ -82,7 +82,7 @@ struct FinderMenuSettingsView: View {
             MenuTreeRow(name: MenuStrings.operationName(op), sources: visibility(of: [op]), depth: 1) {
                 label
             } children: {
-                ForEach(op.menuPresetIDs, id: \.self) { preset in
+                ForEach(shownPresets(of: op), id: \.self) { preset in
                     Toggle(titles.preset(op, preset), isOn: visibility(of: op.menuEntryKey(preset)))
                         .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
                 }
@@ -91,7 +91,15 @@ struct FinderMenuSettingsView: View {
     }
 
     private func visibility(of operations: [OperationID]) -> [Binding<Bool>] {
-        operations.flatMap(\.menuEntryKeys).map(visibility(of:))
+        operations.flatMap { op in
+            op.menuPresetIDs.isEmpty ? op.menuEntryKeys : shownPresets(of: op).map(op.menuEntryKey)
+        }
+        .map(visibility(of:))
+    }
+
+    /// The extra angle exists only while enabled.
+    private func shownPresets(of op: OperationID) -> [String] {
+        op.menuPresetIDs.filter { $0 != OperationID.extraAnglePreset || store.settings.extraRotationEnabled }
     }
 
     private func visibility(of key: String) -> Binding<Bool> {

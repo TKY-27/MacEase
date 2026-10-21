@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: SingleWindowPresenter?
     private var welcomeWindow: SingleWindowPresenter?
     private var launchedAsLoginItem = false
+    private var menuWriteScheduled = false
     private var menuInputs: [OperationID]?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -57,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
         jobs.askAgain = { [weak panels] in panels?.askAgain($0, files: $1, reason: $2) ?? false }
+        jobs.presentFailure = { [weak panels] in panels?.showFailure($0, message: $1) }
         let activity = ActivityWindow(jobs: jobs, settings: settings)
         self.activity = activity
         jobs.onStart = { [weak activity] in activity?.started($0) }
@@ -69,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
         makeWindows(jobs: jobs)
         statusItem = StatusItemController(
-            jobs: jobs, updates: updates, showProgress: { [weak activity] in activity?.show() }
+            jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() }
         ) { [weak self] in self?.settingsWindow?.show() }
         NSApp.mainMenu = MainMenu.make { [weak self] in self?.settingsWindow?.show() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
@@ -201,7 +203,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func settingsChanged() {
-        refreshMenuFile()
+        // Parent checkboxes change dozens of entries.
+        if !menuWriteScheduled {
+            menuWriteScheduled = true
+            Task { @MainActor in
+                menuWriteScheduled = false
+                refreshMenuFile()
+            }
+        }
         let width = settings.settings.effectiveConcurrency
         if let engine = jobs?.engine { Task { await engine.setConcurrency(width) } }
     }

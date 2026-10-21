@@ -33,23 +33,26 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     func finished(_ batch: JobCenter.ActiveBatch, outcome: BatchOutcome) -> Bool {
         guard let index = log.rows.firstIndex(where: { $0.id == batch.id }) else { return false }
         let result = ActivityResult(outcome)
-        let isVisible = panel?.isVisible == true
-        let reveals = settings.showsActivity && !log.rows[index].dismissed && result.needsAttention
-        guard !closesAutomatically(result), isVisible || reveals else {
+        // Hidden rows defer to the banner.
+        guard panel?.isVisible == true else {
+            log.rows.remove(at: index)
+            return false
+        }
+        let operation = MenuStrings.operationName(batch.operation)
+        AccessibilityNotification.Announcement(
+            String(localized: "\(operation): \(result.statusText)", comment: "VoiceOver batch completion")
+        ).post()
+        guard !closesAutomatically(result) else {
             log.rows.remove(at: index)
             hideIfEmpty()
             return false
         }
         log.rows[index].result = result
-        show()
-        let operation = MenuStrings.operationName(batch.operation)
-        AccessibilityNotification.Announcement(
-            String(localized: "\(operation): \(result.statusText)", comment: "VoiceOver batch completion")
-        ).post()
         return true
     }
 
     func show() {
+        guard !log.rows.isEmpty else { return }
         for index in log.rows.indices { log.rows[index].dismissed = false }
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -94,9 +97,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         // Finder may be in full screen.
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.delegate = self
-        let view = ActivityView(log: log, jobs: jobs) { [weak self] id in
-            self?.markUndone(id)
-        }
+        let view = ActivityView(log: log, jobs: jobs)
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = [.preferredContentSize]
         panel.contentViewController = controller
@@ -115,11 +116,6 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
             NSPoint(x: visible.midX - size.width / 2, y: visible.maxY - Self.topMargin - size.height))
     }
 
-    private func markUndone(_ id: UUID) {
-        guard let index = log.rows.firstIndex(where: { $0.id == id }) else { return }
-        log.rows[index].undone = true
-        jobs.undo(log.rows[index].batchID)
-    }
 }
 
 @MainActor
@@ -134,7 +130,6 @@ private struct ActivityRow: Identifiable {
     let operation: OperationID
     let itemCount: Int
     var dismissed = false
-    var undone = false
     var result: ActivityResult?
 }
 
@@ -199,9 +194,6 @@ private struct ActivityResult {
         hasHistory = outcome.record != nil
     }
 
-    /// Reopens a hidden window.
-    var needsAttention: Bool { status == .problems || status == .failed }
-
     var statusText: String {
         switch status {
         case .done: String(localized: "Done.", comment: "Activity status")
@@ -220,7 +212,6 @@ private struct ActivityResult {
 private struct ActivityView: View {
     let log: ActivityLog
     let jobs: JobCenter
-    let undo: (UUID) -> Void
 
     @State private var contentHeight: CGFloat = 0
 
@@ -233,13 +224,7 @@ private struct ActivityView: View {
             VStack(alignment: .leading, spacing: Self.rowSpacing) {
                 ForEach(Array(log.rows.enumerated()), id: \.element.id) { position, row in
                     if position > 0 { Divider() }
-                    ActivityRowView(
-                        row: row, running: jobs.active.first { $0.id == row.id },
-                        canUndo: row.result?.hasHistory == true && !row.undone && jobs.canUndo(row.batchID),
-                        jobs: jobs
-                    ) {
-                        undo(row.id)
-                    }
+                    ActivityRowView(row: row, running: jobs.active.first { $0.id == row.id }, jobs: jobs)
                 }
             }
             .padding()
@@ -256,9 +241,7 @@ private struct ActivityView: View {
 private struct ActivityRowView: View {
     let row: ActivityRow
     let running: JobCenter.ActiveBatch?
-    let canUndo: Bool
     let jobs: JobCenter
-    let undo: () -> Void
 
     private static let lineSpacing: CGFloat = 6
     private static let visibleProblems = 5
@@ -275,6 +258,11 @@ private struct ActivityRowView: View {
     }
 
     private var operationName: String { MenuStrings.operationName(row.operation) }
+
+    /// Reflects Undo from anywhere.
+    private var canUndo: Bool {
+        jobs.canUndo(row.batchID) && jobs.recent.first(where: { $0.id == row.batchID })?.undone != true
+    }
 
     private var title: some View {
         Text(verbatim: row.itemCount > 1 ? "\(operationName) (\(row.itemCount))" : operationName)
@@ -341,13 +329,16 @@ private struct ActivityRowView: View {
                 }
             }
             Spacer()
-            if canUndo {
-                Button(String(localized: "Undo", comment: "Activity button"), action: undo)
+            if result.hasHistory, canUndo {
+                Button(String(localized: "Undo", comment: "Activity button")) { jobs.undo(row.batchID) }
+                    .accessibilityLabel(Text("Undo \(operationName)", comment: "Activity undo button for VoiceOver"))
             }
             if result.hasHistory {
                 Button(String(localized: "Show in Finder", comment: "Activity button")) {
                     jobs.showOutputs(of: row.batchID)
                 }
+                .accessibilityLabel(
+                    Text("Show \(operationName) results in Finder", comment: "Activity reveal button for VoiceOver"))
             }
         }
         .controlSize(.small)

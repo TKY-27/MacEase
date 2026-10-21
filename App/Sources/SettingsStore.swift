@@ -102,7 +102,7 @@ final class SettingsStore {
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
     }
 
-    /// Keeps menu and history; presets stay edited.
+    /// History and edited presets survive.
     func resetAll() {
         settings = Settings()
         hiddenEntries = Self.newInstallHiddenEntries
@@ -132,6 +132,7 @@ final class SettingsStore {
         let isExistingInstall =
             legacy != nil || defaults.object(forKey: Settings.defaultsKey) != nil
             || defaults.bool(forKey: Key.onboardingCompleted)
+            || FileManager.default.fileExists(atPath: HostConfiguration.current.menuFile.path)
         let entries =
             isExistingInstall
             ? Set((legacy ?? []).compactMap(OperationID.init).flatMap(\.menuEntryKeys)) : newInstallHiddenEntries
@@ -184,9 +185,12 @@ final class SettingsStore {
 }
 
 extension OperationID {
-    /// Menu leaves, including Custom Size.
+    static let extraAnglePreset = "extra-angle"
+
+    /// Includes Custom Size and the extra angle.
     var menuPresetIDs: [String] {
-        presetGroups.flatMap { $0 } + (offersCustom ? [MenuEntry.customPreset] : [])
+        let extra = self == .imageRotate || self == .videoRotate ? [Self.extraAnglePreset] : []
+        return presetGroups.flatMap { $0 } + extra + (offersCustom ? [MenuEntry.customPreset] : [])
     }
 
     var menuEntryKeys: [String] {
