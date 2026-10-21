@@ -117,7 +117,7 @@ struct GeneralSettingsView: View {
     @ViewBuilder private var notifications: some View {
         Toggle(isOn: notificationSelection) {
             Text("Notifications")
-            Text("Show a summary when a batch finishes.")
+            Text("Results with Undo when a batch finishes.")
         }
         if store.notificationsEnabled, notificationStatus == .denied {
             LabeledContent {

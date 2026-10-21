@@ -29,7 +29,7 @@ struct TargetSizePanel: View {
             if let options { run(choice, options) }
         } content: {
             Section {
-                LabeledContent("Target size") {
+                LabeledContent {
                     HStack(spacing: PanelLayout.unitSpacing) {
                         TextField(
                             "Target size", value: $choice.megabytes,
@@ -43,10 +43,11 @@ struct TargetSizePanel: View {
                             .foregroundStyle(.secondary)
                             .accessibilityHidden(true)
                     }
-                }
-            } header: {
-                if let largestFile {
-                    Text("Largest selected file: \(largestFile.fileSize)", comment: "Target size panel hint")
+                } label: {
+                    Text("Target size")
+                    if let largestFile {
+                        Text("Largest selected file: \(largestFile.fileSize)", comment: "Target size panel hint")
+                    }
                 }
             } footer: {
                 if let bytes {

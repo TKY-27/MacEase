@@ -86,7 +86,7 @@ final class BatchNotifier: NSObject {
     func notifyStaleMenu() {
         let content = UNMutableNotificationContent()
         content.title = String(localized: "The MacEase menu was updated", comment: "Stale menu notification title")
-        content.body = String(localized: "Please choose the item again.", comment: "Stale menu notification body")
+        content.body = String(localized: "Choose the item again.", comment: "Stale menu notification body")
         post(content, id: UUID().uuidString)
     }
 
