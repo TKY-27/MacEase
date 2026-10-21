@@ -34,6 +34,7 @@ enum NewFileNaming: Sendable {
             }
         case .audio(let operation):
             switch operation {
+            case .subtitles: return nil
             case .convert: self = .conversion
             case .compress: self = .edit("compressed")
             case .normalize: self = .edit("normalized")

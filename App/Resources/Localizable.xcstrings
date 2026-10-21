@@ -5076,6 +5076,23 @@
         }
       }
     },
+    "menu.op.audio.subtitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtitles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕"
+          }
+        }
+      }
+    },
     "menu.op.audio.trim": {
       "extractionState": "manual",
       "localizations": {
@@ -5327,6 +5344,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "反転"
+          }
+        }
+      }
+    },
+    "menu.op.image.hdrToSDR": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDR"
           }
         }
       }
@@ -5786,6 +5820,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "フレームレート"
+          }
+        }
+      }
+    },
+    "menu.op.video.hdrToSDR": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDR"
           }
         }
       }
@@ -6262,6 +6313,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ LUFS"
+          }
+        }
+      }
+    },
+    "menu.preset.audio.subtitles.srt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SRT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SRT"
+          }
+        }
+      }
+    },
+    "menu.preset.audio.subtitles.translated-srt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Translated SRT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻訳した SRT"
+          }
+        }
+      }
+    },
+    "menu.preset.audio.subtitles.txt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト"
+          }
+        }
+      }
+    },
+    "menu.preset.audio.subtitles.vtt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebVTT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebVTT"
           }
         }
       }

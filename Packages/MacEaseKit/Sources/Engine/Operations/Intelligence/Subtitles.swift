@@ -25,6 +25,7 @@ enum Subtitles {
     private static let sentenceEnds: Set<Character> = [".", "!", "?", "。", "！", "？"]
 
     static func transcribe(audioFile url: URL, locale: Locale) async throws -> [TimedWord] {
+        guard SpeechTranscriber.isAvailable else { throw EngineError.missingCapability(.speechAssets) }
         guard let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
             throw EngineError.missingCapability(.speechAssets)
         }
@@ -51,6 +52,29 @@ enum Subtitles {
             collector.cancel()
             Task { await analyzer.cancelAndFinishNow() }
         }
+    }
+
+    static func export(_ request: SubtitleRequest, audioFile: URL, nextTo url: URL, context: ItemContext)
+        async throws -> ItemResult
+    {
+        let locale = request.language.isEmpty ? Locale.current : Locale(identifier: request.language)
+        var cues = cues(from: try await transcribe(audioFile: audioFile, locale: locale))
+        guard !cues.isEmpty else { return .skipped(.noTextFound) }
+        var suffix = ""
+        if let target = request.translation {
+            cues = try await translated(cues, from: locale.language, to: Locale.Language(identifier: target))
+            suffix = "." + target
+        }
+        let text: String =
+            switch request.format {
+            case .srt: try srt(cues)
+            case .vtt: try vtt(cues)
+            case .txt: plainText(cues)
+            }
+        let name = url.deletingPathExtension().lastPathComponent + suffix + "." + request.format.rawValue
+        let output = try context.stagingURL(for: url, name: name)
+        try Data(text.utf8).write(to: output)
+        return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .text(.utf8))])
     }
 
     private static func timedWords(in text: AttributedString) -> [TimedWord] {

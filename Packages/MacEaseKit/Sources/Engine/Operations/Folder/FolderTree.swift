@@ -7,9 +7,11 @@ public enum FolderTree {
     private static let gap = "    "
 
     /// Hidden items are skipped, as Finder does.
-    public static func text(of folder: URL, excluding excludedNames: Set<String>) throws -> String {
+    public static func text(
+        of folder: URL, excluding excludedNames: Set<String>, foldersOnly: Bool = false
+    ) throws -> String {
         var lines = [folder.lastPathComponent]
-        try appendChildren(of: folder, indent: "", excluding: excludedNames, to: &lines)
+        try appendChildren(of: folder, indent: "", excluding: excludedNames, foldersOnly: foldersOnly, to: &lines)
         return lines.joined(separator: "\n")
     }
 
@@ -17,6 +19,7 @@ public enum FolderTree {
         of folder: URL,
         indent: String,
         excluding excludedNames: Set<String>,
+        foldersOnly: Bool,
         to lines: inout [String]
     ) throws {
         try Task.checkCancellation()
@@ -25,6 +28,7 @@ public enum FolderTree {
         )
         .filter { !excludedNames.contains($0.lastPathComponent) }
         .map { url in (url: url, isFolder: try FolderWalk.isPlainFolder(url)) }
+        .filter { !foldersOnly || $0.isFolder }
         .sorted { lhs, rhs in
             if lhs.isFolder != rhs.isFolder { return lhs.isFolder }
             return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
@@ -34,7 +38,8 @@ public enum FolderTree {
             lines.append(indent + (isLast ? lastBranch : branch) + child.url.lastPathComponent)
             guard child.isFolder else { continue }
             try appendChildren(
-                of: child.url, indent: indent + (isLast ? gap : trunk), excluding: excludedNames, to: &lines)
+                of: child.url, indent: indent + (isLast ? gap : trunk), excluding: excludedNames,
+                foldersOnly: foldersOnly, to: &lines)
         }
     }
 }

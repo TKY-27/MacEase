@@ -17,17 +17,78 @@ enum JSONValue {
         return output
     }
 
-    /// Top level sorts only the outermost objects.
-    func sortingKeys(recursive: Bool) -> JSONValue {
+    func sortingKeys(settings: TextSettings, recursive: Bool) -> JSONValue {
         switch self {
         case .object(let members):
-            let sorted = members.sorted { $0.key.unicodeScalars.lexicographicallyPrecedes($1.key.unicodeScalars) }
-            return .object(recursive ? sorted.map { ($0.key, $0.value.sortingKeys(recursive: true)) } : sorted)
+            let sorted = members.enumerated().sorted { left, right in
+                let leftRank = Self.pinnedRank(left.element.key, in: settings.jsonPinnedKeys)
+                let rightRank = Self.pinnedRank(right.element.key, in: settings.jsonPinnedKeys)
+                if leftRank != rightRank { return leftRank < rightRank }
+                let order = Self.keyOrder(left.element.key, right.element.key, comparison: settings.jsonKeyComparison)
+                if order == .orderedSame { return left.offset < right.offset }
+                return settings.jsonDescending ? order == .orderedDescending : order == .orderedAscending
+            }.map(\.element)
+            return .object(
+                sorted.map { member in
+                    (
+                        member.key,
+                        recursive ? member.value.sortingKeys(settings: settings, recursive: true) : member.value
+                    )
+                })
         case .array(let elements):
-            return .array(elements.map { $0.sortingKeys(recursive: recursive) })
+            let children = recursive ? elements.map { $0.sortingKeys(settings: settings, recursive: true) } : elements
+            guard settings.jsonSortPrimitiveArrays, children.allSatisfy(\.isPrimitive) else { return .array(children) }
+            let sorted = children.enumerated().map {
+                (offset: $0.offset, value: $0.element, key: $0.element.serialized(indent: nil))
+            }
+            .sorted { left, right in
+                let order = Self.ordinalOrder(left.key, right.key)
+                if order == .orderedSame { return left.offset < right.offset }
+                return settings.jsonDescending ? order == .orderedDescending : order == .orderedAscending
+            }.map(\.value)
+            return .array(sorted)
         case .string, .number, .bool, .null:
             return self
         }
+    }
+
+    private var isPrimitive: Bool {
+        switch self {
+        case .string, .number, .bool, .null: true
+        case .object, .array: false
+        }
+    }
+
+    private static let comparisonLocale = Locale(identifier: "en_US_POSIX")
+
+    private static func pinnedRank(_ key: String, in pinnedKeys: [String]) -> Int {
+        let foldedKey = caseFolded(key)
+        return pinnedKeys.firstIndex {
+            ordinalOrder(foldedKey, caseFolded($0)) == .orderedSame
+        } ?? pinnedKeys.count
+    }
+
+    private static func keyOrder(_ left: String, _ right: String, comparison: JSONKeyComparison) -> ComparisonResult {
+        let primary: ComparisonResult
+        switch comparison {
+        case .ordinal: return ordinalOrder(left, right)
+        case .caseInsensitive:
+            primary = ordinalOrder(caseFolded(left), caseFolded(right))
+        case .natural:
+            primary = caseFolded(left).compare(
+                caseFolded(right), options: [.literal, .numeric], locale: comparisonLocale)
+        }
+        return primary == .orderedSame ? ordinalOrder(left, right) : primary
+    }
+
+    private static func caseFolded(_ key: String) -> String {
+        key.folding(options: .caseInsensitive, locale: comparisonLocale)
+    }
+
+    private static func ordinalOrder(_ left: String, _ right: String) -> ComparisonResult {
+        if left.unicodeScalars.lexicographicallyPrecedes(right.unicodeScalars) { return .orderedAscending }
+        if right.unicodeScalars.lexicographicallyPrecedes(left.unicodeScalars) { return .orderedDescending }
+        return .orderedSame
     }
 
     private func write(to output: inout String, indent: String?, level: Int) {
@@ -99,7 +160,7 @@ enum JSONFormatter {
         case .pretty: return value.serialized(indent: settings.jsonIndent.unit) + "\n"
         case .minify: return value.serialized(indent: nil)
         case .sortKeys:
-            let sorted = value.sortingKeys(recursive: settings.keySortScope == .recursive)
+            let sorted = value.sortingKeys(settings: settings, recursive: settings.keySortScope == .recursive)
             return sorted.serialized(indent: settings.jsonIndent.unit) + "\n"
         }
     }

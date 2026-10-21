@@ -78,6 +78,7 @@ enum VideoPlanner {
     ]
 
     static func options(for op: OperationID, preset: String?, settings: Settings) -> VideoOperation? {
+        if op == .videoHDRToSDR { return preset == nil ? .hdrToSDR : nil }
         if op == .videoRemoveAudio { return .removeAudio }
         guard let preset else { return nil }
         switch op {
@@ -122,21 +123,11 @@ enum VideoPlanner {
         case .videoToAPNG:
             return animation(preset, settings: settings).map(VideoOperation.apng)
         case .videoSubtitles:
-            return subtitles(preset, settings: settings.intelligence).map(VideoOperation.subtitles)
+            return SubtitleRequest.preset(preset, settings: settings.intelligence).map(VideoOperation.subtitles)
         case .videoBackground:
             return background(preset, settings: settings).map(VideoOperation.background)
         default:
             return nil
-        }
-    }
-
-    private static func subtitles(_ preset: String, settings: IntelligenceSettings) -> SubtitleRequest? {
-        if preset == "translated-srt" {
-            return SubtitleRequest(
-                format: .srt, language: settings.subtitleLanguage, translation: settings.translationTarget)
-        }
-        return SubtitleFormat(rawValue: preset).map {
-            SubtitleRequest(format: $0, language: settings.subtitleLanguage, translation: nil)
         }
     }
 

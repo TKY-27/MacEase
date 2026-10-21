@@ -27,7 +27,7 @@ public enum FolderOperation: Codable, Hashable, Sendable {
     case removeEmpty([URL], permanently: Bool)
     case tree(TreeOutput)
     case rename(RenameRules)
-    case exportAnalysis(FolderAnalysis)
+    case exportAnalysis(FolderAnalysis, format: AnalysisExportFormat = .markdown)
     case compress(ArchiveFormat)
 }
 
@@ -66,8 +66,8 @@ enum FolderPlanner {
             return Batch(operation: op, items: folders.map { treeItem($0, output: output) })
         case .rename(let rules):
             return Batch(operation: op, items: folders.isEmpty ? [] : [renameItem(folders, rules: rules)])
-        case .exportAnalysis(let analysis):
-            return Batch(operation: op, items: [analysisItem(analysis)])
+        case .exportAnalysis(let analysis, let format):
+            return Batch(operation: op, items: [analysisItem(analysis, format: format)])
         case .compress(let format):
             return Batch(operation: op, items: folders.isEmpty ? [] : [compressItem(folders, format: format)])
         }
@@ -94,7 +94,9 @@ enum FolderPlanner {
 
     private static func treeItem(_ folder: URL, output: TreeOutput) -> WorkItem {
         OperationPlanner.validated(folder, kind: .folder) { context in
-            let tree = try FolderTree.text(of: folder, excluding: Set(context.settings.folder.excludedNames))
+            let tree = try FolderTree.text(
+                of: folder, excluding: Set(context.settings.folder.excludedNames),
+                foldersOnly: context.settings.folder.treeFoldersOnly)
             let name = "\(folder.lastPathComponent) tree.\(output.rawValue)"
             switch output {
             case .copy: return .text(tree, .clipboard)
@@ -104,10 +106,11 @@ enum FolderPlanner {
         }
     }
 
-    private static func analysisItem(_ analysis: FolderAnalysis) -> WorkItem {
+    private static func analysisItem(_ analysis: FolderAnalysis, format: AnalysisExportFormat) -> WorkItem {
         OperationPlanner.validated(analysis.folder, kind: .folder) { context in
-            let name = "\(analysis.folder.lastPathComponent) analysis.md"
-            return try derivedText(analysis.markdown, name: name, nextTo: analysis.folder, context: context)
+            let name = "\(analysis.folder.lastPathComponent) analysis.\(format.pathExtension)"
+            return try derivedText(
+                analysis.serialized(as: format), name: name, nextTo: analysis.folder, context: context)
         }
     }
 

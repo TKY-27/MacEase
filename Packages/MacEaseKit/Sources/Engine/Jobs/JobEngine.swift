@@ -64,6 +64,12 @@ public final class JobEngine: Sendable {
         return await run(Batch(operation: operation, items: [workItem]), settings: Settings()) { _ in }
     }
 
+    public func saveReport(_ analysis: FolderAnalysis, as format: AnalysisExportFormat, to destination: URL)
+        async throws -> BatchOutcome
+    {
+        await saveReport(try analysis.serialized(as: format), to: destination, operation: .folderAnalyze)
+    }
+
     private struct ItemResultSummary: Sendable {
         let index: Int
         let outcome: ItemOutcome

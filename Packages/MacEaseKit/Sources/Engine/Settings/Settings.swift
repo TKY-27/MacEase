@@ -181,6 +181,8 @@ public struct FolderSettings: Codable, Equatable, Sendable {
     public var renameDigits = 3
     public var archiveFormat = ArchiveFormat.zip
     public var archiveExcludesMacMetadata = true
+    public var treeFoldersOnly = false
+    public var analysisExportFormat = AnalysisExportFormat.csv
 
     public init() {}
 }
@@ -189,6 +191,10 @@ public struct TextSettings: Codable, Equatable, Sendable {
     public var unmappable = UnmappablePolicy.fail
     public var jsonIndent = JSONIndent.two
     public var keySortScope = KeySortScope.recursive
+    public var jsonKeyComparison = JSONKeyComparison.ordinal
+    public var jsonDescending = false
+    public var jsonPinnedKeys: [String] = []
+    public var jsonSortPrimitiveArrays = false
     public var csvTypeInference = false
     public var pdfImageDPI = PDFOperation.defaultDPI
 

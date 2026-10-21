@@ -60,6 +60,12 @@ public enum JSONFormatting: String, Codable, CaseIterable, Sendable {
     case sortKeys = "sort"
 }
 
+public enum JSONKeyComparison: String, Codable, CaseIterable, Sendable {
+    case ordinal
+    case caseInsensitive
+    case natural
+}
+
 enum TextPlanner {
     static func operation(for op: OperationID, preset: String?) -> TextOperation? {
         guard let preset else { return nil }

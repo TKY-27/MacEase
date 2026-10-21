@@ -52,7 +52,7 @@ public enum OperationPlanner {
         let usesResolvedInputs: Bool
         switch request.options {
         case .rename(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
-            .folder(.exportAnalysis(_)):
+            .folder(.exportAnalysis(_, _)):
             usesResolvedInputs = true
         default:
             usesResolvedInputs = false
@@ -71,6 +71,15 @@ public enum OperationPlanner {
                             comment: "Rejects stale selection counts")))
             }
             return Batch(operation: request.op, items: [rejected])
+        }
+        if request.op == .imageHDRToSDR || request.op == .videoHDRToSDR {
+            let entry = MenuEntry(op: request.op, preset: nil, path: [])
+            if !MenuLayout.isApplicable(entry, selection: inputs) {
+                let rejected = WorkItem(inputs: inputs) { _ in
+                    throw EngineError.invalidInput(.unsupportedFileType)
+                }
+                return Batch(operation: request.op, items: [rejected])
+            }
         }
         switch request.options {
         case .checksum(let algorithm):

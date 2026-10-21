@@ -6,6 +6,7 @@ public enum ImagePlanner {
     /// `nil` when a panel must ask first.
     public static func operation(for op: OperationID, preset: String?, settings: Settings) -> ImageOperation? {
         switch op {
+        case .imageHDRToSDR: return preset == nil ? .hdrToSDR : nil
         case .imageTrimBorders: return .trimBorders
         case .imageToPDF: return .toPDF
         case .imageCopyBase64: return .copyBase64

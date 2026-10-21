@@ -12,6 +12,16 @@ public struct SubtitleRequest: Codable, Hashable, Sendable {
         self.language = language
         self.translation = translation
     }
+
+    static func preset(_ preset: String, settings: IntelligenceSettings) -> SubtitleRequest? {
+        if preset == "translated-srt" {
+            return SubtitleRequest(
+                format: .srt, language: settings.subtitleLanguage, translation: settings.translationTarget)
+        }
+        return SubtitleFormat(rawValue: preset).map {
+            SubtitleRequest(format: $0, language: settings.subtitleLanguage, translation: nil)
+        }
+    }
 }
 
 public struct VideoBackgroundRequest: Codable, Hashable, Sendable {
@@ -38,24 +48,7 @@ enum VideoSubtitles {
         try await VideoAudio.encode(input, track: track, sampleRate: sampleRate, target: speechFormat, to: speech) {
             context.progress($0 / 2)
         }
-        let locale = request.language.isEmpty ? Locale.current : Locale(identifier: request.language)
-        var cues = Subtitles.cues(from: try await Subtitles.transcribe(audioFile: speech, locale: locale))
-        guard !cues.isEmpty else { return .skipped(.noTextFound) }
-        var suffix = ""
-        if let target = request.translation {
-            cues = try await Subtitles.translated(cues, from: locale.language, to: Locale.Language(identifier: target))
-            suffix = "." + target
-        }
-        let text: String =
-            switch request.format {
-            case .srt: try Subtitles.srt(cues)
-            case .vtt: try Subtitles.vtt(cues)
-            case .txt: Subtitles.plainText(cues)
-            }
-        let name = url.deletingPathExtension().lastPathComponent + suffix + "." + request.format.rawValue
-        let output = try context.stagingURL(for: url, name: name)
-        try Data(text.utf8).write(to: output)
-        return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .text(.utf8))])
+        return try await Subtitles.export(request, audioFile: speech, nextTo: url, context: context)
     }
 }
 

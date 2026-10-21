@@ -2,6 +2,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case imageResize = "image.resize"
     case imageCompress = "image.compress"
     case imageConvert = "image.convert"
+    case imageHDRToSDR = "image.hdrToSDR"
     case imageRotate = "image.rotate"
     case imageFlip = "image.flip"
     case imageTrimBorders = "image.trimBorders"
@@ -22,6 +23,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case videoFPS = "video.fps"
     case videoRemoveAudio = "video.removeAudio"
     case videoConvert = "video.convert"
+    case videoHDRToSDR = "video.hdrToSDR"
     case videoToGIF = "video.toGIF"
     case videoToAnimatedWebP = "video.toAnimatedWebP"
     case videoToAPNG = "video.toAPNG"
@@ -32,6 +34,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case videoAICustom = "video.aiCustom"
 
     case audioConvert = "audio.convert"
+    case audioSubtitles = "audio.subtitles"
     case audioCompress = "audio.compress"
     case audioNormalize = "audio.normalize"
     case audioTrim = "audio.trim"
@@ -89,7 +92,7 @@ extension OperationID {
     public var presets: [String] {
         switch self {
         case .imageResize, .imageCompress, .imageConvert, .videoResize, .videoCompress,
-            .videoThumbnail, .videoSubtitles:
+            .videoThumbnail, .videoSubtitles, .audioSubtitles:
             presetGroups.flatMap { $0 }
         case .imageRotate, .videoRotate: ["right-90", "left-90", "180"]
         case .imageFlip, .videoFlip: ["horizontal", "vertical"]
@@ -153,7 +156,7 @@ extension OperationID {
                 ["quality-high", "quality-medium", "quality-low"],
             ]
         case .videoThumbnail: [["first", "middle"], ["choose-frame"]]
-        case .videoSubtitles: [["srt", "vtt", "txt"], ["translated-srt"]]
+        case .videoSubtitles, .audioSubtitles: [["srt", "vtt", "txt"], ["translated-srt"]]
         default: presets.isEmpty ? [] : [presets]
         }
     }
@@ -166,13 +169,13 @@ extension OperationID {
     }
 
     public static let menuOrder: [OperationID] = [
-        .imageResize, .imageCompress, .imageConvert, .imageRotate, .imageFlip, .imageBackground,
+        .imageResize, .imageCompress, .imageConvert, .imageHDRToSDR, .imageRotate, .imageFlip, .imageBackground,
         .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTrimBorders, .imageCopyBase64,
         .imageAIRename, .imageAICustom,
         .videoResize, .videoTrim, .videoThumbnail, .videoSubtitles, .videoCompress, .videoRotate,
-        .videoFlip, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoExtractAudio,
+        .videoFlip, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR, .videoExtractAudio,
         .videoFPS, .videoRemoveAudio, .videoBackground, .videoAICustom,
-        .audioConvert, .audioCompress, .audioNormalize, .audioTrim, .audioAICustom,
+        .audioConvert, .audioSubtitles, .audioCompress, .audioNormalize, .audioTrim, .audioAICustom,
         .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit, .pdfAIRename,
         .textConvert, .textEncoding, .textLineEndings, .textJSON,
         .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,

@@ -41,6 +41,8 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         self.frameRate = frameRate
         self.targetLoudness = targetLoudness
         switch op {
+        case .imageHDRToSDR: self.sourceFormats = ["heic", "jpeg", "avif", "jxl", "png"]
+        case .videoHDRToSDR: self.sourceFormats = ["mov", "mp4", "m4v", "mkv"]
         case .textJSON: self.sourceFormats = ["json"]
         case .textConvert:
             self.sourceFormats = preset.flatMap { preset in
@@ -131,15 +133,18 @@ public struct MenuTitles: Sendable {
     public let operation: @Sendable (OperationID) -> String
     public let preset: @Sendable (OperationID, String) -> String
     public let kind: @Sendable (FileKind) -> String
+    public let speechAvailable: Bool
 
     public init(
         operation: @escaping @Sendable (OperationID) -> String,
         preset: @escaping @Sendable (OperationID, String) -> String,
-        kind: @escaping @Sendable (FileKind) -> String
+        kind: @escaping @Sendable (FileKind) -> String,
+        speechAvailable: Bool = true
     ) {
         self.operation = operation
         self.preset = preset
         self.kind = kind
+        self.speechAvailable = speechAvailable
     }
 }
 
@@ -170,11 +175,13 @@ extension MenuFile {
         for op in OperationID.menuOrder {
             if op.startsGroup { operationBoundaries.insert(op.kind) }
             guard visible.contains(op) else { continue }
+            if !titles.speechAvailable, op == .audioSubtitles || op == .videoSubtitles { continue }
             let parent: OperationID =
                 switch op {
                 case .imageFlip: .imageRotate
+                case .imageHDRToSDR: .imageConvert
                 case .videoFlip: .videoRotate
-                case .videoToGIF, .videoToAnimatedWebP, .videoToAPNG: .videoConvert
+                case .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR: .videoConvert
                 default: op
                 }
             let opTitle = titles.operation(parent)
@@ -185,9 +192,11 @@ extension MenuFile {
             if op.offersCustom { groups.append([MenuEntry.customPreset]) }
             if groups.isEmpty {
                 if !hiddenEntries.contains("\(op.rawValue)/") {
+                    let isSDR = op == .imageHDRToSDR || op == .videoHDRToSDR
                     entries.append(
                         MenuEntry(
-                            op: op, preset: nil, path: [opTitle],
+                            op: op, preset: nil, path: isSDR ? [opTitle, titles.operation(op)] : [opTitle],
+                            separatorBefore: isSDR,
                             operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
                             parameterVersion: parameterVersion))
                 }

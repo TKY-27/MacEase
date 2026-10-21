@@ -9,6 +9,7 @@ public enum AudioCompression: Codable, Hashable, Sendable {
 
 /// Everything one audio run needs, panels included.
 public enum AudioOperation: Codable, Hashable, Sendable {
+    case subtitles(SubtitleRequest)
     case convert(AudioFormat)
     case compress(AudioCompression)
     /// Target integrated loudness in LUFS.
@@ -21,6 +22,8 @@ enum AudioPlanner {
     static func options(for op: OperationID, preset: String?, settings: Settings) -> AudioOperation? {
         guard let preset, op.presets.contains(preset) else { return nil }
         switch op {
+        case .audioSubtitles:
+            return SubtitleRequest.preset(preset, settings: settings.intelligence).map(AudioOperation.subtitles)
         case .audioConvert:
             return AudioFormat(rawValue: preset).map(AudioOperation.convert)
         case .audioCompress:

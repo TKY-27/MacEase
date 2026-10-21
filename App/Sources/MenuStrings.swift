@@ -1,11 +1,20 @@
 import Engine
 import Foundation
 import MenuCatalog
+import Speech
 
 /// Titles follow the app's language setting.
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
-        lookup("menu.op.\(op.rawValue)")
+        switch op {
+        case .imageHDRToSDR:
+            String(localized: "menu.op.image.hdrToSDR", defaultValue: "SDR")
+        case .videoHDRToSDR:
+            String(localized: "menu.op.video.hdrToSDR", defaultValue: "SDR")
+        case .audioSubtitles:
+            String(localized: "menu.op.audio.subtitles", defaultValue: "Subtitles")
+        default: lookup("menu.op.\(op.rawValue)")
+        }
     }
 
     /// Outside the menu, titles drop their ellipsis.
@@ -20,6 +29,14 @@ enum MenuStrings {
             return String(localized: "menu.preset.custom-size", defaultValue: "Custom Size…")
         }
         switch (op, preset) {
+        case (.audioSubtitles, "srt"):
+            return String(localized: "menu.preset.audio.subtitles.srt", defaultValue: "SRT")
+        case (.audioSubtitles, "vtt"):
+            return String(localized: "menu.preset.audio.subtitles.vtt", defaultValue: "WebVTT")
+        case (.audioSubtitles, "txt"):
+            return String(localized: "menu.preset.audio.subtitles.txt", defaultValue: "Plain Text")
+        case (.audioSubtitles, "translated-srt"):
+            return String(localized: "menu.preset.audio.subtitles.translated-srt", defaultValue: "Translated SRT")
         case (.videoThumbnail, "choose-frame"):
             return String(localized: "menu.preset.video.thumbnail.choose-frame", defaultValue: "Choose Frame…")
         case (.videoToGIF, "settings"):
@@ -79,7 +96,7 @@ enum MenuStrings {
                     }
                 }
                 return preset(op, presetID)
-            }, kind: kind)
+            }, kind: kind, speechAvailable: SpeechTranscriber.isAvailable)
     }
 
     private static let bytesPerMegabyte = 1_000_000.0

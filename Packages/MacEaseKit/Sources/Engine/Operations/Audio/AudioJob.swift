@@ -65,6 +65,11 @@ enum AudioJob {
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try AudioInput(url: url)
         switch operation {
+        case .subtitles(let request):
+            let speech = try context.stagingURL(for: url, name: "speech.wav")
+            try await encode(
+                input, to: AudioTarget(format: .wav, kilobits: 0), at: speech, tags: AudioTags(), context: context)
+            return try await Subtitles.export(request, audioFile: speech, nextTo: url, context: context)
         case .convert(let format):
             guard format != input.exactFormat else { return .skipped(.alreadyDone) }
             let target = AudioTarget.defaults(for: format, settings: context.settings.audio)
