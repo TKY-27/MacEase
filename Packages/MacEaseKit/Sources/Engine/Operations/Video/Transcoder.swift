@@ -90,7 +90,7 @@ enum Transcoder {
                 // A blocked input must not starve others.
                 let packet = queues[index].removeFirst()
                 try await sink.write(rebased(packet, origin: origin))
-                progress(Double(packet.timestamp - start) / Double(max(progressEnd - start, 1)))
+                progress((Double(packet.timestamp) - Double(start)) / max(Double(progressEnd) - Double(start), 1))
             }
             try await sink.finish()
         } catch {
@@ -131,10 +131,16 @@ enum Transcoder {
         return packets
     }
 
-    private static func rebased(_ packet: MediaPacket, origin: Int64) -> MediaPacket {
+    private static func rebased(_ packet: MediaPacket, origin: Int64) throws -> MediaPacket {
         var shifted = packet
-        shifted.timestamp -= origin
-        shifted.decodeTimestamp = packet.decodeTimestamp.map { $0 - origin }
+        let (timestamp, timestampOverflow) = packet.timestamp.subtractingReportingOverflow(origin)
+        guard !timestampOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        shifted.timestamp = timestamp
+        if let decodeTimestamp = packet.decodeTimestamp {
+            let (rebasedDecode, decodeOverflow) = decodeTimestamp.subtractingReportingOverflow(origin)
+            guard !decodeOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+            shifted.decodeTimestamp = rebasedDecode
+        }
         return shifted
     }
 
@@ -257,7 +263,7 @@ final class PacketCopyStage: StreamStage {
             window.append(packet)
         }
         guard !window.isEmpty else { return [] }
-        if reorderShift == nil { reorderShift = synthesizesDecodeTimes ? shift(for: window) : 0 }
+        if reorderShift == nil { reorderShift = synthesizesDecodeTimes ? try shift(for: window) : 0 }
         // Keep late frames that earlier frames reference.
         guard window.contains(where: { $0.timestamp < end }) else {
             window = []
@@ -265,7 +271,9 @@ final class PacketCopyStage: StreamStage {
             return []
         }
         var packet = window.removeFirst()
-        if synthesizesDecodeTimes, packet.decodeTimestamp == nil { packet.decodeTimestamp = decodeTime(for: packet) }
+        if synthesizesDecodeTimes, packet.decodeTimestamp == nil {
+            packet.decodeTimestamp = try decodeTime(for: packet)
+        }
         packet.track = number
         return [packet]
     }
@@ -286,15 +294,27 @@ final class PacketCopyStage: StreamStage {
     }
 
     /// Keeps decode times at or before presentation.
-    private func shift(for packets: [MediaPacket]) -> Int64 {
+    private func shift(for packets: [MediaPacket]) throws -> Int64 {
         let sorted = packets.map(\.timestamp).sorted()
-        return zip(sorted, packets).map { $0 - $1.timestamp }.max().map { max($0, 0) } ?? 0
+        var shift: Int64 = 0
+        for (presentation, packet) in zip(sorted, packets) {
+            let (difference, overflow) = presentation.subtractingReportingOverflow(packet.timestamp)
+            guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+            shift = max(shift, difference)
+        }
+        return shift
     }
 
-    private func decodeTime(for packet: MediaPacket) -> Int64 {
+    private func decodeTime(for packet: MediaPacket) throws -> Int64 {
         let next = ([packet] + window).map(\.timestamp).min() ?? packet.timestamp
-        var time = min(next - (reorderShift ?? 0), packet.timestamp)
-        if let last = lastDecodeTime, time <= last { time = last + 1 }
+        let (candidate, overflow) = next.subtractingReportingOverflow(reorderShift ?? 0)
+        guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        var time = min(candidate, packet.timestamp)
+        if let last = lastDecodeTime, time <= last {
+            let (following, incrementOverflow) = last.addingReportingOverflow(1)
+            guard !incrementOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+            time = following
+        }
         lastDecodeTime = time
         return time
     }

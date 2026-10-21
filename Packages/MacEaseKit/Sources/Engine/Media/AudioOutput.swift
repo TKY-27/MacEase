@@ -322,13 +322,15 @@ private final class MPEG4Sink: AudioSink {
 
     func write(_ interleaved: [Float]) async throws {
         let frames = interleaved.count / Int(format.channelCount)
+        let (following, overflow) = position.addingReportingOverflow(Int64(frames))
+        guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
         let buffer = try sampleBuffer(interleaved, frames: frames)
         while !input.isReadyForMoreMediaData {
             guard writer.status == .writing else { throw writerFailure }
             try await Task.sleep(for: Self.readinessPoll)
         }
         guard input.append(buffer) else { throw writerFailure }
-        position += Int64(frames)
+        position = following
     }
 
     func finish() async throws {

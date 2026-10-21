@@ -219,6 +219,12 @@ locations stay consistent; reading a dataless cloud file downloads it first.
 **Names.** A derived output or a renamed replace output that collides with an
 existing name gets ` (2)`, ` (3)` and so on before the extension.
 
+Report Save and Analyze Export as Markdown use a save panel to choose a folder
+and name. They stage and verify UTF-8 text, then use the Derived commit path
+and record an undoable batch. Existing files are never overwritten, including
+after a save panel replacement confirmation. Collisions use the available-name
+rule, and the host tells the user the final name when it changed.
+
 **Preservation on replace.**
 
 - Creation date, modification date, Finder tags and Finder comment are copied
@@ -246,6 +252,10 @@ confirmation in a panel.
   include a Trash stamp with device, inode, size and modification date, captured
   while the commit holds its naming lock. Folder Trash stamps include the
   bounded summary described below.
+- Replace, derived and rename output stamps are captured inside the same
+  coordinated write and naming lock as their mutations, and returned with the
+  commit results. Later edits must not become the undo baseline. A stamp failure
+  still records the committed output with an unavailable stamp.
 - Folder stamps contain a bounded summary, never a persisted descendant list:
   descendant count, total size, latest modification date, and an
   enumeration-order-independent hash of relative paths, types, sizes,
@@ -697,6 +707,10 @@ check.
 - Expected per-item errors end the item as failed; the batch continues. There
   are no silent fallbacks: a fallback path (for example dav1d instead of
   VideoToolbox) is a defined behavior, not error recovery.
+- Video audio conversion and extraction reject timelines requiring more than
+  ten minutes of synthesized silence in total per operation. The remaining
+  budget is checked before filling each gap so sparse malformed timelines
+  cannot trigger unbounded output work.
 - Permission errors from TCC tell the user which location needs access and link
   to the relevant System Settings pane.
 - Unexpected errors are logged with `Logger` (subsystem `io.github.tky27.MacEase`)
@@ -802,6 +816,11 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Output stamps are captured before commit coordination ends.
+  Report saving and Analyze export choose a destination, retain colliding
+  files, and record Derived outputs for undo. Timestamp arithmetic rejects
+  overflow, and audio silence synthesis has a cumulative cap (ADR 0011).
 
 - 2026-10-20: Initial specification after chat discussion, Finder Sync spikes on
   macOS 27.0.1, and an independent review.

@@ -80,3 +80,35 @@ This retains the section 3.5 commit sequence and the JobEngine class. Converting
 it to an actor would not prevent interleaving across awaits. The shared gate
 and one coordinated undo transaction provide the required serialization with
 less API churn.
+
+## Commit output stamps and report saving amendment
+
+Date: 2026-10-21
+
+Replace, derived and rename commits capture their output stamps inside the
+same coordinated write and naming lock as the mutation. The commit result
+carries the stamp to JobEngine. This closes the interval in which an external
+edit could become the undo baseline. All replacement fallbacks follow the same
+rule. A stamp failure is logged and returns an unavailable stamp, preserving
+the committed output's history while refusing unsafe undo.
+
+Text result Save and Analyze Export as Markdown choose a destination with
+NSSavePanel. Its returned URL is a requested name, never permission to replace
+an existing file. JobEngine stages UTF-8 on the destination volume, verifies
+it, and uses the existing Derived commit and history lifecycle. AvailableName
+resolves collisions inside commit serialization. The host reports a changed
+final name and refreshes undo history. Analysis already used Derived commits;
+this amendment adds destination selection to that existing guarantee.
+
+## Sparse timeline guard amendment
+
+Date: 2026-10-21
+
+Checked timestamp arithmetic prevents integer traps but still permits sparse
+audio timelines to request impractically large silence output. Video audio
+conversion and extraction therefore reject timelines requiring more than ten
+minutes of synthesized silence in total per operation. Each gap is checked
+against the remaining budget before producing that silence. The named limit
+permits ordinary synchronization gaps while bounding cumulative work from
+malformed packet timing. Failures leave originals intact through the existing
+staging and commit rules.

@@ -1352,6 +1352,17 @@
         }
       }
     },
+    "Existing files are kept. If the name is taken, a numbered name is used.": {
+      "comment": "Explains collision-safe report saving",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既存のファイルはそのまま残ります。同じ名前がある場合は、番号付きの名前で保存します。"
+          }
+        }
+      }
+    },
     "Export as Markdown": {
       "comment": "Analyze panel action",
       "localizations": {
@@ -3370,6 +3381,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキストファイルとして保存"
+          }
+        }
+      }
+    },
+    "Saved as “%@”.": {
+      "comment": "Reports final saved name",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” として保存しました。"
           }
         }
       }

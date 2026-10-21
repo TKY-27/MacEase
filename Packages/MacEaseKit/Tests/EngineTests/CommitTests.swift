@@ -149,7 +149,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
                 [
                     .replaced(
                         original: original.path, trashed: trashed.url.path, output: replaced.output.path,
-                        stamp: try FileStamp(of: replaced.output), trashStamp: trashed.stamp)
+                        stamp: replaced.stamp, trashStamp: trashed.stamp)
                 ],
                 batch: UUID(), operation: .textLineEndings)
             await engine.history.commitGate.release()
@@ -457,8 +457,64 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         try write("edited by the user afterwards", to: original)
 
         let record = try #require(outcome.record)
+        guard case .replaced(_, _, _, let stamp, _) = try #require(record.items.first) else {
+            Issue.record("expected replaced record")
+            return
+        }
+        #expect(try #require(stamp).size == Int64("new".utf8.count))
         #expect(try await engine.history.undo(record.id) == [.skipped(.undoOutputChanged, path: original.path)])
         #expect(try read(original) == "edited by the user afterwards")
+    }
+
+    @Test(arguments: ["source.txt", "result.txt", "SOURCE.txt"])
+    func returnedCommitStampsPreserveThePreEditOutput(replacementName: String) async throws {
+        let folder = try TestVolume.makeFolder()
+        let original = folder.appending(path: "source.txt")
+        try write("source", to: original)
+        let committer = FileCommitter()
+        let staged = folder.appending(path: "staged.txt")
+        let cloneDirectory = folder.appending(path: "clones")
+        try FileManager.default.createDirectory(at: cloneDirectory, withIntermediateDirectories: false)
+        try write("replacement", to: staged)
+
+        let replaced = try await committer.replace(
+            original: original, with: StagedFile(url: staged, name: replacementName, check: .text(.utf8)),
+            cloneDirectory: cloneDirectory, expectedStamp: FileStamp(of: original))
+        let trashed = try #require(replaced.trashed)
+        let replacementStamp = try #require(replaced.stamp)
+        #expect(replacementStamp.matches(replaced.output.path))
+        try write("edited replacement after commit", to: replaced.output)
+        #expect(!replacementStamp.matches(replaced.output.path))
+        #expect(
+            committer.undo(
+                .replaced(
+                    original: original.path, trashed: trashed.url.path, output: replaced.output.path,
+                    stamp: replacementStamp, trashStamp: trashed.stamp))
+                == .skipped(.undoOutputChanged, path: replaced.output.path))
+        #expect(try read(replaced.output) == "edited replacement after commit")
+
+        let derivedStage = folder.appending(path: "derived-stage.txt")
+        try write("derived", to: derivedStage)
+        let derived = try await committer.derive(
+            StagedFile(url: derivedStage, name: "derived.txt", check: .text(.utf8)), nextTo: replaced.output)
+        let derivedStamp = try #require(derived.stamp)
+        #expect(derivedStamp.matches(derived.output.path))
+        try write("edited derived after commit", to: derived.output)
+        #expect(!derivedStamp.matches(derived.output.path))
+        #expect(
+            committer.undo(.derived(output: derived.output.path, stamp: derivedStamp))
+                == .skipped(.undoOutputChanged, path: derived.output.path))
+        #expect(try read(derived.output) == "edited derived after commit")
+
+        let renamed = try committer.rename(derived.output, to: "renamed.txt")
+        let renameStamp = try #require(renamed.stamp)
+        #expect(renameStamp.matchesIdentity(renamed.output.path))
+        try write("edited rename after commit", to: renamed.output)
+        #expect(!renameStamp.matches(renamed.output.path))
+        #expect(
+            committer.undo(.renamed(from: derived.output.path, to: renamed.output.path, stamp: renameStamp))
+                == .skipped(.undoOutputChanged, path: renamed.output.path))
+        #expect(try read(renamed.output) == "edited rename after commit")
     }
 
     @Test func trashedItemsCanBeRestored() async throws {

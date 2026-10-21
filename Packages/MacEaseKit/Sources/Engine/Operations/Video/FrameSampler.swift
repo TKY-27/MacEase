@@ -49,15 +49,20 @@ final class FrameSampler {
     func next() async throws -> DecodedFrame? {
         while true {
             try Task.checkCancellation()
-            guard nextOutput + frameDuration / 2 < end else {
+            let (center, centerOverflow) = nextOutput.addingReportingOverflow(frameDuration / 2)
+            guard !centerOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+            guard center < end else {
                 decoded.removeAll()
                 sourceQueue.removeAll()
                 return nil
             }
-            if let chosen = ready() {
+            if let chosen = try ready(center: center) {
                 let image = try processor(for: chosen.image).process(chosen.image)
-                defer { nextOutput += frameDuration }
-                return DecodedFrame(image: image, timestamp: nextOutput)
+                let timestamp = nextOutput
+                let (following, followingOverflow) = nextOutput.addingReportingOverflow(frameDuration)
+                guard !followingOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+                nextOutput = following
+                return DecodedFrame(image: image, timestamp: timestamp)
             }
             if sourceEnded { return nil }
             if let frame = try await nextSourceFrame() {
@@ -77,12 +82,14 @@ final class FrameSampler {
         return created
     }
 
-    private func ready() -> DecodedFrame? {
-        let center = nextOutput + frameDuration / 2
+    private func ready(center: Int64) throws -> DecodedFrame? {
         while decoded.count >= 2, decoded[1].timestamp <= center { decoded.removeFirst() }
         guard center < end, let first = decoded.first else { return nil }
         if decoded.count >= 2 { return first }
-        guard sourceEnded, center < first.timestamp + max(frameDuration, sourceFrameDuration) else { return nil }
+        guard sourceEnded else { return nil }
+        let (sourceEnd, overflow) = first.timestamp.addingReportingOverflow(max(frameDuration, sourceFrameDuration))
+        guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        guard center < sourceEnd else { return nil }
         return first
     }
 

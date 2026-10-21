@@ -19,8 +19,14 @@ struct FileCommitter: Sendable {
 
     struct Replaced: Sendable {
         let output: URL
+        let stamp: FileStamp?
         let trashed: Trashed?
         let warning: ItemWarning?
+    }
+
+    struct Committed: Sendable {
+        let output: URL
+        let stamp: FileStamp?
     }
 
     private let logger = Logger(category: "commit")
@@ -56,34 +62,34 @@ struct FileCommitter: Sendable {
                                 logger.error(
                                     "Case change failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
                                 )
-                                return Replaced(output: target, trashed: kept.trashed, warning: .outputNameUnchanged)
+                                return replaced(output: target, trashed: kept, warning: .outputNameUnchanged)
                             }
                         }
-                        return Replaced(output: final, trashed: kept.trashed, warning: kept.warning)
+                        return replaced(output: final, trashed: kept, warning: nil)
                     }
                     try FileManager.default.moveItem(at: output.url, to: final)
                     do {
-                        return Replaced(output: final, trashed: try trashForHistory(target), warning: nil)
+                        return replaced(output: final, trashed: try trashForHistory(target), warning: nil)
                     } catch let error as CocoaError where error.code == .featureUnsupported {
-                        return Replaced(output: final, trashed: nil, warning: .keptAsDerived)
+                        return replaced(output: final, trashed: nil, warning: .keptAsDerived)
                     } catch {
                         do {
                             try FileManager.default.moveItem(at: final, to: output.url)
                         } catch {
-                            return Replaced(output: final, trashed: nil, warning: .originalKept)
+                            return replaced(output: final, trashed: nil, warning: .originalKept)
                         }
                         throw error
                     }
                 }
             } catch Failure.noTrash {
                 let derived = try AvailableName.url(for: output.name, in: directory)
-                try coordinate(moving: output.url, to: derived)
-                return Replaced(output: derived, trashed: nil, warning: .keptAsDerived)
+                let committed = try coordinate(moving: output.url, to: derived)
+                return Replaced(output: committed.output, stamp: committed.stamp, trashed: nil, warning: .keptAsDerived)
             }
         }
     }
 
-    private func replaceKeepingName(original: URL, output: StagedFile, cloneDirectory: URL) throws -> Replaced {
+    private func replaceKeepingName(original: URL, output: StagedFile, cloneDirectory: URL) throws -> Trashed {
         let clone = cloneDirectory.appending(path: original.lastPathComponent)
         try cloneOrCopy(original, to: clone)
         let trashed: Trashed
@@ -99,16 +105,31 @@ struct FileCommitter: Sendable {
             logger.error("Replace failed; an extra copy of the original stays in the Trash")
             throw error
         }
-        return Replaced(output: original, trashed: trashed, warning: nil)
+        return trashed
     }
 
-    func derive(_ output: StagedFile, nextTo original: URL) async throws -> URL {
+    private func replaced(output: URL, trashed: Trashed?, warning: ItemWarning?) -> Replaced {
+        Replaced(output: output, stamp: outputStamp(of: output), trashed: trashed, warning: warning)
+    }
+
+    private func outputStamp(of url: URL, includingIdentity: Bool = false) -> FileStamp? {
+        do {
+            return try FileStamp(of: url, includingIdentity: includingIdentity)
+        } catch {
+            logger.error(
+                "Undo stamp unavailable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+            )
+            return nil
+        }
+    }
+
+    func derive(_ output: StagedFile, nextTo original: URL) async throws -> Committed {
         try await OutputVerifier.verify(output)
         return try coordinatedMove(
             output.url, toAvailableNameIn: original.deletingLastPathComponent(), named: output.name)
     }
 
-    func rename(_ url: URL, to newName: String) throws -> URL {
+    func rename(_ url: URL, to newName: String) throws -> Committed {
         try Self.namingLock.withLock { _ in
             try Task.checkCancellation()
             let directory = url.deletingLastPathComponent()
@@ -116,8 +137,8 @@ struct FileCommitter: Sendable {
                 try Self.isCaseOnlyChange(from: url.lastPathComponent, to: newName, in: directory)
                 ? directory.appending(path: newName)
                 : try AvailableName.url(for: newName, in: directory)
-            try coordinate(moving: url, to: destination, beforeMove: Task.checkCancellation)
-            return destination
+            return try coordinate(
+                moving: url, to: destination, beforeMove: Task.checkCancellation, includingIdentity: true)
         }
     }
 
@@ -296,11 +317,12 @@ struct FileCommitter: Sendable {
         return values.volumeSupportsCaseSensitiveNames == false
     }
 
-    private func coordinatedMove(_ source: URL, toAvailableNameIn directory: URL, named name: String) throws -> URL {
+    private func coordinatedMove(_ source: URL, toAvailableNameIn directory: URL, named name: String) throws
+        -> Committed
+    {
         try Self.namingLock.withLock { _ in
             let destination = try AvailableName.url(for: name, in: directory)
-            try coordinate(moving: source, to: destination)
-            return destination
+            return try coordinate(moving: source, to: destination)
         }
     }
 
@@ -369,10 +391,11 @@ struct FileCommitter: Sendable {
     }
 
     private func coordinate(
-        moving source: URL, to destination: URL, beforeMove: () throws -> Void = {}
-    ) throws {
+        moving source: URL, to destination: URL, beforeMove: () throws -> Void = {},
+        includingIdentity: Bool = false
+    ) throws -> Committed {
         var coordinationError: NSError?
-        var bodyError: (any Error)?
+        var result: Result<Committed, any Error>?
         NSFileCoordinator(filePresenter: nil).coordinate(
             writingItemAt: source,
             options: .forMoving,
@@ -380,14 +403,15 @@ struct FileCommitter: Sendable {
             options: .forReplacing,
             error: &coordinationError
         ) { from, to in
-            do {
+            result = Result {
                 try beforeMove()
                 try FileManager.default.moveItem(at: from, to: to)
-            } catch {
-                bodyError = error
+                return Committed(output: to, stamp: outputStamp(of: to, includingIdentity: includingIdentity))
             }
         }
-        if let error = coordinationError ?? bodyError { throw error }
+        if let coordinationError { throw coordinationError }
+        guard let result else { throw EngineError.commitFailed("Coordination did not run") }
+        return try result.get()
     }
 }
 

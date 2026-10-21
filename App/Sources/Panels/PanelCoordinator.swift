@@ -1,7 +1,9 @@
+import AppKit
 import Engine
 import Foundation
 import MenuCatalog
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 @MainActor
@@ -59,7 +61,52 @@ final class PanelCoordinator {
 
     func presentReport(_ text: String, operation op: OperationID) {
         host.show(title: MenuStrings.operationName(op)) { close in
-            TextResultPanel(text: text, suggestedName: "\(MenuStrings.operationName(op)).txt", close: close)
+            TextResultPanel(text: text, close: close) {
+                self.saveReport(text, suggestedName: "\(MenuStrings.operationName(op)).txt", operation: op)
+            }
+        }
+    }
+
+    private func saveReport(
+        _ text: String, suggestedName: String, operation: OperationID, contentType: UTType = .plainText
+    ) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedName
+        panel.allowedContentTypes = [contentType]
+        panel.message = String(
+            localized: "Existing files are kept. If the name is taken, a numbered name is used.",
+            comment: "Explains collision-safe report saving")
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        Task {
+            let outcome = await jobs.engine.saveReport(text, to: destination, operation: operation)
+            await jobs.refreshRecent()
+            var messages: [String] = []
+            for result in outcome.outcomes {
+                switch result {
+                case .succeeded(let outputs, _):
+                    for output in outputs where output.lastPathComponent != destination.lastPathComponent {
+                        messages.append(
+                            String(
+                                localized: "Saved as “\(output.lastPathComponent)”.",
+                                comment: "Reports final saved name"))
+                    }
+                case .failed(let error):
+                    messages.append(UserMessages.describe(error, file: destination.lastPathComponent))
+                case .skipped(let reason):
+                    messages.append(UserMessages.describe(reason, file: destination.lastPathComponent))
+                }
+            }
+            if outcome.historyFailed {
+                messages.append(
+                    String(
+                        localized: "Undo is unavailable because the history could not be saved.",
+                        comment: "Explains missing undo history"))
+            }
+            guard !messages.isEmpty else { return }
+            let alert = NSAlert()
+            alert.messageText = MenuStrings.operationName(operation)
+            alert.informativeText = messages.joined(separator: "\n")
+            alert.runModal()
         }
     }
 
@@ -406,8 +453,13 @@ final class PanelCoordinator {
                 try FolderAnalysis.scan(folder, settings: settings, progress: progress)
             } content: { analysis in
                 AnalyzePanel(analysis: analysis, close: close) {
-                    close()
-                    self.launch(op, .folder(.exportAnalysis(analysis)), [folder])
+                    guard let markdownType = UTType(filenameExtension: "md", conformingTo: .text) else {
+                        self.showFailure(op, EngineError.commitFailed("Markdown type unavailable"), file: folder)
+                        return
+                    }
+                    self.saveReport(
+                        analysis.markdown, suggestedName: "\(folder.lastPathComponent) analysis.md", operation: op,
+                        contentType: markdownType)
                 }
             }
         }

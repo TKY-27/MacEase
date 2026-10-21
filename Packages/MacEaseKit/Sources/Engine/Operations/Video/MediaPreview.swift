@@ -29,10 +29,15 @@ public struct MediaPreview: Sendable {
         let edit = FrameEdit(rotation: input.displayRotation, size: PixelSize(width: width, height: height).evened())
         var images: [CGImage] = []
         for second in seconds {
-            let time = min(max(try Nanoseconds.from(seconds: second), 0), max(input.duration - input.frameDuration, 0))
+            let (lastFrameStart, startOverflow) = input.duration.subtractingReportingOverflow(input.frameDuration)
+            guard !startOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+            let time = min(max(try Nanoseconds.from(seconds: second), 0), max(lastFrameStart, 0))
+            let (frameSpan, spanOverflow) = input.frameDuration.multipliedReportingOverflow(by: Self.sampledFrames)
+            let (end, endOverflow) = time.addingReportingOverflow(frameSpan)
+            guard !spanOverflow, !endOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
             let sampler = try await FrameSampler(
                 input: input, frameDuration: input.frameDuration, edit: edit, start: time,
-                end: time + Self.sampledFrames * input.frameDuration)
+                end: end)
             guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
             images.append(try CGImage.make(from: frame.image))
         }

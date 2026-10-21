@@ -54,7 +54,13 @@ struct MediaInput {
             if packet.track == track { times.append(packet.timestamp) }
         }
         times.sort()
-        let gaps = zip(times.dropFirst(), times).map { $0 - $1 }.filter { $0 > 0 }.sorted()
+        var gaps: [Int64] = []
+        for (later, earlier) in zip(times.dropFirst(), times) {
+            let (gap, overflow) = later.subtractingReportingOverflow(earlier)
+            guard !overflow else { throw EngineError.decodeFailed("video frame spacing out of range") }
+            if gap > 0 { gaps.append(gap) }
+        }
+        gaps.sort()
         return gaps.isEmpty ? nil : gaps[gaps.count / 2]
     }
 
@@ -64,7 +70,9 @@ struct MediaInput {
         var end: Int64 = 0
         while let packet = try demuxer.nextPacket() {
             try Task.checkCancellation()
-            end = max(end, packet.timestamp + (packet.duration ?? 0))
+            let (packetEnd, overflow) = packet.timestamp.addingReportingOverflow(packet.duration ?? 0)
+            guard !overflow else { throw EngineError.decodeFailed("media duration out of range") }
+            end = max(end, packetEnd)
         }
         return end
     }

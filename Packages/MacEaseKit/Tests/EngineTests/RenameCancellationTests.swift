@@ -48,7 +48,7 @@ import Testing
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: root) } }
         let original = root.appending(path: "original.txt")
         try Data("keep".utf8).write(to: original)
-        let pending = Mutex<Task<URL, any Error>?>(nil)
+        let pending = Mutex<Task<FileCommitter.Committed, any Error>?>(nil)
         let presenter = RenameCancellationPresenter(url: original) {
             pending.withLock { $0?.cancel() }
         }

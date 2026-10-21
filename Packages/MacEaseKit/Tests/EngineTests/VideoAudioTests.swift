@@ -179,6 +179,71 @@ import Testing
         #expect(try Data(contentsOf: url) == original)
     }
 
+    @Test func sparseMatroskaAudioRejectsExcessiveSilenceInBothEncoders() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "SparseAudio-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "sparse.mkv")
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 48_000, channels: 1),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        let samples = Data([0, 0, 0, 0, 0, 0, 0, 0])
+        try muxer.write(MediaPacket(track: 1, timestamp: 0, isKeyframe: true, payload: samples))
+        try muxer.write(
+            MediaPacket(track: 1, timestamp: 601 * Nanoseconds.perSecond, isKeyframe: true, payload: samples))
+        try muxer.finish()
+        let original = try Data(contentsOf: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")) {
+            try await VideoAudio.extract(.m4aAAC, url: source, context: context)
+        }
+        #expect(try Data(contentsOf: source) == original)
+
+        let input = try await MediaInput.open(source)
+        let output = folder.appending(path: "transcoded.mkv")
+        await #expect(throws: EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")) {
+            try await Transcoder.run(
+                input, plan: TranscodePlan(container: .mkv, video: nil, audio: .encode(.aac, kilobits: 128)),
+                to: output
+            ) { _ in }
+        }
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func repeatedSparsePacketsShareOneSilenceBudget() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "RepeatedSparseAudio-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "repeated.mkv")
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 1, channels: 1),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        for second in [0, 304, 609] {
+            try muxer.write(
+                MediaPacket(
+                    track: 1, timestamp: Int64(second) * Nanoseconds.perSecond,
+                    isKeyframe: true, payload: Data(repeating: 0, count: 8)))
+        }
+        try muxer.finish()
+        let original = try Data(contentsOf: source)
+        let input = try await MediaInput.open(source)
+        let output = folder.appending(path: "repeated-output.mkv")
+        await #expect(throws: EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")) {
+            try await Transcoder.run(
+                input,
+                plan: TranscodePlan(
+                    container: .mkv, video: nil,
+                    audio: .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)),
+                to: output
+            ) { _ in }
+        }
+        #expect(try Data(contentsOf: source) == original)
+    }
+
     @Test func extractOpusAndVorbisCopiesCompressedPackets() async throws {
         let source = try fixture()
         let webm = try await run(.videoConvert, preset: "webm", on: source)

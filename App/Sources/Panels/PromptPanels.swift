@@ -1,15 +1,12 @@
 import AppKit
 import Engine
 import SwiftUI
-import UniformTypeIdentifiers
 import os
 
 struct TextResultPanel: View {
     let text: String
-    let suggestedName: String
     let close: () -> Void
-
-    @State private var failure: String?
+    let save: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,11 +18,6 @@ struct TextResultPanel: View {
                     .padding()
             }
             .frame(height: PanelLayout.listHeight)
-            if let failure {
-                Text(failure)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-            }
             PanelBar(
                 actionTitle: String(localized: "Copy", comment: "Text result action"),
                 cancelTitle: String(localized: "Done", comment: "Panel button"), cancel: close
@@ -37,21 +29,6 @@ struct TextResultPanel: View {
             }
         }
         .frame(width: PanelLayout.wideWidth)
-    }
-
-    private func save() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = suggestedName
-        panel.allowedContentTypes = [.plainText]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try Data(text.utf8).write(to: url, options: .atomic)
-            failure = nil
-        } catch {
-            failure = UserMessages.describe(
-                EngineError.wrapping(error, path: url.path, otherwise: EngineError.commitFailed),
-                file: url.lastPathComponent)
-        }
     }
 }
 

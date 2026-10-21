@@ -49,6 +49,21 @@ public final class JobEngine: Sendable {
         await cpuGate.setWidth(width)
     }
 
+    public func saveReport(_ text: String, to destination: URL, operation: OperationID) async -> BatchOutcome {
+        let workItem = WorkItem(inputs: []) { context in
+            let name = destination.lastPathComponent
+            guard destination.isFileURL, AvailableName.checkedName(name) else {
+                throw EngineError.invalidInput(.malformed(destination.absoluteString))
+            }
+            let staged = try context.stagingURL(for: destination.deletingLastPathComponent(), name: name)
+            try Data(text.utf8).write(to: staged)
+            return .derived(
+                nextTo: destination,
+                outputs: [StagedFile(url: staged, name: name, check: .text(.utf8))])
+        }
+        return await run(Batch(operation: operation, items: [workItem]), settings: Settings()) { _ in }
+    }
+
     private struct ItemResultSummary: Sendable {
         let index: Int
         let outcome: ItemOutcome
@@ -190,23 +205,23 @@ public final class JobEngine: Sendable {
             }
             let replaced = try await committer.replace(
                 original: original, with: output, cloneDirectory: cloneDirectory, expectedStamp: expectedStamp)
-            let stamp = outputStamp(of: replaced.output)
             if let trashed = replaced.trashed {
                 records.append(
                     .replaced(
-                        original: original.path, trashed: trashed.url.path, output: replaced.output.path, stamp: stamp,
+                        original: original.path, trashed: trashed.url.path, output: replaced.output.path,
+                        stamp: replaced.stamp,
                         trashStamp: trashed.stamp)
                 )
             } else {
-                records.append(.derived(output: replaced.output.path, stamp: stamp))
+                records.append(.derived(output: replaced.output.path, stamp: replaced.stamp))
             }
             if let warning = replaced.warning { context.warn(warning) }
             outputs.append(replaced.output)
         case .derived(let original, let staged):
             for file in staged {
                 let output = try await committer.derive(file, nextTo: original)
-                records.append(.derived(output: output.path, stamp: outputStamp(of: output)))
-                outputs.append(output)
+                records.append(.derived(output: output.output.path, stamp: output.stamp))
+                outputs.append(output.output)
             }
         case .rename(let plans):
             for plan in plans {
@@ -218,9 +233,9 @@ public final class JobEngine: Sendable {
                 let renamed = try committer.rename(plan.url, to: plan.newName)
                 records.append(
                     .renamed(
-                        from: plan.url.path, to: renamed.path,
-                        stamp: outputStamp(of: renamed, includingIdentity: true)))
-                outputs.append(renamed)
+                        from: plan.url.path, to: renamed.output.path,
+                        stamp: renamed.stamp))
+                outputs.append(renamed.output)
             }
         case .trash(let urls, let permanently, let condition):
             for url in urls {
@@ -234,17 +249,6 @@ public final class JobEngine: Sendable {
             return (.skipped(reason), nil)
         }
         return (.succeeded(outputs: outputs, warnings: context.warnings), nil)
-    }
-
-    private func outputStamp(of url: URL, includingIdentity: Bool = false) -> FileStamp? {
-        do {
-            return try FileStamp(of: url, includingIdentity: includingIdentity)
-        } catch {
-            logger.error(
-                "Undo stamp unavailable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
-            )
-            return nil
-        }
     }
 
     /// Coordination downloads dataless cloud files.

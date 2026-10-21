@@ -5,6 +5,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum VideoStills {
+    private static let sampledFrames: Int64 = 2
+
     static func run(_ still: VideoStill, url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try await MediaInput.open(url)
         let time: Int64 =
@@ -13,9 +15,12 @@ enum VideoStills {
             case .middle: input.duration / 2
             case .at(let seconds): min(max(try Nanoseconds.from(seconds: seconds), 0), input.duration)
             }
+        let (frameSpan, spanOverflow) = input.frameDuration.multipliedReportingOverflow(by: sampledFrames)
+        let (end, endOverflow) = time.addingReportingOverflow(frameSpan)
+        guard !spanOverflow, !endOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
         let sampler = try await FrameSampler(
             input: input, frameDuration: input.frameDuration, edit: FrameEdit(rotation: input.displayRotation),
-            start: time, end: time + 2 * input.frameDuration)
+            start: time, end: end)
         guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
         let format = context.settings.video.thumbnailFormat
         let type: UTType = format == .png ? .png : .jpeg
