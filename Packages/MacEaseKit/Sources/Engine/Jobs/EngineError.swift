@@ -15,6 +15,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case imageLoopCountUnsupported
     case imageTransparencyUnsupported
     case imageHDRUnsupported
+    case imageMetadataUnsupported([MetadataField])
     case hdrConversionUnsupported
     case sdrVerificationFailed
     case videoAlphaUnsupported

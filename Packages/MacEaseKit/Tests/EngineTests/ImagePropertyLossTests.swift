@@ -6,6 +6,136 @@ import Testing
 @testable import Engine
 
 @Suite(.serialized) struct ImagePropertyLossTests {
+    private func taggedJPEG(in folder: URL, fields: [MetadataField]) throws -> URL {
+        let metadata = CGImageMetadataCreateMutable()
+        if fields.contains(.exif) {
+            try #require(
+                CGImageMetadataSetValueMatchingImageProperty(
+                    metadata, kCGImagePropertyExifDictionary, kCGImagePropertyExifLensModel, "Fixture Lens" as CFString)
+            )
+        }
+        if fields.contains(.iptc) {
+            try #require(
+                CGImageMetadataSetValueMatchingImageProperty(
+                    metadata, kCGImagePropertyIPTCDictionary, kCGImagePropertyIPTCCaptionAbstract,
+                    "Fixture Caption" as CFString))
+        }
+        if fields.contains(.xmp) {
+            try #require(
+                CGImageMetadataRegisterNamespaceForPrefix(
+                    metadata, "urn:macease:fixture" as CFString, "fixture" as CFString, nil))
+            try #require(
+                CGImageMetadataSetValueWithPath(metadata, nil, "fixture:label" as CFString, "Fixture XMP" as CFString))
+        }
+        let input = folder.appending(path: "tagged.jpg")
+        let destination = try #require(
+            CGImageDestinationCreateWithURL(input as CFURL, ImageFormat.jpeg.contentType.identifier as CFString, 1, nil)
+        )
+        CGImageDestinationAddImageAndMetadata(
+            destination, try ImageFixtures.photo(width: 16, height: 16), metadata, nil)
+        try #require(CGImageDestinationFinalize(destination))
+        return input
+    }
+
+    @Test(arguments: [ImageFormat.bmp, .tga, .ico], [Settings.OutputMode.newFile, .replace])
+    func metadataLossFollowsTheOutputMode(format: ImageFormat, mode: Settings.OutputMode) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let fields: [MetadataField] = [.exif, .xmp, .iptc]
+        let input = try taggedJPEG(in: folder, fields: fields)
+        let original = try Data(contentsOf: input)
+        var settings = Settings()
+        settings.outputMode = mode
+        let support = folder.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: support), progress: { _ in })
+        defer { context.removeStaging() }
+        if mode == .replace {
+            await #expect(throws: EngineError.imageMetadataUnsupported(fields)) {
+                try await ImageEdits.convert(input, ImageConversion(format: format), context: context)
+            }
+            #expect(context.warnings.isEmpty)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: support.path).isEmpty)
+        } else {
+            guard
+                case .replace(_, let output) = try await ImageEdits.convert(
+                    input, ImageConversion(format: format), context: context)
+            else { Issue.record("Expected a staged conversion"); return }
+            #expect(context.warnings == [.imageMetadataDropped(fields)])
+            try await OutputVerifier.verify(output)
+        }
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test(arguments: [[MetadataField.exif], [.xmp], [.iptc]])
+    func metadataWarningsNameOnlyPresentClasses(fields: [MetadataField]) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = try taggedJPEG(in: folder, fields: fields)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        _ = try await ImageEdits.convert(input, ImageConversion(format: .bmp), context: context)
+        #expect(context.warnings == [.imageMetadataDropped(fields)])
+    }
+
+    @Test func emptyMetadataDoesNotRefuseReplacement() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = try taggedJPEG(in: folder, fields: [])
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .replace = try await ImageEdits.convert(input, ImageConversion(format: .bmp), context: context)
+        else { Issue.record("Expected an untagged conversion"); return }
+        #expect(context.warnings.isEmpty)
+        #expect(
+            ImageMetadata.presentFields(
+                nil,
+                properties: [
+                    kCGImagePropertyExifDictionary: [:], kCGImagePropertyIPTCDictionary: [:],
+                    kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitudeRef: ""],
+                ]
+            ).isEmpty)
+    }
+
+    @Test(arguments: ["", "Retained value"])
+    func structuredMetadataCountsOnlyNonemptyValues(text: String) throws {
+        let namespace = "urn:macease:fixture" as CFString
+        let prefix = "fixture" as CFString
+        let child = try #require(
+            CGImageMetadataTagCreate(namespace, prefix, "child" as CFString, .string, text as CFString))
+        let parent = try #require(
+            CGImageMetadataTagCreate(
+                namespace, prefix, "parent" as CFString, .structure, ["fixture:child": child] as CFDictionary))
+        let metadata = CGImageMetadataCreateMutable()
+        try #require(CGImageMetadataRegisterNamespaceForPrefix(metadata, namespace, prefix, nil))
+        try #require(CGImageMetadataSetTagWithPath(metadata, nil, "fixture:parent" as CFString, parent))
+        #expect(ImageMetadata.presentFields(metadata) == (text.isEmpty ? [] : [.xmp]))
+    }
+
+    @Test(arguments: [Settings.OutputMode.newFile, .replace])
+    func explicitMetadataStrippingDoesNotWarnAboutLoss(mode: Settings.OutputMode) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = try taggedJPEG(in: folder, fields: [.exif, .xmp, .iptc])
+        var settings = Settings()
+        settings.outputMode = mode
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let output) = try await ImageMetadata.strip(
+                input, fields: Set(MetadataField.allCases), context: context)
+        else { Issue.record("Expected stripped metadata"); return }
+        let document = try await ImageDocument.load(output.url)
+        #expect(try document.metadataFields().isEmpty)
+        #expect(context.warnings.isEmpty)
+    }
+
     @Test func replacementRefusesTransparencyLossBeforeStaging() async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }

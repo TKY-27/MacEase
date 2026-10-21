@@ -4,6 +4,16 @@ import MenuCatalog
 
 /// Localized, actionable text for engine outcomes.
 enum UserMessages {
+    private static func metadataClasses(_ fields: [MetadataField]) -> String {
+        fields.map { field in
+            switch field {
+            case .exif, .gps, .makerNotes, .comments: "EXIF"
+            case .xmp: "XMP"
+            case .iptc: "IPTC"
+            }
+        }.formatted(.list(type: .and))
+    }
+
     static func describe(_ error: EngineError, file: String) -> String {
         switch error {
         case .decodeFailed:
@@ -45,6 +55,11 @@ enum UserMessages {
             String(
                 localized:
                     "“\(file)” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept."
+            )
+        case .imageMetadataUnsupported(let fields):
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose \(metadataClasses(fields)) metadata. Choose Save as New File. The original was kept."
             )
         case .hdrConversionUnsupported:
             String(
@@ -150,6 +165,11 @@ enum UserMessages {
         case .imageToneMappedToSDR:
             String(
                 localized: "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.")
+        case .imageMetadataDropped(let fields):
+            String(
+                localized:
+                    "\(metadataClasses(fields)) metadata was not preserved because this output cannot store it. The original was kept."
+            )
         case .markdownUnsafeContentOmitted:
             String(localized: "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.")
         case .pngOptimizationSkipped:

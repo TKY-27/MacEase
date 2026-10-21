@@ -381,7 +381,12 @@ import UniformTypeIdentifiers
             case .replace(_, let output) = try await ImageEdits.convert(
                 input, ImageConversion(format: format), context: context)
         else { Issue.record("Expected a staged SDR conversion"); return }
-        #expect(context.warnings == [.imageToneMappedToSDR])
+        // These formats cannot store the fixture's EXIF.
+        let dropsEXIF: Set<ImageFormat> = [.bmp, .gif, .ico, .icns, .tga]
+        let expected: [ItemWarning] =
+            dropsEXIF.contains(format)
+            ? [.imageMetadataDropped([.exif]), .imageToneMappedToSDR] : [.imageToneMappedToSDR]
+        #expect(context.warnings == expected)
         try await OutputVerifier.verify(output)
         #expect(try Data(contentsOf: input) == original)
     }
@@ -458,7 +463,7 @@ import UniformTypeIdentifiers
         defer { context.removeStaging() }
         guard case .derived(_, let outputs) = try await ImageExports.iconSet(input, kind: .ico, context: context)
         else { Issue.record("Icons must remain derived"); return }
-        #expect(context.warnings == [.imageToneMappedToSDR])
+        #expect(context.warnings == [.imageMetadataDropped([.exif]), .imageToneMappedToSDR])
         try await OutputVerifier.verify(#require(outputs.first))
         #expect(try Data(contentsOf: input) == original)
     }

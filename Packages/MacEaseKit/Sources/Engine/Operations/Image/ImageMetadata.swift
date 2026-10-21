@@ -47,6 +47,45 @@ enum ImageMetadata {
         return result
     }
 
+    static func presentFields(_ metadata: CGImageMetadata?, properties: [CFString: Any] = [:]) -> Set<MetadataField> {
+        var fields = Set<MetadataField>()
+        if let metadata {
+            for (path, tag) in topLevelTags(of: metadata) {
+                // ImageIO synthesizes raster description tags.
+                guard !["exif:PixelXDimension", "exif:PixelYDimension", "exif:ColorSpace"].contains(path),
+                    let field = field(ofTagAt: path), let value = CGImageMetadataTagCopyValue(tag),
+                    hasContent(value)
+                else { continue }
+                switch field {
+                case .gps, .comments, .makerNotes, .exif: fields.insert(.exif)
+                case .iptc, .xmp: fields.insert(field)
+                }
+            }
+        }
+        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+        let descriptiveExif = exif.filter {
+            ![kCGImagePropertyExifPixelXDimension, kCGImagePropertyExifPixelYDimension, kCGImagePropertyExifColorSpace]
+                .contains($0.key)
+        }
+        if hasContent(descriptiveExif) { fields.insert(.exif) }
+        let exifDictionaries = [kCGImagePropertyGPSDictionary] + makerDictionaries
+        if exifDictionaries.contains(where: { properties[$0].map(hasContent) == true }) { fields.insert(.exif) }
+        if properties[kCGImagePropertyIPTCDictionary].map(hasContent) == true { fields.insert(.iptc) }
+        return fields
+    }
+
+    private static func hasContent(_ value: Any) -> Bool {
+        if CFGetTypeID(value as CFTypeRef) == CGImageMetadataTagGetTypeID(),
+            case let tag as CGImageMetadataTag = value
+        {
+            return CGImageMetadataTagCopyValue(tag).map(hasContent) == true
+        }
+        if let text = value as? String { return !text.isEmpty }
+        if let values = value as? [Any] { return values.contains(where: hasContent) }
+        if let values = value as? [String: Any] { return values.values.contains(where: hasContent) }
+        return value is NSNumber || (value as? Data)?.isEmpty == false
+    }
+
     private static func topLevelTags(of metadata: CGImageMetadata) -> [(String, CGImageMetadataTag)] {
         var tags: [(String, CGImageMetadataTag)] = []
         CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, nil) { path, tag in
@@ -101,7 +140,7 @@ enum ImageMetadata {
             let loaded = try await ImageDocument.load(url)
             guard let format = loaded.format else { return .skipped(.nothingToRemove) }
             let document = try ImageOutput.prepared(
-                loaded, as: format, context: context, preservesGainMaps: !losesCalibration)
+                loaded, as: format, context: context, preservesGainMaps: !losesCalibration, strippingMetadata: true)
             if document.toneMapsHDR {
                 output = StagedFile(url: staged, name: url.lastPathComponent, check: .sdrImage)
             }

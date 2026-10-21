@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Image conversions disclose lost EXIF, XMP and IPTC metadata in new-file mode
+  and refuse replacement before writing when the target cannot preserve it.
+- Ordinary multipage TIFF edits preserve each page's own metadata.
+- Generated TOML above 1 MiB remains valid within the 8 MiB output limit.
+- Pipe-delimited CSV conversion detects columns while preserving quoted fields.
+
 - Automatic duplicate removal saves each Trash move before continuing, preserving
   Undo after interruption and stopping when history cannot be saved.
 - Native audio copying preserves source priming, end padding, and presentation

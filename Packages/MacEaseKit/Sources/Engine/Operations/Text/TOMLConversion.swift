@@ -9,8 +9,12 @@ enum TOMLConversion {
     private static let nulSpellings = ["\u{0}", "\\u0000", "\\U00000000"]
 
     static func json(fromTOML text: String) throws -> JSONValue {
-        guard text.utf8.count <= maximumBytes else {
-            throw EngineError.invalidInput(.tooLarge(limitBytes: Int64(maximumBytes)))
+        try json(fromTOML: text, limitBytes: maximumBytes)
+    }
+
+    private static func json(fromTOML text: String, limitBytes: Int) throws -> JSONValue {
+        guard text.utf8.count <= limitBytes else {
+            throw EngineError.invalidInput(.tooLarge(limitBytes: Int64(limitBytes)))
         }
         guard !nulSpellings.contains(where: text.contains) else { throw failure("TOML NUL characters are unsupported") }
         var parseError = MCTomlParseError()
@@ -52,7 +56,10 @@ enum TOMLConversion {
         }
         guard let outputBytes = rendered.bytes else { throw failure("TOML output is unavailable") }
         let output = String(decoding: UnsafeRawBufferPointer(start: outputBytes, count: rendered.length), as: UTF8.self)
-        guard try json(fromTOML: output).serialized(indent: nil) == canonical(value).serialized(indent: nil) else {
+        guard
+            try json(fromTOML: output, limitBytes: ConversionInput.maximumBytes).serialized(indent: nil)
+                == canonical(value).serialized(indent: nil)
+        else {
             throw failure("TOML cannot preserve the supplied values")
         }
         return output

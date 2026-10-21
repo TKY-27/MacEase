@@ -8,6 +8,7 @@ struct ImageFrame {
     var image: CGImage
     /// Seconds; zero for stills and pages.
     var duration: Double
+    var metadata: CGImageMetadata? = nil
 }
 
 /// Frames are already oriented for display.
@@ -35,6 +36,23 @@ struct ImageDocument {
     var frameCount: Int { animationSource.map(CGImageSourceGetCount) ?? frames.count }
     var isRaw: Bool { contentType.conforms(to: .rawImage) }
     var isMultiPage: Bool { !isAnimated && frames.count > 1 }
+
+    func metadataFields() throws -> [MetadataField] {
+        var fields = Set<MetadataField>()
+        if let imageSource {
+            for index in 0..<CGImageSourceGetCount(imageSource) {
+                try Task.checkCancellation()
+                let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, index, nil) as? [CFString: Any] ?? [:]
+                fields.formUnion(
+                    ImageMetadata.presentFields(
+                        CGImageSourceCopyMetadataAtIndex(imageSource, index, nil), properties: properties))
+            }
+        } else {
+            fields.formUnion(ImageMetadata.presentFields(metadata))
+            for frame in frames { fields.formUnion(ImageMetadata.presentFields(frame.metadata)) }
+        }
+        return MetadataField.allCases.filter(fields.contains)
+    }
 
     /// Derived outputs for RAW and vector sources.
     var writableFormat: ImageFormat {
@@ -222,7 +240,10 @@ struct ImageDocument {
             if toneMapsHDR {
                 let image = try ImageSDR.decodedSDR(
                     source, index: index, orientation: orientation, retaining: retained)
-                return ImageFrame(image: image, duration: animation?.delay(in: properties) ?? 0)
+                return ImageFrame(
+                    image: image, duration: animation?.delay(in: properties) ?? 0,
+                    metadata: try ImageSDR.metadataForSDR(
+                        CGImageSourceCopyMetadataAtIndex(source, index, nil), image: image))
             }
             var preflight = FrameMemoryBudget()
             try preflight.reserve(source: source, index: index)
@@ -241,7 +262,9 @@ struct ImageDocument {
             }
             let oriented = try ImagePixels.oriented(raw, orientation)
             if oriented !== raw { try actual.reserve(oriented) }
-            return ImageFrame(image: oriented, duration: animation?.delay(in: properties) ?? 0)
+            return ImageFrame(
+                image: oriented, duration: animation?.delay(in: properties) ?? 0,
+                metadata: CGImageSourceCopyMetadataAtIndex(source, index, nil))
         }
     }
 

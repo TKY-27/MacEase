@@ -68,7 +68,12 @@ enum ImageCompressor {
             options: ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image))
         plan.options.gainMaps = gainMaps
         plan.retained = document.frames.map(\.image)
-        if compression.stripsGPS { plan.options.metadata = ImageMetadata.filtered(document.metadata, removing: [.gps]) }
+        if compression.stripsGPS {
+            plan.options.metadata = ImageMetadata.filtered(document.metadata, removing: [.gps])
+            for index in plan.frames.indices {
+                plan.frames[index].metadata = ImageMetadata.filtered(plan.frames[index].metadata, removing: [.gps])
+            }
+        }
         let sizes = { (frames: [ImageFrame]) in frames.map { [$0.image.width, $0.image.height] } }
         let unchanged =
             !document.toneMapsHDR && format == document.format

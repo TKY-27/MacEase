@@ -323,6 +323,10 @@ rule, and the host tells the user the final name when it changed.
   target that cannot preserve it. Derived conversions report each unsupported
   metadata class as a visible warning while retaining the source. Explicit
   metadata stripping and the documented platform GPS policy are exceptions.
+  Image checks name only present EXIF, XMP and IPTC classes, ignoring empty
+  values and generated raster dimensions and color-space tags. New-file
+  conversion to formats such as BMP, TGA and ICO warns; Replace refuses before
+  staging and suggests Save as New File.
 - Pixel rotation sets EXIF Orientation to 1.
 - ISO 21496-1 and Apple HDR gain maps are kept for HEIC and JPEG outputs
   through ImageIO auxiliary data, including their calibration metadata.
@@ -798,6 +802,9 @@ flattening policy; embedded-PNG SVG retains full alpha.
 TIFF metadata stripping reads, filters, and writes each page's own metadata
 with its stored pixels. It skips only when no page has a selected field to
 remove. Multipage rewrites retain the cumulative image allocation budget.
+Ordinary TIFF flip, rotation, resize and TIFF encoding also retain each page's
+own metadata on the corresponding output page, with orientation reset after
+pixel transforms.
 
 ### 8.2 Videos
 
@@ -1061,6 +1068,8 @@ that lose decimal precision as a Double or exceed the Foundation `Decimal`
 range, such as `1e300`, and writes keys in toml++ order. Both directions reuse
 the plist depth and value limits and write deterministic output. YAML and TOML
 outputs are reparsed, refusing any change in values.
+Generated TOML uses the 8 MiB output limit during this reparse; user TOML and
+JSON input for TOML output retain their separate 1 MiB limit.
 
 SRT and WebVTT conversion reuses the subtitle cue model and writers, preserving
 millisecond timing, overlapping cues, and multiline text. Inputs accept UTF-8 BOM
@@ -1670,6 +1679,11 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Enforce disclosed image metadata loss in new-file mode and
+  refusal before replacement, preserve TIFF metadata per page during ordinary
+  edits, use the output limit when verifying generated TOML, and detect pipe
+  CSV delimiters outside quoted fields.
 
 - 2026-10-22: Apply container-specific audio copy timing. Preserve native edit
   lists and Opus delay metadata; align other copied audio to whole packets on

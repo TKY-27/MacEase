@@ -188,6 +188,21 @@ import Testing
 }
 
 @Suite struct TOMLConversionTests {
+    @Test func generatedTOMLMayExceedTheUserInputLimit() throws {
+        let count = 90_000
+        let literal = "1234567890"
+        let json = "{\"values\":[" + Array(repeating: literal, count: count).joined(separator: ",") + "]}"
+        #expect(json.utf8.count < TOMLConversion.maximumBytes)
+        let output = try TOMLConversion.toml(fromJSON: json)
+        #expect(output.utf8.count > TOMLConversion.maximumBytes)
+        #expect(output.utf8.count < ConversionInput.maximumBytes)
+        #expect(output.hasPrefix("values = ["))
+        #expect(output.components(separatedBy: literal).count - 1 == count)
+        #expect(throws: EngineError.invalidInput(.tooLarge(limitBytes: Int64(TOMLConversion.maximumBytes)))) {
+            try TOMLConversion.json(fromTOML: output)
+        }
+    }
+
     @Test func preservesLocalAndOffsetDatesInNestedValues() throws {
         let toml = """
             values = [1979-05-27T07:32:00.123456789, 1979-05-27T07:32:00-00:30,

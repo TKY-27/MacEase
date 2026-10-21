@@ -33,12 +33,21 @@ enum ImageOutput {
 
     static func prepared(
         _ document: ImageDocument, as format: ImageFormat, context: ItemContext,
-        derived: Bool = false, preservesGainMaps: Bool = true, preservesHDRPixels: Bool = false
+        derived: Bool = false, preservesGainMaps: Bool = true, preservesHDRPixels: Bool = false,
+        strippingMetadata: Bool = false
     ) throws -> ImageDocument {
         _ = try keptFrameCount(of: document, for: format)
         let keepsOriginal =
             derived || document.format == nil || format == .pdf
             || context.settings.outputMode == .newFile
+        if !format.holdsMetadata, !strippingMetadata {
+            let fields = try document.metadataFields()
+            if !fields.isEmpty {
+                guard keepsOriginal else { throw EngineError.imageMetadataUnsupported(fields) }
+                let warning = ItemWarning.imageMetadataDropped(fields)
+                if !context.warnings.contains(warning) { context.warn(warning) }
+            }
+        }
         var flattensTransparency = false
         if !format.holdsAlpha || format == .gif || format == .svg && context.settings.image.svgMode == .trace {
             for index in 0..<document.frameCount {

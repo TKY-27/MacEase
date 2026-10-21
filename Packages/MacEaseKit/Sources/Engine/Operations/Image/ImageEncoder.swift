@@ -362,8 +362,8 @@ enum ImageEncoder {
                 CGImageDestinationAddImageAndMetadata(destination, frame.image, metadata, frameSettings as CFDictionary)
             }
         } else {
-            let metadata = format.holdsMetadata ? upright(options.metadata) : nil
             for frame in frames {
+                let metadata = format.holdsMetadata ? upright(format == .tiff ? frame.metadata : options.metadata) : nil
                 let image =
                     format.holdsAlpha ? frame.image : try flattened(frame.image, background: options.opaqueBackground)
                 CGImageDestinationAddImageAndMetadata(destination, image, metadata, settings as CFDictionary)

@@ -2,7 +2,7 @@ import Foundation
 
 /// RFC 4180; record one is the header.
 struct CSVTable {
-    private static let delimiters: [Unicode.Scalar] = [",", ";", "\t"]
+    private static let delimiters: [Unicode.Scalar] = [",", ";", "\t", "|"]
     private static let quote: Unicode.Scalar = "\""
 
     let header: [String]
