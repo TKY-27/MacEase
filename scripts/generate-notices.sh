@@ -4,18 +4,28 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 lock="$root/Vendor/deps.lock"
 licenses="$root/Vendor/build/licenses"
-output="$root/Vendor/build/THIRD_PARTY_NOTICES.txt"
+output="${1:-$root/Vendor/build/THIRD_PARTY_NOTICES.txt}"
 resolved="$root/Packages/MacEaseKit/Package.resolved"
 package_licenses="$root/Vendor/licenses"
 
-# Fields: name version license carrier-pin pin-version url
+# Carrier pins prevent stale bundled notices.
 swift_packages=(
     "swift-cmark 0.9.0 BSD-2-Clause swift-cmark 0.9.0 https://github.com/swiftlang/swift-cmark"
     "yams 6.2.2 MIT yams 6.2.2 https://github.com/jpsim/Yams"
     "libyaml acd6f6f014c25e46363e718381e0b35205df2d83 MIT yams 6.2.2 https://github.com/yaml/libyaml"
-    "tomlkit 0.6.0 MIT tomlkit 0.6.0 https://github.com/LebJe/TOMLKit"
-    "tomlplusplus 3.4.0 MIT tomlkit 0.6.0 https://github.com/marzer/tomlplusplus"
 )
+
+toml_header="$root/Packages/MacEaseKit/Sources/TOMLBridge/toml.hpp"
+toml_pin="$(awk '$1 == "tomlplusplus" { print }' "$lock")"
+read -r toml_name toml_version toml_license toml_hash toml_url _ <<<"$toml_pin"
+[[ "$toml_name" == "tomlplusplus" && -f "$toml_header" ]] || {
+    echo "error: vendored toml++ source or pin is missing" >&2
+    exit 1
+}
+[[ "$(shasum -a 256 "$toml_header" | cut -d' ' -f1)" == "$toml_hash" ]] || {
+    echo "error: vendored toml++ SHA-256 mismatch" >&2
+    exit 1
+}
 
 [[ -d "$licenses" ]] || { echo "error: run scripts/build-deps.sh first" >&2; exit 1; }
 
@@ -63,6 +73,7 @@ notice() {
         [[ -z "$name" || "$name" == \#* || "$files" == "-" && "$name" != "cfr" ]] && continue
         notice "$name" "$version" "$license" "$url" "$licenses/$name"
     done <"$lock"
+    notice "$toml_name" "$toml_version" "$toml_license" "$toml_url" "$package_licenses/$toml_name"
     for entry in "${swift_packages[@]}"; do
         read -r name version license _ _ url <<<"$entry"
         notice "$name" "$version" "$license" "$url" "$package_licenses/$name"

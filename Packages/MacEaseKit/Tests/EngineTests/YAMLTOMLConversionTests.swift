@@ -132,6 +132,78 @@ import Testing
 }
 
 @Suite struct TOMLConversionTests {
+    @Test func preservesLocalAndOffsetDatesInNestedValues() throws {
+        let toml = """
+            values = [1979-05-27T07:32:00.123456789, 1979-05-27T07:32:00-00:30,
+                      1979-05-27, 07:32:00.000000001]
+            [nested]
+            utc = 1979-05-27T07:32:00+00:00
+            """
+        #expect(
+            try TOMLConversion.json(fromTOML: toml).serialized(indent: nil)
+                == #"{"nested":{"utc":"1979-05-27T07:32:00Z"},"values":["1979-05-27T07:32:00.123456789","1979-05-27T07:32:00-00:30","1979-05-27","07:32:00.000000001"]}"#
+        )
+    }
+
+    @Test func preservesEmptyContainersAndEscapedKeys() throws {
+        let json =
+            #"{"empty":{},"list":[],"tables":[{}, {"quoted\".key":"line\n\t\\日本語"}],"nested":[[{},[]]],"day":"1979-05-27"}"#
+        let toml = try TOMLConversion.toml(fromJSON: json)
+        #expect(
+            try TOMLConversion.json(fromTOML: toml).serialized(indent: nil)
+                == #"{"day":"1979-05-27","empty":{},"list":[],"nested":[[{},[]]],"tables":[{},{"quoted\".key":"line\n\t\\日本語"}]}"#
+        )
+    }
+
+    @Test func rejectsNULWithoutTruncatingKeysOrInput() {
+        for spelling in ["\u{0}", "\\u0000", "\\U00000000"] {
+            let toml = "\"before\(spelling)after\" = 1\nvalid = 2"
+            #expect(throws: EngineError.invalidInput(.malformed("TOML NUL characters are unsupported"))) {
+                try TOMLConversion.json(fromTOML: toml)
+            }
+        }
+        #expect(throws: EngineError.invalidInput(.malformed("TOML NUL characters at $.a\u{0}b are unsupported"))) {
+            try TOMLConversion.toml(fromJSON: #"{"a\u0000b":1}"#)
+        }
+    }
+
+    @Test func boundsJSONInputBeforeParsing() {
+        let json = "{\"payload\":\"" + String(repeating: "x", count: TOMLConversion.maximumBytes) + "\"}"
+        #expect(throws: EngineError.invalidInput(.tooLarge(limitBytes: Int64(TOMLConversion.maximumBytes)))) {
+            try TOMLConversion.toml(fromJSON: json)
+        }
+    }
+
+    @Test func boundsParsedValueCounts() {
+        let count = PropertyListConversion.maximumNodes + 1
+        let toml = "values = [" + Array(repeating: "1", count: count).joined(separator: ",") + "]"
+        #expect(throws: EngineError.invalidInput(.malformed("Conversion exceeds 100000 values"))) {
+            try TOMLConversion.json(fromTOML: toml)
+        }
+    }
+
+    @Test func preservesEveryMemberOfWideTables() throws {
+        let memberCount = 20_000
+        let toml = (0..<memberCount).map { "key\($0) = \($0)" }.joined(separator: "\n")
+        let parsed = try TOMLConversion.json(fromTOML: toml)
+        guard case .object(let members) = parsed else {
+            Issue.record("Expected a TOML table")
+            return
+        }
+        #expect(members.count == memberCount)
+        let expectedKeys = (0..<memberCount).map { "key\($0)" }.sorted()
+        #expect(members.map(\.key) == expectedKeys)
+        for (key, value) in members {
+            #expect(value.serialized(indent: nil) == String(key.dropFirst("key".count)))
+        }
+    }
+
+    @Test func acceptsEmptyDocumentsAndStrings() throws {
+        #expect(try TOMLConversion.json(fromTOML: "").serialized(indent: nil) == "{}")
+        let output = try TOMLConversion.toml(fromJSON: #"{"":""}"#)
+        #expect(try TOMLConversion.json(fromTOML: output).serialized(indent: nil) == #"{"":""}"#)
+    }
+
     @Test func mapsTypesAndDatesToJSON() throws {
         let toml = """
             title = "TOML"

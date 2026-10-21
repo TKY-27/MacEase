@@ -408,6 +408,9 @@ and SHA-256 in `Vendor/deps.lock`. `scripts/build-deps.sh` downloads, verifies,
 builds arm64 static libraries with deployment target 26.0 and packages them as
 xcframeworks into `Vendor/build/` (ignored by git, cached in CI).
 `Package.swift` fails with a message pointing to the script when they are missing.
+The exception is toml++ 3.4.0, whose single header is committed in the
+`TOMLBridge` target and compiled by SwiftPM as C++17. Its exact source URL and
+SHA-256 are pinned in `Vendor/deps.lock`; it needs no download or xcframework.
 
 | Library | License | Purpose | Build notes |
 | --- | --- | --- | --- |
@@ -424,6 +427,7 @@ xcframeworks into `Vendor/build/` (ignored by git, cached in CI).
 | xz (liblzma), zstd | 0BSD, BSD-3-Clause | libarchive codecs | CMake |
 | libdeflate | MIT | Optimized DEFLATE for PNG and ZIP | CMake |
 | CFR | MIT | JAR decompilation (bundled `cfr.jar`, run with the user's Java) | Downloaded jar |
+| toml++ 3.4.0 | MIT | TOML parsing and emitting | Vendored single header, C++17 behind an owned C bridge |
 
 Swift packages are pinned with `exact:` in `Packages/MacEaseKit/Package.swift`
 and recorded in the committed `Package.resolved`. Their license texts, checked
@@ -433,12 +437,14 @@ against the pinned checkouts, live in `Vendor/licenses/`.
 | --- | --- | --- | --- |
 | swift-cmark (cmark-gfm 0.29.0.gfm.13) | 0.9.0 | BSD-2-Clause, with MIT-licensed parts | CommonMark and GFM Markdown to HTML |
 | Yams (bundles libyaml at `acd6f6f`) | 6.2.2 | MIT (Yams and libyaml) | YAML parsing and emitting |
-| TOMLKit (bundles toml++ 3.4.0) | 0.6.0 | MIT (TOMLKit and toml++) | TOML parsing and emitting |
 
 `scripts/generate-notices.sh` builds `THIRD_PARTY_NOTICES.txt` from
 `Vendor/deps.lock`, the license and patent files of each source, and the Swift
 package licenses. It fails when `Package.resolved` disagrees with the versions
-it lists. The app shows it in Settings > About.
+it lists or when the vendored toml++ header differs from its pinned SHA-256.
+The toml++ MIT license is stored in `Vendor/licenses/tomlplusplus/`.
+An optional output path permits validation without rewriting build artifacts.
+The app shows the generated notices in Settings > About.
 
 **Source policy.** GPL, LGPL, and AGPL sources, including FFmpeg, LAME, gifski,
 pngquant, libimagequant, and Clop, may be read to study architecture and
@@ -970,11 +976,13 @@ Yams composes the document. Mapping keys must be strings; merge keys (`<<`) and
 explicit tags other than the core types fail with their path. Duplicate keys
 name the key; multi-document streams fail. JSON to YAML keeps key order and
 quotes strings that YAML 1.1 or 1.2 readers could retype. TOML input and JSON
-input for TOML output are limited to 1 MiB because TOMLKit 0.6.0 does not
-release its tables. TOML dates and times become their RFC 3339 text as JSON
+input for TOML output retain a 1 MiB resource limit. The owned C bridge uses
+toml++ RAII to release tables, descendants, and results on success and failure.
+TOML dates and times become their RFC 3339 text as JSON
 strings: offset date-times end in `Z` or `±hh:mm`, local forms have no offset,
 and fractional seconds keep up to nine digits. JSON strings never become TOML
-dates. TOML infinities and NaN fail. Because TOMLKit truncates strings at NUL,
+dates. TOML infinities and NaN fail. The existing conservative NUL refusal
+remains for compatibility, although the bridge passes explicit byte lengths.
 TOML input containing a NUL character or a `\u0000` or `\U00000000` spelling
 anywhere, including comments, fails. JSON to TOML requires an object root,
 refuses null, duplicate keys, integers outside signed 64-bit range, and reals
@@ -1545,6 +1553,11 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Replace TOMLKit with vendored toml++ 3.4.0 behind an owned C
+  bridge, preserving typed mappings and limits while releasing conversion
+  allocations. Pin source provenance and add repeated-conversion resident
+  memory regression checks (ADR 0016).
 
 - 2026-10-21: Expose ALAC audio extraction and CAF codec targets; classify
   AIFF-C, PSD composites, and capability-gated TGA; export every PDF page to

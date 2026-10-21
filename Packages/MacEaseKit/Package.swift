@@ -21,12 +21,12 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-cmark.git", exact: "0.9.0"),
         .package(url: "https://github.com/jpsim/Yams.git", exact: "6.2.2"),
-        .package(url: "https://github.com/LebJe/TOMLKit.git", exact: "0.6.0"),
     ],
     targets: [
         .target(name: "MenuCatalog", swiftSettings: strict),
         .binaryTarget(name: "CNative", path: nativeFramework),
         .target(name: "NativeShims", dependencies: ["CNative"]),
+        .target(name: "TOMLBridge", cxxSettings: [.unsafeFlags(["-Wall", "-Wextra", "-Werror"])]),
         .target(
             name: "Formats",
             dependencies: ["CNative", "NativeShims"],
@@ -40,7 +40,7 @@ let package = Package(
                 .product(name: "cmark-gfm", package: "swift-cmark"),
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
                 .product(name: "Yams", package: "Yams"),
-                .product(name: "TOMLKit", package: "TOMLKit"),
+                "TOMLBridge",
             ],
             resources: [.process("Resources")],
             swiftSettings: strict
@@ -53,5 +53,6 @@ let package = Package(
         .testTarget(
             name: "EngineTests", dependencies: ["Engine"], resources: [.copy("Resources")], swiftSettings: strict
         ),
-    ]
+    ],
+    cxxLanguageStandard: .cxx17
 )

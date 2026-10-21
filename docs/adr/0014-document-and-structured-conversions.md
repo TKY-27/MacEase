@@ -41,12 +41,12 @@ add substantial complexity and risk.
 - YAML uses Yams 6.2.2 with a YAML 1.2 core-schema resolver. Yams hashes
   mapping keys recursively and composes recursively, so a libyaml event pass
   first bounds depth and alias-expanded size. JSON-to-YAML output is reparsed.
-- TOML uses TOMLKit 0.6.0 (January 2024), the SwiftPM wrapper of toml++ 3.4.0
-  named in the research. Inspection found that it never frees parsed tables,
-  copies tables on insertion, reports local date-times with a UTC offset, and
-  truncates strings at NUL. MacEase caps TOML input at 1 MiB, fills tables in
-  place, formats dates from their components, rejects NUL, and reparses output.
-  Replace or patch TOMLKit when a fixed release exists.
+- TOML uses the locally available toml++ 3.4.0 single header through an owned
+  C bridge, superseding TOMLKit 0.6.0 under ADR 0016. TOMLKit leaked tables,
+  copied inserted tables, rendered local date-times with a UTC offset, and
+  truncated NUL strings. The bridge owns all native allocations and passes
+  explicit byte lengths. The 1 MiB limit, local date/time mapping, conservative
+  NUL refusal, and output reparse validation remain.
 - Swift package licenses are stored in `Vendor/licenses/` and included by
   `scripts/generate-notices.sh`, which checks them against `Package.resolved`.
 
@@ -58,5 +58,5 @@ constitute a measured framework memory bound. Complex Office content may reflow,
 HTML cannot depend on scripts or remote resources, and structured conversion
 does not retain comments or source formatting. Section 8.7 specifies the mapping
 and limits. EPUB and general PDF-to-editable-document conversion remain excluded.
-TOMLKit retains memory for each TOML conversion until the app quits; the 1 MiB
-cap bounds, but does not remove, that cost.
+TOML conversion releases native allocations after each call. The 1 MiB cap
+remains a resource guard, not a substitute for ownership.

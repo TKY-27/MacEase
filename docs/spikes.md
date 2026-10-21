@@ -71,6 +71,23 @@ Generated fixtures run through package operations and native decoders.
 | Does the existing decoder accept AIFF-C PCM? | Yes. A generated `AIFC`/`NONE` fixture decodes the expected channels, rate, and samples; staged CAF PCM conversion retains samples exactly. An unknown compression code fails before output. |
 | Which checks remain blocked here? | Final commits fail with Cocoa 256/512 under the sandbox. An independent Foundation-only probe coordinating two `/tmp` files reproduces both errors. Core Image resize fails rendering. ALAC encoders are absent from `afconvert -hf`; M4A ALAC rejects settings and CAF ALAC returns format error 1718449215. Existing lossless audio coverage also aborts with that format error. GIF quality fixtures cannot encode their H.264 source video (`-11834`). No tests are skipped for these failures. |
 
+## TOML ownership (2026-10-21)
+
+Environment: macOS 27.0.1 (26A434), arm64, Swift 6.4, macOS 26 target.
+
+| Question | Result |
+| --- | --- |
+| Does the old TOMLKit path retain allocations across conversions? | Yes. After eight warmup conversions, forty conversions of a 512 KiB payload grew resident memory by 44,728,320 bytes when parsing and 66,306,048 bytes when writing. Both failed the unchanged 16 MiB allowance. This was one filtered Debug test run. |
+| Does the owned toml++ bridge pass the regression? | Yes. Parsing, writing, and rejected partial conversions pass the same forty-iteration, 16 MiB growth checks. Final tests use separate Swift Testing child processes, autorelease pools, and `mach task_info` resident size. This checks cumulative growth, not peak usage or every possible leak. |
+| Are existing conversion contracts preserved? | All 24 YAML/TOML tests pass, including seven added cases for nested local/offset dates, empty structures, escaped keys, NUL refusal, byte/value limits, and a 20,000-key table. |
+| Is vendored provenance enforced? | The copied header matches SHA-256 `6b5172ad4dd6519aec67b919181fa7a38a2234131e5b2afa232dfe444819783e`. Notice generation includes its MIT license once and excludes the TOMLKit wrapper notice. A modified header in a temporary fixture fails before output. |
+
+Commands: `swift build --package-path Packages/MacEaseKit`,
+`swift test --package-path Packages/MacEaseKit --filter TOMLConversionTests`,
+`swift test --package-path Packages/MacEaseKit --filter TOMLConversionMemoryTests --quiet`,
+and `make lint` pass. macOS 26 runtime, full-package tests, upstream compliance
+suites, app GUI, and release binary-size comparisons were not run.
+
 ## Release checklist (manual, run on macOS 26.x and 27.x)
 
 1. Install the DMG on a clean user account, clear quarantine with Open Anyway,
