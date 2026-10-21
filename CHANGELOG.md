@@ -9,51 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- An Activity window that appears when a batch runs longer than a moment,
-  without taking focus from Finder. It shows the current file, done/total and
-  a Stop button, closes after clean successes, and keeps problems listed with
-  Show in Finder and Undo. The menu bar adds Show Progress while jobs run.
-- A Finder Menu page in Settings that shows or hides individual menu items,
-  such as single sizes or formats, alongside the extra rotation angle and the
-  platform preset editor.
-- Reset All Settings in Settings > Advanced.
-- Remove Duplicates can keep the oldest or newest copy without asking, and
-  can skip small or empty files or require matching names or modification
-  times. Copies are still compared byte by byte.
-- Exclusion rules for folders, files and extensions, for all folder scans or
-  for one feature such as Folder Tree or Analyze.
-- Analyze combines several selected folders in one report and exports CSV,
-  JSON, HTML, plain text or Markdown.
-- Editable menu values for resize percentages, long edges, video heights,
-  compress sizes and the extra rotation angle, with inline validation and
-  reset.
-- Settings for the OCR text file encoding, a custom Shift_JIS replacement
-  character, JSON key comparison, order, keys first and list sorting, SVG
-  conversion by tracing or embedding a PNG, and PDF page images in a new
-  folder or next to the PDF.
-- Text > Convert turns Markdown into HTML or PDF, YAML and TOML into JSON, and
-  JSON into YAML or TOML. Raw HTML and scripts in Markdown are left out, and
-  values that cannot convert exactly stop the conversion with their location.
+- HDR-to-SDR conversion for supported images and video through Convert > SDR.
+- Audio transcription to SRT, WebVTT, plain text, or translated SRT.
+- DOCX, ODT, RTF, and RTFD export to PDF or TXT.
+- Offline HTML export to PDF or rendered TXT.
+- Markdown export to HTML or PDF, with raw HTML and unsafe links omitted.
+- JSON conversion to and from YAML, TOML, and XML or binary property lists.
+- Plain-text SRT and WebVTT conversion with timing preserved.
+- PSD composite export to PNG, JPEG, or TIFF, retaining the layered original.
+- Multipage TIFF export from PDF at the saved image resolution.
+- M4A ALAC audio extraction, CAF PCM and ALAC conversion, and AIFF-C input.
+- TGA conversion on systems where ImageIO supports reading and writing it.
+- An Activity window with batch and folder-scan progress, Stop, results, and Undo.
+- Individual Finder menu visibility and editable resize, compression, and
+  extra-angle values, with validation and reset.
+- Duplicate matching filters and policies to keep the oldest or newest copy
+  automatically, while retaining byte-by-byte verification.
+- Folder, filename, and extension exclusions for all folder scans or individual
+  features.
+- Combined multi-folder Analyze reports with CSV, JSON, HTML, TXT, and Markdown
+  exports.
+- OCR file encoding choices and a custom Shift_JIS replacement character.
+- JSON sort options for comparison, direction, pinned keys, and primitive arrays.
+- Embedded-PNG SVG output and PDF page images saved next to the source.
+- SHA-1 and SHA-512 checksum menu choices, hidden by default on new installs.
+- Reset All Settings in Advanced, retaining history and edited platform presets.
 
 ### Changed
 
-- Settings uses a sidebar with pages for each kind of file. The choice between
-  saving a new file and replacing the original is a described option on the
-  General page, together with the progress window options.
-- One Welcome window replaces the multi-page onboarding. Opening MacEase again
-  shows Welcome until setup is done, then Settings.
-- Custom Size for Resize asks only for width and height; Custom Size for
-  Compress asks only for a size in megabytes. Their other choices come from
-  Settings. The menu bar's busy icon stays still when Reduce Motion is on.
-- Scans for duplicates, empty folders and Analyze show their progress in the
-  Activity window. Remove Empty Folders asks for confirmation in an alert
-  instead of a checklist window.
-- The Activity window reports skipped files separately, for example
-  "Finished — 3 skipped.", instead of counting them as problems.
+- Conversions and edits save new files by default, with collision-safe names
+  and Undo. Replace original remains an option in General settings.
+- Finder menus run presets and formats directly, group Flip under Rotate and
+  animations under Convert, and offer Custom Size only for Resize and Compress.
+- Settings uses a sidebar, with Finder Menu controls and persistent operation
+  defaults replacing option panels.
+- One Welcome window handles setup. Reopening the app shows Welcome until setup
+  is done, then Settings.
+- Completion banners avoid duplicating results retained in Activity. Skipped
+  files are counted separately from failures.
+- Empty-folder removal uses a confirmation alert after scanning in Activity.
+- Large text encoding and line-ending conversions use less memory.
+- Large Images to PDF jobs write pages incrementally instead of retaining them all.
+- Large removal batches write less undo history while keeping committed removals
+  recoverable after an application crash.
 
-- Updated the target v1 specification and ADR policy for Flect-style menu-first
-  interaction, new-file output by default, HDR/SDR scope, and independent Swift
-  implementation with source study permitted. Implementation follows separately.
+### Fixed
+
+- New image outputs warn when flattening transparency or tone-mapping HDR.
+  Image edits and format conversions in Replace mode refuse unrequested losses.
+- Image conversions reject frame or page loss and preserve representable finite
+  animation loop counts.
+- Output naming advances past occupied paths, including dangling symbolic links.
+- YAML conversion rejects excessive alias expansion, and XML property lists
+  reject duplicate dictionary keys before values can be lost.
+- Repeated TOML conversions release their native allocations.
+- Failed staging cleanup is retried, and normal quit waits briefly for cancelled
+  jobs to clean up.
+- HDR videos with edit lists, such as those encoded with x265, convert to SDR
+  instead of being refused.
+- Folder-scan progress no longer moves backward when callbacks arrive out of order.
+- The menu bar's busy icon stays still when Reduce Motion is enabled.
 
 ## [1.0.0] - 2026-10-21
 
