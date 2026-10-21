@@ -67,6 +67,15 @@ struct NumberField: View {
     }
 }
 
+struct ProblemLabel: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(.red)
+    }
+}
+
 struct ChecklistSheet<Content: View>: View {
     let resetTitle: LocalizedStringKey
     let canReset: Bool

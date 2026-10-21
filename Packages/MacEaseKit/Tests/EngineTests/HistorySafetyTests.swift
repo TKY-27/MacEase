@@ -356,8 +356,8 @@ struct HistorySafetyTests {
                 },
             ])
         let running = Task {
-            await engine.run(batch, settings: Settings()) { fraction in
-                if fraction >= 0.5 { Task { await firstCommitted.signal() } }
+            await engine.run(batch, settings: Settings()) { progress in
+                if progress.fraction >= 0.5 { Task { await firstCommitted.signal() } }
             }
         }
         await firstCommitted.wait()

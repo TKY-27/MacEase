@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var notifier = BatchNotifier(settings: settings)
     private var jobs: JobCenter?
     private var panels: PanelCoordinator?
+    private var activity: ActivityWindow?
     private var router: RequestRouter?
     private var statusItem: StatusItemController?
     private var menuFile: MenuFile?
@@ -29,7 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var capabilityTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var settingsWindow: SingleWindowPresenter?
-    private var onboardingWindow: SingleWindowPresenter?
+    private var welcomeWindow: SingleWindowPresenter?
+    private var launchedAsLoginItem = false
+    private var menuWriteScheduled = false
     private var menuInputs: [OperationID]?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -50,18 +53,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.staging.removeStale()
         let jobs = JobCenter(engine: engine, settings: settings, notifier: notifier)
         self.jobs = jobs
-        let panels = PanelCoordinator(jobs: jobs, store: settings, supportDirectory: configuration.supportDirectory)
+        let panels = PanelCoordinator(jobs: jobs, store: settings)
         self.panels = panels
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
         jobs.askAgain = { [weak panels] in panels?.askAgain($0, files: $1, reason: $2) ?? false }
-        router = RequestRouter(configuration: configuration, jobs: jobs, notifier: notifier) { [weak self] in
-            self?.menuFile
-        }
+        jobs.presentFailure = { [weak panels] in panels?.showFailure($0, message: $1) }
+        let activity = ActivityWindow(jobs: jobs, settings: settings)
+        self.activity = activity
+        jobs.onStart = { [weak activity] in activity?.started($0) }
+        jobs.showsFinished = { [weak activity] in activity?.finished($0, outcome: $1) ?? false }
+        router = RequestRouter(
+            configuration: configuration, jobs: jobs, notifier: notifier,
+            menuFile: { [weak self] in self?.menuFile },
+            openApp: { [weak self] in self?.openApp() })
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
         makeWindows(jobs: jobs)
-        statusItem = StatusItemController(jobs: jobs, updates: updates) { [weak self] in self?.settingsWindow?.show() }
+        statusItem = StatusItemController(
+            jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() }
+        ) { [weak self] in self?.settingsWindow?.show() }
         NSApp.mainMenu = MainMenu.make { [weak self] in self?.settingsWindow?.show() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
         updates.onNewRelease = { [notifier] release in
@@ -71,28 +82,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         Task { await finishLaunching(engine: engine, jobs: jobs) }
-        if !settings.onboardingCompleted { onboardingWindow?.show() }
+        let isDefaultLaunch = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? false
+        if !settings.onboardingCompleted || (isDefaultLaunch && !launchedAsLoginItem) { openApp() }
+    }
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let launch = NSAppleEventManager.shared().currentAppleEvent
+        launchedAsLoginItem =
+            launch?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        openApp()
+        return false
+    }
+
+    private func openApp() {
+        if settings.onboardingCompleted {
+            settingsWindow?.show()
+        } else {
+            welcomeWindow?.show()
+        }
     }
 
     private func makeWindows(jobs: JobCenter) {
         settingsWindow = SingleWindowPresenter { [unowned self] in
             SettingsWindow.make(
                 store: settings, notifier: notifier, jobs: jobs, supportDirectory: configuration.supportDirectory,
-                showOnboarding: { [weak self] in self?.onboardingWindow?.show() },
+                showWelcome: { [weak self] in self?.welcomeWindow?.show() },
                 rotateToken: { [weak self] in try self?.rotateToken() }
             )
         }
-        onboardingWindow = SingleWindowPresenter { [unowned self] in
-            let view = OnboardingView(notifier: notifier, isFirstRun: !settings.onboardingCompleted) {
+        welcomeWindow = SingleWindowPresenter { [unowned self] in
+            let view = WelcomeView(notifier: notifier, isFirstRun: !settings.onboardingCompleted) {
                 [weak self] in
                 self?.settings.onboardingCompleted = true
-                self?.onboardingWindow?.close()
+                self?.welcomeWindow?.close()
             }
             let content = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: content)
             window.styleMask = [.titled, .closable]
             window.setContentSize(content.view.fittingSize)
-            window.title = String(localized: "Welcome to MacEase", comment: "Onboarding window title")
+            window.title = String(localized: "Welcome to MacEase", comment: "Welcome window title")
             return window
         }
     }
@@ -172,7 +203,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func settingsChanged() {
-        refreshMenuFile()
+        // Parent checkboxes change dozens of entries.
+        if !menuWriteScheduled {
+            menuWriteScheduled = true
+            Task { @MainActor in
+                menuWriteScheduled = false
+                refreshMenuFile()
+            }
+        }
         let width = settings.settings.effectiveConcurrency
         if let engine = jobs?.engine { Task { await engine.setConcurrency(width) } }
     }
@@ -199,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func writeMenuFile() throws {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
-            visibleOperations: inputs, settings: settings.planning
+            visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning
         )
         menuInputs = inputs
     }
@@ -209,7 +247,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.settings.intelligence.aiEnabled
             && SystemLanguageModel.default.availability == .available
         return OperationID.allCases.filter { operation in
-            guard !settings.hiddenOperations.contains(operation) else { return false }
             switch operation.requirement {
             case .appleIntelligence: return aiAvailable
             case .java: return javaAvailable

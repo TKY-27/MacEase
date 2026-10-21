@@ -22,6 +22,13 @@ public struct BatchOutcome: Sendable {
     public var wasCancelled: Bool { outcomes.contains(.failed(.cancelled)) }
 }
 
+public struct BatchProgress: Sendable {
+    public let fraction: Double
+    public let completedItems: Int
+    /// An unfinished item, preferring one already started.
+    public let currentItem: Int?
+}
+
 public final class JobEngine: Sendable {
     public let history: HistoryStore
     public let staging: StagingArea
@@ -80,7 +87,7 @@ public final class JobEngine: Sendable {
     public func run(
         _ batch: Batch,
         settings: Settings,
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (BatchProgress) -> Void
     ) async -> BatchOutcome {
         await history.beginBatch(batch.id)
         let tracker = BatchTracker(itemCount: batch.items.count)
@@ -292,11 +299,13 @@ private final class BatchTracker: Sendable {
         fractions = Mutex([Double](repeating: 0, count: itemCount))
     }
 
-    /// Returns the batch's mean progress.
-    func update(_ index: Int, fraction: Double) -> Double {
+    func update(_ index: Int, fraction: Double) -> BatchProgress {
         fractions.withLock { values in
             values[index] = fraction
-            return values.reduce(0, +) / Double(values.count)
+            return BatchProgress(
+                fraction: values.reduce(0, +) / Double(values.count),
+                completedItems: values.count { $0 >= 1 },
+                currentItem: values.firstIndex { $0 > 0 && $0 < 1 } ?? values.firstIndex { $0 < 1 })
         }
     }
 

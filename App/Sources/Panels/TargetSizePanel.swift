@@ -1,114 +1,25 @@
 import Engine
+import MenuCatalog
 import SwiftUI
+import os
 
 struct TargetSizeChoice: Codable, Equatable {
-    enum Goal: String, Codable, CaseIterable {
-        case size
-        case quality
-        case preset
-    }
-
-    var goal = Goal.size
-    var megabytes = 10.0
-    var quality = 75
-    var presetID = ""
-    var allowsDownscale = true
-    var allowsFrameRateReduction = true
-    var stripsGPS = true
-}
-
-/// Other families plug in here.
-struct TargetSizeFamily {
-    /// The quality slider snaps to these.
-    let qualityLevels: [Int]
-    let qualityText: (Int) -> String
-    let limits: (PlatformPreset) -> MediaLimits?
-    var offersDownscale = false
-    var offersFrameRateReduction = false
-    var offersGPS = false
-    /// `nil` when the preset vanished.
-    let options: (TargetSizeChoice, PlatformPreset?) -> OperationOptions?
-
-    private static let bytesPerMegabyte = 1_000_000.0
-    private static let percent = 100.0
-
-    static func bytes(_ megabytes: Double) -> Int64? {
-        guard megabytes.isFinite, megabytes > 0 else { return nil }
-        return Int64(exactly: (megabytes * bytesPerMegabyte).rounded(.down))
-    }
-
-    static var image: TargetSizeFamily {
-        TargetSizeFamily(
-            qualityLevels: Array(0...100), qualityText: { "\($0)" }, limits: \.image, offersDownscale: true,
-            offersFrameRateReduction: true, offersGPS: true
-        ) { choice, preset in
-            let goal: CompressionGoal
-            switch choice.goal {
-            case .size:
-                guard let targetBytes = bytes(choice.megabytes) else { return nil }
-                goal = .bytes(targetBytes)
-            case .quality: goal = .quality(choice.quality)
-            case .preset:
-                guard let preset else { return nil }
-                goal = .platform(preset)
-            }
-            return .image(
-                .compress(
-                    ImageCompression(
-                        goal: goal, allowsDownscale: choice.allowsDownscale,
-                        allowsFrameRateReduction: choice.allowsFrameRateReduction, stripsGPS: choice.stripsGPS)))
-        }
-    }
-
-    /// Video output never carries location metadata.
-    static var video: TargetSizeFamily {
-        TargetSizeFamily(
-            qualityLevels: Array(0...100), qualityText: { "\($0)" }, limits: \.video, offersDownscale: true,
-            offersFrameRateReduction: true
-        ) { choice, preset in
-            let goal: VideoCompression.Goal
-            switch choice.goal {
-            case .size:
-                guard let targetBytes = bytes(choice.megabytes) else { return nil }
-                goal = .bytes(targetBytes)
-            case .quality: goal = .quality(Double(choice.quality) / percent)
-            case .preset:
-                guard let preset else { return nil }
-                goal = .platform(preset)
-            }
-            return .video(
-                .compress(
-                    VideoCompression(
-                        goal: goal, allowsDownscale: choice.allowsDownscale,
-                        allowsFrameRateReduction: choice.allowsFrameRateReduction)))
-        }
-    }
-
-    static var audio: TargetSizeFamily {
-        TargetSizeFamily(
-            qualityLevels: [64, 96, 128, 160, 192, 256, 320],
-            qualityText: { String(localized: "\($0) kbps", comment: "Audio bitrate") }, limits: \.audio
-        ) { choice, preset in
-            switch choice.goal {
-            case .size:
-                guard let targetBytes = bytes(choice.megabytes) else { return nil }
-                return .audio(.compress(.targetBytes(targetBytes)))
-            case .quality: return .audio(.compress(.kilobits(choice.quality)))
-            case .preset: return preset?.audio?.targetBytes.map { .audio(.compress(.targetBytes($0))) }
-            }
-        }
-    }
+    var megabytes: Double? = 10
 }
 
 struct TargetSizePanel: View {
-    let family: TargetSizeFamily
-    /// Already filtered to this family.
-    let presets: [PlatformPreset]
+    let op: OperationID
+    let inputs: [URL]
+    let settings: Engine.Settings
     @State var choice: TargetSizeChoice
     let cancel: () -> Void
     let run: (TargetSizeChoice, OperationOptions) -> Void
 
-    private static let smallestMegabytes = 0.01
+    @State private var largestFile: Int64?
+    @FocusState private var sizeFocused: Bool
+
+    private static let bytesPerMegabyte = 1_000_000.0
+    private static let fieldWidth: CGFloat = 96
 
     var body: some View {
         PanelForm(
@@ -117,83 +28,84 @@ struct TargetSizePanel: View {
         ) {
             if let options { run(choice, options) }
         } content: {
-            Picker("Goal", selection: $choice.goal) {
-                Text("File size").tag(TargetSizeChoice.Goal.size)
-                Text("Quality").tag(TargetSizeChoice.Goal.quality)
-                if !presets.isEmpty {
-                    Text("Platform").tag(TargetSizeChoice.Goal.preset)
-                }
-            }
-            .pickerStyle(.segmented)
-            goalControls
-            if family.offersDownscale || family.offersFrameRateReduction || family.offersGPS {
-                Section {
-                    if family.offersDownscale {
-                        Toggle("Allow lower resolution", isOn: $choice.allowsDownscale)
-                    }
-                    if family.offersFrameRateReduction {
-                        Toggle("Allow lower frame rate", isOn: $choice.allowsFrameRateReduction)
-                    }
-                    if family.offersGPS {
-                        Toggle("Remove location (GPS)", isOn: $choice.stripsGPS)
-                    }
-                }
-            }
-        }
-        .onAppear {
-            if choice.presetID.isEmpty || preset == nil { choice.presetID = presets.first?.id ?? "" }
-            if !family.qualityLevels.contains(choice.quality) { choice.quality = nearestLevel(to: choice.quality) }
-        }
-    }
-
-    @ViewBuilder private var goalControls: some View {
-        switch choice.goal {
-        case .size:
-            LabeledContent("Size (MB)") {
-                TextField("Size (MB)", value: $choice.megabytes, format: .number.precision(.fractionLength(0...2)))
-                    .labelsHidden()
-                    .multilineTextAlignment(.trailing)
-            }
-        case .quality:
-            LabeledContent {
-                HStack {
-                    Slider(value: levelIndex, in: 0...Double(family.qualityLevels.count - 1)) { Text("Quality") }
+            Section {
+                LabeledContent {
+                    HStack(spacing: PanelLayout.unitSpacing) {
+                        TextField(
+                            "Target size", value: $choice.megabytes,
+                            format: .number.precision(.fractionLength(0...2)), prompt: Text(verbatim: "8")
+                        )
                         .labelsHidden()
-                        .accessibilityValue(family.qualityText(choice.quality))
-                    Text(family.qualityText(choice.quality))
-                        .monospacedDigit()
-                        .accessibilityHidden(true)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: Self.fieldWidth)
+                        .focused($sizeFocused)
+                        Text(verbatim: "MB")
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                    }
+                } label: {
+                    Text("Target size")
+                    if let largestFile {
+                        Text("Largest selected file: \(largestFile.fileSize)", comment: "Target size panel hint")
+                    }
                 }
-            } label: {
-                Text("Quality")
-            }
-        case .preset:
-            Picker("Platform", selection: $choice.presetID) {
-                ForEach(presets) {
-                    Text($0.name.localized(languageCode: Bundle.main.preferredLocalizations.first)).tag($0.id)
+            } footer: {
+                if let bytes {
+                    Text("\(bytes, format: .number) bytes", comment: "Target size panel byte echo")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProblemLabel(
+                        text: String(
+                            localized: "Enter a size such as 8 MB.", comment: "Target size panel validation"))
                 }
             }
         }
+        .onAppear { sizeFocused = true }
+        .task { largestFile = await Self.largestSize(of: inputs) }
     }
 
-    private var preset: PlatformPreset? {
-        presets.first { $0.id == choice.presetID }
+    /// Decimal megabytes, as the SPEC requires.
+    private var bytes: Int64? {
+        guard let megabytes = choice.megabytes, megabytes.isFinite, megabytes > 0 else { return nil }
+        return Int64(exactly: (megabytes * Self.bytesPerMegabyte).rounded(.down)).flatMap { $0 > 0 ? $0 : nil }
     }
 
     private var options: OperationOptions? {
-        if choice.goal == .size, choice.megabytes < Self.smallestMegabytes { return nil }
-        return family.options(choice, preset)
-    }
-
-    private var levelIndex: Binding<Double> {
-        Binding {
-            Double(family.qualityLevels.firstIndex(of: choice.quality) ?? 0)
-        } set: {
-            choice.quality = family.qualityLevels[Int($0.rounded())]
+        guard let bytes else { return nil }
+        let video = settings.video
+        switch op {
+        case .imageCompress:
+            return .image(
+                .compress(
+                    ImageCompression(
+                        goal: .bytes(bytes), allowsDownscale: video.allowDownscale,
+                        allowsFrameRateReduction: video.allowFrameRateReduction,
+                        stripsGPS: !settings.image.keepGPSOnPlatformPresets)))
+        case .videoCompress:
+            return .video(
+                .compress(
+                    VideoCompression(
+                        goal: .bytes(bytes), allowsDownscale: video.allowDownscale,
+                        allowsFrameRateReduction: video.allowFrameRateReduction)))
+        case .audioCompress:
+            return .audio(.compress(.targetBytes(bytes)))
+        default:
+            return nil
         }
     }
 
-    private func nearestLevel(to value: Int) -> Int {
-        family.qualityLevels.min { abs($0 - value) < abs($1 - value) } ?? value
+    private static func largestSize(of urls: [URL]) async -> Int64? {
+        do {
+            return try await offMain {
+                try urls.compactMap { try $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.max().map(Int64.init)
+            }
+        } catch {
+            let failure = error as NSError
+            Logger(category: "panels").error(
+                "No file sizes for hint (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
+            return nil
+        }
     }
 }

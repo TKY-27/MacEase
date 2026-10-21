@@ -45,9 +45,10 @@ entirely on your Mac, and is free and open source under the MIT License.
 - **Platform presets:** one click to fit Discord, X, Instagram, LINE, email or
   the web. Presets are editable.
 
-Your originals are safe: a file is replaced only after the new version is fully
-written and checked, the original goes to the Trash, and every batch can be
-undone from the notification or the menu bar.
+Your originals are safe: results are saved as new files by default. If you
+choose to replace originals, a file is replaced only after the new version is
+fully written and checked, the original goes to the Trash, and every batch can
+be undone from the notification, the Activity window or the menu bar.
 
 The full behavior of every operation is specified in [docs/SPEC.md](docs/SPEC.md).
 
@@ -71,7 +72,7 @@ The full behavior of every operation is specified in [docs/SPEC.md](docs/SPEC.md
    ```sh
    xattr -dr com.apple.quarantine /Applications/MacEase.app
    ```
-5. Follow the onboarding screen to turn on the Finder extension and
+5. Use the Welcome window to turn on the Finder extension and
    notifications.
 
 MacEase is signed with its own certificate but not notarized by Apple, because
@@ -82,22 +83,26 @@ build it yourself from source instead (see below).
 
 1. Select one or more files or folders in Finder, right-click, and choose
    **MacEase**. The submenu lists what fits the selected kinds of files.
-2. Pick an operation and a preset, such as **Compress > Discord** for a video.
-   Items ending in "…", including **Custom…**, open a small panel first.
-   With multiple inputs, PDF merge and **Make PDF** open a page-order panel.
-3. Progress appears in the menu bar. When the batch finishes, a notification
-   offers **Undo** and **Show in Finder**.
+2. Pick an operation and a preset, such as **Compress > Discord (20 MB)** for a
+   video. Most items run right away. Items ending in "…", such as
+   **Custom Size…**, open a small panel first. With multiple inputs, PDF merge
+   and **Make PDF** open a page-order panel.
+3. If a batch takes more than a moment, the Activity window shows its progress
+   without taking focus from Finder, and you can stop it there. When the batch
+   finishes, a notification offers **Undo** and **Show in Finder**. Problems
+   stay listed in the Activity window.
 
-Operations that change a file replace it and move the original to the Trash.
-Operations that make something new, such as extracted audio or a PDF from
-images, write next to the original.
+By default, results are saved as new files next to the originals. In
+**Settings > General** you can replace originals instead; the original then
+moves to the Trash and **Undo** puts it back.
 
-<img src="docs/images/compress-en.png" width="420" alt="The Compress panel with a 10 MB file size goal">
+<img src="docs/images/compress-en.png" width="420" alt="The Custom Size panel for Compress with a 10 MB target">
 
-Open **Settings** from the menu bar icon to hide menu items, edit platform
-presets and set defaults for each kind of file.
+Open **Settings** from the menu bar icon. The **Finder Menu** page shows or
+hides individual menu items and edits platform presets; the other pages set
+defaults for each kind of file.
 
-<img src="docs/images/settings-en.png" width="640" alt="MacEase Settings, General tab">
+<img src="docs/images/settings-en.png" width="640" alt="MacEase Settings, General page">
 
 ## Build from source
 
@@ -113,9 +118,9 @@ make test
 ```
 
 Before first launch, copy `build/DerivedData/Build/Products/Debug/MacEase Dev.app`
-to `~/Applications` or `/Applications`; onboarding cannot continue while the
-app is outside those folders. You can enable its Finder extension in onboarding
-or in **System Settings > General > Login Items & Extensions**.
+to `~/Applications` or `/Applications`; the Welcome window cannot finish while
+the app is outside those folders. You can enable its Finder extension from the
+Welcome window or in **System Settings > General > Login Items & Extensions**.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 

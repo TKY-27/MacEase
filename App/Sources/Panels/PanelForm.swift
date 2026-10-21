@@ -7,6 +7,7 @@ enum PanelLayout {
     static let listHeight: CGFloat = 280
     static let thumbnailEdge: CGFloat = 48
     static let rowSpacing: CGFloat = 8
+    static let unitSpacing: CGFloat = 6
 }
 
 struct PanelForm<Content: View, Accessory: View>: View {

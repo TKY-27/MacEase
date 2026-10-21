@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An Activity window that appears when a batch runs longer than a moment,
+  without taking focus from Finder. It shows the current file, done/total and
+  a Stop button, closes after clean successes, and keeps problems listed with
+  Show in Finder and Undo. The menu bar adds Show Progress while jobs run.
+- A Finder Menu page in Settings that shows or hides individual menu items,
+  such as single sizes or formats, alongside the extra rotation angle and the
+  platform preset editor.
+- Reset All Settings in Settings > Advanced.
+
 ### Changed
+
+- Settings uses a sidebar with pages for each kind of file. The choice between
+  saving a new file and replacing the original is a described option on the
+  General page, together with the progress window options.
+- One Welcome window replaces the multi-page onboarding. Opening MacEase again
+  shows Welcome until setup is done, then Settings.
+- Custom Size for Resize asks only for width and height; Custom Size for
+  Compress asks only for a size in megabytes. Their other choices come from
+  Settings. The menu bar's busy icon stays still when Reduce Motion is on.
 
 - Updated the target v1 specification and ADR policy for Flect-style menu-first
   interaction, new-file output by default, HDR/SDR scope, and independent Swift

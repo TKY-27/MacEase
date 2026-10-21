@@ -34,7 +34,7 @@ struct ImageSettingsView: View {
                 }
                 Toggle(isOn: $store.settings.image.keepGPSOnPlatformPresets) {
                     Text("Keep location for platform presets")
-                    Text("Applies to Discord, X, Instagram and the other presets.")
+                    Text("Applies to Compress items that target a size.")
                 }
             }
             Section("Background") {
@@ -124,9 +124,14 @@ struct VideoSettingsView: View {
                     String(localized: "Rotation fill", comment: "Saved rotation background color"),
                     selection: $store.settings.video.rotationFill.color, supportsOpacity: false)
             }
-            Section("Target-Size Compression") {
+            Section {
                 Toggle("Allow lower resolution", isOn: $store.settings.video.allowDownscale)
                 Toggle("Allow lower frame rate", isOn: $store.settings.video.allowFrameRateReduction)
+            } header: {
+                Text("Target-Size Compression")
+            } footer: {
+                Text("Also applies to images and GIFs compressed to a size.")
+                    .foregroundStyle(.secondary)
             }
             Section(String(localized: "Frame Rate Menu", comment: "Editable frame rate presets")) {
                 TextField(

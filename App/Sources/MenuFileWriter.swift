@@ -7,7 +7,7 @@ import os
 struct MenuFileWriter {
     let configuration: HostConfiguration
 
-    func write(visibleOperations: [OperationID], settings: Settings) throws -> MenuFile {
+    func write(visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings) throws -> MenuFile {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let parameters = try encoder.encode(settings) + encoder.encode(settings.platformPresets)
@@ -21,7 +21,7 @@ struct MenuFileWriter {
             token: try TokenStore.current(),
             hostAvailable: !InstallLocation.current.isTranslocated,
             visibleOperations: visibleOperations,
-            titles: MenuStrings.titles(settings: settings),
+            titles: MenuStrings.titles(settings: settings), hiddenEntries: hiddenEntries,
             extraRotationDegrees: settings.extraRotationEnabled ? settings.extraRotationDegrees : nil,
             frameRates: MenuStrings.frameRates(settings), loudnessTargets: MenuStrings.loudnessTargets(settings),
             sizeTargets: sizeTargets, parameterVersion: parameterVersion

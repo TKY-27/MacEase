@@ -1,6 +1,5 @@
 import AppKit
 import Engine
-import MenuCatalog
 import ServiceManagement
 import SwiftUI
 import UserNotifications
@@ -8,11 +7,10 @@ import UserNotifications
 struct GeneralSettingsView: View {
     @Bindable var store: SettingsStore
     let notifier: BatchNotifier
-    let showOnboarding: () -> Void
+    let showWelcome: () -> Void
 
     @State private var pendingLanguage: SettingsStore.Language?
     @State private var confirmsPermanentDelete = false
-    @State private var showsMenuItems = false
     @State private var loginStatus = LoginItem.status
     @State private var notificationStatus = UNAuthorizationStatus.notDetermined
     @State private var failure: String?
@@ -29,18 +27,41 @@ struct GeneralSettingsView: View {
                 }
                 launchAtLogin
                 notifications
-                Picker("When converting or editing:", selection: $store.settings.outputMode) {
-                    Text("Save as New File").tag(Engine.Settings.OutputMode.newFile)
-                    Text("Replace Original").tag(Engine.Settings.OutputMode.replace)
+            }
+            Section("When Converting or Editing") {
+                Picker("When converting or editing", selection: $store.settings.outputMode) {
+                    outputModeChoice(
+                        String(localized: "Save as new file", comment: "Output mode"),
+                        detail: String(
+                            localized: "The result appears next to the original, which stays untouched.",
+                            comment: "Output mode detail")
+                    )
+                    .tag(Engine.Settings.OutputMode.newFile)
+                    outputModeChoice(
+                        String(localized: "Replace original", comment: "Output mode"),
+                        detail: String(
+                            localized: "The original moves to the Trash. Undo puts it back.",
+                            comment: "Output mode detail")
+                    )
+                    .tag(Engine.Settings.OutputMode.replace)
                 }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
             }
             Section {
-                LabeledContent {
-                    Button("Customize…") { showsMenuItems = true }
-                } label: {
-                    Text("Finder menu items")
-                    Text("\(visibleOperationCount) of \(OperationID.allCases.count) shown")
+                Toggle(isOn: $store.showsActivity) {
+                    Text("Show progress window")
+                    Text("Appears when a batch takes more than a moment. Finder keeps focus.")
                 }
+                LabeledContent("Close automatically") {
+                    VStack(alignment: .leading) {
+                        Toggle("After success", isOn: $store.activityClosesAfterSuccess)
+                        Toggle("After cancel", isOn: $store.activityClosesAfterCancel)
+                        Toggle("After failure", isOn: $store.activityClosesAfterFailure)
+                    }
+                    .toggleStyle(.checkbox)
+                }
+                .disabled(!store.showsActivity)
             }
             Section {
                 Toggle(isOn: permanentDeleteSelection) {
@@ -50,12 +71,9 @@ struct GeneralSettingsView: View {
             }
             Section {
                 LabeledContent("Setup") {
-                    Button("Show Onboarding Again", action: showOnboarding)
+                    Button("Show Welcome Window…", action: showWelcome)
                 }
             }
-        }
-        .sheet(isPresented: $showsMenuItems) {
-            MenuItemsSheet(hiddenOperations: $store.hiddenOperations)
         }
         .alert(
             "Relaunch MacEase?", isPresented: isPresent($pendingLanguage), presenting: pendingLanguage
@@ -99,7 +117,7 @@ struct GeneralSettingsView: View {
     @ViewBuilder private var notifications: some View {
         Toggle(isOn: notificationSelection) {
             Text("Notifications")
-            Text("Show a summary when a batch finishes.")
+            Text("Results with Undo when a batch finishes.")
         }
         if store.notificationsEnabled, notificationStatus == .denied {
             LabeledContent {
@@ -110,8 +128,14 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private var visibleOperationCount: Int {
-        OperationID.allCases.count - store.hiddenOperations.count
+    private func outputModeChoice(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading) {
+            Text(title)
+            Text(detail)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var languageSelection: Binding<SettingsStore.Language> {
@@ -182,50 +206,5 @@ struct GeneralSettingsView: View {
             return
         }
         NSApp.terminate(nil)
-    }
-}
-
-private struct MenuItemsSheet: View {
-    @Binding var hiddenOperations: Set<OperationID>
-
-    private static let kinds: [FileKind] = [.image, .video, .audio, .pdf, .text, .archive, .jar, .folder, .any]
-
-    var body: some View {
-        ChecklistSheet(resetTitle: "Show All", canReset: !hiddenOperations.isEmpty) {
-            hiddenOperations = []
-        } content: {
-            ForEach(Self.kinds, id: \.self) { kind in
-                Section(MenuStrings.kind(kind)) {
-                    ForEach(OperationID.allCases.filter { $0.kind == kind }, id: \.self) { op in
-                        Toggle(isOn: visibility(of: op)) {
-                            Text(MenuStrings.operation(op))
-                            if let note = requirementNote(op) { Text(note) }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func visibility(of op: OperationID) -> Binding<Bool> {
-        Binding {
-            !hiddenOperations.contains(op)
-        } set: { visible in
-            if visible {
-                hiddenOperations.remove(op)
-            } else {
-                hiddenOperations.insert(op)
-            }
-        }
-    }
-
-    private func requirementNote(_ op: OperationID) -> String? {
-        switch op.requirement {
-        case .appleIntelligence:
-            String(localized: "Requires Apple Intelligence", comment: "Menu item visibility note")
-        case .java:
-            String(localized: "Requires a Java runtime", comment: "Menu item visibility note")
-        case nil: nil
-        }
     }
 }

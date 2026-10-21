@@ -10,6 +10,7 @@ struct AdvancedSettingsView: View {
     let rotateToken: () throws -> Void
 
     @State private var confirmsClearHistory = false
+    @State private var confirmsReset = false
     @State private var status: String?
     @State private var failure: String?
 
@@ -52,6 +53,14 @@ struct AdvancedSettingsView: View {
                     Text("Clearing removes the ability to undo past batches.")
                 }
             }
+            Section {
+                LabeledContent {
+                    Button("Reset All Settings…", role: .destructive) { confirmsReset = true }
+                } label: {
+                    Text("Settings")
+                    Text("History and edited presets are kept.")
+                }
+            }
             Section("Troubleshooting") {
                 LabeledContent("Logs") {
                     Button("Open Console", action: openConsole)
@@ -72,6 +81,14 @@ struct AdvancedSettingsView: View {
             Button("Clear History", role: .destructive, action: clearHistory)
         } message: {
             Text("Past batches can no longer be undone. Files already in the Trash stay there.")
+        }
+        .confirmationDialog("Reset all settings?", isPresented: $confirmsReset) {
+            Button("Reset", role: .destructive) {
+                store.resetAll()
+                status = String(localized: "Settings were reset.")
+            }
+        } message: {
+            Text("Every setting and Finder menu choice returns to its default.")
         }
         .alert("Something went wrong", isPresented: isPresent($failure), presenting: failure) { _ in
             Button("OK") {}

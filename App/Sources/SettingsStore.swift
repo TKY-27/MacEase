@@ -8,12 +8,17 @@ import os
 @Observable
 final class SettingsStore {
     private enum Key {
-        static let hiddenOperations = "hiddenOperations"
+        static let legacyHiddenOperations = "hiddenOperations"
+        static let hiddenEntries = "hiddenMenuEntries"
         static let notificationsEnabled = "notificationsEnabled"
         static let onboardingCompleted = "onboardingCompleted"
         static let language = "language"
         static let appleLanguages = "AppleLanguages"
         static let unreadableSettings = "settings.unreadable"
+        static let showsActivity = "activity.shows"
+        static let activityClosesAfterSuccess = "activity.closesAfterSuccess"
+        static let activityClosesAfterCancel = "activity.closesAfterCancel"
+        static let activityClosesAfterFailure = "activity.closesAfterFailure"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -36,15 +41,33 @@ final class SettingsStore {
         }
     }
 
-    var hiddenOperations: Set<OperationID> {
+    /// `op/preset` keys; `op/` for operations without presets.
+    var hiddenEntries: Set<String> {
         didSet {
-            defaults.set(hiddenOperations.map(\.rawValue).sorted(), forKey: Key.hiddenOperations)
+            guard hiddenEntries != oldValue else { return }
+            defaults.set(hiddenEntries.sorted(), forKey: Key.hiddenEntries)
             onChange?()
         }
     }
 
     var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: Key.notificationsEnabled) }
+    }
+
+    var showsActivity: Bool {
+        didSet { defaults.set(showsActivity, forKey: Key.showsActivity) }
+    }
+
+    var activityClosesAfterSuccess: Bool {
+        didSet { defaults.set(activityClosesAfterSuccess, forKey: Key.activityClosesAfterSuccess) }
+    }
+
+    var activityClosesAfterCancel: Bool {
+        didSet { defaults.set(activityClosesAfterCancel, forKey: Key.activityClosesAfterCancel) }
+    }
+
+    var activityClosesAfterFailure: Bool {
+        didSet { defaults.set(activityClosesAfterFailure, forKey: Key.activityClosesAfterFailure) }
     }
 
     var onboardingCompleted: Bool {
@@ -64,12 +87,57 @@ final class SettingsStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: [Key.notificationsEnabled: true])
+        defaults.register(defaults: [
+            Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
+            Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
+        ])
         settings = Self.decodeSettings(from: defaults)
-        hiddenOperations = Set((defaults.stringArray(forKey: Key.hiddenOperations) ?? []).compactMap(OperationID.init))
+        hiddenEntries = Self.loadHiddenEntries(from: defaults)
         notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
+        showsActivity = defaults.bool(forKey: Key.showsActivity)
+        activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)
+        activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
+        activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
+    }
+
+    /// History and edited presets survive.
+    func resetAll() {
+        settings = Settings()
+        hiddenEntries = Self.newInstallHiddenEntries
+        notificationsEnabled = true
+        showsActivity = true
+        activityClosesAfterSuccess = true
+        activityClosesAfterCancel = true
+        activityClosesAfterFailure = false
+    }
+
+    /// SPEC 4.4 defaults for new installs.
+    private static let newInstallHiddenEntries: Set<String> = [
+        OperationID.imageResize.menuEntryKey("long-3840"), OperationID.imageResize.menuEntryKey("long-2560"),
+        OperationID.imageConvert.menuEntryKey("bmp"), OperationID.imageConvert.menuEntryKey("ico"),
+        OperationID.imageConvert.menuEntryKey("icns"), OperationID.imageCopyBase64.menuEntryKey(""),
+        OperationID.videoResize.menuEntryKey("2160p"), OperationID.videoCompress.menuEntryKey("mb-100"),
+        OperationID.videoConvert.menuEntryKey("m4v"), OperationID.videoConvert.menuEntryKey("avi"),
+        OperationID.videoConvert.menuEntryKey("flv"), OperationID.videoToAPNG.menuEntryKey("settings"),
+        OperationID.videoExtractAudio.menuEntryKey("aiff"), OperationID.videoExtractAudio.menuEntryKey("ogg"),
+        OperationID.videoExtractAudio.menuEntryKey("opus"),
+    ]
+
+    /// Existing installs keep their visibility.
+    private static func loadHiddenEntries(from defaults: UserDefaults) -> Set<String> {
+        if let stored = defaults.stringArray(forKey: Key.hiddenEntries) { return Set(stored) }
+        let legacy = defaults.stringArray(forKey: Key.legacyHiddenOperations)
+        let isExistingInstall =
+            legacy != nil || defaults.object(forKey: Settings.defaultsKey) != nil
+            || defaults.bool(forKey: Key.onboardingCompleted)
+            || FileManager.default.fileExists(atPath: HostConfiguration.current.menuFile.path)
+        let entries =
+            isExistingInstall
+            ? Set((legacy ?? []).compactMap(OperationID.init).flatMap(\.menuEntryKeys)) : newInstallHiddenEntries
+        defaults.set(entries.sorted(), forKey: Key.hiddenEntries)
+        return entries
     }
 
     /// Settings with the user's edited presets.
@@ -113,5 +181,23 @@ final class SettingsStore {
                 "Settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
             )
         }
+    }
+}
+
+extension OperationID {
+    static let extraAnglePreset = "extra-angle"
+
+    /// Includes Custom Size and the extra angle.
+    var menuPresetIDs: [String] {
+        let extra = self == .imageRotate || self == .videoRotate ? [Self.extraAnglePreset] : []
+        return presetGroups.flatMap { $0 } + extra + (offersCustom ? [MenuEntry.customPreset] : [])
+    }
+
+    var menuEntryKeys: [String] {
+        menuPresetIDs.isEmpty ? [menuEntryKey("")] : menuPresetIDs.map(menuEntryKey)
+    }
+
+    func menuEntryKey(_ preset: String) -> String {
+        "\(rawValue)/\(preset)"
     }
 }

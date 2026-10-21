@@ -12,8 +12,13 @@ final class JobCenter {
         let id: UUID
         let batchID: UUID
         let operation: OperationID
-        let itemCount: Int
-        var progress: Double
+        let fileNames: [String]
+        var progress = 0.0
+        var completedItems = 0
+        var currentItem: Int?
+
+        var itemCount: Int { fileNames.count }
+        var currentFileName: String? { currentItem.map { fileNames[$0] } }
     }
 
     struct CompletedBatch {
@@ -38,6 +43,10 @@ final class JobCenter {
     @ObservationIgnored var presentPanel: ((MenuEntry, [URL]) -> Void)?
     /// `false` when no panel can answer it.
     @ObservationIgnored var askAgain: ((OperationRequest, [URL], InvalidInput) -> Bool)?
+    @ObservationIgnored var presentFailure: ((OperationID, String) -> Void)?
+    @ObservationIgnored var onStart: ((ActiveBatch) -> Void)?
+    /// `true` when Activity keeps the result visible.
+    @ObservationIgnored var showsFinished: ((ActiveBatch, BatchOutcome) -> Bool)?
     @ObservationIgnored private let logger = Logger(category: "jobs")
 
     init(engine: JobEngine, settings: SettingsStore, notifier: BatchNotifier) {
@@ -84,13 +93,12 @@ final class JobCenter {
                     return false
                 }
             }
-            if !failures.isEmpty {
-                let alert = NSAlert()
-                alert.messageText = MenuStrings.operationName(entry.op)
-                alert.informativeText = failures.joined(separator: "\n")
-                alert.runModal()
+            let failureText = failures.joined(separator: "\n")
+            guard !inputs.isEmpty else {
+                presentFailure?(entry.op, failureText)
+                return
             }
-            guard !inputs.isEmpty else { return }
+            if !failures.isEmpty { notifier.notify(title: MenuStrings.operationName(entry.op), body: failureText) }
             if let presentPanel {
                 presentPanel(entry, inputs)
             } else {
@@ -114,10 +122,14 @@ final class JobCenter {
                 self.forget(id)
                 return nil
             }
-            self.active.append(
-                ActiveBatch(id: id, batchID: batch.id, operation: request.op, itemCount: batch.items.count, progress: 0)
-            )
-            let reporter = ProgressReporter { fraction in self.update(id, progress: fraction) }
+            let started = ActiveBatch(
+                id: id, batchID: batch.id, operation: request.op,
+                fileNames: batch.items.map { $0.inputs.first?.lastPathComponent ?? "" })
+            self.active.append(started)
+            self.onStart?(started)
+            let reporter = ProgressReporter(fraction: \.fraction, milestone: \.completedItems) {
+                self.update(id, progress: $0)
+            }
             let outcome = await engine.run(batch, settings: snapshot) { reporter.report($0) }
             self.finish(outcome, request: request, activeID: id)
             return outcome
@@ -205,9 +217,13 @@ final class JobCenter {
         recent = Array(await engine.history.records.suffix(Self.recentCount).reversed())
     }
 
-    private func update(_ id: UUID, progress: Double) {
+    private func update(_ id: UUID, progress: BatchProgress) {
         guard let index = active.firstIndex(where: { $0.id == id }) else { return }
-        active[index].progress = max(active[index].progress, progress)
+        // Main-actor hops can reorder.
+        guard progress.completedItems >= active[index].completedItems else { return }
+        active[index].progress = max(active[index].progress, progress.fraction)
+        active[index].completedItems = progress.completedItems
+        active[index].currentItem = progress.currentItem
     }
 
     private func forget(_ id: UUID) {
@@ -216,6 +232,7 @@ final class JobCenter {
     }
 
     private func finish(_ outcome: BatchOutcome, request: OperationRequest, activeID: UUID) {
+        let batch = active.first { $0.id == activeID }
         forget(activeID)
         guard !terminating else { return }
         completed.insert(
@@ -234,8 +251,18 @@ final class JobCenter {
             return (url, reason)
         }
         let asked = questions.first.map { askAgain?(request, questions.map(\.0), $0.1) ?? false } ?? false
-        if !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
+        let shownInActivity = batch.map { showsFinished?($0, outcome) ?? false } ?? false
+        // Only the banner can open Privacy settings.
+        let needsBanner = !shownInActivity || Self.deniedPermission(outcome)
+        if needsBanner, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
+    }
+
+    private static func deniedPermission(_ outcome: BatchOutcome) -> Bool {
+        outcome.outcomes.contains { result in
+            guard case .failed(.permissionDenied) = result else { return false }
+            return true
+        }
     }
 
     private static func asksUser(_ reason: InvalidInput) -> Bool {
@@ -247,23 +274,40 @@ final class JobCenter {
 }
 
 /// Throttles progress hops to the main actor.
-final class ProgressReporter: Sendable {
-    private static let minimumStep = 0.01
+final class ProgressReporter<Update: Sendable>: Sendable {
+    private static var minimumStep: Double { 0.01 }
 
-    private let lastReported = Mutex(-1.0)
-    private let deliver: @MainActor (Double) -> Void
+    private let lastReported = Mutex((fraction: -1.0, milestone: -1))
+    private let fraction: @Sendable (Update) -> Double
+    /// A change always reports, however small.
+    private let milestone: @Sendable (Update) -> Int
+    private let deliver: @MainActor (Update) -> Void
 
-    init(deliver: @escaping @MainActor (Double) -> Void) {
+    init(
+        fraction: @escaping @Sendable (Update) -> Double, milestone: @escaping @Sendable (Update) -> Int,
+        deliver: @escaping @MainActor (Update) -> Void
+    ) {
+        self.fraction = fraction
+        self.milestone = milestone
         self.deliver = deliver
     }
 
-    func report(_ fraction: Double) {
+    func report(_ update: Update) {
+        let fraction = fraction(update)
+        let milestone = milestone(update)
         let shouldSend = lastReported.withLock { last in
-            guard fraction - last >= Self.minimumStep || fraction >= 1 else { return false }
-            last = fraction
+            guard fraction - last.fraction >= Self.minimumStep || fraction >= 1 || milestone != last.milestone
+            else { return false }
+            last = (fraction, milestone)
             return true
         }
         guard shouldSend else { return }
-        Task { @MainActor in deliver(fraction) }
+        Task { @MainActor in deliver(update) }
+    }
+}
+
+extension ProgressReporter where Update == Double {
+    convenience init(deliver: @escaping @MainActor (Double) -> Void) {
+        self.init(fraction: { $0 }, milestone: { _ in 0 }, deliver: deliver)
     }
 }
