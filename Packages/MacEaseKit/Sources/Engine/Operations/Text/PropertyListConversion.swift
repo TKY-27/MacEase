@@ -3,8 +3,8 @@ import Foundation
 
 enum PropertyListConversion {
     private static let maximumBytes = 8 * 1024 * 1024
-    private static let maximumDepth = 64
-    private static let maximumNodes = 100_000
+    static let maximumDepth = 64
+    static let maximumNodes = 100_000
     private static let tagKey = "$maceaseType"
 
     static func json(from bytes: Data, indent: String) throws -> String {
@@ -169,7 +169,7 @@ enum PropertyListConversion {
         }
     }
 
-    private static func plistNumber(_ literal: String) throws -> NSNumber {
+    static func plistNumber(_ literal: String) throws -> NSNumber {
         if !literal.contains(".") && !literal.contains("e") && !literal.contains("E") {
             guard let integer = Int64(literal) else {
                 throw failure("Integer exceeds signed 64-bit range")
@@ -199,13 +199,13 @@ enum PropertyListConversion {
         guard nodes <= maximumNodes else { throw failure("Conversion exceeds 100000 values") }
     }
 
-    private static func account(_ depth: Int, nodes: inout Int) throws {
+    static func account(_ depth: Int, nodes: inout Int) throws {
         guard depth <= maximumDepth else { throw failure("Conversion exceeds 64 levels") }
         nodes += 1
         guard nodes <= maximumNodes else { throw failure("Conversion exceeds 100000 values") }
     }
 
-    private static func guardJSONDepth(_ bytes: Data) throws {
+    static func guardJSONDepth(_ bytes: Data) throws {
         var inString = false
         var escaped = false
         var depth = 0

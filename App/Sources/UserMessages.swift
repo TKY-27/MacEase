@@ -118,6 +118,8 @@ enum UserMessages {
             String(
                 localized:
                     "Structured conversion preserves supported values, not comments, key order, or source formatting.")
+        case .markdownUnsafeContentOmitted:
+            String(localized: "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.")
         case .firstFrameOnly:
             String(localized: "Only the first frame was kept because the format has no animation.")
         case .pngOptimizationSkipped:

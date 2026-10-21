@@ -17,7 +17,7 @@ enum TextConverter {
         case .toTXT: return try text()
         case .srtToVTT: return try SubtitleConversion.convert(text(), fromVTT: false)
         case .vttToSRT: return try SubtitleConversion.convert(text(), fromVTT: true)
-        case .htmlToPDF, .htmlToText, .jsonToXMLPlist, .jsonToBinaryPlist:
+        case .htmlToPDF, .htmlToText, .jsonToXMLPlist, .jsonToBinaryPlist, .markdownToHTML, .markdownToPDF:
             throw EngineError.invalidInput(.unsupportedFileType)
         case .csvToJSON:
             let objects = try CSVTable(parsing: text()).objects(inferringTypes: settings.csvTypeInference)
@@ -39,6 +39,14 @@ enum TextConverter {
             return try ini(text()).serialized(indent: indent) + "\n"
         case .iniToXML:
             return try XMLConversion.document(root: jsonRoot, ini(text()))
+        case .yamlToJSON:
+            return try YAMLConversion.json(fromYAML: text()).serialized(indent: indent) + "\n"
+        case .jsonToYAML:
+            return try YAMLConversion.yaml(fromJSON: text())
+        case .tomlToJSON:
+            return try TOMLConversion.json(fromTOML: text()).serialized(indent: indent) + "\n"
+        case .jsonToTOML:
+            return try TOMLConversion.toml(fromJSON: text())
         }
     }
 
