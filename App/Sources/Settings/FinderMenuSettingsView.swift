@@ -16,16 +16,15 @@ struct FinderMenuSettingsView: View {
         Form {
             Section {
                 ForEach(Self.kinds, id: \.self) { kind in
-                    DisclosureGroup {
+                    MenuTreeRow(name: MenuStrings.kind(kind), sources: visibility(of: kind.menuOperations)) {
+                        Text(MenuStrings.kind(kind))
+                    } children: {
                         ForEach(kind.menuOperations, id: \.self) { op in
                             operationRow(op, titles: titles)
                         }
-                    } label: {
-                        Toggle(sources: visibility(of: kind.menuOperations), isOn: \.self) {
-                            Text(MenuStrings.kind(kind))
-                        }
                     }
                 }
+                .toggleStyle(.checkbox)
             } header: {
                 Text("Menu Items")
             } footer: {
@@ -78,13 +77,15 @@ struct FinderMenuSettingsView: View {
         }
         if op.menuPresetIDs.isEmpty {
             Toggle(sources: visibility(of: [op]), isOn: \.self) { label }
+                .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 2)
         } else {
-            DisclosureGroup {
+            MenuTreeRow(name: MenuStrings.operationName(op), sources: visibility(of: [op]), depth: 1) {
+                label
+            } children: {
                 ForEach(op.menuPresetIDs, id: \.self) { preset in
                     Toggle(titles.preset(op, preset), isOn: visibility(of: op.menuEntryKey(preset)))
+                        .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
                 }
-            } label: {
-                Toggle(sources: visibility(of: [op]), isOn: \.self) { label }
             }
         }
     }
@@ -113,6 +114,39 @@ struct FinderMenuSettingsView: View {
             String(localized: "Requires a Java runtime", comment: "Menu item visibility note")
         case nil: nil
         }
+    }
+}
+
+/// DisclosureGroup hides a Toggle label from VoiceOver.
+private struct MenuTreeRow<Label: View, Children: View>: View {
+    static var indent: CGFloat { 22 }
+
+    let name: String
+    let sources: [Binding<Bool>]
+    var depth = 0
+    @ViewBuilder let label: Label
+    @ViewBuilder let children: Children
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .foregroundStyle(.secondary)
+                    .frame(width: Self.indent)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(
+                isExpanded
+                    ? Text("Hide items in \(name)", comment: "Finder Menu tree collapse button")
+                    : Text("Show items in \(name)", comment: "Finder Menu tree expand button"))
+            Toggle(sources: sources, isOn: \.self) { label }
+        }
+        .padding(.leading, CGFloat(depth) * Self.indent)
+        if isExpanded { children }
     }
 }
 

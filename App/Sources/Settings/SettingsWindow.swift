@@ -11,12 +11,16 @@ enum SettingsWindow {
         store: SettingsStore, notifier: BatchNotifier, jobs: JobCenter, supportDirectory: URL,
         showWelcome: @escaping () -> Void, rotateToken: @escaping () throws -> Void
     ) -> NSWindow {
+        // The window title follows the controller's title.
+        var controller: NSHostingController<SettingsView>?
         let view = SettingsView(
             store: store, notifier: notifier, jobs: jobs, supportDirectory: supportDirectory,
-            showWelcome: showWelcome, rotateToken: rotateToken)
-        let controller = NSHostingController(rootView: view)
-        controller.sceneBridgingOptions = [.title, .toolbars]
-        let window = NSWindow(contentViewController: controller)
+            showWelcome: showWelcome, rotateToken: rotateToken
+        ) { controller?.title = $0 }
+        let hosting = NSHostingController(rootView: view)
+        hosting.sceneBridgingOptions = [.toolbars]
+        controller = hosting
+        let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.toolbarStyle = .unified
         window.contentMinSize = minimumSize
@@ -26,7 +30,7 @@ enum SettingsWindow {
     }
 }
 
-private enum SettingsPage: String, CaseIterable, Identifiable {
+enum SettingsPage: String, CaseIterable, Identifiable {
     case general
     case finderMenu
     case images
@@ -49,7 +53,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .audio: String(localized: "Audio", comment: "Settings page")
         case .folders: String(localized: "Folders", comment: "Settings page")
         case .text: String(localized: "Text", comment: "Settings page")
-        case .intelligence: String(localized: "Text Recognition & Intelligence", comment: "Settings page")
+        case .intelligence: String(localized: "Text Recognition & AI", comment: "Settings page")
         case .advanced: String(localized: "Advanced", comment: "Settings page")
         case .about: String(localized: "About", comment: "Settings page")
         }
@@ -71,17 +75,18 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
     }
 }
 
-private struct SettingsView: View {
+struct SettingsView: View {
     let store: SettingsStore
     let notifier: BatchNotifier
     let jobs: JobCenter
     let supportDirectory: URL
     let showWelcome: () -> Void
     let rotateToken: () throws -> Void
+    let showTitle: (String) -> Void
 
     @State private var page: SettingsPage? = .general
 
-    private static let sidebarWidth: CGFloat = 200
+    private static let sidebarWidth: CGFloat = 240
 
     var body: some View {
         NavigationSplitView {
@@ -89,12 +94,13 @@ private struct SettingsView: View {
                 Label(page.title, systemImage: page.symbol)
             }
             .navigationSplitViewColumnWidth(Self.sidebarWidth)
+            .frame(minWidth: Self.sidebarWidth)
             .toolbar(removing: .sidebarToggle)
         } detail: {
             detail(page ?? .general)
                 .formStyle(.grouped)
-                .navigationTitle((page ?? .general).title)
         }
+        .onChange(of: page, initial: true) { showTitle((page ?? .general).title) }
     }
 
     @ViewBuilder private func detail(_ page: SettingsPage) -> some View {
