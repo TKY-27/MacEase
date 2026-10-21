@@ -13,6 +13,7 @@ enum PDFExport {
 
     static func images(of url: URL, format: StillFormat, dpi: Int, context: ItemContext) throws -> ItemResult {
         let document = try PDFEditing.open(url)
+        guard document.allowsPrinting else { throw EngineError.invalidInput(.pdfPrintingNotAllowed) }
         let folder = try PDFEditing.stagingFolder(for: url, context: context)
         let (type, pathExtension) = format == .png ? (UTType.png, "png") : (UTType.jpeg, "jpg")
         var properties: [CFString: Any] = [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi]
@@ -43,7 +44,7 @@ enum PDFExport {
     }
 
     static func text(of url: URL, context: ItemContext) async throws -> ItemResult {
-        let document = try PDFEditing.open(url)
+        let document = try PDFEditing.openForCopying(url)
         var pages: [String] = []
         for index in 0..<document.pageCount {
             try Task.checkCancellation()

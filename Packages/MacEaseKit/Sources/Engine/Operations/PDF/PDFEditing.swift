@@ -12,7 +12,7 @@ enum PDFEditing {
         guard inputs.count >= minimum, let first = inputs.first else {
             throw EngineError.invalidInput(.tooFewFiles(minimum: minimum))
         }
-        let documents = try inputs.map { ($0, try open($0)) }
+        let documents = try inputs.map { ($0, try openForCopying($0)) }
         let byFile = Dictionary(documents) { earlier, _ in earlier }
         let order =
             pages
@@ -36,7 +36,7 @@ enum PDFEditing {
     }
 
     static func compress(_ url: URL, context: ItemContext) throws -> ItemResult {
-        let document = try open(url)
+        let document = try openForReplacement(url)
         // PDFKit otherwise copies untouched documents verbatim.
         let first = try page(0, in: document)
         document.removePage(at: 0)
@@ -51,7 +51,7 @@ enum PDFEditing {
     }
 
     static func rotate(_ url: URL, degrees: Int, context: ItemContext) throws -> ItemResult {
-        let document = try open(url)
+        let document = try openForReplacement(url)
         for index in 0..<document.pageCount {
             try Task.checkCancellation()
             try page(index, in: document).rotation += degrees
@@ -62,7 +62,7 @@ enum PDFEditing {
     }
 
     static func extract(_ pages: IndexSet, from url: URL, context: ItemContext) throws -> ItemResult {
-        let document = try open(url)
+        let document = try openForCopying(url)
         guard !pages.isEmpty else { throw EngineError.invalidInput(.noPages) }
         let extracted = PDFDocument()
         for index in pages {
@@ -75,7 +75,7 @@ enum PDFEditing {
     }
 
     static func split(_ url: URL, context: ItemContext) throws -> ItemResult {
-        let document = try open(url)
+        let document = try openForCopying(url)
         let folder = try stagingFolder(for: url, context: context)
         for index in 0..<document.pageCount {
             try Task.checkCancellation()
@@ -89,11 +89,22 @@ enum PDFEditing {
         return .derived(nextTo: url, outputs: [StagedFile(url: folder, name: baseName(of: url), check: .folder)])
     }
 
-    /// Rewriting would drop owner-password protection.
     static func open(_ url: URL) throws -> PDFDocument {
         guard let document = PDFDocument(url: url) else { throw EngineError.decodeFailed("PDF does not open") }
-        guard !document.isEncrypted else { throw EngineError.invalidInput(.encrypted) }
+        guard !document.isLocked else { throw EngineError.invalidInput(.encrypted) }
         guard document.pageCount > 0 else { throw EngineError.invalidInput(.emptyInput) }
+        return document
+    }
+
+    private static func openForReplacement(_ url: URL) throws -> PDFDocument {
+        let document = try open(url)
+        guard !document.isEncrypted else { throw EngineError.invalidInput(.encrypted) }
+        return document
+    }
+
+    static func openForCopying(_ url: URL) throws -> PDFDocument {
+        let document = try open(url)
+        guard document.allowsCopying else { throw EngineError.invalidInput(.pdfCopyingNotAllowed) }
         return document
     }
 

@@ -60,6 +60,9 @@ public enum InvalidInput: Equatable, Sendable {
     case emptyInput
     case noPages
     case encrypted
+    case pdfCopyingNotAllowed
+    case pdfPrintingNotAllowed
+    case unsupportedVideoPreset
     case tooFewFiles(minimum: Int)
     case malformed(String)
     case passwordRequired

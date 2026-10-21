@@ -291,6 +291,80 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
         #expect(try texts(of: folder.appending(path: "book 10.pdf")) == ["S10"])
     }
 
+    @Test func ownerPasswordOnlyPDFAllowsDerivedOperations() async throws {
+        let folder = try TestVolume.makeFolder()
+        let url = try makePDF("owner.pdf", pages: [.text("First"), .text("Second")], in: folder)
+        let companion = try makePDF("companion.pdf", pages: [.text("Third")], in: folder)
+        #expect(try #require(PDFDocument(url: url)).write(to: url, withOptions: [.ownerPasswordOption: "owner"]))
+        let source = try #require(PDFDocument(url: url))
+        #expect(source.isEncrypted && !source.isLocked && source.allowsCopying && source.allowsPrinting)
+        let original = try Data(contentsOf: url)
+
+        let merged = try await runPDF(.merge(pages: nil), op: .pdfMerge, on: [url, companion])
+        let images = try await runPDF(.toImages(.png, dpi: 72), op: .pdfToImages, on: [url])
+        let text = try await runPDF(.toText, op: .pdfToText, on: [url])
+        let extracted = try await runPDF(.extractPages(IndexSet([1])), op: .pdfExtractPages, on: [url])
+        let split = try await runPDF(.split, op: .pdfSplit, on: [url])
+
+        let mergedURL = folder.appending(path: "owner (merged).pdf")
+        let imageFolder = folder.appending(path: "owner")
+        let textURL = folder.appending(path: "owner.txt")
+        let extractedURL = folder.appending(path: "owner (extracted).pdf")
+        let splitFolder = folder.appending(path: "owner (2)")
+        #expect(merged.outcomes == [.succeeded(outputs: [mergedURL], warnings: [])])
+        #expect(images.outcomes == [.succeeded(outputs: [imageFolder], warnings: [])])
+        #expect(text.outcomes == [.succeeded(outputs: [textURL], warnings: [])])
+        #expect(extracted.outcomes == [.succeeded(outputs: [extractedURL], warnings: [])])
+        #expect(split.outcomes == [.succeeded(outputs: [splitFolder], warnings: [])])
+        #expect(try texts(of: mergedURL) == ["First", "Second", "Third"])
+        #expect(try pixelSize(of: imageFolder.appending(path: "owner 1.png")) == (200, 100))
+        #expect(try String(contentsOf: textURL, encoding: .utf8) == "First\u{0C}Second")
+        #expect(try texts(of: extractedURL) == ["Second"])
+        #expect(try texts(of: splitFolder.appending(path: "owner 2.pdf")) == ["Second"])
+        #expect(try Data(contentsOf: url) == original)
+    }
+
+    @Test func derivedOperationsHonorPDFPermissions() async throws {
+        let folder = try TestVolume.makeFolder()
+        let printOnly = try makePDF("print.pdf", pages: [.text("Printable")], in: folder)
+        let copyOnly = try makePDF("copy.pdf", pages: [.text("Copyable")], in: folder)
+        #expect(
+            try #require(PDFDocument(url: printOnly)).write(
+                to: printOnly,
+                withOptions: [
+                    .ownerPasswordOption: "owner",
+                    .accessPermissionsOption: PDFAccessPermissions.allowsLowQualityPrinting.rawValue,
+                ]))
+        #expect(
+            try #require(PDFDocument(url: copyOnly)).write(
+                to: copyOnly,
+                withOptions: [
+                    .ownerPasswordOption: "owner",
+                    .accessPermissionsOption: PDFAccessPermissions.allowsContentCopying.rawValue,
+                ]))
+        let printable = try #require(PDFDocument(url: printOnly))
+        let copyable = try #require(PDFDocument(url: copyOnly))
+        #expect(!printable.isLocked && !printable.allowsCopying && printable.allowsPrinting)
+        #expect(!copyable.isLocked && copyable.allowsCopying && !copyable.allowsPrinting)
+
+        let imagesAllowed = try await runPDF(.toImages(.png, dpi: 72), op: .pdfToImages, on: [printOnly])
+        let imagesDenied = try await runPDF(.toImages(.png, dpi: 72), op: .pdfToImages, on: [copyOnly])
+        let textDenied = try await runPDF(.toText, op: .pdfToText, on: [printOnly])
+        let textAllowed = try await runPDF(.toText, op: .pdfToText, on: [copyOnly])
+        let mergeDenied = try await runPDF(.merge(pages: nil), op: .pdfMerge, on: [copyOnly, printOnly])
+        let extractDenied = try await runPDF(.extractPages(IndexSet([0])), op: .pdfExtractPages, on: [printOnly])
+        let splitDenied = try await runPDF(.split, op: .pdfSplit, on: [printOnly])
+
+        #expect(imagesAllowed.outcomes == [.succeeded(outputs: [folder.appending(path: "print")], warnings: [])])
+        #expect(imagesDenied.outcomes == [.failed(.invalidInput(.pdfPrintingNotAllowed))])
+        #expect(textDenied.outcomes == [.failed(.invalidInput(.pdfCopyingNotAllowed))])
+        #expect(textAllowed.outcomes == [.succeeded(outputs: [folder.appending(path: "copy.txt")], warnings: [])])
+        #expect(mergeDenied.outcomes == [.failed(.invalidInput(.pdfCopyingNotAllowed))])
+        #expect(extractDenied.outcomes == [.failed(.invalidInput(.pdfCopyingNotAllowed))])
+        #expect(splitDenied.outcomes == [.failed(.invalidInput(.pdfCopyingNotAllowed))])
+        #expect(try String(contentsOf: folder.appending(path: "copy.txt"), encoding: .utf8) == "Copyable")
+    }
+
     @Test func encryptedPDFsFailClearly() async throws {
         let url = try makePDF("locked.pdf", pages: [.text("secret")])
         let document = try #require(PDFDocument(url: url))
@@ -302,8 +376,10 @@ private func pixelSize(of url: URL) throws -> (width: Int, height: Int) {
         let lockedBytes = try Data(contentsOf: url)
 
         let outcome = try await runPDF(.rotate(degrees: 90), op: .pdfRotate, on: [url, ownerOnly])
+        let derived = try await runPDF(.split, op: .pdfSplit, on: [url])
 
         #expect(outcome.outcomes == [.failed(.invalidInput(.encrypted)), .failed(.invalidInput(.encrypted))])
+        #expect(derived.outcomes == [.failed(.invalidInput(.encrypted))])
         #expect(try Data(contentsOf: url) == lockedBytes)
     }
 }

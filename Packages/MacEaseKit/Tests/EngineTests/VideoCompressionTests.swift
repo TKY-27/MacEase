@@ -4,6 +4,7 @@ import Formats
 import Foundation
 import MenuCatalog
 import Testing
+import VideoToolbox
 
 @testable import Engine
 
@@ -13,6 +14,15 @@ import Testing
     private static let clipHeight = 180
     private static let clipFrames = 120
     private static let clipFPS: Int32 = 30
+    private static let canEncodeHEVC: Bool = {
+        var session: VTCompressionSession?
+        let status = VTCompressionSessionCreate(
+            allocator: nil, width: 320, height: 180, codecType: kCMVideoCodecType_HEVC,
+            encoderSpecification: nil, imageBufferAttributes: nil, compressedDataAllocator: nil,
+            outputCallback: nil, refcon: nil, compressionSessionOut: &session)
+        if let session { VTCompressionSessionInvalidate(session) }
+        return status == noErr && session != nil
+    }()
 
     private func fixture() throws -> URL {
         let source = try #require(
@@ -132,6 +142,83 @@ import Testing
         let opened = try await MediaInput.open(result)
         #expect(opened.video?.codec == .h264)
         #expect(opened.audio?.codec == .aac)
+    }
+
+    @Test(.enabled(if: Self.canEncodeHEVC)) func editedPresetProducesMOVWithHEVC() async throws {
+        let url = try fixture()
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        var preset = try #require(library.bundled.first { $0.id == "discord" })
+        preset.video?.formats = ["mov"]
+        preset.video?.videoCodec = "hevc"
+        let result = try output(try await run(VideoCompression(goal: .platform(preset)), on: url))
+        let opened = try await MediaInput.open(result)
+        #expect(result.pathExtension == "mov")
+        #expect(opened.container == .mov)
+        #expect(opened.video?.codec == .hevc)
+        #expect(opened.audio?.codec == .aac)
+        guard case .asset(_, let video?, _) = opened.backend else {
+            Issue.record("expected MOV video track")
+            return
+        }
+        let descriptions = try await video.load(.formatDescriptions)
+        #expect(descriptions.first.map(CMFormatDescriptionGetMediaSubType) == kCMVideoCodecType_HEVC)
+    }
+
+    @Test func editedPresetKeepsListedSourceFormat() async throws {
+        let url = try fixture()
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        var preset = try #require(library.bundled.first { $0.id == "discord" })
+        preset.video?.formats = ["mov", "mp4"]
+        let result = try output(try await run(VideoCompression(goal: .platform(preset)), on: url))
+        #expect(result.pathExtension == "mp4")
+        #expect(try await MediaInput.open(result).container == .mp4)
+    }
+
+    @Test(arguments: [true, false]) func editedPresetProducesWebMWithVP9AndOpus(targeted: Bool) async throws {
+        let url = try fixture()
+        let library = PresetLibrary(supportDirectory: try TestVolume.makeFolder())
+        var preset = try #require(library.bundled.first { $0.id == "discord" })
+        preset.video?.formats = ["webm"]
+        preset.video?.videoCodec = "vp9"
+        preset.video?.audioCodec = "opus"
+        if !targeted { preset.video?.maxBytes = nil }
+        try library.save(preset)
+        let edited = try #require(try library.preset(id: "discord"))
+        let result = try output(try await run(VideoCompression(goal: .platform(edited)), on: url))
+        let opened = try await MediaInput.open(result)
+        #expect(result.pathExtension == "webm")
+        #expect(opened.container == .webm)
+        #expect(opened.video?.codec == .vp9)
+        #expect(opened.audio?.codec == .opus)
+    }
+
+    @Test(arguments: [
+        ([String](), "h264", "aac"),
+        (["avi"], "h264", "aac"),
+        (["webm"], "hevc", "opus"),
+        (["mov", "webm"], "h264", "aac"),
+        (["mkv"], "av1", "aac"),
+        (["mkv"], "vp9", "mp3"),
+    ])
+    func unsupportedEditedPresetCannotBeSavedOrRun(formats: [String], videoCodec: String, audioCodec: String)
+        async throws
+    {
+        let folder = try TestVolume.makeFolder()
+        let library = PresetLibrary(supportDirectory: folder)
+        var preset = try #require(library.bundled.first { $0.id == "discord" })
+        preset.video?.formats = formats
+        preset.video?.videoCodec = videoCodec
+        preset.video?.audioCodec = audioCodec
+        #expect(throws: EngineError.invalidInput(.unsupportedVideoPreset)) {
+            try library.save(preset)
+        }
+        #expect(try library.overrides().isEmpty)
+
+        let url = try fixture()
+        let original = try Data(contentsOf: url)
+        let result = try await run(VideoCompression(goal: .platform(preset)), on: url)
+        #expect(result == .failed(.invalidInput(.unsupportedVideoPreset)))
+        #expect(try Data(contentsOf: url) == original)
     }
 
     @Test(arguments: [

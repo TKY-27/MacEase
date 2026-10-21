@@ -4010,6 +4010,16 @@
         }
       }
     },
+    "The video preset for “%@” is unsupported. Use MP4, MOV or M4V with H.264 or HEVC and AAC; WebM with VP9 and Opus; or MKV with H.264, HEVC or VP9 and AAC or Opus.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” の動画プリセットには対応していません。MP4・MOV・M4V では H.264 または HEVC と AAC、WebM では VP9 と Opus、MKV では H.264・HEVC・VP9 のいずれかと AAC または Opus を指定してください。"
+          }
+        }
+      }
+    },
     "The volume has no Trash, so the original was kept next to the result.": {
       "localizations": {
         "ja": {
@@ -8448,6 +8458,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” を保存できませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” does not allow copying. Ask the PDF owner for a copy with permission.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ではコピーが許可されていません。許可付きのコピーを PDF の所有者に依頼してください。"
+          }
+        }
+      }
+    },
+    "“%@” does not allow printing. Ask the PDF owner for a copy with permission.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” では印刷が許可されていません。許可付きのコピーを PDF の所有者に依頼してください。"
           }
         }
       }

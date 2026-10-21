@@ -83,7 +83,11 @@ enum ContentSniffer {
         if signatures.contains(where: { starts(header, with: $0) }) { return true }
         // WMA passes, then fails naming its codec.
         if starts(header, with: AudioInput.asfSignature) { return true }
-        if starts(header, with: ascii("RIFF")), starts(header, with: ascii("WAVE"), at: 8) { return true }
+        if ["RIFF", "RF64", "BW64"].contains(where: { starts(header, with: ascii($0)) }),
+            starts(header, with: ascii("WAVE"), at: 8)
+        {
+            return true
+        }
         if starts(header, with: ascii("FORM")), starts(header, with: ascii("AIF"), at: 8) { return true }
         if let brand = isoBrand(header) { return ["M4A ", "M4B ", "mp42", "isom", "dash"].contains(brand) }
         // MPEG audio frame sync or ADTS.

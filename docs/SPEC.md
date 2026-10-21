@@ -513,7 +513,7 @@ stream-copy edits retain their existing alpha (ADR 0010).
 | --- | --- | --- | --- |
 | `video.resize` | 50%, 2160p, 1080p, 720p, 480p | Replace | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
 | `video.trim` | — (panel) | Replace | Keyframe mode copies streams and starts at the keyframe at or before the mark; exact mode re-encodes |
-| `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Replace | Section 8.10; platform presets output MP4 with H.264 High and AAC; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
+| `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Replace | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
 | `video.rotate` | 90° right, 90° left, 180°, Custom | Replace | Multiples of 90° in MP4 and MOV set the track transform without re-encoding; other angles and containers re-encode with the fill color |
 | `video.flip` | Horizontal, Vertical | Replace | Re-encode |
 | `video.fps` | 24, 30, 60 | Replace | Frame dropping or duplication by timestamp; re-encode |
@@ -539,6 +539,11 @@ stream-copy edits retain their existing alpha (ADR 0010).
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
 
 Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
+WAV input includes RF64 and BW64. Their mandatory first `ds64` chunk supplies
+64-bit RIFF and audio lengths and optional oversized-chunk lengths. Chunk
+ranges are checked against those lengths and the file before replacement.
+The optional size table is capped at 4,096 entries before accumulation.
+AVAudioFile supplies native decoding (ADR 0010).
 Audio replacement likewise refuses extra streams or chapters that its output
 cannot preserve before writing (ADR 0010).
 
@@ -586,6 +591,11 @@ interpreted solely from their channel count.
 | `pdf.aiRename` | — | Rename | Section 10 |
 
 Quick Look already previews PDFs on macOS, so there is no preview operation.
+
+Locked PDFs are refused. Unlocked encrypted PDFs support Derived operations
+when their permissions allow them: page images require printing; text, merge,
+page extraction and split require copying. Compress and rotate still refuse
+encrypted inputs because replacement would discard protection (ADR 0010).
 
 ### 8.7 Text
 
@@ -663,6 +673,14 @@ with optional fields `maxBytes`, `maxWidth`, `maxHeight`, `maxFrames`,
 fit `crop` or `letterbox`), `formats` (accepted formats; the source format is
 kept when listed, otherwise the first is used), `videoCodec`, `audioCodec` and
 `quality` (0 to 100).
+
+Video compression honors the edited container and codecs. The source container
+is kept when listed in `formats`; otherwise the first listed format is used.
+Supported combinations are MP4, MOV or M4V with H.264 or HEVC and AAC; WebM
+with VP9 and Opus; and MKV with H.264, HEVC or VP9 and AAC or Opus. Unsupported
+combinations are rejected on save and before execution. Omitted formats default
+to MP4; omitted codecs default to H.264 and AAC. WebM requires explicit VP9
+and Opus selections (ADR 0010).
 
 Defaults (checked October 2026; values change, so they are editable):
 
@@ -889,6 +907,11 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Accept RF64/BW64 WAV inputs with ds64 size checks. Permit
+  unlocked encrypted PDFs for Derived operations according to permissions,
+  while retaining encrypted replacement refusal. Honor edited video preset
+  containers and codecs with save-time and runtime validation (ADR 0010).
 
 - 2026-10-21: Stream animated image edits and compression passes instead of
   retaining every decoded frame. Border trimming retains only union bounds;

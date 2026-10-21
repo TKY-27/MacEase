@@ -138,6 +138,15 @@ enum UserMessages {
             String(localized: "No pages were selected from “\(file)”.")
         case .encrypted:
             String(localized: "“\(file)” is password-protected.")
+        case .pdfCopyingNotAllowed:
+            String(localized: "“\(file)” does not allow copying. Ask the PDF owner for a copy with permission.")
+        case .pdfPrintingNotAllowed:
+            String(localized: "“\(file)” does not allow printing. Ask the PDF owner for a copy with permission.")
+        case .unsupportedVideoPreset:
+            String(
+                localized:
+                    "The video preset for “\(file)” is unsupported. Use MP4, MOV or M4V with H.264 or HEVC and AAC; WebM with VP9 and Opus; or MKV with H.264, HEVC or VP9 and AAC or Opus."
+            )
         case .tooFewFiles(let minimum):
             String(localized: "Select at least \(minimum) files for this operation.")
         case .malformed(let detail):

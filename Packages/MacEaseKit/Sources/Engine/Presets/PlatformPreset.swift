@@ -1,3 +1,4 @@
+import Formats
 import Foundation
 
 public struct AspectRatio: Codable, Hashable, Sendable {
@@ -75,6 +76,48 @@ public struct MediaLimits: Codable, Hashable, Sendable {
     public var targetBytes: Int64? {
         maxBytes.map { Int64((Double($0) * Self.targetShare).rounded(.down)) }
     }
+
+    public var hasSupportedVideoOutput: Bool {
+        let names = formats ?? [OutputContainer.mp4.rawValue]
+        guard !names.isEmpty,
+            let video = Self.videoCodec(videoCodec), let audio = Self.audioCodec(audioCodec)
+        else { return false }
+        return names.allSatisfy { name in
+            guard let container = OutputContainer(rawValue: name.lowercased()),
+                [.mp4, .mov, .m4v, .webm, .mkv].contains(container)
+            else { return false }
+            return container.holds(video.media) && container.holds(audio)
+        }
+    }
+
+    func videoOutput(source: OutputContainer) -> (
+        container: OutputContainer, video: VideoEncoding.Codec, mediaCodec: MediaCodec, audio: MediaCodec
+    )? {
+        guard hasSupportedVideoOutput,
+            let video = Self.videoCodec(videoCodec), let audio = Self.audioCodec(audioCodec)
+        else { return nil }
+        let names = formats ?? [OutputContainer.mp4.rawValue]
+        let selected = names.contains { $0.lowercased() == source.rawValue } ? source.rawValue : names[0]
+        guard let container = OutputContainer(rawValue: selected.lowercased()) else { return nil }
+        return (container, video.encoding, video.media, audio)
+    }
+
+    private static func videoCodec(_ name: String?) -> (encoding: VideoEncoding.Codec, media: MediaCodec)? {
+        switch name?.lowercased() ?? "h264" {
+        case "h264": (.h264, .h264)
+        case "hevc": (.hevc, .hevc)
+        case "vp9": (.vp9, .vp9)
+        default: nil
+        }
+    }
+
+    private static func audioCodec(_ name: String?) -> MediaCodec? {
+        switch name?.lowercased() ?? "aac" {
+        case "aac": .aac
+        case "opus": .opus
+        default: nil
+        }
+    }
 }
 
 public struct LocalizedName: Codable, Hashable, Sendable {
@@ -131,6 +174,9 @@ public struct PresetLibrary: Sendable {
     }
 
     public func save(_ preset: PlatformPreset) throws {
+        guard preset.video?.hasSupportedVideoOutput ?? true else {
+            throw EngineError.invalidInput(.unsupportedVideoPreset)
+        }
         var edited = try overrides().filter { $0.id != preset.id }
         if bundled.first(where: { $0.id == preset.id }) != preset { edited.append(preset) }
         try write(edited)

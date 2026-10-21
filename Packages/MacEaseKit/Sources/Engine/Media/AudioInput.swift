@@ -137,7 +137,7 @@ public struct AudioInput: Sendable {
                 && header[offset..<(offset + text.utf8.count)].elementsEqual(text.utf8)
         }
         if ascii(4, "ftyp") { return .mpeg4 }
-        if ascii(0, "RIFF"), ascii(8, "WAVE") { return .wave }
+        if (ascii(0, "RIFF") || ascii(0, "RF64") || ascii(0, "BW64")), ascii(8, "WAVE") { return .wave }
         if ascii(0, "FORM"), ascii(8, "AIF") { return .aiff }
         if ascii(0, "caff") { return .caf }
         if ascii(0, "fLaC") { return .flac }

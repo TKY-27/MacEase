@@ -17,6 +17,23 @@ public enum AudioTargetSize {
 }
 
 enum AudioJob {
+    private struct WaveSizeExtensions {
+        let audioBytes: UInt64
+        let chunkLengths: [String: [UInt64]]
+        var chunkPositions: [String: Int] = [:]
+
+        mutating func resolve(_ name: String, stored: UInt64) throws -> UInt64 {
+            guard stored == UInt64(UInt32.max) else { return stored }
+            if name == "data" { return audioBytes }
+            let position = chunkPositions[name, default: 0]
+            guard let lengths = chunkLengths[name], position < lengths.count else {
+                throw EngineError.decodeFailed("missing extended audio chunk size")
+            }
+            chunkPositions[name] = position + 1
+            return lengths[position]
+        }
+    }
+
     private static let id3Version3: UInt8 = 3
     private static let id3Version4: UInt8 = 4
     private static let id3FooterFlag: UInt8 = 0x10
@@ -26,6 +43,9 @@ enum AudioJob {
     private static let byteBits = 8
     private static let cafHeaderBytes = 12
     private static let riffHeaderBytes = 8
+    private static let extendedSizeBytes: UInt64 = 28
+    private static let extendedSizeEntryBytes: UInt64 = 12
+    private static let maxExtendedSizeEntries: UInt64 = 4_096
     private static let cafFirstChunk: UInt64 = 8
     private static let riffFirstChunk: UInt64 = 12
     private static let wavePreservedChunks: Set<String> = [
@@ -133,20 +153,36 @@ enum AudioJob {
         let reader = try FileHandle(forReadingFrom: url)
         defer { try? reader.close() }
         let fileSize = try reader.seekToEnd()
+        var waveSizes = container == .wave ? try extendedWaveSizes(reader, fileSize: fileSize) : nil
         let firstChunk = container == .caf ? cafFirstChunk : riffFirstChunk
         let headerBytes = container == .caf ? cafHeaderBytes : riffHeaderBytes
         var offset = firstChunk
-        while offset + UInt64(headerBytes) <= fileSize {
+        var audioChunkCount = 0
+        while offset <= fileSize, UInt64(headerBytes) <= fileSize - offset {
             try Task.checkCancellation()
             try reader.seek(toOffset: offset)
             let header = [UInt8](try reader.read(upToCount: headerBytes) ?? Data())
             guard header.count == headerBytes else { throw EngineError.decodeFailed("truncated audio chunk") }
             let name = String(decoding: header[0..<4], as: UTF8.self)
             let lengthBytes = header[4..<headerBytes]
-            let size =
+            let storedSize =
                 container == .wave
                 ? lengthBytes.reversed().reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
                 : lengthBytes.reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+            var size = storedSize
+            if var sizes = waveSizes {
+                if name == "ds64", offset != riffFirstChunk {
+                    throw EngineError.decodeFailed("duplicate extended audio sizes")
+                }
+                if name == "data" {
+                    audioChunkCount += 1
+                    guard storedSize == UInt64(UInt32.max), audioChunkCount == 1 else {
+                        throw EngineError.decodeFailed("invalid extended audio chunk")
+                    }
+                }
+                size = try sizes.resolve(name, stored: storedSize)
+                waveSizes = sizes
+            }
             guard size <= fileSize - offset - UInt64(headerBytes) else {
                 if container == .caf, name == "data", size == UInt64.max { return false }
                 throw EngineError.decodeFailed("audio chunk out of range")
@@ -174,7 +210,58 @@ enum AudioJob {
             }
             offset += UInt64(headerBytes) + size + (container == .caf ? 0 : size % 2)
         }
+        guard offset == fileSize else { throw EngineError.decodeFailed("truncated audio chunk") }
+        if waveSizes != nil, audioChunkCount != 1 { throw EngineError.decodeFailed("missing extended audio chunk") }
         return false
+    }
+
+    private static func extendedWaveSizes(_ reader: FileHandle, fileSize: UInt64) throws -> WaveSizeExtensions? {
+        try reader.seek(toOffset: 0)
+        let waveHeader = [UInt8](try reader.read(upToCount: 12) ?? Data())
+        guard waveHeader.count == 12 else { throw EngineError.decodeFailed("truncated audio header") }
+        let magic = String(decoding: waveHeader[0..<4], as: UTF8.self)
+        guard magic == "RF64" || magic == "BW64" else { return nil }
+        guard waveHeader[4..<8].allSatisfy({ $0 == 0xFF }) else {
+            throw EngineError.decodeFailed("invalid extended audio header")
+        }
+        try reader.seek(toOffset: riffFirstChunk)
+        let chunkHeader = [UInt8](try reader.read(upToCount: riffHeaderBytes) ?? Data())
+        guard chunkHeader.count == riffHeaderBytes,
+            chunkHeader[0..<4].elementsEqual("ds64".utf8)
+        else { throw EngineError.decodeFailed("missing extended audio sizes") }
+        let littleEndian = { (bytes: ArraySlice<UInt8>) in
+            bytes.reversed().reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+        }
+        let chunkLength = littleEndian(chunkHeader[4..<8])
+        guard fileSize >= riffFirstChunk + UInt64(riffHeaderBytes),
+            chunkLength >= extendedSizeBytes,
+            chunkLength <= fileSize - riffFirstChunk - UInt64(riffHeaderBytes)
+        else {
+            throw EngineError.decodeFailed("extended audio sizes out of range")
+        }
+        let sizes = [UInt8](try reader.read(upToCount: Int(extendedSizeBytes)) ?? Data())
+        guard sizes.count == Int(extendedSizeBytes) else {
+            throw EngineError.decodeFailed("truncated extended audio sizes")
+        }
+        let riffLength = littleEndian(sizes[0..<8])
+        let audioBytes = littleEndian(sizes[8..<16])
+        let entryCount = littleEndian(sizes[24..<28])
+        guard riffLength == fileSize - UInt64(riffHeaderBytes),
+            entryCount <= maxExtendedSizeEntries,
+            entryCount <= (chunkLength - extendedSizeBytes) / extendedSizeEntryBytes,
+            chunkLength == extendedSizeBytes + entryCount * extendedSizeEntryBytes
+        else { throw EngineError.decodeFailed("invalid extended audio sizes") }
+        var chunkLengths: [String: [UInt64]] = [:]
+        for _ in 0..<entryCount {
+            try Task.checkCancellation()
+            let entry = [UInt8](try reader.read(upToCount: Int(extendedSizeEntryBytes)) ?? Data())
+            guard entry.count == Int(extendedSizeEntryBytes) else {
+                throw EngineError.decodeFailed("truncated extended audio size table")
+            }
+            let name = String(decoding: entry[0..<4], as: UTF8.self)
+            chunkLengths[name, default: []].append(littleEndian(entry[4..<12]))
+        }
+        return WaveSizeExtensions(audioBytes: audioBytes, chunkLengths: chunkLengths)
     }
 
     /// Lossless sources become AAC in M4A.

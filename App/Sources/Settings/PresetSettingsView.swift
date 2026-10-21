@@ -74,7 +74,8 @@ struct PresetSettingsView: View {
 
     private func save() {
         guard let library, let draft, draft != presets.first(where: { $0.id == draft.id }),
-            PresetValidation.problems(in: draft).isEmpty
+            PresetValidation.problems(in: draft).isEmpty,
+            draft.video?.hasSupportedVideoOutput ?? true
         else { return }
         do {
             try library.save(draft)
@@ -129,6 +130,11 @@ private struct PresetEditor: View {
             } footer: {
                 ForEach(PresetValidation.problems(in: preset[keyPath: slot.keyPath]), id: \.self) {
                     ProblemLabel(text: $0)
+                }
+                if slot == .video, let limits = preset.video, !limits.hasSupportedVideoOutput {
+                    ProblemLabel(
+                        text: UserMessages.describe(
+                            .invalidInput(.unsupportedVideoPreset), file: PresetSettingsView.name(of: preset)))
                 }
             }
         }

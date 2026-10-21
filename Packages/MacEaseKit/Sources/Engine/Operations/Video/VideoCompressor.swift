@@ -18,6 +18,7 @@ enum VideoCompressor {
         let container: OutputContainer
         let codec: VideoEncoding.Codec
         let mediaCodec: MediaCodec
+        let audioCodec: MediaCodec
         let limits: MediaLimits
         let target: Int64?
         let quality: Double
@@ -45,7 +46,7 @@ enum VideoCompressor {
         guard let target = destination.target else {
             let plan = TranscodePlan(
                 container: destination.container, video: .encode(encoding, edit),
-                audio: input.audio == nil ? nil : .encode(.aac, kilobits: audioKilobits[0]))
+                audio: input.audio == nil ? nil : .encode(destination.audioCodec, kilobits: audioKilobits[0]))
             let output = try await attempt(input, plan: plan, name: name, context: context)
             return result(output.url, name: name, original: url)
         }
@@ -77,7 +78,7 @@ enum VideoCompressor {
                 input.transform == .identity || destination.container.fileType != nil
             else { return nil }
             guard try await preservesProfile() else { return nil }
-            if input.audio == nil || input.audio?.codec == .aac {
+            if input.audio == nil || input.audio?.codec == destination.audioCodec {
                 let plan = TranscodePlan(
                     container: destination.container, video: .copy, audio: input.audio == nil ? nil : .copy)
                 if let output = try await accepted(plan) { return output }
@@ -85,7 +86,8 @@ enum VideoCompressor {
             if input.audio != nil {
                 for kilobits in audioKilobits {
                     let plan = TranscodePlan(
-                        container: destination.container, video: .copy, audio: .encode(.aac, kilobits: kilobits))
+                        container: destination.container, video: .copy,
+                        audio: .encode(destination.audioCodec, kilobits: kilobits))
                     if let output = try await accepted(plan) { return output }
                 }
             }
@@ -96,6 +98,7 @@ enum VideoCompressor {
             if destination.mediaCodec == .h264 {
                 return input.video?.codecPrivate?.dropFirst().first == h264HighProfile
             }
+            if destination.mediaCodec != .hevc { return true }
             if case .asset(_, let video?, _) = input.backend {
                 let format = try await video.load(.formatDescriptions).first
                 return format.map(CMFormatDescriptionGetMediaSubType) == kCMVideoCodecType_HEVC
@@ -129,7 +132,8 @@ enum VideoCompressor {
             async throws -> URL?
         {
             let audio: TranscodePlan.Audio? =
-                input.audio == nil ? nil : .encode(.aac, kilobits: audioKilobits[audioKilobits.count - 1])
+                input.audio == nil
+                ? nil : .encode(destination.audioCodec, kilobits: audioKilobits[audioKilobits.count - 1])
             let plan = TranscodePlan(container: destination.container, video: .encode(encoding, edit), audio: audio)
             let first = try await attempt(input, plan: plan, name: name, context: context)
             smallest = min(smallest, first.bytes)
@@ -167,19 +171,20 @@ enum VideoCompressor {
 
     private static func destination(_ goal: VideoCompression.Goal, input: MediaInput) throws -> Destination {
         var limits = MediaLimits()
-        let platform: Bool
+        var platformOutput:
+            (
+                container: OutputContainer, video: VideoEncoding.Codec, mediaCodec: MediaCodec, audio: MediaCodec
+            )? = nil
         let target: Int64?
         let quality: Double
         switch goal {
         case .bytes(let bytes):
-            platform = false
             target = bytes
             quality = defaultQuality
         case .quality(let requested):
             guard requested.isFinite, (0...1).contains(requested) else {
                 throw EngineError.invalidInput(.malformed("quality must be between zero and one"))
             }
-            platform = false
             target = nil
             quality = requested
         case .platform(let preset):
@@ -187,13 +192,16 @@ enum VideoCompressor {
                 throw EngineError.invalidInput(.malformed("preset has no video limits"))
             }
             limits = video
-            platform = true
+            platformOutput = video.videoOutput(source: input.container)
+            guard platformOutput != nil else { throw EngineError.invalidInput(.unsupportedVideoPreset) }
             target = video.targetBytes
             quality = video.quality.map { Double($0) / 100 } ?? defaultQuality
         }
-        let container: OutputContainer = platform ? .mp4 : input.container.holds(.hevc) ? input.container : .mp4
+        let container = platformOutput?.container ?? (input.container.holds(.hevc) ? input.container : .mp4)
+        let codec = platformOutput?.video ?? .hevc
         return Destination(
-            container: container, codec: platform ? .h264 : .hevc, mediaCodec: platform ? .h264 : .hevc,
+            container: container, codec: codec, mediaCodec: platformOutput?.mediaCodec ?? .hevc,
+            audioCodec: platformOutput?.audio ?? .aac,
             limits: limits, target: target, quality: quality)
     }
 

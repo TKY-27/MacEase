@@ -70,6 +70,47 @@ private func surroundAAC() throws -> URL {
     return input
 }
 
+private func extendedWave(_ magic: String, tableEntries: Int = 0) throws -> URL {
+    func littleEndian<T: FixedWidthInteger>(_ value: T) -> Data {
+        var encoded = value.littleEndian
+        return withUnsafeBytes(of: &encoded) { Data($0) }
+    }
+
+    let frameCount = 4_800
+    let pcm = Data((0..<frameCount).flatMap { _ in [UInt8(0), 0x10] })
+    let sizeChunkBytes = 28 + tableEntries * 12
+    var wave = Data(magic.utf8)
+    wave.append(littleEndian(UInt32.max))
+    wave.append(contentsOf: "WAVEds64".utf8)
+    wave.append(littleEndian(UInt32(sizeChunkBytes)))
+    wave.append(littleEndian(UInt64(12 + 8 + sizeChunkBytes + tableEntries * 8 + 24 + 8 + pcm.count - 8)))
+    wave.append(littleEndian(UInt64(pcm.count)))
+    wave.append(littleEndian(UInt64(frameCount)))
+    wave.append(littleEndian(UInt32(tableEntries)))
+    for _ in 0..<tableEntries {
+        wave.append(contentsOf: "JUNK".utf8)
+        wave.append(littleEndian(UInt64(0)))
+    }
+    for _ in 0..<tableEntries {
+        wave.append(contentsOf: "JUNK".utf8)
+        wave.append(littleEndian(UInt32.max))
+    }
+    wave.append(contentsOf: "fmt ".utf8)
+    wave.append(littleEndian(UInt32(16)))
+    wave.append(littleEndian(UInt16(1)))
+    wave.append(littleEndian(UInt16(1)))
+    wave.append(littleEndian(UInt32(48_000)))
+    wave.append(littleEndian(UInt32(96_000)))
+    wave.append(littleEndian(UInt16(2)))
+    wave.append(littleEndian(UInt16(16)))
+    wave.append(contentsOf: "data".utf8)
+    wave.append(littleEndian(UInt32.max))
+    wave.append(pcm)
+    let url = try TestVolume.makeFolder().appending(path: "extended.wav")
+    try wave.write(to: url)
+    return url
+}
+
 @Test(arguments: ["CHAP", "GEOB"])
 func audioReplacementRefusesID3Payload(frameID: String) async throws {
     let url = try await source("payload.mp3", format: .mp3)
@@ -174,6 +215,59 @@ private func channelEnergy(_ samples: [Float], channels: Int) -> [Double] {
 }
 
 @Suite struct AudioConvertTests {
+    @Test(arguments: ["missing ds64", "truncated table", "oversized chunk", "oversized table"])
+    func malformedExtendedWaveKeepsOriginal(damage: String) async throws {
+        let input = try extendedWave("RF64", tableEntries: damage == "oversized table" ? 4_097 : 0)
+        var waveBytes = try Data(contentsOf: input)
+        switch damage {
+        case "missing ds64": waveBytes.replaceSubrange(12..<16, with: "JUNK".utf8)
+        case "truncated table": waveBytes.replaceSubrange(44..<48, with: [1, 0, 0, 0])
+        case "oversized chunk": waveBytes.replaceSubrange(28..<36, with: [0, 0x27, 0, 0, 0, 0, 0, 0])
+        default: break
+        }
+        try waveBytes.write(to: input)
+
+        let result = try await run(.audioConvert, .convert(.aiff), on: input)
+
+        guard case .failed(.decodeFailed(_)) = result.outcome.outcomes.first else {
+            Issue.record("expected decode failure, got \(result.outcome.outcomes)")
+            return
+        }
+        if damage == "oversized chunk" {
+            #expect(result.outcome.outcomes == [.failed(.decodeFailed("audio chunk out of range"))])
+        }
+        if damage == "truncated table" || damage == "oversized table" {
+            #expect(result.outcome.outcomes == [.failed(.decodeFailed("invalid extended audio sizes"))])
+        }
+        #expect(FileManager.default.fileExists(atPath: input.path))
+        #expect(try Data(contentsOf: input) == waveBytes)
+    }
+
+    @Test(arguments: ["RF64", "BW64"])
+    func convertsExtendedWave(magic: String) async throws {
+        let input = try extendedWave(magic)
+        #expect(try ContentSniffer.matches(input, kind: .audio))
+        #expect(try AudioInput(url: input).frameCount == 4_800)
+
+        let result = try await run(.audioConvert, .convert(.aiff), on: input)
+
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        let (decoded, samples) = try AudioSignals.decode(output)
+        #expect(decoded.container == .aiff)
+        #expect(samples.count == 4_800)
+        #expect(samples.allSatisfy { $0 == 0.125 })
+    }
+
+    @Test func resolvesExtendedChunkTable() async throws {
+        let input = try extendedWave("RF64", tableEntries: 1)
+
+        let result = try await run(.audioConvert, .convert(.aiff), on: input)
+
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        let (_, samples) = try AudioSignals.decode(output)
+        #expect(samples.count == 4_800)
+    }
+
     @Test(arguments: [AudioFormat.mp3, .opus])
     func unsupportedSurroundEncoderKeepsOriginal(format: AudioFormat) async throws {
         let input = try await source(
@@ -386,6 +480,19 @@ private func channelEnergy(_ samples: [Float], channels: Int) -> [Double] {
 }
 
 @Suite struct AudioTrimTests {
+    @Test(arguments: ["RF64", "BW64"])
+    func trimsExtendedWave(magic: String) async throws {
+        let input = try extendedWave(magic)
+
+        let result = try await run(.audioTrim, .trim(start: 0.02, end: 0.06), on: input)
+
+        let output = try #require(result.output, "\(result.outcome.outcomes)")
+        let (decoded, samples) = try AudioSignals.decode(output)
+        #expect(decoded.container == .wave)
+        #expect(samples.count == 1_920)
+        #expect(samples.allSatisfy { $0 == 0.125 })
+    }
+
     @Test func surroundAACTrimKeepsCentreChannel() async throws {
         let input = try surroundAAC()
 

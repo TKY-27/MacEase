@@ -37,6 +37,27 @@ behavior exactly. Each item below keeps the closest behavior and is tested.
 - **Audio compress (8.3).** The in-house MP3 encoder offers 128, 192, 256 and
   320 kbps, so MP3 compression below 128 kbps writes AAC in M4A, the same
   fallback the section uses for lossless sources.
+- **RF64 and BW64 input (8.3).** AVAudioFile on macOS 27 reads generated
+  PCM RF64 and BW64 fixtures natively, including the `data` size sentinel.
+  Keep that decoder. Recognize both signatures and interpret the mandatory
+  first `ds64` chunk's 64-bit RIFF size, audio size and optional chunk-size
+  table during replacement preflight. Cap the table at 4,096 entries before
+  accumulation and check cancellation while reading it. Reject missing or
+  invalid sizes and out-of-file ranges before writing. Auxiliary content
+  refusal still applies.
+- **Encrypted PDFs (8.6).** Common opening rejects `isLocked`, not
+  `isEncrypted`. Owner-password-only PDFs can open unlocked while remaining
+  encrypted. Derived page images require `allowsPrinting`; Derived text,
+  merge, page extraction and split require `allowsCopying`. Compress and
+  rotate keep refusing encrypted inputs to avoid losing protection.
+- **Edited video presets (9).** Resolve the container from `formats`, keeping
+  a listed source or choosing the first entry. Honor the selected video and
+  audio codecs throughout compression, including target-size retries and
+  stream-copy candidates. Accept MP4, MOV and M4V with H.264 or HEVC and AAC;
+  WebM with VP9 and Opus; and MKV with H.264, HEVC or VP9 and AAC or Opus.
+  Reject unsupported tuples in Settings, preset persistence and execution.
+  Omitted formats default to MP4 and omitted codecs to H.264 and AAC.
+  WebM requires explicit VP9 and Opus selections.
 - **Natural-language requests (10).** Plans are one to three menu steps, an
   operation with one of its presets. Steps outside the selected kind or its
   presets are rejected with the reason.
