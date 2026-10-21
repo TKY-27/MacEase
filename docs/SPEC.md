@@ -425,9 +425,20 @@ xcframeworks into `Vendor/build/` (ignored by git, cached in CI).
 | libdeflate | MIT | Optimized DEFLATE for PNG and ZIP | CMake |
 | CFR | MIT | JAR decompilation (bundled `cfr.jar`, run with the user's Java) | Downloaded jar |
 
+Swift packages are pinned with `exact:` in `Packages/MacEaseKit/Package.swift`
+and recorded in the committed `Package.resolved`. Their license texts, checked
+against the pinned checkouts, live in `Vendor/licenses/`.
+
+| Package | Version | License | Purpose |
+| --- | --- | --- | --- |
+| swift-cmark (cmark-gfm 0.29.0.gfm.13) | 0.9.0 | BSD-2-Clause, with MIT-licensed parts | CommonMark and GFM Markdown to HTML |
+| Yams (bundles libyaml at `acd6f6f`) | 6.2.2 | MIT (Yams and libyaml) | YAML parsing and emitting |
+| TOMLKit (bundles toml++ 3.4.0) | 0.6.0 | MIT (TOMLKit and toml++) | TOML parsing and emitting |
+
 `scripts/generate-notices.sh` builds `THIRD_PARTY_NOTICES.txt` from
-`Vendor/deps.lock` and the license and patent files of each source. The app
-shows it in Settings > About.
+`Vendor/deps.lock`, the license and patent files of each source, and the Swift
+package licenses. It fails when `Package.resolved` disagrees with the versions
+it lists. The app shows it in Settings > About.
 
 **Source policy.** GPL, LGPL, and AGPL sources, including FFmpeg, LAME, gifski,
 pngquant, libimagequant, and Clop, may be read to study architecture and
@@ -881,7 +892,7 @@ protection (ADR 0010).
 | --- | --- | --- | --- |
 | `text.encoding` | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS | Transform | Input detection order: BOM, strict UTF-8, CP932, EUC-JP; ambiguous input asks in a panel; Shift_JIS means CP932 (`kCFStringEncodingDOSJapanese`) with the unmappable policy from settings |
 | `text.lineEndings` | LF, CRLF | Transform | Mixed endings are normalized |
-| `text.convert` | Source-appropriate TXT, CSV, JSON, XML, HTML, Markdown, PDF, property list, SRT, WebVTT targets (section 8.13) | Derived | CSV per RFC 4180 with delimiter detection among comma, semicolon, tab, and pipe, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
+| `text.convert` | Source-appropriate TXT, CSV, JSON, XML, HTML, Markdown, PDF, property list, YAML, TOML, SRT, WebVTT targets (section 8.13) | Derived | CSV per RFC 4180 with delimiter detection among comma, semicolon, tab, and pipe, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
 | `text.json` | Pretty print, Minify, Sort keys | Transform | Flat Pretty Print, Minify, Sort Keys leaves for JSON only. Deterministic sort options below; invalid JSON fails with line and column |
 
 `document.convert` exports DOCX, ODT, RTF, and RTFD to PDF or TXT.
@@ -925,6 +936,37 @@ scalar order. Input and output are capped at 8 MiB, traversal at 64 levels and
 100,000 values; JSON depth is checked before parsing. Foundation owns plist
 decoding, so these bounds do not promise a strict peak allocation ceiling inside
 the framework. Conversion reports that comments, order, and formatting are lost.
+
+Markdown renders to HTML or PDF with cmark-gfm: CommonMark plus the GFM table,
+strikethrough, autolink, tag filter, task list, and footnote extensions. Safe
+mode omits raw HTML, including scripts, and unsafe link schemes such as
+`javascript:`; every Markdown export reports this limit. HTML output is a UTF-8
+document titled with the file stem and has no styling. PDF passes that HTML
+through the restricted WebKit path above, with its offline and pagination
+limits. Markdown input is capped at 1 MiB because deeply nested blocks allocate
+far more memory than their source size; rendered HTML is capped at 8 MiB.
+
+YAML and TOML convert to and from JSON through the typed JSON model. YAML input
+uses the YAML 1.2 core schema, so `yes`, `on`, and dates stay strings. Integers
+keep their decimal digits, hexadecimal and octal forms become decimal, and
+floats must be finite. A libyaml event pass rejects more than 64 levels or
+100,000 values, counting the size and depth of every alias expansion, before
+Yams composes the document. Mapping keys must be strings; merge keys (`<<`) and
+explicit tags other than the core types fail with their path. Duplicate keys
+name the key; multi-document streams fail. JSON to YAML keeps key order and
+quotes strings that YAML 1.1 or 1.2 readers could retype. TOML input and JSON
+input for TOML output are limited to 1 MiB because TOMLKit 0.6.0 does not
+release its tables. TOML dates and times become their RFC 3339 text as JSON
+strings: offset date-times end in `Z` or `±hh:mm`, local forms have no offset,
+and fractional seconds keep up to nine digits. JSON strings never become TOML
+dates. TOML infinities and NaN fail. Because TOMLKit truncates strings at NUL,
+TOML input containing a NUL character or a `\u0000` or `\U00000000` spelling
+anywhere, including comments, fails. JSON to TOML requires an object root,
+refuses null, duplicate keys, integers outside signed 64-bit range, and reals
+that lose decimal precision as a Double or exceed the Foundation `Decimal`
+range, such as `1e300`, and writes keys in toml++ order. Both directions reuse
+the plist depth and value limits and write deterministic output. YAML and TOML
+outputs are reparsed, refusing any change in values.
 
 SRT and WebVTT conversion reuses the subtitle cue model and writers, preserving
 millisecond timing, overlapping cues, and multiline text. Inputs accept UTF-8 BOM
@@ -1131,13 +1173,15 @@ in sections 3.5 and 8.3. WMA is excluded from both A and the input list.
 | Text source | Structural or decoded-text targets |
 | --- | --- |
 | CSV | TXT, JSON, XML, HTML, Markdown. Structural targets require a header and at least one row. |
-| JSON | TXT, CSV, XML, binary property list, XML property list. CSV requires an array of flat objects. Property lists use the strict typed mapping in section 8.7. |
+| JSON | TXT, CSV, XML, binary property list, XML property list, YAML, TOML. CSV requires an array of flat objects. Property lists, YAML, and TOML use the strict typed mappings in section 8.7. |
 | XML | TXT, JSON, with the documented attribute/text mapping. |
 | INI, CFG, CONF | TXT, JSON, XML. CFG/CONF share INI key-value semantics. |
 | HTML, HTM | TXT preserving source text; TXT (Rendered) and PDF through restricted WebKit. |
 | SRT / VTT | TXT preserving source text; WebVTT / SRT within the plain-text subtitle subset. |
+| Markdown, MD | TXT preserving source text; HTML and PDF through cmark-gfm safe mode and restricted WebKit. |
+| YAML, YML, TOML | TXT preserving source text; JSON with the typed mappings in section 8.7. |
 | TXT, TEXT | Encoding and line-ending conversions; no redundant TXT target. |
-| Every other text extension in section 4.3 | TXT, preserving decoded content. This includes Markdown, TSV, YAML, TOML, and source code. |
+| Every other text extension in section 4.3 | TXT, preserving decoded content. This includes TSV and source code. |
 | Every classified text source | UTF-8, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS encoding; LF or CRLF endings. |
 | JSON only | Pretty Print, Minify, Sort Keys in the same extension. |
 
@@ -1472,6 +1516,10 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Add Markdown HTML/PDF through swift-cmark 0.9.0, YAML/JSON
+  through Yams 6.2.2, and TOML/JSON through TOMLKit 0.6.0 with exact pins,
+  committed resolution, generated notices, and bounded typed mappings (ADR 0014).
 
 - 2026-10-21: Add bounded document PDF/TXT, offline HTML PDF/rendered TXT,
   typed plist/JSON, and plain-text SRT/WebVTT conversions through Finder and

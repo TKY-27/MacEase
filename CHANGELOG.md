@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as single sizes or formats, alongside the extra rotation angle and the
   platform preset editor.
 - Reset All Settings in Settings > Advanced.
+- Text > Convert turns Markdown into HTML or PDF, YAML and TOML into JSON, and
+  JSON into YAML or TOML. Raw HTML and scripts in Markdown are left out, and
+  values that cannot convert exactly stop the conversion with their location.
 
 ### Changed
 
