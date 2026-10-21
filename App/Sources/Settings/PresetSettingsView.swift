@@ -13,22 +13,9 @@ struct PresetSettingsView: View {
     @State private var failure: String?
 
     let supportDirectory: URL
-    private static let rotationRange = -360.0...360.0
 
     var body: some View {
         Form {
-            Section {
-                Toggle(
-                    String(localized: "Show extra rotation angle", comment: "Extra rotation preset visibility"),
-                    isOn: $store.settings.extraRotationEnabled)
-                if store.settings.extraRotationEnabled {
-                    Stepper(
-                        String(
-                            localized: "Extra angle (degrees): \(store.settings.extraRotationDegrees.formatted())",
-                            comment: "Editable extra rotation angle"),
-                        value: $store.settings.extraRotationDegrees, in: Self.rotationRange)
-                }
-            }
             Section {
                 Picker("Preset", selection: $selectedID) {
                     ForEach(presets) { preset in

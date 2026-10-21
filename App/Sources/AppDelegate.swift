@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = SingleWindowPresenter { [unowned self] in
             SettingsWindow.make(
                 store: settings, notifier: notifier, jobs: jobs, supportDirectory: configuration.supportDirectory,
-                showOnboarding: { [weak self] in self?.onboardingWindow?.show() },
+                showWelcome: { [weak self] in self?.onboardingWindow?.show() },
                 rotateToken: { [weak self] in try self?.rotateToken() }
             )
         }
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func writeMenuFile() throws {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
-            visibleOperations: inputs, settings: settings.planning
+            visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning
         )
         menuInputs = inputs
     }
@@ -216,7 +216,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.settings.intelligence.aiEnabled
             && SystemLanguageModel.default.availability == .available
         return OperationID.allCases.filter { operation in
-            guard !settings.hiddenOperations.contains(operation) else { return false }
             switch operation.requirement {
             case .appleIntelligence: return aiAvailable
             case .java: return javaAvailable
