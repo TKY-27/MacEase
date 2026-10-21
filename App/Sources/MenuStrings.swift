@@ -13,6 +13,10 @@ enum MenuStrings {
             String(localized: "menu.op.video.hdrToSDR", defaultValue: "SDR")
         case .audioSubtitles:
             String(localized: "menu.op.audio.subtitles", defaultValue: "Subtitles")
+        case .documentConvert:
+            String(localized: "menu.op.document.convert", defaultValue: "Convert")
+        case .plistConvert:
+            String(localized: "menu.op.plist.convert", defaultValue: "Convert")
         default: lookup("menu.op.\(op.rawValue)")
         }
     }
@@ -29,6 +33,23 @@ enum MenuStrings {
             return String(localized: "menu.preset.custom-size", defaultValue: "Custom Size…")
         }
         switch (op, preset) {
+        case (.documentConvert, "pdf"), (.textConvert, "html-pdf"):
+            return String(localized: "menu.preset.document.convert.pdf", defaultValue: "PDF")
+        case (.documentConvert, "txt"):
+            return String(localized: "menu.preset.document.convert.txt", defaultValue: "TXT")
+        case (.textConvert, "html-txt"):
+            return String(localized: "menu.preset.text.convert.html-txt", defaultValue: "TXT (Rendered)")
+        case (.textConvert, "json-plist-xml"):
+            return String(localized: "menu.preset.text.convert.json-plist-xml", defaultValue: "Property List (XML)")
+        case (.textConvert, "json-plist-binary"):
+            return String(
+                localized: "menu.preset.text.convert.json-plist-binary", defaultValue: "Property List (Binary)")
+        case (.textConvert, "srt-vtt"):
+            return String(localized: "menu.preset.text.convert.srt-vtt", defaultValue: "WebVTT")
+        case (.textConvert, "vtt-srt"):
+            return String(localized: "menu.preset.text.convert.vtt-srt", defaultValue: "SRT")
+        case (.plistConvert, "json"):
+            return String(localized: "menu.preset.plist.convert.json", defaultValue: "JSON")
         case (.audioSubtitles, "srt"):
             return String(localized: "menu.preset.audio.subtitles.srt", defaultValue: "SRT")
         case (.audioSubtitles, "vtt"):
@@ -131,7 +152,11 @@ enum MenuStrings {
     }
 
     static func kind(_ kind: FileKind) -> String {
-        lookup("menu.kind.\(kind.rawValue)")
+        switch kind {
+        case .document: String(localized: "menu.kind.document", defaultValue: "Documents")
+        case .plist: String(localized: "menu.kind.plist", defaultValue: "Property Lists")
+        default: lookup("menu.kind.\(kind.rawValue)")
+        }
     }
 
     private static func lookup(_ key: String) -> String {

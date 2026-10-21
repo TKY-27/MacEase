@@ -41,10 +41,20 @@ public enum TextConversion: String, Codable, CaseIterable, Sendable {
     case xmlToJSON = "xml-json"
     case iniToJSON = "ini-json"
     case iniToXML = "ini-xml"
+    case htmlToPDF = "html-pdf"
+    case htmlToText = "html-txt"
+    case jsonToXMLPlist = "json-plist-xml"
+    case jsonToBinaryPlist = "json-plist-binary"
+    case srtToVTT = "srt-vtt"
+    case vttToSRT = "vtt-srt"
 
     var outputExtension: String {
         switch self {
-        case .toTXT: "txt"
+        case .toTXT, .htmlToText: "txt"
+        case .htmlToPDF: "pdf"
+        case .jsonToXMLPlist, .jsonToBinaryPlist: "plist"
+        case .srtToVTT: "vtt"
+        case .vttToSRT: "srt"
         case .csvToJSON, .xmlToJSON, .iniToJSON: "json"
         case .csvToXML, .jsonToXML, .iniToXML: "xml"
         case .csvToHTML: "html"
@@ -87,7 +97,7 @@ enum TextPlanner {
                         throw EngineError.invalidInput(.unsupportedFileType)
                     }
                 }
-                return try run(operation, on: url, settings: context.settings.text, context: context)
+                return try await run(operation, on: url, settings: context.settings.text, context: context)
             }
         }
         return Batch(operation: op, items: items)
@@ -98,8 +108,16 @@ enum TextPlanner {
         on url: URL,
         settings: TextSettings,
         context: ItemContext
-    ) throws -> ItemResult {
-        let input = try Data(contentsOf: url)
+    ) async throws -> ItemResult {
+        let input: Data
+        switch operation {
+        case .convert(.htmlToPDF, _), .convert(.htmlToText, _),
+            .convert(.jsonToXMLPlist, _), .convert(.jsonToBinaryPlist, _),
+            .convert(.srtToVTT, _), .convert(.vttToSRT, _):
+            input = try ConversionInput.read(url)
+        default:
+            input = try Data(contentsOf: url)
+        }
         switch operation {
         case .encoding(let target, let source):
             let decoded = try TextEncoding.decode(input, assuming: source)
@@ -115,11 +133,31 @@ enum TextPlanner {
             return try replace(url, input: input, output: Data(output.utf8), encoding: .utf8, context: context)
         case .convert(let conversion, let source):
             let title = url.deletingPathExtension().lastPathComponent
-            let output = try TextConverter.convert(input, conversion, settings: settings, title: title, source: source)
+            let bytes: Data
+            let check: OutputCheck
+            switch conversion {
+            case .htmlToPDF, .htmlToText:
+                let html = try TextEncoding.decode(input, assuming: source).text
+                bytes = try await HTMLDocument.convert(html, source: url, toPDF: conversion == .htmlToPDF)
+                check = conversion == .htmlToPDF ? .pdf : .text(.utf8)
+                context.warn(.htmlOfflineContent)
+            case .jsonToXMLPlist, .jsonToBinaryPlist:
+                bytes = try PropertyListConversion.plist(
+                    from: TextEncoding.decode(input, assuming: source).text,
+                    format: conversion == .jsonToXMLPlist ? .xml : .binary)
+                check = .plist
+                context.warn(.structuredTextFormattingLost)
+            default:
+                let output = try TextConverter.convert(
+                    input, conversion, settings: settings, title: title, source: source)
+                bytes = Data(output.utf8)
+                check = .text(.utf8)
+            }
+            try Task.checkCancellation()
             let name = "\(title).\(conversion.outputExtension)"
             let staged = try context.stagingURL(for: url, name: name)
-            try Data(output.utf8).write(to: staged)
-            return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .text(.utf8))])
+            try bytes.write(to: staged)
+            return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: check)])
         }
     }
 

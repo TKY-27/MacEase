@@ -38,6 +38,8 @@ enum OutputVerifier {
             guard let document = PDFDocument(url: file.url), document.pageCount > 0 else {
                 throw EngineError.encodeFailed("output PDF does not open")
             }
+        case .plist:
+            _ = try PropertyListSerialization.propertyList(from: Data(contentsOf: file.url), options: [], format: nil)
         case .text(let encoding):
             guard String(data: try Data(contentsOf: file.url), encoding: encoding) != nil else {
                 throw EngineError.encodeFailed("output text is not valid in its encoding")

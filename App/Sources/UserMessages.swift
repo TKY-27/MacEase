@@ -104,6 +104,20 @@ enum UserMessages {
 
     static func describe(_ warning: ItemWarning) -> String {
         switch warning {
+        case .documentLayoutChanged:
+            String(
+                localized:
+                    "Document conversion keeps basic text and formatting. Original pagination, fields, and revisions may change; TXT omits formatting and attachments."
+            )
+        case .htmlOfflineContent:
+            String(
+                localized:
+                    "HTML conversion disables scripts and external resources. PDF uses one continuous page; TXT keeps rendered text only."
+            )
+        case .structuredTextFormattingLost:
+            String(
+                localized:
+                    "Structured conversion preserves supported values, not comments, key order, or source formatting.")
         case .firstFrameOnly:
             String(localized: "Only the first frame was kept because the format has no animation.")
         case .pngOptimizationSkipped:

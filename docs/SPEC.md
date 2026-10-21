@@ -527,6 +527,8 @@ Selection rules:
 | video | mp4, m4v, mov, mkv, webm, avi, flv |
 | audio | mp3, m4a, aac, wav, aif, aiff, flac, ogg, oga, opus, caf |
 | pdf | pdf |
+| document | docx, odt, rtf, rtfd (including directory packages) |
+| plist | plist (binary or XML) |
 | text | txt, text, md, markdown, log, csv, tsv, ini, cfg, conf, json, xml, yaml, yml, toml, html, htm, css, js, mjs, cjs, ts, tsx, jsx, c, h, cpp, hpp, cc, hh, cs, java, kt, py, rb, go, rs, php, pl, lua, sh, bash, bat, cmd, ps1, psm1, sql, srt, vtt, asc, tex, rst, env, props, properties, gradle, cmake, m, mm, swift, vb, r, jl |
 | archive | zip, 7z, tar, gz, tgz, bz2, xz, rar, including compound tar.gz names |
 | jar | jar |
@@ -550,6 +552,7 @@ menus.
 | Videos | Resize; Trim…; Thumbnail; Subtitles; Compress; Rotate; Convert; Extract Audio; Frame Rate; Remove Audio; Background; separator; Ask Apple Intelligence… |
 | Audio | Convert; Subtitles; Compress; Normalize Loudness; Trim…; separator; Ask Apple Intelligence… |
 | PDFs | Merge…; Export as Images; Export as Text; Compress; Rotate; Extract Pages…; Split into Pages; separator; Rename with Apple Intelligence… |
+| Documents / Property Lists | Convert |
 | Text | Convert; Encoding; Line Endings; separator when JSON commands survive; Pretty Print; Minify; Sort Keys |
 | Folders | Compress; Rename…; Folder Tree; Analyze…; separator; Remove Duplicates… or Remove Duplicates under an automatic keep policy; Remove Empty Folders…; separator; Rename Contents with Apple Intelligence… |
 | Archives / JAR | Extract / Decompile |
@@ -878,8 +881,59 @@ protection (ADR 0010).
 | --- | --- | --- | --- |
 | `text.encoding` | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS | Transform | Input detection order: BOM, strict UTF-8, CP932, EUC-JP; ambiguous input asks in a panel; Shift_JIS means CP932 (`kCFStringEncodingDOSJapanese`) with the unmappable policy from settings |
 | `text.lineEndings` | LF, CRLF | Transform | Mixed endings are normalized |
-| `text.convert` | Source-appropriate TXT, CSV, JSON, XML, HTML, Markdown targets (section 8.13) | Derived | CSV per RFC 4180 with delimiter detection among comma, semicolon, tab, and pipe, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
+| `text.convert` | Source-appropriate TXT, CSV, JSON, XML, HTML, Markdown, PDF, property list, SRT, WebVTT targets (section 8.13) | Derived | CSV per RFC 4180 with delimiter detection among comma, semicolon, tab, and pipe, first row as header, strings unless type inference is on; XML→JSON maps attributes to `@name`, text to `#text`, repeated siblings to arrays; INI sections become objects and `;` and `#` start comments; JSON→CSV requires an array of flat objects and fails otherwise with the offending path |
 | `text.json` | Pretty print, Minify, Sort keys | Transform | Flat Pretty Print, Minify, Sort Keys leaves for JSON only. Deterministic sort options below; invalid JSON fails with line and column |
+
+`document.convert` exports DOCX, ODT, RTF, and RTFD to PDF or TXT.
+`plist.convert` exports binary or XML property lists to JSON. Both always use
+Derived commits, including when Replace is selected. HTML retains decoded
+source TXT and additionally offers **TXT (Rendered)** and **PDF**. New leaves
+run immediately without option panels. See ADR 0014.
+
+Document import uses AppKit attributed strings. PDF lays out the imported text
+and supported attachments on US Letter pages with 54 pt margins. This is basic
+rich-text reflow, not Office layout reproduction. Original page breaks, fields,
+revisions, comments, and complex tables can differ. TXT contains only the
+imported string. Every document export reports these fidelity limits. Ordinary
+files are capped at 8 MiB before import; ZIP document contents and RTFD packages
+are capped at 32 MiB and 1,024 entries. RTFD traversal is limited to 64 levels.
+Packages reject links and special files; ZIP entries must use safe relative paths.
+Imported text is capped at 1,000,000 UTF-16 units and PDF at 256 pages.
+
+HTML uses an ephemeral WKWebView with page JavaScript disabled. Content rules
+and response Content Security Policy block external and data-URL loads;
+a bounded custom scheme serves only static files
+inside the source's parent directory after resolving symbolic links. Arbitrary
+file URLs, embedded pages, and navigation are unavailable. Static resources
+are limited to CSS, images, and fonts, 256 requests, 8 MiB per file, and 32 MiB
+total. Rendering times out after 20 seconds. PDF uses one continuous WebKit page,
+not print pagination; each edge is at most 20,000 points and total area at most
+16,000,000 square points. Oversized layouts fail before PDF allocation. Rendered
+TXT uses visible body text. Exports report the offline and pagination limits.
+
+Property list conversion uses Foundation serialization and the existing strict
+JSON parser. Dates use `{"$maceaseType":"date","value":"<UTC ISO-8601 milliseconds>"}`;
+binary payloads use `{"$maceaseType":"data","value":"<canonical base64>"}`.
+A property-list dictionary containing `$maceaseType` is escaped as
+`{"$maceaseType":"dictionary","value":<original dictionary>}`. Other ambiguous
+reserved-tag objects fail. Booleans remain distinct from numbers. Integers must
+fit signed 64-bit storage; real numbers must be finite and retain their decimal
+value when written as a Double. JSON null, duplicate keys, unsupported precision,
+and dates that cannot retain milliseconds fail. XML output refuses fractional
+dates that Foundation would truncate. Keys in emitted JSON are sorted by Unicode
+scalar order. Input and output are capped at 8 MiB, traversal at 64 levels and
+100,000 values; JSON depth is checked before parsing. Foundation owns plist
+decoding, so these bounds do not promise a strict peak allocation ceiling inside
+the framework. Conversion reports that comments, order, and formatting are lost.
+
+SRT and WebVTT conversion reuses the subtitle cue model and writers, preserving
+millisecond timing, overlapping cues, and multiline text. Inputs accept UTF-8 BOM
+and CRLF. WebVTT also accepts minute-only timestamps. The bounded plain-text
+subset refuses cue settings, identifiers other than sequential SRT numbers,
+NOTE/STYLE/REGION blocks, markup, and decoded text that would become SRT markup.
+The error names the unsupported feature rather than silently dropping styling.
+Inputs are capped at 8 MiB, 100,000 cues, 65,536 characters per line, and 9,999
+hours per timestamp.
 
 **Text semantics.** Derive-to-TXT copies decoded content without interpreting
 Markdown, HTML, scripts, or source code. It always preserves the source, uses
@@ -1077,11 +1131,13 @@ in sections 3.5 and 8.3. WMA is excluded from both A and the input list.
 | Text source | Structural or decoded-text targets |
 | --- | --- |
 | CSV | TXT, JSON, XML, HTML, Markdown. Structural targets require a header and at least one row. |
-| JSON | TXT, CSV, XML. CSV requires an array of flat objects. |
+| JSON | TXT, CSV, XML, binary property list, XML property list. CSV requires an array of flat objects. Property lists use the strict typed mapping in section 8.7. |
 | XML | TXT, JSON, with the documented attribute/text mapping. |
 | INI, CFG, CONF | TXT, JSON, XML. CFG/CONF share INI key-value semantics. |
+| HTML, HTM | TXT preserving source text; TXT (Rendered) and PDF through restricted WebKit. |
+| SRT / VTT | TXT preserving source text; WebVTT / SRT within the plain-text subtitle subset. |
 | TXT, TEXT | Encoding and line-ending conversions; no redundant TXT target. |
-| Every other text extension in section 4.3 | TXT, preserving decoded content. This includes Markdown, HTML, TSV, YAML, TOML, subtitles, and source code. |
+| Every other text extension in section 4.3 | TXT, preserving decoded content. This includes Markdown, TSV, YAML, TOML, and source code. |
 | Every classified text source | UTF-8, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS encoding; LF or CRLF endings. |
 | JSON only | Pretty Print, Minify, Sort Keys in the same extension. |
 
@@ -1092,6 +1148,8 @@ Any unsupported mapping fails with an offending path rather than dropping values
 
 | Other sources | Target pairs |
 | --- | --- |
+| DOCX, ODT, RTF, RTFD | PDF and TXT through bounded AppKit import; always Derived. |
+| Binary/XML plist | JSON with typed dates and base64 payloads; always Derived. |
 | PDF | PNG or JPEG pages, TXT; selected pages to PDF; one PDF per page; two or more PDFs to merged PDF. Exports always derive. |
 | Selected images | One PDF through Make PDF; icon files or an AppIcon set through Make Icon. These exports always derive. |
 | Selected folders | ZIP, 7z, TAR, tar.gz, one archive per root; explicit aggregate creation retains section 8.4 behavior. |
@@ -1414,6 +1472,11 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Add bounded document PDF/TXT, offline HTML PDF/rendered TXT,
+  typed plist/JSON, and plain-text SRT/WebVTT conversions through Finder and
+  Derived commits. Document fidelity, resource, and mapping limits (ADR 0014).
+  Markdown HTML/PDF and YAML/TOML mappings await verified package integration.
 
 - 2026-10-21: Implement U5 engine settings for verified duplicate filters and
   automatic Trash retention, shared feature exclusions, OCR encodings and

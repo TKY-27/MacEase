@@ -54,6 +54,7 @@ public enum OutputCheck: Sendable {
     case audio
     case archive
     case pdf
+    case plist
     case text(String.Encoding)
     case svg
     case folder
@@ -103,6 +104,9 @@ public enum ItemWarning: Equatable, Sendable {
     case hdrProvenanceUnknown
     case dolbyVisionRemoved
     case unmappableCharactersReplaced
+    case documentLayoutChanged
+    case htmlOfflineContent
+    case structuredTextFormattingLost
 }
 
 public final class ItemContext: Sendable {

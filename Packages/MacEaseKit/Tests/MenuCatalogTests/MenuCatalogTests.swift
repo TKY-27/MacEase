@@ -264,14 +264,26 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(presets(.audioConvert, ["a.mp3", "b.wav"]).contains("mp3"))
     }
 
-    @Test(arguments: [
+    private static let textTargets: [(String, Set<String>)] = [
         ("csv", Set(["csv-json", "csv-xml", "csv-html", "csv-md", "txt"])),
-        ("json", Set(["json-csv", "json-xml", "txt"])), ("xml", Set(["xml-json", "txt"])),
+        ("json", Set(["json-csv", "json-xml", "json-plist-xml", "json-plist-binary", "txt"])),
+        ("xml", Set(["xml-json", "txt"])),
+        ("html", Set(["html-pdf", "html-txt", "txt"])), ("htm", Set(["html-pdf", "html-txt", "txt"])),
+        ("srt", Set(["srt-vtt", "txt"])), ("vtt", Set(["vtt-srt", "txt"])),
         ("cfg", Set(["ini-json", "ini-xml", "txt"])), ("tsv", Set(["txt"])),
         ("swift", Set(["txt"])), ("txt", Set<String>()), ("text", Set<String>()),
-    ])
+    ]
+
+    @Test(arguments: textTargets)
     func textOffersOnlySourceTargets(source: String, expected: Set<String>) {
         #expect(presets(.textConvert, ["a.\(source)"]) == expected)
+    }
+
+    @Test func documentAndPropertyListExportsAppearInTheCatalog() {
+        for suffix in ["docx", "odt", "rtf", "rtfd"] {
+            #expect(presets(.documentConvert, ["source.\(suffix)"]) == ["pdf", "txt"])
+        }
+        #expect(presets(.plistConvert, ["source.plist"]) == ["json"])
     }
 
     @Test func structuralTextRequiresOneCanonicalSourceFormat() {

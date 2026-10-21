@@ -64,6 +64,9 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case textConvert = "text.convert"
     case textJSON = "text.json"
 
+    case documentConvert = "document.convert"
+    case plistConvert = "plist.convert"
+
     case jarDecompile = "jar.decompile"
 
     case anyChecksum = "any.checksum"
@@ -77,6 +80,8 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
         case "archive": .archive
         case "pdf": .pdf
         case "text": .text
+        case "document": .document
+        case "plist": .plist
         case "jar": .jar
         default: .any
         }
@@ -118,8 +123,10 @@ extension OperationID {
         case .textConvert:
             [
                 "csv-json", "csv-xml", "csv-html", "csv-md", "json-csv", "json-xml", "xml-json", "ini-json",
-                "ini-xml", "txt",
+                "ini-xml", "html-pdf", "html-txt", "json-plist-xml", "json-plist-binary", "srt-vtt", "vtt-srt", "txt",
             ]
+        case .documentConvert: ["pdf", "txt"]
+        case .plistConvert: ["json"]
         case .textJSON: ["pretty", "minify", "sort"]
         case .anyChecksum: ["sha256", "md5", "sha1", "sha512"]
         default: []
@@ -177,7 +184,7 @@ extension OperationID {
         .videoFPS, .videoRemoveAudio, .videoBackground, .videoAICustom,
         .audioConvert, .audioSubtitles, .audioCompress, .audioNormalize, .audioTrim, .audioAICustom,
         .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit, .pdfAIRename,
-        .textConvert, .textEncoding, .textLineEndings, .textJSON,
+        .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
         .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
         .folderRemoveEmpty, .folderAIRename, .archiveExtract, .jarDecompile, .anyChecksum,
     ]

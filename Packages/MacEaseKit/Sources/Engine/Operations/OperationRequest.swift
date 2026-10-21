@@ -28,6 +28,8 @@ public enum OperationPlanner {
         case .archive: ArchivePlanner.options(for: op, preset: preset).map(OperationOptions.archive)
         case .pdf: PDFPlanner.operation(for: op, preset: preset, settings: settings).map(OperationOptions.pdf)
         case .text: TextPlanner.operation(for: op, preset: preset).map(OperationOptions.text)
+        case .document: preset.flatMap(DocumentOutput.init(rawValue:)).map(OperationOptions.document)
+        case .plist: preset == "json" ? .plistToJSON : nil
         case .jar: JARDecompiler.bundledOperation.map(OperationOptions.jar)
         case .audio: AudioPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.audio)
         case .image: ImagePlanner.operation(for: op, preset: preset, settings: settings).map(OperationOptions.image)
@@ -130,6 +132,10 @@ public enum OperationPlanner {
             return PDFPlanner.batch(operation, op: request.op, inputs: inputs)
         case .text(let operation):
             return TextPlanner.batch(operation, op: request.op, inputs: inputs)
+        case .document(let output):
+            return DocumentPlanner.batch(output, inputs: inputs)
+        case .plistToJSON:
+            return DocumentPlanner.propertyLists(inputs: inputs)
         case .jar(let operation):
             return JARDecompiler.batch(operation, op: request.op, inputs: inputs)
         case .audio(let operation):
@@ -166,7 +172,8 @@ public enum OperationPlanner {
         WorkItem(inputs: urls, lane: lane) { context in
             for url in urls {
                 let values = try ContentSniffer.inputValues(url)
-                if kind != .folder, values.isDirectory == true { return .skipped(.isDirectory) }
+                let richTextPackage = kind == .document && url.pathExtension.lowercased() == "rtfd"
+                if kind != .folder, values.isDirectory == true, !richTextPackage { return .skipped(.isDirectory) }
                 guard try ContentSniffer.matches(url, kind: kind) else {
                     return .skipped(.kindMismatch(expected: kind))
                 }

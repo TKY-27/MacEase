@@ -5,6 +5,8 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
     case video
     case audio
     case pdf
+    case document
+    case plist
     case text
     case archive
     case jar
@@ -20,6 +22,8 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
             .video: ["mp4", "m4v", "mov", "mkv", "webm", "avi", "flv"],
             .audio: ["mp3", "m4a", "aac", "wav", "aif", "aiff", "flac", "ogg", "oga", "opus", "caf"],
             .pdf: ["pdf"],
+            .document: ["docx", "odt", "rtf", "rtfd"],
+            .plist: ["plist"],
             .text: [
                 "txt", "text", "md", "markdown", "log", "csv", "tsv", "ini", "cfg", "conf", "json", "xml",
                 "yaml", "yml", "toml", "html", "htm", "css", "js", "mjs", "cjs", "ts", "tsx", "jsx",
@@ -78,5 +82,7 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    public static let menuOrder: [FileKind] = [.image, .video, .audio, .pdf, .text, .archive, .jar, .folder, .any]
+    public static let menuOrder: [FileKind] = [
+        .image, .video, .audio, .pdf, .document, .text, .plist, .archive, .jar, .folder, .any,
+    ]
 }

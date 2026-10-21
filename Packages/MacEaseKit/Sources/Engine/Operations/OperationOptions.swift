@@ -17,6 +17,8 @@ public enum OperationOptions: Codable, Hashable, Sendable {
     case archive(ArchiveOperation)
     case pdf(PDFOperation)
     case text(TextOperation)
+    case document(DocumentOutput)
+    case plistToJSON
     case jar(JAROperation)
     case audio(AudioOperation)
     case image(ImageOperation)

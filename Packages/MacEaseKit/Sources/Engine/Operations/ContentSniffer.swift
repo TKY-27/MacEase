@@ -19,6 +19,7 @@ enum ContentSniffer {
         switch kind {
         case .folder: return isFolder
         case .any: return values.isDirectory != true
+        case .document where url.pathExtension.lowercased() == "rtfd": return values.isDirectory == true
         default: break
         }
         guard values.isDirectory != true else { return false }
@@ -30,6 +31,13 @@ enum ContentSniffer {
         case .video: return isVideo(header)
         case .audio: return isAudio(header)
         case .pdf: return isPDF(header)
+        case .document:
+            switch url.pathExtension.lowercased() {
+            case "docx", "odt": return isZip(header)
+            case "rtf": return starts(header, with: ascii("{\\rtf"))
+            default: return false
+            }
+        case .plist: return starts(header, with: ascii("bplist00")) || isText(header)
         case .text: return isText(header)
         case .archive: return isArchive(header)
         case .jar: return isZip(header)

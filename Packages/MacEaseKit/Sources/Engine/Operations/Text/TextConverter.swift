@@ -15,6 +15,10 @@ enum TextConverter {
         let indent = settings.jsonIndent.unit
         switch conversion {
         case .toTXT: return try text()
+        case .srtToVTT: return try SubtitleConversion.convert(text(), fromVTT: false)
+        case .vttToSRT: return try SubtitleConversion.convert(text(), fromVTT: true)
+        case .htmlToPDF, .htmlToText, .jsonToXMLPlist, .jsonToBinaryPlist:
+            throw EngineError.invalidInput(.unsupportedFileType)
         case .csvToJSON:
             let objects = try CSVTable(parsing: text()).objects(inferringTypes: settings.csvTypeInference)
             return objects.serialized(indent: indent) + "\n"

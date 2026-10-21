@@ -45,6 +45,19 @@ Environment: macOS 27.0.1 (26A434), Apple Silicon, Xcode 27.1.
 | Which RGB auxiliary input does ImageIO write? | Packed `24RGB` finalizes for JPEG and HEIC. `32RGBA` fails finalization. Both were tested with the original ISO calibration and color space. |
 | Are pointwise RGB comparisons stable after resizing? | No. RGB ISO re-encoding produced 20–21 levels of error at a color edge, while surrounding errors were smaller. Verification keeps the 16-level threshold over 3-by-3 mean absolute RGB errors; monochrome remains pointwise. |
 
+## Document conversion boundaries (2026-10-21)
+
+Environment: macOS 27.0.1 (26A434), Apple Silicon, Swift 6.4, macOS 26 target.
+Verified with generated fixtures in the package's document and plist tests.
+
+| Question | Result |
+| --- | --- |
+| Does a WebKit content rule blocking every URL also block data-URL stylesheets? | No. A data-URL stylesheet still hid the test text. A response Content Security Policy allowing only the custom local scheme blocked it while local CSS continued working. |
+| Does disabling page JavaScript still allow host text extraction? | Yes. Inline page scripts did not change the text; host `evaluateJavaScript` returned the visible UTF-8 body text. |
+| Does XML plist serialization retain fractional dates? | No. Binary output retained milliseconds; XML truncated them. The conversion compares typed values after serialization and rejects that loss. |
+| Can `CFEqual` validate Boolean and numeric distinctions? | No. It equates NSNumber representations of true, 1, and 1.0. Typed canonical JSON comparisons preserve the distinction. |
+| Are PDF thumbnail color thresholds independent of profiles? | No. The fixture's green component became 0.343 after thumbnail-to-deviceRGB conversion. Direct CGPDF drawing into an explicit sRGB RGBA bitmap retained 576 red samples under the unchanged thresholds. |
+
 ## Release checklist (manual, run on macOS 26.x and 27.x)
 
 1. Install the DMG on a clean user account, clear quarantine with Open Anyway,

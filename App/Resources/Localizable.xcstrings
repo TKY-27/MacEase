@@ -1262,6 +1262,16 @@
         }
       }
     },
+    "Document conversion keeps basic text and formatting. Original pagination, fields, and revisions may change; TXT omits formatting and attachments.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書類の変換では基本的なテキストと書式を保持します。元のページ割り、フィールド、変更履歴は変わることがあります。TXT には書式と添付ファイルは含まれません。"
+          }
+        }
+      }
+    },
     "Done": {
       "comment": "Panel button",
       "localizations": {
@@ -1864,6 +1874,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "アルファチャンネル付き HEVC (MOV)"
+          }
+        }
+      }
+    },
+    "HTML conversion disables scripts and external resources. PDF uses one continuous page; TXT keeps rendered text only.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTML の変換ではスクリプトと外部リソースを無効にします。PDF は 1 枚の連続したページになり、TXT には表示されるテキストだけが含まれます。"
           }
         }
       }
@@ -3940,6 +3960,16 @@
         }
       }
     },
+    "Structured conversion preserves supported values, not comments, key order, or source formatting.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構造化データの変換では対応する値を保持しますが、コメント、キーの順序、元の書式は保持しません。"
+          }
+        }
+      }
+    },
     "Subject": {
       "comment": "Foreground mask choice",
       "localizations": {
@@ -4869,6 +4899,23 @@
         }
       }
     },
+    "menu.kind.document": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書類"
+          }
+        }
+      }
+    },
     "menu.kind.folder": {
       "extractionState": "manual",
       "localizations": {
@@ -4933,6 +4980,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "PDF"
+          }
+        }
+      }
+    },
+    "menu.kind.plist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Property Lists"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロパティリスト"
           }
         }
       }
@@ -5103,6 +5167,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トリミング…"
+          }
+        }
+      }
+    },
+    "menu.op.document.convert": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換"
           }
         }
       }
@@ -5630,6 +5711,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキストとして書き出す"
+          }
+        }
+      }
+    },
+    "menu.op.plist.convert": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convert"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換"
           }
         }
       }
@@ -6395,6 +6493,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムサイズ…"
+          }
+        }
+      }
+    },
+    "menu.preset.document.convert.pdf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF"
+          }
+        }
+      }
+    },
+    "menu.preset.document.convert.txt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TXT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TXT"
           }
         }
       }
@@ -7470,6 +7602,23 @@
         }
       }
     },
+    "menu.preset.plist.convert.json": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON"
+          }
+        }
+      }
+    },
     "menu.preset.rotate.extra-angle": {
       "extractionState": "manual",
       "localizations": {
@@ -7555,6 +7704,23 @@
         }
       }
     },
+    "menu.preset.text.convert.html-txt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TXT (Rendered)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TXT (表示どおり)"
+          }
+        }
+      }
+    },
     "menu.preset.text.convert.ini-json": {
       "extractionState": "manual",
       "localizations": {
@@ -7606,6 +7772,40 @@
         }
       }
     },
+    "menu.preset.text.convert.json-plist-binary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Property List (Binary)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロパティリスト (バイナリ)"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.json-plist-xml": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Property List (XML)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロパティリスト (XML)"
+          }
+        }
+      }
+    },
     "menu.preset.text.convert.json-xml": {
       "extractionState": "manual",
       "localizations": {
@@ -7619,6 +7819,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "JSON → XML"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.srt-vtt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebVTT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebVTT"
           }
         }
       }
@@ -7721,6 +7938,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "XML"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.vtt-srt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SRT"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SRT"
           }
         }
       }
