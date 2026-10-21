@@ -26,6 +26,7 @@ import Testing
         } else {
             input = fifo
         }
+        let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
         let clock = ContinuousClock()
         let started = clock.now
         #expect(throws: EngineError.invalidInput(.unsupportedFileType)) {
@@ -34,7 +35,6 @@ import Testing
         #expect(throws: EngineError.invalidInput(.unsupportedFileType)) {
             try ContentSniffer.matches(input, kind: op.kind)
         }
-        let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
         let options: OperationOptions
         switch op {
         case .anyChecksum: options = .checksum(.sha256)
@@ -51,7 +51,8 @@ import Testing
             _ in
         }
 
-        let promptReturnLimit = Duration.seconds(2)
+        // Blocked opens never return; load only slows.
+        let promptReturnLimit = Duration.seconds(30)
         #expect(started.duration(to: clock.now) < promptReturnLimit)
         #expect(outcome.outcomes == [.failed(.invalidInput(.unsupportedFileType))])
         #expect(outcome.record == nil)

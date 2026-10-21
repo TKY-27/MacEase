@@ -171,9 +171,11 @@ enum Transcoder {
         }
         guard var demuxer = try input.demuxer else { return time }
         var keyframe: Int64 = 0
-        while let packet = try demuxer.nextPacket(), packet.timestamp <= time {
+        while let packet = try demuxer.nextPacket() {
             try Task.checkCancellation()
-            if packet.track == video.number, packet.isKeyframe { keyframe = packet.timestamp }
+            if packet.track == video.number, packet.isKeyframe, packet.timestamp <= time {
+                keyframe = max(keyframe, packet.timestamp)
+            }
         }
         return keyframe
     }
@@ -257,7 +259,7 @@ final class PacketCopyStage: StreamStage {
             }
             guard packet.timestamp >= start || isVideo else { continue }
             if isVideo, !seenKeyframe {
-                guard packet.isKeyframe else { continue }
+                guard packet.isKeyframe, packet.timestamp >= start else { continue }
                 seenKeyframe = true
             }
             window.append(packet)
