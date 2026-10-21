@@ -9,6 +9,7 @@ struct FileCommitter: Sendable {
 
     enum Failure: Error {
         case changedSinceScan
+        case destinationOccupied
         case noTrash
     }
 
@@ -41,51 +42,61 @@ struct FileCommitter: Sendable {
             let keepsName = output.name == original.lastPathComponent
             let changesCase = try Self.isCaseOnlyChange(
                 from: original.lastPathComponent, to: output.name, in: directory)
-            let destination =
-                keepsName
-                ? original
-                : changesCase
-                    ? directory.appending(path: output.name)
-                    : try AvailableName.url(for: output.name, in: directory)
-            do {
-                return try coordinate(replacing: original, destination: destination) { target, final in
-                    guard try FileStamp(of: target) == expectedStamp else { throw Failure.changedSinceScan }
-                    let attributes = try FinderAttributes(of: target)
-                    try Task.checkCancellation()
-                    try attributes.apply(to: output.url)
-                    if keepsName || changesCase {
-                        let kept = try replaceKeepingName(
-                            original: target, output: output, cloneDirectory: cloneDirectory)
-                        if changesCase {
-                            do {
-                                try FileManager.default.moveItem(at: target, to: final)
-                            } catch {
-                                logger.error(
-                                    "Case change failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
-                                )
-                                return replaced(output: target, trashed: kept, warning: .outputNameUnchanged)
+            var nextCandidate = 1
+            while true {
+                try Task.checkCancellation()
+                let destination =
+                    keepsName
+                    ? original
+                    : changesCase
+                        ? directory.appending(path: output.name)
+                        : try AvailableName.url(for: output.name, in: directory, nextCandidate: &nextCandidate)
+                do {
+                    return try coordinate(replacing: original, destination: destination) { target, final in
+                        guard try FileStamp(of: target) == expectedStamp else { throw Failure.changedSinceScan }
+                        let attributes = try FinderAttributes(of: target)
+                        try Task.checkCancellation()
+                        try attributes.apply(to: output.url)
+                        if keepsName || changesCase {
+                            let kept = try replaceKeepingName(
+                                original: target, output: output, cloneDirectory: cloneDirectory)
+                            if changesCase {
+                                do {
+                                    try FileManager.default.moveItem(at: target, to: final)
+                                } catch {
+                                    logger.error(
+                                        "Case change failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                                    )
+                                    return replaced(output: target, trashed: kept, warning: .outputNameUnchanged)
+                                }
                             }
+                            return replaced(output: final, trashed: kept, warning: nil)
                         }
-                        return replaced(output: final, trashed: kept, warning: nil)
-                    }
-                    try FileManager.default.moveItem(at: output.url, to: final)
-                    do {
-                        return replaced(output: final, trashed: try trashForHistory(target), warning: nil)
-                    } catch let error as CocoaError where error.code == .featureUnsupported {
-                        return replaced(output: final, trashed: nil, warning: .keptAsDerived)
-                    } catch {
                         do {
-                            try FileManager.default.moveItem(at: final, to: output.url)
-                        } catch {
-                            return replaced(output: final, trashed: nil, warning: .originalKept)
+                            try FileManager.default.moveItem(at: output.url, to: final)
+                        } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                            throw Failure.destinationOccupied
                         }
-                        throw error
+                        do {
+                            return replaced(output: final, trashed: try trashForHistory(target), warning: nil)
+                        } catch let error as CocoaError where error.code == .featureUnsupported {
+                            return replaced(output: final, trashed: nil, warning: .keptAsDerived)
+                        } catch {
+                            do {
+                                try FileManager.default.moveItem(at: final, to: output.url)
+                            } catch {
+                                return replaced(output: final, trashed: nil, warning: .originalKept)
+                            }
+                            throw error
+                        }
                     }
+                } catch Failure.destinationOccupied {
+                    continue
+                } catch Failure.noTrash {
+                    let committed = try coordinatedMove(output.url, toAvailableNameIn: directory, named: output.name)
+                    return Replaced(
+                        output: committed.output, stamp: committed.stamp, trashed: nil, warning: .keptAsDerived)
                 }
-            } catch Failure.noTrash {
-                let derived = try AvailableName.url(for: output.name, in: directory)
-                let committed = try coordinate(moving: output.url, to: derived)
-                return Replaced(output: committed.output, stamp: committed.stamp, trashed: nil, warning: .keptAsDerived)
             }
         }
     }
@@ -128,9 +139,11 @@ struct FileCommitter: Sendable {
         try await OutputVerifier.verify(output)
         if let expectedStamp {
             return try Self.namingLock.withLock { _ in
+                var nextCandidate = 1
                 while true {
                     try Task.checkCancellation()
-                    let destination = try AvailableName.url(for: output.name, in: original.deletingLastPathComponent())
+                    let destination = try AvailableName.url(
+                        for: output.name, in: original.deletingLastPathComponent(), nextCandidate: &nextCandidate)
                     do {
                         return try coordinate(reading: original, writing: destination, options: .forReplacing) {
                             source, final in
@@ -138,29 +151,33 @@ struct FileCommitter: Sendable {
                             let attributes = try FinderAttributes(of: source)
                             try Task.checkCancellation()
                             try attributes.apply(to: output.url)
-                            try FileManager.default.moveItem(at: output.url, to: final)
+                            do {
+                                try FileManager.default.moveItem(at: output.url, to: final)
+                            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                                throw Failure.destinationOccupied
+                            }
                             return Committed(output: final, stamp: outputStamp(of: final))
                         }
-                    } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                    } catch Failure.destinationOccupied {
                         continue
                     }
                 }
             }
         }
-        return try coordinatedMove(
-            output.url, toAvailableNameIn: original.deletingLastPathComponent(), named: output.name)
+        return try Self.namingLock.withLock { _ in
+            try coordinatedMove(output.url, toAvailableNameIn: original.deletingLastPathComponent(), named: output.name)
+        }
     }
 
     func rename(_ url: URL, to newName: String) throws -> Committed {
         try Self.namingLock.withLock { _ in
             try Task.checkCancellation()
             let directory = url.deletingLastPathComponent()
-            let destination =
-                try Self.isCaseOnlyChange(from: url.lastPathComponent, to: newName, in: directory)
-                ? directory.appending(path: newName)
-                : try AvailableName.url(for: newName, in: directory)
-            return try coordinate(
-                moving: url, to: destination, includingIdentity: true)
+            if try Self.isCaseOnlyChange(from: url.lastPathComponent, to: newName, in: directory) {
+                return try coordinate(
+                    moving: url, to: directory.appending(path: newName), includingIdentity: true)
+            }
+            return try coordinatedMove(url, toAvailableNameIn: directory, named: newName, includingIdentity: true)
         }
     }
 
@@ -359,12 +376,19 @@ struct FileCommitter: Sendable {
         return values.volumeSupportsCaseSensitiveNames == false
     }
 
-    private func coordinatedMove(_ source: URL, toAvailableNameIn directory: URL, named name: String) throws
-        -> Committed
-    {
-        try Self.namingLock.withLock { _ in
-            let destination = try AvailableName.url(for: name, in: directory)
-            return try coordinate(moving: source, to: destination)
+    private func coordinatedMove(
+        _ source: URL, toAvailableNameIn directory: URL, named name: String, includingIdentity: Bool = false
+    ) throws -> Committed {
+        var nextCandidate = 1
+        while true {
+            try Task.checkCancellation()
+            let destination = try AvailableName.url(for: name, in: directory, nextCandidate: &nextCandidate)
+            do {
+                return try coordinate(
+                    moving: source, to: destination, includingIdentity: includingIdentity, retryOnCollision: true)
+            } catch Failure.destinationOccupied {
+                continue
+            }
         }
     }
 
@@ -435,7 +459,7 @@ struct FileCommitter: Sendable {
 
     private func coordinate(
         moving source: URL, to destination: URL,
-        includingIdentity: Bool = false
+        includingIdentity: Bool = false, retryOnCollision: Bool = false
     ) throws -> Committed {
         var coordinationError: NSError?
         var result: Result<Committed, any Error>?
@@ -448,11 +472,22 @@ struct FileCommitter: Sendable {
         ) { from, to in
             result = Result {
                 try Task.checkCancellation()
-                try FileManager.default.moveItem(at: from, to: to)
+                do {
+                    try FileManager.default.moveItem(at: from, to: to)
+                } catch let error as CocoaError where retryOnCollision && error.code == .fileWriteFileExists {
+                    throw Failure.destinationOccupied
+                }
                 return Committed(output: to, stamp: outputStamp(of: to, includingIdentity: includingIdentity))
             }
         }
-        if let coordinationError { throw coordinationError }
+        if let coordinationError {
+            if retryOnCollision, result == nil, coordinationError.domain == NSCocoaErrorDomain,
+                coordinationError.code == NSFileWriteFileExistsError
+            {
+                throw Failure.destinationOccupied
+            }
+            throw coordinationError
+        }
         guard let result else { throw EngineError.commitFailed("Coordination did not run") }
         return try result.get()
     }
@@ -463,18 +498,36 @@ enum AvailableName {
     private static let compoundExtensions = ["tar.gz", "tar.bz2", "tar.xz", "tar.zst"]
 
     static func url(for name: String, in directory: URL) throws -> URL {
-        directory.appending(
-            path: available(name) { FileManager.default.fileExists(atPath: directory.appending(path: $0).path) })
+        var nextCandidate = 1
+        return try url(for: name, in: directory, nextCandidate: &nextCandidate)
     }
 
-    static func available(_ name: String, isTaken: (String) -> Bool) -> String {
+    static func url(for name: String, in directory: URL, nextCandidate: inout Int) throws -> URL {
+        directory.appending(
+            path: try available(name, nextCandidate: &nextCandidate) { candidate in
+                try Task.checkCancellation()
+                let path = directory.appending(path: candidate).path
+                var metadata = stat()
+                if lstat(path, &metadata) == 0 { return true }
+                if errno == ENOENT { return false }
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: path])
+            })
+    }
+
+    static func available(_ name: String, isTaken: (String) throws -> Bool) rethrows -> String {
+        var nextCandidate = 1
+        return try available(name, nextCandidate: &nextCandidate, isTaken: isTaken)
+    }
+
+    private static func available(
+        _ name: String, nextCandidate: inout Int, isTaken: (String) throws -> Bool
+    ) rethrows -> String {
         let (base, pathExtension) = split(name)
-        var counter = 1
         while true {
-            let candidate = counter == 1 ? base : "\(base) (\(counter))"
+            let candidate = nextCandidate == 1 ? base : "\(base) (\(nextCandidate))"
+            nextCandidate += 1
             let numbered = pathExtension.isEmpty ? candidate : "\(candidate).\(pathExtension)"
-            if !isTaken(numbered) { return numbered }
-            counter += 1
+            if try !isTaken(numbered) { return numbered }
         }
     }
 

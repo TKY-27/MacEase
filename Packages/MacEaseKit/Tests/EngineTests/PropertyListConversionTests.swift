@@ -121,4 +121,49 @@ import Testing
             try PropertyListConversion.json(from: malicious, indent: "  ")
         }
     }
+
+    @Test(arguments: [
+        "<dict><key>name</key><string>first</string><key>name</key><string>second</string></dict>",
+        "<array><dict><key>nested</key><dict><key>name</key><string>first</string><key>name</key><string>second</string></dict></dict></array>",
+        "<dict><key/><string>first</string><key></key><string>second</string></dict>",
+        "<dict><key>a&amp;b</key><string>first</string><key>a&#38;b</key><string>second</string></dict>",
+        "<dict><key>na<![CDATA[m]]>e</key><string>first</string><key>name</key><string>second</string></dict>",
+    ])
+    func refusesDuplicateXMLKeysBeforeDecoding(_ contents: String) {
+        let source = Data("<plist version=\"1.0\">\(contents)</plist>".utf8)
+        #expect(throws: EngineError.invalidInput(.malformed("Duplicate JSON keys are unsupported"))) {
+            _ = try PropertyListConversion.json(from: source, indent: "")
+        }
+    }
+
+    @Test func refusesDuplicateUTF16XMLKeys() throws {
+        let xml = """
+            <?xml version="1.0" encoding="UTF-16"?>
+            <plist version="1.0"><dict><key>name</key><string>first</string><key>name</key><string>second</string></dict></plist>
+            """
+        let source = try #require(xml.data(using: .utf16))
+        #expect(throws: EngineError.invalidInput(.malformed("Duplicate JSON keys are unsupported"))) {
+            _ = try PropertyListConversion.json(from: source, indent: "")
+        }
+    }
+
+    @Test func allowsRepeatedKeysInSeparateXMLDictionaries() throws {
+        let xml = """
+            <plist version="1.0"><dict><key>name</key><string>outer</string><key>children</key><array>
+            <dict><key>name</key><string>first</string></dict>
+            <dict><key>name</key><string>second</string></dict>
+            </array></dict></plist>
+            """
+        let expected = #"{"children":[{"name":"first"},{"name":"second"}],"name":"outer"}"#
+        let output = try PropertyListConversion.json(from: Data(xml.utf8), indent: "")
+        #expect(output.filter { !$0.isWhitespace } == expected)
+    }
+
+    @Test func refusesInternalEntityPlistsBeforeDecoding() {
+        let xml =
+            #"<!DOCTYPE plist [<!ENTITY name "expanded">]><plist version="1.0"><dict><key>&name;</key><string>value</string></dict></plist>"#
+        #expect(throws: EngineError.invalidInput(.malformed("XML entity declarations are not supported"))) {
+            _ = try PropertyListConversion.json(from: Data(xml.utf8), indent: "")
+        }
+    }
 }

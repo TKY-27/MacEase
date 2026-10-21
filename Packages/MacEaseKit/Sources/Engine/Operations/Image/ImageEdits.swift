@@ -1,7 +1,6 @@
 import CoreGraphics
 import Formats
 import Foundation
-import UniformTypeIdentifiers
 
 extension ImageSettings {
     func quality(for format: ImageFormat) -> Double {
@@ -26,8 +25,57 @@ enum ImageOutput {
         options.metadata = document.metadata
         options.gainMaps = [.jpeg, .heic].contains(format) ? document.gainMaps : []
         options.dithering = settings.gifDithering
+        options.svgMode = settings.svgMode
         options.pixelsPerInch = document.pixelsPerInch
+        options.opaqueBackground = settings.customBackground
         return options
+    }
+
+    static func prepared(
+        _ document: ImageDocument, as format: ImageFormat, context: ItemContext,
+        derived: Bool = false, preservesGainMaps: Bool = true, preservesHDRPixels: Bool = false
+    ) throws -> ImageDocument {
+        _ = try keptFrameCount(of: document, for: format)
+        let keepsOriginal =
+            derived || document.format == nil || format == .pdf
+            || context.settings.outputMode == .newFile
+        var flattensTransparency = false
+        if !format.holdsAlpha || format == .gif || format == .svg && context.settings.image.svgMode == .trace {
+            for index in 0..<document.frameCount {
+                try Task.checkCancellation()
+                let losesAlpha = try autoreleasepool {
+                    let frame = try document.frame(at: index)
+                    return try validateTransparency(
+                        frame.image, as: format, keepsOriginal: keepsOriginal, context: context)
+                }
+                flattensTransparency = flattensTransparency || losesAlpha
+            }
+        }
+        let keepsMaps =
+            preservesGainMaps && !flattensTransparency && [.jpeg, .heic].contains(format)
+            && !document.isAnimated && !document.isMultiPage
+        let losesHDR =
+            document.containsHDRPixels
+            ? !preservesHDRPixels || !document.gainMaps.isEmpty && !keepsMaps
+            : document.containsHDR && !keepsMaps
+        guard losesHDR else { return document }
+        guard keepsOriginal else { throw EngineError.imageHDRUnsupported }
+        let converted = try document.toneMappedToSDR()
+        if !context.warnings.contains(.imageToneMappedToSDR) { context.warn(.imageToneMappedToSDR) }
+        return converted
+    }
+
+    @discardableResult static func validateTransparency(
+        _ image: CGImage, as format: ImageFormat, keepsOriginal: Bool, context: ItemContext
+    ) throws -> Bool {
+        let binaryAlpha = format == .gif || format == .svg && context.settings.image.svgMode == .trace
+        guard !format.holdsAlpha || binaryAlpha,
+            try ImageEncoder.hasTransparency(image, partialOnly: binaryAlpha)
+        else { return false }
+        guard keepsOriginal else { throw EngineError.imageTransparencyUnsupported }
+        let warning = ItemWarning.imageTransparencyFlattened
+        if !context.warnings.contains(warning) { context.warn(warning) }
+        return true
     }
 
     static func keptFrameCount(of document: ImageDocument, for format: ImageFormat) throws -> Int {
@@ -79,7 +127,10 @@ enum ImageOutput {
     static func staged(_ url: URL, for document: ImageDocument, as format: ImageFormat, derived: Bool = false)
         -> ItemResult
     {
-        let file = StagedFile(url: url, name: outputName(for: document, format: format), check: check(for: format))
+        let outputCheck: OutputCheck =
+            document.toneMapsHDR && ![.pdf, .svg].contains(format)
+            ? .sdrImage : check(for: format)
+        let file = StagedFile(url: url, name: outputName(for: document, format: format), check: outputCheck)
         if derived || document.format == nil || format == .pdf {
             return .derived(nextTo: document.url, outputs: [file])
         }
@@ -92,6 +143,7 @@ enum ImageOutput {
         geometry: (CGImage, CGImage) -> GainMapGeometry,
         _ transform: (CGImage) async throws -> CGImage
     ) async throws -> ItemResult {
+        let document = try prepared(document, as: format, context: context)
         if document.isAnimated {
             let count = try keptFrameCount(of: document, for: format)
             let options = defaultOptions(for: document, format: format, settings: context.settings.image)
@@ -101,6 +153,9 @@ enum ImageOutput {
                 index in
                 let frame = try document.frame(at: index)
                 let image = try await transform(frame.image)
+                try validateTransparency(
+                    image, as: format,
+                    keepsOriginal: context.settings.outputMode == .newFile, context: context)
                 context.progress(Double(index + 1) / Double(count + 1))
                 return ImageFrame(image: image, duration: frame.duration)
             }
@@ -112,6 +167,12 @@ enum ImageOutput {
         for index in frames.indices {
             try Task.checkCancellation()
             frames[index].image = try await transform(frames[index].image)
+            if !format.holdsAlpha || format == .gif || format == .svg && context.settings.image.svgMode == .trace {
+                try validateTransparency(
+                    frames[index].image, as: format,
+                    keepsOriginal: document.format == nil || context.settings.outputMode == .newFile,
+                    context: context)
+            }
             try retainedBudget.reserve(frames[index].image)
             context.progress(Double(index + 1) / Double(frames.count + 1))
         }
@@ -166,21 +227,17 @@ enum ImageEdits {
     }
 
     static func convert(_ url: URL, _ conversion: ImageConversion, context: ItemContext) async throws -> ItemResult {
-        let document = try await ImageDocument.load(url)
+        var document = try await ImageDocument.load(url)
         if document.contentType.identifier == "com.adobe.photoshop-image" {
             guard [.png, .jpeg, .tiff].contains(conversion.format) else {
                 throw EngineError.unsupportedCodec("PSD composite target")
             }
-            if conversion.format == .jpeg {
-                try ImageEncoder.validateWorkspace(
-                    document.frames, format: .jpeg, options: EncodeOptions(quality: ImageEncoder.maximumQuality))
-                guard try PixelBuffer(cgImage: document.first).isOpaque else {
-                    throw EngineError.imageTransparencyUnsupported
-                }
-            }
             context.warn(.imageFlattened)
         }
         if conversion.format == document.format { return .skipped(.alreadyDone) }
+        document = try ImageOutput.prepared(
+            document, as: conversion.format, context: context,
+            preservesHDRPixels: [.png, .tiff].contains(conversion.format))
         let count = try ImageOutput.keptFrameCount(of: document, for: conversion.format)
         var options = ImageOutput.defaultOptions(
             for: document, format: conversion.format, settings: context.settings.image)
@@ -226,8 +283,10 @@ enum ImageEdits {
         {
             return lossless
         }
-        let document = try await ImageDocument.load(url)
-        let format = document.writableFormat
+        let loaded = try await ImageDocument.load(url)
+        let format = loaded.writableFormat
+        let document = try ImageOutput.prepared(
+            loaded, as: format, context: context, preservesGainMaps: quarterTurns == quarterTurns.rounded())
         return try await ImageOutput.transformed(
             document, as: format, context: context,
             geometry: { source, output in
@@ -235,7 +294,12 @@ enum ImageEdits {
             }
         ) {
             image in
-            try autoreleasepool { try ImagePixels.rotated(image, degrees: degrees, fill: fill.map(ImagePixels.color)) }
+            try autoreleasepool {
+                try ImagePixels.rotated(
+                    image, degrees: degrees,
+                    fill: (fill ?? (format.holdsAlpha ? nil : context.settings.image.customBackground))
+                        .map(ImagePixels.color))
+            }
         }
     }
 

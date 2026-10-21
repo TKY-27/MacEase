@@ -5,6 +5,7 @@ import ImageIO
 
 struct EncodeOptions {
     var quality: Double
+    var opaqueBackground = RGBColor.white
     var loopCount: Int? = 0
     var metadata: CGImageMetadata?
     var gainMaps: [ImageGainMap] = []
@@ -22,8 +23,6 @@ struct EncodeOptions {
 enum ImageEncoder {
     static let maximumQuality = 100.0
     static let maximumICOEdge = 256
-    /// Fill behind transparency in opaque formats.
-    static let opaqueBackground = RGBColor.white
     private static let maximumTracingBytes: Int64 = 100_000_000
     private static let pointsPerInch = 72.0
 
@@ -37,7 +36,7 @@ enum ImageEncoder {
         switch format {
         case .gif:
             let gifFrames = try frames.map {
-                GIFFrame(pixels: try PixelBuffer(cgImage: $0.image), duration: $0.duration)
+                GIFFrame(pixels: try binaryAlphaPixels($0.image, options: options), duration: $0.duration)
             }
             let gifOptions = GIFOptions(
                 colors: options.gifColors, dithering: options.dithering, loopCount: try gifRepeatCount(options))
@@ -74,7 +73,7 @@ enum ImageEncoder {
                     """
                 return Data(svg.utf8)
             }
-            let pixels = try PixelBuffer(cgImage: first.image)
+            let pixels = try binaryAlphaPixels(first.image, options: options)
             let layers = SVGTracer.trace(pixels, colors: options.svgColors)
             return Data(SVGTracer.svg(layers, width: pixels.width, height: pixels.height).utf8)
         case .pdf:
@@ -108,13 +107,15 @@ enum ImageEncoder {
                 loopCount: try gifRepeatCount(options), paletteScope: .perFrame)
             let encoder = try GIFEncoder.Stream(
                 width: first.image.width, height: first.image.height, options: gifOptions, to: url)
-            try encoder.add(GIFFrame(pixels: PixelBuffer(cgImage: first.image), duration: first.duration))
+            try encoder.add(
+                GIFFrame(pixels: binaryAlphaPixels(first.image, options: options), duration: first.duration))
             for index in 1..<frameCount {
                 try Task.checkCancellation()
                 try await autoreleasepoolFrame(index, frameAt: frameAt) { frame in
                     try validateWorkspace(
                         [frame], format: format, options: options, retaining: [first.image], streaming: true)
-                    try encoder.add(GIFFrame(pixels: PixelBuffer(cgImage: frame.image), duration: frame.duration))
+                    try encoder.add(
+                        GIFFrame(pixels: binaryAlphaPixels(frame.image, options: options), duration: frame.duration))
                 }
             }
             try encoder.finish()
@@ -201,6 +202,9 @@ enum ImageEncoder {
         _ frames: [ImageFrame], format: ImageFormat, options: EncodeOptions, retaining retained: [CGImage] = [],
         streaming: Bool = false
     ) throws {
+        if ![.png, .tiff].contains(format), frames.contains(where: { ImageSDR.hasHDRPixels($0.image) }) {
+            throw EngineError.imageHDRUnsupported
+        }
         if format == .png, let loopCount = options.loopCount, UInt32(exactly: loopCount) == nil {
             throw EngineError.imageLoopCountUnsupported
         }
@@ -210,7 +214,7 @@ enum ImageEncoder {
                 try tracingBudget.reserve(width: frame.image.width, height: frame.image.height)
             }
         }
-        let pixelCopies: Int64
+        var pixelCopies: Int64
         switch format {
         case .png where options.optimizesPNG && options.pngColors == nil:
             pixelCopies = 6
@@ -220,6 +224,14 @@ enum ImageEncoder {
         case .gif: pixelCopies = 3
         case .png where options.pngColors != nil: pixelCopies = 3
         default: pixelCopies = format.holdsAlpha ? 1 : 2
+        }
+        if [.png, .tiff].contains(format), frames.contains(where: { ImageSDR.hasHDRPixels($0.image) }) {
+            let hdrVerificationCopies: Int64 = 3
+            pixelCopies = max(pixelCopies, hdrVerificationCopies)
+        }
+        if format == .gif || format == .svg && options.svgMode == .trace {
+            let flatteningCopies: Int64 = 2
+            pixelCopies += flatteningCopies
         }
         var budget = FrameMemoryBudget()
         var seen = Set<ObjectIdentifier>()
@@ -268,11 +280,52 @@ enum ImageEncoder {
         return try PNGQuantizer.encode(pixels, colors: colors, dithering: options.dithering, ancillary: chunks)
     }
 
+    static func hasTransparency(_ image: CGImage, partialOnly: Bool = false) throws -> Bool {
+        guard ![.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) else { return false }
+        var budget = FrameMemoryBudget()
+        try budget.reserve(image)
+        if image.bitsPerComponent <= 8 {
+            try budget.reserve(width: image.width, height: image.height, frameCount: 2)
+            let pixels = try PixelBuffer(cgImage: image)
+            for offset in stride(from: 3, to: pixels.rgba.count, by: 4) {
+                let alpha = pixels.rgba[offset]
+                if alpha < UInt8.max, !partialOnly || alpha > 0 { return true }
+            }
+            return false
+        }
+        let channels = 4
+        let componentBytes = MemoryLayout<Float>.size
+        try budget.reserve(width: image.width, height: image.height, bytesPerPixel: channels * componentBytes)
+        var samples = [Float](repeating: 0, count: image.width * image.height * channels)
+        try samples.withUnsafeMutableBytes { buffer in
+            guard
+                let canvas = CGContext(
+                    data: buffer.baseAddress, width: image.width, height: image.height,
+                    bitsPerComponent: componentBytes * 8,
+                    bytesPerRow: image.width * channels * componentBytes, space: PixelBuffer.sRGB,
+                    bitmapInfo: CGBitmapInfo.floatComponents.union(.byteOrder32Little).rawValue
+                        | CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { throw EngineError.encodeFailed("transparency inspection") }
+            canvas.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        for offset in stride(from: channels - 1, to: samples.count, by: channels) {
+            if samples[offset] < 1, !partialOnly || samples[offset] > 0 { return true }
+        }
+        return false
+    }
+
+    private static func binaryAlphaPixels(_ image: CGImage, options: EncodeOptions) throws -> PixelBuffer {
+        let output =
+            try hasTransparency(image, partialOnly: true)
+            ? flattened(image, background: options.opaqueBackground) : image
+        return try PixelBuffer(cgImage: output)
+    }
+
     /// ImageIO's own flattening color is undefined.
-    static func flattened(_ image: CGImage) throws -> CGImage {
+    static func flattened(_ image: CGImage, background: RGBColor) throws -> CGImage {
         guard ![.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) else { return image }
         return try ImagePixels.draw(
-            width: image.width, height: image.height, like: image, fill: ImagePixels.color(opaqueBackground)
+            width: image.width, height: image.height, like: image, fill: ImagePixels.color(background)
         ) { context in
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         }
@@ -311,7 +364,8 @@ enum ImageEncoder {
         } else {
             let metadata = format.holdsMetadata ? upright(options.metadata) : nil
             for frame in frames {
-                let image = format.holdsAlpha ? frame.image : try flattened(frame.image)
+                let image =
+                    format.holdsAlpha ? frame.image : try flattened(frame.image, background: options.opaqueBackground)
                 CGImageDestinationAddImageAndMetadata(destination, image, metadata, settings as CFDictionary)
             }
             if [.jpeg, .heic].contains(format) {
@@ -326,6 +380,17 @@ enum ImageEncoder {
                 throw EngineError.imageGainMapUnsupported
             }
             try ImageGainMap.verify(options.gainMaps, in: source)
+        }
+        if frames.contains(where: { ImageSDR.hasHDRPixels($0.image) }) {
+            guard let source = CGImageSourceCreateWithData(data, nil) else {
+                throw EngineError.imageHDRUnsupported
+            }
+            for (index, frame) in frames.enumerated() where ImageSDR.hasHDRPixels(frame.image) {
+                guard let written = CGImageSourceCreateImageAtIndex(source, index, nil),
+                    ImageSDR.hasHDRPixels(written), written.colorSpace?.name == frame.image.colorSpace?.name,
+                    written.bitsPerComponent >= frame.image.bitsPerComponent
+                else { throw EngineError.imageHDRUnsupported }
+            }
         }
         return data as Data
     }

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreImage
 import Foundation
 import ImageIO
 import Testing
@@ -288,6 +289,209 @@ import UniformTypeIdentifiers
                 }
             }
         }
+    }
+
+    @Test(arguments: GainMapFixture.allCases)
+    func ordinaryConversionToneMapsGainMapsAndRefusesReplacement(_ fixture: GainMapFixture) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: fixture.heic ? "hdr.heic" : "hdr.jpg")
+        try ImageGainMapIntegrationTests.fixture(input, variant: fixture.variant, heic: fixture.heic)
+        let original = try Data(contentsOf: input)
+        let reference = try Self.platformReference(input)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let replacement = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { replacement.removeStaging() }
+        await #expect(throws: EngineError.imageHDRUnsupported) {
+            try await ImageEdits.convert(input, ImageConversion(format: .png), context: replacement)
+        }
+        #expect(replacement.warnings.isEmpty)
+        settings.outputMode = .newFile
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let output) = try await ImageEdits.convert(
+                input, ImageConversion(format: .png), context: context)
+        else { Issue.record("Expected a staged SDR conversion"); return }
+        #expect(context.warnings == [.imageToneMappedToSDR])
+        try await OutputVerifier.verify(output)
+        #expect(try ImageSDR.classification(output.url) == .sdr)
+        let rendered = try ImageFixtures.image(output.url)
+        for column in [rendered.width / 4, rendered.width * 3 / 4] {
+            let actual = try ImageFixtures.pixel(rendered, x: column, y: rendered.height / 2)
+            let expected = try ImageFixtures.pixel(reference, x: column, y: reference.height / 2)
+            for channel in 0..<3 {
+                #expect(abs(Int(actual[channel]) - Int(expected[channel])) <= Self.colorTolerance)
+            }
+        }
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test(arguments: [CGColorSpace.itur_2100_PQ as String, CGColorSpace.itur_2100_HLG as String])
+    func ordinaryJPEGConversionToneMapsTransferRamps(_ spaceName: String) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "hdr.png")
+        try Self.writeRamp(input, colorSpace: #require(CGColorSpace(name: spaceName as CFString)))
+        let original = try Data(contentsOf: input)
+        let reference = try Self.platformReference(input)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let replacement = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { replacement.removeStaging() }
+        await #expect(throws: EngineError.imageHDRUnsupported) {
+            try await ImageEdits.convert(input, ImageConversion(format: .jpeg), context: replacement)
+        }
+        settings.outputMode = .newFile
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let output) = try await ImageEdits.convert(
+                input, ImageConversion(format: .jpeg, quality: 100), context: context)
+        else { Issue.record("Expected a staged SDR conversion"); return }
+        #expect(context.warnings == [.imageToneMappedToSDR])
+        try await OutputVerifier.verify(output)
+        let rendered = try ImageFixtures.image(output.url)
+        for column in Self.sampleColumns {
+            let actual = try ImageFixtures.pixel(rendered, x: column, y: Self.height / 2)
+            let expected = try ImageFixtures.pixel(reference, x: column, y: Self.height / 2)
+            for channel in 0..<3 {
+                #expect(abs(Int(actual[channel]) - Int(expected[channel])) <= Self.lossyTolerance)
+            }
+        }
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test(arguments: [ImageFormat.bmp, .gif, .ico, .icns, .tga, .avif, .jxl, .webp, .tiff])
+    func toneMappedOutputPassesVerificationAcrossRasterFormats(_ format: ImageFormat) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "hdr.jpg")
+        try ImageGainMapIntegrationTests.fixture(input, variant: .isoMono, heic: false)
+        let original = try Data(contentsOf: input)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let output) = try await ImageEdits.convert(
+                input, ImageConversion(format: format), context: context)
+        else { Issue.record("Expected a staged SDR conversion"); return }
+        #expect(context.warnings == [.imageToneMappedToSDR])
+        try await OutputVerifier.verify(output)
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test func flatteningGainMapTransparencyToneMapsBeforeCompositing() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "transparent-hdr.heic")
+        let extent = CGRect(x: 0, y: 0, width: Self.width, height: Self.height)
+        let base = CIImage(color: CIColor(red: 0.5, green: 0.2, blue: 0.1, alpha: 0.5)).cropped(to: extent)
+        let hdr = CIImage(color: CIColor(red: 1.8, green: 0.5, blue: 0.2, alpha: 0.5))
+            .cropped(to: extent).settingContentHeadroom(4)
+        let encoded = try #require(
+            CIContext().heifRepresentation(
+                of: base, format: .RGBA8, colorSpace: ImageFixtures.sRGB, options: [.hdrImage: hdr]))
+        try encoded.write(to: input)
+        let loaded = try await ImageDocument.load(input)
+        try #require(loaded.containsHDR)
+        try #require(try ImageEncoder.hasTransparency(loaded.first))
+        let reference = try Self.platformReference(input)
+        let expectedCanvas = try ImageFixtures.canvas(width: Self.width, height: Self.height) { canvas in
+            canvas.setFillColor(CGColor(gray: 1, alpha: 1))
+            canvas.fill(extent)
+            canvas.draw(reference, in: extent)
+        }
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let output) = try await ImageEdits.convert(
+                input, ImageConversion(format: .jpeg, quality: 100), context: context)
+        else { Issue.record("Expected a staged SDR conversion"); return }
+        #expect(context.warnings == [.imageTransparencyFlattened, .imageToneMappedToSDR])
+        try ImageSDR.verify(output.url)
+        let actual = try ImageFixtures.pixel(ImageFixtures.image(output.url), x: Self.width / 2, y: Self.height / 2)
+        let expected = try ImageFixtures.pixel(expectedCanvas, x: Self.width / 2, y: Self.height / 2)
+        for channel in 0..<3 {
+            #expect(abs(Int(actual[channel]) - Int(expected[channel])) <= Self.lossyTolerance)
+        }
+        #expect(try Data(contentsOf: input) == encoded)
+    }
+
+    @Test func fullDepthTIFFConversionPreservesPQWithoutWarning() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "hdr.png")
+        try Self.writeRamp(input, colorSpace: #require(CGColorSpace(name: CGColorSpace.itur_2100_PQ)))
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let output) = try await ImageEdits.convert(
+                input, ImageConversion(format: .tiff), context: context)
+        else { Issue.record("Expected a staged HDR conversion"); return }
+        let rendered = try ImageFixtures.image(output.url)
+        #expect(rendered.bitsPerComponent == 16)
+        #expect(rendered.colorSpace?.name == CGColorSpace.itur_2100_PQ)
+        #expect(try ImageSDR.classification(output.url) == .unknownHDR)
+        #expect(context.warnings.isEmpty)
+    }
+
+    @Test func iconExportToneMapsEvenWithReplaceSelected() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "hdr.jpg")
+        try ImageGainMapIntegrationTests.fixture(input, variant: .isoMono, heic: false)
+        let original = try Data(contentsOf: input)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .derived(_, let outputs) = try await ImageExports.iconSet(input, kind: .ico, context: context)
+        else { Issue.record("Icons must remain derived"); return }
+        #expect(context.warnings == [.imageToneMappedToSDR])
+        try await OutputVerifier.verify(#require(outputs.first))
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test func presetCompressionToneMapsGainMapsBeforeEncoding() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "hdr.jpg")
+        try ImageGainMapIntegrationTests.fixture(input, variant: .isoMono, heic: false)
+        let original = try Data(contentsOf: input)
+        var preset = try #require(PresetLibrary.bundledPresets.first)
+        var limits = MediaLimits()
+        limits.formats = ["webp"]
+        preset.image = limits
+        let compression = ImageCompression(
+            goal: .platform(preset), allowsDownscale: false, allowsFrameRateReduction: false, stripsGPS: false)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let replacement = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { replacement.removeStaging() }
+        await #expect(throws: EngineError.imageHDRUnsupported) {
+            try await ImageCompressor.compress(input, compression, context: replacement)
+        }
+        settings.outputMode = .newFile
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .replace(_, let output) = try await ImageCompressor.compress(input, compression, context: context)
+        else { Issue.record("Expected a staged SDR preset"); return }
+        #expect(context.warnings == [.imageToneMappedToSDR])
+        try await OutputVerifier.verify(output)
+        #expect(try Data(contentsOf: input) == original)
     }
 
     @Test func verificationRejectsRemainingHDR() throws {

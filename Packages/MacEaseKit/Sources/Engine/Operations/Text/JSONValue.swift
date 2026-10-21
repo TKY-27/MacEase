@@ -13,7 +13,22 @@ enum JSONValue {
 
     func serialized(indent: String?) -> String {
         var output = ""
-        write(to: &output, indent: indent, level: 0)
+        write(indent: indent, level: 0) { output += $0 }
+        return output
+    }
+
+    func serialized(indent: String?, maximumBytes: Int) throws -> String {
+        var output = ""
+        var byteCount = 0
+        try write(indent: indent, level: 0) { fragment in
+            try Task.checkCancellation()
+            let bytes = fragment.utf8.count
+            guard bytes <= maximumBytes - byteCount else {
+                throw EngineError.invalidInput(.malformed("JSON output exceeds \(maximumBytes) bytes"))
+            }
+            byteCount += bytes
+            output += fragment
+        }
         return output
     }
 
@@ -91,50 +106,56 @@ enum JSONValue {
         return .orderedSame
     }
 
-    private func write(to output: inout String, indent: String?, level: Int) {
+    private func write(indent: String?, level: Int, append: (String) throws -> Void) rethrows {
         switch self {
         case .object(let members):
             guard !members.isEmpty else {
-                output += "{}"
+                try append("{}")
                 return
             }
-            output += "{"
+            try append("{")
             for (index, member) in members.enumerated() {
-                if index > 0 { output += "," }
-                Self.breakLine(&output, indent: indent, level: level + 1)
-                output += Self.quoted(member.key) + (indent == nil ? ":" : ": ")
-                member.value.write(to: &output, indent: indent, level: level + 1)
+                if index > 0 { try append(",") }
+                try Self.breakLine(indent: indent, level: level + 1, append: append)
+                try Self.writeQuoted(member.key, append: append)
+                try append(indent == nil ? ":" : ": ")
+                try member.value.write(indent: indent, level: level + 1, append: append)
             }
-            Self.breakLine(&output, indent: indent, level: level)
-            output += "}"
+            try Self.breakLine(indent: indent, level: level, append: append)
+            try append("}")
         case .array(let elements):
             guard !elements.isEmpty else {
-                output += "[]"
+                try append("[]")
                 return
             }
-            output += "["
+            try append("[")
             for (index, element) in elements.enumerated() {
-                if index > 0 { output += "," }
-                Self.breakLine(&output, indent: indent, level: level + 1)
-                element.write(to: &output, indent: indent, level: level + 1)
+                if index > 0 { try append(",") }
+                try Self.breakLine(indent: indent, level: level + 1, append: append)
+                try element.write(indent: indent, level: level + 1, append: append)
             }
-            Self.breakLine(&output, indent: indent, level: level)
-            output += "]"
-        case .string(let text): output += Self.quoted(text)
-        case .number(let literal): output += literal
-        case .bool(let flag): output += flag ? "true" : "false"
-        case .null: output += "null"
+            try Self.breakLine(indent: indent, level: level, append: append)
+            try append("]")
+        case .string(let text): try Self.writeQuoted(text, append: append)
+        case .number(let literal): try append(literal)
+        case .bool(let flag): try append(flag ? "true" : "false")
+        case .null: try append("null")
         }
     }
 
-    private static func breakLine(_ output: inout String, indent: String?, level: Int) {
+    private static func breakLine(indent: String?, level: Int, append: (String) throws -> Void) rethrows {
         guard let indent else { return }
-        output += "\n" + String(repeating: indent, count: level)
+        try append("\n" + String(repeating: indent, count: level))
     }
 
-    private static func quoted(_ text: String) -> String {
+    private static func writeQuoted(_ text: String, append: (String) throws -> Void) rethrows {
+        let chunkScalars = 1024
         var result = "\""
-        for scalar in text.unicodeScalars {
+        for (index, scalar) in text.unicodeScalars.enumerated() {
+            if index.isMultiple(of: chunkScalars) {
+                try append(result)
+                result.removeAll(keepingCapacity: true)
+            }
             switch scalar {
             case "\"": result += "\\\""
             case "\\": result += "\\\\"
@@ -149,7 +170,7 @@ enum JSONValue {
             default: result.unicodeScalars.append(scalar)
             }
         }
-        return result + "\""
+        try append(result + "\"")
     }
 }
 

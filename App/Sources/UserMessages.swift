@@ -39,7 +39,12 @@ enum UserMessages {
         case .imageTransparencyUnsupported:
             String(
                 localized:
-                    "“\(file)” could not be converted because the output cannot preserve transparency. The original was kept."
+                    "“\(file)” cannot replace the original because the output would lose transparency. Choose Save as New File to flatten onto the configured background color. The original was kept."
+            )
+        case .imageHDRUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept."
             )
         case .hdrConversionUnsupported:
             String(
@@ -137,6 +142,14 @@ enum UserMessages {
             String(
                 localized:
                     "PSD conversion uses the stored composite image. Layers are not preserved; the original was kept.")
+        case .imageTransparencyFlattened:
+            String(
+                localized:
+                    "Transparency was flattened onto the configured background color. The original was kept."
+            )
+        case .imageToneMappedToSDR:
+            String(
+                localized: "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.")
         case .markdownUnsafeContentOmitted:
             String(localized: "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.")
         case .pngOptimizationSkipped:

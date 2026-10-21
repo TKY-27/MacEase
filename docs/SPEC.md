@@ -297,12 +297,14 @@ Video animation exports use `stem.gif`, `stem.webp`, or `stem.apng`.
 Other multi-output exports use a named derived folder or the page naming rule
 in section 8.6.
 
-If either a file or a directory occupies a candidate, append ` (2)`, ` (3)`,
+If any directory entry, including a dangling symbolic link, occupies a
+candidate, append ` (2)`, ` (3)`,
 and so on before the last extension, or after a directory name. A same-format
 conversion therefore never writes back to its source in new-file mode.
 Renamed Replace outputs use the same collision rule. Naming checks and the
 no-replace final move run inside commit serialization and file coordination.
-A concurrent collision retries with the next suffix. No existence-check race
+A concurrent collision always advances to the next suffix, even if the
+colliding entry disappears. Naming traversal checks cancellation. No existence-check race
 can authorize overwriting an occupied path.
 
 Report Save and Analyze Export use a save panel to choose a folder and name.
@@ -335,9 +337,20 @@ rule, and the host tells the user the final name when it changed.
   Unreadable or unsupported maps fail with a typed error. Background changes
   and added canvas pixels, including non-right-angle rotations and letterbox
   presets, refuse HDR replacement until neutral gain can be derived reliably.
-  HDR-to-SDR conversion is explicit under Convert > SDR (section 8.12).
-  Ordinary edits cannot silently remove HDR. Targets without HDR support require
-  that explicit conversion first. See ADR 0010 for the bounded raster support.
+  When the resolved image output cannot preserve HDR, Save as New File uses
+  the same high-quality tone mapping as Convert > SDR and reports a visible
+  warning. Replace refuses before writing, explaining the HDR loss and
+  suggesting Save as New File or Convert > SDR. This also covers operations
+  whose geometry cannot preserve gain maps. Flattening an alpha-bearing HDR
+  base also tone-maps first, before compositing onto the configured background.
+  Unsupported map decoding still
+  fails safely. See ADR 0010 for bounded raster support and ADR 0019 for the
+  output-mode policy.
+- Image outputs that cannot retain actually used transparency are flattened
+  onto the configured Images custom background color (white by default) only
+  when the resolved mode retains the original, with a visible warning.
+  Replace refuses before writing and suggests Save as New File. Fully opaque
+  alpha channels do not trigger refusal or a warning.
 - Platform presets remove GPS data by default (setting).
 
 **Deletions.** Duplicate and empty-folder removal move items to the Trash by
@@ -755,6 +768,15 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 | `image.aiRename` | — | Rename | Section 10 |
 | `image.aiCustom` | — | Depends on plan | Section 10 |
 
+Image property-loss checks apply to conversion, compression and platform
+presets, geometry, background edits, metadata re-encoding, and icon/PDF exports.
+They inspect actual alpha samples and HDR signals in every frame or page.
+Always-Derived exports, including PSD, RAW, icons and PDF, keep that mode even
+when Replace is selected. PDF retains alpha directly. JPEG and BMP flatten
+using the configured custom background color, with the section 3.5 warning.
+GIF and traced SVG retain binary alpha only. Partial alpha follows the same
+flattening policy; embedded-PNG SVG retains full alpha.
+
 ### 8.2 Videos
 
 Containers: MP4, M4V, MOV through AVFoundation; MKV, WebM, AVI, FLV through
@@ -960,7 +982,10 @@ value when written as a Double. JSON null, duplicate keys, unsupported precision
 and dates that cannot retain milliseconds fail. XML output refuses fractional
 dates that Foundation would truncate. Keys in emitted JSON are sorted by Unicode
 scalar order. Input and output are capped at 8 MiB, traversal at 64 levels and
-100,000 values; JSON depth is checked before parsing. Foundation owns plist
+100,000 values; JSON depth is checked before parsing. XML input is checked for
+duplicate keys in every dictionary before Foundation decoding. This event pass
+never resolves external entities and refuses entity declarations. Binary plist
+decoding is unchanged. Foundation owns plist
 decoding, so these bounds do not promise a strict peak allocation ceiling inside
 the framework. Conversion reports that comments, order, and formatting are lost.
 
@@ -978,7 +1003,11 @@ uses the YAML 1.2 core schema, so `yes`, `on`, and dates stay strings. Integers
 keep their decimal digits, hexadecimal and octal forms become decimal, and
 floats must be finite. A libyaml event pass rejects more than 64 levels or
 100,000 values, counting the size and depth of every alias expansion, before
-Yams composes the document. Mapping keys must be strings; merge keys (`<<`) and
+Yams composes the document. The same pass caps expanded scalar and key UTF-8
+bytes at the 8 MiB input limit, charging them again for every alias reference.
+YAML-to-JSON output, including its final newline, is capped at 8 MiB while
+writing. JSON strings are escaped in bounded chunks, with cancellation checks
+between chunks and values (ADR 0018). Mapping keys must be strings; merge keys (`<<`) and
 explicit tags other than the core types fail with their path. Duplicate keys
 name the key; multi-document streams fail. JSON to YAML keeps key order and
 quotes strings that YAML 1.1 or 1.2 readers could retype. TOML input and JSON
@@ -1121,7 +1150,19 @@ with the corresponding ICC profile. Display P3 is wide-gamut SDR, not an HDR
 transfer function. A transfer-tag change or hard clipping is not tone mapping.
 Only the SDR output drops the gain map and obsolete HDR signalling. Other
 metadata is preserved subject to section 3.5. The original remains recoverable
-under either commit mode.
+under either commit mode. Ordinary new-file operations that cannot preserve
+HDR share this decoding and tone-mapping path and report `imageToneMappedToSDR`.
+They never obtain SDR by discarding a gain map and keeping the default decoded
+base. Replace requires an explicit Convert > SDR operation before such edits.
+
+The current ordinary encoder preserves gain maps in JPEG/HEIC and full-depth
+PQ/HLG pixels in direct PNG/TIFF conversions, verifying the encoded transfer
+profile and depth. Quantized PNG, native-HDR geometry and other encoders use
+the SDR/refusal policy rather than claiming unverified HDR preservation.
+Automatic tone mapping preserves frame timing and streams animated frames;
+encoded raster outputs are checked for remaining HDR. Allocation limits are
+checked before tone-mapping and alpha-inspection buffers. These checks do not
+replace the display and peak-memory acceptance gates.
 
 **Video to SDR.** AVFoundation/VideoToolbox performs HDR-to-SDR tone mapping
 into BT.709 primaries, transfer, and matrix. The Dolby Vision 8.4 route uses the
@@ -1162,7 +1203,7 @@ still exposes both codec choices.
 | --- | --- |
 | PNG, JPEG/JPE, WebP, HEIC/HEIF/HIF, ICO, GIF still, SVG | Each input to every I target except its own format. PDF output always derives. These include Flect's PNG/JPG/WebP/HEIC/ICO/GIF/SVG pairs. |
 | AVIF, JPEG XL, TIFF/TIF, BMP, TGA, ICNS | Each input to every I target except its own format; PDF output always derives. |
-| PSD | PNG, JPEG, or TIFF using the ImageIO stored composite, always Derived. A visible warning explains that layers are not preserved in the export. The source retains its layers. Transparent composites refuse JPEG before writing. |
+| PSD | PNG, JPEG, or TIFF using the ImageIO stored composite, always Derived. A visible warning explains that layers are not preserved in the export. The source retains its layers. Transparent composites use the configured background color for JPEG and report an additional transparency warning. |
 | DNG, CR2, CR3, NEF, ARW, RAF, ORF, RW2 | Each decodable RAW input to every I target, always Derived. |
 | Animated GIF, APNG, animated WebP, supported ImageIO sequences | GIF, APNG, animated WebP, retaining all frames/timing. Static targets refuse frame loss. HEICS writing is unsupported. |
 | Multi-page TIFF | Multi-page PDF or TIFF with every page preserved; other destinations refuse page loss. |
@@ -1184,8 +1225,11 @@ SVG input blocks scripts and network loads. SVG output explicitly selects
 traced paths (1–8 colors) or Base64-embedded PNG with dimensions and viewBox.
 Embedded PNG is a raster wrapper. Opaque targets cannot silently flatten alpha.
 A Derived conversion can use the chosen background color only with a visible
-warning. Replace refuses alpha loss. HDR-capable inputs additionally have the
-section 8.12 SDR path.
+warning. Replace refuses actual alpha loss before writing; a fully opaque
+alpha channel remains valid. GIF and traced SVG also check partial alpha,
+which their binary transparency cannot preserve. The same new-file warning / replacement refusal
+policy applies to HDR loss, using the section 8.12 tone-mapping path. Icon and
+PDF exports retain their always-Derived mode.
 
 | Video inputs | Target pairs and codec rules |
 | --- | --- |
@@ -1559,6 +1603,15 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Apply explicit image property-loss warnings in new-file mode,
+  configured-background flattening, shared HDR-to-SDR tone mapping, and typed
+  replacement refusals across image outputs. Treat dangling symlinks as occupied
+  names and advance every collision retry (ADR 0019).
+
+- 2026-10-22: Bound YAML alias-expanded scalar and key bytes before composition
+  and JSON output during cancellable writing. Detect duplicate XML plist keys
+  before Foundation decoding without entity expansion (ADR 0018).
 
 - 2026-10-22: Retain failed staging removals for later recovery and wait up to
   five seconds for cancelled jobs during normal quit, while preserving accepted

@@ -12,12 +12,11 @@ enum ImageBackground {
     private static let maximumDistance = (3.0 * 255 * 255).squareRoot()
 
     static func replace(_ url: URL, _ options: BackgroundOptions, context: ItemContext) async throws -> ItemResult {
-        let document = try await ImageDocument.load(url)
+        var document = try await ImageDocument.load(url)
         let source = document.writableFormat
         let format = options.fill == .transparent && !source.holdsAlpha ? .png : source
-        if [.jpeg, .heic].contains(format), !document.gainMaps.isEmpty {
-            throw EngineError.imageGainMapUnsupported
-        }
+        document = try ImageOutput.prepared(
+            document, as: format, context: context, preservesGainMaps: false)
         var workspace = FrameMemoryBudget()
         for frame in document.frames {
             try workspace.reserve(frame.image)

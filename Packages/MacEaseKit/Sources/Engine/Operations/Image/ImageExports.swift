@@ -41,7 +41,11 @@ enum ImageExports {
             guard try ContentSniffer.matches(url, kind: .image) else {
                 throw EngineError.decodeFailed(url.lastPathComponent)
             }
-            let document = try await ImageDocument.load(url, budget: &budget)
+            let loaded = try await ImageDocument.load(url, budget: &budget)
+            let document = try ImageOutput.prepared(loaded, as: .pdf, context: context, derived: true)
+            if document.toneMapsHDR {
+                for frame in document.frames { try budget.reserve(frame.image) }
+            }
             guard !document.isAnimated else { throw EngineError.imageSequenceUnsupported }
             let images = document.isMultiPage ? document.frames.map(\.image) : [document.first]
             pages += images.map { ($0, document.pixelsPerInch) }
@@ -54,7 +58,8 @@ enum ImageExports {
     }
 
     static func iconSet(_ url: URL, kind: IconSetKind, context: ItemContext) async throws -> ItemResult {
-        let document = try await ImageDocument.load(url)
+        let loaded = try await ImageDocument.load(url)
+        let document = try ImageOutput.prepared(loaded, as: .ico, context: context, derived: true)
         guard !document.isAnimated, !document.isMultiPage else { throw EngineError.imageSequenceUnsupported }
         let square = try ImageEncoder.square(document.first)
         guard square.width >= smallestIconEdge else { throw EngineError.invalidInput(.notSquareEnough) }
@@ -68,13 +73,15 @@ enum ImageExports {
             let name = base + "." + format.fileExtension
             let staged = try context.stagingURL(for: url, name: name)
             try ImageEncoder.encode(frame, as: format, options: options).write(to: staged)
-            file = StagedFile(url: staged, name: name, check: .image)
+            file = StagedFile(url: staged, name: name, check: document.toneMapsHDR ? .sdrImage : .image)
         case .appIconSet:
             let name = base + ".appiconset"
             let folder = try context.stagingURL(for: url, name: name)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
             let icon = try ImagePixels.scaled(square, width: appIconEdge, height: appIconEdge)
-            try ImageEncoder.png(icon).write(to: folder.appending(path: appIconFile))
+            let iconURL = folder.appending(path: appIconFile)
+            try ImageEncoder.png(icon).write(to: iconURL)
+            if document.toneMapsHDR { try ImageSDR.verify(iconURL) }
             try appIconContents().write(to: folder.appending(path: "Contents.json"))
             file = StagedFile(url: folder, name: name, check: .folder)
         }

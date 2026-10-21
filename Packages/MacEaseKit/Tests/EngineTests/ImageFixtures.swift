@@ -136,17 +136,19 @@ enum ImageFixtures {
     }
 
     static func run(
-        _ op: OperationID, preset: String?, inputs: [URL], settings: Settings = Settings()
+        _ op: OperationID, preset: String?, inputs: [URL], settings: Settings = Settings(),
+        outputMode: Settings.OutputMode = .replace
     ) async throws -> BatchOutcome {
         let operation = try #require(ImagePlanner.operation(for: op, preset: preset, settings: settings))
-        return try await run(op, operation, inputs: inputs, settings: settings)
+        return try await run(op, operation, inputs: inputs, settings: settings, outputMode: outputMode)
     }
 
     static func run(
-        _ op: OperationID, _ operation: ImageOperation, inputs: [URL], settings: Settings = Settings()
+        _ op: OperationID, _ operation: ImageOperation, inputs: [URL], settings: Settings = Settings(),
+        outputMode: Settings.OutputMode = .replace
     ) async throws -> BatchOutcome {
         var settings = settings
-        settings.outputMode = .replace
+        settings.outputMode = outputMode
         let request = OperationRequest(op: op, options: .image(operation), inputs: inputs)
         let batch = OperationPlanner.batch(for: request, settings: settings)
         return try await engine().run(batch, settings: settings) { _ in }

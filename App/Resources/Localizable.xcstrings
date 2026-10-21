@@ -2143,6 +2143,16 @@
         }
       }
     },
+    "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この出力形式では HDR を保持できないため、SDR にトーンマッピングしました。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "HEVC with alpha (MOV)": {
       "comment": "Transparent video format",
       "localizations": {
@@ -5147,6 +5157,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "翻訳先の言語"
+          }
+        }
+      }
+    },
+    "Transparency was flattened onto the configured background color. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明部分を設定した背景色で塗りつぶしました。元のファイルはそのまま残しています。"
           }
         }
       }
@@ -10200,6 +10220,26 @@
         }
       }
     },
+    "“%@” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力すると HDR が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」または「変換 > SDR」を選ぶと、SDR にトーンマッピングします。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "“%@” cannot replace the original because the output would lose transparency. Choose Save as New File to flatten onto the configured background color. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力すると透明部分が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選ぶと、設定した背景色で透明部分を塗りつぶします。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” changed after MacEase saved it.": {
       "localizations": {
         "ja": {
@@ -10277,16 +10317,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "出力形式で音声のチャンネル構成を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
-          }
-        }
-      }
-    },
-    "“%@” could not be converted because the output cannot preserve transparency. The original was kept.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "出力形式では透明部分を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
           }
         }
       }

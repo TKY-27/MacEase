@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -43,6 +44,61 @@ import Testing
     @Test func smallAliasesExpand() throws {
         let json = try YAMLConversion.json(fromYAML: "base: &shared [1, 2]\ncopy: *shared\n").serialized(indent: nil)
         #expect(json == #"{"base":[1,2],"copy":[1,2]}"#)
+    }
+
+    @Test func refusesRepeatedLargeScalarsBeforeComposing() async {
+        await #expect(processExitsWith: .success) {
+            let scalarBytes = 1024 * 1024
+            let referenceCount = 10_000
+            let maximumResidentGrowth = 32 * 1024 * 1024
+            let maximumRejectionTime = Duration.seconds(5)
+            let yaml =
+                "payload: &payload " + String(repeating: "x", count: scalarBytes)
+                + "\nreferences: [" + Array(repeating: "*payload", count: referenceCount).joined(separator: ",") + "]"
+            var usage = rusage()
+            try #require(getrusage(RUSAGE_SELF, &usage) == 0)
+            let baselinePeak = usage.ru_maxrss
+            let duration = ContinuousClock().measure {
+                #expect(throws: EngineError.invalidInput(.malformed("YAML expansion exceeds 8 MiB"))) {
+                    _ = try TextConverter.convert(
+                        Data(yaml.utf8), .yamlToJSON, settings: TextSettings(), title: "aliases")
+                }
+            }
+            try #require(getrusage(RUSAGE_SELF, &usage) == 0)
+            #expect(usage.ru_maxrss <= baselinePeak + maximumResidentGrowth)
+            #expect(duration < maximumRejectionTime)
+        }
+    }
+
+    @Test func countsUTF8KeysAndNestedAliasExpansions() {
+        let key = String(repeating: "é", count: 512 * 1024)
+        let yaml =
+            "base: &base\n  ? \(key)\n  : value\nsecond: &second [*base, *base]\nthird: [*second, *second, *second]"
+        #expect(throws: EngineError.invalidInput(.malformed("YAML expansion exceeds 8 MiB"))) {
+            _ = try YAMLConversion.json(fromYAML: yaml)
+        }
+    }
+
+    @Test func boundsJSONOutputAfterEscaping() {
+        let scalarBytes = 1024 * 1024
+        let yaml = "payload: &payload \"" + String(repeating: "\\u0001", count: scalarBytes) + "\"\ncopy: *payload"
+        let limit = ConversionInput.maximumBytes
+        #expect(throws: EngineError.invalidInput(.malformed("JSON output exceeds \(limit) bytes"))) {
+            _ = try TextConverter.convert(Data(yaml.utf8), .yamlToJSON, settings: TextSettings(), title: "escaped")
+        }
+    }
+
+    @Test func countsFinalNewlineInJSONOutput() throws {
+        let quotesAndNewlineBytes = 3
+        let payload = String(repeating: "x", count: ConversionInput.maximumBytes - quotesAndNewlineBytes)
+        let output = try TextConverter.convert(
+            Data("'\(payload)'".utf8), .yamlToJSON, settings: TextSettings(), title: "boundary")
+        #expect(output.utf8.count == ConversionInput.maximumBytes)
+        #expect(output.hasSuffix("\"\n"))
+        #expect(throws: EngineError.invalidInput(.malformed("JSON output exceeds 8 MiB"))) {
+            _ = try TextConverter.convert(
+                Data("'\(payload)x'".utf8), .yamlToJSON, settings: TextSettings(), title: "boundary")
+        }
     }
 
     @Test func refusesAliasExpansionBombs() {

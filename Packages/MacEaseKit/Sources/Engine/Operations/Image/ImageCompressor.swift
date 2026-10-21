@@ -32,9 +32,13 @@ enum ImageCompressor {
     static func compress(_ url: URL, _ compression: ImageCompression, context: ItemContext) async throws
         -> ItemResult
     {
-        let document = try await ImageDocument.load(url)
+        var document = try await ImageDocument.load(url)
         let limits = try limits(for: compression.goal, document: document)
         let format = outputFormat(for: document, limits: limits)
+        document = try ImageOutput.prepared(
+            document, as: format, context: context,
+            preservesGainMaps: limits?.aspect?.fit != .letterbox,
+            preservesHDRPixels: format == .tiff && limits == nil)
         if document.isAnimated, format.holdsAnimation {
             return try await compressAnimated(
                 document, as: format, limits: limits, compression: compression, context: context)
@@ -43,8 +47,22 @@ enum ImageCompressor {
             throw EngineError.unsupportedCodec("HEICS")
         }
         var gainMaps = [.jpeg, .heic].contains(format) ? document.gainMaps : []
-        let frames = try fitted(
-            ImageOutput.frames(of: document, for: format, context: context), to: limits, gainMaps: &gainMaps)
+        var frames = try ImageOutput.frames(of: document, for: format, context: context)
+        if !format.holdsAlpha {
+            for index in frames.indices {
+                frames[index].image = try ImageEncoder.flattened(
+                    frames[index].image, background: context.settings.image.customBackground)
+            }
+        }
+        frames = try fitted(frames, to: limits, gainMaps: &gainMaps)
+        if !format.holdsAlpha {
+            for frame in frames {
+                try ImageOutput.validateTransparency(
+                    frame.image, as: format,
+                    keepsOriginal: document.format == nil || context.settings.outputMode == .newFile,
+                    context: context)
+            }
+        }
         var plan = Plan(
             format: format, frames: frames,
             options: ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image))
@@ -52,7 +70,9 @@ enum ImageCompressor {
         plan.retained = document.frames.map(\.image)
         if compression.stripsGPS { plan.options.metadata = ImageMetadata.filtered(document.metadata, removing: [.gps]) }
         let sizes = { (frames: [ImageFrame]) in frames.map { [$0.image.width, $0.image.height] } }
-        let unchanged = format == document.format && sizes(plan.frames) == sizes(document.frames)
+        let unchanged =
+            !document.toneMapsHDR && format == document.format
+            && sizes(plan.frames) == sizes(document.frames)
         let originalBytes = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
 
         guard let target = targetBytes(for: compression.goal, limits: limits) else {
@@ -139,7 +159,7 @@ enum ImageCompressor {
         var smallest = Int64.max
         let steps = compression.allowsDownscale ? maximumDownscaleSteps : 0
         if plan.format == .gif {
-            return try fitGIF(plan, under: target, compression: compression, smallest: &smallest)
+            return try fitGIF(plan, under: target, compression: compression, smallest: &smallest, context: context)
         }
         for step in 0...steps {
             try Task.checkCancellation()
@@ -207,11 +227,15 @@ enum ImageCompressor {
     }
 
     /// Frame rate, then width, then colors.
-    private static func fitGIF(_ plan: Plan, under target: Int64, compression: ImageCompression, smallest: inout Int64)
-        throws -> Data
-    {
+    private static func fitGIF(
+        _ plan: Plan, under target: Int64, compression: ImageCompression, smallest: inout Int64, context: ItemContext
+    ) throws -> Data {
         func attempt(_ candidate: Plan) throws -> Data? {
             try Task.checkCancellation()
+            for frame in candidate.frames {
+                try ImageOutput.validateTransparency(
+                    frame.image, as: .gif, keepsOriginal: context.settings.outputMode == .newFile, context: context)
+            }
             let data = try ImageEncoder.encode(
                 candidate.frames, as: .gif, options: candidate.options, retaining: candidate.retained)
             smallest = min(smallest, Int64(data.count))
@@ -373,7 +397,7 @@ enum ImageCompressor {
         let stride = limits?.maxFrames.map { 1 + (count - 1) / $0 } ?? 1
         var durations: [Double] = []
         durations.reserveCapacity(count)
-        var unchanged = format == document.format && stride == 1
+        var unchanged = !document.toneMapsHDR && format == document.format && stride == 1
         for index in 0..<count {
             try Task.checkCancellation()
             durations.append(try document.frameDuration(at: index))
@@ -461,6 +485,9 @@ enum ImageCompressor {
                         width: max(1, Int((Double(frame.image.width) * plan.scale).rounded())),
                         height: max(1, Int((Double(frame.image.height) * plan.scale).rounded())))
                 }
+                try ImageOutput.validateTransparency(
+                    frame.image, as: plan.format,
+                    keepsOriginal: context.settings.outputMode == .newFile, context: context)
                 context.progress(Double(index + 1) / Double(plan.frameCount + 1))
                 return frame
             }

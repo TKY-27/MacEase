@@ -4,6 +4,7 @@ import Yams
 
 /// Uses the YAML 1.2 core schema.
 enum YAMLConversion {
+    private static let maximumExpandedBytes = ConversionInput.maximumBytes
     private static let indent = 2
     private static let unlimitedWidth = -1
     private static let mergeKey = "<<"
@@ -52,6 +53,9 @@ enum YAMLConversion {
 
     /// Bounds nesting and aliases before Yams recurses.
     private static func checkBounds(_ text: String) throws {
+        guard text.utf8.count <= ConversionInput.maximumBytes else {
+            throw EngineError.invalidInput(.tooLarge(limitBytes: Int64(ConversionInput.maximumBytes)))
+        }
         var parser = yaml_parser_t()
         guard yaml_parser_initialize(&parser) != 0 else {
             throw EngineError.decodeFailed("YAML parser could not start")
@@ -63,6 +67,7 @@ enum YAMLConversion {
             var budget = ExpansionBudget()
             var documents = 0
             while true {
+                try Task.checkCancellation()
                 var event = yaml_event_t()
                 guard yaml_parser_parse(&parser, &event) != 0 else { throw syntaxError(parser) }
                 defer { yaml_event_delete(&event) }
@@ -73,7 +78,7 @@ enum YAMLConversion {
                     documents += 1
                     guard documents == 1 else { throw failure("YAML streams with several documents are unsupported") }
                 case YAML_SCALAR_EVENT:
-                    try budget.scalar(anchor: name(event.data.scalar.anchor))
+                    try budget.scalar(anchor: name(event.data.scalar.anchor), bytes: event.data.scalar.length)
                 case YAML_SEQUENCE_START_EVENT:
                     try budget.open(anchor: name(event.data.sequence_start.anchor))
                 case YAML_MAPPING_START_EVENT:
@@ -91,24 +96,27 @@ enum YAMLConversion {
 
     /// Sizes and heights as Yams expands aliases.
     private struct ExpansionBudget {
-        private var anchors: [String: (size: Int, height: Int)] = [:]
-        private var openCollections: [(anchor: String?, firstNode: Int, childHeight: Int)] = []
+        private var anchors: [String: (size: Int, height: Int, bytes: Int)] = [:]
+        private var openCollections: [(anchor: String?, firstNode: Int, firstByte: Int, childHeight: Int)] = []
         private var nodes = 0
+        private var bytes = 0
 
-        mutating func scalar(anchor: String?) throws {
-            try add(size: 1, height: 0)
-            if let anchor { anchors[anchor] = (1, 0) }
+        mutating func scalar(anchor: String?, bytes: Int) throws {
+            try add(size: 1, height: 0, bytes: bytes)
+            if let anchor { anchors[anchor] = (1, 0, bytes) }
         }
 
         mutating func open(anchor: String?) throws {
-            try add(size: 1, height: 1)
-            openCollections.append((anchor, nodes - 1, 0))
+            try add(size: 1, height: 1, bytes: 0)
+            openCollections.append((anchor, nodes - 1, bytes, 0))
         }
 
         mutating func close() {
             guard let collection = openCollections.popLast() else { return }
             let height = collection.childHeight + 1
-            if let anchor = collection.anchor { anchors[anchor] = (nodes - collection.firstNode, height) }
+            if let anchor = collection.anchor {
+                anchors[anchor] = (nodes - collection.firstNode, height, bytes - collection.firstByte)
+            }
             raiseParent(to: height)
         }
 
@@ -116,7 +124,7 @@ enum YAMLConversion {
             guard let anchor, let expansion = anchors[anchor] else {
                 throw failure("YAML alias refers to an unknown anchor")
             }
-            try add(size: expansion.size, height: expansion.height)
+            try add(size: expansion.size, height: expansion.height, bytes: expansion.bytes)
             raiseParent(to: expansion.height)
         }
 
@@ -125,7 +133,7 @@ enum YAMLConversion {
             openCollections[last].childHeight = max(openCollections[last].childHeight, height)
         }
 
-        private mutating func add(size: Int, height: Int) throws {
+        private mutating func add(size: Int, height: Int, bytes: Int) throws {
             nodes += size
             guard openCollections.count + height <= PropertyListConversion.maximumDepth else {
                 throw failure("Conversion exceeds 64 levels")
@@ -133,6 +141,10 @@ enum YAMLConversion {
             guard nodes <= PropertyListConversion.maximumNodes else {
                 throw failure("Conversion exceeds 100000 values")
             }
+            guard bytes <= maximumExpandedBytes - self.bytes else {
+                throw failure("YAML expansion exceeds 8 MiB")
+            }
+            self.bytes += bytes
         }
     }
 
@@ -146,6 +158,7 @@ enum YAMLConversion {
     }
 
     private static func json(_ node: Node, path: String) throws -> JSONValue {
+        try Task.checkCancellation()
         switch node {
         case .scalar(let scalar):
             return try json(scalar, tag: node.tag, path: path)

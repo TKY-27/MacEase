@@ -79,6 +79,7 @@ enum ImagePixels {
     static func padded(_ image: CGImage, width: Int, height: Int, fill: CGColor?) throws -> CGImage {
         try draw(width: width, height: height, like: image, fill: fill) { context in
             let origin = CGPoint(x: (width - image.width) / 2, y: (height - image.height) / 2)
+            context.setBlendMode(.copy)
             context.draw(image, in: CGRect(origin: origin, size: CGSize(width: image.width, height: image.height)))
         }
     }

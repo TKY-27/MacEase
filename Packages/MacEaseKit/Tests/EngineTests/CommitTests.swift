@@ -1,5 +1,6 @@
 import Foundation
 import MenuCatalog
+import Synchronization
 import Testing
 
 @testable import Engine
@@ -7,6 +8,26 @@ import Testing
 private func makeEngine(concurrency: Int = 2) throws -> JobEngine {
     let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
     return try JobEngine(supportDirectory: support, concurrency: concurrency)
+}
+
+private final class CommitCollisionPresenter: NSObject, NSFilePresenter, Sendable {
+    let presentedItemURL: URL?
+    let presentedItemOperationQueue = OperationQueue()
+    let creation = Mutex<Result<Void, any Error>?>(nil)
+    private let destination: URL
+
+    init(source: URL, destination: URL) {
+        presentedItemURL = source
+        self.destination = destination
+    }
+
+    func relinquishPresentedItem(toWriter writer: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        creation.withLock { result in
+            guard result == nil else { return }
+            result = Result { try Data("other writer".utf8).write(to: destination, options: .withoutOverwriting) }
+        }
+        writer(nil)
+    }
 }
 
 private func write(_ text: String, to url: URL) throws {
@@ -335,6 +356,93 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         #expect(try read(original) == "x")
     }
 
+    @Test func derivedOutputSkipsDanglingSymlink() async throws {
+        let folder = try TestVolume.makeFolder()
+        let original = folder.appending(path: "photo.txt")
+        let collision = folder.appending(path: "photo_resized.txt")
+        let missing = folder.appending(path: "missing.txt")
+        let staged = folder.appending(path: "staged.txt")
+        try write("original", to: original)
+        try write("resized", to: staged)
+        try FileManager.default.createSymbolicLink(at: collision, withDestinationURL: missing)
+
+        let committed = try await FileCommitter().derive(
+            StagedFile(url: staged, name: collision.lastPathComponent, check: .text(.utf8)),
+            nextTo: original, expectedStamp: FileStamp(of: original))
+
+        #expect(committed.output.lastPathComponent == "photo_resized (2).txt")
+        #expect(try read(committed.output) == "resized")
+        #expect(try read(original) == "original")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: collision.path) == missing.path)
+    }
+
+    @Test func derivedOutputRetriesAConcurrentCollision() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "source.txt")
+        let staged = folder.appending(path: "staged.txt")
+        let collision = folder.appending(path: "result.txt")
+        try write("original", to: original)
+        try write("derived", to: staged)
+        let presenter = CommitCollisionPresenter(source: staged, destination: collision)
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+
+        let committed = try await FileCommitter().derive(
+            StagedFile(url: staged, name: collision.lastPathComponent, check: .text(.utf8)), nextTo: original)
+
+        try #require(presenter.creation.withLock { $0 }).get()
+        #expect(committed.output.lastPathComponent == "result (2).txt")
+        #expect(try read(collision) == "other writer")
+        #expect(try read(committed.output) == "derived")
+        #expect(try read(original) == "original")
+    }
+
+    @Test func renameRetriesAConcurrentCollision() throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "source.txt")
+        let collision = folder.appending(path: "result.txt")
+        try write("original", to: original)
+        let presenter = CommitCollisionPresenter(source: original, destination: collision)
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+
+        let committed = try FileCommitter().rename(original, to: collision.lastPathComponent)
+
+        try #require(presenter.creation.withLock { $0 }).get()
+        #expect(committed.output.lastPathComponent == "result (2).txt")
+        #expect(try read(collision) == "other writer")
+        #expect(try read(committed.output) == "original")
+        #expect(!FileManager.default.fileExists(atPath: original.path))
+    }
+
+    @Test func renamedReplacementRetriesAConcurrentCollision() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "source.txt")
+        let staged = folder.appending(path: "staged.txt")
+        let collision = folder.appending(path: "result.txt")
+        let clones = folder.appending(path: "clones")
+        try FileManager.default.createDirectory(at: clones, withIntermediateDirectories: false)
+        try write("original", to: original)
+        try write("replacement", to: staged)
+        let presenter = CommitCollisionPresenter(source: original, destination: collision)
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+
+        let replaced = try await FileCommitter().replace(
+            original: original,
+            with: StagedFile(url: staged, name: collision.lastPathComponent, check: .text(.utf8)),
+            cloneDirectory: clones, expectedStamp: FileStamp(of: original))
+
+        try #require(presenter.creation.withLock { $0 }).get()
+        #expect(replaced.output.lastPathComponent == "result (2).txt")
+        #expect(try read(collision) == "other writer")
+        #expect(try read(replaced.output) == "replacement")
+        #expect(try read(#require(replaced.trashed).url) == "original")
+    }
+
     @Test func unverifiableOutputLeavesOriginalUntouched() async throws {
         let folder = try TestVolume.makeFolder()
         let original = folder.appending(path: "photo.png")
@@ -594,6 +702,18 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         let folder = try TestVolume.makeFolder()
         try write("x", to: folder.appending(path: "backup.tar.gz"))
         #expect(try AvailableName.url(for: "backup.tar.gz", in: folder).lastPathComponent == "backup (2).tar.gz")
+    }
+
+    @Test func nameRetriesAdvanceAfterACollisionDisappears() throws {
+        let folder = try TestVolume.makeFolder()
+        let collision = folder.appending(path: "result.txt")
+        var nextCandidate = 1
+        #expect(try AvailableName.url(for: "result.txt", in: folder, nextCandidate: &nextCandidate) == collision)
+        try write("other writer", to: collision)
+        try FileManager.default.removeItem(at: collision)
+        #expect(
+            try AvailableName.url(for: "result.txt", in: folder, nextCandidate: &nextCandidate).lastPathComponent
+                == "result (2).txt")
     }
 
     @Test func staleStagingCleanupOnlyTouchesStagingDirectories() throws {

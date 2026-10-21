@@ -22,6 +22,11 @@ struct ImageDocument {
     let metadata: CGImageMetadata?
     let gainMaps: [ImageGainMap]
     let pixelsPerInch: Double
+    let containsHDR: Bool
+    let containsHDRPixels: Bool
+    let toneMapsHDR: Bool
+    private let imageSource: CGImageSource?
+    private let sourceIndices: [Int]
     private let animationSource: CGImageSource?
 
     static let defaultPixelsPerInch = 72.0
@@ -40,7 +45,9 @@ struct ImageDocument {
         url: URL, contentType: UTType, frames: [ImageFrame], isAnimated: Bool = false, loopCount: Int? = 0,
         metadata: CGImageMetadata? = nil, gainMaps: [ImageGainMap] = [],
         pixelsPerInch: Double = ImageDocument.defaultPixelsPerInch,
-        animationSource: CGImageSource? = nil
+        animationSource: CGImageSource? = nil, imageSource: CGImageSource? = nil,
+        sourceIndices: [Int] = [], containsHDR: Bool = false, containsHDRPixels: Bool = false,
+        toneMapsHDR: Bool = false
     ) {
         self.url = url
         self.contentType = contentType
@@ -52,6 +59,12 @@ struct ImageDocument {
         self.gainMaps = gainMaps
         self.pixelsPerInch = pixelsPerInch
         self.animationSource = animationSource
+        self.imageSource = imageSource
+        self.sourceIndices = sourceIndices
+        let hdrPixels = containsHDRPixels || frames.contains { ImageSDR.hasHDRPixels($0.image) }
+        self.containsHDR = containsHDR || hdrPixels || !gainMaps.isEmpty
+        self.containsHDRPixels = hdrPixels
+        self.toneMapsHDR = toneMapsHDR
     }
 
     func frame(at index: Int) throws -> ImageFrame {
@@ -59,7 +72,27 @@ struct ImageDocument {
         guard let animationSource else { return frames[index] }
         if index == 0 { return frames[0] }
         return try Self.decodeFrame(
-            animationSource, index: index, url: url, animation: AnimationKeys(type: contentType))
+            animationSource, index: index, url: url, animation: AnimationKeys(type: contentType),
+            toneMapsHDR: toneMapsHDR)
+    }
+
+    func toneMappedToSDR() throws -> ImageDocument {
+        guard let imageSource else { throw EngineError.hdrConversionUnsupported }
+        var retained = FrameMemoryBudget()
+        for frame in frames { try retained.reserve(frame.image) }
+        let converted = try sourceIndices.map { index in
+            let frame = try Self.decodeFrame(
+                imageSource, index: index, url: url, animation: AnimationKeys(type: contentType),
+                toneMapsHDR: true, retaining: retained)
+            try retained.reserve(frame.image)
+            return frame
+        }
+        return ImageDocument(
+            url: url, contentType: contentType, frames: converted, isAnimated: isAnimated,
+            loopCount: loopCount,
+            metadata: try ImageSDR.metadataForSDR(metadata, image: converted[0].image),
+            pixelsPerInch: pixelsPerInch, animationSource: animationSource, imageSource: imageSource,
+            sourceIndices: sourceIndices, toneMapsHDR: true)
     }
 
     func frameDuration(at index: Int) throws -> Double {
@@ -127,9 +160,14 @@ struct ImageDocument {
         }
         var retained = FrameMemoryBudget.retainedImages
         var preflight = budget
+        var containsHDR = false
+        var containsHDRPixels = false
         for position in 0..<(isAnimated ? count : indices.count) {
             try Task.checkCancellation()
             let index = isAnimated ? position : indices[position]
+            let content = try ImageSDR.content(source, index: index)
+            containsHDR = containsHDR || content.gainMap || content.pixels
+            containsHDRPixels = containsHDRPixels || content.pixels
             var rawBudget = FrameMemoryBudget()
             try rawBudget.reserve(source: source, index: index)
             if isAnimated {
@@ -164,14 +202,16 @@ struct ImageDocument {
             metadata: CGImageSourceCopyMetadataAtIndex(source, primary, nil),
             gainMaps: gainMaps,
             pixelsPerInch: (properties[kCGImagePropertyDPIWidth] as? Double) ?? defaultPixelsPerInch,
-            animationSource: isAnimated ? source : nil
+            animationSource: isAnimated ? source : nil, imageSource: source, sourceIndices: indices,
+            containsHDR: containsHDR, containsHDRPixels: containsHDRPixels
         )
         budget = actualBudget
         return document
     }
 
     private static func decodeFrame(
-        _ source: CGImageSource, index: Int, url: URL, animation: AnimationKeys?
+        _ source: CGImageSource, index: Int, url: URL, animation: AnimationKeys?,
+        toneMapsHDR: Bool = false, retaining retained: FrameMemoryBudget = FrameMemoryBudget()
     ) throws -> ImageFrame {
         try autoreleasepool {
             try Task.checkCancellation()
@@ -179,6 +219,11 @@ struct ImageDocument {
             let orientation =
                 (properties[kCGImagePropertyOrientation] as? UInt32)
                 .flatMap(CGImagePropertyOrientation.init(rawValue:)) ?? .up
+            if toneMapsHDR {
+                let image = try ImageSDR.decodedSDR(
+                    source, index: index, orientation: orientation, retaining: retained)
+                return ImageFrame(image: image, duration: animation?.delay(in: properties) ?? 0)
+            }
             var preflight = FrameMemoryBudget()
             try preflight.reserve(source: source, index: index)
             if orientation != .up { try preflight.reserve(source: source, index: index, oriented: true) }

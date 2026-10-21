@@ -14,6 +14,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case imageSequenceUnsupported
     case imageLoopCountUnsupported
     case imageTransparencyUnsupported
+    case imageHDRUnsupported
     case hdrConversionUnsupported
     case sdrVerificationFailed
     case videoAlphaUnsupported

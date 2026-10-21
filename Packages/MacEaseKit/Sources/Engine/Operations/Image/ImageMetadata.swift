@@ -79,21 +79,29 @@ enum ImageMetadata {
             return .skipped(.nothingToRemove)
         }
         let gainMaps = try ImageGainMap.read(source, at: primary)
-        if fields.contains(.makerNotes), gainMaps.contains(where: { $0.type == kCGImageAuxiliaryDataTypeHDRGainMap }) {
-            throw EngineError.imageGainMapUnsupported
-        }
+        let losesCalibration =
+            fields.contains(.makerNotes)
+            && gainMaps.contains(where: { $0.type == kCGImageAuxiliaryDataTypeHDRGainMap })
+        if losesCalibration, context.settings.outputMode == .replace { throw EngineError.imageHDRUnsupported }
         let kept = filtered(metadata, removing: fields)
         let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
-        let output = StagedFile(url: staged, name: url.lastPathComponent, check: .image)
-        if type.conforms(to: .jpeg) {
+        var output = StagedFile(url: staged, name: url.lastPathComponent, check: .image)
+        if type.conforms(to: .jpeg), !losesCalibration {
             try copy(source, to: staged, type: type, metadata: kept)
         } else if count == 1, type.conforms(to: .png) || type.conforms(to: .tiff) && !type.conforms(to: .rawImage) {
             try rewrite(source, to: staged, type: type, metadata: kept)
         } else {
-            let document = try await ImageDocument.load(url)
-            guard let format = document.format else { return .skipped(.nothingToRemove) }
+            let loaded = try await ImageDocument.load(url)
+            guard let format = loaded.format else { return .skipped(.nothingToRemove) }
+            let document = try ImageOutput.prepared(
+                loaded, as: format, context: context, preservesGainMaps: !losesCalibration)
+            if document.toneMapsHDR {
+                output = StagedFile(url: staged, name: url.lastPathComponent, check: .sdrImage)
+            }
             var options = ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image)
-            options.metadata = kept
+            options.metadata =
+                document.toneMapsHDR
+                ? ImageMetadata.filtered(document.metadata, removing: fields) : kept
             let keptCount = try ImageOutput.keptFrameCount(of: document, for: format)
             if document.isAnimated, keptCount > 1 {
                 try await ImageEncoder.encodeStreaming(
@@ -104,7 +112,7 @@ enum ImageMetadata {
                 try ImageEncoder.encode(frames, as: format, options: options).write(to: staged)
             }
         }
-        if type.conforms(to: .jpeg) {
+        if type.conforms(to: .jpeg), !losesCalibration {
             guard let written = CGImageSourceCreateWithURL(staged as CFURL, nil) else {
                 throw EngineError.imageGainMapUnsupported
             }

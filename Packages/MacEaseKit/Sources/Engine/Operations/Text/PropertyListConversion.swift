@@ -9,6 +9,7 @@ enum PropertyListConversion {
 
     static func json(from bytes: Data, indent: String) throws -> String {
         guard bytes.count <= maximumBytes else { throw failure("Property list exceeds 8 MiB") }
+        if !bytes.starts(with: "bplist".utf8) { try XMLKeyValidator.validate(bytes) }
         var format = PropertyListSerialization.PropertyListFormat.xml
         let propertyList = try PropertyListSerialization.propertyList(
             from: bytes, options: [], format: &format)
@@ -248,5 +249,69 @@ enum PropertyListConversion {
 
     private static func failure(_ message: String) -> EngineError {
         .invalidInput(.malformed(message))
+    }
+
+    private final class XMLKeyValidator: NSObject, XMLParserDelegate {
+        private var dictionaries: [Set<String>] = []
+        private var key: String?
+        private var rejection: EngineError?
+
+        static func validate(_ bytes: Data) throws {
+            let parser = XMLParser(data: bytes)
+            parser.shouldResolveExternalEntities = false
+            parser.externalEntityResolvingPolicy = .never
+            let validator = XMLKeyValidator()
+            parser.delegate = validator
+            let parsed = parser.parse()
+            if let rejection = validator.rejection { throw rejection }
+            guard parsed else {
+                throw failure("XML error at line \(parser.lineNumber), column \(parser.columnNumber)")
+            }
+        }
+
+        func parser(
+            _ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+            qualifiedName: String?, attributes: [String: String]
+        ) {
+            if elementName == "dict" { dictionaries.append([]) }
+            if elementName == "key" { key = "" }
+        }
+
+        func parser(
+            _ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?
+        ) {
+            if elementName == "key", let key, let last = dictionaries.indices.last {
+                if !dictionaries[last].insert(key).inserted {
+                    rejection = failure("Duplicate JSON keys are unsupported")
+                    parser.abortParsing()
+                }
+                self.key = nil
+            }
+            if elementName == "dict" { dictionaries.removeLast() }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            key? += string
+        }
+
+        func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+            key? += String(decoding: CDATABlock, as: UTF8.self)
+        }
+
+        func parser(_ parser: XMLParser, foundInternalEntityDeclarationWithName name: String, value: String?) {
+            rejectEntities(parser)
+        }
+
+        func parser(
+            _ parser: XMLParser, foundExternalEntityDeclarationWithName name: String, publicID: String?,
+            systemID: String?
+        ) {
+            rejectEntities(parser)
+        }
+
+        private func rejectEntities(_ parser: XMLParser) {
+            rejection = failure("XML entity declarations are not supported")
+            parser.abortParsing()
+        }
     }
 }

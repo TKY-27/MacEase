@@ -94,6 +94,8 @@ public enum ItemResult: Sendable {
 
 public enum ItemWarning: Equatable, Sendable {
     case imageFlattened
+    case imageTransparencyFlattened
+    case imageToneMappedToSDR
     case pngOptimizationSkipped
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived

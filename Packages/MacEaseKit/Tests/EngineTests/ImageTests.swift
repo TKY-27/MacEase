@@ -129,7 +129,7 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
         if !Fixture.canEncodeHEIC { formats.removeAll { $0 == .heic } }
         for format in formats {
             let input = try Fixture.write(
-                [try Fixture.disc(background: nil)], as: .png, to: folder.appending(path: "logo-\(format).png"))
+                [try Fixture.disc()], as: .png, to: folder.appending(path: "logo-\(format).png"))
             let outcome = try await Fixture.run(.imageConvert, preset: format.rawValue, inputs: [input])
             let output = try Fixture.output(of: outcome)
             #expect(output.pathExtension == format.fileExtension, "\(format)")
@@ -156,11 +156,13 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
         }
     }
 
-    @Test func transparentSourcesFlattenOntoWhiteInJPEG() async throws {
+    @Test func newFileTransparencyFlattensOntoWhiteWithWarning() async throws {
         let folder = try TestVolume.makeFolder()
         let input = try Fixture.write(
             [try Fixture.disc(background: nil)], as: .png, to: folder.appending(path: "clear.png"))
-        let outcome = try await Fixture.run(.imageConvert, preset: "jpeg", inputs: [input])
+        let outcome = try await Fixture.run(.imageConvert, preset: "jpeg", inputs: [input], outputMode: .newFile)
+        #expect(Fixture.warnings(of: outcome) == [.imageTransparencyFlattened])
+        #expect(FileManager.default.fileExists(atPath: input.path))
         let corner = try Fixture.pixel(try Fixture.image(try Fixture.output(of: outcome)), x: 2, y: 2)
         #expect(corner[0] > 245 && corner[1] > 245 && corner[2] > 245)
     }

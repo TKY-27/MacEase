@@ -40,7 +40,12 @@ enum TextConverter {
         case .iniToXML:
             return try XMLConversion.document(root: jsonRoot, ini(text()))
         case .yamlToJSON:
-            return try YAMLConversion.json(fromYAML: text()).serialized(indent: indent) + "\n"
+            let output = try YAMLConversion.json(fromYAML: text()).serialized(
+                indent: indent, maximumBytes: ConversionInput.maximumBytes)
+            guard output.utf8.count < ConversionInput.maximumBytes else {
+                throw EngineError.invalidInput(.malformed("JSON output exceeds 8 MiB"))
+            }
+            return output + "\n"
         case .jsonToYAML:
             return try YAMLConversion.yaml(fromJSON: text())
         case .tomlToJSON:

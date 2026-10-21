@@ -54,20 +54,23 @@ enum ImageSDR {
 
     static func verify(_ url: URL) throws {
         let source = try source(url)
-        guard CGImageSourceGetCount(source) == 1 else { throw EngineError.sdrVerificationFailed }
-        let index = CGImageSourceGetPrimaryImageIndex(source)
-        guard try signal(source, index: index) == .sdr,
-            !hasHDRMetadata(CGImageSourceCopyMetadataAtIndex(source, index, nil))
-        else { throw EngineError.sdrVerificationFailed }
-        var budget = FrameMemoryBudget()
-        try budget.reserve(source: source, index: index)
-        guard let image = CGImageSourceCreateImageAtIndex(source, index, nil),
-            let colorSpace = image.colorSpace,
-            colorSpace.name == CGColorSpace.sRGB || colorSpace.name == CGColorSpace.displayP3,
-            image.contentHeadroom <= standardHeadroom + headroomTolerance
-        else { throw EngineError.sdrVerificationFailed }
-        var actual = FrameMemoryBudget()
-        try actual.reserve(image)
+        for index in 0..<CGImageSourceGetCount(source) {
+            try Task.checkCancellation()
+            try autoreleasepool {
+                guard try signal(source, index: index) == .sdr,
+                    !hasHDRMetadata(CGImageSourceCopyMetadataAtIndex(source, index, nil))
+                else { throw EngineError.sdrVerificationFailed }
+                var budget = FrameMemoryBudget()
+                try budget.reserve(source: source, index: index)
+                guard let image = CGImageSourceCreateImageAtIndex(source, index, nil),
+                    let colorSpace = image.colorSpace,
+                    colorSpace.name == CGColorSpace.sRGB || colorSpace.name == CGColorSpace.displayP3,
+                    image.contentHeadroom <= standardHeadroom + headroomTolerance
+                else { throw EngineError.sdrVerificationFailed }
+                var actual = FrameMemoryBudget()
+                try actual.reserve(image)
+            }
+        }
     }
 
     private static func source(_ url: URL) throws -> CGImageSource {
@@ -80,17 +83,24 @@ enum ImageSDR {
     }
 
     private static func signal(_ source: CGImageSource, index: Int) throws -> SourceSignal {
+        let content = try content(source, index: index)
+        if content.gainMap || content.pixels { return .hdr }
+        return hasHDRMetadata(CGImageSourceCopyMetadataAtIndex(source, index, nil)) ? .metadataOnly : .sdr
+    }
+
+    static func content(_ source: CGImageSource, index: Int) throws -> (gainMap: Bool, pixels: Bool) {
         var budget = FrameMemoryBudget()
         try budget.reserve(source: source, index: index)
-        let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let image = CGImageSourceCreateImageAtIndex(source, index, options) else {
-            throw EngineError.hdrConversionUnsupported
-        }
-        let hasGainMap = try ImageGainMap.contains(in: source, at: index)
-        let hasTransfer = image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) ?? false
-        let hasHeadroom = image.contentHeadroom > standardHeadroom + headroomTolerance
-        if hasGainMap || hasTransfer || hasHeadroom { return .hdr }
-        return hasHDRMetadata(CGImageSourceCopyMetadataAtIndex(source, index, nil)) ? .metadataOnly : .sdr
+        guard
+            let image = CGImageSourceCreateImageAtIndex(
+                source, index, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { throw EngineError.decodeFailed("image frame") }
+        return (try ImageGainMap.contains(in: source, at: index), hasHDRPixels(image))
+    }
+
+    static func hasHDRPixels(_ image: CGImage) -> Bool {
+        (image.colorSpace.map(CGColorSpaceUsesITUR_2100TF) ?? false)
+            || image.contentHeadroom > standardHeadroom + headroomTolerance
     }
 
     private static func orientation(_ properties: [CFString: Any]) throws -> CGImagePropertyOrientation {
@@ -101,19 +111,23 @@ enum ImageSDR {
         return orientation
     }
 
-    private static func decodedSDR(
-        _ source: CGImageSource, index: Int, orientation: CGImagePropertyOrientation
+    static func decodedSDR(
+        _ source: CGImageSource, index: Int, orientation: CGImagePropertyOrientation,
+        retaining retained: FrameMemoryBudget = FrameMemoryBudget()
     ) throws -> CGImage {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
             let width = properties[kCGImagePropertyPixelWidth] as? Int,
             let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { throw EngineError.hdrConversionUnsupported }
-        var budget = FrameMemoryBudget()
-        try budget.reserve(width: width, height: height, bytesPerPixel: decodeBytesPerPixel, frameCount: 2)
-        try budget.reserve(
-            width: orientation.swapsAxes ? height : width, height: orientation.swapsAxes ? width : height,
-            bytesPerPixel: decodeBytesPerPixel)
+        var budget = retained
+        try budget.reserve(source: source, index: index)
+        try budget.reserve(width: width, height: height, bytesPerPixel: decodeBytesPerPixel)
         let decoded = try toneMappingInput(source, index: index)
+        var rendering = retained
+        try rendering.reserve(decoded)
+        try rendering.reserve(
+            width: orientation.swapsAxes ? height : width, height: orientation.swapsAxes ? width : height,
+            bytesPerPixel: decoded.bitsPerComponent > 8 ? 8 : 4, frameCount: 2)
         guard let sourceSpace = decoded.colorSpace,
             let outputSpace = CGColorSpace(
                 name: sourceSpace.isWideGamutRGB ? CGColorSpace.displayP3 : CGColorSpace.sRGB)
@@ -177,7 +191,7 @@ enum ImageSDR {
         return found
     }
 
-    private static func metadataForSDR(_ metadata: CGImageMetadata?, image: CGImage) throws -> CGImageMetadata? {
+    static func metadataForSDR(_ metadata: CGImageMetadata?, image: CGImage) throws -> CGImageMetadata? {
         guard let metadata else { return nil }
         guard let copy = CGImageMetadataCreateMutableCopy(metadata) else { throw EngineError.hdrConversionUnsupported }
         var obsolete: [CFString] = []

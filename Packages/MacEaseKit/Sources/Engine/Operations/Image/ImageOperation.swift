@@ -27,7 +27,7 @@ public enum ImageFormat: String, Codable, CaseIterable, Sendable {
 
     var holdsAnimation: Bool { [.gif, .png, .webp].contains(self) }
 
-    var holdsAlpha: Bool { ![.jpeg, .bmp, .pdf].contains(self) }
+    var holdsAlpha: Bool { ![.jpeg, .bmp].contains(self) }
 
     var usesQuality: Bool { [.jpeg, .heic, .webp, .avif, .jxl].contains(self) }
 

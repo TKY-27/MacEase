@@ -99,7 +99,7 @@ import UniformTypeIdentifiers
         }
     }
 
-    @Test func transparentPhotoshopCompositeRefusesJPEG() async throws {
+    @Test func transparentPhotoshopCompositeExportsJPEGWithWarning() async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
         let photoshop = UTType(importedAs: "com.adobe.photoshop-image", conformingTo: .image)
@@ -110,11 +110,15 @@ import UniformTypeIdentifiers
         let original = try Data(contentsOf: input)
         let context = context(in: folder)
         defer { context.removeStaging() }
-        await #expect(throws: EngineError.imageTransparencyUnsupported) {
-            try await ImageEdits.convert(input, ImageConversion(format: .jpeg), context: context)
-        }
+        guard
+            case .derived(_, let outputs) = try await ImageEdits.convert(
+                input, ImageConversion(format: .jpeg), context: context)
+        else { Issue.record("PSD export must keep the source"); return }
+        let output = try #require(outputs.first)
+        let corner = try ImageFixtures.pixel(ImageFixtures.image(output.url), x: 1, y: 1)
+        #expect(corner.prefix(3).allSatisfy { $0 > 245 })
+        #expect(context.warnings == [.imageFlattened, .imageTransparencyFlattened])
         #expect(try Data(contentsOf: input) == original)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [input.lastPathComponent])
     }
 
     @Test(arguments: [ImageFormat.jpeg, .tiff, .pdf, .svg, .tga])
