@@ -155,67 +155,88 @@ public actor HistoryStore {
     private var runningBatches: Set<UUID> = []
     private var terminating = false
     public static let capacity = 100
-    private static let formatVersion = 1
     private static let saveInterval: TimeInterval = 1
 
-    private struct Stored: Codable {
-        var version: Int
-        var batches: [BatchRecord]
+    private enum PersistenceState {
+        case clean, appended, snapshotRequired
     }
 
-    private let file: URL
+    private var journal: HistoryJournal
+    private var snapshot = HistorySnapshot()
+    private var pending: [HistoryJournal.Entry] = []
+    private var loadFailure: Error?
     private let committer = FileCommitter()
     private let logger = Logger(category: "history")
     private var lastSave = Date.distantPast
-    private var dirty = false
-    public private(set) var records: [BatchRecord] = []
+    private var persistenceState = PersistenceState.clean
+    public var records: [BatchRecord] { snapshot.batches }
     /// Where an unreadable history file was moved.
     public private(set) var setAsideFile: URL?
 
     public init(supportDirectory: URL) {
-        file = supportDirectory.appending(path: "history.json")
-        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        var persistence = HistoryJournal(supportDirectory: supportDirectory)
         do {
-            let stored = try JSONDecoder().decode(Stored.self, from: Data(contentsOf: file))
-            guard stored.version == Self.formatVersion else {
-                throw CocoaError(.fileReadUnsupportedScheme)
+            snapshot = try persistence.load()
+            if FileManager.default.fileExists(atPath: persistence.journalURL.path) {
+                persistenceState = .snapshotRequired
+                do {
+                    try persistence.publish(snapshot)
+                    try persistence.reset()
+                    persistenceState = .clean
+                } catch {
+                    logger.error("History compaction failed: \(error.localizedDescription, privacy: .private)")
+                }
             }
-            records = stored.batches
         } catch {
-            logger.error(
-                "History unreadable: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
-            )
-            do {
-                setAsideFile = try PrivateFile.setAside(file)
-            } catch {
-                logger.fault(
-                    "History could not be set aside: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
-                )
+            logger.error("History unreadable: \(error.localizedDescription, privacy: .private)")
+            if FileManager.default.fileExists(atPath: persistence.journalURL.path) {
+                loadFailure = error
+            } else {
+                do {
+                    setAsideFile = try PrivateFile.setAside(persistence.snapshotURL)
+                } catch {
+                    loadFailure = error
+                    logger.fault("History could not be set aside: \(error.localizedDescription, privacy: .private)")
+                }
             }
         }
+        journal = persistence
     }
 
     func record(_ newItems: [CommitRecord], batch id: UUID, operation: OperationID) throws {
+        try checkAcceptingCommits()
         guard !newItems.isEmpty else { return }
-        if let index = records.lastIndex(where: { $0.id == id }) {
-            records[index].items += newItems
-            records[index].undone = false
-        } else {
-            records.append(BatchRecord(id: id, operation: operation, date: Date(), items: newItems, undone: false))
-            records = Array(records.suffix(Self.capacity))
-        }
-        dirty = true
+        let previousSequence = snapshot.sequence ?? 0
+        guard previousSequence < UInt64.max else { throw CocoaError(.fileWriteOutOfSpace) }
+        let date = records.last(where: { $0.id == id })?.date ?? Date()
+        let batch = BatchRecord(id: id, operation: operation, date: date, items: newItems, undone: false)
+        snapshot.append(batch)
+        let sequence = previousSequence + 1
+        snapshot.sequence = sequence
+        pending.append(HistoryJournal.Entry(sequence: sequence, batch: batch))
+        if persistenceState != .snapshotRequired { persistenceState = .appended }
         let needsDurableBackup = newItems.contains { record in
             switch record {
             case .replaced, .removed: true
             case .derived, .renamed: false
             }
         }
-        if needsDurableBackup || Date().timeIntervalSince(lastSave) >= Self.saveInterval { try save() }
+        if persistenceState == .snapshotRequired {
+            try save()
+        } else if needsDurableBackup {
+            var contents = Data()
+            for entry in pending { contents.append(try HistoryJournal.encoded(entry)) }
+            try journal.append(contents)
+            pending.removeAll(keepingCapacity: true)
+            lastSave = Date()
+        } else if Date().timeIntervalSince(lastSave) >= Self.saveInterval {
+            try save()
+        }
     }
 
     func flush() throws {
-        if dirty { try save() }
+        if let loadFailure { throw loadFailure }
+        if persistenceState != .clean { try save() }
     }
 
     func beginBatch(_ id: UUID) {
@@ -227,6 +248,7 @@ public actor HistoryStore {
     }
 
     func checkAcceptingCommits() throws {
+        if let loadFailure { throw loadFailure }
         if terminating { throw CancellationError() }
     }
 
@@ -245,8 +267,7 @@ public actor HistoryStore {
 
     public func clear() throws {
         try checkAcceptingCommits()
-        records = []
-        dirty = true
+        snapshot.batches = []
         try save()
     }
 
@@ -280,18 +301,18 @@ public actor HistoryStore {
             return outcomes
         }
         let appended = records[currentIndex].items.dropFirst(batch.items.count)
-        records[currentIndex].items = failed + appended
-        records[currentIndex].undone = records[currentIndex].items.isEmpty
-        dirty = true
+        snapshot.batches[currentIndex].items = failed + appended
+        snapshot.batches[currentIndex].undone = snapshot.batches[currentIndex].items.isEmpty
         try save()
         return outcomes
     }
 
     private func save() throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        try PrivateFile.write(encoder.encode(Stored(version: Self.formatVersion, batches: records)), to: file)
+        persistenceState = .snapshotRequired
+        try journal.publish(snapshot)
+        pending.removeAll(keepingCapacity: true)
+        try journal.reset()
         lastSave = Date()
-        dirty = false
+        persistenceState = .clean
     }
 }
