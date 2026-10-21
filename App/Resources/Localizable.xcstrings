@@ -2736,26 +2736,6 @@
         }
       }
     },
-    "Only the first frame was kept because the format has no animation.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この形式はアニメーションに対応していないため、最初のフレームのみを保存しました。"
-          }
-        }
-      }
-    },
-    "Only the first page was kept.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最初のページのみを保存しました。"
-          }
-        }
-      }
-    },
     "Open Console": {
       "localizations": {
         "ja": {
@@ -2896,6 +2876,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "メモリの上限を超えないよう、PNG の最適化を省略しました。"
+          }
+        }
+      }
+    },
+    "PSD conversion uses the stored composite image. Layers are not preserved; the original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PSD の変換では保存されている統合画像を使用します。レイヤーは保持されません。元のファイルはそのまま残しています。"
           }
         }
       }
@@ -6225,6 +6215,40 @@
         }
       }
     },
+    "menu.preset.audio.convert.caf-alac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAF (ALAC)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAF (ALAC)"
+          }
+        }
+      }
+    },
+    "menu.preset.audio.convert.caf-pcm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAF (PCM)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAF (PCM)"
+          }
+        }
+      }
+    },
     "menu.preset.audio.convert.flac": {
       "extractionState": "manual",
       "localizations": {
@@ -7109,6 +7133,23 @@
         }
       }
     },
+    "menu.preset.image.convert.tga": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TGA"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TGA"
+          }
+        }
+      }
+    },
     "menu.preset.image.convert.tiff": {
       "extractionState": "manual",
       "localizations": {
@@ -7585,6 +7626,23 @@
         }
       }
     },
+    "menu.preset.pdf.toImages.tiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TIFF"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TIFF"
+          }
+        }
+      }
+    },
     "menu.preset.platform-size": {
       "extractionState": "manual",
       "localizations": {
@@ -7908,6 +7966,23 @@
         }
       }
     },
+    "menu.preset.text.convert.target.toml": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOML"
+          }
+        }
+      }
+    },
     "menu.preset.text.convert.target.txt": {
       "extractionState": "manual",
       "localizations": {
@@ -7938,6 +8013,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "XML"
+          }
+        }
+      }
+    },
+    "menu.preset.text.convert.target.yaml": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YAML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YAML"
           }
         }
       }
@@ -8601,6 +8693,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "M4A"
+          }
+        }
+      }
+    },
+    "menu.preset.video.extractAudio.m4a-aac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4A (AAC)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4A (AAC)"
+          }
+        }
+      }
+    },
+    "menu.preset.video.extractAudio.m4a-alac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4A (ALAC)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4A (ALAC)"
           }
         }
       }
@@ -9376,12 +9502,42 @@
         }
       }
     },
+    "“%@” could not be converted because its animation loop count cannot be preserved. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメーションの繰り返し回数を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "“%@” could not be converted because the output cannot preserve every frame or page. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力形式ではすべてのフレームまたはページを保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” could not be converted because the output cannot preserve its audio channel layout. The original was kept.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "出力形式で音声のチャンネル構成を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "“%@” could not be converted because the output cannot preserve transparency. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力形式では透明部分を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
           }
         }
       }

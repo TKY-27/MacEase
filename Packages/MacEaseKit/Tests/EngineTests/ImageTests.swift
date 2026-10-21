@@ -125,7 +125,7 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
 
     @Test func convertWritesEveryTargetFormat() async throws {
         let folder = try TestVolume.makeFolder()
-        var formats = ImageFormat.allCases.filter { $0 != .png }
+        var formats = ImageFormat.allCases.filter { $0 != .png && ($0 != .tga || ImageFormat.supportsTGA) }
         if !Fixture.canEncodeHEIC { formats.removeAll { $0 == .heic } }
         for format in formats {
             let input = try Fixture.write(
@@ -133,7 +133,7 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
             let outcome = try await Fixture.run(.imageConvert, preset: format.rawValue, inputs: [input])
             let output = try Fixture.output(of: outcome)
             #expect(output.pathExtension == format.fileExtension, "\(format)")
-            #expect(!FileManager.default.fileExists(atPath: input.path), "\(format)")
+            #expect(FileManager.default.fileExists(atPath: input.path) == (format == .pdf), "\(format)")
             switch format {
             case .svg: #expect(try String(contentsOf: output, encoding: .utf8).contains("<path"))
             case .pdf: #expect(PDFDocument(url: output)?.pageCount == 1)
@@ -165,17 +165,17 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
         #expect(corner[0] > 245 && corner[1] > 245 && corner[2] > 245)
     }
 
-    @Test func convertKeepsAnimationOnlyWhereTheFormatHoldsIt() async throws {
+    @Test func convertRefusesAnimationLoss() async throws {
         let folder = try TestVolume.makeFolder()
         let webP = try await Fixture.run(.imageConvert, preset: "webp", inputs: [try animatedGIF(in: folder)])
         #expect(CGImageSourceGetCount(try Fixture.source(try Fixture.output(of: webP))) == 4)
         let png = try await Fixture.run(.imageConvert, preset: "png", inputs: [try animatedGIF(in: folder)])
         #expect(CGImageSourceGetCount(try Fixture.source(try Fixture.output(of: png))) == 4)
         let jpeg = try await Fixture.run(.imageConvert, preset: "jpeg", inputs: [try animatedGIF(in: folder)])
-        #expect(Fixture.warnings(of: jpeg) == [.firstFrameOnly])
+        #expect(jpeg.outcomes == [.failed(.imageSequenceUnsupported)])
     }
 
-    @Test func multiPageTIFFKeepsPagesOnlyInPDF() async throws {
+    @Test func multiPageTIFFConvertsEveryPageOrRefuses() async throws {
         let folder = try TestVolume.makeFolder()
         let pages = try (0..<3).map { try Fixture.photo(width: 100, height: 80, seed: $0) }
         let tiff = try Fixture.write(pages, as: .tiff, to: folder.appending(path: "scan.tiff"))
@@ -183,7 +183,8 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
         #expect(PDFDocument(url: try Fixture.output(of: pdf))?.pageCount == 3)
         let other = try Fixture.write(pages, as: .tiff, to: folder.appending(path: "scan2.tiff"))
         let png = try await Fixture.run(.imageConvert, preset: "png", inputs: [other])
-        #expect(Fixture.warnings(of: png) == [.firstPageOnly])
+        #expect(png.outcomes == [.failed(.imageSequenceUnsupported)])
+        #expect(FileManager.default.fileExists(atPath: other.path))
     }
 
     @Test func jpegQuarterTurnsOnlyEditTheOrientationTag() async throws {

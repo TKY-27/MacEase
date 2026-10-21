@@ -33,6 +33,18 @@ enum MenuStrings {
             return String(localized: "menu.preset.custom-size", defaultValue: "Custom Size…")
         }
         switch (op, preset) {
+        case (.videoExtractAudio, "m4a"):
+            return String(localized: "menu.preset.video.extractAudio.m4a-aac", defaultValue: "M4A (AAC)")
+        case (.videoExtractAudio, "m4a-alac"):
+            return String(localized: "menu.preset.video.extractAudio.m4a-alac", defaultValue: "M4A (ALAC)")
+        case (.audioConvert, "caf-pcm"):
+            return String(localized: "menu.preset.audio.convert.caf-pcm", defaultValue: "CAF (PCM)")
+        case (.audioConvert, "caf-alac"):
+            return String(localized: "menu.preset.audio.convert.caf-alac", defaultValue: "CAF (ALAC)")
+        case (.imageConvert, "tga"):
+            return String(localized: "menu.preset.image.convert.tga", defaultValue: "TGA")
+        case (.pdfToImages, "tiff"):
+            return String(localized: "menu.preset.pdf.toImages.tiff", defaultValue: "TIFF")
         case (.documentConvert, "pdf"), (.textConvert, "html-pdf"):
             return String(localized: "menu.preset.document.convert.pdf", defaultValue: "PDF")
         case (.documentConvert, "txt"):
@@ -132,7 +144,7 @@ enum MenuStrings {
                     }
                 }
                 return preset(op, presetID)
-            }, kind: kind, speechAvailable: SpeechTranscriber.isAvailable)
+            }, kind: kind, speechAvailable: SpeechTranscriber.isAvailable, tgaAvailable: ImageFormat.supportsTGA)
     }
 
     private static let bytesPerMegabyte = 1_000_000.0

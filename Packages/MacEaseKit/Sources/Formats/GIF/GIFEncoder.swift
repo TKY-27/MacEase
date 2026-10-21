@@ -18,7 +18,11 @@ public struct GIFOptions: Sendable {
 
     public var colors: Int
     public var dithering: Dithering
-    public var loops: Bool
+    public var loopCount: UInt16?
+    public var loops: Bool {
+        get { loopCount != nil }
+        set { loopCount = newValue ? 0 : nil }
+    }
     public var paletteScope: PaletteScope
 
     public init(
@@ -26,7 +30,16 @@ public struct GIFOptions: Sendable {
     ) {
         self.colors = colors
         self.dithering = dithering
-        self.loops = loops
+        self.loopCount = loops ? 0 : nil
+        self.paletteScope = paletteScope
+    }
+
+    public init(
+        colors: Int = 256, dithering: Dithering = .ordered, loopCount: UInt16?, paletteScope: PaletteScope = .global
+    ) {
+        self.colors = colors
+        self.dithering = dithering
+        self.loopCount = loopCount
         self.paletteScope = paletteScope
     }
 }
@@ -74,7 +87,7 @@ public enum GIFEncoder {
 
         var output = header(
             width: width, height: height, globalPalette: globalPalette,
-            reservesTransparent: reservesTransparent, loops: animated && options.loops
+            reservesTransparent: reservesTransparent, loopCount: animated ? options.loopCount : nil
         )
         var encoding = FrameEncoding(
             width: width, height: height, options: options, globalPalette: globalPalette,
@@ -117,7 +130,7 @@ public enum GIFEncoder {
                 GIFEncoder.header(
                     width: width, height: height,
                     globalPalette: [PaletteColor(red: 0, green: 0, blue: 0, alpha: 0)],
-                    reservesTransparent: false, loops: options.loops
+                    reservesTransparent: false, loopCount: options.loopCount
                 ))
         }
 
@@ -167,7 +180,7 @@ public enum GIFEncoder {
     }
 
     private static func header(
-        width: Int, height: Int, globalPalette: [PaletteColor]?, reservesTransparent: Bool, loops: Bool
+        width: Int, height: Int, globalPalette: [PaletteColor]?, reservesTransparent: Bool, loopCount: UInt16?
     ) -> Data {
         var output = Data("GIF89a".utf8)
         output.appendLittleEndian(UInt16(width))
@@ -181,10 +194,12 @@ public enum GIFEncoder {
         } else {
             output.append(contentsOf: [Marker.colorResolution, 0, 0])
         }
-        if loops {
+        if let loopCount {
             output.append(contentsOf: [Marker.extensionIntroducer, Marker.applicationLabel, 0x0B])
             output.append(Data("NETSCAPE2.0".utf8))
-            output.append(contentsOf: [0x03, 0x01, 0x00, 0x00, 0x00])
+            output.append(contentsOf: [0x03, 0x01])
+            output.appendLittleEndian(loopCount)
+            output.append(0)
         }
 
         return output

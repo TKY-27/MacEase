@@ -58,6 +58,19 @@ Verified with generated fixtures in the package's document and plist tests.
 | Can `CFEqual` validate Boolean and numeric distinctions? | No. It equates NSNumber representations of true, 1, and 1.0. Typed canonical JSON comparisons preserve the distinction. |
 | Are PDF thumbnail color thresholds independent of profiles? | No. The fixture's green component became 0.343 after thumbnail-to-deviceRGB conversion. Direct CGPDF drawing into an explicit sRGB RGBA bitmap retained 576 red samples under the unchanged thresholds. |
 
+## Native media conversion boundaries (2026-10-21)
+
+Environment: macOS 27.0.1 (26A434), Apple Silicon, Swift 6.4.
+Generated fixtures run through package operations and native decoders.
+
+| Question | Result |
+| --- | --- |
+| Can ImageIO decode and encode PSD and TGA here? | Both identifiers are advertised. Generated PSD composites export to PNG/JPEG/TIFF; PNG and TIFF retain decoded pixels. TGA-to-PNG round trips retain decoded pixels. This is not macOS 26 device proof. |
+| Does the GIF loop property equal the Netscape field? | No. ImageIO reports total plays for finite GIFs; the stored field counts repeats after the first play. Writing the property directly into that field adds one play. Zero remains infinite; one play omits the extension. |
+| Can PDFKit and ImageIO stage every PDF page into TIFF? | Yes. Two generated black/white pages retain their order, dimensions, and 144 dpi metadata. The aggregate raster budget refuses an oversized page before creating output. |
+| Does the existing decoder accept AIFF-C PCM? | Yes. A generated `AIFC`/`NONE` fixture decodes the expected channels, rate, and samples; staged CAF PCM conversion retains samples exactly. An unknown compression code fails before output. |
+| Which checks remain blocked here? | Final commits fail with Cocoa 256/512 under the sandbox. An independent Foundation-only probe coordinating two `/tmp` files reproduces both errors. Core Image resize fails rendering. ALAC encoders are absent from `afconvert -hf`; M4A ALAC rejects settings and CAF ALAC returns format error 1718449215. Existing lossless audio coverage also aborts with that format error. GIF quality fixtures cannot encode their H.264 source video (`-11834`). No tests are skipped for these failures. |
+
 ## Release checklist (manual, run on macOS 26.x and 27.x)
 
 1. Install the DMG on a clean user account, clear quarantine with Open Anyway,

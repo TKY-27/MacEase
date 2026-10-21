@@ -42,6 +42,7 @@ enum ImageExports {
                 throw EngineError.decodeFailed(url.lastPathComponent)
             }
             let document = try await ImageDocument.load(url, budget: &budget)
+            guard !document.isAnimated else { throw EngineError.imageSequenceUnsupported }
             let images = document.isMultiPage ? document.frames.map(\.image) : [document.first]
             pages += images.map { ($0, document.pixelsPerInch) }
             context.progress(Double(index + 1) / Double(inputs.count + 1))
@@ -54,6 +55,7 @@ enum ImageExports {
 
     static func iconSet(_ url: URL, kind: IconSetKind, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
+        guard !document.isAnimated, !document.isMultiPage else { throw EngineError.imageSequenceUnsupported }
         let square = try ImageEncoder.square(document.first)
         guard square.width >= smallestIconEdge else { throw EngineError.invalidInput(.notSquareEnough) }
         let base = (url.lastPathComponent as NSString).deletingPathExtension

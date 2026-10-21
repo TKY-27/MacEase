@@ -111,7 +111,7 @@ public final class WebPAnimationEncoder {
         private let width: Int
         private let height: Int
         private let quality: Double
-        private let loops: Bool
+        private let loopCount: UInt16
         private let xmp: Data?
         private let maximumEncodedBytes: Int
         private let mux: OpaquePointer
@@ -127,7 +127,19 @@ public final class WebPAnimationEncoder {
         private var hasTransparency = false
         private var finished = false
 
-        public init(width: Int, height: Int, quality: Double, loops: Bool, maximumEncodedBytes: Int, xmp: Data? = nil)
+        public convenience init(
+            width: Int, height: Int, quality: Double, loops: Bool, maximumEncodedBytes: Int, xmp: Data? = nil
+        )
+            throws
+        {
+            try self.init(
+                width: width, height: height, quality: quality, loopCount: loops ? 0 : 1,
+                maximumEncodedBytes: maximumEncodedBytes, xmp: xmp)
+        }
+
+        public init(
+            width: Int, height: Int, quality: Double, loopCount: UInt16, maximumEncodedBytes: Int, xmp: Data? = nil
+        )
             throws
         {
             let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
@@ -141,12 +153,12 @@ public final class WebPAnimationEncoder {
             self.width = width
             self.height = height
             self.quality = quality
-            self.loops = loops
+            self.loopCount = loopCount
             self.xmp = xmp
             self.maximumEncodedBytes = maximumEncodedBytes
             self.mux = mux
             self.chunkFrameLimit = min(Self.maximumChunkFrames, max(1, Self.maximumChunkPixelsBytes / frameBytes))
-            var animation = WebPMuxAnimParams(bgcolor: 0, loop_count: loops ? 0 : 1)
+            var animation = WebPMuxAnimParams(bgcolor: 0, loop_count: Int32(loopCount))
             guard WebPMuxSetAnimationParams(mux, &animation) == WEBP_MUX_OK,
                 WebPMuxSetCanvasSize(mux, Int32(width), Int32(height)) == WEBP_MUX_OK
             else {
@@ -174,7 +186,7 @@ public final class WebPAnimationEncoder {
             let encoder =
                 try chunkEncoder
                 ?? WebPAnimationEncoder(
-                    width: width, height: height, quality: quality, loops: loops
+                    width: width, height: height, quality: quality, loopCount: loopCount
                 )
             try encoder.add(pixels, duration: duration)
             chunkEncoder = encoder
@@ -322,13 +334,17 @@ public final class WebPAnimationEncoder {
     private static let flagsOffset = 20
     private static let alphaFlag: UInt8 = 0x10
 
-    public init(width: Int, height: Int, quality: Double, loops: Bool, xmp: Data? = nil) throws {
+    public convenience init(width: Int, height: Int, quality: Double, loops: Bool, xmp: Data? = nil) throws {
+        try self.init(width: width, height: height, quality: quality, loopCount: loops ? 0 : 1, xmp: xmp)
+    }
+
+    public init(width: Int, height: Int, quality: Double, loopCount: UInt16, xmp: Data? = nil) throws {
         let config = try WebPEncoder.configuration(quality: quality)
         var options = WebPAnimEncoderOptions()
         guard WebPAnimEncoderOptionsInit(&options) != 0 else {
             throw FormatError.encoderFailure("WebP version mismatch")
         }
-        options.anim_params.loop_count = loops ? 0 : 1
+        options.anim_params.loop_count = Int32(loopCount)
         // Transparent canvas; the default is opaque white.
         options.anim_params.bgcolor = 0
         options.allow_mixed = config.lossless == 0 ? 1 : 0

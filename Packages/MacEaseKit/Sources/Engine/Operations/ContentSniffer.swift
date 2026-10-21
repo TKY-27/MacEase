@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import MenuCatalog
 
 enum ContentSniffer {
@@ -27,7 +28,14 @@ enum ContentSniffer {
         defer { try? reader.close() }
         let header = [UInt8](try reader.read(upToCount: headerLength) ?? Data())
         switch kind {
-        case .image: return isImage(header)
+        case .image:
+            if isImage(header) { return true }
+            guard
+                let source = CGImageSourceCreateWithURL(
+                    url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                let identifier = CGImageSourceGetType(source) as String?
+            else { return false }
+            return ["com.adobe.photoshop-image", "com.truevision.tga-image"].contains(identifier)
         case .video: return isVideo(header)
         case .audio: return isAudio(header)
         case .pdf: return isPDF(header)

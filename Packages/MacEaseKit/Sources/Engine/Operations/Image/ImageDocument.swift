@@ -18,7 +18,7 @@ struct ImageDocument {
     let format: ImageFormat?
     var frames: [ImageFrame]
     let isAnimated: Bool
-    let loops: Bool
+    let loopCount: Int?
     let metadata: CGImageMetadata?
     let gainMaps: [ImageGainMap]
     let pixelsPerInch: Double
@@ -37,7 +37,7 @@ struct ImageDocument {
     }
 
     init(
-        url: URL, contentType: UTType, frames: [ImageFrame], isAnimated: Bool = false, loops: Bool = true,
+        url: URL, contentType: UTType, frames: [ImageFrame], isAnimated: Bool = false, loopCount: Int? = 0,
         metadata: CGImageMetadata? = nil, gainMaps: [ImageGainMap] = [],
         pixelsPerInch: Double = ImageDocument.defaultPixelsPerInch,
         animationSource: CGImageSource? = nil
@@ -47,7 +47,7 @@ struct ImageDocument {
         self.format = contentType.conforms(to: .svg) ? nil : ImageFormat(contentType: contentType)
         self.frames = frames
         self.isAnimated = isAnimated
-        self.loops = loops
+        self.loopCount = loopCount
         self.metadata = metadata
         self.gainMaps = gainMaps
         self.pixelsPerInch = pixelsPerInch
@@ -77,7 +77,7 @@ struct ImageDocument {
     static func load(_ url: URL, budget: inout FrameMemoryBudget) async throws -> ImageDocument {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         if let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions), CGImageSourceGetCount(source) > 0,
-            let type = CGImageSourceGetType(source).flatMap({ UTType($0 as String) })
+            let type = CGImageSourceGetType(source).map({ UTType(importedAs: $0 as String, conformingTo: .image) })
         {
             if type.conforms(to: .ico) {
                 try ICOFile.validateStructure(try EncodedImageInput.read(url))
@@ -108,6 +108,13 @@ struct ImageDocument {
         let count = CGImageSourceGetCount(source)
         let animation = AnimationKeys(type: type)
         let isAnimated = count > 1 && animation != nil
+        if count > 1, animation == nil,
+            !type.conforms(to: .tiff), !type.conforms(to: .rawImage),
+            !type.conforms(to: .ico), !type.conforms(to: .icns),
+            type.identifier != "com.adobe.photoshop-image"
+        {
+            throw EngineError.imageSequenceUnsupported
+        }
         let indices: [Int]
         if isAnimated {
             indices = [0]
@@ -153,7 +160,7 @@ struct ImageDocument {
         }
         let document = ImageDocument(
             url: url, contentType: type, frames: frames, isAnimated: isAnimated,
-            loops: animation?.loopCount(in: container).map { $0 == 0 } ?? true,
+            loopCount: animation?.loopCount(in: container),
             metadata: CGImageSourceCopyMetadataAtIndex(source, primary, nil),
             gainMaps: gainMaps,
             pixelsPerInch: (properties[kCGImagePropertyDPIWidth] as? Double) ?? defaultPixelsPerInch,

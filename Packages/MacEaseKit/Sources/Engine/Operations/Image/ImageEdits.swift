@@ -22,7 +22,7 @@ enum ImageOutput {
         -> EncodeOptions
     {
         var options = EncodeOptions(quality: settings.quality(for: format))
-        options.loops = document.loops
+        options.loopCount = document.loopCount
         options.metadata = document.metadata
         options.gainMaps = [.jpeg, .heic].contains(format) ? document.gainMaps : []
         options.dithering = settings.gifDithering
@@ -30,17 +30,16 @@ enum ImageOutput {
         return options
     }
 
-    static func keptFrameCount(of document: ImageDocument, for format: ImageFormat, context: ItemContext) -> Int {
-        if document.isAnimated, document.contentType.conforms(to: .heics), format == .heic {
-            return document.frameCount
-        }
+    static func keptFrameCount(of document: ImageDocument, for format: ImageFormat) throws -> Int {
         if document.isAnimated, !format.holdsAnimation {
-            context.warn(.firstFrameOnly)
-            return 1
+            throw EngineError.imageSequenceUnsupported
         }
         if document.isMultiPage, ![.tiff, .pdf].contains(format) {
-            context.warn(.firstPageOnly)
-            return 1
+            throw EngineError.imageSequenceUnsupported
+        }
+        if document.isAnimated, let loopCount = document.loopCount {
+            let maximum = format == .png ? Int(UInt32.max) : Int(UInt16.max) + (format == .gif ? 1 : 0)
+            guard (0...maximum).contains(loopCount) else { throw EngineError.imageLoopCountUnsupported }
         }
         return document.frameCount
     }
@@ -48,7 +47,7 @@ enum ImageOutput {
     static func frames(of document: ImageDocument, for format: ImageFormat, context: ItemContext) throws
         -> [ImageFrame]
     {
-        let count = keptFrameCount(of: document, for: format, context: context)
+        let count = try keptFrameCount(of: document, for: format)
         guard count <= document.frames.count else { throw EngineError.unsupportedCodec("streaming required") }
         return Array(document.frames.prefix(count))
     }
@@ -81,7 +80,9 @@ enum ImageOutput {
         -> ItemResult
     {
         let file = StagedFile(url: url, name: outputName(for: document, format: format), check: check(for: format))
-        if derived || document.format == nil { return .derived(nextTo: document.url, outputs: [file]) }
+        if derived || document.format == nil || format == .pdf {
+            return .derived(nextTo: document.url, outputs: [file])
+        }
         return .replace(original: document.url, output: file)
     }
 
@@ -92,7 +93,7 @@ enum ImageOutput {
         _ transform: (CGImage) async throws -> CGImage
     ) async throws -> ItemResult {
         if document.isAnimated {
-            let count = keptFrameCount(of: document, for: format, context: context)
+            let count = try keptFrameCount(of: document, for: format)
             let options = defaultOptions(for: document, format: format, settings: context.settings.image)
             guard options.gainMaps.isEmpty else { throw EngineError.imageGainMapUnsupported }
             let staged = try context.stagingURL(for: document.url, name: outputName(for: document, format: format))
@@ -166,8 +167,21 @@ enum ImageEdits {
 
     static func convert(_ url: URL, _ conversion: ImageConversion, context: ItemContext) async throws -> ItemResult {
         let document = try await ImageDocument.load(url)
+        if document.contentType.identifier == "com.adobe.photoshop-image" {
+            guard [.png, .jpeg, .tiff].contains(conversion.format) else {
+                throw EngineError.unsupportedCodec("PSD composite target")
+            }
+            if conversion.format == .jpeg {
+                try ImageEncoder.validateWorkspace(
+                    document.frames, format: .jpeg, options: EncodeOptions(quality: ImageEncoder.maximumQuality))
+                guard try PixelBuffer(cgImage: document.first).isOpaque else {
+                    throw EngineError.imageTransparencyUnsupported
+                }
+            }
+            context.warn(.imageFlattened)
+        }
         if conversion.format == document.format { return .skipped(.alreadyDone) }
-        let count = ImageOutput.keptFrameCount(of: document, for: conversion.format, context: context)
+        let count = try ImageOutput.keptFrameCount(of: document, for: conversion.format)
         var options = ImageOutput.defaultOptions(
             for: document, format: conversion.format, settings: context.settings.image)
         options.quality = conversion.quality.map(Double.init) ?? options.quality

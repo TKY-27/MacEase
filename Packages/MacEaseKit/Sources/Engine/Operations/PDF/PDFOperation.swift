@@ -16,6 +16,7 @@ public enum PDFOperation: Codable, Hashable, Sendable {
     /// `nil` takes every page in Finder order.
     case merge(pages: [PDFPageReference]?)
     case toImages(StillFormat, dpi: Int)
+    case toTIFF(dpi: Int)
     case toText
     case compress
     /// Clockwise; multiples of 90.
@@ -31,6 +32,7 @@ enum PDFPlanner {
     static func operation(for op: OperationID, preset: String?, settings: Settings) -> PDFOperation? {
         switch (op, preset) {
         case (.pdfMerge, nil): .merge(pages: nil)
+        case (.pdfToImages, "tiff"): .toTIFF(dpi: settings.text.pdfImageDPI)
         case (.pdfToImages, let preset?):
             StillFormat(rawValue: preset).map { .toImages($0, dpi: settings.text.pdfImageDPI) }
         case (.pdfToText, nil): .toText
@@ -54,6 +56,8 @@ enum PDFPlanner {
             return Batch(operation: op, items: [item])
         case .toImages(let format, let dpi):
             perFile = { try PDFExport.images(of: $0, format: format, dpi: dpi, context: $1) }
+        case .toTIFF(let dpi):
+            perFile = { try PDFExport.tiff(of: $0, dpi: dpi, context: $1) }
         case .toText:
             perFile = { try await PDFExport.text(of: $0, context: $1) }
         case .compress:

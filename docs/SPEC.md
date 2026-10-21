@@ -523,9 +523,9 @@ Selection rules:
 
 | Kind | Extensions |
 | --- | --- |
-| image | jpg, jpeg, jpe, png, apng, heic, heif, hif, avif, jxl, webp, gif, tif, tiff, bmp, ico, icns, svg, dng, cr2, cr3, nef, arw, raf, orf, rw2 |
+| image | jpg, jpeg, jpe, png, apng, heic, heif, hif, avif, jxl, webp, gif, tif, tiff, bmp, tga, psd, ico, icns, svg, dng, cr2, cr3, nef, arw, raf, orf, rw2 |
 | video | mp4, m4v, mov, mkv, webm, avi, flv |
-| audio | mp3, m4a, aac, wav, aif, aiff, flac, ogg, oga, opus, caf |
+| audio | mp3, m4a, aac, wav, aif, aiff, aifc, flac, ogg, oga, opus, caf |
 | pdf | pdf |
 | document | docx, odt, rtf, rtfd (including directory packages) |
 | plist | plist (binary or XML) |
@@ -561,7 +561,7 @@ menus.
 | --- | --- |
 | Image Resize | 75%, 50%, 25%; Long Edge 3840 px (hidden), 2560 px (hidden), 1920 px, 1080 px; Custom Size… |
 | Image Compress | Discord (20 MB), X (5 MB), Instagram (8 MB), Email (18 MB), Web; High Quality, Medium Quality, Low Quality; Custom Size… |
-| Image Convert | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL; GIF, TIFF, BMP (hidden); ICO (hidden), ICNS (hidden), SVG, PDF; SDR when applicable (section 8.12) |
+| Image Convert | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL; GIF, TIFF, BMP (hidden), TGA; ICO (hidden), ICNS (hidden), SVG, PDF; SDR when applicable (section 8.12) |
 | Image and video Rotate | 90° Right, 90° Left, 180°, 45° (hidden, editable extra-angle slot); Flip Horizontal, Flip Vertical |
 | Background | Remove, Green Screen, Blue Screen, Custom Color, Blur; Color Key for images only |
 | Remove Metadata / Recognize Text | All, Location Only, Selected Fields / Copy Text, Save as .txt, Show |
@@ -571,8 +571,8 @@ menus.
 | Audio and video Subtitles | SRT, WebVTT, Plain Text; Translated SRT |
 | Video Compress | Discord (20 MB), X, Instagram Reels, LINE, Email (18 MB); 10 MB, 25 MB, 50 MB, 100 MB (hidden); High Quality, Medium Quality, Low Quality; Custom Size… |
 | Video Convert | MP4, MOV, M4V (hidden), MKV, WebM, AVI (hidden), FLV (hidden); GIF, GIF for X (15 MB), Animated WebP, APNG (hidden); SDR when applicable |
-| Extract Audio | M4A, MP3, AAC, WAV, AIFF (hidden), FLAC, OGG (Vorbis) (hidden), Opus (hidden) |
-| Audio Convert | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG (Vorbis), Opus |
+| Extract Audio | M4A (AAC), M4A (ALAC), MP3, AAC, WAV, AIFF (hidden), FLAC, OGG (Vorbis) (hidden), Opus (hidden) |
+| Audio Convert | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG (Vorbis), Opus, CAF (PCM), CAF (ALAC) |
 | Audio Compress | 192 kbps, 128 kbps, 96 kbps, 64 kbps; Custom Size… |
 | Normalize Loudness / Frame Rate | −14 LUFS, −16 LUFS, −23 LUFS / 24 fps, 30 fps, 60 fps |
 | Encoding / Line Endings | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS / LF (macOS, Linux), CRLF (Windows) |
@@ -711,7 +711,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 | --- | --- | --- | --- |
 | `image.resize` | 25%, 50%, 75%, long edge 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
 | `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Transform | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
-| `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
+| `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG/PSD inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
 | `image.rotate` | 90° right, 90° left, 180°, extra angle from Settings | Transform | Multiples of 90° on JPEG without gain maps change only the orientation tag (lossless); HDR JPEG rotates base and gain-map pixels together; other angles rotate pixels with transparent corners, or the fill color when the format has no alpha, subject to the HDR preservation guard in section 3.5 |
 | `image.flip` | Horizontal, Vertical | Transform | Pixel flip, orientation reset to 1 |
 | `image.trimBorders` | — | Transform | Removes uniform borders matching the corner color within tolerance |
@@ -766,7 +766,7 @@ stream-copy edits retain their existing alpha (ADR 0010).
 | `video.toAnimatedWebP` | Animated WebP, under Convert | Derived | libwebp animation encoder using saved animation defaults |
 | `video.toAPNG` | APNG, under Convert | Derived | ImageIO APNG writer using saved animation defaults |
 | `video.thumbnail` | First Frame, Middle Frame, Choose Frame… | Derived | PNG or JPEG per Settings, with saved quality and optional width limit |
-| `video.extractAudio` | MP3, M4A, AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; Automatic bitrate copies when possible; an explicit bitrate in Settings always encodes |
+| `video.extractAudio` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; Automatic bitrate copies when possible; an explicit bitrate in Settings always encodes |
 | `video.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Speech framework `SpeechAnalyzer` with `SpeechTranscriber` and audio time ranges; language from settings or the system locale; cues split at sentence boundaries, at most 42 characters per line and 2 lines; translation with the Translation framework |
 | `video.background` | Remove, Green Screen, Blue Screen, Custom Color, Blur | Derived | Section 8.11 |
 | `video.aiCustom` | — | Depends on plan | Section 10 |
@@ -775,14 +775,14 @@ stream-copy edits retain their existing alpha (ADR 0010).
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `audio.convert` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Transform | Bitrates from settings; tags (title, artist, album, artwork) copied where the target supports them |
+| `audio.convert` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus, CAF (PCM), CAF (ALAC) | Transform | Bitrates from settings; tags (title, artist, album, artwork) copied where the target supports them |
 | `audio.compress` | 64, 96, 128, 192 kbps | Transform | Re-encodes in the same lossy format, or AAC in M4A for lossless sources and for MP3 below 128 kbps (ADR 0010) |
 | `audio.normalize` | −14 LUFS, −16 LUFS, −23 LUFS | Transform | ITU-R BS.1770-4 integrated loudness; gain only, capped so the 4× oversampled true peak stays at or below −1 dBTP; the notification reports when the cap stopped short of the target |
 | `audio.trim` | — (panel) | Transform | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy |
 | `audio.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Same on-device transcription, translation, settings, and cue rules as video subtitles; no video track required |
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
 
-Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
+Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF/AIFF-C, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
 WAV input includes RF64 and BW64. Their mandatory first `ds64` chunk supplies
 64-bit RIFF and audio lengths and optional oversized-chunk lengths. Chunk
 ranges are checked against those lengths and the file before replacement.
@@ -859,7 +859,7 @@ the save panel offers replacement, and remain undoable.
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `pdf.merge` | — (Page order panel when needed) | Derived | One PDF, initially in natural filename order, with page ordering before processing |
-| `pdf.toImages` | PNG, JPEG | Derived | 144 dpi from Settings; pages-folder layout by default, optional loose pages with section 3.5 names. Whole output is staged and verified before commit; loose outputs commit without overwrites and retain per-file Undo after partial commit or cancellation |
+| `pdf.toImages` | PNG, JPEG, TIFF | Derived | 144 dpi from Settings; pages-folder layout by default, optional loose pages with section 3.5 names. Whole output is staged and verified before commit; loose outputs commit without overwrites and retain per-file Undo after partial commit or cancellation |
 | `pdf.toText` | — | Derived | `PDFDocument.string`, pages separated by form feed; scanned PDFs fall back to Vision OCR per page |
 | `pdf.compress` | — | Transform | PDFKit write options `saveImagesAsJPEGOption` and `optimizeImagesForScreenOption`; kept only when smaller than the input |
 | `pdf.rotate` | 90° right, 90° left, 180° | Transform | All pages |
@@ -868,6 +868,13 @@ the save panel offers replacement, and remain undoable.
 | `pdf.aiRename` | — | Rename | Section 10 |
 
 Quick Look already previews PDFs on macOS, so there is no preview operation.
+
+TIFF export writes every rasterized page into `stem.tiff`, using the saved
+PDF image DPI regardless of the PNG/JPEG folder-layout setting. It retains
+the source in both output modes and verifies the encoded page count.
+Aggregate page raster storage is capped at 250 MB, including row alignment
+and per-page overhead, before any rendering allocation or output write.
+This bounded guard reuses PDFKit and ImageIO instead of adding a TIFF library.
 
 Locked PDFs are refused. Unlocked encrypted PDFs support Derived operations
 when their permissions allow them: page images require printing; text, merge,
@@ -1081,20 +1088,33 @@ codec works. The host validates actual codecs before writing. No FFmpeg CLI,
 Windows component, or unapproved dependency is introduced to fill a pair.
 
 For still images, **I** is PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF,
-BMP, ICO, ICNS, SVG, and PDF. For video, **V** is MP4, MOV, M4V, MKV, WebM,
+BMP, TGA, ICO, ICNS, SVG, and PDF. For video, **V** is MP4, MOV, M4V, MKV, WebM,
 AVI, and FLV. For audio, **A** is MP3, M4A (AAC), M4A (ALAC), raw AAC, WAV,
-AIFF, FLAC, OGG (Vorbis), and Opus. “Except own format” uses the canonical
+AIFF, FLAC, OGG (Vorbis), Opus, CAF (PCM), and CAF (ALAC). “Except own format” uses the canonical
 aliases in section 4.2. It suppresses only all-selection no-ops. An M4A source
 still exposes both codec choices.
 
 | Image inputs | Target pairs |
 | --- | --- |
 | PNG, JPEG/JPE, WebP, HEIC/HEIF/HIF, ICO, GIF still, SVG | Each input to every I target except its own format. PDF output always derives. These include Flect's PNG/JPG/WebP/HEIC/ICO/GIF/SVG pairs. |
-| AVIF, JPEG XL, TIFF/TIF, BMP, ICNS | Each input to every I target except its own format; PDF output always derives. |
+| AVIF, JPEG XL, TIFF/TIF, BMP, TGA, ICNS | Each input to every I target except its own format; PDF output always derives. |
+| PSD | PNG, JPEG, or TIFF using the ImageIO stored composite, always Derived. A visible warning explains that layers are not preserved in the export. The source retains its layers. Transparent composites refuse JPEG before writing. |
 | DNG, CR2, CR3, NEF, ARW, RAF, ORF, RW2 | Each decodable RAW input to every I target, always Derived. |
 | Animated GIF, APNG, animated WebP, supported ImageIO sequences | GIF, APNG, animated WebP, retaining all frames/timing. Static targets refuse frame loss. HEICS writing is unsupported. |
 | Multi-page TIFF | Multi-page PDF or TIFF with every page preserved; other destinations refuse page loss. |
 | Any supported image | OCR to TXT; Make Icon (`image.iconSet`) to ICNS, ICO, or AppIcon set; Make PDF from selected images. These exports always derive. Convert > ICNS/ICO are separate Transform actions. |
+
+Animation conversions and edits retain finite loop counts, including absent
+GIF loop extensions, or refuse an unrepresentable count before writing.
+GIF stores a 16-bit repeat count after the initial play; ImageIO reports
+total plays. WebP stores a 16-bit total play count; APNG uses 32 bits.
+HEICS writing and multi-image formats without verified timing support refuse
+conversion instead of selecting a primary frame. Make PDF and icon exports
+also refuse animation loss; icon exports refuse multi-page inputs.
+TGA uses ImageIO only. The host exposes its destination only when ImageIO
+advertises both decoding and encoding; unsupported systems fail clearly.
+Generated TGA round trips were verified on macOS 27; macOS 26 device
+verification remains required. No universal macOS 26 codec claim is made.
 
 SVG input blocks scripts and network loads. SVG output explicitly selects
 traced paths (1–8 colors) or Base64-embedded PNG with dimensions and viewBox.
@@ -1120,7 +1140,8 @@ M4A. Audio-only M4A stays in Audio and never pretends to contain video.
 | Audio inputs | Target pairs |
 | --- | --- |
 | MP3, WAV, AIFF/AIF, raw AAC, OGG/OGA Vorbis | Each input to every A target except its own format. AIF and AIFF share one target. |
-| M4A AAC or ALAC, FLAC, Opus, CAF | Each input to every A target. Same-format leaves may be pruned where the codec is known by extension; M4A variants remain visible. CAF is an input, not a target. |
+| M4A AAC or ALAC, FLAC, Opus, CAF | Each input to every A target. Same-format leaves may be pruned where the codec is known by extension; M4A variants remain visible. Both CAF codec choices remain visible because its codec is unknown by extension. |
+| AIFF-C/AIFC | Every A target through the existing AudioToolbox decoder when the contained codec is supported. Unsupported codecs fail before output. |
 | Every supported audio input | SRT, VTT, TXT, translated SRT via the shared subtitle pipeline, always Derived. |
 
 Lossy rates and MP3 CBR/VBR come from Settings. Lossless output retains source
@@ -1472,6 +1493,11 @@ check.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-21: Expose ALAC audio extraction and CAF codec targets; classify
+  AIFF-C, PSD composites, and capability-gated TGA; export every PDF page to
+  TIFF at the saved DPI; refuse frame/page loss and retain finite animation
+  loop counts (ADR 0015). PSD and PDF exports always retain their sources.
 
 - 2026-10-21: Add bounded document PDF/TXT, offline HTML PDF/rendered TXT,
   typed plist/JSON, and plain-text SRT/WebVTT conversions through Finder and

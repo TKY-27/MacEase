@@ -26,6 +26,21 @@ enum UserMessages {
                 localized:
                     "“\(file)” could not be edited because its HDR gain map cannot be preserved. The original was kept."
             )
+        case .imageSequenceUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be converted because the output cannot preserve every frame or page. The original was kept."
+            )
+        case .imageLoopCountUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be converted because its animation loop count cannot be preserved. The original was kept."
+            )
+        case .imageTransparencyUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be converted because the output cannot preserve transparency. The original was kept."
+            )
         case .hdrConversionUnsupported:
             String(
                 localized: "“\(file)” uses HDR content that cannot be safely converted to SDR. The original was kept.")
@@ -118,14 +133,14 @@ enum UserMessages {
             String(
                 localized:
                     "Structured conversion preserves supported values, not comments, key order, or source formatting.")
-        case .firstFrameOnly:
-            String(localized: "Only the first frame was kept because the format has no animation.")
+        case .imageFlattened:
+            String(
+                localized:
+                    "PSD conversion uses the stored composite image. Layers are not preserved; the original was kept.")
         case .pngOptimizationSkipped:
             String(localized: "PNG optimization was skipped to stay within the memory budget.")
         case .unmappableCharactersReplaced:
             String(localized: "Characters that Shift_JIS cannot represent were replaced using the saved policy.")
-        case .firstPageOnly:
-            String(localized: "Only the first page was kept.")
         case .loudnessLimitedByPeak(let reached):
             String(
                 localized:

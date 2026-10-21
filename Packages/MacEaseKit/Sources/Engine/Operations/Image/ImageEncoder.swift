@@ -5,7 +5,7 @@ import ImageIO
 
 struct EncodeOptions {
     var quality: Double
-    var loops = true
+    var loopCount: Int? = 0
     var metadata: CGImageMetadata?
     var gainMaps: [ImageGainMap] = []
     var optimizesPNG = false
@@ -39,11 +39,13 @@ enum ImageEncoder {
             let gifFrames = try frames.map {
                 GIFFrame(pixels: try PixelBuffer(cgImage: $0.image), duration: $0.duration)
             }
-            let gifOptions = GIFOptions(colors: options.gifColors, dithering: options.dithering, loops: options.loops)
+            let gifOptions = GIFOptions(
+                colors: options.gifColors, dithering: options.dithering, loopCount: try gifRepeatCount(options))
             return try GIFEncoder.encode(gifFrames, options: gifOptions)
         case .webp where frames.count > 1:
             let encoder = try WebPAnimationEncoder(
-                width: first.image.width, height: first.image.height, quality: options.quality, loops: options.loops,
+                width: first.image.width, height: first.image.height, quality: options.quality,
+                loopCount: try shortLoopCount(options) ?? 1,
                 xmp: xmp(options.metadata))
             for frame in frames { try encoder.add(frame.image, duration: frame.duration) }
             return try encoder.finish()
@@ -77,7 +79,7 @@ enum ImageEncoder {
             return Data(SVGTracer.svg(layers, width: pixels.width, height: pixels.height).utf8)
         case .pdf:
             return try pdf(frames.map { ($0.image, options.pixelsPerInch) })
-        case .png, .jpeg, .heic, .tiff, .bmp:
+        case .png, .jpeg, .heic, .tiff, .bmp, .tga:
             return try imageIO(frames, as: format, options: options)
         }
     }
@@ -103,7 +105,7 @@ enum ImageEncoder {
         case .gif:
             let gifOptions = GIFOptions(
                 colors: options.gifColors, dithering: options.dithering,
-                loops: options.loops, paletteScope: .perFrame)
+                loopCount: try gifRepeatCount(options), paletteScope: .perFrame)
             let encoder = try GIFEncoder.Stream(
                 width: first.image.width, height: first.image.height, options: gifOptions, to: url)
             try encoder.add(GIFFrame(pixels: PixelBuffer(cgImage: first.image), duration: first.duration))
@@ -120,7 +122,8 @@ enum ImageEncoder {
             do {
                 let encoder = try WebPAnimationEncoder.Stream(
                     width: first.image.width, height: first.image.height, quality: options.quality,
-                    loops: options.loops, maximumEncodedBytes: Int(ImageMemoryLimits.encodedBytes),
+                    loopCount: try shortLoopCount(options) ?? 1,
+                    maximumEncodedBytes: Int(ImageMemoryLimits.encodedBytes),
                     xmp: xmp(options.metadata))
                 try encoder.add(first.image, duration: first.duration)
                 for index in 1..<frameCount {
@@ -163,7 +166,7 @@ enum ImageEncoder {
         let animation = format.holdsAnimation ? AnimationKeys(type: format.contentType) : nil
         if let animation {
             CGImageDestinationSetProperties(
-                destination, [animation.dictionary: [animation.loopCount: options.loops ? 0 : 1]] as CFDictionary)
+                destination, [animation.dictionary: [animation.loopCount: options.loopCount ?? 1]] as CFDictionary)
         }
         func add(_ frame: ImageFrame) throws {
             try validateWorkspace(
@@ -198,6 +201,9 @@ enum ImageEncoder {
         _ frames: [ImageFrame], format: ImageFormat, options: EncodeOptions, retaining retained: [CGImage] = [],
         streaming: Bool = false
     ) throws {
+        if format == .png, let loopCount = options.loopCount, UInt32(exactly: loopCount) == nil {
+            throw EngineError.imageLoopCountUnsupported
+        }
         if format == .svg, options.svgMode == .trace {
             var tracingBudget = FrameMemoryBudget(limitBytes: maximumTracingBytes)
             for frame in frames {
@@ -235,6 +241,20 @@ enum ImageEncoder {
                 bytesPerPixel: frame.image.bitsPerComponent > 8 ? 8 : 4,
                 frameCount: pixelCopies + streamCopies)
         }
+    }
+
+    private static func gifRepeatCount(_ options: EncodeOptions) throws -> UInt16? {
+        guard let plays = options.loopCount, plays != 1 else { return nil }
+        guard plays >= 0, let repeats = UInt16(exactly: plays == 0 ? 0 : plays - 1) else {
+            throw EngineError.imageLoopCountUnsupported
+        }
+        return repeats
+    }
+
+    private static func shortLoopCount(_ options: EncodeOptions) throws -> UInt16? {
+        guard let loopCount = options.loopCount else { return nil }
+        guard let count = UInt16(exactly: loopCount) else { throw EngineError.imageLoopCountUnsupported }
+        return count
     }
 
     static func xmp(_ metadata: CGImageMetadata?) -> Data? {
@@ -281,7 +301,7 @@ enum ImageEncoder {
         if animated, let keys = AnimationKeys(type: format.contentType) {
             let metadata = format.holdsMetadata ? upright(options.metadata) : nil
             CGImageDestinationSetProperties(
-                destination, [keys.dictionary: [keys.loopCount: options.loops ? 0 : 1]] as CFDictionary)
+                destination, [keys.dictionary: [keys.loopCount: options.loopCount ?? 1]] as CFDictionary)
             for frame in frames {
                 var frameSettings = settings
                 let duration = try imageIODuration(frame.duration, format: format)

@@ -44,7 +44,7 @@ enum NewFileNaming: Sendable {
             switch operation {
             case .compress: self = .edit("compressed")
             case .rotate: self = .edit("rotated")
-            case .merge, .toImages, .toText, .extractPages, .split: return nil
+            case .merge, .toImages, .toTIFF, .toText, .extractPages, .split: return nil
             }
         case .text(let operation):
             switch operation {

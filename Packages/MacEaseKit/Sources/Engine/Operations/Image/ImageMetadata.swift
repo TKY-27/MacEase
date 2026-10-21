@@ -94,7 +94,7 @@ enum ImageMetadata {
             guard let format = document.format else { return .skipped(.nothingToRemove) }
             var options = ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image)
             options.metadata = kept
-            let keptCount = ImageOutput.keptFrameCount(of: document, for: format, context: context)
+            let keptCount = try ImageOutput.keptFrameCount(of: document, for: format)
             if document.isAnimated, keptCount > 1 {
                 try await ImageEncoder.encodeStreaming(
                     frameCount: keptCount, as: format, options: options, to: staged

@@ -10,6 +10,42 @@ enum PDFExport {
     private static let pageSeparator = "\u{0C}"
     private static let textExtension = "txt"
     private static let percent = 100.0
+    private static let lzwCompression = 5
+
+    static func tiff(of url: URL, dpi: Int, context: ItemContext) throws -> ItemResult {
+        let document = try PDFEditing.open(url)
+        guard document.allowsPrinting else { throw EngineError.invalidInput(.pdfPrintingNotAllowed) }
+        var retained = FrameMemoryBudget.retainedImages
+        for index in 0..<document.pageCount {
+            try Task.checkCancellation()
+            let dimensions = try pixelSize(try PDFEditing.page(index, in: document), dpi: dpi)
+            try retained.reserve(width: dimensions.width, height: dimensions.height)
+        }
+        let name = PDFEditing.baseName(of: url) + ".tiff"
+        let staged = try context.stagingURL(for: url, name: name)
+        guard
+            let destination = CGImageDestinationCreateWithURL(
+                staged as CFURL, UTType.tiff.identifier as CFString, document.pageCount, nil)
+        else { throw EngineError.unsupportedCodec("TIFF") }
+        let properties =
+            [
+                kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi,
+                kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: lzwCompression],
+            ] as CFDictionary
+        for index in 0..<document.pageCount {
+            try Task.checkCancellation()
+            try autoreleasepool {
+                let image = try render(try PDFEditing.page(index, in: document), dpi: dpi)
+                CGImageDestinationAddImage(destination, image, properties)
+            }
+            context.progress(Double(index + 1) / Double(document.pageCount))
+        }
+        guard CGImageDestinationFinalize(destination),
+            let verified = CGImageSourceCreateWithURL(staged as CFURL, nil),
+            CGImageSourceGetCount(verified) == document.pageCount
+        else { throw EngineError.encodeFailed("TIFF page verification failed") }
+        return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .image)])
+    }
 
     static func images(of url: URL, format: StillFormat, dpi: Int, context: ItemContext) throws -> ItemResult {
         let document = try PDFEditing.open(url)
@@ -84,18 +120,9 @@ enum PDFExport {
     /// On white, as PDF pages assume paper.
     static func render(_ page: PDFPage, dpi: Int) throws -> CGImage {
         var budget = FrameMemoryBudget.renderedPage
-        let bounds = page.bounds(for: .cropBox)
-        let isQuarterTurned = page.rotation % 180 != 0
-        let scale = Double(dpi) / pointsPerInch
-        let scaledWidth = ((isQuarterTurned ? bounds.height : bounds.width) * scale).rounded()
-        let scaledHeight = ((isQuarterTurned ? bounds.width : bounds.height) * scale).rounded()
-        guard scaledWidth.isFinite, scaledHeight.isFinite,
-            scaledWidth > 0, scaledHeight > 0,
-            let width = Int(exactly: scaledWidth), let height = Int(exactly: scaledHeight)
-        else {
-            throw EngineError.invalidInput(.malformed("page is too large to render at \(dpi) dpi"))
-        }
+        let (width, height) = try pixelSize(page, dpi: dpi)
         try budget.reserve(width: width, height: height)
+        let scale = Double(dpi) / pointsPerInch
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
             let canvas = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -107,6 +134,21 @@ enum PDFExport {
         page.draw(with: .cropBox, to: canvas)
         guard let image = canvas.makeImage() else { throw EngineError.encodeFailed("page render failed") }
         return image
+    }
+
+    private static func pixelSize(_ page: PDFPage, dpi: Int) throws -> (width: Int, height: Int) {
+        let bounds = page.bounds(for: .cropBox)
+        let isQuarterTurned = page.rotation % 180 != 0
+        let scale = Double(dpi) / pointsPerInch
+        let scaledWidth = ((isQuarterTurned ? bounds.height : bounds.width) * scale).rounded()
+        let scaledHeight = ((isQuarterTurned ? bounds.width : bounds.height) * scale).rounded()
+        guard scaledWidth.isFinite, scaledHeight.isFinite,
+            scaledWidth > 0, scaledHeight > 0,
+            let width = Int(exactly: scaledWidth), let height = Int(exactly: scaledHeight)
+        else {
+            throw EngineError.invalidInput(.malformed("page is too large to render at \(dpi) dpi"))
+        }
+        return (width, height)
     }
 
 }

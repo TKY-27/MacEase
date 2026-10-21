@@ -148,7 +148,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
                 .imageResize, .videoResize, .imageCompress, .videoCompress, .audioCompress,
             ])
         #expect(file.entries.contains { $0.op == .videoThumbnail && $0.preset == "choose-frame" && !$0.isCustom })
-        #expect(file.entries.filter { $0.op == .imageConvert }.count == 13)
+        #expect(file.entries.filter { $0.op == .imageConvert }.count == 14)
     }
 
     @Test func sharedSubmenusAndFlatJSONHaveExpectedPaths() throws {

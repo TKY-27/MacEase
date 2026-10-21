@@ -17,10 +17,11 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
         let table: [FileKind: [String]] = [
             .image: [
                 "jpg", "jpeg", "jpe", "png", "apng", "heic", "heif", "hif", "avif", "jxl", "webp", "gif", "tif",
-                "tiff", "bmp", "ico", "icns", "svg", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2",
+                "tiff", "bmp", "tga", "psd", "ico", "icns", "svg", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf",
+                "rw2",
             ],
             .video: ["mp4", "m4v", "mov", "mkv", "webm", "avi", "flv"],
-            .audio: ["mp3", "m4a", "aac", "wav", "aif", "aiff", "flac", "ogg", "oga", "opus", "caf"],
+            .audio: ["mp3", "m4a", "aac", "wav", "aif", "aiff", "aifc", "flac", "ogg", "oga", "opus", "caf"],
             .pdf: ["pdf"],
             .document: ["docx", "odt", "rtf", "rtfd"],
             .plist: ["plist"],
@@ -80,6 +81,10 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
         case "yml", "yaml": "yaml"
         default: pathExtension.lowercased()
         }
+    }
+
+    static var imageConversionSources: Set<String> {
+        Set(kindsByExtension.filter { $0.value == .image && $0.key != "psd" }.keys.map(canonicalFormat))
     }
 
     public static let menuOrder: [FileKind] = [

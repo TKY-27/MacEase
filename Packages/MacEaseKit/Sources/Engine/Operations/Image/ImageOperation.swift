@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 public enum ImageFormat: String, Codable, CaseIterable, Sendable {
@@ -11,6 +12,7 @@ public enum ImageFormat: String, Codable, CaseIterable, Sendable {
     case gif
     case tiff
     case bmp
+    case tga
     case ico
     case icns
     case svg
@@ -42,11 +44,18 @@ public enum ImageFormat: String, Codable, CaseIterable, Sendable {
         case .gif: .gif
         case .tiff: .tiff
         case .bmp: .bmp
+        case .tga: UTType(importedAs: "com.truevision.tga-image", conformingTo: .image)
         case .ico: .ico
         case .icns: .icns
         case .svg: .svg
         case .pdf: .pdf
         }
+    }
+
+    public static var supportsTGA: Bool {
+        let identifier = ImageFormat.tga.contentType.identifier
+        return (CGImageSourceCopyTypeIdentifiers() as? [String])?.contains(identifier) == true
+            && (CGImageDestinationCopyTypeIdentifiers() as? [String])?.contains(identifier) == true
     }
 
     /// `nil` for unwritable formats such as RAW.

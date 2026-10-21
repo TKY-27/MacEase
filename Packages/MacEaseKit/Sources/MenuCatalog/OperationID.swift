@@ -116,7 +116,7 @@ extension OperationID {
         case .audioNormalize: ["lufs-14", "lufs-16", "lufs-23"]
         case .folderTree: ["copy", "txt", "md"]
         case .folderCompress: ["zip", "7z", "tar", "tar.gz"]
-        case .pdfToImages: ["png", "jpeg"]
+        case .pdfToImages: ["png", "jpeg", "tiff"]
         case .pdfRotate: ["right-90", "left-90", "180"]
         case .textEncoding: ["utf-8", "utf-8-bom", "utf-16", "shift-jis"]
         case .textLineEndings: ["lf", "crlf"]
@@ -135,8 +135,9 @@ extension OperationID {
 
     private var audioFormatPresets: [String] {
         switch self {
-        case .audioConvert: ["mp3", "m4a-aac", "m4a-alac", "aac", "wav", "aiff", "flac", "ogg", "opus"]
-        default: ["m4a", "mp3", "aac", "wav", "aiff", "flac", "ogg", "opus"]
+        case .audioConvert:
+            ["mp3", "m4a-aac", "m4a-alac", "aac", "wav", "aiff", "flac", "ogg", "opus", "caf-pcm", "caf-alac"]
+        default: ["m4a", "m4a-alac", "mp3", "aac", "wav", "aiff", "flac", "ogg", "opus"]
         }
     }
 
@@ -154,7 +155,10 @@ extension OperationID {
         case .imageCompress:
             [["discord", "x", "instagram", "email", "web"], ["quality-high", "quality-medium", "quality-low"]]
         case .imageConvert:
-            [["png", "jpeg", "heic", "webp", "avif", "jxl"], ["gif", "tiff", "bmp"], ["ico", "icns", "svg", "pdf"]]
+            [
+                ["png", "jpeg", "heic", "webp", "avif", "jxl"], ["gif", "tiff", "bmp", "tga"],
+                ["ico", "icns", "svg", "pdf"],
+            ]
         case .videoResize:
             [["percent-50"], ["2160p", "1080p", "720p", "480p"]]
         case .videoCompress:

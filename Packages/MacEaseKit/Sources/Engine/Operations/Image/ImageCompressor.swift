@@ -369,7 +369,7 @@ enum ImageCompressor {
         guard limits?.maxFrames.map({ $0 > 0 }) ?? true else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
-        let count = ImageOutput.keptFrameCount(of: document, for: format, context: context)
+        let count = try ImageOutput.keptFrameCount(of: document, for: format)
         let stride = limits?.maxFrames.map { 1 + (count - 1) / $0 } ?? 1
         var durations: [Double] = []
         durations.reserveCapacity(count)

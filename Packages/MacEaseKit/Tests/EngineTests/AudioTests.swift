@@ -248,7 +248,10 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
             OperationPlanner.options(for: .audioConvert, preset: $0, settings: settings)
         }
         #expect(
-            converts == [.mp3, .m4aAAC, .m4aALAC, .aac, .wav, .aiff, .flac, .ogg, .opus].map { .audio(.convert($0)) })
+            converts
+                == [.mp3, .m4aAAC, .m4aALAC, .aac, .wav, .aiff, .flac, .ogg, .opus, .cafPCM, .cafALAC].map {
+                    .audio(.convert($0))
+                })
         let compressions = OperationID.audioCompress.presets.compactMap {
             OperationPlanner.options(for: .audioCompress, preset: $0, settings: settings)
         }
@@ -262,7 +265,7 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
     @Test func panelsAndUnknownPresetsDefer() {
         let settings = Settings()
         #expect(OperationPlanner.options(for: .audioConvert, preset: nil, settings: settings) == nil)
-        #expect(OperationPlanner.options(for: .audioConvert, preset: "caf-pcm", settings: settings) == nil)
+        #expect(OperationPlanner.options(for: .audioConvert, preset: "unknown", settings: settings) == nil)
         #expect(OperationPlanner.options(for: .audioTrim, preset: nil, settings: settings) == nil)
         #expect(OperationPlanner.options(for: .audioCompress, preset: "5", settings: settings) == nil)
     }

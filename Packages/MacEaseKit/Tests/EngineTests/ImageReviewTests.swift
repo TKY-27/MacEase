@@ -89,7 +89,7 @@ private func stagedOutput(_ result: ItemResult, replacing original: URL) throws 
         let context = ItemContext(
             settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
         defer { context.removeStaging() }
-        await #expect(throws: EngineError.unsupportedCodec("HEICS")) {
+        await #expect(throws: EngineError.imageSequenceUnsupported) {
             try await ImageEdits.resize(input, ImageResize(size: .percent(50)), context: context)
         }
         #expect(try Data(contentsOf: input) == original)

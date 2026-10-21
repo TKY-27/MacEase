@@ -46,6 +46,8 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         switch op {
         case .imageHDRToSDR: self.sourceFormats = ["heic", "jpeg", "avif", "jxl", "png"]
         case .videoHDRToSDR: self.sourceFormats = ["mov", "mp4", "m4v", "mkv"]
+        case .imageConvert where !["png", "jpeg", "tiff"].contains(preset):
+            self.sourceFormats = FileKind.imageConversionSources
         case .textJSON: self.sourceFormats = ["json"]
         case .textConvert:
             self.sourceFormats = preset.flatMap { preset in
@@ -58,7 +60,9 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         case .imageConvert, .videoConvert:
             self.targetFormat = preset.map(FileKind.canonicalFormat)
         case .audioConvert:
-            self.targetFormat = preset.flatMap { $0.hasPrefix("m4a-") ? nil : FileKind.canonicalFormat($0) }
+            self.targetFormat = preset.flatMap {
+                $0.hasPrefix("m4a-") || $0.hasPrefix("caf-") ? nil : FileKind.canonicalFormat($0)
+            }
         case .textConvert: self.targetFormat = preset == "txt" ? "txt" : nil
         default: self.targetFormat = nil
         }
@@ -138,17 +142,19 @@ public struct MenuTitles: Sendable {
     public let preset: @Sendable (OperationID, String) -> String
     public let kind: @Sendable (FileKind) -> String
     public let speechAvailable: Bool
+    public let tgaAvailable: Bool
 
     public init(
         operation: @escaping @Sendable (OperationID) -> String,
         preset: @escaping @Sendable (OperationID, String) -> String,
         kind: @escaping @Sendable (FileKind) -> String,
-        speechAvailable: Bool = true
+        speechAvailable: Bool = true, tgaAvailable: Bool = true
     ) {
         self.operation = operation
         self.preset = preset
         self.kind = kind
         self.speechAvailable = speechAvailable
+        self.tgaAvailable = tgaAvailable
     }
 }
 
@@ -207,7 +213,10 @@ extension MenuFile {
                 continue
             }
             for (groupIndex, presets) in groups.enumerated() {
-                let presets = presets.filter { !hiddenEntries.contains("\(op.rawValue)/\($0)") }
+                let presets = presets.filter {
+                    !hiddenEntries.contains("\(op.rawValue)/\($0)")
+                        && (op != .imageConvert || $0 != "tga" || titles.tgaAvailable)
+                }
                 for (presetIndex, preset) in presets.enumerated() {
                     let flat = op == .textJSON
                     let boundary =

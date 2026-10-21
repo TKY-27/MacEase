@@ -46,7 +46,7 @@ import UniformTypeIdentifiers
         if preset == "compress" { #expect(try ImageFixtures.fileSize(output) <= Int64(encodedSize / 2)) }
     }
 
-    @Test func firstPageConversionAccountsForOtherRetainedPages() async throws {
+    @Test func multiPageConversionRefusesPageLossWithinMemoryBudget() async throws {
         let folder = try TestVolume.makeFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
         let source = folder.appending(path: "pages.tiff")
@@ -63,12 +63,9 @@ import UniformTypeIdentifiers
                 frameProperties: [kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: lzwCompression]])
         }
         let outcome = try await ImageFixtures.run(.imageConvert, preset: "png", inputs: [source])
-        let output = try ImageFixtures.output(of: outcome)
-        #expect(
-            outcome.outcomes == [.succeeded(outputs: [output], warnings: [.firstPageOnly, .pngOptimizationSkipped])])
-        let properties = try ImageFixtures.properties(output)
-        #expect(properties[kCGImagePropertyPixelWidth] as? Int == 5_900)
-        #expect(properties[kCGImagePropertyPixelHeight] as? Int == 5_900)
+        #expect(outcome.outcomes == [.failed(.imageSequenceUnsupported)])
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "pages.png").path))
     }
 
     @Test func rejectsFourHundredMegapixelsBeforeDecode() async throws {
