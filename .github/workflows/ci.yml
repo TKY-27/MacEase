@@ -17,7 +17,7 @@ jobs:
   lint:
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Lint
         run: make lint
 
@@ -35,7 +35,7 @@ jobs:
     name: build-${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Select newest stable Xcode ${{ matrix.xcode }}
         run: |
@@ -47,7 +47,7 @@ jobs:
         run: brew install xcodegen cmake meson ninja pkg-config
 
       - name: Cache native dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: Vendor/build
           key: deps-${{ matrix.name }}-${{ hashFiles('Vendor/deps.lock', 'Vendor/patches/**', 'scripts/build-deps.sh') }}
