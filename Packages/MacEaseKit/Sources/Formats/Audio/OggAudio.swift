@@ -1,17 +1,21 @@
 import Foundation
 
 /// RFC 7845 identification header fields.
-struct OpusHead {
+package struct OpusHead {
     static let magic = Data("OpusHead".utf8)
     static let tagsMagic = Data("OpusTags".utf8)
     /// Output gain is Q7.8 decibels.
     private static let gainScale = 256.0
 
-    let channels: Int
+    package let channels: Int
     let preSkip: Int64
-    let gain: Float
+    package let gain: Float
 
-    init(_ packet: Data) throws {
+    package init(_ packet: Data) throws {
+        guard packet.starts(with: Self.magic) else {
+            throw FormatError.corrupt(
+                String(localized: "Invalid Opus header", comment: "Rejects invalid codec identification"))
+        }
         var cursor = ByteCursor(packet.dropFirst(Self.magic.count))
         _ = try cursor.uint8()
         channels = Int(try cursor.uint8())

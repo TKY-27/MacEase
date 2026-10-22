@@ -382,7 +382,7 @@ public final class AudioPacketEncoder {
 public final class AudioPacketDecoder {
     private enum Backend {
         case toolbox(AVAudioConverter, AVAudioFormat)
-        case opus(OpusAudioDecoder)
+        case opus(OpusAudioDecoder, gain: Float)
         case vorbis(VorbisAudioDecoder)
         case pcm(bits: Int, float: Bool, bigEndian: Bool)
     }
@@ -410,7 +410,12 @@ public final class AudioPacketDecoder {
             output = try PCMFormat.make(sampleRate: self.sampleRate, channels: channels)
             switch track.codec {
             case .opus:
-                backend = .opus(try OpusAudioDecoder(channels: channels))
+                let head = try OpusHead(track.codecPrivate ?? Data())
+                guard head.channels == channels else {
+                    throw FormatError.corrupt(
+                        String(localized: "Audio channel count out of range", comment: "Rejects unsafe audio metadata"))
+                }
+                backend = .opus(try OpusAudioDecoder(channels: channels), gain: head.gain)
                 leadingFrames = Int(
                     try Nanoseconds.scale(
                         track.codecDelay, by: Int64(OpusAudioEncoder.sampleRate), over: Nanoseconds.perSecond))
@@ -477,7 +482,9 @@ public final class AudioPacketDecoder {
         do {
             switch backend {
             case .toolbox(let converter, let input): samples = try decode(packet.payload, converter, input)
-            case .opus(let opus): samples = try opus.decode(packet.payload)
+            case .opus(let opus, let gain):
+                let decoded = try opus.decode(packet.payload)
+                samples = gain == 1 ? decoded : decoded.map { $0 * gain }
             case .vorbis(let vorbis): samples = try vorbis.decode(packet.payload)
             case .pcm(let bits, let float, let bigEndian):
                 samples = Self.pcm(packet.payload, bits: bits, float: float, bigEndian: bigEndian)

@@ -2628,6 +2628,17 @@
         }
       }
     },
+    "Invalid Opus header": {
+      "comment": "Rejects invalid codec identification",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus のヘッダが無効です"
+          }
+        }
+      }
+    },
     "JXL dimensions out of range": {
       "comment": "Invalid image metadata",
       "localizations": {

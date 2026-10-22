@@ -54,6 +54,7 @@ import Testing
         var track = MediaTrack(number: 1, kind: .audio(sampleRate: 48_000, channels: 1), codec: .opus)
         track.codecDelay = .max
         let encoder = try OpusAudioEncoder(channels: 1, bitrate: 64_000)
+        track.codecPrivate = encoder.identificationHeader
         let samples = [Float](repeating: 0, count: OpusAudioEncoder.frameSamples)
         let payload = try #require(try encoder.encode(samples).first)
         let decoder = try AudioPacketDecoder(track: track)

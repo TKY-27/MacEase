@@ -1005,6 +1005,9 @@ their channel count.
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `folder.removeDuplicates` | — (review under Ask) | Trash | Candidates pass saved filters, then size, SHA-256, and byte equality. Ask opens the keep-one panel; Keep oldest/newest proposes by modification date and moves only redundant verified copies to Trash without a panel. Equal timestamps use normalized path order. Permanent deletion always requires an alert |
+Opus decoding in Ogg, Matroska and WebM applies the OpusHead output gain.
+Matroska and WebM use CodecDelay alone for pre-skip.
+
 | `folder.removeEmpty` | — (confirmation alert) | Trash | Recursive scan followed by the section 5 alert; selected roots are retained. Only `.DS_Store` may be ignored by default; ordinary zero-byte files remain user content |
 | `folder.tree` | Copy, Save as .txt, Save as .md | Clipboard, Derived | Unicode box-drawing tree, folders first, natural order, optional folders-only output; global and Tree exclusions combined; symlinks not followed, packages not traversed |
 | `folder.rename` | — (panel) | Rename | Renames the selected items, or the folder's direct children when one folder is selected |
@@ -1791,6 +1794,8 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Apply OpusHead output gain when decoding Matroska and WebM audio.
 
 - 2026-10-22: Preserve exact Matroska lace timing; keep unresolved laces as
   continuations and refuse them inline only where a path needs timestamps.
