@@ -6,12 +6,24 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   release:
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v5
+
+      - name: Require successful CI for the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          conclusion="$(gh run list --workflow ci.yml --branch main --event push \
+            --commit "$GITHUB_SHA" --limit 1 --json conclusion --jq '.[0].conclusion')"
+          if [[ "$conclusion" != success ]]; then
+            echo "::error::The release commit must have successful CI on main before tagging."
+            exit 1
+          fi
 
       - name: Check signing secrets
         env:

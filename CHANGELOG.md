@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Planned first stable release: 1.0.0. No release has been published yet.
+
 ### Added
 
+- A Finder context menu for images, video, audio, PDFs, text, folders,
+  archives, and JAR files, with English and Japanese localization.
+- Image resizing, compression, rotation, flipping, border trimming, format
+  conversion, OCR, metadata removal, background editing, and icon export.
+- Video resizing, trimming, compression, rotation, frame-rate changes, audio
+  removal, container conversion, animation export, thumbnails, and backgrounds.
+- Audio conversion, compression, loudness normalization, and trimming.
+- Folder renaming, trees, disk usage reports, duplicate and empty-folder removal,
+  and ZIP, 7z, TAR, or tar.gz creation.
+- Archive extraction with path, link, and size checks; JAR decompilation with
+  bundled CFR and a separately installed Java runtime.
+- PDF merge, split, page extraction, rotation, compression, and image or text export.
+- Text encoding and line-ending changes, structured conversions, and JSON formatting.
+- Optional Apple Intelligence naming and reviewed plans for supported operations.
+- Editable platform presets, menu bar progress and history, onboarding, settings,
+  GitHub update checks, and Undo for supported file operations.
 - HDR-to-SDR conversion for supported images and video through Convert > SDR.
 - Audio transcription to SRT, WebVTT, plain text, or translated SRT.
 - DOCX, ODT, RTF, and RTFD export to PDF or TXT.
@@ -59,34 +77,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Split SVG luminance calculation into typed components so Xcode 26 can build it.
+- Use macOS's system Bash for native dependency builds, avoiding a heredoc
+  hang with a PATH-selected Bash installation.
+- Regenerate bundled third-party notices before packaging a DMG, so cached native
+  builds cannot omit the Swift package and toml++ licenses.
 - MKV and WebM files from ffmpeg or mkvmerge no longer report lost metadata
   or refuse replacement because of encoder and statistics tags.
-
 - FLV files written by ffmpeg, OBS and similar tools convert and edit again;
   their technical and encoder metadata no longer blocks processing.
-
 - Refuse INI global keys matching section names before JSON or XML output,
   reporting the offending path instead of merging conflicting values.
-
 - Preserve disabled Matroska/WebM tracks in supported video outputs and
   disclose or refuse enabled-state loss in other destinations.
-
 - Preserve Opus output gain when extracting or re-encoding Matroska and WebM
   audio.
-
 - Preserve 16-bit SDR precision in PNG and TIFF image edits, including
   arbitrary-angle rotation and transparent padding.
-
 - Preserve native video clean aperture and pixel aspect ratio when copying
   MOV, MP4 and M4V inputs to Matroska, with the existing loss warning or
   replacement refusal for unsupported geometry.
-
 - Preserve Matroska display aspect and pixel cropping when supported; warn
   about unsupported output geometry and refuse replacement before staging.
-
 - Stop further file changes when undo history cannot be saved, and resume after
   pending history is successfully synchronized.
-
 - Refuse duplicate JSON row keys in CSV and conflicting XML text or attribute
   names, reporting the offending path.
 - Detect Matroska track names and BCP47 languages before metadata loss checks;
@@ -111,18 +125,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tone-map for SDR targets, with warnings; replacement refuses.
 - Native video remuxes and edits preserve metadata and track attributes;
   unsupported property loss warns for new files and refuses replacement.
-
 - Preserve Finder dates, tags, and comments on source-backed exports.
 - Apply the confirmed batch rename preview with snapshotted exclusions and
   targets; refuse names occupied after confirmation.
 - Keep single-folder archives inside the archive-stem extraction folder.
-
 - Image conversions disclose lost EXIF, XMP and IPTC metadata in new-file mode
   and refuse replacement before writing when the target cannot preserve it.
 - Ordinary multipage TIFF edits preserve each page's own metadata.
 - Generated TOML above 1 MiB remains valid within the 8 MiB output limit.
 - Pipe-delimited CSV conversion detects columns while preserving quoted fields.
-
 - Automatic duplicate removal saves each Trash move before continuing, preserving
   Undo after interruption and stopping when history cannot be saved.
 - Native audio copying preserves source priming, end padding, and presentation
@@ -136,7 +147,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generating JSON and includes the final newline in its output limit.
 - Convert > SDR only offers supported video containers and rejects unsupported
   inputs before AVFoundation opens them.
-
 - New image outputs warn when flattening transparency or tone-mapping HDR.
   Image edits and format conversions in Replace mode refuse unrequested losses.
 - Image conversions reject frame or page loss and preserve representable finite
@@ -151,43 +161,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of being refused.
 - Folder-scan progress no longer moves backward when callbacks arrive out of order.
 - The menu bar's busy icon stays still when Reduce Motion is enabled.
-
-## [1.0.0] - 2026-10-21
-
-First release.
-
-### Added
-
-- A MacEase submenu in Finder's context menu, built from the selected file
-  kinds, with operations you can hide in Settings.
-- Images: resize, compress to a target size, rotate by any angle, flip, trim
-  borders, convert between PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP,
-  ICO, ICNS, SVG and PDF, OCR, strip metadata, remove or replace the
-  background, and export app icon sets.
-- Videos: resize, trim, compress to a target size, rotate, flip, change the
-  frame rate, remove audio, convert between MP4, MOV, M4V, MKV, WebM, AVI and
-  FLV, make GIF, animated WebP or APNG, extract audio, export thumbnails,
-  generate and translate subtitles, and remove the background into transparent
-  video or a green or blue screen.
-- Audio: convert between MP3, M4A, AAC, WAV, AIFF, FLAC, OGG and Opus,
-  compress, normalize loudness and trim.
-- Folders: remove duplicates and empty folders, print a tree, batch rename,
-  analyze disk usage, and compress to ZIP, 7z, TAR or tar.gz.
-- Archives: extract ZIP, 7z, TAR, gz, bz2, xz and RAR, with path, link and
-  size checks.
-- PDFs: merge, split, extract pages, rotate, compress, and export pages as
-  images or text.
-- Text: change the encoding and line endings, convert between CSV, JSON, XML,
-  HTML, Markdown and INI, and pretty-print or sort JSON.
-- JAR files: decompile to source with the bundled CFR when a Java runtime is
-  installed.
-- Apple Intelligence: rename files by their content and describe a task in
-  plain words, on Macs with Apple Intelligence turned on.
-- Editable platform presets for Discord, X, Instagram, LINE, email and the web.
-- Safe replacement: outputs are verified before they replace an original, the
-  original goes to the Trash, and every batch can be undone from the
-  notification or the menu bar.
-- A menu bar app with job progress, recent batches, settings, onboarding and
-  update checks.
-- English and Japanese localization.
-- An app icon, shown in Finder and the About tab.

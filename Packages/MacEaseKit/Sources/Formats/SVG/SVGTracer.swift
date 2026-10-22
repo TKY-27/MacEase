@@ -78,9 +78,10 @@ public enum SVGTracer {
     private static func monochromeLabels(_ pixels: PixelBuffer) -> Labels {
         let luma = (0..<pixels.pixelCount).map { pixel -> UInt8 in
             let base = pixel * 4
-            return UInt8(
-                (299 * Int(pixels.rgba[base]) + 587 * Int(pixels.rgba[base + 1]) + 114 * Int(pixels.rgba[base + 2]))
-                    / 1000)
+            let red = Int(pixels.rgba[base])
+            let green = Int(pixels.rgba[base + 1])
+            let blue = Int(pixels.rgba[base + 2])
+            return UInt8((299 * red + 587 * green + 114 * blue) / 1000)
         }
         let threshold = otsuThreshold(
             luma, alpha: stride(from: 3, to: pixels.rgba.count, by: 4).map { pixels.rgba[$0] })
