@@ -223,6 +223,17 @@
         }
       }
     },
+    "32-bit integer audio to lossless output": {
+      "comment": "Refuses integer precision loss",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 ビット整数オーディオのロスレス出力"
+          }
+        }
+      }
+    },
     "4 spaces": {
       "localizations": {
         "ja": {
@@ -239,6 +250,94 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder のメニューから、AI による名前変更や自然言語での操作指示ができます。"
+          }
+        }
+      }
+    },
+    "AVI PCM frame too large": {
+      "comment": "Bounded silence buffer required",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI の PCM フレームが大きすぎます"
+          }
+        }
+      }
+    },
+    "AVI audio metadata out of range": {
+      "comment": "Invalid AVI metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のオーディオメタデータが範囲外です"
+          }
+        }
+      }
+    },
+    "AVI chunk size out of range": {
+      "comment": "Unrepresentable output chunk",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のチャンクサイズが範囲外です"
+          }
+        }
+      }
+    },
+    "AVI stream count out of range": {
+      "comment": "Invalid AVI metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のストリーム数が範囲外です"
+          }
+        }
+      }
+    },
+    "AVI stream length out of range": {
+      "comment": "Unrepresentable output duration",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のストリーム長が範囲外です"
+          }
+        }
+      }
+    },
+    "AVI timestamp out of range": {
+      "comment": "Invalid AVI timestamp",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のタイムスタンプが範囲外です"
+          }
+        }
+      }
+    },
+    "AVI video metadata out of range": {
+      "comment": "Invalid AVI metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のビデオメタデータが範囲外です"
+          }
+        }
+      }
+    },
+    "AVIF dimensions out of range": {
+      "comment": "Invalid image metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVIF の画像サイズが範囲外です"
           }
         }
       }
@@ -678,12 +777,78 @@
         }
       }
     },
+    "Audio bit depth out of range": {
+      "comment": "Rejects unsafe audio metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのビット深度が範囲外です"
+          }
+        }
+      }
+    },
+    "Audio channel count out of range": {
+      "comment": "Rejects unsafe audio metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのチャンネル数が範囲外です"
+          }
+        }
+      }
+    },
     "Audio codec": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "音声コーデック"
+          }
+        }
+      }
+    },
+    "Audio frame count out of range": {
+      "comment": "Rejects oversized audio buffer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのフレーム数が範囲外です"
+          }
+        }
+      }
+    },
+    "Audio metadata too large": {
+      "comment": "Rejects oversized metadata field",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのメタデータが大きすぎます"
+          }
+        }
+      }
+    },
+    "Audio packet size out of range": {
+      "comment": "Rejects oversized audio packet",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのパケットサイズが範囲外です"
+          }
+        }
+      }
+    },
+    "Audio sample rate out of range": {
+      "comment": "Rejects unsafe audio metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのサンプルレートが範囲外です"
           }
         }
       }
@@ -1478,6 +1643,17 @@
         }
       }
     },
+    "Duplicate ICNS element type": {
+      "comment": "Invalid icon structure",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ICNS の要素種別が重複しています"
+          }
+        }
+      }
+    },
     "Duplicates": {
       "localizations": {
         "ja": {
@@ -1807,6 +1983,28 @@
         }
       }
     },
+    "FLV composition time out of range": {
+      "comment": "Preserves signed composition time",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FLV のコンポジション時間が範囲外です"
+          }
+        }
+      }
+    },
+    "FLV packet duration out of range": {
+      "comment": "Invalid FLV timestamp",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FLV のパケット長が範囲外です"
+          }
+        }
+      }
+    },
     "Failed.": {
       "comment": "Activity status",
       "localizations": {
@@ -2122,6 +2320,17 @@
         }
       }
     },
+    "GIF frame duration out of range": {
+      "comment": "Invalid animation timing",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF のフレーム表示時間が範囲外です"
+          }
+        }
+      }
+    },
     "General": {
       "comment": "Settings page",
       "localizations": {
@@ -2149,6 +2358,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "グリーンバック"
+          }
+        }
+      }
+    },
+    "H.264 parameter sets out of range": {
+      "comment": "Invalid decoder configuration",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "H.264 のパラメータセットが範囲外です"
           }
         }
       }
@@ -2289,6 +2509,28 @@
         }
       }
     },
+    "ICNS output too large": {
+      "comment": "Unrepresentable icon file",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ICNS の出力が大きすぎます"
+          }
+        }
+      }
+    },
+    "ICO output too large": {
+      "comment": "Unrepresentable icon file",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ICO の出力が大きすぎます"
+          }
+        }
+      }
+    },
     "Ignore empty files": {
       "comment": "Duplicate filter",
       "localizations": {
@@ -2371,6 +2613,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "インデント"
+          }
+        }
+      }
+    },
+    "JXL dimensions out of range": {
+      "comment": "Invalid image metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JXL の画像サイズが範囲外です"
           }
         }
       }
@@ -2706,6 +2959,17 @@
         }
       }
     },
+    "MP3 stream too large": {
+      "comment": "Unrepresentable Xing metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP3 ストリームが大きすぎます"
+          }
+        }
+      }
+    },
     "MacEase %@ Is Available…": {
       "comment": "Menu bar update item",
       "localizations": {
@@ -2822,6 +3086,50 @@
         }
       }
     },
+    "Matroska cluster too large": {
+      "comment": "Invalid packet payload",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska のクラスタが大きすぎます"
+          }
+        }
+      }
+    },
+    "Matroska duration out of range": {
+      "comment": "Invalid track metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska の再生時間が範囲外です"
+          }
+        }
+      }
+    },
+    "Matroska timestamp out of range": {
+      "comment": "Unrepresentable output timeline",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska のタイムスタンプが範囲外です"
+          }
+        }
+      }
+    },
+    "Matroska video dimensions out of range": {
+      "comment": "Invalid track metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska のビデオサイズが範囲外です"
+          }
+        }
+      }
+    },
     "Max duration (seconds)": {
       "localizations": {
         "ja": {
@@ -2868,6 +3176,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "最大幅 (ピクセル)"
+          }
+        }
+      }
+    },
+    "Media packet too large": {
+      "comment": "Invalid sample payload",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアのパケットが大きすぎます"
           }
         }
       }
@@ -3219,6 +3538,17 @@
         }
       }
     },
+    "Ogg granule out of range": {
+      "comment": "Invalid audio timeline",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogg のグラニュール位置が範囲外です"
+          }
+        }
+      }
+    },
     "On": {
       "comment": "Welcome checklist state",
       "localizations": {
@@ -3397,12 +3727,34 @@
         }
       }
     },
+    "PNG chunk too large": {
+      "comment": "Unrepresentable image chunk",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PNG のチャンクが大きすぎます"
+          }
+        }
+      }
+    },
     "PNG optimization was skipped to stay within the memory budget.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "メモリの上限を超えないよう、PNG の最適化を省略しました。"
+          }
+        }
+      }
+    },
+    "PNG raster out of range": {
+      "comment": "Invalid image metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PNG のラスタが範囲外です"
           }
         }
       }
@@ -5007,6 +5359,17 @@
         }
       }
     },
+    "The selected audio bitrate is unavailable for this format and source.": {
+      "comment": "Prevents silent bitrate changes",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したオーディオのビットレートは、このフォーマットとソースでは使用できません。"
+          }
+        }
+      }
+    },
     "The source signals HDR, but its capture or expansion origin is unknown.": {
       "localizations": {
         "ja": {
@@ -5095,6 +5458,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "この文字コードではファイルを正しく読み込めません。"
+          }
+        }
+      }
+    },
+    "This operation cannot use the selected number of files.": {
+      "comment": "Rejects stale selection counts",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作では、選択したファイル数を使用できません。"
           }
         }
       }
@@ -5238,6 +5612,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "トラブルシューティング"
+          }
+        }
+      }
+    },
+    "Truncated AVI list type": {
+      "comment": "Rejects incomplete LIST chunks",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AVI のリスト種別が途中で切れています"
           }
         }
       }
@@ -5446,6 +5831,28 @@
         }
       }
     },
+    "VPX packet too large": {
+      "comment": "Invalid video packet",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPX のパケットが大きすぎます"
+          }
+        }
+      }
+    },
+    "VPX settings out of range": {
+      "comment": "Invalid video metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPX の設定が範囲外です"
+          }
+        }
+      }
+    },
     "Variable bitrate (VBR)": {
       "localizations": {
         "ja": {
@@ -5493,6 +5900,61 @@
           "stringUnit": {
             "state": "translated",
             "value": "動画コーデック"
+          }
+        }
+      }
+    },
+    "Video dimensions out of range": {
+      "comment": "Invalid video metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオのサイズが範囲外です"
+          }
+        }
+      }
+    },
+    "Video encoding settings out of range": {
+      "comment": "Invalid video metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオのエンコード設定が範囲外です"
+          }
+        }
+      }
+    },
+    "Video packet too large": {
+      "comment": "Invalid video packet",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオのパケットが大きすぎます"
+          }
+        }
+      }
+    },
+    "WebP animation duration out of range": {
+      "comment": "Unrepresentable animation timeline",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebP アニメーションの再生時間が範囲外です"
+          }
+        }
+      }
+    },
+    "WebP dimensions out of range": {
+      "comment": "Invalid image metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebP の画像サイズが範囲外です"
           }
         }
       }
