@@ -1,0 +1,436 @@
+import Engine
+import Foundation
+import MenuCatalog
+
+/// Localized, actionable text for engine outcomes.
+enum UserMessages {
+    private static func videoMetadataProperties(_ properties: [VideoMetadataProperty]) -> String {
+        properties.map { property in
+            switch property {
+            case .descriptiveMetadata: String(localized: "video metadata")
+            case .trackMetadata: String(localized: "track metadata")
+            case .language: String(localized: "track language")
+            case .volume: String(localized: "track volume")
+            case .enabledState: String(localized: "track enabled state")
+            case .alternateGroups: String(localized: "alternate track groups")
+            }
+        }.formatted(.list(type: .and))
+    }
+
+    private static func metadataClasses(_ fields: [MetadataField]) -> String {
+        fields.map { field in
+            switch field {
+            case .exif, .gps, .makerNotes, .comments: "EXIF"
+            case .xmp: "XMP"
+            case .iptc: "IPTC"
+            }
+        }.formatted(.list(type: .and))
+    }
+
+    static func describe(_ error: EngineError, file: String) -> String {
+        switch error {
+        case .decodeFailed:
+            String(localized: "“\(file)” could not be read.")
+        case .nonFiniteAudioSample:
+            String(localized: "“\(file)” contains non-finite audio samples and could not be decoded.")
+        case .encodeFailed:
+            String(localized: "“\(file)” could not be converted.")
+        case .commitFailed:
+            String(localized: "“\(file)” could not be saved.")
+        case .historyPersistenceFailed:
+            String(
+                localized:
+                    "Further file changes were stopped because undo history could not be saved. Check free disk space and access to the history folder, then retry.",
+                comment: "Avoids implying earlier commits were rolled back"
+            )
+        case .unsupportedCodec(let codec):
+            String(localized: "“\(file)” uses \(codec), which MacEase does not support.")
+        case .audioChannelLayoutUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be converted because the output cannot preserve its audio channel layout. The original was kept."
+            )
+        case .audioMetadataUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because its audio metadata cannot be preserved. Choose Save as New File. The original was kept.",
+                comment: "Refuses audio metadata loss on replacement"
+            )
+        case .imageGainMapUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be edited because its HDR gain map cannot be preserved. The original was kept."
+            )
+        case .imageSequenceUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be converted because the output cannot preserve every frame or page. The original was kept."
+            )
+        case .imageLoopCountUnsupported:
+            String(
+                localized:
+                    "“\(file)” could not be converted because its animation loop count cannot be preserved. The original was kept."
+            )
+        case .imageTransparencyUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose transparency. Choose Save as New File to flatten onto the configured background color. The original was kept."
+            )
+        case .imageHDRUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept."
+            )
+        case .imageMetadataUnsupported(let fields):
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose \(metadataClasses(fields)) metadata. Choose Save as New File. The original was kept."
+            )
+        case .hdrConversionUnsupported:
+            String(
+                localized: "“\(file)” uses HDR content that cannot be safely converted to SDR. The original was kept.")
+        case .sdrVerificationFailed:
+            String(localized: "“\(file)” did not produce a verified SDR output. The original was kept.")
+        case .videoAlphaUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot preserve transparency in this output. Choose Save as New File to flatten onto the video background color. The original was kept."
+            )
+        case .videoHDRUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept."
+            )
+        case .videoDolbyVisionUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose Dolby Vision dynamic metadata. Choose Save as New File. The original was kept.",
+                comment: "Refuses Dolby Vision metadata loss")
+        case .videoMetadataUnsupported(let properties):
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose \(videoMetadataProperties(properties)). Choose Save as New File. The original was kept."
+            )
+        case .videoDisplayTransformUnsupported:
+            String(
+                localized:
+                    "“\(file)” uses an unsupported video display transform. The original was kept."
+            )
+        case .duplicateArchiveRootName(let name):
+            String(
+                localized: "Multiple selected folders are named “\(name)”. Rename one before creating the archive.",
+                comment: "Archive roots must remain distinguishable"
+            )
+        case .permissionDenied(let location):
+            String(
+                localized:
+                    "MacEase needs access to \(describe(location)) to process “\(file)”. Allow it in System Settings > Privacy & Security."
+            )
+        case .cancelled:
+            String(localized: "Cancelled.")
+        case .targetUnreachable(let smallest):
+            String(
+                localized: "“\(file)” cannot get under the target size. The smallest result was \(byteCount(smallest))."
+            )
+        case .invalidInput(let reason):
+            describe(reason, file: file)
+        case .missingCapability(let capability):
+            describe(capability)
+        case .unexpected:
+            String(localized: "Something went wrong with “\(file)”. Details are in the log.")
+        }
+    }
+
+    static func describe(_ reason: SkipReason, file: String) -> String {
+        switch reason {
+        case .kindMismatch:
+            String(localized: "“\(file)” does not contain what its name suggests.")
+        case .isDirectory:
+            String(localized: "“\(file)” is a folder.")
+        case .notADirectory:
+            String(localized: "“\(file)” is not a folder.")
+        case .alreadyDone:
+            String(localized: "“\(file)” needed no change.")
+        case .alreadySDR:
+            String(localized: "“\(file)” is already SDR and was kept without re-encoding.")
+        case .outputNotSmaller:
+            String(localized: "“\(file)” is already as small as it gets.")
+        case .noUpscale:
+            String(localized: "“\(file)” is already smaller than the requested size.")
+        case .nothingToRemove:
+            String(localized: "“\(file)” had nothing to remove.")
+        case .changedSinceScan:
+            String(
+                localized: "“\(file)” changed after it was scanned, so it was kept.",
+                comment: "Skip reason when a scanned duplicate or empty folder no longer qualifies"
+            )
+        case .noTextFound:
+            String(localized: "No text was found in “\(file)”.")
+        case .noTrashAvailable:
+            String(localized: "“\(file)” is on a volume without a Trash.")
+        case .undoTrashItemMissing:
+            String(localized: "The original of “\(file)” is no longer in the Trash.")
+        case .undoOutputChanged:
+            String(localized: "“\(file)” changed after MacEase saved it.")
+        case .undoOriginalOccupied:
+            String(localized: "Another file now uses the name “\(file)”.")
+        }
+    }
+
+    static func describe(_ warning: ItemWarning) -> String {
+        switch warning {
+        case .documentLayoutChanged:
+            String(
+                localized:
+                    "Document conversion keeps basic text and formatting. Original pagination, fields, and revisions may change; TXT omits formatting and attachments."
+            )
+        case .htmlOfflineContent:
+            String(
+                localized:
+                    "HTML conversion disables scripts and external resources. PDF uses one continuous page; TXT keeps rendered text only."
+            )
+        case .structuredTextFormattingLost:
+            String(
+                localized:
+                    "Structured conversion preserves supported values, not comments, key order, or source formatting.")
+        case .imageFlattened:
+            String(
+                localized:
+                    "PSD conversion uses the stored composite image. Layers are not preserved; the original was kept.")
+        case .imageTransparencyFlattened:
+            String(
+                localized:
+                    "Transparency was flattened onto the configured background color. The original was kept."
+            )
+        case .imageToneMappedToSDR:
+            String(
+                localized: "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.")
+        case .videoToneMappedToSDR:
+            String(
+                localized: "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.")
+        case .videoTransparencyFlattened:
+            String(
+                localized: "Transparency was flattened onto the video background color. The original was kept.")
+        case .videoMetadataDropped(let properties):
+            String(
+                localized:
+                    "This output cannot preserve \(videoMetadataProperties(properties)). The original was kept.")
+        case .imageMetadataDropped(let fields):
+            String(
+                localized:
+                    "\(metadataClasses(fields)) metadata was not preserved because this output cannot store it. The original was kept."
+            )
+        case .markdownUnsafeContentOmitted:
+            String(localized: "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.")
+        case .pngOptimizationSkipped:
+            String(localized: "PNG optimization was skipped to stay within the memory budget.")
+        case .unmappableCharactersReplaced:
+            String(localized: "Characters that Shift_JIS cannot represent were replaced using the saved policy.")
+        case .loudnessLimitedByPeak(let reached):
+            String(
+                localized:
+                    "Loudness stopped at \(reached.formatted(.number.precision(.fractionLength(1)))) LUFS to keep peaks below −1 dBTP."
+            )
+        case .keptAsDerived:
+            String(localized: "The volume has no Trash, so the original was kept next to the result.")
+        case .originalKept:
+            String(localized: "The original could not be moved to the Trash, so both files were kept.")
+        case .outputNameUnchanged:
+            String(
+                localized:
+                    "The result was saved with the original name because its capitalization could not be changed.",
+                comment: "Replacement succeeded before renaming failed"
+            )
+        case .metadataDropped:
+            String(localized: "The output format cannot hold the original metadata.")
+        case .hdrProvenanceUnknown:
+            String(localized: "The source signals HDR, but its capture or expansion origin is unknown.")
+        case .dolbyVisionRemoved:
+            String(
+                localized: "The output does not contain Dolby Vision dynamic metadata.",
+                comment: "Discloses Dolby Vision metadata loss")
+        }
+    }
+
+    private static func describe(_ reason: InvalidInput, file: String) -> String {
+        switch reason {
+        case .tooLarge(let limit):
+            String(localized: "“\(file)” is larger than \(byteCount(limit)).")
+        case .notSquareEnough:
+            String(localized: "“\(file)” is too small for an icon.")
+        case .jsonSyntax(let line, let column):
+            String(localized: "“\(file)” is not valid JSON (line \(line), column \(column)).")
+        case .jsonNotFlatArray(let path):
+            String(localized: "“\(file)” must be an array of flat objects; \(path) is not.")
+        case .textEncodingUndetected:
+            String(localized: "The text encoding of “\(file)” could not be detected.")
+        case .unmappableCharacter(let line):
+            String(localized: "“\(file)” has characters on line \(line) that Shift_JIS cannot represent.")
+        case .emptyInput:
+            String(localized: "“\(file)” is empty.")
+        case .noPages:
+            String(localized: "No pages were selected from “\(file)”.")
+        case .encrypted:
+            String(localized: "“\(file)” is password-protected.")
+        case .pdfCopyingNotAllowed:
+            String(localized: "“\(file)” does not allow copying. Ask the PDF owner for a copy with permission.")
+        case .pdfPrintingNotAllowed:
+            String(localized: "“\(file)” does not allow printing. Ask the PDF owner for a copy with permission.")
+        case .unsupportedVideoPreset:
+            String(
+                localized:
+                    "The video preset for “\(file)” is unsupported. Use MP4, MOV or M4V with H.264 or HEVC and AAC; WebM with VP9 and Opus; or MKV with H.264, HEVC or VP9 and AAC or Opus."
+            )
+        case .tooFewFiles(let minimum):
+            String(localized: "Select at least \(minimum) files for this operation.")
+        case .malformed(let detail):
+            String(localized: "“\(file)” could not be processed: \(detail).")
+        case .passwordRequired:
+            String(
+                localized: "“\(file)” is protected by a password.",
+                comment: "Archive extraction needs a password; the Password panel opens next"
+            )
+        case .wrongPassword:
+            String(
+                localized: "The password for “\(file)” is incorrect.",
+                comment: "Archive extraction failed because the entered password is wrong"
+            )
+        case .unsafeArchivePath(let path):
+            String(
+                localized: "“\(file)” was not extracted because the entry “\(path)” points outside its folder.",
+                comment: "Archive extraction refused a path traversal or absolute entry name"
+            )
+        case .archiveExpandsTooMuch(let limit):
+            String(
+                localized: "“\(file)” was not extracted because it expands to more than \(byteCount(limit)).",
+                comment: "Archive extraction stopped by the zip bomb guard"
+            )
+        case .tooLong(let limit):
+            String(
+                localized:
+                    "“\(file)” is longer than this preset allows (\(Duration.seconds(limit).formatted(.time(pattern: .minuteSecond)))).",
+                comment: "Platform preset duration limit; the Trim panel opens next"
+            )
+        case .multipleTracks:
+            String(
+                localized:
+                    "“\(file)” has multiple audio or video tracks. Replacement supports at most one of each.",
+                comment: "Replacement would discard additional tracks"
+            )
+        case .unpreservedStreams:
+            String(
+                localized:
+                    "“\(file)” contains streams or chapters that this operation cannot preserve. The original was kept."
+            )
+        case .frameMemoryExceeded:
+            String(
+                localized: "“\(file)” exceeds the frame memory budget. Use fewer or smaller frames.",
+                comment: "Limit protects available memory"
+            )
+        case .chainedStream:
+            String(
+                localized:
+                    "“\(file)” contains chained Ogg streams, which MacEase does not support. The original was kept."
+            )
+        case .unsupportedFileType:
+            String(localized: "“\(file)” is not a regular file or folder. Select a regular file or folder.")
+        case .invalidAnimationRange:
+            String(
+                localized: "Choose an animation range within “\(file)” and a supported frame rate.",
+                comment: "Range must fit the source"
+            )
+        case .invalidNumericParameter:
+            String(localized: "Choose finite numeric values within the supported range.")
+        }
+    }
+
+    private static func describe(_ capability: Capability) -> String {
+        switch capability {
+        case .appleIntelligence:
+            String(localized: "Apple Intelligence is not available. Turn it on in System Settings.")
+        case .java:
+            String(localized: "No Java runtime was found. Install Java to decompile JAR files.")
+        case .speechAssets:
+            String(
+                localized: "Speech recognition for this language is not installed yet. Try again after it downloads.")
+        case .translationModel:
+            String(
+                localized:
+                    "The translation languages are not downloaded. Download them in System Settings > General > Language & Region."
+            )
+        case .hardwareEncoder:
+            String(localized: "This Mac has no hardware encoder for this format.")
+        case .textRecognition:
+            String(localized: "Text recognition is unavailable on this Mac.")
+        }
+    }
+
+    private static func describe(_ location: PermissionLocation) -> String {
+        switch location {
+        case .desktop: String(localized: "the Desktop folder")
+        case .documents: String(localized: "the Documents folder")
+        case .downloads: String(localized: "the Downloads folder")
+        case .removableVolume: String(localized: "removable volumes")
+        case .networkVolume: String(localized: "network volumes")
+        case .trash: String(localized: "the Trash (Full Disk Access)")
+        case .other: String(localized: "this location")
+        }
+    }
+
+    static func byteCount(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .decimal)
+    }
+}
+
+/// Title and body of the completion notification.
+struct BatchSummary {
+    let title: String
+    let body: String
+    let details: String
+
+    init(_ outcome: BatchOutcome) {
+        var succeeded = 0
+        var skipped = 0
+        var failed = 0
+        var firstReason: String?
+        var firstWarning: String?
+        var reasons: [String] = []
+        for (outcome, inputs) in zip(outcome.outcomes, outcome.inputs) {
+            let file = inputs.first?.lastPathComponent ?? ""
+            switch outcome {
+            case .succeeded(_, let warnings):
+                succeeded += 1
+                if firstWarning == nil, let warning = warnings.first { firstWarning = UserMessages.describe(warning) }
+                reasons += warnings.map {
+                    String(
+                        localized: "“\(file)”: \(UserMessages.describe($0))", comment: "File warning in batch results")
+                }
+            case .skipped(let reason):
+                skipped += 1
+                let message = UserMessages.describe(reason, file: file)
+                if firstReason == nil { firstReason = message }
+                reasons.append(message)
+            case .failed(let error):
+                failed += 1
+                let message = UserMessages.describe(error, file: file)
+                if firstReason == nil { firstReason = message }
+                reasons.append(message)
+            }
+        }
+        let operation = MenuStrings.operationName(outcome.operation)
+        title =
+            succeeded == 0 && failed > 0
+            ? String(localized: "\(operation) failed", comment: "Notification title when every item failed")
+            : operation
+        var parts = [String(localized: "\(succeeded) done", comment: "Count of finished files")]
+        if skipped > 0 { parts.append(String(localized: "\(skipped) skipped", comment: "Count of skipped files")) }
+        if failed > 0 { parts.append(String(localized: "\(failed) failed", comment: "Count of failed files")) }
+        let historyNote =
+            outcome.historyFailed
+            ? String(localized: "Undo is unavailable because the history could not be saved.") : nil
+        let counts = parts.formatted(.list(type: .and))
+        body = ([counts] + [firstReason ?? firstWarning, historyNote].compactMap { $0 })
+            .joined(separator: "\n")
+        details = ([counts] + reasons + [historyNote, outcome.reportText].compactMap { $0 }).joined(separator: "\n")
+    }
+}

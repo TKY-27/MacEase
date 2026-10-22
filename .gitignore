@@ -10,15 +10,27 @@ DerivedData/
 build/
 *.xcresult
 
-# Swift Package Manager
+# Swift Package Manager (the package's resolved pins are tracked)
 .build/
 .swiftpm/
 Package.resolved
+!Packages/MacEaseKit/Package.resolved
 
 # Vendored native dependencies (built by scripts/build-deps.sh)
-Vendor/build/
+Vendor/build
 Vendor/src/
 
 # Release artifacts
 dist/
 *.dmg
+*.xcarchive/
+
+# Local agent worktrees, traces, logs and disk images
+.claude/worktrees/
+*.trace/
+*.ktrace
+*.log
+*.sparseimage
+
+# Signing material (scripts/create-signing-identity.sh writes to build/signing/)
+*.p12

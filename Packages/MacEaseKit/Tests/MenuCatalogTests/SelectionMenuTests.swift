@@ -1,0 +1,82 @@
+import Foundation
+import Testing
+
+@testable import MenuCatalog
+
+@Suite struct SelectionMenuTests {
+    private func catalog(speechAvailable: Bool = true, hidden: Set<String> = []) -> MenuFile {
+        MenuFile(
+            token: String(repeating: "a", count: 64), hostAvailable: true,
+            visibleOperations: OperationID.allCases,
+            titles: MenuTitles(
+                operation: { $0.rawValue }, preset: { _, preset in preset }, kind: { $0.rawValue },
+                speechAvailable: speechAvailable), hiddenEntries: hidden)
+    }
+
+    @Test(arguments: [
+        (OperationID.imageHDRToSDR, ["heic", "heif", "hif", "jpg", "jpeg", "jpe", "avif", "jxl", "png"]),
+        (.videoHDRToSDR, ["mov", "mp4", "m4v"]),
+    ])
+    func sdrUsesConvertAndOnlyCandidateFormats(op: OperationID, extensions: [String]) throws {
+        let file = catalog()
+        let entry = try #require(file.entries.first { $0.op == op })
+        let parent = op == .imageHDRToSDR ? "image.convert" : "video.convert"
+        #expect(entry.path == [parent, op.rawValue])
+        #expect(entry.preset == nil)
+        #expect(entry.separatorBefore)
+        for suffix in extensions {
+            #expect(MenuLayout.isApplicable(entry, selection: [URL(fileURLWithPath: "/absent/source.\(suffix)")]))
+        }
+        let excluded = op == .imageHDRToSDR ? ["webp", "gif", "tiff", "svg", "dng"] : ["mkv", "webm", "avi", "flv"]
+        for suffix in excluded {
+            #expect(!MenuLayout.isApplicable(entry, selection: [URL(fileURLWithPath: "/absent/source.\(suffix)")]))
+        }
+        #expect(!catalog(hidden: ["\(op.rawValue)/"]).entries.contains { $0.op == op })
+    }
+
+    @Test func unavailableSpeechRemovesBothMenus() {
+        let available = catalog()
+        let unavailable = catalog(speechAvailable: false)
+        for op in [OperationID.audioSubtitles, .videoSubtitles] {
+            #expect(available.entries.filter { $0.op == op }.map(\.preset) == ["srt", "vtt", "txt", "translated-srt"])
+            #expect(!unavailable.entries.contains { $0.op == op })
+        }
+        #expect(available.catalogVersion != unavailable.catalogVersion)
+        #expect(unavailable.entries.contains { $0.op == .audioConvert })
+    }
+
+    @Test func sdrSharesOneConvertSubmenuAfterAnimationExports() throws {
+        let file = catalog()
+        let nodes = MenuLayout.nodes(for: file, selection: [URL(fileURLWithPath: "/absent/clip.mov")])
+        let converts = nodes.compactMap { node -> [MenuNode]? in
+            if case .submenu("video.convert", let children) = node { return children }
+            return nil
+        }
+        #expect(converts.count == 1)
+        let children = try #require(converts.first)
+        guard case .action(_, let index) = children.last else {
+            Issue.record("Expected SDR as final Convert action")
+            return
+        }
+        #expect(file.entries[index].op == .videoHDRToSDR)
+        #expect(children.dropLast().last == .separator)
+    }
+
+    @Test(arguments: [
+        "txt", "text", "md", "markdown", "log", "csv", "tsv", "ini", "cfg", "conf", "json", "xml", "yaml", "yml",
+        "toml", "html", "htm", "css", "js", "mjs", "cjs", "ts", "tsx", "jsx", "c", "h", "cpp", "hpp", "cc", "hh",
+        "cs", "java", "kt", "py", "rb", "go", "rs", "php", "pl", "lua", "sh", "bash", "bat", "cmd", "ps1", "psm1",
+        "sql", "srt", "vtt", "asc", "tex", "rst", "env", "props", "properties", "gradle", "cmake", "m", "mm",
+        "swift", "vb", "r", "jl",
+    ])
+    func everyTextExtensionReceivesEncodingAndEndings(suffix: String) {
+        let selection = [URL(fileURLWithPath: "/absent/source.\(suffix.uppercased())")]
+        #expect(FileKind(fileURL: selection[0]) == .text)
+        let entries = catalog().entries
+        #expect(
+            entries.filter { $0.op == .textEncoding && MenuLayout.isApplicable($0, selection: selection) }.count == 4)
+        #expect(
+            entries.filter { $0.op == .textLineEndings && MenuLayout.isApplicable($0, selection: selection) }.count == 2
+        )
+    }
+}

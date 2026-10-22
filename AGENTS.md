@@ -25,8 +25,11 @@ Run from the repository root.
 | Full tests on a real Mac, including capability-gated tests | `make test-device` |
 | Lint | `make lint` (runs `swift format lint --strict --recursive App FinderSync Packages`) |
 | Format | `make format` (runs `swift format format --in-place --recursive App FinderSync Packages`) |
-| Release DMG locally | `make dmg` |
+| Create the release signing identity (into `build/signing/`) | `scripts/create-signing-identity.sh [--set-secrets] [dir]` |
+| Release DMG locally (identity from an unlocked keychain file) | `MACEASE_SIGNING_KEYCHAIN=<path> make dmg` |
+| Ad-hoc signed DMG for local testing | `MACEASE_ALLOW_ADHOC=1 make dmg` |
 | Benchmarks | `scripts/bench.sh` |
+| Regenerate the app icon and template glyph assets | `swift scripts/make-app-icon.swift` |
 
 Builds treat warnings as errors. Keep these commands working as the project
 grows; if one changes, update this table and README.md in the same commit.
@@ -73,9 +76,12 @@ Tests
 
 ### Project-specific rules
 
-- Clean-room: never open, copy or translate source code from GPL, LGPL or AGPL
-  projects (FFmpeg, LAME, gifski, pngquant, libimagequant, Clop and others).
-  Implement from specifications and papers.
+- GPL-family sources: you may read GPL, LGPL and AGPL projects (FFmpeg, LAME,
+  gifski, pngquant, libimagequant, Clop and others) to study architecture and
+  algorithms. Never copy, translate, adapt or incorporate their code into
+  MacEase; implement independently (ADR 0013).
+- Flect (Apache-2.0) is the design reference for interaction and features.
+  Reuse its code only with the Apache-2.0 notices that require; see ADR 0013.
 - Never write to, move or delete a user's original file except through the
   commit sequence in SPEC.md section 3.5.
 - Finder Sync action handlers run off the main thread. Do not isolate the

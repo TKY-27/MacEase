@@ -7,7 +7,7 @@ Status: Accepted
 
 The app targets macOS 26 but uses macOS 27 Foundation Models image input when
 available. GitHub's `macos-26` runner image ships only Xcode 26; Xcode 27 is on
-the separate `xcode-27` image, in public preview as of October 2026.
+the separate `xcode-27` image, generally available since 2026-10-15.
 
 ## Decision
 

@@ -36,8 +36,20 @@ make test
 ```
 
 Debug builds are named "MacEase Dev" with their own bundle ID, so they can run
-next to an installed release. Enable the "MacEase Dev" Finder extension from the
-onboarding screen that opens on first launch.
+next to an installed release. Before first launch, copy the built app from
+`build/DerivedData/Build/Products/Debug/MacEase Dev.app` to `~/Applications` or
+`/Applications`; onboarding cannot continue while the app is outside those
+folders. For example:
+
+```sh
+mkdir -p "$HOME/Applications"
+ditto "build/DerivedData/Build/Products/Debug/MacEase Dev.app" "$HOME/Applications/MacEase Dev.app"
+open "$HOME/Applications/MacEase Dev.app"
+```
+
+Then enable the "MacEase Dev" Finder extension in onboarding, or open System
+Settings > General > Login Items & Extensions and enable it under Finder
+Extensions.
 
 The full list of commands is in [AGENTS.md](AGENTS.md#2-commands).
 
