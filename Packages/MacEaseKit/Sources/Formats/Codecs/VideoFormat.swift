@@ -59,8 +59,32 @@ public enum VideoFormat {
             throw FormatError.corrupt("\(track.codec.displayName) without decoder configuration")
         default: break
         }
-        let extensions: [CFString: Any] =
-            atoms.isEmpty ? [:] : [kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms: atoms]
+        var geometryExtensions: [CFString: Any] = [:]
+        if let geometry = track.displayGeometry,
+            let spacing = geometry.pixelAspectRatio(width: width, height: height)
+        {
+            let aperture = geometry.cropRect(width: width, height: height)
+            geometryExtensions[kCMFormatDescriptionExtension_CleanAperture] = [
+                kCMFormatDescriptionKey_CleanApertureWidth: Int(aperture.width),
+                kCMFormatDescriptionKey_CleanApertureHeight: Int(aperture.height),
+                kCMFormatDescriptionKey_CleanApertureHorizontalOffset:
+                    Double(geometry.cropLeft - geometry.cropRight) / 2,
+                kCMFormatDescriptionKey_CleanApertureVerticalOffset:
+                    Double(geometry.cropTop - geometry.cropBottom) / 2,
+                kCMFormatDescriptionKey_CleanApertureHorizontalOffsetRational: [
+                    geometry.cropLeft - geometry.cropRight, 2,
+                ],
+                kCMFormatDescriptionKey_CleanApertureVerticalOffsetRational: [
+                    geometry.cropTop - geometry.cropBottom, 2,
+                ],
+            ]
+            geometryExtensions[kCMFormatDescriptionExtension_PixelAspectRatio] = [
+                kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing: spacing.horizontal,
+                kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing: spacing.vertical,
+            ]
+        }
+        var extensions = geometryExtensions
+        if !atoms.isEmpty { extensions[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] = atoms }
         var description: CMVideoFormatDescription?
         let status = CMVideoFormatDescriptionCreate(
             allocator: nil, codecType: codecType, width: Int32(width), height: Int32(height),
@@ -94,7 +118,8 @@ public enum VideoFormat {
         let parsedStatus = withExtendedLifetime(description) {
             CMVideoFormatDescriptionCreateFromHEVCParameterSets(
                 allocator: nil, parameterSetCount: count, parameterSetPointers: pointers, parameterSetSizes: sizes,
-                nalUnitHeaderLength: nalUnitHeaderLength, extensions: nil, formatDescriptionOut: &parsed)
+                nalUnitHeaderLength: nalUnitHeaderLength, extensions: geometryExtensions as CFDictionary,
+                formatDescriptionOut: &parsed)
         }
         guard parsedStatus == noErr, let parsed else {
             throw FormatError.corrupt("HEVC format description (\(parsedStatus))")

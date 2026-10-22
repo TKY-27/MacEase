@@ -898,10 +898,23 @@ Explicit Convert > SDR uses the same metadata preflight and output comparison;
 permission to remove HDR does not permit other property loss.
 These rules extend ADR 0019's property-loss policy to video (ADR 0026).
 
+Matroska/WebM display dimensions, display units and pixel cropping are read
+separately from coded dimensions. Copies to Matroska/WebM retain these fields;
+native MOV/MP4/M4V copies retain representable clean aperture and pixel aspect
+ratio. Re-encoding and image exports crop first, then apply the display aspect
+before rotation, reflection or resizing. Pixel units retain the declared
+display size; physical units and aspect-ratio units use the cropped height
+with the declared ratio. Unknown units and geometry a destination cannot
+represent use the existing track-metadata warning for new-file/Derived work
+and refusal before staging for Replace. Copied output geometry is verified
+before commit.
+
 Lossless audio extraction retains the source ALAC/FLAC precision when
 re-encoding. Unknown or unrepresentable precision refuses before staging.
 PCM copies retain integer samples exactly, apply source trim/edit timing,
 and fill initial delays and timestamp gaps with silence at the source depth.
+Within a container timestamp quantum plus sample rounding, consecutive PCM
+packets advance by their sample counts instead of rounded container times.
 They share the cumulative synthesized-silence limit in section 13.
 
 | ID | Presets | Mode | Behavior and acceptance |
@@ -1759,11 +1772,15 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## Changelog
 
-- 2026-10-22: Refuse duplicate JSON row keys in CSV and conflicting XML text
-  or attribute names with the offending path.
+- 2026-10-22: Preserve Matroska display geometry in supported copies and
+  re-encodes; disclose unsupported loss and refuse Replace before staging
+  (ADR 0026).
 
 - 2026-10-22: Block later file commits after history persistence fails until
   pending history synchronizes successfully (ADR 0020).
+
+- 2026-10-22: Refuse duplicate JSON row keys in CSV and conflicting XML text
+  or attribute names with the offending path.
 
 - 2026-10-22: Detect Matroska track names and BCP47 language loss; retain
   lossless extraction precision and PCM presentation timing.
@@ -1771,9 +1788,13 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - 2026-10-22: Refuse lossless audio transforms above 24-bit integer or
   32-bit float source precision before staging.
 
-- 2026-10-22: Refuse audio metadata loss on replacement and lossless 32-bit integer transforms before staging; warn about metadata loss when saving a new file.
+- 2026-10-22: Refuse audio metadata loss on replacement and lossless 32-bit
+  integer transforms before staging; warn about metadata loss when saving a
+  new file.
 
-- 2026-10-22: Preserve alpha during arbitrary video rotation, detect Matroska user tags, tone-map HDR thumbnails, and enforce metadata protection during explicit SDR conversion (ADR 0026).
+- 2026-10-22: Preserve alpha during arbitrary video rotation, detect Matroska
+  user tags, tone-map HDR thumbnails, and enforce metadata protection during
+  explicit SDR conversion (ADR 0026).
 
 - 2026-10-22: Preserve video alpha in compression, PQ/HLG in ordinary
   re-encodes, and metadata and track attributes in native outputs; disclose

@@ -36,6 +36,7 @@ public struct MatroskaMuxer: MediaMuxer {
                     throw FormatError.corrupt(
                         String(localized: "Matroska video dimensions out of range", comment: "Invalid track metadata"))
                 }
+                if let geometry = track.displayGeometry { try geometry.validate(width: width, height: height) }
             case .audio(let sampleRate, let channels):
                 let bitDepth: Int?
                 if case .pcm(let bits, _, _) = track.codec { bitDepth = bits } else { bitDepth = nil }
@@ -105,6 +106,19 @@ public struct MatroskaMuxer: MediaMuxer {
             var video =
                 EBML.element(MatroskaID.pixelWidth, unsigned: UInt64(width))
                 + EBML.element(MatroskaID.pixelHeight, unsigned: UInt64(height))
+            if let geometry = track.displayGeometry {
+                if let displayWidth = geometry.displayWidth {
+                    video += EBML.element(MatroskaID.displayWidth, unsigned: UInt64(displayWidth))
+                }
+                if let displayHeight = geometry.displayHeight {
+                    video += EBML.element(MatroskaID.displayHeight, unsigned: UInt64(displayHeight))
+                }
+                video += EBML.element(MatroskaID.displayUnit, unsigned: UInt64(geometry.displayUnit))
+                video += EBML.element(MatroskaID.pixelCropTop, unsigned: UInt64(geometry.cropTop))
+                video += EBML.element(MatroskaID.pixelCropBottom, unsigned: UInt64(geometry.cropBottom))
+                video += EBML.element(MatroskaID.pixelCropLeft, unsigned: UInt64(geometry.cropLeft))
+                video += EBML.element(MatroskaID.pixelCropRight, unsigned: UInt64(geometry.cropRight))
+            }
             if track.hasAlpha {
                 video += EBML.element(MatroskaID.alphaMode, unsigned: 1)
                 body += EBML.element(MatroskaID.maxBlockAdditionID, unsigned: MatroskaValue.alphaAdditionID)

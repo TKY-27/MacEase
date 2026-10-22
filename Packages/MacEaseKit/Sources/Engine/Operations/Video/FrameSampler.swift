@@ -16,6 +16,7 @@ final class FrameSampler {
     private var processor: FrameProcessor?
     private let edit: FrameEdit
     private let hdr: VideoHDRConfiguration?
+    private let display: VideoDisplayGeometry?
     let frameDuration: Int64
     private let sourceFrameDuration: Int64
     private let end: Int64
@@ -39,6 +40,7 @@ final class FrameSampler {
         }
         self.edit = edit
         self.hdr = hdr
+        display = track.displayGeometry
         self.frameDuration = frameDuration
         sourceFrameDuration = input.frameDuration
         self.end = end
@@ -93,7 +95,7 @@ final class FrameSampler {
     private func processor(for image: CVPixelBuffer) throws -> FrameProcessor {
         if let processor { return processor }
         let size = PixelSize(width: CVPixelBufferGetWidth(image), height: CVPixelBufferGetHeight(image))
-        let created = try FrameProcessor(source: size, edit: edit, hdr: hdr)
+        let created = try FrameProcessor(source: size, edit: edit, hdr: hdr, display: display)
         processor = created
         return created
     }

@@ -72,6 +72,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
         }
         position = firstCluster ?? position
         guard !tracks.isEmpty else { throw FormatError.corrupt("no tracks before the first cluster") }
+        for index in tracks.indices { tracks[index].timestampQuantum = timestampScale }
     }
 
     static func children(_ file: RandomAccessFile, from start: Int64, to end: Int64) throws -> [EBML.Header] {
@@ -158,6 +159,8 @@ public struct MatroskaDemuxer: MediaDemuxer {
             var languageBCP47: String?
             var width = 0
             var height = 0
+            var displayGeometry = VideoDisplayGeometry()
+            var hasDisplayGeometry = false
             var alpha = false
             var hasContainerHDR = false
             var sampleRate = 8_000.0
@@ -183,6 +186,27 @@ public struct MatroskaDemuxer: MediaDemuxer {
                         switch detail.id {
                         case MatroskaID.pixelWidth: width = try integer(detail)
                         case MatroskaID.pixelHeight: height = try integer(detail)
+                        case MatroskaID.displayWidth:
+                            displayGeometry.displayWidth = try integer(detail)
+                            hasDisplayGeometry = true
+                        case MatroskaID.displayHeight:
+                            displayGeometry.displayHeight = try integer(detail)
+                            hasDisplayGeometry = true
+                        case MatroskaID.displayUnit:
+                            displayGeometry.displayUnit = try integer(detail)
+                            hasDisplayGeometry = true
+                        case MatroskaID.pixelCropTop:
+                            displayGeometry.cropTop = try integer(detail)
+                            hasDisplayGeometry = true
+                        case MatroskaID.pixelCropBottom:
+                            displayGeometry.cropBottom = try integer(detail)
+                            hasDisplayGeometry = true
+                        case MatroskaID.pixelCropLeft:
+                            displayGeometry.cropLeft = try integer(detail)
+                            hasDisplayGeometry = true
+                        case MatroskaID.pixelCropRight:
+                            displayGeometry.cropRight = try integer(detail)
+                            hasDisplayGeometry = true
                         case MatroskaID.alphaMode: alpha = try integer(detail) == 1
                         case MatroskaID.colour:
                             for property in try children(of: detail) {
@@ -220,6 +244,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             }
             if type == MatroskaValue.videoTrack {
                 _ = try VideoDecoders.checkedFrameBytes(width: width, height: height)
+                if hasDisplayGeometry { try displayGeometry.validate(width: width, height: height) }
             } else {
                 try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
             }
@@ -237,6 +262,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             track.language = languageBCP47 ?? language
             track.hasAlpha = alpha
             track.hasContainerHDR = hasContainerHDR
+            track.displayGeometry = hasDisplayGeometry ? displayGeometry : nil
             track.codecDelay = delay
             track.seekPreRoll = preRoll
             tracks.append(track)

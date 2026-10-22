@@ -74,7 +74,7 @@ enum VideoCompressor {
         }
 
         mutating func copyIfPossible(edit: FrameEdit) async throws -> URL? {
-            guard input.video?.codec == destination.mediaCodec, edit.size == input.codedSize, edit.aspect == nil,
+            guard input.video?.codec == destination.mediaCodec, edit.size == input.displaySize, edit.aspect == nil,
                 input.transform == .identity || destination.container.fileType != nil
             else { return nil }
             if input.video?.hasAlpha == true {
@@ -221,7 +221,8 @@ enum VideoCompressor {
             limits.aspect.map(\.isValid) ?? true
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
         var edit = FrameEdit(displayOrientation: try input.displayOrientation, aspect: limits.aspect)
-        let natural = try FrameProcessor.outputSize(source: input.codedSize, edit: edit)
+        let natural = try FrameProcessor.outputSize(
+            source: input.codedSize, edit: edit, display: input.video?.displayGeometry)
         let scale = min(
             1, Double(limits.maxWidth ?? natural.width) / Double(natural.width),
             Double(limits.maxHeight ?? natural.height) / Double(natural.height))

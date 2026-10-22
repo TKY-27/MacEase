@@ -95,7 +95,7 @@ enum VideoEdits {
         _ input: MediaInput, source: MediaTrack, edit: FrameEdit, settings: VideoSettings
     ) throws -> TranscodePlan {
         var encoding = try alphaEncoding(input, source: source, settings: settings)
-        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit)
+        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit, display: source.displayGeometry)
         encoding.width = size.width
         encoding.height = size.height
         return TranscodePlan(container: input.container, video: .encode(encoding, edit), audio: .copy)

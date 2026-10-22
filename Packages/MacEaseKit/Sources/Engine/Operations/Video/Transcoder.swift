@@ -28,6 +28,7 @@ struct TranscodePlan {
     var matte: BackgroundMatte?
     var toneMapToSDR = false
     var metadata: VideoMetadata?
+    var copiedDisplayTrack: MediaTrack?
     var derived = false
 }
 

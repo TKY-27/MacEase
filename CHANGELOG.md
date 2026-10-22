@@ -55,34 +55,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Refuse duplicate JSON row keys in CSV and conflicting XML text or attribute
-  names, reporting the offending path.
-- Detect Matroska track names and BCP47 languages before metadata loss checks;
-  warn for new files and always-derived exports, and refuse replacement.
-- Preserve ALAC/FLAC source precision in lossless audio extraction, refusing
-  unknown or unrepresentable precision before staging.
-- Preserve PCM extraction delays, gaps, and trim edits without reducing
-  integer precision.
-- Refuse audio replacement when tags cannot be preserved or read; new-file
-  conversion reports a warning and retains the original.
-- Refuse lossless audio transforms above 24-bit integer or 32-bit float
-  source precision before writing instead of silently losing precision
-  through Float32 decoding.
-- Video compression preserves transparency in supported MOV and WebM outputs.
-- Arbitrary-angle video rotation preserves source transparency in alpha outputs.
-- Matroska and WebM title or tag loss warns for new files and refuses replacement.
-- HDR thumbnails tone-map to SDR and report the conversion while keeping originals.
-- Explicit video SDR conversion checks metadata loss before staging and after writing.
-- Ordinary video edits preserve supported PQ/HLG HDR with HEVC Main10.
-  SDR-only outputs tone-map with a warning; replacement refuses HDR loss.
-- Dolby Vision 8.4 (iPhone HDR) new-file edits keep the HLG base layer or
-  tone-map for SDR targets, with warnings; replacement refuses.
-- Native video remuxes and edits preserve metadata and track attributes;
-  unsupported property loss warns for new files and refuses replacement.
+- Preserve Matroska display aspect and pixel cropping when supported; warn
+  about unsupported output geometry and refuse replacement before staging.
 
 - Stop further file changes when undo history cannot be saved, and resume after
   pending history is successfully synchronized.
 
+- Refuse duplicate JSON row keys in CSV and conflicting XML text or attribute
+  names, reporting the offending path.
 - Detect Matroska track names and BCP47 languages before metadata loss checks;
   warn for new files and always-derived exports, and refuse replacement.
 - Preserve ALAC/FLAC source precision in lossless audio extraction, refusing

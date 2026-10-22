@@ -3,6 +3,8 @@ import Formats
 import Foundation
 
 enum VideoProperties {
+    private static let aspectRatioTolerance = 1e-6
+
     struct HDRSource {
         let configuration: VideoHDRConfiguration
         let dolbyVision: Bool
@@ -62,7 +64,14 @@ enum VideoProperties {
     ) async throws -> TranscodePlan {
         var prepared = plan
         let metadata = try await VideoMetadata.load(from: input)
-        let losses = metadata.losses(for: prepared.container, includingAudio: prepared.audio != nil)
+        var losses = metadata.losses(for: prepared.container, includingAudio: prepared.audio != nil)
+        let losesDisplay = losesDisplayGeometry(plan, input: input)
+        if losesDisplay, !losses.contains(.trackMetadata) {
+            losses.append(.trackMetadata)
+        }
+        if case .copy = plan.video, input.video?.displayGeometry != nil, !losesDisplay {
+            prepared.copiedDisplayTrack = input.video
+        }
         if !losses.isEmpty {
             guard prepared.derived || context.settings.outputMode == .newFile else {
                 throw EngineError.videoMetadataUnsupported(losses)
@@ -82,13 +91,59 @@ enum VideoProperties {
             }
         }
         guard let metadata = plan.metadata else { return }
-        let losses = try await metadata.losses(
+        var losses = try await metadata.losses(
             in: output, container: plan.container, includingAudio: plan.audio != nil)
+        if let source = plan.copiedDisplayTrack,
+            try await !preservesDisplayGeometry(source, in: output, container: plan.container),
+            !losses.contains(.trackMetadata)
+        {
+            losses.append(.trackMetadata)
+        }
         guard !losses.isEmpty else { return }
         guard plan.derived || context.settings.outputMode == .newFile else {
             throw EngineError.videoMetadataUnsupported(losses)
         }
         warn(.videoMetadataDropped(losses), context: context)
+    }
+
+    private static func losesDisplayGeometry(_ plan: TranscodePlan, input: MediaInput) -> Bool {
+        guard let display = input.video?.displayGeometry, let video = plan.video else { return false }
+        let size = input.codedSize
+        switch video {
+        case .copy:
+            if plan.container == .mkv || plan.container == .webm { return false }
+            return plan.container.fileType == nil
+                || display.pixelAspectRatio(width: size.width, height: size.height) == nil
+        case .encode:
+            return display.presentationSize(width: size.width, height: size.height) == nil
+        case .toneMapToSDR:
+            return true
+        }
+    }
+
+    private static func preservesDisplayGeometry(
+        _ source: MediaTrack, in output: URL, container: OutputContainer
+    ) async throws -> Bool {
+        if container == .mkv || container == .webm {
+            let written = try MatroskaDemuxer(url: output).tracks.first(where: \.isVideo)
+            return written?.displayGeometry == source.displayGeometry && written?.kind == source.kind
+        }
+        let expected = try VideoFormat.description(for: source)
+        let aperture = CMVideoFormatDescriptionGetCleanAperture(expected, originIsAtTopLeft: true)
+        let presentation = CMVideoFormatDescriptionGetPresentationDimensions(
+            expected, usePixelAspectRatio: true, useCleanAperture: true)
+        guard let track = try await AVURLAsset(url: output).loadTracks(withMediaType: .video).first else {
+            return false
+        }
+        let formats = try await track.load(.formatDescriptions)
+        return !formats.isEmpty
+            && formats.allSatisfy { format in
+                let written = CMVideoFormatDescriptionGetPresentationDimensions(
+                    format, usePixelAspectRatio: true, useCleanAperture: true)
+                return CMVideoFormatDescriptionGetCleanAperture(format, originIsAtTopLeft: true) == aperture
+                    && abs(written.width / written.height - presentation.width / presentation.height)
+                        <= aspectRatioTolerance
+            }
     }
 
     static func hdrConfiguration(_ input: MediaInput) async throws -> HDRSource? {
@@ -131,6 +186,12 @@ enum VideoProperties {
     }
 
     static func toneMapsExport(_ input: MediaInput, context: ItemContext) async throws -> Bool {
+        let size = input.codedSize
+        if let display = input.video?.displayGeometry,
+            display.presentationSize(width: size.width, height: size.height) == nil
+        {
+            warn(.videoMetadataDropped([.trackMetadata]), context: context)
+        }
         guard let hdr = try await hdrConfiguration(input) else { return false }
         try await validateToneMapping(input)
         if hdr.dolbyVision { warn(.dolbyVisionRemoved, context: context) }
@@ -151,7 +212,7 @@ enum VideoProperties {
         guard let source = input.video else { throw EngineError.hdrConversionUnsupported }
         var prepared = plan
         let edit = FrameEdit(displayOrientation: try VideoDisplayOrientation(plan.transform ?? input.transform))
-        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit)
+        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit, display: source.displayGeometry)
         var encoding = VideoEdits.encoding(input, source: source, settings: settings)
         encoding.codec = VideoEdits.codec(for: plan.container, source: source.codec, settings: settings)
         encoding.width = size.width

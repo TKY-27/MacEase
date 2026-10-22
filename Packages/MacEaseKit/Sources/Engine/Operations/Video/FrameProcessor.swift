@@ -78,12 +78,16 @@ final class FrameProcessor {
     private let hdr: VideoHDRConfiguration?
     private let outputColorSpace: CGColorSpace?
     private let geometry: CGAffineTransform
+    private let sourceCrop: CGRect
     private let scale: CGAffineTransform
     private let viewport: CGRect
     private let background: CIImage?
     let size: PixelSize
 
-    static func outputSize(source: PixelSize, edit: FrameEdit) throws -> PixelSize {
+    static func outputSize(
+        source: PixelSize, edit: FrameEdit, display: VideoDisplayGeometry? = nil
+    ) throws -> PixelSize {
+        let source = presentationSize(source, display: display)
         let geometry = orientation(edit, width: Double(source.width), height: Double(source.height))
         let bounds = viewport(source: source, edit: edit, geometry: geometry)
         guard let width = Int(exactly: bounds.width.rounded()),
@@ -93,7 +97,9 @@ final class FrameProcessor {
         return (edit.size ?? natural).evened()
     }
 
-    init(source: PixelSize, edit: FrameEdit, hdr: VideoHDRConfiguration? = nil) throws {
+    init(
+        source: PixelSize, edit: FrameEdit, hdr: VideoHDRConfiguration? = nil, display: VideoDisplayGeometry? = nil
+    ) throws {
         self.hdr = hdr
         if let hdr {
             guard let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020),
@@ -106,10 +112,23 @@ final class FrameProcessor {
             context = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
             outputColorSpace = nil
         }
-        geometry = Self.orientation(edit, width: Double(source.width), height: Double(source.height))
-        let bounds = Self.viewport(source: source, edit: edit, geometry: geometry)
+        let presentation = Self.presentationSize(source, display: display)
+        if let display, display.presentationSize(width: source.width, height: source.height) != nil {
+            sourceCrop = display.cropRect(width: source.width, height: source.height)
+        } else {
+            sourceCrop = CGRect(x: 0, y: 0, width: source.width, height: source.height)
+        }
+        let orientation = Self.orientation(edit, width: Double(presentation.width), height: Double(presentation.height))
+        geometry = CGAffineTransform(translationX: -sourceCrop.minX, y: -sourceCrop.minY)
+            .concatenating(
+                CGAffineTransform(
+                    scaleX: CGFloat(presentation.width) / sourceCrop.width,
+                    y: CGFloat(presentation.height) / sourceCrop.height)
+            )
+            .concatenating(orientation)
+        let bounds = Self.viewport(source: presentation, edit: edit, geometry: orientation)
         viewport = bounds
-        size = try Self.outputSize(source: source, edit: edit)
+        size = try Self.outputSize(source: source, edit: edit, display: display)
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
@@ -130,6 +149,11 @@ final class FrameProcessor {
         let status = CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &created)
         guard status == kCVReturnSuccess, let created else { throw EngineError.encodeFailed("frame pool \(status)") }
         pool = created
+    }
+
+    private static func presentationSize(_ source: PixelSize, display: VideoDisplayGeometry?) -> PixelSize {
+        guard let size = display?.presentationSize(width: source.width, height: source.height) else { return source }
+        return PixelSize(width: Int(size.width.rounded()), height: Int(size.height.rounded()))
     }
 
     private static func viewport(source: PixelSize, edit: FrameEdit, geometry: CGAffineTransform) -> CGRect {
@@ -156,9 +180,11 @@ final class FrameProcessor {
     }
 
     func process(_ frame: CVPixelBuffer) throws -> CVPixelBuffer {
-        var image = CIImage(cvPixelBuffer: frame).transformed(by: geometry).cropped(to: viewport)
-            .transformed(by: CGAffineTransform(translationX: -viewport.minX, y: -viewport.minY))
-            .transformed(by: scale)
+        var image = CIImage(cvPixelBuffer: frame).cropped(to: sourceCrop).transformed(by: geometry).cropped(
+            to: viewport
+        )
+        .transformed(by: CGAffineTransform(translationX: -viewport.minX, y: -viewport.minY))
+        .transformed(by: scale)
         let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         if let background { image = image.composited(over: background) }
         var output: CVPixelBuffer?

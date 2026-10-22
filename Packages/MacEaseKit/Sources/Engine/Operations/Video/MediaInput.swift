@@ -147,8 +147,11 @@ struct MediaInput {
 
     var displaySize: PixelSize {
         let quarterTurns = Int((displayRotation / 90).rounded()) % 2
-        let coded = codedSize
-        return quarterTurns == 1 ? PixelSize(width: coded.height, height: coded.width) : coded
+        var size = codedSize
+        if let presentation = video?.displayGeometry?.presentationSize(width: size.width, height: size.height) {
+            size = PixelSize(width: Int(presentation.width.rounded()), height: Int(presentation.height.rounded()))
+        }
+        return quarterTurns == 1 ? PixelSize(width: size.height, height: size.width) : size
     }
 
     var displayOrientation: VideoDisplayOrientation {

@@ -38,6 +38,13 @@ enum MatroskaID {
     static let video: UInt32 = 0xE0
     static let pixelWidth: UInt32 = 0xB0
     static let pixelHeight: UInt32 = 0xBA
+    static let displayWidth: UInt32 = 0x54B0
+    static let displayHeight: UInt32 = 0x54BA
+    static let displayUnit: UInt32 = 0x54B2
+    static let pixelCropTop: UInt32 = 0x54BB
+    static let pixelCropBottom: UInt32 = 0x54AA
+    static let pixelCropLeft: UInt32 = 0x54CC
+    static let pixelCropRight: UInt32 = 0x54DD
     static let alphaMode: UInt32 = 0x53C0
     static let colour: UInt32 = 0x55B0
     static let transferCharacteristics: UInt32 = 0x55BA

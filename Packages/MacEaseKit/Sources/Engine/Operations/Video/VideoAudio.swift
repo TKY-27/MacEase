@@ -6,6 +6,7 @@ import Foundation
 
 private let silenceChunkFrames = 4_096
 private let maximumSynthesizedSilence = 600 * Nanoseconds.perSecond
+private let pcmFrameRoundingTolerance = 0.5
 
 final class VideoPCMSource {
     private enum Source {
@@ -619,6 +620,10 @@ enum VideoAudio {
             var synthesizedSilenceFrames: Int64 = 0
             let maximumSilenceFrames = try pcmFramePosition(maximumSynthesizedSilence, sampleRate: sampleRate)
             let codecDelay = try pcmFramePosition(track.codecDelay, sampleRate: sampleRate)
+            let timestampToleranceFrames =
+                track.timestampQuantum.map {
+                    Double($0) * sampleRate / Double(Nanoseconds.perSecond) + pcmFrameRoundingTolerance
+                } ?? 0
             func write(_ payload: Data) throws {
                 guard !payload.isEmpty else { return }
                 let expectedPackets = UInt32(payload.count / bytesPerFrame)
@@ -652,8 +657,11 @@ enum VideoAudio {
                     let presented = try pcmFramePosition(
                         packet.outputTimestamp ?? packet.timestamp, sampleRate: sampleRate)
                     let due = presented + (packet.outputTimestamp == nil ? first - codecDelay : 0)
-                    let (gap, gapOverflow) = due.subtractingReportingOverflow(packetNumber)
+                    let (timestampGap, gapOverflow) = due.subtractingReportingOverflow(packetNumber)
                     guard !gapOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                    let gap =
+                        packetNumber > 0 && Double(timestampGap) >= -timestampToleranceFrames
+                            && Double(timestampGap) <= timestampToleranceFrames ? 0 : timestampGap
                     if gap > 0 {
                         let (total, overflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                         guard !overflow, total <= maximumSilenceFrames else {

@@ -162,6 +162,114 @@ import Testing
         #expect(try Data(contentsOf: source) == original)
     }
 
+    @Test func copiedPCMRetainsQuantizedPacketContinuityAndOneSecondGap() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "quantized-pcm.mkv")
+        let sampleRate = 44_100
+        let packetFrames = 1_024
+        let fullPackets = 43
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: Double(sampleRate), channels: 1),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        var expected = Data()
+        var frameOffset = 0
+        var truncatedPacketMarker = Data()
+        for count in [Int](repeating: packetFrames, count: fullPackets) + [sampleRate - fullPackets * packetFrames] {
+            var payload = Data(capacity: count * 2)
+            for frame in frameOffset..<frameOffset + count {
+                let sample = Int16(truncatingIfNeeded: frame + 1)
+                payload.append(UInt8(truncatingIfNeeded: sample))
+                payload.append(UInt8(truncatingIfNeeded: sample >> 8))
+            }
+            if frameOffset == 3 * packetFrames { truncatedPacketMarker = Data(payload.prefix(16)) }
+            try muxer.write(
+                MediaPacket(
+                    track: 1,
+                    timestamp: try Nanoseconds.scale(
+                        Int64(frameOffset), by: Nanoseconds.perSecond, over: Int64(sampleRate)),
+                    isKeyframe: true, payload: payload))
+            expected.append(payload)
+            frameOffset += count
+        }
+        let finalPayload = Data([0x55, 0x12, 0xAA, 0x34])
+        try muxer.write(
+            MediaPacket(
+                track: 1, timestamp: 2 * Nanoseconds.perSecond,
+                isKeyframe: true, payload: finalPayload))
+        try muxer.finish()
+        var sourceBytes = try Data(contentsOf: source)
+        let markerOffset = try #require(sourceBytes.range(of: truncatedPacketMarker)?.lowerBound)
+        #expect(sourceBytes[markerOffset - 3] == 0)
+        #expect(sourceBytes[markerOffset - 2] == 70)
+        #expect(sourceBytes[markerOffset - 1] == 0x80)
+        sourceBytes[markerOffset - 2] = 69
+        try sourceBytes.write(to: source)
+
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        let result = try await VideoAudio.extract(.wav, url: source, context: context)
+        guard case .derived(_, let outputs) = result else {
+            Issue.record("expected derived WAV")
+            return
+        }
+        let output = try #require(outputs.first)
+        expected.append(Data(repeating: 0, count: sampleRate * 2))
+        expected.append(finalPayload)
+        #expect(try pcmBytes(output.url) == expected)
+    }
+
+    @Test func copiedPCMRetainsRealPacketOverlap() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "overlapping-pcm.mkv")
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 1_000, channels: 1),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        let first = Data(repeating: 1, count: 2_000)
+        let second = Data(repeating: 2, count: 2_000)
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        try muxer.write(MediaPacket(track: 1, timestamp: 0, isKeyframe: true, payload: first))
+        try muxer.write(
+            MediaPacket(track: 1, timestamp: 500 * Nanoseconds.perMillisecond, isKeyframe: true, payload: second))
+        try muxer.finish()
+
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        let result = try await VideoAudio.extract(.wav, url: source, context: context)
+        guard case .derived(_, let outputs) = result else {
+            Issue.record("expected derived WAV")
+            return
+        }
+        let output = try #require(outputs.first)
+        #expect(try pcmBytes(output.url) == first + Data(repeating: 2, count: 1_000))
+    }
+
+    @Test func copiedLowRatePCMRetainsOneSecondGap() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "low-rate-gap.mkv")
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 1, channels: 1),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        try muxer.write(MediaPacket(track: 1, timestamp: 0, isKeyframe: true, payload: Data([1, 0])))
+        try muxer.write(
+            MediaPacket(track: 1, timestamp: 2 * Nanoseconds.perSecond, isKeyframe: true, payload: Data([2, 0])))
+        try muxer.finish()
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .derived(_, let outputs) = try await VideoAudio.extract(.wav, url: source, context: context) else {
+            Issue.record("expected derived WAV")
+            return
+        }
+        #expect(try pcmBytes(#require(outputs.first).url) == Data([1, 0, 0, 0, 2, 0]))
+    }
+
     @Test func copiedPCMRetainsNativeDelayAndTrim() async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }

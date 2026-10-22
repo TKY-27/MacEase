@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreMedia
 import Foundation
 
@@ -52,6 +53,103 @@ public enum MediaCodec: Hashable, Sendable {
     }
 }
 
+public struct VideoDisplayGeometry: Hashable, Sendable {
+    public var displayWidth: Int?
+    public var displayHeight: Int?
+    public var displayUnit: Int
+    public var cropTop: Int
+    public var cropBottom: Int
+    public var cropLeft: Int
+    public var cropRight: Int
+
+    public init(
+        displayWidth: Int? = nil, displayHeight: Int? = nil, displayUnit: Int = 0,
+        cropTop: Int = 0, cropBottom: Int = 0, cropLeft: Int = 0, cropRight: Int = 0
+    ) {
+        self.displayWidth = displayWidth
+        self.displayHeight = displayHeight
+        self.displayUnit = displayUnit
+        self.cropTop = cropTop
+        self.cropBottom = cropBottom
+        self.cropLeft = cropLeft
+        self.cropRight = cropRight
+    }
+
+    public func validate(width: Int, height: Int) throws {
+        guard width > 0, height > 0, displayUnit >= 0,
+            cropTop >= 0, cropBottom >= 0, cropLeft >= 0, cropRight >= 0,
+            cropLeft < width, cropRight < width - cropLeft,
+            cropTop < height, cropBottom < height - cropTop,
+            displayWidth.map({ $0 > 0 }) ?? true,
+            displayHeight.map({ $0 > 0 }) ?? true,
+            !(1...3).contains(displayUnit) || (displayWidth != nil && displayHeight != nil)
+        else {
+            throw FormatError.corrupt(
+                String(localized: "Video dimensions out of range", comment: "Invalid video metadata"))
+        }
+    }
+
+    public func cropRect(width: Int, height: Int) -> CGRect {
+        CGRect(
+            x: cropLeft, y: cropBottom,
+            width: width - cropLeft - cropRight, height: height - cropTop - cropBottom)
+    }
+
+    public func presentationSize(width: Int, height: Int) -> CGSize? {
+        guard (try? validate(width: width, height: height)) != nil else { return nil }
+        let croppedWidth = width - cropLeft - cropRight
+        let croppedHeight = height - cropTop - cropBottom
+        let presentedWidth: Double
+        let presentedHeight: Double
+        switch displayUnit {
+        case 0:
+            presentedWidth = Double(displayWidth ?? croppedWidth)
+            presentedHeight = Double(displayHeight ?? croppedHeight)
+        case 1...3:
+            guard let displayWidth, let displayHeight, displayWidth > 0, displayHeight > 0 else { return nil }
+            presentedWidth = Double(croppedHeight) * Double(displayWidth) / Double(displayHeight)
+            presentedHeight = Double(croppedHeight)
+        default: return nil
+        }
+        guard presentedWidth.isFinite, presentedHeight.isFinite,
+            presentedWidth >= 1, presentedHeight >= 1,
+            presentedWidth <= Double(Int32.max), presentedHeight <= Double(Int32.max)
+        else { return nil }
+        return CGSize(width: presentedWidth, height: presentedHeight)
+    }
+
+    public func pixelAspectRatio(width: Int, height: Int) -> (horizontal: Int, vertical: Int)? {
+        guard presentationSize(width: width, height: height) != nil else { return nil }
+        let croppedWidth = width - cropLeft - cropRight
+        let croppedHeight = height - cropTop - cropBottom
+        let displayWidth = displayUnit == 0 ? self.displayWidth ?? croppedWidth : self.displayWidth
+        let displayHeight = displayUnit == 0 ? self.displayHeight ?? croppedHeight : self.displayHeight
+        guard let displayWidth, let displayHeight else { return nil }
+        var numerator = [displayWidth, croppedHeight]
+        var denominator = [displayHeight, croppedWidth]
+        for upper in numerator.indices {
+            for lower in denominator.indices {
+                let divisor = Self.gcd(numerator[upper], denominator[lower])
+                numerator[upper] /= divisor
+                denominator[lower] /= divisor
+            }
+        }
+        let (horizontal, horizontalOverflow) = numerator[0].multipliedReportingOverflow(by: numerator[1])
+        let (vertical, verticalOverflow) = denominator[0].multipliedReportingOverflow(by: denominator[1])
+        guard !horizontalOverflow, !verticalOverflow,
+            horizontal <= Int32.max, vertical <= Int32.max
+        else { return nil }
+        return (horizontal, vertical)
+    }
+
+    private static func gcd(_ first: Int, _ second: Int) -> Int {
+        var left = first
+        var right = second
+        while right != 0 { (left, right) = (right, left % right) }
+        return left
+    }
+}
+
 public struct MediaTrack: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         case video(width: Int, height: Int)
@@ -68,6 +166,8 @@ public struct MediaTrack: Hashable, Sendable {
     /// VP9 alpha travels in BlockAdditions.
     public var hasAlpha = false
     public var hasContainerHDR = false
+    public var displayGeometry: VideoDisplayGeometry?
+    public var timestampQuantum: Int64?
     public var codecDelay: Int64 = 0
     public var seekPreRoll: Int64 = 0
 

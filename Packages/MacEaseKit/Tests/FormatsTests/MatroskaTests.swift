@@ -1,3 +1,4 @@
+import CoreMedia
 import Foundation
 import Testing
 
@@ -294,5 +295,125 @@ import Testing
     @Test func ebmlLacingWithOneFrameHasNoSizes() throws {
         let block: [UInt8] = [0x81, 0, 0, 0x06, 0, 5, 6, 7]
         #expect(try MatroskaDemuxer.unlace(block, from: 4, lacing: 3) == [[5, 6, 7]])
+    }
+
+    @Test func readsAndRemuxesIndependentDisplayElements() throws {
+        let geometryElements =
+            EBML.element(0x54B0, unsigned: 1220)
+            + EBML.element(0x54BA, unsigned: 470)
+            + EBML.element(0x54B2, unsigned: 0)
+            + EBML.element(0x54BB, unsigned: 8)
+            + EBML.element(0x54AA, unsigned: 2)
+            + EBML.element(0x54CC, unsigned: 10)
+            + EBML.element(0x54DD, unsigned: 20)
+        let video = EBML.element(
+            MatroskaID.video,
+            EBML.element(MatroskaID.pixelWidth, unsigned: 640)
+                + EBML.element(MatroskaID.pixelHeight, unsigned: 480)
+                + geometryElements)
+        let entry = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + video)
+        let input = ContainerFixtures.temporaryURL("display-input.mkv")
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        try Data(header + EBML.element(MatroskaID.segment, EBML.element(MatroskaID.tracks, entry))).write(to: input)
+        let track = try #require(MatroskaDemuxer(url: input).tracks.first)
+        #expect(
+            track.displayGeometry
+                == VideoDisplayGeometry(
+                    displayWidth: 1220, displayHeight: 470, cropTop: 8, cropBottom: 2, cropLeft: 10, cropRight: 20))
+        let output = ContainerFixtures.temporaryURL("display-output.mkv")
+        var muxer = try MatroskaMuxer(url: output, tracks: [track], webm: false)
+        try muxer.finish()
+        let remuxed = try Data(contentsOf: output)
+        #expect(remuxed.range(of: Data(geometryElements)) != nil)
+        #expect(try MatroskaDemuxer(url: output).tracks.first?.displayGeometry == track.displayGeometry)
+    }
+
+    @Test func rejectsEmptyCropAndMissingRatioDimensions() throws {
+        #expect(throws: FormatError.self) {
+            try VideoDisplayGeometry(cropLeft: 320, cropRight: 320).validate(width: 640, height: 480)
+        }
+        #expect(throws: FormatError.self) {
+            try VideoDisplayGeometry(displayWidth: 16, displayUnit: 3).validate(width: 640, height: 480)
+        }
+        #expect(throws: FormatError.self) {
+            try VideoDisplayGeometry(displayHeight: 0).validate(width: 640, height: 480)
+        }
+        #expect(
+            VideoDisplayGeometry(displayWidth: Int.max, displayHeight: 1)
+                .pixelAspectRatio(width: 640, height: 480) == nil)
+        let defaults = VideoDisplayGeometry(displayHeight: 600, cropLeft: 10, cropRight: 20)
+        #expect(defaults.presentationSize(width: 640, height: 480) == CGSize(width: 610, height: 600))
+        #expect(defaults.pixelAspectRatio(width: 640, height: 480)?.horizontal == 4)
+        #expect(defaults.pixelAspectRatio(width: 640, height: 480)?.vertical == 5)
+    }
+
+    @Test func usesFinalTimestampScaleWhenTracksPrecedeInfo() throws {
+        let entry = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        let segment = EBML.element(
+            MatroskaID.segment,
+            EBML.element(MatroskaID.tracks, entry)
+                + EBML.element(MatroskaID.info, EBML.element(MatroskaID.timestampScale, unsigned: 500_000)))
+        let url = ContainerFixtures.temporaryURL("late-timestamp-scale.mkv")
+        try Data(header + segment).write(to: url)
+        #expect(try MatroskaDemuxer(url: url).tracks.first?.timestampQuantum == 500_000)
+    }
+
+    @Test func rejectsInvalidCropInExternalMatroska() throws {
+        let video = EBML.element(
+            MatroskaID.video,
+            EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                + EBML.element(MatroskaID.pixelHeight, unsigned: 48)
+                + EBML.element(0x54CC, unsigned: 64))
+        let entry = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + video)
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        let url = ContainerFixtures.temporaryURL("invalid-display-crop.mkv")
+        try Data(header + EBML.element(MatroskaID.segment, EBML.element(MatroskaID.tracks, entry))).write(to: url)
+        #expect(throws: FormatError.corrupt(String(localized: "Video dimensions out of range"))) {
+            try MatroskaDemuxer(url: url)
+        }
+    }
+
+    @Test func nativeDescriptionCarriesCropAndPixelAspect() throws {
+        var track = MediaTrack(number: 1, kind: .video(width: 640, height: 480), codec: .vp9)
+        track.displayGeometry = VideoDisplayGeometry(
+            displayWidth: 1218, displayHeight: 469, cropTop: 9, cropBottom: 2, cropLeft: 11, cropRight: 20)
+        let description = try VideoFormat.description(for: track)
+        let aperture = CMVideoFormatDescriptionGetCleanAperture(description, originIsAtTopLeft: false)
+        #expect(aperture == CGRect(x: 11, y: 2, width: 609, height: 469))
+        let presentation = CMVideoFormatDescriptionGetPresentationDimensions(
+            description, usePixelAspectRatio: true, useCleanAperture: true)
+        #expect(abs(presentation.width - 1218) < 0.01)
+        #expect(abs(presentation.height - 469) < 0.01)
+    }
+
+    @Test func unknownUnitSurvivesMatroskaButHasNoPresentation() throws {
+        var track = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .vp9)
+        track.displayGeometry = VideoDisplayGeometry(displayWidth: 100, displayHeight: 50, displayUnit: 4)
+        let geometry = try #require(track.displayGeometry)
+        try geometry.validate(width: 64, height: 48)
+        #expect(geometry.presentationSize(width: 64, height: 48) == nil)
+        let output = ContainerFixtures.temporaryURL("unknown-unit.mkv")
+        var muxer = try MatroskaMuxer(url: output, tracks: [track], webm: false)
+        try muxer.finish()
+        #expect(try MatroskaDemuxer(url: output).tracks.first?.displayGeometry == geometry)
     }
 }
