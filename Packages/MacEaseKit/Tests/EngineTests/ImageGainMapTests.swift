@@ -677,8 +677,10 @@ private enum GainMapExif: UInt32, CaseIterable {
         var pixels = try #require(contents[kCGImageAuxiliaryDataInfoData] as? Data)
         let (width, height) = try Self.dimensions(map.payload)
         let rowBytes = try #require(description[kCGImagePropertyBytesPerRow] as? Int)
-        let changesSample = [0.25, 0.5, 0.75].contains { fraction in
-            pixels[Int(fraction * Double(height)) * rowBytes + Int(fraction * Double(width)) * 3] > 32
+        let changesSample = [0.25, 0.5, 0.75].contains { (fraction: Double) in
+            let row = Int(fraction * Double(height))
+            let column = Int(fraction * Double(width))
+            return pixels[row * rowBytes + column * 3] > 32
         }
         try #require(changesSample)
         for offset in stride(from: 0, to: pixels.count, by: 3) { pixels[offset] = 0 }
