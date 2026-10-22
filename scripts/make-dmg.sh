@@ -27,6 +27,7 @@ else
 fi
 
 cd "$root"
+scripts/generate-notices.sh
 xcodegen generate
 rm -rf "$archive"
 xcodebuild -project "$app_name.xcodeproj" -scheme "$app_name" -destination 'generic/platform=macOS' \

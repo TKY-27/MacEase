@@ -8,9 +8,10 @@ and what reviews look for.
 - Be respectful. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - **Never lose a user's file.** Any change that touches file handling must keep
   the commit model in [docs/SPEC.md](docs/SPEC.md) section 3.5 intact.
-- **Clean-room.** Do not copy, translate or consult source code from GPL, LGPL
-  or AGPL projects (for example FFmpeg, LAME, gifski, pngquant). MacEase is MIT
-  licensed and implements formats from public specifications.
+- **Source policy.** GPL, LGPL and AGPL sources may be read to study architecture
+  and algorithms. Never copy, translate, adapt or incorporate their code into
+  MacEase. Implement independently. Bundled dependencies must be permissively
+  licensed, pinned and attributed. See [ADR 0013](docs/adr/0013-flect-style-menu-first-direction.md).
 - AI-assisted contributions are welcome, but you must understand, test and stand
   behind every line you submit.
 
@@ -78,6 +79,28 @@ to human contributors too.
 - Update `docs/SPEC.md` (with its Changelog and an ADR) if behavior or a decision
   changes, and `CHANGELOG.md` for user-visible changes.
 - User-facing strings need English and Japanese entries in the String Catalogs.
+
+## Releasing
+
+1. Set `MARKETING_VERSION` in `project.yml` and prepare the matching changelog
+   section. Keep unreleased work under `Unreleased` until ready to publish.
+2. Run `make lint` and `make test-device`. Resolve failures before tagging.
+3. Package with `MACEASE_SIGNING_KEYCHAIN=<unlocked-keychain> make dmg`, using
+   the existing **MacEase Release** identity. Never recreate an existing identity
+   for a routine release. Inspect the DMG, signatures, Finder entitlements,
+   bundled resources and notices, and verify its `.sha256` file.
+4. Complete the [manual release checklist](docs/spikes.md#manual-release-checklist)
+   on the supported macOS versions and audit the repository before public
+   disclosure. Push the reviewed commit to `main` and wait for CI to pass on
+   that exact commit.
+5. Create and push `v<version>`. The release workflow requires successful CI
+   and the `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD` repository
+   secrets. It publishes the signed DMG, checksum, and matching changelog notes.
+6. Download the published assets, verify the checksum, and confirm the public
+   `releases/latest` API returns the expected tag and release page.
+
+Never publish an ad-hoc test DMG or retag a published version. If a required
+check is unavailable, retain a local release candidate and report the blocker.
 
 ## License
 

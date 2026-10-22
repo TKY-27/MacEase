@@ -1,5 +1,30 @@
 # Spikes and Manual Verification
 
+## Manual release checklist
+
+Run against the release candidate on both macOS 26 and macOS 27, as required
+by SPEC section 17. Record the commit, OS, hardware, and observed results in
+the release review. Historical spikes below do not replace these checks.
+
+- Install from the signed DMG through the documented Gatekeeper flow. Confirm
+  the app runs from Applications, onboarding completes, and Finder enables
+  the extension. Verify nested menus, mixed selections, and catalog updates.
+- Exercise the 5,000-path request, menu-file sandbox access, and cold launch.
+  Check external and network volumes when validating Finder coverage.
+- Use disposable inputs to check new-file and Replace modes, collisions,
+  cancellation, partial failures, Trash identity, persistent history, and Undo.
+- Check panels, Activity, notifications, settings, reopening, VoiceOver,
+  larger text, light/dark appearance, Reduce Motion, Reduce Transparency, and
+  Increase Contrast. Verify the performance targets in SPEC section 16.
+- Complete HDR quality and metadata checks from SPEC section 8.12 with real
+  gain-map captures and HDR/SDR displays.
+- Install a second build signed with the same identity. Confirm privacy grants
+  and Finder extension enablement survive.
+
+Unavailable checks remain incomplete and block a stable release.
+After publication, separately verify public update checks from a client
+without GitHub authentication (CONTRIBUTING.md, Releasing step 6).
+
 ## Finder Sync spike (2026-10-20)
 
 Environment: macOS 27.0.1 (26A434), Apple Silicon, Xcode 27.1, Swift 6.4.
