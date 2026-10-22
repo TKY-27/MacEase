@@ -93,7 +93,7 @@ public enum OperationPlanner {
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
         case .rename(let plans):
-            let items = plans.map { plan in
+            let items = plans.filter { $0.newName != $0.url.lastPathComponent }.map { plan in
                 WorkItem(inputs: [plan.url]) { _ in
                     try validateInput(plan.url)
                     return .rename([plan])

@@ -92,10 +92,41 @@ private func snapshot(_ root: URL) throws -> [String: String] {
         #expect(extracted.lastPathComponent == "Project (2)")
         var expected = try snapshot(project)
         for name in [".DS_Store", "._readme.txt", "__MACOSX", "__MACOSX/x"] { expected.removeValue(forKey: name) }
-        #expect(try snapshot(extracted) == expected)
-        let script = try FileManager.default.attributesOfItem(atPath: extracted.appending(path: "bin/run.sh").path)
+        let extractedProject = extracted.appending(path: "Project")
+        #expect(try snapshot(extractedProject) == expected)
+        #expect(try listing(extracted) == ["Project"])
+        let script = try FileManager.default.attributesOfItem(
+            atPath: extractedProject.appending(path: "bin/run.sh").path)
         #expect(script[.posixPermissions] as? Int == 0o750)
         #expect(script[.modificationDate] as? Date == fixedDate)
+    }
+
+    @Test func dottedFolderNameIsRetainedInZipName() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "MacEaseArchive-\(UUID().uuidString)")
+        TestTemporaryFolders.register(parent)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: false)
+        let project = folderURL(parent, "project.v1")
+        try makeTree(["note.txt": "version one"], in: project)
+
+        let compressed = try await runOperation(.folderCompress, .folder(.compress(.zip)), inputs: [project])
+        let archive = try #require(outputs(of: compressed).first)
+
+        #expect(archive.lastPathComponent == "project.v1.zip")
+    }
+
+    @Test func archiveStemWrapsDifferentTopFolderAndAvoidsCollision() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "MacEaseArchive-\(UUID().uuidString)")
+        TestTemporaryFolders.register(parent)
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: false)
+        try makeTree(["Payload/note.txt": "archived", "release/keep.txt": "existing"], in: parent)
+        try tool("/usr/bin/zip", ["-qr", "release.zip", "Payload"], in: parent)
+
+        let archive = parent.appending(path: "release.zip")
+        let extracted = try #require(outputs(of: try await extract(archive)).first)
+
+        #expect(extracted.lastPathComponent == "release (2)")
+        #expect(try snapshot(extracted) == ["Payload": "/", "Payload/note.txt": "archived"])
+        #expect(try snapshot(parent.appending(path: "release")) == ["keep.txt": "existing"])
     }
 
     @Test func multipleFoldersBecomeOneArchiveNamedAfterTheParent() async throws {
@@ -131,21 +162,26 @@ private func snapshot(_ root: URL) throws -> [String: String] {
     @Test func thirdPartyArchivesExtract() async throws {
         let parent = try TestVolume.makeFolder()
         try makeTree(["Album/a.txt": "alpha", "Album/sub/b.txt": "beta", "loose.txt": "loose"], in: parent)
-        let commands: [(String, [String], String)] = [
-            ("/usr/bin/zip", ["-qr", "zip.zip", "Album"], "zip.zip"),
-            ("/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", "Album", "ditto.zip"], "ditto.zip"),
-            ("/usr/bin/tar", ["-cf", "plain.tar", "Album"], "plain.tar"),
-            ("/usr/bin/tar", ["-czf", "gzip.tar.gz", "Album"], "gzip.tar.gz"),
-            ("/usr/bin/tar", ["-cjf", "bzip.tar.bz2", "Album"], "bzip.tar.bz2"),
-            ("/usr/bin/tar", ["-cJf", "xz.tar.xz", "Album"], "xz.tar.xz"),
-            ("/usr/bin/bsdtar", ["--format", "7zip", "-cf", "seven.7z", "Album"], "seven.7z"),
+        let commands: [(String, [String], String, String)] = [
+            ("/usr/bin/zip", ["-qr", "zip.zip", "Album"], "zip.zip", "zip"),
+            (
+                "/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", "Album", "ditto.zip"], "ditto.zip",
+                "ditto"
+            ),
+            ("/usr/bin/tar", ["-cf", "plain.tar", "Album"], "plain.tar", "plain"),
+            ("/usr/bin/tar", ["-czf", "gzip.tar.gz", "Album"], "gzip.tar.gz", "gzip"),
+            ("/usr/bin/tar", ["-cjf", "bzip.tar.bz2", "Album"], "bzip.tar.bz2", "bzip"),
+            ("/usr/bin/tar", ["-cJf", "xz.tar.xz", "Album"], "xz.tar.xz", "xz"),
+            ("/usr/bin/bsdtar", ["--format", "7zip", "-cf", "seven.7z", "Album"], "seven.7z", "seven"),
         ]
-        for (path, arguments, name) in commands {
+        for (path, arguments, name, stem) in commands {
             try tool(path, arguments, in: parent)
             let extracted = try #require(outputs(of: try await extract(parent.appending(path: name))).first, "\(name)")
-            #expect(extracted.lastPathComponent.hasPrefix("Album"), "\(name)")
+            #expect(extracted.lastPathComponent == stem, "\(name)")
             #expect(
-                try snapshot(extracted) == ["a.txt": "alpha", "sub": "/", "sub/b.txt": "beta"], "\(name)")
+                try snapshot(extracted) == [
+                    "Album": "/", "Album/a.txt": "alpha", "Album/sub": "/", "Album/sub/b.txt": "beta",
+                ], "\(name)")
         }
 
         try tool("/usr/bin/zip", ["-q", "two.zip", "loose.txt", "Album/a.txt"], in: parent)
@@ -156,8 +192,11 @@ private func snapshot(_ root: URL) throws -> [String: String] {
         try makeTree(["__MACOSX/Album/._a.txt": "resource fork"], in: parent)
         try tool("/usr/bin/zip", ["-qr", "mac.zip", "Album", "__MACOSX"], in: parent)
         let mac = try #require(outputs(of: try await extract(parent.appending(path: "mac.zip"))).first)
-        #expect(mac.lastPathComponent.hasPrefix("Album"))
-        #expect(try snapshot(mac) == ["a.txt": "alpha", "sub": "/", "sub/b.txt": "beta"])
+        #expect(mac.lastPathComponent == "mac")
+        #expect(
+            try snapshot(mac) == [
+                "Album": "/", "Album/a.txt": "alpha", "Album/sub": "/", "Album/sub/b.txt": "beta",
+            ])
     }
 
     @Test(arguments: ["gz", "bz2", "xz"])
@@ -227,8 +266,9 @@ private func snapshot(_ root: URL) throws -> [String: String] {
         #expect(try await extract(archive).outcomes == [.failed(.invalidInput(.passwordRequired))])
         #expect(try await extract(archive, password: "wrong").outcomes == [.failed(.invalidInput(.wrongPassword))])
         let extracted = try #require(outputs(of: try await extract(archive, password: "correct horse")).first)
-        #expect(try snapshot(extracted) == ["plan.txt": "launch at dawn"])
-        #expect(try listing(parent) == ["Secret", "Secret (2)", "secret.zip"])
+        #expect(extracted.lastPathComponent == "secret (2)")
+        #expect(try snapshot(extracted) == ["Secret": "/", "Secret/plan.txt": "launch at dawn"])
+        #expect(try listing(parent) == ["Secret", "secret (2)", "secret.zip"])
     }
 
     @Test func quarantineFollowsExtractedFiles() async throws {
@@ -251,10 +291,10 @@ private func snapshot(_ root: URL) throws -> [String: String] {
 
         let extracted = try #require(outputs(of: try await extract(archive)).first)
 
-        for name in ["", "/app.sh", "/locked.txt"] {
+        for name in ["", "/Download", "/Download/app.sh", "/Download/locked.txt"] {
             #expect(getxattr(extracted.path + name, quarantine, nil, 0, 0, 0) == value.count, "\(name)")
         }
-        let locked = try FileManager.default.attributesOfItem(atPath: extracted.path + "/locked.txt")
+        let locked = try FileManager.default.attributesOfItem(atPath: extracted.path + "/Download/locked.txt")
         #expect(locked[.posixPermissions] as? Int == 0o444)
         #expect(try FileManager.default.attributesOfItem(atPath: precious)[.posixPermissions] as? Int == preciousMode)
         #expect(getxattr(precious, quarantine, nil, 0, 0, 0) < 0)

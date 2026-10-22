@@ -171,7 +171,7 @@ public final class JobEngine: Sendable {
         do {
             try await history.checkAcceptingCommits()
             outcome = try await commit(
-                result, newFileNaming: workItem.newFileNaming, inputStamps: inputStamps,
+                result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs, inputStamps: inputStamps,
                 context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)
@@ -208,6 +208,7 @@ public final class JobEngine: Sendable {
     private func commit(
         _ result: ItemResult,
         newFileNaming: NewFileNaming?,
+        inputs: [URL],
         inputStamps: [URL: FileStamp],
         context: ItemContext,
         batch: Batch,
@@ -246,7 +247,9 @@ public final class JobEngine: Sendable {
             outputs.append(replaced.output)
         case .derived(let original, let staged):
             for file in staged {
-                let output = try await committer.derive(file, nextTo: original)
+                let output = try await committer.derive(
+                    file, nextTo: original, expectedStamp: inputStamps[original],
+                    attributeSource: inputs.contains(original) ? original : nil)
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
             }
@@ -257,7 +260,8 @@ public final class JobEngine: Sendable {
                     throw EngineError.invalidInput(.malformed(plan.newName))
                 }
                 guard plan.newName != plan.url.lastPathComponent else { continue }
-                let renamed = try committer.rename(plan.url, to: plan.newName)
+                let renamed = try committer.rename(
+                    plan.url, to: plan.newName, requiresExactName: batch.operation == .folderRename)
                 records.append(
                     .renamed(
                         from: plan.url.path, to: renamed.output.path,

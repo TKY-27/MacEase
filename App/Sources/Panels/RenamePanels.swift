@@ -30,12 +30,13 @@ struct RenameChoice: Codable, Equatable {
 }
 
 struct RenamePanel: View {
-    let selection: [URL]
+    let targets: [URL]
     @State var choice: RenameChoice
     let cancel: () -> Void
-    let run: (RenameChoice) -> Void
+    let run: (RenameChoice, [RenamePlan]) -> Void
 
     @State private var plans: [RenamePlan] = []
+    @State private var previewChoice: RenameChoice?
     @State private var failure: String?
 
     private static let startRange = 0...999_999
@@ -74,8 +75,8 @@ struct RenamePanel: View {
             preview
             PanelBar(
                 actionTitle: String(localized: "Rename", comment: "Rename panel action"),
-                canRun: failure == nil && !plans.isEmpty, cancel: cancel
-            ) { run(choice) }
+                canRun: failure == nil && previewChoice == choice && !plans.isEmpty, cancel: cancel
+            ) { run(choice, plans) }
         }
         .frame(width: PanelLayout.wideWidth)
         .task(id: choice) { await refreshPreview() }
@@ -96,17 +97,22 @@ struct RenamePanel: View {
     }
 
     private func refreshPreview() async {
-        let selection = selection
+        let targets = targets
+        let choice = choice
         let rules = choice.rules
         do {
-            plans = try await offMain { try rules.plans(for: RenameRules.targets(for: selection)) }
+            let prepared = try await offMain { try rules.plans(for: targets) }
+            try Task.checkCancellation()
+            plans = prepared
+            previewChoice = choice
             failure = nil
         } catch is CancellationError {
             return
         } catch {
+            guard !Task.isCancelled else { return }
             failure = UserMessages.describe(
-                EngineError.wrapping(error, path: selection.first?.path ?? ""),
-                file: selection.first?.lastPathComponent ?? "")
+                EngineError.wrapping(error, path: targets.first?.path ?? ""),
+                file: targets.first?.lastPathComponent ?? "")
         }
     }
 }

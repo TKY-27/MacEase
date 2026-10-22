@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve Finder dates, tags, and comments on source-backed exports.
+- Apply the confirmed batch rename preview with snapshotted exclusions and
+  targets; refuse names occupied after confirmation.
+- Keep single-folder archives inside the archive-stem extraction folder.
+
 - Image conversions disclose lost EXIF, XMP and IPTC metadata in new-file mode
   and refuse replacement before writing when the target cannot preserve it.
 - Ordinary multipage TIFF edits preserve each page's own metadata.

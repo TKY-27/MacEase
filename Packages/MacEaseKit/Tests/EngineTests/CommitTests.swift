@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import MenuCatalog
 import Synchronization
@@ -533,7 +534,110 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         #expect(result.tagNames == ["Red"])
     }
 
+    @Test(arguments: [false, true])
+    func sourceDerivedOutputPreservesFinderAttributes(sourceIsFolder: Bool) async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: sourceIsFolder ? "archive" : "document.txt")
+        if sourceIsFolder {
+            try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+        } else {
+            try write("original", to: source)
+        }
+        let created = Date(timeIntervalSince1970: 1_000_000_000)
+        let modified = Date(timeIntervalSince1970: 1_100_000_000)
+        var values = URLResourceValues()
+        values.creationDate = created
+        values.contentModificationDate = modified
+        var mutableSource = source
+        try mutableSource.setResourceValues(values)
+        try (source as NSURL).setResourceValue(["Red"], forKey: .tagNamesKey)
+        let commentName = "com.apple.metadata:kMDItemFinderComment"
+        let comment = Data("source comment".utf8)
+        let status = comment.withUnsafeBytes { bytes in
+            setxattr(source.path, commentName, bytes.baseAddress, bytes.count, 0, 0)
+        }
+        guard status == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+
+        let outputName = sourceIsFolder ? "extracted" : "converted.txt"
+        let output = folder.appending(path: outputName)
+        let workItem = WorkItem(inputs: [source]) { context in
+            let staged = try context.stagingURL(for: source, name: outputName)
+            if sourceIsFolder {
+                try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: false)
+                try write("derived", to: staged.appending(path: "contents.txt"))
+            } else {
+                try write("derived", to: staged)
+            }
+            return .derived(
+                nextTo: source,
+                outputs: [StagedFile(url: staged, name: outputName, check: sourceIsFolder ? .folder : .text(.utf8))])
+        }
+        let engine = try makeEngine()
+        let outcome = await engine.run(
+            Batch(operation: sourceIsFolder ? .archiveExtract : .textConvert, items: [workItem]),
+            settings: Settings()
+        ) { _ in }
+
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        let result = try output.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey, .tagNamesKey])
+        #expect(result.creationDate == created)
+        #expect(result.contentModificationDate == modified)
+        #expect(result.tagNames == ["Red"])
+        var copiedComment = Data(count: comment.count)
+        let read = copiedComment.withUnsafeMutableBytes { bytes in
+            getxattr(output.path, commentName, bytes.baseAddress, bytes.count, 0, 0)
+        }
+        #expect(read == comment.count)
+        #expect(copiedComment == comment)
+        #expect(FileManager.default.fileExists(atPath: source.path))
+    }
+
+    @Test func sourceLessReportDoesNotInheritFinderTags() async throws {
+        let folder = try makeReplacementFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let existing = folder.appending(path: "report.txt")
+        try write("existing", to: existing)
+        try (existing as NSURL).setResourceValue(["Red"], forKey: .tagNamesKey)
+        let engine = try makeEngine()
+
+        let outcome = await engine.saveReport("saved", to: existing, operation: .folderAnalyze)
+
+        let saved = folder.appending(path: "report (2).txt")
+        #expect(outcome.outcomes == [.succeeded(outputs: [saved], warnings: [])])
+        #expect(try saved.resourceValues(forKeys: [.tagNamesKey]).tagNames ?? [] == [])
+        #expect(try read(existing) == "existing")
+        #expect(try read(saved) == "saved")
+    }
+
     @Test func renameAndUndo() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = folder.appending(path: "a.txt")
+        let second = folder.appending(path: "b.txt")
+        try write("a", to: first)
+        try write("b", to: second)
+        let engine = try makeEngine()
+        let workItem = WorkItem(inputs: [first, second]) { _ in
+            .rename([RenamePlan(url: first, newName: "b (2).txt"), RenamePlan(url: second, newName: "c.txt")])
+        }
+
+        let outcome = await engine.run(Batch(operation: .folderRename, items: [workItem]), settings: Settings()) { _ in
+        }
+
+        #expect(
+            outcome.outcomes == [
+                .succeeded(
+                    outputs: [folder.appending(path: "b (2).txt"), folder.appending(path: "c.txt")], warnings: [])
+            ])
+        #expect(try read(folder.appending(path: "b (2).txt")) == "a")
+        #expect(try read(folder.appending(path: "c.txt")) == "b")
+        let record = try #require(outcome.record)
+        #expect(try await engine.history.undo(record.id) == [.restored, .restored])
+        #expect(try read(first) == "a")
+        #expect(try read(second) == "b")
+    }
+
+    @Test func staleRenamePlanRefusesAnOccupiedName() async throws {
         let folder = try TestVolume.makeFolder()
         let first = folder.appending(path: "a.txt")
         let second = folder.appending(path: "b.txt")
@@ -547,10 +651,10 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         let outcome = await engine.run(Batch(operation: .folderRename, items: [workItem]), settings: Settings()) { _ in
         }
 
-        #expect(try read(folder.appending(path: "b (2).txt")) == "a")
-        #expect(try read(folder.appending(path: "c.txt")) == "b")
-        let record = try #require(outcome.record)
-        #expect(try await engine.history.undo(record.id) == [.restored, .restored])
+        let occupiedError = EngineError.commitFailed("\(NSCocoaErrorDomain) \(CocoaError.fileWriteFileExists.rawValue)")
+        #expect(outcome.outcomes == [.failed(occupiedError)])
+        #expect(outcome.record == nil)
+        #expect(try listing(folder) == ["a.txt", "b.txt"])
         #expect(try read(first) == "a")
         #expect(try read(second) == "b")
     }

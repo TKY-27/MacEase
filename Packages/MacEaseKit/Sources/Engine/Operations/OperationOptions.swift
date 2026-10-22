@@ -10,7 +10,6 @@ public enum ChecksumAlgorithm: String, Codable, CaseIterable, Sendable {
 /// Fully resolved parameters for one operation run.
 public enum OperationOptions: Codable, Hashable, Sendable {
     case checksum(ChecksumAlgorithm)
-    /// Names confirmed in the AI rename panel.
     case rename([RenamePlan])
     case video(VideoOperation)
     case folder(FolderOperation)

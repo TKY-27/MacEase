@@ -135,9 +135,11 @@ struct FileCommitter: Sendable {
         }
     }
 
-    func derive(_ output: StagedFile, nextTo original: URL, expectedStamp: FileStamp? = nil) async throws -> Committed {
+    func derive(
+        _ output: StagedFile, nextTo original: URL, expectedStamp: FileStamp? = nil, attributeSource: URL? = nil
+    ) async throws -> Committed {
         try await OutputVerifier.verify(output)
-        if let expectedStamp {
+        if let sourceURL = attributeSource ?? (expectedStamp == nil ? nil : original) {
             return try Self.namingLock.withLock { _ in
                 var nextCandidate = 1
                 while true {
@@ -145,9 +147,11 @@ struct FileCommitter: Sendable {
                     let destination = try AvailableName.url(
                         for: output.name, in: original.deletingLastPathComponent(), nextCandidate: &nextCandidate)
                     do {
-                        return try coordinate(reading: original, writing: destination, options: .forReplacing) {
+                        return try coordinate(reading: sourceURL, writing: destination, options: .forReplacing) {
                             source, final in
-                            guard try FileStamp(of: source) == expectedStamp else { throw Failure.changedSinceScan }
+                            if let expectedStamp {
+                                guard try FileStamp(of: source) == expectedStamp else { throw Failure.changedSinceScan }
+                            }
                             let attributes = try FinderAttributes(of: source)
                             try Task.checkCancellation()
                             try attributes.apply(to: output.url)
@@ -169,11 +173,11 @@ struct FileCommitter: Sendable {
         }
     }
 
-    func rename(_ url: URL, to newName: String) throws -> Committed {
+    func rename(_ url: URL, to newName: String, requiresExactName: Bool = false) throws -> Committed {
         try Self.namingLock.withLock { _ in
             try Task.checkCancellation()
             let directory = url.deletingLastPathComponent()
-            if try Self.isCaseOnlyChange(from: url.lastPathComponent, to: newName, in: directory) {
+            if try requiresExactName || Self.isCaseOnlyChange(from: url.lastPathComponent, to: newName, in: directory) {
                 return try coordinate(
                     moving: url, to: directory.appending(path: newName), includingIdentity: true)
             }

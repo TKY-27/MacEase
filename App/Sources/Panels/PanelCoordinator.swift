@@ -249,10 +249,20 @@ final class PanelCoordinator {
     }
 
     private func showRename(_ op: OperationID, _ inputs: [URL]) {
-        let choice = PanelMemory.value(for: op, default: RenameChoice(settings: store.settings.folder))
-        host.show(title: MenuStrings.operationName(op)) { close in
-            RenamePanel(selection: inputs, choice: choice, cancel: close) { choice in
-                self.finish(op, choice, .folder(.rename(choice.rules)), inputs, close: close)
+        let folderSettings = store.settings.folder
+        let choice = PanelMemory.value(for: op, default: RenameChoice(settings: folderSettings))
+        Task {
+            let targets: [URL]
+            do {
+                targets = try await offMain { try RenameRules.targets(for: inputs, settings: folderSettings) }
+            } catch {
+                showFailure(op, error, file: inputs[0])
+                return
+            }
+            host.show(title: MenuStrings.operationName(op)) { close in
+                RenamePanel(targets: targets, choice: choice, cancel: close) { choice, plans in
+                    self.finish(op, choice, .rename(plans), plans.map(\.url), close: close)
+                }
             }
         }
     }

@@ -28,7 +28,6 @@ enum ArchivePlanner {
         }
     }
 
-    /// A lone top folder lands beside it.
     private static func extract(_ archive: URL, password: String?, context: ItemContext) throws -> ItemResult {
         let staging = try realPath(of: context.stagingDirectory(for: archive))
         let root = staging.appending(path: extractionFolderName, directoryHint: .isDirectory)
@@ -44,14 +43,9 @@ enum ArchivePlanner {
             throw engineError(error)
         }
         try propagateQuarantine(from: archive, to: root)
-        let top = try FileManager.default.contentsOfDirectory(
-            at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let top = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
         if layout == .decompressedFile, let file = top.first {
             return .derived(nextTo: archive, outputs: [StagedFile(url: file, name: baseName, check: .decompressed)])
-        }
-        if top.count == 1, let only = top.first, try FolderWalk.isPlainFolder(only) {
-            return .derived(
-                nextTo: archive, outputs: [StagedFile(url: only, name: only.lastPathComponent, check: .folder)])
         }
         return .derived(nextTo: archive, outputs: [StagedFile(url: root, name: baseName, check: .folder)])
     }

@@ -188,7 +188,8 @@ func listing(_ folder: URL) throws -> [String] {
         #expect(try String(contentsOf: output, encoding: .utf8) == "```text\n\(expected)\n```\n")
     }
 
-    @Test func renamePreviewMatchesTheAppliedNames() async throws {
+    @Test(arguments: [OperationID.folderRename, .folderAIRename])
+    func renamePreviewMatchesTheAppliedNames(operation: OperationID) async throws {
         let root = folderURL(try TestVolume.makeFolder(), "Photos")
         try makeTree(["a.txt": "1", "ax.txt": "2", "IMG_2.jpg": "3", "IMG_10.jpg": "4", ".hidden": "5"], in: root)
         let rules = RenameRules(
@@ -204,11 +205,69 @@ func listing(_ folder: URL) throws -> [String] {
         let collisionPreview = try collide.plans(for: RenameRules.targets(for: [root]))
         #expect(collisionPreview.map(\.newName) == ["a.txt", "a (2).txt", "IMG_2.jpg", "IMG_10.jpg"])
 
-        let outcome = try await runOperation(.folderRename, .folder(.rename(collide)), inputs: [root])
+        let outcome = try await runOperation(operation, .rename(collisionPreview), inputs: [root])
 
         #expect(outcome.outcomes == [.succeeded(outputs: [root.appending(path: "a (2).txt")], warnings: [])])
         #expect(try listing(root) == [".hidden", "IMG_10.jpg", "IMG_2.jpg", "a (2).txt", "a.txt"])
         #expect(try String(contentsOf: root.appending(path: "a (2).txt"), encoding: .utf8) == "2")
+    }
+
+    @Test(arguments: [OperationID.folderRename, .folderAIRename])
+    func unchangedRenamePlansProduceNoOutcomes(operation: OperationID) async throws {
+        let root = folderURL(try TestVolume.makeFolder(), "Unchanged")
+        try makeTree(["a.txt": "original"], in: root)
+        let original = root.appending(path: "a.txt")
+        let plans = [RenamePlan(url: original, newName: "a.txt")]
+
+        let outcome = try await runOperation(operation, .rename(plans), inputs: [root])
+
+        #expect(outcome.outcomes.isEmpty)
+        #expect(outcome.record == nil)
+        #expect(try listing(root) == ["a.txt"])
+        #expect(try String(contentsOf: original, encoding: .utf8) == "original")
+    }
+
+    @Test func confirmedRenameKeepsExcludedNumberingAndTargets() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseRename-\(UUID().uuidString)")
+        TestTemporaryFolders.register(root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        try makeTree(["a.txt": "excluded", "b.txt": "confirmed"], in: root)
+        var settings = Settings()
+        settings.folder.renameExclusions.files = "a.txt"
+        let rules = RenameRules(numbering: .init(start: 1, step: 1, digits: 1))
+        let targets = try RenameRules.targets(for: [root], settings: settings.folder)
+        let plans = try rules.plans(for: targets)
+        #expect(targets.map(\.lastPathComponent) == ["b.txt"])
+        #expect(plans.map(\.newName) == ["b 1.txt"])
+
+        settings.folder.renameExclusions.files = "b.txt"
+        try makeTree(["c.txt": "arrived later"], in: root)
+        let outcome = try await runOperation(.folderRename, .rename(plans), inputs: targets, settings: settings)
+
+        #expect(outcome.outcomes == [.succeeded(outputs: [root.appending(path: "b 1.txt")], warnings: [])])
+        #expect(try listing(root) == ["a.txt", "b 1.txt", "c.txt"])
+        #expect(try String(contentsOf: root.appending(path: "b 1.txt"), encoding: .utf8) == "confirmed")
+        #expect(try String(contentsOf: root.appending(path: "a.txt"), encoding: .utf8) == "excluded")
+    }
+
+    @Test func confirmedRenameRefusesAnOccupiedDestination() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseRename-\(UUID().uuidString)")
+        TestTemporaryFolders.register(root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        try makeTree(["note.txt": "original"], in: root)
+        let original = root.appending(path: "note.txt")
+        let plans = try RenameRules(prefix: "Trip-").plans(for: [original])
+        #expect(plans.map(\.newName) == ["Trip-note.txt"])
+        try makeTree(["Trip-note.txt": "arrived later"], in: root)
+
+        let outcome = try await runOperation(.folderRename, .rename(plans), inputs: [original])
+
+        let occupiedError = EngineError.commitFailed("\(NSCocoaErrorDomain) \(CocoaError.fileWriteFileExists.rawValue)")
+        #expect(outcome.outcomes == [.failed(occupiedError)])
+        #expect(outcome.record == nil)
+        #expect(try listing(root) == ["Trip-note.txt", "note.txt"])
+        #expect(try String(contentsOf: original, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: root.appending(path: "Trip-note.txt"), encoding: .utf8) == "arrived later")
     }
 
     @Test func renameDatesComeFromCreationOrEXIF() throws {

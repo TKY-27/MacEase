@@ -287,11 +287,11 @@ Flect's derive rules for corresponding operations:
 | PDF merge | `first-ordered-stem_merged.pdf` beside the first ordered source |
 | PDF page images | One page: `stem.png` or `stem.jpg`. Multiple pages: `stem_pN.png` or `.jpg`, with N padded to the total page-count width |
 | PDF text; archive extraction; JAR decompilation | `stem.txt`; directory `stem`; directory `stem` |
-| Folder compression | `folder-stem.zip`, `.7z`, `.tar`, or `.tar.gz`, with the folder retained as the archive root |
+| Folder compression | `folder-name.zip`, `.7z`, `.tar`, or `.tar.gz`, with the folder retained as the archive root |
 
-For `.tar.gz` extraction, both suffixes are removed. Folder compression uses
-the folder name without its last extension, matching Flect, so `project.v1`
-produces `project.zip`. MacEase-only edits use explicit suffixes such as
+For `.tar.gz` extraction, both suffixes are removed. Folder compression keeps
+the complete folder name, so `project.v1` produces `project.v1.zip` (ADR 0025).
+MacEase-only edits use explicit suffixes such as
 `_flipped`, `_normalized`, `_fps30`, `_silent`, `_cropped`, and `_background`.
 Video animation exports use `stem.gif`, `stem.webp`, or `stem.apng`.
 Other multi-output exports use a named derived folder or the page naming rule
@@ -1679,6 +1679,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Keep complete dotted folder names when naming compressed
+  archives, including `project.v1.zip` (ADR 0025).
 
 - 2026-10-22: Enforce disclosed image metadata loss in new-file mode and
   refusal before replacement, preserve TIFF metadata per page during ordinary

@@ -27,7 +27,6 @@ public enum FolderOperation: Codable, Hashable, Sendable {
     case removeDuplicates([DuplicateRemoval], permanently: Bool)
     case removeEmpty([URL], permanently: Bool)
     case tree(TreeOutput)
-    case rename(RenameRules)
     case exportAnalysis(FolderAnalysis, format: AnalysisExportFormat = .markdown)
     case compress(ArchiveFormat)
 }
@@ -93,8 +92,6 @@ enum FolderPlanner {
             return Batch(operation: op, items: items)
         case .tree(let output):
             return Batch(operation: op, items: folders.map { treeItem($0, output: output) })
-        case .rename(let rules):
-            return Batch(operation: op, items: folders.isEmpty ? [] : [renameItem(folders, rules: rules)])
         case .exportAnalysis(let analysis, let format):
             return Batch(operation: op, items: [analysisItem(analysis, format: format)])
         case .compress(let format):
@@ -147,15 +144,6 @@ enum FolderPlanner {
         let staged = try context.stagingURL(for: url, name: name)
         try Data(text.utf8).write(to: staged)
         return .derived(nextTo: url, outputs: [StagedFile(url: staged, name: name, check: .text(.utf8))])
-    }
-
-    private static func renameItem(_ selection: [URL], rules: RenameRules) -> WorkItem {
-        WorkItem(inputs: selection) { context in
-            for folder in selection where try !ContentSniffer.matches(folder, kind: .folder) {
-                return .skipped(.notADirectory)
-            }
-            return .rename(try rules.plans(for: RenameRules.targets(for: selection, settings: context.settings.folder)))
-        }
     }
 
     /// Several folders share one parent-named archive.
