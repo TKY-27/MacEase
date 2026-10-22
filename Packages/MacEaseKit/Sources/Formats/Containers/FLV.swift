@@ -19,6 +19,14 @@ enum FLV {
     static let audioTrack = 2
     private static let amfNestingLimit = 16
     private static let amfString: UInt8 = 2
+    /// Technical fields; titles and authors stay protected.
+    private static let regeneratedMetadataKeys: Set<String> = [
+        "duration", "width", "height", "framerate", "videocodecid", "videodatarate", "audiocodecid",
+        "audiodatarate", "audiosamplerate", "audiosamplesize", "audiodelay", "stereo", "filesize", "datasize",
+        "videosize", "audiosize", "lasttimestamp", "lastkeyframetimestamp", "lastkeyframelocation", "keyframes",
+        "hasVideo", "hasAudio", "hasKeyframes", "hasMetadata", "hasCuePoints", "canSeekToEnd", "encoder",
+        "metadatacreator",
+    ]
     static let aacSampleRates: [Double] = [
         96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
     ]
@@ -128,22 +136,12 @@ enum FLV {
         let array = body[offset] == 8
         offset += 1
         if array { try skip(4, body, &offset) }
-        let numericKeys: Set<String> = [
-            "duration", "width", "height", "videocodecid", "audiocodecid", "audiosamplerate",
-        ]
         while offset < body.count {
             let key = try readKey(body, &offset)
             if key.isEmpty, offset < body.count, body[offset] == 9 { return offset + 1 == body.count }
-            guard offset < body.count else { throw FormatError.corrupt("truncated AMF0") }
-            let type = body[offset]
-            offset += 1
-            if key == "stereo", type == 1 {
-                try skip(1, body, &offset)
-            } else if numericKeys.contains(key), type == 0 {
-                try skip(8, body, &offset)
-            } else {
-                return false
-            }
+            guard regeneratedMetadataKeys.contains(key) else { return false }
+            var ignored: [String: Double] = [:]
+            try readValue(body, &offset, depth: 1, numbers: &ignored)
         }
         return false
     }

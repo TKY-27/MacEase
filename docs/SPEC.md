@@ -1811,6 +1811,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## Changelog
 
+- 2026-10-22: Treat standard FLV onMetaData technical and encoder fields as
+  regenerated so ordinary FLV files are not refused; user fields stay protected.
+
 - 2026-10-22: Refuse INI global keys matching section names with the
   offending path before JSON or XML output.
 

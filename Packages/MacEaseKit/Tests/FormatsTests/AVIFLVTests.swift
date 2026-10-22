@@ -297,6 +297,24 @@ private typealias Fixture = ContainerFixtures
         #expect(try FLV.metadata([1, 1]).isEmpty)
     }
 
+    @Test func encoderWrittenMetadataIsRegeneratedButTitlesAreNot() throws {
+        func key(_ name: String) -> [UInt8] { [0, UInt8(name.utf8.count)] + Array(name.utf8) }
+        func number(_ name: String) -> [UInt8] {
+            key(name) + [0] + withUnsafeBytes(of: Double(1).bitPattern.bigEndian, Array.init)
+        }
+        func text(_ name: String, _ value: String) -> [UInt8] { key(name) + [2] + key(value) }
+        let technical =
+            [
+                "duration", "width", "height", "videodatarate", "framerate", "videocodecid", "audiodatarate",
+                "audiosamplerate", "audiosamplesize", "audiocodecid", "filesize",
+            ]
+            .flatMap(number) + key("stereo") + [1, 1] + text("encoder", "Lavf63.1.102")
+        let header = [2] + key("onMetaData") + [8, 0, 0, 0, 13]
+        let end: [UInt8] = [0, 0, 9]
+        #expect(try FLV.isRegeneratedMetadata(header + technical + end))
+        #expect(try !FLV.isRegeneratedMetadata(header + technical + text("title", "Holiday") + end))
+    }
+
     @Test func refusesStreamsTheProbeNeverSaw() throws {
         var source = try FLVDemuxer(url: Fixture.resource("ffmpeg-h264-aac.flv"))
         let audio = try Fixture.packets(&source).filter { $0.track == FLV.audioTrack }

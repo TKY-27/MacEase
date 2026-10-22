@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- FLV files written by ffmpeg, OBS and similar tools convert and edit again;
+  their technical and encoder metadata no longer blocks processing.
+
 - Refuse INI global keys matching section names before JSON or XML output,
   reporting the offending path instead of merging conflicting values.
 
