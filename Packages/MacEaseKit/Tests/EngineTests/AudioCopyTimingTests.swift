@@ -121,7 +121,7 @@ import Testing
         var firstAudible: Double?
         var end = 0.0
         var frames = 0
-        while let sample = output.copyNextSampleBuffer() {
+        while let sample = await output.nextSample() {
             guard sample.numSamples > 0 else { continue }
             let format = try #require(sample.formatDescription)
             let basic = try #require(CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee)
@@ -153,7 +153,7 @@ import Testing
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? EngineError.decodeFailed("video measurement") }
         var first: Double?
-        while let sample = output.copyNextSampleBuffer() {
+        while let sample = await output.nextSample() {
             guard sample.numSamples > 0 else { continue }
             let timestamp = sample.outputPresentationTimeStamp.seconds
             first = min(first ?? timestamp, timestamp)
@@ -169,7 +169,7 @@ import Testing
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? EngineError.decodeFailed("audio measurement") }
-        while let sample = output.copyNextSampleBuffer() {
+        while let sample = await output.nextSample() {
             guard sample.numSamples > 0, sample.outputDuration > .zero else { continue }
             let doubledSpeed = NSNumber(value: 2)
             CMSetAttachment(

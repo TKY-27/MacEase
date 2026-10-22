@@ -148,7 +148,7 @@ import VideoToolbox
             guard reader.startReading() else {
                 throw reader.error ?? EngineError.decodeFailed("fixture audio start")
             }
-            while let sample = output.copyNextSampleBuffer() {
+            while let sample = await output.nextSample() {
                 if CMSampleBufferGetNumSamples(sample) > 0 { audioSamples.append(sample) }
             }
             if reader.status == .failed { throw reader.error ?? EngineError.decodeFailed("fixture audio read") }
@@ -268,7 +268,7 @@ import VideoToolbox
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? EngineError.decodeFailed("fixture read") }
         var found: [CMSampleBuffer] = []
-        while let sample = output.copyNextSampleBuffer() {
+        while let sample = await output.nextSample() {
             // Reader marker buffers carry no frame.
             if CMSampleBufferGetNumSamples(sample) > 0 { found.append(sample) }
         }
@@ -284,7 +284,7 @@ import VideoToolbox
         reader.add(output)
         guard reader.startReading() else { throw reader.error ?? EngineError.decodeFailed("audio packet read") }
         var packets: [Data] = []
-        while let sample = output.copyNextSampleBuffer() {
+        while let sample = await output.nextSample() {
             if CMSampleBufferGetNumSamples(sample) == 0 { continue }
             let block = try #require(CMSampleBufferGetDataBuffer(sample))
             let size = CMBlockBufferGetDataLength(block)
