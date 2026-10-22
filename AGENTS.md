@@ -29,7 +29,7 @@ Run from the repository root.
 | Release DMG locally (identity from an unlocked keychain file) | `MACEASE_SIGNING_KEYCHAIN=<path> make dmg` |
 | Ad-hoc signed DMG for local testing | `MACEASE_ALLOW_ADHOC=1 make dmg` |
 | Benchmarks | `scripts/bench.sh` |
-| Regenerate the app icon PNGs | `swift scripts/make-app-icon.swift` |
+| Regenerate the app icon and template glyph assets | `swift scripts/make-app-icon.swift` |
 
 Builds treat warnings as errors. Keep these commands working as the project
 grows; if one changes, update this table and README.md in the same commit.

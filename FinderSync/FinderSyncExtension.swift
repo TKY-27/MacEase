@@ -11,6 +11,7 @@ final class FinderSyncExtension: FIFinderSync {
         var lastMenuKind = FIMenuKind.contextualMenuForItems
     }
 
+    private static let rootImageName = "FinderRoot"
     private let cache = Mutex(Cache())
     private let scheme: String
     private let menuFileURL: URL
@@ -50,7 +51,7 @@ final class FinderSyncExtension: FIFinderSync {
             submenu.addItem(open)
         }
         let root = NSMenuItem(title: "MacEase", action: nil, keyEquivalent: "")
-        root.image = NSImage(systemSymbolName: "wand.and.sparkles", accessibilityDescription: nil)
+        root.image = NSImage(named: Self.rootImageName)
         root.submenu = submenu
         let menu = NSMenu(title: "")
         menu.addItem(root)

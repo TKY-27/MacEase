@@ -26,6 +26,7 @@ final class JobCenter {
         let date: Date
         let operation: OperationID
         let summary: BatchSummary
+        let hasFailures: Bool
     }
 
     private struct RunningJob {
@@ -300,7 +301,8 @@ final class JobCenter {
         guard !terminating else { return }
         completed.insert(
             CompletedBatch(
-                date: Date(), operation: outcome.operation, summary: BatchSummary(outcome)),
+                date: Date(), operation: outcome.operation, summary: BatchSummary(outcome),
+                hasFailures: Self.hasFailures(outcome)),
             at: 0)
         completed = Array(completed.prefix(Self.recentCount))
         if let text = outcome.clipboardText {
@@ -319,6 +321,15 @@ final class JobCenter {
         let needsBanner = !shownInActivity || Self.deniedPermission(outcome)
         if needsBanner, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
+    }
+
+    // User cancellation is not a failure.
+    private static func hasFailures(_ outcome: BatchOutcome) -> Bool {
+        outcome.historyFailed
+            || outcome.outcomes.contains { result in
+                guard case .failed(let error) = result else { return false }
+                return error != .cancelled
+            }
     }
 
     private static func deniedPermission(_ outcome: BatchOutcome) -> Bool {

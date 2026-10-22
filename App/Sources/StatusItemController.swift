@@ -14,10 +14,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let openSettings: () -> Void
     private var animationTimer: Timer?
     private var animationFrame = 0
+    private var needsAttention = false
     private static let animationInterval: TimeInterval = 0.4
-    private static let idleSymbol = "wand.and.sparkles"
-    private static let busySymbols = ["wand.and.sparkles", "wand.and.sparkles.inverse"]
-    private static let reducedMotionBusySymbol = "wand.and.sparkles.inverse"
+    private static let idleImage = "StatusIdle"
+    private static let busyImages = ["StatusBusy1", "StatusBusy2", "StatusBusy3"]
+    private static let reducedMotionBusyImage = "StatusBusyStatic"
+    private static let attentionImage = "StatusAttention"
+    private static let idleLabel = "MacEase"
+    private static var busyLabel: String {
+        String(localized: "MacEase, processing", comment: "Menu bar icon VoiceOver label while busy")
+    }
+    private static var attentionLabel: String {
+        String(localized: "MacEase, needs attention", comment: "Menu bar icon VoiceOver label after a problem")
+    }
 
     init(
         jobs: JobCenter, settings: SettingsStore, updates: UpdateChecker, showProgress: @escaping () -> Void,
@@ -32,52 +41,72 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
-        setSymbol(Self.idleSymbol)
-        observeActivity()
+        checkFinderExtension()
+        track({ [jobs] in _ = jobs.isBusy }) { [weak self] in self?.updateImage() }
+        track({ [jobs] in _ = jobs.completed }) { [weak self] in self?.batchCompleted() }
+        track({ [settings] in _ = settings.onboardingCompleted }) { [weak self] in self?.checkFinderExtension() }
     }
 
-    private func observeActivity() {
-        withObservationTracking {
-            _ = jobs.isBusy
-        } onChange: { [weak self] in
+    private func track(_ read: @escaping @MainActor () -> Void, onChange: @escaping @MainActor () -> Void) {
+        withObservationTracking(read) { [weak self] in
             Task { @MainActor in
-                self?.updateAnimation()
-                self?.observeActivity()
+                onChange()
+                self?.track(read, onChange: onChange)
             }
         }
     }
 
-    private func updateAnimation() {
+    private func batchCompleted() {
+        needsAttention = jobs.completed.first?.hasFailures ?? false
+        updateImage()
+    }
+
+    private func checkFinderExtension() {
+        if settings.onboardingCompleted, !FIFinderSyncController.isExtensionEnabled { needsAttention = true }
+        updateImage()
+    }
+
+    private func updateImage() {
         if jobs.isBusy, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            stopAnimation(showing: Self.reducedMotionBusySymbol)
+            stopAnimation(showing: Self.reducedMotionBusyImage, label: Self.busyLabel)
         } else if jobs.isBusy, animationTimer == nil {
+            animationFrame = 0
+            setImage(Self.busyImages[animationFrame], label: Self.busyLabel)
             animationTimer = Timer.scheduledTimer(withTimeInterval: Self.animationInterval, repeats: true) {
                 [weak self] _ in
                 Task { @MainActor in self?.advanceAnimation() }
             }
+        } else if !jobs.isBusy, needsAttention {
+            stopAnimation(showing: Self.attentionImage, label: Self.attentionLabel)
         } else if !jobs.isBusy {
-            stopAnimation(showing: Self.idleSymbol)
+            stopAnimation(showing: Self.idleImage, label: Self.idleLabel)
         }
     }
 
-    private func stopAnimation(showing symbol: String) {
+    private func stopAnimation(showing name: String, label: String) {
         animationTimer?.invalidate()
         animationTimer = nil
-        setSymbol(symbol)
+        setImage(name, label: label)
     }
 
     private func advanceAnimation() {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            return stopAnimation(showing: Self.reducedMotionBusySymbol)
+            return stopAnimation(showing: Self.reducedMotionBusyImage, label: Self.busyLabel)
         }
-        animationFrame = (animationFrame + 1) % Self.busySymbols.count
-        setSymbol(Self.busySymbols[animationFrame])
+        animationFrame = (animationFrame + 1) % Self.busyImages.count
+        setImage(Self.busyImages[animationFrame], label: Self.busyLabel)
     }
 
-    private func setSymbol(_ name: String) {
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: "MacEase")
-        image?.isTemplate = true
+    // The catalog marks these as template images.
+    private func setImage(_ name: String, label: String) {
+        let image = NSImage(named: name)
+        image?.accessibilityDescription = label
         statusItem.button?.image = image
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        needsAttention = false
+        updateImage()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

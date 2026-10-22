@@ -34,9 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Embedded-PNG SVG output and PDF page images saved next to the source.
 - SHA-1 and SHA-512 checksum menu choices, hidden by default on new installs.
 - Reset All Settings in Advanced, retaining history and edited platform presets.
+- A menu bar attention badge after a batch with failures, or when the Finder
+  extension is off after setup. Opening the menu clears it.
 
 ### Changed
 
+- New app icon, menu bar icon, and Finder menu icon: a page with a context
+  menu. The menu bar icon tells VoiceOver whether MacEase is working.
 - Conversions and edits save new files by default, with collision-safe names
   and Undo. Replace original remains an option in General settings.
 - Finder menus run presets and formats directly, group Flip under Rotate and

@@ -78,7 +78,7 @@ development build and an installed release never register duplicate menus.
 
 ```
 App/                      Host app sources, assets, Info.plist, entitlements, String Catalogs
-FinderSync/               Finder Sync extension sources, Info.plist, entitlements, String Catalog
+FinderSync/               Finder Sync extension sources, assets, Info.plist, entitlements, String Catalog
 Packages/MacEaseKit/      Swift package (MenuCatalog, Formats, Engine) and its tests
 Vendor/deps.lock          Pinned native dependency versions, URLs and SHA-256
 Vendor/patches/           Patches applied to native dependency sources, if any
@@ -547,7 +547,8 @@ Ogg pages use libogg; the in-house code only arranges packets and granule positi
 
 ### 4.2 Structure and pruning
 
-One top-level **MacEase ▸** uses `wand.and.sparkles`. A single kind exposes
+One top-level **MacEase ▸** uses the extension's Context Page template glyph
+(ADR 0027). A single kind exposes
 operations directly, with choices one level below. Mixed selections retain
 `MacEase ▸ Kind (n) ▸ Operation ▸ Choice`, at most four levels. Counts and
 single-selection limits use that kind's subset. Unknown files and packages
@@ -713,7 +714,13 @@ notification feedback.
 
 The menu bar keeps active batches, Cancel, Results, and the last 10 batches
 with Undo and Show in Finder. **Show Progress** appears while jobs run. The
-busy symbol alternates only when Reduce Motion is off.
+status item uses the Context Page template glyph (ADR 0027). While busy, its
+highlighted row steps through three frames every 0.4 s; with Reduce Motion on,
+a static busy frame shows instead. An attention badge appears when the latest
+batch has failures other than cancellation, or when Finder Sync is disabled
+after onboarding. Opening the menu or a later successful batch clears it.
+VoiceOver reads **MacEase**, **MacEase, processing**, or **MacEase, needs
+attention**.
 
 `UserNotifications` sends at most one completion banner per batch, with counts,
 the first problem, Undo, and Show in Finder. A completed row retained and visible
@@ -1588,7 +1595,8 @@ animation. It supports keyboard navigation, VoiceOver states, larger text, and
 Reduce Motion.
 
 After Done, if Finder Sync remains disabled, the menu bar shows Turn On Finder
-Extension… until it is enabled. Settings > General > Show Welcome Window…
+Extension… until it is enabled, and the status item shows its attention badge
+until the menu is opened. Settings > General > Show Welcome Window…
 reopens this window.
 
 A normal launch without an operation, reopening the running app from Finder,
@@ -1813,6 +1821,10 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Adopt the Context Page icon family for the app icon, menu bar
+  and Finder root glyph; add a menu bar attention state and per-state VoiceOver
+  labels (ADR 0027).
 
 - 2026-10-22: Ignore Matroska ENCODER, DURATION and statistics SimpleTags
   in metadata loss checks; user tags such as TITLE stay protected.

@@ -3076,6 +3076,28 @@
         }
       }
     },
+    "MacEase, needs attention": {
+      "comment": "Menu bar icon VoiceOver label after a problem",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase、要確認"
+          }
+        }
+      }
+    },
+    "MacEase, processing": {
+      "comment": "Menu bar icon VoiceOver label while busy",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase、処理中"
+          }
+        }
+      }
+    },
     "Maker notes": {
       "comment": "Metadata field",
       "localizations": {
