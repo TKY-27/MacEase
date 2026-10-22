@@ -350,6 +350,7 @@ private let japanese = "日本語のテキストです。\n二行目"
         (#"[{"a":1},2]"#, "$[1]"),
         (#"[{"a":1},{"b":{"c":1}}]"#, "$[1].b"),
         (#"[{"list":[1]}]"#, "$[0].list"),
+        (#"[{"id":"first","id":"second"}]"#, "$[0].id"),
     ])
     func jsonToCSVNamesTheOffendingPath(input: String, path: String) async throws {
         let (outcome, output) = try await convert(.jsonToCSV, name: "nested.json", input: input)

@@ -36,7 +36,7 @@ struct CSVTable {
             }
             var row: [String: String] = [:]
             for member in members {
-                guard let cell = member.value.scalarText else {
+                guard row[member.key] == nil, let cell = member.value.scalarText else {
                     throw EngineError.invalidInput(.jsonNotFlatArray(path: "$[\(index)].\(member.key)"))
                 }
                 row[member.key] = cell

@@ -1759,6 +1759,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## Changelog
 
+- 2026-10-22: Refuse duplicate JSON row keys in CSV and conflicting XML text
+  or attribute names with the offending path.
+
 - 2026-10-22: Block later file commits after history persistence fails until
   pending history synchronizes successfully (ADR 0020).
 

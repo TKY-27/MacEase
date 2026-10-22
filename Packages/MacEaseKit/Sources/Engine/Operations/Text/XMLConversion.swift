@@ -44,25 +44,38 @@ enum XMLConversion {
         return result
     }
 
-    private static func element(named key: String, _ value: JSONValue, level: Int, into output: inout String) throws {
+    private static func element(
+        named key: String, _ value: JSONValue, level: Int, path: String = "$", into output: inout String
+    ) throws {
         let padding = String(repeating: indentUnit, count: level)
         let name = elementName(key)
         var attributes = ""
         var text = value.scalarText ?? ""
-        var children: JSONMembers = []
+        var children: [(key: String, value: JSONValue, path: String)] = []
         switch value {
         case .object(let members):
+            var reservedKeys = Set<String>()
             for member in members {
+                let childPath = "\(path).\(member.key)"
+                if member.key.hasPrefix("@") || member.key == "#text", member.value.scalarText != nil {
+                    let reservedKey =
+                        member.key.hasPrefix("@")
+                        ? "@" + elementName(String(member.key.dropFirst())) : member.key
+                    guard reservedKeys.insert(reservedKey).inserted else {
+                        throw EngineError.invalidInput(
+                            .malformed("Duplicate JSON keys at \(childPath) are unsupported"))
+                    }
+                }
                 if member.key.hasPrefix("@"), let scalar = member.value.scalarText {
                     attributes += " \(elementName(String(member.key.dropFirst())))=\"\(try xmlText(scalar))\""
                 } else if member.key == "#text", let scalar = member.value.scalarText {
                     text = scalar
                 } else {
-                    children.append(member)
+                    children.append((member.key, member.value, childPath))
                 }
             }
         case .array(let elements):
-            children = elements.map { (arrayElementName, $0) }
+            children = elements.enumerated().map { (arrayElementName, $1, "\(path)[\($0)]") }
         case .string, .number, .bool, .null:
             break
         }
@@ -77,9 +90,12 @@ enum XMLConversion {
         if !text.isEmpty { output += padding + indentUnit + (try xmlText(text)) + "\n" }
         for child in children {
             if case .array(let repeated) = child.value {
-                for item in repeated { try element(named: child.key, item, level: level + 1, into: &output) }
+                for (index, childValue) in repeated.enumerated() {
+                    try element(
+                        named: child.key, childValue, level: level + 1, path: "\(child.path)[\(index)]", into: &output)
+                }
             } else {
-                try element(named: child.key, child.value, level: level + 1, into: &output)
+                try element(named: child.key, child.value, level: level + 1, path: child.path, into: &output)
             }
         }
         output += "\(padding)</\(name)>\n"
