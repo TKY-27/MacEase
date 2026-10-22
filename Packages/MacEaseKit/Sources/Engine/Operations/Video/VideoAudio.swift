@@ -314,9 +314,11 @@ enum VideoAudio {
         let metadata = try await VideoMetadata.load(from: input)
         let losses = metadata.losses(for: nil, includingVideo: false, includingAudio: true)
         if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
+        let copiesPackets = kilobits == nil && canCopy(track, to: format)
+        if !copiesPackets { _ = try await encodingPrecision(input, track: track, format: format) }
         let name = url.deletingPathExtension().lastPathComponent + "." + format.fileExtension
         let output = try context.stagingURL(for: url, name: name)
-        if kilobits == nil, canCopy(track, to: format) {
+        if copiesPackets {
             try await copy(input, track: track, format: format, to: output, progress: context.progress)
         } else {
             var target = AudioTarget.defaults(for: format, settings: context.settings.audio)
@@ -335,19 +337,11 @@ enum VideoAudio {
         _ input: MediaInput, track: MediaTrack, sampleRate: Double, target: AudioTarget, to output: URL,
         progress: (Double) -> Void
     ) async throws {
-        let bitDepth: Int?
-        let isFloat: Bool
-        if case .pcm(let bits, let float, _) = track.codec {
-            bitDepth = bits
-            isFloat = float
-        } else {
-            bitDepth = nil
-            isFloat = false
-        }
+        let precision = try await encodingPrecision(input, track: track, format: target.format)
         let source = try VideoPCMSource(input: input, track: track, start: 0, end: .max)
         let encoder = try AudioFileEncoder(
             url: output, target: target, sampleRate: source.sampleRate, channels: source.channels,
-            bitDepth: bitDepth, isFloat: isFloat)
+            bitDepth: precision.bits, isFloat: precision.float)
         var frames: Int64 = 0
         var synthesizedSilenceFrames: Int64 = 0
         let expectedFrames = max(sampleRate * Double(input.duration) / Double(Nanoseconds.perSecond), 1)
@@ -382,6 +376,55 @@ enum VideoAudio {
             progress(min(1, Double(frames) / expectedFrames))
         }
         try await encoder.finish()
+    }
+
+    private static func encodingPrecision(_ input: MediaInput, track: MediaTrack, format: AudioFormat) async throws
+        -> (bits: Int?, float: Bool)
+    {
+        var bits: Int?
+        var float = false
+        switch track.codec {
+        case .pcm(let depth, let floatingPoint, _):
+            bits = depth
+            float = floatingPoint
+        case .alac, .flac:
+            if case .asset(_, _, let audio) = input.backend, let audio {
+                let descriptions = try await audio.load(.formatDescriptions)
+                let depths = descriptions.map { description -> Int? in
+                    guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
+                        return nil
+                    }
+                    if basic.mBitsPerChannel > 0 { return Int(basic.mBitsPerChannel) }
+                    switch basic.mFormatFlags {
+                    case kAppleLosslessFormatFlag_16BitSourceData: return 16
+                    case kAppleLosslessFormatFlag_20BitSourceData: return 20
+                    case kAppleLosslessFormatFlag_24BitSourceData: return 24
+                    case kAppleLosslessFormatFlag_32BitSourceData: return 32
+                    default: return nil
+                    }
+                }
+                if !depths.isEmpty, depths.allSatisfy({ $0 != nil }) { bits = depths.compactMap { $0 }.max() }
+            } else if track.codec == .flac, validFLACHeader(track.codecPrivate), let header = track.codecPrivate {
+                let packedDepthOffset = flacMarkerLength + flacBlockHeaderLength + 12
+                let bytes = [UInt8](header)
+                bits = Int(bytes[packedDepthOffset] & 1) << 4 | Int(bytes[packedDepthOffset + 1] >> 4)
+                bits = bits.map { $0 + 1 }
+            }
+            if bits == nil, !format.isLossy {
+                throw EngineError.unsupportedCodec(
+                    String(
+                        localized: "Unknown audio bit depth", comment: "Lossless extraction requires known precision"))
+            }
+        default: break
+        }
+        let maximumIntegerDepth = 24
+        let maximumFloatDepth = 32
+        if !format.isLossy, let bits, bits > (float ? maximumFloatDepth : maximumIntegerDepth) {
+            throw EngineError.unsupportedCodec(
+                String(
+                    localized: "Audio precision cannot be preserved", comment: "Extraction exceeds decoder precision"))
+        }
+        return (bits, float)
     }
 
     private static func canCopy(_ track: MediaTrack, to format: AudioFormat) -> Bool {
@@ -573,25 +616,62 @@ enum VideoAudio {
         guard created == noErr, let audioFile else { throw EngineError.encodeFailed("AudioFileCreate \(created)") }
         do {
             var packetNumber: Int64 = 0
+            var synthesizedSilenceFrames: Int64 = 0
+            let maximumSilenceFrames = try pcmFramePosition(maximumSynthesizedSilence, sampleRate: sampleRate)
+            let codecDelay = try pcmFramePosition(track.codecDelay, sampleRate: sampleRate)
+            func write(_ payload: Data) throws {
+                guard !payload.isEmpty else { return }
+                let expectedPackets = UInt32(payload.count / bytesPerFrame)
+                var packetCount = expectedPackets
+                let status = payload.withUnsafeBytes { bytes in
+                    guard let address = bytes.baseAddress else {
+                        return OSStatus(kAudioFileInvalidPacketOffsetError)
+                    }
+                    return AudioFileWritePackets(
+                        audioFile, false, UInt32(bytes.count), nil, packetNumber, &packetCount, address)
+                }
+                guard status == noErr, packetCount == expectedPackets else {
+                    throw EngineError.encodeFailed("AudioFileWritePackets \(status)")
+                }
+                let (following, overflow) = packetNumber.addingReportingOverflow(Int64(packetCount))
+                guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
+                packetNumber = following
+            }
             while stage.nextTime != nil {
                 try Task.checkCancellation()
                 for packet in try await stage.pull() {
                     guard packet.payload.count.isMultiple(of: bytesPerFrame) else {
                         throw EngineError.decodeFailed("unaligned PCM packet")
                     }
-                    let expectedPackets = UInt32(packet.payload.count / bytesPerFrame)
-                    var packetCount = expectedPackets
-                    let status = packet.payload.withUnsafeBytes { bytes in
-                        guard let address = bytes.baseAddress else {
-                            return OSStatus(kAudioFileInvalidPacketOffsetError)
+                    let count = Int64(packet.payload.count / bytesPerFrame)
+                    let leading = try pcmFramePosition(packet.trimDurationAtStart ?? 0, sampleRate: sampleRate)
+                    let padding = try pcmFramePosition(packet.discardPadding ?? 0, sampleRate: sampleRate)
+                    let first = min(count, max(0, leading) + max(0, -padding))
+                    let last = count - min(count, max(0, padding))
+                    guard last > first else { continue }
+                    let presented = try pcmFramePosition(
+                        packet.outputTimestamp ?? packet.timestamp, sampleRate: sampleRate)
+                    let due = presented + (packet.outputTimestamp == nil ? first - codecDelay : 0)
+                    let (gap, gapOverflow) = due.subtractingReportingOverflow(packetNumber)
+                    guard !gapOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                    if gap > 0 {
+                        let (total, overflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
+                        guard !overflow, total <= maximumSilenceFrames else {
+                            throw EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")
                         }
-                        return AudioFileWritePackets(
-                            audioFile, false, UInt32(bytes.count), nil, packetNumber, &packetCount, address)
+                        while packetNumber < due {
+                            try Task.checkCancellation()
+                            let frames = Int(min(due - packetNumber, Int64(silenceChunkFrames)))
+                            try write(Data(repeating: bits == 8 ? 128 : 0, count: frames * bytesPerFrame))
+                        }
+                        synthesizedSilenceFrames = total
                     }
-                    guard status == noErr, packetCount == expectedPackets else {
-                        throw EngineError.encodeFailed("AudioFileWritePackets \(status)")
+                    let overlap = min(last - first, max(0, -gap))
+                    if first + overlap < last {
+                        try write(
+                            packet.payload.subdata(in: Int(first + overlap) * bytesPerFrame..<Int(last) * bytesPerFrame)
+                        )
                     }
-                    packetNumber += Int64(packetCount)
                     progress(Double(packet.timestamp) / Double(max(input.duration, 1)))
                 }
             }
@@ -601,5 +681,13 @@ enum VideoAudio {
         }
         let closed = AudioFileClose(audioFile)
         guard closed == noErr else { throw EngineError.encodeFailed("AudioFileClose \(closed)") }
+    }
+
+    private static func pcmFramePosition(_ timestamp: Int64, sampleRate: Double) throws -> Int64 {
+        let time = CMTime(value: timestamp, timescale: SampleBuffers.nanosecondScale)
+        let frames = CMTimeConvertScale(
+            CMTimeMultiplyByFloat64(time, multiplier: sampleRate), timescale: 1, method: .roundHalfAwayFromZero)
+        guard frames.isNumeric else { throw EngineError.decodeFailed("audio frame count out of range") }
+        return frames.value
     }
 }

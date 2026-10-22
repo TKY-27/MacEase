@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Detect Matroska track names and BCP47 languages before metadata loss checks;
+  warn for new files and always-derived exports, and refuse replacement.
+- Preserve ALAC/FLAC source precision in lossless audio extraction, refusing
+  unknown or unrepresentable precision before staging.
+- Preserve PCM extraction delays, gaps, and trim edits without reducing
+  integer precision.
 - Refuse audio replacement when tags cannot be preserved or read; new-file
   conversion reports a warning and retains the original.
 - Refuse lossless audio transforms above 24-bit integer or 32-bit float

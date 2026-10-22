@@ -30,7 +30,9 @@ enum MatroskaID {
     static let codecID: UInt32 = 0x86
     static let codecPrivate: UInt32 = 0x63A2
     static let defaultDuration: UInt32 = 0x23E383
+    static let name: UInt32 = 0x536E
     static let language: UInt32 = 0x22B59C
+    static let languageBCP47: UInt32 = 0x22B59D
     static let codecDelay: UInt32 = 0x56AA
     static let seekPreRoll: UInt32 = 0x56BB
     static let video: UInt32 = 0xE0

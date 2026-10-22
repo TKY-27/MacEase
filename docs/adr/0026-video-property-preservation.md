@@ -57,7 +57,9 @@ attribute copying only ran during explicit HDR-to-SDR conversion.
   loss detection. Keep encoder attribution, titles, descriptions, locations,
   creation dates and other user metadata in the preservation contract.
   Detect Matroska/WebM Info Title and Tags SimpleTag entries, including
-  track-targeted tags. Carrying these tags is unsupported, so new-file results
+  track-targeted tags and TrackEntry Name. LanguageBCP47 overrides legacy
+  Language regardless of element order and participates in language loss checks.
+  Carrying these names and tags is unsupported, so new-file results
   warn and Replace refuses before staging. MuxingApp and WritingApp are
   provenance, not user metadata.
 - MOV retains QuickTime ISO6709 locations. MP4/M4V conversion can insert

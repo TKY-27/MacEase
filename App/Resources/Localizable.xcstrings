@@ -831,6 +831,17 @@
         }
       }
     },
+    "Audio precision cannot be preserved": {
+      "comment": "Extraction exceeds decoder precision",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオの精度を保持できません"
+          }
+        }
+      }
+    },
     "Audio sample rate out of range": {
       "comment": "Rejects unsafe audio metadata",
       "localizations": {
@@ -5697,6 +5708,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "取り消し済み"
+          }
+        }
+      }
+    },
+    "Unknown audio bit depth": {
+      "comment": "Lossless extraction requires known precision",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オーディオのビット深度が不明です"
           }
         }
       }

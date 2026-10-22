@@ -87,6 +87,57 @@ import Testing
         #expect(try Data(contentsOf: sourceURL) == original)
     }
 
+    @Test func namedBCP47TrackWarnsAndRefusesReplacementWithoutTags() async throws {
+        let folder = try folder()
+        let sourceURL = folder.appending(path: "named.mkv")
+        let header = EBML.element(
+            MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(MatroskaID.name, string: "Japanese picture")
+                + EBML.element(MatroskaID.language, string: "jpn")
+                + EBML.element(MatroskaID.languageBCP47, string: "ja-JP")
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let segment = EBML.element(MatroskaID.tracks, track)
+        try Data(header + EBML.element(MatroskaID.segment, segment)).write(to: sourceURL)
+        let original = try Data(contentsOf: sourceURL)
+        let source = try await MediaInput.open(sourceURL)
+        let losses: [VideoMetadataProperty] = [.trackMetadata, .language]
+        let operation = VideoOperation.resize(.percent(50))
+        let plan = try VideoEdits.plan(
+            operation, input: source, source: #require(source.video), settings: VideoSettings())
+
+        var replacementSettings = Settings()
+        replacementSettings.outputMode = .replace
+        let replacement = ItemContext(
+            settings: replacementSettings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        await #expect(throws: EngineError.videoMetadataUnsupported(losses)) {
+            _ = try await VideoEdits.run(operation, url: sourceURL, context: replacement)
+        }
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "staging.json").path))
+
+        var newFileSettings = Settings()
+        newFileSettings.outputMode = .newFile
+        let newFile = ItemContext(
+            settings: newFileSettings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        _ = try await VideoProperties.prepare(plan, input: source, context: newFile)
+        #expect(newFile.warnings == [.videoMetadataDropped(losses)])
+
+        var derivedPlan = plan
+        derivedPlan.derived = true
+        let derived = ItemContext(
+            settings: replacementSettings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        _ = try await VideoProperties.prepare(derivedPlan, input: source, context: derived)
+        #expect(derived.warnings == [.videoMetadataDropped(losses)])
+        #expect(try Data(contentsOf: sourceURL) == original)
+    }
+
     @Test(arguments: [OutputContainer.webm, .avi])
     func encodingTagsAndSingletonGroupsDoNotCountAsLoss(container: OutputContainer) async throws {
         let fixtureURL = try #require(

@@ -138,6 +138,53 @@ import Testing
         #expect(!demuxer.hasTrackMetadata)
     }
 
+    @Test(arguments: [true, false])
+    func trackNameAndBCP47LanguageOverrideLegacyInEitherOrder(bcp47First: Bool) throws {
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        let languages =
+            bcp47First
+            ? EBML.element(MatroskaID.languageBCP47, string: "ja-JP")
+                + EBML.element(MatroskaID.language, string: "eng")
+            : EBML.element(MatroskaID.language, string: "eng")
+                + EBML.element(MatroskaID.languageBCP47, string: "ja-JP")
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(MatroskaID.name, string: "Japanese picture")
+                + languages
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let url = ContainerFixtures.temporaryURL("named-language-\(bcp47First).mkv")
+        try Data(header + EBML.element(MatroskaID.segment, EBML.element(MatroskaID.tracks, track))).write(to: url)
+        let demuxer = try MatroskaDemuxer(url: url)
+        #expect(demuxer.hasTrackMetadata)
+        #expect(demuxer.tracks.first?.language == "ja-JP")
+        #expect(!demuxer.hasDescriptiveMetadata)
+    }
+
+    @Test func legacyTrackLanguageRemainsReadable() throws {
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(MatroskaID.language, string: "jpn")
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let url = ContainerFixtures.temporaryURL("legacy-language.mkv")
+        try Data(header + EBML.element(MatroskaID.segment, EBML.element(MatroskaID.tracks, track))).write(to: url)
+        let demuxer = try MatroskaDemuxer(url: url)
+        #expect(demuxer.tracks.first?.language == "jpn")
+        #expect(!demuxer.hasTrackMetadata)
+    }
+
     @Test func webmRefusesCodecsOutsideTheProfile() {
         let track = MediaTrack(number: 1, kind: .video(width: 16, height: 16), codec: .h264)
         #expect(throws: FormatError.self) {

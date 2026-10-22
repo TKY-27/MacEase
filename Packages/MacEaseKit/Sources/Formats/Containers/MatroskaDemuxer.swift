@@ -155,6 +155,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             var codecPrivate: Data?
             var defaultDuration: Int64?
             var language: String?
+            var languageBCP47: String?
             var width = 0
             var height = 0
             var alpha = false
@@ -172,7 +173,9 @@ public struct MatroskaDemuxer: MediaDemuxer {
                 case MatroskaID.codecID: codecID = EBML.string(try payload(field))
                 case MatroskaID.codecPrivate: codecPrivate = Data(try payload(field))
                 case MatroskaID.defaultDuration: defaultDuration = Int64(try integer(field))
+                case MatroskaID.name: hasTrackMetadata = true
                 case MatroskaID.language: language = EBML.string(try payload(field))
+                case MatroskaID.languageBCP47: languageBCP47 = EBML.string(try payload(field))
                 case MatroskaID.codecDelay: delay = Int64(try integer(field))
                 case MatroskaID.seekPreRoll: preRoll = Int64(try integer(field))
                 case MatroskaID.video:
@@ -231,7 +234,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
                 codecPrivate: codecPrivate
             )
             track.defaultDuration = defaultDuration
-            track.language = language
+            track.language = languageBCP47 ?? language
             track.hasAlpha = alpha
             track.hasContainerHDR = hasContainerHDR
             track.codecDelay = delay

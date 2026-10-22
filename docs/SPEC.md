@@ -877,7 +877,10 @@ Singleton alternate groups and encoder/software tags are not user-property
 loss. Titles, descriptions, locations, creation dates, authorship and other
 user metadata remain protected.
 Matroska/WebM Info Title and Tags SimpleTag entries count as user metadata;
-track-targeted tags count as track metadata. Their loss warns for new files
+track-targeted tags and TrackEntry Name count as track metadata.
+TrackEntry LanguageBCP47 takes precedence over legacy Language regardless of
+element order. Unsupported track names and languages use the same loss checks.
+Their loss warns for new files
 and always-Derived exports, and refuses Replace before staging. MuxingApp and
 WritingApp identify provenance and do not count as user metadata.
 Alternate groups requiring omitted tracks are not reconstructed partially.
@@ -889,6 +892,12 @@ writer omissions or normalization.
 Explicit Convert > SDR uses the same metadata preflight and output comparison;
 permission to remove HDR does not permit other property loss.
 These rules extend ADR 0019's property-loss policy to video (ADR 0026).
+
+Lossless audio extraction retains the source ALAC/FLAC precision when
+re-encoding. Unknown or unrepresentable precision refuses before staging.
+PCM copies retain integer samples exactly, apply source trim/edit timing,
+and fill initial delays and timestamp gaps with silence at the source depth.
+They share the cumulative synthesized-silence limit in section 13.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
@@ -1744,6 +1753,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Detect Matroska track names and BCP47 language loss; retain
+  lossless extraction precision and PCM presentation timing.
 
 - 2026-10-22: Refuse lossless audio transforms above 24-bit integer or
   32-bit float source precision before staging.
