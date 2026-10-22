@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Stop further file changes when undo history cannot be saved, and resume after
+  pending history is successfully synchronized.
+
 - Detect Matroska track names and BCP47 languages before metadata loss checks;
   warn for new files and always-derived exports, and refuse replacement.
 - Preserve ALAC/FLAC source precision in lossless audio extraction, refusing

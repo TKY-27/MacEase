@@ -460,8 +460,9 @@ struct HistorySafetyTests {
                 [.renamed(from: "/before", to: "/after")], batch: id, operation: .folderRename)
         }
         await #expect(throws: (any Error).self) { try await engine.prepareForTermination() }
-        try await engine.history.checkAcceptingCommits()
+        await #expect(throws: EngineError.historyPersistenceFailed) { try await engine.history.checkAcceptingCommits() }
         try FileManager.default.removeItem(at: historyFile)
+        try await engine.history.checkAcceptingCommits()
         try await engine.prepareForTermination()
         let reloaded = HistoryStore(supportDirectory: support)
         #expect(await reloaded.records.map(\.id) == [id])

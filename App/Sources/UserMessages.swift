@@ -37,6 +37,12 @@ enum UserMessages {
             String(localized: "“\(file)” could not be converted.")
         case .commitFailed:
             String(localized: "“\(file)” could not be saved.")
+        case .historyPersistenceFailed:
+            String(
+                localized:
+                    "Further file changes were stopped because undo history could not be saved. Check free disk space and access to the history folder, then retry.",
+                comment: "Avoids implying earlier commits were rolled back"
+            )
         case .unsupportedCodec(let codec):
             String(localized: "“\(file)” uses \(codec), which MacEase does not support.")
         case .audioChannelLayoutUnsupported:

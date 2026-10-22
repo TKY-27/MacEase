@@ -139,6 +139,7 @@ import Testing
         await #expect(throws: (any Error).self) {
             try await store.record([Self.removal(1)], batch: id, operation: .folderRemoveDuplicates)
         }
+        await #expect(throws: EngineError.historyPersistenceFailed) { try await store.checkAcceptingCommits() }
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
         let stream = try FileHandle(forWritingTo: journalURL)
         try stream.seekToEnd()
@@ -167,6 +168,26 @@ import Testing
         let reloaded = HistoryStore(supportDirectory: folder)
         #expect(await reloaded.records.map(\.id) == [second])
         #expect(await reloaded.records.first?.items == [Self.removal(1)])
+    }
+
+    @Test func committedRecordsStayPendingWhilePersistenceRemainsUnavailable() async throws {
+        let folder = try Self.makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let store = HistoryStore(supportDirectory: folder)
+        let journalURL = folder.appending(path: "history.journal")
+        try FileManager.default.createDirectory(at: journalURL, withIntermediateDirectories: false)
+        let id = UUID()
+        for index in 0..<2 {
+            await #expect(throws: (any Error).self) {
+                try await store.record([Self.removal(index)], batch: id, operation: .folderRemoveDuplicates)
+            }
+        }
+        #expect(await store.records.first?.items == [Self.removal(0), Self.removal(1)])
+        await #expect(throws: EngineError.historyPersistenceFailed) { try await store.checkAcceptingCommits() }
+        try FileManager.default.removeItem(at: journalURL)
+        try await store.checkAcceptingCommits()
+        let reloaded = HistoryStore(supportDirectory: folder)
+        #expect(await reloaded.records.first?.items == [Self.removal(0), Self.removal(1)])
     }
 
     @Test func failedJournalResetLeavesPublishedSnapshotAndReplayableJournal() async throws {

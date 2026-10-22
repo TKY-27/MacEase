@@ -2299,6 +2299,17 @@
         }
       }
     },
+    "Further file changes were stopped because undo history could not be saved. Check free disk space and access to the history folder, then retry.": {
+      "comment": "Avoids implying earlier commits were rolled back",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消し履歴を保存できなかったため、以降のファイル変更を停止しました。ディスクの空き容量と履歴フォルダへのアクセス権を確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "GIF": {
       "comment": "Preset section",
       "localizations": {

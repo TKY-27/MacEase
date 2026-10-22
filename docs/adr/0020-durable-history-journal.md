@@ -43,6 +43,21 @@ after an application crash, so it is not an acceptable optimization.
   commit must retry the complete snapshot before using append-only persistence.
   A failed flush still cancels orderly termination and can be retried.
 
+## Amendment (2026-10-22)
+
+Keep a failed persistence state until a complete snapshot publication and
+journal reset succeed. Before later file commits, retry synchronization while
+holding the existing commit gate. If the retry fails, return
+`historyPersistenceFailed` before any new file mutation. This covers Replace,
+Rename, Trash, permanent deletion, and Derived. The one-second throttle for
+other records does not permit bypassing a known persistence failure.
+
+Record each mutation in a multi-file operation before attempting the next file.
+Preserve already committed entries in memory even if another persistence attempt
+failed. Successful synchronization clears the failure state and permits normal
+commits again. A failure after a file mutation still reports a history warning;
+it does not claim that the completed mutation was rolled back.
+
 ## Consequences
 
 A successful Trash record survives application termination without waiting

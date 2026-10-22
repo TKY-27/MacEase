@@ -158,7 +158,7 @@ public actor HistoryStore {
     private static let saveInterval: TimeInterval = 1
 
     private enum PersistenceState {
-        case clean, appended, snapshotRequired
+        case clean, appended, retryRequired
     }
 
     private var journal: HistoryJournal
@@ -178,7 +178,7 @@ public actor HistoryStore {
         do {
             snapshot = try persistence.load()
             if FileManager.default.fileExists(atPath: persistence.journalURL.path) {
-                persistenceState = .snapshotRequired
+                persistenceState = .retryRequired
                 do {
                     try persistence.publish(snapshot)
                     try persistence.reset()
@@ -204,7 +204,7 @@ public actor HistoryStore {
     }
 
     func record(_ newItems: [CommitRecord], batch id: UUID, operation: OperationID) throws {
-        try checkAcceptingCommits()
+        try checkAcceptingWork()
         guard !newItems.isEmpty else { return }
         let previousSequence = snapshot.sequence ?? 0
         guard previousSequence < UInt64.max else { throw CocoaError(.fileWriteOutOfSpace) }
@@ -214,23 +214,28 @@ public actor HistoryStore {
         let sequence = previousSequence + 1
         snapshot.sequence = sequence
         pending.append(HistoryJournal.Entry(sequence: sequence, batch: batch))
-        if persistenceState != .snapshotRequired { persistenceState = .appended }
+        if persistenceState != .retryRequired { persistenceState = .appended }
         let needsDurableBackup = newItems.contains { record in
             switch record {
             case .replaced, .removed: true
             case .derived, .renamed: false
             }
         }
-        if persistenceState == .snapshotRequired {
-            try save()
-        } else if needsDurableBackup {
-            var contents = Data()
-            for entry in pending { contents.append(try HistoryJournal.encoded(entry)) }
-            try journal.append(contents)
-            pending.removeAll(keepingCapacity: true)
-            lastSave = Date()
-        } else if Date().timeIntervalSince(lastSave) >= Self.saveInterval {
-            try save()
+        do {
+            if persistenceState == .retryRequired {
+                try save()
+            } else if needsDurableBackup {
+                var contents = Data()
+                for entry in pending { contents.append(try HistoryJournal.encoded(entry)) }
+                try journal.append(contents)
+                pending.removeAll(keepingCapacity: true)
+                lastSave = Date()
+            } else if Date().timeIntervalSince(lastSave) >= Self.saveInterval {
+                try save()
+            }
+        } catch {
+            persistenceState = .retryRequired
+            throw error
         }
     }
 
@@ -247,9 +252,20 @@ public actor HistoryStore {
         runningBatches.remove(id)
     }
 
-    func checkAcceptingCommits() throws {
+    func checkAcceptingWork() throws {
         if let loadFailure { throw loadFailure }
         if terminating { throw CancellationError() }
+    }
+
+    func checkAcceptingCommits() throws {
+        try checkAcceptingWork()
+        if persistenceState == .retryRequired {
+            do {
+                try save()
+            } catch {
+                throw EngineError.historyPersistenceFailed
+            }
+        }
     }
 
     func prepareForTermination() async throws {
@@ -308,7 +324,7 @@ public actor HistoryStore {
     }
 
     private func save() throws {
-        persistenceState = .snapshotRequired
+        persistenceState = .retryRequired
         try journal.publish(snapshot)
         pending.removeAll(keepingCapacity: true)
         try journal.reset()

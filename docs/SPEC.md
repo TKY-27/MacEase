@@ -412,7 +412,12 @@ confirmation in an alert.
   newly committed entries and their batch metadata, so a batch writes bytes
   proportional to its records instead of repeatedly rewriting growing history.
   Other records may be coalesced for up to one second and are flushed at batch
-  completion. Failed appends remain pending for retry.
+  completion. Failed appends remain pending for retry. A persistence failure
+  blocks later file commits, including Derived, until a pre-commit retry
+  synchronizes the pending history. Failed retries return a typed history
+  error before replacing, renaming, trashing, deleting, or creating outputs.
+  Multi-file operations record each mutation before attempting the next file.
+  The throttle permits delayed writes, not bypassing a known persistence failure.
 - Batch completion, launch recovery and orderly quit compact history. A staged
   snapshot containing the applied sequence is synchronized, atomically renamed
   over `history.json`, and its directory synchronized before resetting and
@@ -1753,6 +1758,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Block later file commits after history persistence fails until
+  pending history synchronizes successfully (ADR 0020).
 
 - 2026-10-22: Detect Matroska track names and BCP47 language loss; retain
   lossless extraction precision and PCM presentation timing.

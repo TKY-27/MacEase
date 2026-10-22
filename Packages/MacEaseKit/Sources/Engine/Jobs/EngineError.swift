@@ -8,6 +8,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case nonFiniteAudioSample
     case encodeFailed(String)
     case commitFailed(String)
+    case historyPersistenceFailed
     case unsupportedCodec(String)
     case audioChannelLayoutUnsupported
     case audioMetadataUnsupported

@@ -169,7 +169,7 @@ public final class JobEngine: Sendable {
         var records: [CommitRecord] = []
         let outcome: (ItemOutcome, (String, TextDestination)?)
         do {
-            try await history.checkAcceptingCommits()
+            try await history.checkAcceptingWork()
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs, inputStamps: inputStamps,
                 context: context, batch: batch, tracker: tracker, records: &records)
@@ -179,6 +179,14 @@ public final class JobEngine: Sendable {
             let engineError = EngineError.wrapping(error, path: path, otherwise: EngineError.commitFailed)
             outcome = (.failed(logged(engineError, batch: batch, workItem: workItem)), nil)
         }
+        await recordCommits(&records, batch: batch, tracker: tracker)
+        await history.commitGate.release()
+        return outcome
+    }
+
+    private func recordCommits(_ records: inout [CommitRecord], batch: Batch, tracker: BatchTracker) async {
+        guard !records.isEmpty else { return }
+        defer { records.removeAll(keepingCapacity: true) }
         do {
             try await history.record(records, batch: batch.id, operation: batch.operation)
         } catch {
@@ -187,8 +195,6 @@ public final class JobEngine: Sendable {
                 "History write failed: \((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public): \(error.localizedDescription, privacy: .private)"
             )
         }
-        await history.commitGate.release()
-        return outcome
     }
 
     private func logged(_ error: EngineError, batch: Batch, workItem: WorkItem) -> EngineError {
@@ -218,6 +224,7 @@ public final class JobEngine: Sendable {
         var outputs: [URL] = []
         switch result {
         case .replace(let original, let output):
+            try await history.checkAcceptingCommits()
             guard let expectedStamp = inputStamps[original] else {
                 throw EngineError.commitFailed("Replacement original was not an input")
             }
@@ -247,11 +254,13 @@ public final class JobEngine: Sendable {
             outputs.append(replaced.output)
         case .derived(let original, let staged):
             for file in staged {
+                try await history.checkAcceptingCommits()
                 let output = try await committer.derive(
                     file, nextTo: original, expectedStamp: inputStamps[original],
                     attributeSource: inputs.contains(original) ? original : nil)
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
+                await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .rename(let plans):
             for plan in plans {
@@ -260,6 +269,7 @@ public final class JobEngine: Sendable {
                     throw EngineError.invalidInput(.malformed(plan.newName))
                 }
                 guard plan.newName != plan.url.lastPathComponent else { continue }
+                try await history.checkAcceptingCommits()
                 let renamed = try committer.rename(
                     plan.url, to: plan.newName, requiresExactName: batch.operation == .folderRename)
                 records.append(
@@ -267,27 +277,26 @@ public final class JobEngine: Sendable {
                         from: plan.url.path, to: renamed.output.path,
                         stamp: renamed.stamp))
                 outputs.append(renamed.output)
+                await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .trash(let urls, let permanently, let condition):
             for url in urls {
+                try await history.checkAcceptingCommits()
                 if let trashed = try committer.remove(url, permanently: permanently, condition: condition) {
                     records.append(.removed(original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp))
+                    await recordCommits(&records, batch: batch, tracker: tracker)
                 }
             }
         case .trashDuplicates(let removals):
             for removal in removals {
                 for url in removal.removed {
+                    try await history.checkAcceptingCommits()
                     if let trashed = try committer.remove(
                         url, permanently: false, condition: .duplicate(of: removal.kept))
                     {
-                        let record = CommitRecord.removed(
-                            original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp)
-                        do {
-                            try await history.record([record], batch: batch.id, operation: batch.operation)
-                        } catch {
-                            tracker.markHistoryFailed()
-                            throw error
-                        }
+                        records.append(
+                            .removed(original: url.path, trashed: trashed.url.path, trashStamp: trashed.stamp))
+                        await recordCommits(&records, batch: batch, tracker: tracker)
                     }
                 }
             }
