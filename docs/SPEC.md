@@ -1772,6 +1772,8 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## Changelog
 
+- 2026-10-22: Preserve 16-bit SDR precision and budget drawing canvases.
+
 - 2026-10-22: Preserve Matroska display geometry in supported copies and
   re-encodes; disclose unsupported loss and refuse Replace before staging
   (ADR 0026).

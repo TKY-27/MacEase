@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve 16-bit SDR precision in PNG and TIFF image edits, including
+  arbitrary-angle rotation and transparent padding.
+
 - Preserve Matroska display aspect and pixel cropping when supported; warn
   about unsupported output geometry and refuse replacement before staging.
 

@@ -12,7 +12,8 @@ enum ImagePixels {
 
     static func render(_ image: CIImage, like reference: CGImage) throws -> CGImage {
         let extent = image.extent.integral
-        let format: CIFormat = reference.bitsPerComponent > 8 ? .RGBA16 : .RGBA8
+        let highPrecisionFormat: CIFormat = reference.bitmapInfo.contains(.floatComponents) ? .RGBAh : .RGBA16
+        let format: CIFormat = reference.bitsPerComponent > 8 ? highPrecisionFormat : .RGBA8
         guard let width = Int(exactly: extent.width), let height = Int(exactly: extent.height) else {
             throw FrameMemoryBudget.exceeded
         }
@@ -92,13 +93,19 @@ enum ImagePixels {
     static func draw(
         width: Int, height: Int, like reference: CGImage, fill: CGColor?, _ body: (CGContext) -> Void
     ) throws -> CGImage {
+        let componentBits = reference.bitsPerComponent > 8 ? 16 : 8
+        var bitmap = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+        if componentBits == 16 {
+            bitmap.formUnion(.byteOrder16Little)
+            bitmap.formUnion(reference.bitmapInfo.intersection(.floatComponents))
+        }
         var budget = FrameMemoryBudget()
         try budget.reserve(reference)
-        try budget.reserve(width: width, height: height)
+        try budget.reserve(width: width, height: height, bytesPerPixel: componentBits / 8 * 4)
         guard
             let context = CGContext(
-                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                space: workingSpace(of: reference), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                data: nil, width: width, height: height, bitsPerComponent: componentBits, bytesPerRow: 0,
+                space: workingSpace(of: reference), bitmapInfo: bitmap.rawValue)
         else { throw EngineError.encodeFailed("bitmap context") }
         context.interpolationQuality = .high
         if let fill {
