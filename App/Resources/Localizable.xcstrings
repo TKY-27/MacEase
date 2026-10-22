@@ -223,17 +223,6 @@
         }
       }
     },
-    "32-bit integer audio to lossless output": {
-      "comment": "Refuses integer precision loss",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "32 ビット整数オーディオのロスレス出力"
-          }
-        }
-      }
-    },
     "4 spaces": {
       "localizations": {
         "ja": {
@@ -6068,6 +6057,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "代替トラックグループ"
+          }
+        }
+      }
+    },
+    "audio above 24-bit integer or 32-bit float precision to lossless output": {
+      "comment": "Refuses source precision loss",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 ビット整数または 32 ビット浮動小数点を超える精度のオーディオのロスレス出力"
           }
         }
       }

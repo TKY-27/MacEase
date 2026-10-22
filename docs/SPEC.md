@@ -933,9 +933,10 @@ Before staging, audio transforms inspect tags. If the target cannot store
 them, Save as New File warns and keeps the original; Replace refuses and
 suggests Save as New File. Unreadable tags follow the same policy instead of
 being treated as absent. Always-Derived subtitle exports keep their source.
-The current Float32 audio path refuses 32-bit integer sources for lossless
-conversion, normalization, and trim before staging, because it cannot retain
-their low bits. Lossy targets remain available.
+The current Float32 audio path requires source format precision that Float32
+can represent exactly for lossless conversion, normalization, and trim.
+Integer sources above 24-bit and float sources above 32-bit precision are
+refused before staging. Lossy targets remain available.
 
 Chained Ogg streams are not supported. Input initialization scans Ogg pages
 and rejects a new logical stream after EOS before writing any output. The
@@ -1743,6 +1744,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Refuse lossless audio transforms above 24-bit integer or
+  32-bit float source precision before staging.
 
 - 2026-10-22: Refuse audio metadata loss on replacement and lossless 32-bit integer transforms before staging; warn about metadata loss when saving a new file.
 

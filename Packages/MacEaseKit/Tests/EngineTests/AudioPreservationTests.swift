@@ -104,7 +104,10 @@ import Testing
         defer { context.removeStaging() }
         let pcmTarget: AudioFormat = suffix == "aiff" ? .wav : .aiff
         for format in [pcmTarget, .flac, .m4aALAC, .cafALAC] {
-            await #expect(throws: EngineError.unsupportedCodec("32-bit integer audio to lossless output")) {
+            await #expect(
+                throws: EngineError.unsupportedCodec(
+                    "audio above 24-bit integer or 32-bit float precision to lossless output")
+            ) {
                 try await AudioJob.run(.convert(format), on: source, context: context)
             }
         }
@@ -119,7 +122,10 @@ import Testing
         let context = ItemContext(
             settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
         defer { context.removeStaging() }
-        await #expect(throws: EngineError.unsupportedCodec("32-bit integer audio to lossless output")) {
+        await #expect(
+            throws: EngineError.unsupportedCodec(
+                "audio above 24-bit integer or 32-bit float precision to lossless output")
+        ) {
             try await AudioJob.run(operation, on: source, context: context)
         }
         #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "staging.json").path))
@@ -138,6 +144,93 @@ import Testing
             return
         }
         #expect(try !AudioSignals.decode(output.url).samples.isEmpty)
+    }
+
+    @Test(
+        arguments: [
+            AudioOperation.convert(.cafPCM), .convert(.aiff), .convert(.flac), .convert(.m4aALAC), .convert(.cafALAC),
+            .trim(start: 0.1, end: 0.5), .normalize(targetLoudness: -23),
+        ], [Settings.OutputMode.replace, .newFile])
+    func floatPrecisionLossRefusesLosslessOutputBeforeStaging(
+        operation: AudioOperation, mode: Settings.OutputMode
+    ) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        let source = try floatSource(in: folder)
+        let original = try Data(contentsOf: source)
+        let input = try AudioInput(url: source)
+        #expect(input.bitDepth == 64 && input.isFloat)
+        #expect(try await input.tags().isEmpty)
+        #expect(try input.open().read()?.first == 0.5)
+        var settings = Settings()
+        settings.outputMode = mode
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+
+        await #expect(
+            throws: EngineError.unsupportedCodec(
+                "audio above 24-bit integer or 32-bit float precision to lossless output")
+        ) {
+            try await AudioJob.run(operation, on: source, context: context)
+        }
+
+        #expect(context.warnings.isEmpty)
+        #expect(try Data(contentsOf: source) == original)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "staging.json").path))
+    }
+
+    @Test(arguments: [AudioFormat.mp3, .m4aAAC, .aac, .opus, .ogg])
+    func floatSourcesStillConvertToLossyOutput(format: AudioFormat) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        let source = try floatSource(in: folder)
+        let original = try Data(contentsOf: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+
+        let result = try await AudioJob.run(.convert(format), on: source, context: context)
+
+        guard case .replace(_, let output) = result else {
+            Issue.record("expected a staged lossy output")
+            return
+        }
+        #expect(try !AudioSignals.decode(output.url).samples.isEmpty)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    private func floatSource(in folder: URL) throws -> URL {
+        func littleEndian<T: FixedWidthInteger>(_ value: T) -> Data {
+            var encoded = value.littleEndian
+            return withUnsafeBytes(of: &encoded) { Data($0) }
+        }
+        let source = folder.appending(path: "precise.wav")
+        let sampleRate: UInt32 = 48_000
+        let frameCount = Int(sampleRate)
+        let sample = 0.5000000009313226
+        #expect(Double(Float(sample)) != sample)
+        let bytesPerSample = MemoryLayout<Double>.size
+        let formatChunkSize: UInt32 = 16
+        let riffHeaderSize: UInt32 = 36
+        let payloadSize = UInt32(frameCount * bytesPerSample)
+        var wave = Data("RIFF".utf8)
+        wave.append(littleEndian(riffHeaderSize + payloadSize))
+        wave.append(Data("WAVEfmt ".utf8))
+        wave.append(littleEndian(formatChunkSize))
+        let ieeeFloatEncoding: UInt16 = 3
+        wave.append(littleEndian(ieeeFloatEncoding))
+        wave.append(littleEndian(UInt16(1)))
+        wave.append(littleEndian(sampleRate))
+        wave.append(littleEndian(sampleRate * UInt32(bytesPerSample)))
+        wave.append(littleEndian(UInt16(bytesPerSample)))
+        wave.append(littleEndian(UInt16(UInt64.bitWidth)))
+        wave.append(Data("data".utf8))
+        wave.append(littleEndian(payloadSize))
+        let period = 96
+        for index in 0..<frameCount {
+            wave.append(littleEndian((index % period < period / 2 ? sample : -sample).bitPattern))
+        }
+        try wave.write(to: source)
+        return source
     }
 
     private func integerSource(in folder: URL, suffix: String) throws -> URL {

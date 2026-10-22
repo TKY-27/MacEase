@@ -382,9 +382,12 @@ enum AudioJob {
     ) async throws -> ItemResult {
         try await requirePreservableContent(input)
         try target.format.validateLayout(input)
-        if input.bitDepth == 32, !input.isFloat, !target.format.isLossy {
+        let maximumDepth = input.isFloat ? MemoryLayout<Float>.size * byteBits : Float.significandBitCount + 1
+        if let depth = input.bitDepth, depth > maximumDepth, !target.format.isLossy {
             throw EngineError.unsupportedCodec(
-                String(localized: "32-bit integer audio to lossless output", comment: "Refuses integer precision loss"))
+                String(
+                    localized: "audio above 24-bit integer or 32-bit float precision to lossless output",
+                    comment: "Refuses source precision loss"))
         }
         let tags = try await tags(of: input, context: context)
         if !tags.isEmpty, !target.format.holdsTags {

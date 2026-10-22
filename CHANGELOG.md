@@ -57,8 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refuse audio replacement when tags cannot be preserved or read; new-file
   conversion reports a warning and retains the original.
-- Refuse lossless transforms of 32-bit integer audio before writing instead
-  of silently losing precision through Float32 decoding.
+- Refuse lossless audio transforms above 24-bit integer or 32-bit float
+  source precision before writing instead of silently losing precision
+  through Float32 decoding.
 - Video compression preserves transparency in supported MOV and WebM outputs.
 - Arbitrary-angle video rotation preserves source transparency in alpha outputs.
 - Matroska and WebM title or tag loss warns for new files and refuses replacement.
