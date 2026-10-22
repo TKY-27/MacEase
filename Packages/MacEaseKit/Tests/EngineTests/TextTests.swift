@@ -506,6 +506,30 @@ private let japanese = "日本語のテキストです。\n二行目"
                 """)
     }
 
+    @Test(arguments: [TextConversion.iniToJSON, .iniToXML])
+    func iniGlobalKeyMatchingSectionNameFailsWithItsPath(conversion: TextConversion) async throws {
+        let (outcome, output) = try await convert(
+            conversion, name: "profile.ini", input: "profile=plain\n[profile]\nmode=dev\n")
+
+        #expect(
+            outcome.outcomes == [
+                .failed(.invalidInput(.malformed("Duplicate JSON keys at $.profile are unsupported")))
+            ])
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+    }
+
+    @Test(arguments: [TextConversion.iniToJSON, .iniToXML])
+    func iniDistinctGlobalKeyAndSectionPreserveBothValues(conversion: TextConversion) async throws {
+        let output = try await converted(
+            conversion, name: "profile.ini", input: "profile=plain\n[server]\nmode=dev\n")
+
+        let expected =
+            conversion == .iniToJSON
+            ? "{\n  \"profile\": \"plain\",\n  \"server\": {\n    \"mode\": \"dev\"\n  }\n}\n"
+            : "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root>\n  <profile>plain</profile>\n  <server>\n    <mode>dev</mode>\n  </server>\n</root>\n"
+        #expect(output == expected)
+    }
+
     @Test func iniLineWithoutValueFails() async throws {
         let (outcome, _) = try await convert(.iniToJSON, name: "bad.ini", input: "[a]\njust words\n")
 

@@ -85,6 +85,9 @@ enum TextConverter {
                 assign(value, to: key, in: &global)
             }
         }
+        for (key, _) in global where sections[key] != nil {
+            throw EngineError.invalidInput(.malformed("Duplicate JSON keys at $.\(key) are unsupported"))
+        }
         return .object(global + sectionNames.map { ($0, .object(sections[$0, default: []])) })
     }
 

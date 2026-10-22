@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refuse INI global keys matching section names before JSON or XML output,
+  reporting the offending path instead of merging conflicting values.
+
 - Preserve disabled Matroska/WebM tracks in supported video outputs and
   disclose or refuse enabled-state loss in other destinations.
 

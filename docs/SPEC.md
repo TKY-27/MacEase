@@ -1811,6 +1811,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## Changelog
 
+- 2026-10-22: Refuse INI global keys matching section names with the
+  offending path before JSON or XML output.
+
 - 2026-10-22: Apply signed padding across Matroska laces and preserve track
   enabled states through Matroska/WebM and native video outputs.
 
