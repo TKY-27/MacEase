@@ -315,6 +315,7 @@ final class PacketCopyStage: StreamStage {
                 packet.outputTimestamp = nil
                 packet.decodeTimestamp = nil
                 packet.trimDurationAtStart = nil
+                packet.discardPadding = nil
             } else if !isVideo {
                 guard packet.timestamp >= start || packet.trimDurationAtStart != nil else { continue }
             }

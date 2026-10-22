@@ -79,7 +79,7 @@ import Testing
         #expect(audioPackets.map(\.remainingLaceFrames) == [1, 0])
         #expect(audioPackets.map(\.timestamp) == [40_000_000, 40_000_000])
         #expect(audioPackets.map(\.duration) == [nil, nil])
-        #expect(audioPackets.map(\.discardPadding) == [nil, last.discardPadding])
+        #expect(audioPackets.map(\.discardPadding) == [last.discardPadding, nil])
         #expect(packets.filter { $0.track == 2 }.map(\.timestamp) == [40_000_000, 0])
     }
 

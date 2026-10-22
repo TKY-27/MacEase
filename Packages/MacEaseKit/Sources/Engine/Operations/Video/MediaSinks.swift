@@ -77,15 +77,22 @@ enum Sinks {
         }
         let described = tracks.map(\.track)
         switch container {
-        case .avi: return MuxerSink(muxer: try AVIMuxer(url: url, tracks: described))
-        case .flv: return MuxerSink(muxer: try FLVMuxer(url: url, tracks: described))
-        default: return MuxerSink(muxer: try MatroskaMuxer(url: url, tracks: described, webm: container == .webm))
+        case .avi:
+            return MuxerSink(muxer: try AVIMuxer(url: url, tracks: described), unsupportedPaddingTracks: described)
+        case .flv:
+            return MuxerSink(muxer: try FLVMuxer(url: url, tracks: described), unsupportedPaddingTracks: described)
+        default:
+            return MuxerSink(
+                muxer: try MatroskaMuxer(
+                    url: url, tracks: described, webm: container == .webm,
+                    disabledTrackNumbers: Set(tracks.filter { !$0.isEnabled }.map { $0.track.number })))
         }
     }
 }
 
 struct MuxerSink: PacketSink {
     var muxer: any MediaMuxer
+    var unsupportedPaddingTracks: [MediaTrack] = []
 
     func accepts(track: Int) -> Bool { true }
 
@@ -96,6 +103,11 @@ struct MuxerSink: PacketSink {
     func endTrack(_ track: Int) {}
 
     mutating func write(_ packet: MediaPacket) async throws {
+        if packet.discardPadding ?? 0 != 0 || packet.trimDurationAtStart ?? 0 != 0,
+            let track = unsupportedPaddingTracks.first(where: { $0.number == packet.track })
+        {
+            throw EngineError.unsupportedCodec(track.codec.displayName)
+        }
         try muxer.write(packet)
     }
 
@@ -109,7 +121,7 @@ final class AssetWriterSink: PacketSink {
     private static let readinessPoll = Duration.milliseconds(2)
 
     private let writer: AVAssetWriter
-    private var inputs: [Int: (input: AVAssetWriterInput, format: CMFormatDescription)] = [:]
+    private var inputs: [Int: (input: AVAssetWriterInput, format: CMFormatDescription, codec: MediaCodec)] = [:]
 
     init(
         url: URL, fileType: AVFileType, tracks: [OutputTrack], transform: CGAffineTransform,
@@ -138,7 +150,7 @@ final class AssetWriterSink: PacketSink {
                 throw EngineError.encodeFailed("\(output.track.codec.displayName) cannot go into \(fileType.rawValue)")
             }
             writer.add(input)
-            inputs[output.track.number] = (input, format)
+            inputs[output.track.number] = (input, format, output.track.codec)
             if let group = output.alternateGroup {
                 groupedInputs[group, default: []].append(input)
                 if output.isEnabled { enabledInputs[group] = input }
@@ -178,8 +190,11 @@ final class AssetWriterSink: PacketSink {
     }
 
     func write(_ packet: MediaPacket) async throws {
-        guard let (input, format) = inputs[packet.track] else {
+        guard let (input, format, codec) = inputs[packet.track] else {
             throw EngineError.encodeFailed("packet for unknown track \(packet.track)")
+        }
+        guard packet.discardPadding ?? 0 >= 0 else {
+            throw EngineError.unsupportedCodec(codec.displayName)
         }
         while !input.isReadyForMoreMediaData {
             try checkHealth()
@@ -191,7 +206,7 @@ final class AssetWriterSink: PacketSink {
     }
 
     func finish() async throws {
-        for (input, _) in inputs.values { input.markAsFinished() }
+        for (input, _, _) in inputs.values { input.markAsFinished() }
         inputs = [:]
         await writer.finishWriting()
         guard writer.status == .completed else { throw EngineError.encodeFailed(Self.describe(writer.error)) }

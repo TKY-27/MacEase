@@ -26,6 +26,7 @@ enum MatroskaID {
     static let trackNumber: UInt32 = 0xD7
     static let trackUID: UInt32 = 0x73C5
     static let trackType: UInt32 = 0x83
+    static let flagEnabled: UInt32 = 0xB9
     static let flagLacing: UInt32 = 0x9C
     static let codecID: UInt32 = 0x86
     static let codecPrivate: UInt32 = 0x63A2

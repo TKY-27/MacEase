@@ -19,6 +19,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
     public private(set) var docType = ""
     public private(set) var hasDescriptiveMetadata = false
     public private(set) var hasTrackMetadata = false
+    public private(set) var disabledTrackNumbers: Set<Int> = []
 
     private let file: RandomAccessFile
     private var timestampScale: Int64 = 1_000_000
@@ -159,6 +160,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
         for entry in try children(of: list) where entry.id == MatroskaID.trackEntry {
             var number = 0
             var type = 0
+            var isEnabled = true
             var codecID = ""
             var codecPrivate: Data?
             var defaultDuration: Int64?
@@ -180,6 +182,13 @@ public struct MatroskaDemuxer: MediaDemuxer {
                 switch field.id {
                 case MatroskaID.trackNumber: number = try integer(field)
                 case MatroskaID.trackType: type = try integer(field)
+                case MatroskaID.flagEnabled:
+                    let flag = try integer(field)
+                    guard flag == 0 || flag == 1 else {
+                        throw FormatError.corrupt(
+                            String(localized: "Matroska enabled flag out of range", comment: "Invalid track metadata"))
+                    }
+                    isEnabled = flag == 1
                 case MatroskaID.codecID: codecID = EBML.string(try payload(field))
                 case MatroskaID.codecPrivate: codecPrivate = Data(try payload(field))
                 case MatroskaID.defaultDuration: defaultDuration = Int64(try integer(field))
@@ -244,6 +253,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
                 }
             }
             guard number > 0 else { throw FormatError.corrupt("track number 0") }
+            if !isEnabled { disabledTrackNumbers.insert(number) }
             if let encodings { strippedHeaders[number] = try strippedHeader(encodings) }
             guard type == MatroskaValue.videoTrack || type == MatroskaValue.audioTrack else {
                 skippedStreams.insert(.track(number))
@@ -354,7 +364,22 @@ public struct MatroskaDemuxer: MediaDemuxer {
         }
         guard let block else { throw FormatError.corrupt("BlockGroup without Block") }
         var packets = try packets(from: block, keyframe: !hasReference, duration: duration, additional: additional)
-        if let discardPadding, !packets.isEmpty { packets[packets.count - 1].discardPadding = discardPadding }
+        if let discardPadding, discardPadding != 0, !packets.isEmpty {
+            if packets.count == 1 || packets[0].remainingLaceFrames > 0 {
+                packets[0].discardPadding = discardPadding
+            } else {
+                var remaining = discardPadding.magnitude
+                let indices = discardPadding < 0 ? Array(packets.indices) : Array(packets.indices.reversed())
+                for index in indices where remaining > 0 {
+                    guard let duration = packets[index].duration, duration > 0 else {
+                        throw FormatError.corrupt("laced frame duration out of range")
+                    }
+                    let trimmed = min(remaining, UInt64(duration))
+                    packets[index].discardPadding = discardPadding < 0 ? -Int64(trimmed) : Int64(trimmed)
+                    remaining -= trimmed
+                }
+            }
+        }
         return packets
     }
 

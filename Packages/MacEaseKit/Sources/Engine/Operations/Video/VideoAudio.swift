@@ -46,6 +46,8 @@ private struct PCMFrameContinuity {
 }
 
 final class VideoPCMSource {
+    private static let maximumDecodedLaceSamples = 250_000_000 / MemoryLayout<Float>.stride
+
     struct Chunk {
         let samples: [Float]
         let timestamp: Int64
@@ -136,15 +138,22 @@ final class VideoPCMSource {
                     returnedLaceSamples = false
                 }
                 let offset = try Nanoseconds.from(seconds: Double(laceFrames) / sampleRate)
-                let (timestamp, laceOverflow) = laceOrigin.addingReportingOverflow(offset)
+                let (packetTimestamp, laceOverflow) = laceOrigin.addingReportingOverflow(offset)
                 guard !laceOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                if timestamp >= end { return nil }
-                guard let decoder else { throw EngineError.decodeFailed("missing audio decoder") }
-                let samples = try decoder.decode(packet)
-                let availableFrames = samples.count / channels
-                let (followingFrames, frameOverflow) = laceFrames.addingReportingOverflow(Int64(availableFrames))
+                if packetTimestamp >= end { return nil }
+                let decoded = try decodedSamples(from: packet, demuxer: &demuxer)
+                let decodedFrames = decoded.count / channels
+                let (followingFrames, frameOverflow) = laceFrames.addingReportingOverflow(Int64(decodedFrames))
                 guard !frameOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
                 laceFrames = followingFrames
+                let continuity = PCMFrameContinuity(sampleRate: sampleRate, timestampQuantum: nil)
+                let padding = try continuity.framePosition(packet.discardPadding ?? 0)
+                let leading = padding < 0 ? Int(min(UInt64(decodedFrames), padding.magnitude)) : 0
+                let trailing = padding > 0 ? Int(min(Int64(decodedFrames), padding)) : 0
+                let availableFrames = decodedFrames - leading - trailing
+                let leadingTime = try Nanoseconds.from(seconds: Double(leading) / sampleRate)
+                let (timestamp, trimOverflow) = packetTimestamp.addingReportingOverflow(leadingTime)
+                guard !trimOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
                 let discarded = Int(
                     min(
                         Double(availableFrames),
@@ -163,13 +172,43 @@ final class VideoPCMSource {
                     let continuesPrevious = packet.continuesPrevious && returnedLaceSamples
                     returnedLaceSamples = true
                     return Chunk(
-                        samples: Array(samples[discarded * channels..<kept * channels]),
+                        samples: Array(decoded[(leading + discarded) * channels..<(leading + kept) * channels]),
                         timestamp: max(timestamp, start),
                         continuesPrevious: continuesPrevious)
                 }
             }
             return nil
         }
+    }
+
+    private func decodedSamples(from first: MediaPacket, demuxer: inout any MediaDemuxer) throws -> [Float] {
+        guard let decoder else { throw EngineError.decodeFailed("missing audio decoder") }
+        var packet = first
+        packet.discardPadding = nil
+        var samples = try decoder.decode(packet)
+        guard first.discardPadding != nil, first.remainingLaceFrames > 0 else { return samples }
+        guard samples.count <= Self.maximumDecodedLaceSamples else {
+            throw FormatError.corrupt(String(localized: "Matroska cluster too large"))
+        }
+        var remaining = first.remainingLaceFrames
+        while remaining > 0 {
+            try Task.checkCancellation()
+            guard var continuation = try demuxer.nextPacket() else {
+                throw FormatError.corrupt(String(localized: "Matroska lace cannot be represented"))
+            }
+            guard continuation.track == first.track else { continue }
+            guard continuation.continuesPrevious, continuation.remainingLaceFrames == remaining - 1 else {
+                throw FormatError.corrupt(String(localized: "Matroska lace cannot be represented"))
+            }
+            continuation.discardPadding = nil
+            let decoded = try decoder.decode(continuation)
+            guard samples.count <= Self.maximumDecodedLaceSamples - decoded.count else {
+                throw FormatError.corrupt(String(localized: "Matroska cluster too large"))
+            }
+            samples += decoded
+            remaining -= 1
+        }
+        return samples
     }
 }
 
@@ -565,6 +604,9 @@ enum VideoAudio {
             while stage.nextTime != nil {
                 try Task.checkCancellation()
                 for packet in try await stage.pull() {
+                    guard packet.discardPadding ?? 0 == 0 else {
+                        throw EngineError.unsupportedCodec(track.codec.displayName)
+                    }
                     if format == .aac {
                         try file.write(contentsOf: adtsHeader(track: track, payloadLength: packet.payload.count))
                     }
@@ -619,10 +661,15 @@ enum VideoAudio {
         while stage.nextTime != nil {
             try Task.checkCancellation()
             for packet in try await stage.pull() {
-                guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
+                guard !packet.continuesPrevious, packet.remainingLaceFrames == 0,
+                    packet.discardPadding ?? 0 >= 0
+                else {
                     throw EngineError.unsupportedCodec(track.codec.displayName)
                 }
                 if let held {
+                    guard held.discardPadding ?? 0 == 0 else {
+                        throw EngineError.unsupportedCodec(track.codec.displayName)
+                    }
                     let duration: Int64
                     if let declared = held.duration {
                         duration = declared

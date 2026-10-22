@@ -20,6 +20,83 @@ import Testing
     private static let videoVolume: Float = 0.25
     private static let readinessTimeout = Duration.seconds(30)
 
+    @Test func disabledMatroskaAudioSurvivesWebMAndUsesExistingLossPolicy() async throws {
+        let folder = try folder()
+        let sourceURL = folder.appending(path: "disabled.mkv")
+        let enabledFlagID: UInt32 = 0xB9
+        let video = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(MatroskaID.defaultDuration, unsigned: 40_000_000)
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 16)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 16)))
+        let audio = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 2)
+                + EBML.element(MatroskaID.trackType, unsigned: 2)
+                + EBML.element(enabledFlagID, unsigned: 0)
+                + EBML.element(MatroskaID.codecID, string: "A_OPUS")
+                + EBML.element(
+                    MatroskaID.audio,
+                    EBML.element(MatroskaID.samplingFrequency, float: 48_000)
+                        + EBML.element(MatroskaID.channels, unsigned: 1)))
+        let cluster = EBML.element(
+            MatroskaID.cluster,
+            EBML.element(MatroskaID.clusterTimestamp, unsigned: 0)
+                + EBML.element(MatroskaID.simpleBlock, [0x81, 0, 0, 0x80, 1])
+                + EBML.element(MatroskaID.simpleBlock, [0x82, 0, 0, 0x80, 2]))
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        try Data(header + EBML.element(MatroskaID.segment, EBML.element(MatroskaID.tracks, video + audio) + cluster))
+            .write(to: sourceURL)
+        let original = try Data(contentsOf: sourceURL)
+        let source = try await MediaInput.open(sourceURL)
+        let metadata = try await VideoMetadata.load(from: source)
+        #expect(metadata.losses(for: .webm, includingAudio: true).isEmpty)
+        #expect(metadata.losses(for: .avi, includingAudio: true) == [.enabledState])
+        #expect(metadata.losses(for: .avi, includingAudio: false).isEmpty)
+        #expect(metadata.losses(for: nil, includingVideo: false, includingAudio: true) == [.enabledState])
+
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        let unsupported = TranscodePlan(container: .avi, video: .copy, audio: .copy)
+        let newFile = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        _ = try await VideoProperties.prepareMetadata(unsupported, input: source, context: newFile)
+        #expect(newFile.warnings == [.videoMetadataDropped([.enabledState])])
+        await #expect(throws: EngineError.videoMetadataUnsupported([.enabledState])) {
+            _ = try await VideoProperties.prepareMetadata(unsupported, input: source, context: context)
+        }
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "staging.json").path))
+        var derived = unsupported
+        derived.derived = true
+        _ = try await VideoProperties.prepareMetadata(derived, input: source, context: context)
+        #expect(context.warnings == [.videoMetadataDropped([.enabledState])])
+
+        guard case .replace(_, let output) = try await VideoEdits.run(.convert(.webm), url: sourceURL, context: context)
+        else {
+            Issue.record("expected staged WebM")
+            return
+        }
+        let written = try await VideoMetadata.load(from: MediaInput.open(output.url))
+        #expect(written.losses(for: .avi, includingAudio: true) == [.enabledState])
+        #expect(try await metadata.losses(in: output.url, container: .webm, includingAudio: true).isEmpty)
+        var enabledSource = source
+        enabledSource.disabledTrackNumbers = []
+        var changedPlan = TranscodePlan(container: .webm, video: .copy, audio: .copy)
+        changedPlan.metadata = try await VideoMetadata.load(from: enabledSource)
+        let changedOutput = folder.appending(path: "incorrectly-enabled.webm")
+        try await Transcoder.run(source, plan: changedPlan, to: changedOutput) { _ in }
+        #expect(try await metadata.losses(in: changedOutput, container: .webm, includingAudio: true) == [.enabledState])
+        #expect(try Data(contentsOf: sourceURL) == original)
+    }
+
     @Test(arguments: [OutputContainer.mkv, .webm], [VideoOperation.resize(.percent(50)), .convert(.mov)])
     func matroskaMetadataFollowsResolvedOutputMode(container: OutputContainer, operation: VideoOperation) async throws {
         let folder = try folder()
@@ -297,13 +374,34 @@ import Testing
         let sourceURL = try await source(in: folder, disabledAudio: true)
         let source = try await MediaInput.open(sourceURL)
         let metadata = try await VideoMetadata.load(from: source)
-        #expect(metadata.losses(for: .mkv, includingAudio: true).contains(.enabledState))
+        #expect(!metadata.losses(for: .mkv, includingAudio: true).contains(.enabledState))
         let outputURL = folder.appending(path: "disabled.\(container.fileExtension)")
         try await Transcoder.run(
             source, plan: TranscodePlan(container: container, video: .copy, audio: .copy), to: outputURL
         ) { _ in }
         let audio = try #require(try await AVURLAsset(url: outputURL).loadTracks(withMediaType: .audio).first)
         #expect(try await audio.load(.isEnabled) == false)
+    }
+
+    @Test func disabledAudioSurvivesNativeMatroskaNativeConversion() async throws {
+        let folder = try folder()
+        let sourceURL = try await source(in: folder, disabledAudio: true)
+        let matroskaURL = folder.appending(path: "disabled.mkv")
+        try await Transcoder.run(
+            MediaInput.open(sourceURL), plan: TranscodePlan(container: .mkv, video: .copy, audio: .copy),
+            to: matroskaURL
+        ) { _ in }
+        let matroska = try await MediaInput.open(matroskaURL)
+        let audioTrack = try #require(matroska.audio)
+        #expect(matroska.disabledTrackNumbers == [audioTrack.number])
+        let output = folder.appending(path: "disabled-roundtrip.mov")
+        try await Transcoder.run(
+            matroska, plan: TranscodePlan(container: .mov, video: .copy, audio: .copy), to: output
+        ) { _ in }
+        let audio = try #require(try await AVURLAsset(url: output).loadTracks(withMediaType: .audio).first)
+        #expect(try await audio.load(.isEnabled) == false)
+        let metadata = try await VideoMetadata.load(from: matroska)
+        #expect(try await metadata.losses(in: output, container: .mov, includingAudio: true).isEmpty)
     }
 
     @Test func matroskaLanguageSurvivesRebuiltTrack() async throws {

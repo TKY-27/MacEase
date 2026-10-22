@@ -8,6 +8,108 @@ import Testing
     private static let tagNameID: UInt32 = 0x45A3
     private static let tagStringID: UInt32 = 0x4487
 
+    @Test(arguments: [Int64(-25_000_000), -5_000_000, 5_000_000, 25_000_000], [false, true])
+    func signedPaddingRoundTripsAcrossLaceBoundaries(padding: Int64, unresolved: Bool) throws {
+        let url = ContainerFixtures.temporaryURL("padding-source.mkv")
+        let output = ContainerFixtures.temporaryURL("padding-output.mkv")
+        defer {
+            #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) }
+            #expect(throws: Never.self) { try FileManager.default.removeItem(at: output) }
+        }
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 2)
+                + EBML.element(MatroskaID.codecID, string: unresolved ? "A_VORBIS" : "A_PCM/INT/LIT")
+                + EBML.element(
+                    MatroskaID.audio,
+                    EBML.element(MatroskaID.samplingFrequency, float: 48_000)
+                        + EBML.element(MatroskaID.channels, unsigned: 1)
+                        + EBML.element(MatroskaID.bitDepth, unsigned: 16)))
+        let frameBytes = 960 * MemoryLayout<Int16>.stride
+        let block = [UInt8(0x81), 0, 0, 0x04, 1] + [UInt8](repeating: 0, count: 2 * frameBytes)
+        let group = EBML.element(
+            MatroskaID.blockGroup,
+            EBML.element(MatroskaID.block, block) + EBML.element(MatroskaID.discardPadding, signed: padding))
+        let cluster = EBML.element(MatroskaID.cluster, EBML.element(MatroskaID.clusterTimestamp, unsigned: 0) + group)
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        try Data(header + EBML.element(MatroskaID.segment, EBML.element(MatroskaID.tracks, track) + cluster))
+            .write(to: url)
+        var source = try MatroskaDemuxer(url: url)
+        let packets = try ContainerFixtures.packets(&source)
+        let expected: [Int64?]
+        if unresolved {
+            expected = [padding, nil]
+        } else {
+            switch padding {
+            case -25_000_000: expected = [-20_000_000, -5_000_000]
+            case -5_000_000: expected = [-5_000_000, nil]
+            case 5_000_000: expected = [nil, 5_000_000]
+            default: expected = [5_000_000, 20_000_000]
+            }
+        }
+        #expect(packets.map(\.discardPadding) == expected)
+        var muxer = try MatroskaMuxer(url: output, tracks: source.tracks, webm: false)
+        for packet in packets { try muxer.write(packet) }
+        try muxer.finish()
+        var written = try MatroskaDemuxer(url: output)
+        let copied = try ContainerFixtures.packets(&written)
+        #expect(copied.map(\.discardPadding) == expected)
+        #expect(copied.map(\.payload) == packets.map(\.payload))
+        #expect(copied.map(\.timestamp) == packets.map(\.timestamp))
+    }
+
+    @Test(arguments: [UInt64?.none, 0, 1, 2], [false, true])
+    func enabledFlagValidatesDefaultsAndRoundTrips(flag: UInt64?, webm: Bool) throws {
+        let enabledFlagID: UInt32 = 0xB9
+        let url = ContainerFixtures.temporaryURL("enabled-source.mkv")
+        let output = ContainerFixtures.temporaryURL("enabled-output.mkv")
+        defer {
+            #expect(throws: Never.self) { try FileManager.default.removeItem(at: url) }
+        }
+        var track =
+            EBML.element(MatroskaID.trackNumber, unsigned: 7)
+            + EBML.element(MatroskaID.trackType, unsigned: 1)
+            + EBML.element(MatroskaID.codecID, string: "V_VP9")
+            + EBML.element(
+                MatroskaID.video,
+                EBML.element(MatroskaID.pixelWidth, unsigned: 16)
+                    + EBML.element(MatroskaID.pixelHeight, unsigned: 16))
+        if let flag { track += EBML.element(enabledFlagID, unsigned: flag) }
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        try Data(
+            header
+                + EBML.element(
+                    MatroskaID.segment, EBML.element(MatroskaID.tracks, EBML.element(MatroskaID.trackEntry, track)))
+        )
+        .write(to: url)
+        if flag == 2 {
+            #expect(throws: FormatError.corrupt(String(localized: "Matroska enabled flag out of range"))) {
+                try MatroskaDemuxer(url: url)
+            }
+            return
+        }
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: output) } }
+        let source = try MatroskaDemuxer(url: url)
+        #expect(source.disabledTrackNumbers == (flag == 0 ? [7] : []))
+        var muxer = try MatroskaMuxer(
+            url: output, tracks: source.tracks, webm: webm, disabledTrackNumbers: source.disabledTrackNumbers)
+        try muxer.finish()
+        #expect(try MatroskaDemuxer(url: output).disabledTrackNumbers == (flag == 0 ? [7] : []))
+        let file = try RandomAccessFile(url: output)
+        let ebml = try EBML.readHeader(file, at: 0)
+        let segment = try EBML.readHeader(file, at: ebml.dataStart + #require(ebml.size))
+        let children = try MatroskaDemuxer.children(file, from: segment.dataStart, to: file.size)
+        let tracks = try #require(children.first { $0.id == MatroskaID.tracks })
+        let entry = try EBML.readHeader(file, at: tracks.dataStart)
+        let fields = try MatroskaDemuxer.children(
+            file, from: entry.dataStart, to: entry.dataStart + #require(entry.size))
+        let writtenFlag = try fields.first { $0.id == enabledFlagID }.map {
+            try EBML.integer(file.bytes(at: $0.dataStart, count: Int(#require($0.size))))
+        }
+        #expect((writtenFlag ?? 1) == (flag == 0 ? 0 : 1))
+    }
+
     private func syntheticPackets() -> (tracks: [MediaTrack], packets: [MediaPacket]) {
         var video = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .vp9)
         video.hasAlpha = true

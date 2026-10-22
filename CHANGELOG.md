@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve disabled Matroska/WebM tracks in supported video outputs and
+  disclose or refuse enabled-state loss in other destinations.
+
 - Preserve Opus output gain when extracting or re-encoding Matroska and WebM
   audio.
 

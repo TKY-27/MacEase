@@ -3130,6 +3130,17 @@
         }
       }
     },
+    "Matroska enabled flag out of range": {
+      "comment": "Invalid track metadata",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska の有効フラグが範囲外です"
+          }
+        }
+      }
+    },
     "Matroska lace cannot be represented": {
       "comment": "Lace metadata cannot fit one block",
       "localizations": {

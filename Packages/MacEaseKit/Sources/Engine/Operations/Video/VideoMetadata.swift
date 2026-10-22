@@ -38,8 +38,8 @@ struct VideoMetadata {
             return VideoMetadata(
                 assetMetadata: [], mpeg4Metadata: [], containerMetadata: containerMetadata,
                 sourceContainer: input.container,
-                video: input.video.map(attributes(of:)),
-                audio: input.audio.map(attributes(of:)),
+                video: input.video.map { attributes(of: $0, disabledTrackNumbers: input.disabledTrackNumbers) },
+                audio: input.audio.map { attributes(of: $0, disabledTrackNumbers: input.disabledTrackNumbers) },
                 groups: [])
         }
         let video: TrackAttributes?
@@ -82,7 +82,9 @@ struct VideoMetadata {
             if selected.contains(where: { $0.preferredVolume != ($0.isVideo ? 0 : 1) }) {
                 losses.append(.volume)
             }
-            if selected.contains(where: { !$0.isEnabled }) { losses.append(.enabledState) }
+            if container != .mkv, container != .webm, selected.contains(where: { !$0.isEnabled }) {
+                losses.append(.enabledState)
+            }
         }
         if container == .mp4 || container == .m4v,
             assetMetadata.contains(where: { $0.identifier == .quickTimeMetadataLocationISO6709 })
@@ -122,10 +124,19 @@ struct VideoMetadata {
             if container == .mkv || container == .webm {
                 let written = try await MediaInput.open(output)
                 for (source, target) in [(video, written.video), (includingAudio ? audio : nil, written.audio)] {
-                    guard let source, Self.isISO639Code(source.languageCode), source.languageCode != "und" else {
-                        continue
+                    guard let source else { continue }
+                    if Self.isISO639Code(source.languageCode), source.languageCode != "und",
+                        source.languageCode != target?.language
+                    {
+                        unsupported.insert(.language)
                     }
-                    if source.languageCode != target?.language { unsupported.insert(.language) }
+                    if let target {
+                        if source.isEnabled == written.disabledTrackNumbers.contains(target.number) {
+                            unsupported.insert(.enabledState)
+                        }
+                    } else if !source.isEnabled {
+                        unsupported.insert(.enabledState)
+                    }
                 }
             }
             return VideoMetadataProperty.allCases.filter { unsupported.contains($0) }
@@ -230,12 +241,12 @@ struct VideoMetadata {
             if Self.isISO639Code(source.languageCode), source.languageCode != "und" {
                 tracks[index].track.language = source.languageCode
             }
+            tracks[index].isEnabled = source.isEnabled
             guard container.fileType != nil else { continue }
             tracks[index].metadata = source.metadata
             tracks[index].languageCode = Self.isISO639Code(source.languageCode) ? source.languageCode : nil
             tracks[index].extendedLanguageTag = source.extendedLanguageTag
             tracks[index].preferredVolume = source.preferredVolume
-            tracks[index].isEnabled = source.isEnabled
             if let group = groups.firstIndex(where: { $0.contains(source.identifier) }),
                 groups[group].allSatisfy(selectedIDs.contains),
                 !groups[group].contains(video?.identifier ?? 0) || !groups[group].contains(audio?.identifier ?? 0)
@@ -261,11 +272,11 @@ struct VideoMetadata {
             isEnabled: track.load(.isEnabled))
     }
 
-    private static func attributes(of track: MediaTrack) -> TrackAttributes {
+    private static func attributes(of track: MediaTrack, disabledTrackNumbers: Set<Int>) -> TrackAttributes {
         TrackAttributes(
             identifier: kCMPersistentTrackID_Invalid, isVideo: track.isVideo, metadata: [],
             languageCode: track.language, extendedLanguageTag: nil, preferredVolume: track.isVideo ? 0 : 1,
-            isEnabled: true)
+            isEnabled: !disabledTrackNumbers.contains(track.number))
     }
 
     private static func isISO639Code(_ code: String?) -> Bool {

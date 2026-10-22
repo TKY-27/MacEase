@@ -16,6 +16,7 @@ public struct MatroskaMuxer: MediaMuxer {
 
     private let file: PatchableFile
     private let tracks: [MediaTrack]
+    private let disabledTrackNumbers: Set<Int>
     private let webm: Bool
     private let videoTrack: Int?
     private var segmentDataStart: Int64 = 0
@@ -31,7 +32,7 @@ public struct MatroskaMuxer: MediaMuxer {
     private var cues: [(time: Int64, position: Int64)] = []
     private var lastEnd: Int64 = 0
 
-    public init(url: URL, tracks: [MediaTrack], webm: Bool) throws {
+    public init(url: URL, tracks: [MediaTrack], webm: Bool, disabledTrackNumbers: Set<Int> = []) throws {
         guard tracks.allSatisfy({ $0.number > 0 }), Set(tracks.map(\.number)).count == tracks.count else {
             throw FormatError.encoderFailure("Matroska track numbers must be unique and positive")
         }
@@ -60,6 +61,7 @@ public struct MatroskaMuxer: MediaMuxer {
         }
         file = try PatchableFile(url: url)
         self.tracks = tracks
+        self.disabledTrackNumbers = disabledTrackNumbers
         self.webm = webm
         videoTrack = tracks.first(where: \.isVideo)?.number
         try writeHeader()
@@ -106,6 +108,9 @@ public struct MatroskaMuxer: MediaMuxer {
             + EBML.element(MatroskaID.trackUID, unsigned: UInt64(track.number) &* 0x9E37_79B9 | 1)
             + EBML.element(MatroskaID.flagLacing, unsigned: 1)
             + EBML.element(MatroskaID.codecID, string: try MatroskaCodec.id(for: track.codec))
+        if disabledTrackNumbers.contains(track.number) {
+            body += EBML.element(MatroskaID.flagEnabled, unsigned: 0)
+        }
         switch track.kind {
         case .video(let width, let height):
             body += EBML.element(MatroskaID.trackType, unsigned: UInt64(MatroskaValue.videoTrack))
@@ -175,7 +180,10 @@ public struct MatroskaMuxer: MediaMuxer {
                 packet.remainingLaceFrames == previous.remainingLaceFrames - 1,
                 packet.timestamp == block[0].timestamp, packet.duration == nil, block[0].duration == nil,
                 packet.isKeyframe == block[0].isKeyframe, packet.additional == block[0].additional,
-                packet.laceDuration == nil, previous.discardPadding == nil
+                packet.laceDuration == nil,
+                block.count == 1 || previous.discardPadding == nil,
+                block[0].discardPadding == nil || packet.discardPadding == nil,
+                packet.remainingLaceFrames == 0 || packet.discardPadding == nil
             else {
                 throw FormatError.encoderFailure(Self.invalidLaceMessage)
             }
@@ -278,7 +286,8 @@ public struct MatroskaMuxer: MediaMuxer {
             } else {
                 frameBytes = [UInt8](packet.payload)
             }
-            if packet.additional != nil || frames.last?.discardPadding != nil || packet.laceDuration != nil {
+            let discardPadding = packet.discardPadding ?? frames.last?.discardPadding
+            if packet.additional != nil || discardPadding != nil || packet.laceDuration != nil {
                 block.append(lacing ? 0x02 : 0)
                 block += frameBytes
                 var group = EBML.element(MatroskaID.block, block)
@@ -288,7 +297,7 @@ public struct MatroskaMuxer: MediaMuxer {
                         + EBML.element(MatroskaID.blockAdditional, [UInt8](additional))
                     group += EBML.element(MatroskaID.blockAdditions, EBML.element(MatroskaID.blockMore, more))
                 }
-                if let discardPadding = frames.last?.discardPadding {
+                if let discardPadding {
                     group += EBML.element(MatroskaID.discardPadding, signed: discardPadding)
                 }
                 if let laceDuration = packet.laceDuration {

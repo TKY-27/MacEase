@@ -20,6 +20,7 @@ struct MediaInput {
     let duration: Int64
     var hasContainerDescriptiveMetadata = false
     var hasContainerTrackMetadata = false
+    var disabledTrackNumbers: Set<Int> = []
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
 
@@ -54,6 +55,7 @@ struct MediaInput {
             skippedStreams: skippedStreams, duration: duration,
             hasContainerDescriptiveMetadata: matroska?.hasDescriptiveMetadata ?? false,
             hasContainerTrackMetadata: matroska?.hasTrackMetadata ?? false,
+            disabledTrackNumbers: matroska?.disabledTrackNumbers ?? [],
             transform: .identity)
     }
 

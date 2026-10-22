@@ -885,6 +885,12 @@ Matroska/WebM Info Title and Tags SimpleTag entries count as user metadata;
 track-targeted tags and TrackEntry Name count as track metadata.
 TrackEntry LanguageBCP47 takes precedence over legacy Language regardless of
 element order. Unsupported track names and languages use the same loss checks.
+TrackEntry FlagEnabled defaults to enabled when absent. Matroska/WebM outputs
+retain it, and native outputs map it to the existing enabled-track setting.
+Destinations without enabled-state storage use the enabled-state loss warning
+for new files and Derived exports, and refuse Replace before staging. Output
+verification detects changed enabled states in both native and Matroska/WebM
+containers.
 Their loss warns for new files
 and always-Derived exports, and refuses Replace before staging. MuxingApp and
 WritingApp identify provenance and do not count as user metadata.
@@ -929,6 +935,16 @@ unresolved laces in a single block. Copy paths requiring individual packet
 timestamps refuse unresolved selected tracks during packet consumption with
 the existing unsupported-codec error; raw elementary-stream copies remain
 available.
+Signed DiscardPadding trims from the start or end of the whole Block. Known
+lace durations distribute that trim from the corresponding end. Unresolved
+laces retain group padding through remuxing; decoding applies it to the whole
+decoded group with a 250 MB buffer limit. PCM copies and re-encodes retain the
+same valid sample range and presentation timing.
+AVI/FLV and raw elementary audio copies refuse padding. Ogg copies support
+only positive padding on the final packet; native packet copies refuse
+negative padding.
+Other padded copies use the existing unsupported-codec error during packet
+consumption, leaving re-encoding available.
 Unsplit BlockDuration remains attached to its lace group. Timed video edits
 also refuse unresolved video timing. Range copies may retain whole unresolved
 groups but refuse cuts through them during packet consumption; excluded groups
@@ -989,6 +1005,9 @@ Chained Ogg streams are not supported. Input initialization scans Ogg pages
 and rejects a new logical stream after EOS before writing any output. The
 original is kept (ADR 0010).
 
+Opus decoding in Ogg, Matroska and WebM applies the OpusHead output gain.
+Matroska and WebM use CodecDelay alone for pre-skip.
+
 Audio transforms preserve the source speaker layout whenever the output
 encoder can represent it. Unsupported layouts fail before writing instead of
 downmixing. The current MP3 and Opus implementations accept only mono and
@@ -1005,9 +1024,6 @@ their channel count.
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `folder.removeDuplicates` | — (review under Ask) | Trash | Candidates pass saved filters, then size, SHA-256, and byte equality. Ask opens the keep-one panel; Keep oldest/newest proposes by modification date and moves only redundant verified copies to Trash without a panel. Equal timestamps use normalized path order. Permanent deletion always requires an alert |
-Opus decoding in Ogg, Matroska and WebM applies the OpusHead output gain.
-Matroska and WebM use CodecDelay alone for pre-skip.
-
 | `folder.removeEmpty` | — (confirmation alert) | Trash | Recursive scan followed by the section 5 alert; selected roots are retained. Only `.DS_Store` may be ignored by default; ordinary zero-byte files remain user content |
 | `folder.tree` | Copy, Save as .txt, Save as .md | Clipboard, Derived | Unicode box-drawing tree, folders first, natural order, optional folders-only output; global and Tree exclusions combined; symlinks not followed, packages not traversed |
 | `folder.rename` | — (panel) | Rename | Renames the selected items, or the folder's direct children when one folder is selected |
@@ -1794,6 +1810,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Apply signed padding across Matroska laces and preserve track
+  enabled states through Matroska/WebM and native video outputs.
 
 - 2026-10-22: Apply OpusHead output gain when decoding Matroska and WebM audio.
 

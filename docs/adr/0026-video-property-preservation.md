@@ -50,7 +50,12 @@ attribute copying only ran during explicit HDR-to-SDR conversion.
   Thumbnails share animation exports' tone mapping and warnings, and always
   keep the original under either saved output mode.
 - Share metadata and track-attribute copying across native MOV/MP4/M4V
-  outputs. Preserve supported language in Matroska/WebM. Reconstruct only
+  outputs. Preserve supported language and TrackEntry FlagEnabled in
+  Matroska/WebM, defaulting absent FlagEnabled to enabled. Map that state to
+  native track settings and verify it after writing both container families.
+  Destinations without enabled-state storage use the existing enabled-state
+  warning for new files and Derived exports, and refuse Replace before
+  staging. Reconstruct only
   complete alternate groups supported by AVAssetWriter. Warn or refuse
   present properties the selected output writer cannot store.
 - Ignore singleton alternate groups and software or encoding-tool tags in

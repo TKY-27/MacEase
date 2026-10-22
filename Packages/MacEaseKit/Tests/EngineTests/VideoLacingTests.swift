@@ -6,6 +6,226 @@ import Testing
 @testable import Formats
 
 @Suite(.serialized) struct VideoLacingTests {
+    @Test(arguments: [OutputContainer.avi, .flv], [Int64?.none, 0])
+    func containerCopiesAcceptAbsentOrZeroTrims(container: OutputContainer, trim: Int64?) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let codec: MediaCodec = container == .avi ? .pcm(bits: 16, float: false, bigEndian: false) : .aac
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 48_000, channels: 1), codec: codec,
+            codecPrivate: container == .flv ? Data([0x11, 0x88]) : nil)
+        let output = folder.appending(path: "untrimmed.\(container.fileExtension)")
+        var sink = try Sinks.make(
+            container, url: output, tracks: [OutputTrack(track: track, format: nil)], transform: .identity)
+        var packet = MediaPacket(
+            track: 1, timestamp: 0, duration: 20_000_000, isKeyframe: true,
+            payload: Data(repeating: 1, count: 1_920))
+        packet.discardPadding = trim
+        packet.trimDurationAtStart = trim
+        try await sink.write(packet)
+        try await sink.finish()
+        let input = try await MediaInput.open(output)
+        var demuxer = try #require(try input.demuxer)
+        let first = try demuxer.nextPacket()
+        let copied = try #require(first)
+        #expect(copied.payload == packet.payload)
+        #expect(copied.timestamp == packet.timestamp)
+        let following = try demuxer.nextPacket()
+        #expect(following == nil)
+    }
+
+    @Test(arguments: [OutputContainer.avi, .flv])
+    func containerCopiesRefuseUnrepresentedStartTrim(container: OutputContainer) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let codec: MediaCodec = container == .avi ? .pcm(bits: 16, float: false, bigEndian: false) : .aac
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 48_000, channels: 1), codec: codec,
+            codecPrivate: container == .flv ? Data([0x11, 0x88]) : nil)
+        let output = folder.appending(path: "trimmed.\(container.fileExtension)")
+        var sink = try Sinks.make(
+            container, url: output, tracks: [OutputTrack(track: track, format: nil)], transform: .identity)
+        var packet = MediaPacket(
+            track: 1, timestamp: 0, duration: 20_000_000, isKeyframe: true,
+            payload: Data(repeating: 1, count: 1_920))
+        packet.trimDurationAtStart = 5_000_000
+        await #expect(throws: EngineError.unsupportedCodec(codec.displayName)) {
+            try await sink.write(packet)
+        }
+        sink.cancel()
+    }
+
+    @Test(arguments: [OutputContainer.avi, .flv], [Int64(-5_000_000), 5_000_000])
+    func containerCopiesRefuseUnsupportedPadding(container: OutputContainer, padding: Int64) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let codec: MediaCodec = container == .avi ? .pcm(bits: 16, float: false, bigEndian: false) : .aac
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 48_000, channels: 1), codec: codec,
+            codecPrivate: container == .flv ? Data([0x11, 0x88]) : nil)
+        let source = folder.appending(path: "padded.mkv")
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        var packet = MediaPacket(
+            track: 1, timestamp: 0, duration: 20_000_000, isKeyframe: true,
+            payload: Data(repeating: 1, count: 1_920))
+        packet.discardPadding = padding
+        try muxer.write(packet)
+        try muxer.finish()
+        let original = try Data(contentsOf: source)
+        let output = folder.appending(path: "copied.\(container.fileExtension)")
+        let input = try await MediaInput.open(source)
+        await #expect(throws: EngineError.unsupportedCodec(codec.displayName)) {
+            try await Transcoder.run(
+                input, plan: TranscodePlan(container: container, video: nil, audio: .copy), to: output
+            ) { _ in }
+        }
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test(arguments: [AudioFormat.aac, .m4aAAC])
+    func compressedCopiesRefuseUnrepresentableLeadingPadding(format: AudioFormat) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "padded-aac.mkv")
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 48_000, channels: 1), codec: .aac,
+            codecPrivate: Data([0x11, 0x88]))
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        var packet = MediaPacket(
+            track: 1, timestamp: 0, duration: 21_333_333, isKeyframe: true, payload: Data([1]))
+        packet.discardPadding = -5_000_000
+        try muxer.write(packet)
+        try muxer.finish()
+        let original = try Data(contentsOf: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.unsupportedCodec("AAC")) {
+            try await VideoAudio.extract(format, url: source, context: context)
+        }
+        try expectDiscardedStaging(context, in: folder)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test(arguments: [Int64(-5_000_000), 5_000_000])
+    func opusCopyRefusesPaddingBeforeFinalPacket(padding: Int64) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "padded-opus.mkv")
+        let encoder = try OpusAudioEncoder(channels: 1, bitrate: 64_000)
+        let payloads = try encoder.encode([Float](repeating: 0.25, count: 2 * OpusAudioEncoder.frameSamples))
+        try #require(payloads.count == 2)
+        let track = MediaTrack(
+            number: 1, kind: .audio(sampleRate: 48_000, channels: 1), codec: .opus,
+            codecPrivate: encoder.identificationHeader)
+        var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
+        for (index, payload) in payloads.enumerated() {
+            var packet = MediaPacket(
+                track: 1, timestamp: Int64(index) * 20_000_000, duration: 20_000_000,
+                isKeyframe: true, payload: payload)
+            if index == 0 { packet.discardPadding = padding }
+            try muxer.write(packet)
+        }
+        try muxer.finish()
+        let original = try Data(contentsOf: source)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.unsupportedCodec("Opus")) {
+            try await VideoAudio.extract(.opus, url: source, context: context)
+        }
+        try expectDiscardedStaging(context, in: folder)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test(arguments: [UInt8(1), 2, 3], [Int64(-25_000_000), -5_000_000, 5_000_000, 25_000_000])
+    func signedPaddingKeepsSameSamplesInCopyAndReencodedExtraction(lacing: UInt8, padding: Int64) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "padded.mkv")
+        let untrimmed = try writeLacedPCM(
+            to: source, lacing: lacing, laceCount: 2, gapFrames: nil, discardPadding: padding)
+        let original = try Data(contentsOf: source)
+        let trimFrames = abs(Int(padding / 1_000_000)) * 48
+        let expected =
+            padding < 0
+            ? [Float](repeating: 0, count: trimFrames) + untrimmed.dropFirst(trimFrames)
+            : Array(untrimmed.dropLast(trimFrames))
+        for kilobits in [Int?.none, 0] {
+            let context = ItemContext(
+                settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+            defer { context.removeStaging() }
+            guard
+                case .derived(_, let outputs) = try await VideoAudio.extract(
+                    .wav, kilobits: kilobits, url: source, context: context)
+            else {
+                Issue.record("expected extracted WAV")
+                return
+            }
+            let samples = try AudioSignals.decode(#require(outputs.first).url).samples
+            #expect(samples.count == expected.count)
+            #expect(samples.elementsEqual(expected))
+        }
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test(arguments: [Int64(-25_000_000), -5_000_000, 5_000_000, 25_000_000])
+    func unresolvedPaddingUsesWholeDecodedLaceGroup(padding: Int64) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "unresolved-padded.mkv")
+        let untrimmed = try writeLacedPCM(
+            to: source, lacing: 1, laceCount: 3, gapFrames: nil, codecID: "A_UNKNOWN", discardPadding: padding)
+        let input = try await MediaInput.open(source)
+        var track = try #require(input.audio)
+        track.codec = .pcm(bits: 16, float: false, bigEndian: false)
+        let output = folder.appending(path: "decoded.wav")
+        try await VideoAudio.encode(
+            input, track: track, sampleRate: 48_000,
+            target: AudioTarget.defaults(for: .wav, settings: AudioSettings()), to: output
+        ) { _ in }
+        let trimFrames = abs(Int(padding / 1_000_000)) * 48
+        let expected =
+            padding < 0
+            ? [Float](repeating: 0, count: trimFrames) + untrimmed.dropFirst(trimFrames)
+            : Array(untrimmed.dropLast(trimFrames))
+        let samples = try AudioSignals.decode(output).samples
+        #expect(samples.count == expected.count)
+        #expect(samples.elementsEqual(expected))
+    }
+
+    @Test(arguments: [Int64(-25_000_000), 25_000_000])
+    func vorbisPaddingSpansDecodedLacesAndSurvivesRemux(padding: Int64) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "padded-vorbis.mkv")
+        let untrimmed = try writeVorbisLaces(to: source, discardPadding: padding)
+        let trimFrames = 1_200
+        try #require(untrimmed.count > trimFrames)
+        let expected =
+            padding < 0
+            ? [Float](repeating: 0, count: 480 + trimFrames) + untrimmed.dropFirst(trimFrames)
+            : [Float](repeating: 0, count: 480) + untrimmed.dropLast(trimFrames)
+        let copied = folder.appending(path: "padded-vorbis.webm")
+        let input = try await MediaInput.open(source)
+        try await Transcoder.run(
+            input, plan: TranscodePlan(container: .webm, video: nil, audio: .copy), to: copied
+        ) { _ in }
+        for url in [source, copied] {
+            let context = ItemContext(
+                settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+            defer { context.removeStaging() }
+            guard case .derived(_, let outputs) = try await VideoAudio.extract(.wav, url: url, context: context) else {
+                Issue.record("expected extracted WAV")
+                return
+            }
+            let samples = try AudioSignals.decode(#require(outputs.first).url).samples
+            #expect(samples.count == expected.count)
+            let maximumDifference = zip(samples, expected).map { abs($0 - $1) }.max() ?? 0
+            #expect(maximumDifference < 1.0 / 32_768)
+        }
+    }
+
     @Test(arguments: [UInt8(1), 2, 3], [Int?.none, 0, 480])
     func pcmCopyExtractionKeepsEveryLaceAndOnlyRealBlockGaps(lacing: UInt8, gapFrames: Int?) async throws {
         try await checkLacedAudio(lacing: lacing, gapFrames: gapFrames, output: .copy)
@@ -229,7 +449,7 @@ import Testing
         #expect(directories.allSatisfy { !FileManager.default.fileExists(atPath: $0) })
     }
 
-    private func writeVorbisLaces(to source: URL) throws -> [Float] {
+    private func writeVorbisLaces(to source: URL, discardPadding: Int64? = nil) throws -> [Float] {
         let encoder = try VorbisAudioEncoder(sampleRate: 48_000, channels: 1, bitrate: 64_000)
         let signal = (0..<4_096).map { Float(sin(Double($0) * 0.1)) * 0.25 }
         let encoded = try encoder.encode(signal) + encoder.finish()
@@ -244,10 +464,11 @@ import Testing
             codecPrivate: encoder.codecPrivate)
         var muxer = try MatroskaMuxer(url: source, tracks: [track], webm: false)
         for (index, packet) in encoded.enumerated() {
-            try muxer.write(
-                MediaPacket(
-                    track: 1, timestamp: 10_000_000, isKeyframe: true, payload: packet.data,
-                    continuesPrevious: index > 0, remainingLaceFrames: encoded.count - index - 1))
+            var frame = MediaPacket(
+                track: 1, timestamp: 10_000_000, isKeyframe: true, payload: packet.data,
+                continuesPrevious: index > 0, remainingLaceFrames: encoded.count - index - 1)
+            if index == 0 { frame.discardPadding = discardPadding }
+            try muxer.write(frame)
         }
         try muxer.finish()
         return expected
@@ -317,7 +538,8 @@ import Testing
     }
 
     private func writeLacedPCM(
-        to url: URL, lacing: UInt8, laceCount: Int, gapFrames: Int?, codecID: String = "A_PCM/INT/LIT"
+        to url: URL, lacing: UInt8, laceCount: Int, gapFrames: Int?, codecID: String = "A_PCM/INT/LIT",
+        discardPadding: Int64? = nil
     ) throws -> [Float] {
         let frameCounts = lacing == 2 ? [960, 960, 960] : [960, 480, 1_440]
         let laces = frameCounts.prefix(laceCount).enumerated().map { index, count in
@@ -379,8 +601,15 @@ import Testing
                     EBML.element(MatroskaID.pixelWidth, unsigned: UInt64(width))
                         + EBML.element(MatroskaID.pixelHeight, unsigned: UInt64(height))))
         var blocks = EBML.element(MatroskaID.simpleBlock, [0x81, 0, 0, 0x80] + videoPacket.payload)
-        blocks += EBML.element(
-            MatroskaID.simpleBlock, [0x82, 0, 0, 0x80 | lacing << 1] + laceHeader + payloads.flatMap { $0 })
+        let lacedBlock = [0x82, 0, 0, 0x80 | lacing << 1] + laceHeader + payloads.flatMap { $0 }
+        if let discardPadding {
+            blocks += EBML.element(
+                MatroskaID.blockGroup,
+                EBML.element(MatroskaID.block, lacedBlock)
+                    + EBML.element(MatroskaID.discardPadding, signed: discardPadding))
+        } else {
+            blocks += EBML.element(MatroskaID.simpleBlock, lacedBlock)
+        }
         var expected = laces.flatMap { $0 }.map { Float($0) / 32_768 }
         if let gapFrames {
             let nextMilliseconds = (expected.count + gapFrames) / 48
