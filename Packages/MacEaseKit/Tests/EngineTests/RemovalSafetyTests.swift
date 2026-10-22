@@ -48,8 +48,11 @@ import Testing
         let remaining = [first, second].filter { FileManager.default.fileExists(atPath: $0.path) }
         #expect(remaining.count == 1)
         #expect(try String(contentsOf: #require(remaining.first), encoding: .utf8) == "precious")
-        #expect(outcomes.flatMap(\.outcomes).filter { $0 == .succeeded(outputs: [], warnings: []) }.count == 1)
-        #expect(outcomes.flatMap(\.outcomes).filter { $0 == .skipped(.changedSinceScan) }.count == 1)
+        let removalOutcomes = outcomes.flatMap(\.outcomes)
+        let succeededCount = removalOutcomes.filter { $0 == .succeeded(outputs: [], warnings: []) }.count
+        let skippedCount = removalOutcomes.filter { $0 == .skipped(.changedSinceScan) }.count
+        #expect(succeededCount == 1)
+        #expect(skippedCount == 1)
     }
 
     @Test func contentAddedAfterPlanningPreventsEmptyFolderDeletion() async throws {

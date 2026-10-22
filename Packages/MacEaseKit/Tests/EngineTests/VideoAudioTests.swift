@@ -302,7 +302,8 @@ import UniformTypeIdentifiers
         let audio = try AudioInput(url: output.url)
         let reader = try audio.open()
         let samples = try #require(try reader.read())
-        #expect(samples == [-1, 32_767.0 / 32_768, 0, 1_000.0 / 32_768])
+        let expectedSamples: [Float] = [-1, 32_767.0 / 32_768, 0, 1_000.0 / 32_768]
+        #expect(samples == expectedSamples)
         #expect(try Data(contentsOf: url) == original)
     }
 
