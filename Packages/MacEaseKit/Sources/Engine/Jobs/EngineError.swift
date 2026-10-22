@@ -10,6 +10,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case commitFailed(String)
     case unsupportedCodec(String)
     case audioChannelLayoutUnsupported
+    case audioMetadataUnsupported
     case imageGainMapUnsupported
     case imageSequenceUnsupported
     case imageLoopCountUnsupported

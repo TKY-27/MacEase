@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refuse audio replacement when tags cannot be preserved or read; new-file
+  conversion reports a warning and retains the original.
+- Refuse lossless transforms of 32-bit integer audio before writing instead
+  of silently losing precision through Float32 decoding.
+
 - Video compression preserves transparency in supported MOV and WebM outputs.
 - Ordinary video edits preserve supported PQ/HLG HDR with HEVC Main10.
   SDR-only outputs tone-map with a warning; replacement refuses HDR loss.

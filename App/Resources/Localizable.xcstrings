@@ -10321,6 +10321,17 @@
         }
       }
     },
+    "“%@” cannot replace the original because its audio metadata cannot be preserved. Choose Save as New File. The original was kept.": {
+      "comment": "Refuses audio metadata loss on replacement",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声のメタデータを保持できないため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” cannot replace the original because the output would lose %@ metadata. Choose Save as New File. The original was kept.": {
       "localizations": {
         "ja": {

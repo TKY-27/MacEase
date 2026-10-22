@@ -355,7 +355,18 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
             return
         }
 
+        let original = try Data(contentsOf: input)
         let result = try await run(.audioConvert, .convert(format), on: input)
+        if !format.holdsTags {
+            #expect(result.outcome.outcomes == [.failed(.audioMetadataUnsupported)])
+            #expect(try Data(contentsOf: input) == original)
+            #expect(result.outcome.record == nil)
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: input.deletingPathExtension()
+                        .appendingPathExtension(format.fileExtension).path))
+            return
+        }
 
         let output = try #require(result.output, "\(result.outcome.outcomes)")
         #expect(output.lastPathComponent == "song.\(format.fileExtension)")
@@ -364,11 +375,7 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
         #expect(decoded.channels == 2)
         let seconds = Double(samples.count / 2) / decoded.sampleRate
         #expect(abs(seconds - 2) < 0.1)
-        if format.holdsTags {
-            #expect(try await decoded.tags() == tags)
-        } else {
-            #expect(result.warnings == [.metadataDropped])
-        }
+        #expect(try await decoded.tags() == tags)
         let record = try #require(result.outcome.record)
         #expect(record.outputPaths == [output.path])
     }

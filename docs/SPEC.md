@@ -929,6 +929,14 @@ Audio transforms preserve the source speaker layout whenever the output
 encoder can represent it. Unsupported layouts fail before writing instead of
 downmixing. The current MP3 and Opus implementations accept only mono and
 stereo; multichannel Opus requires a future multistream implementation
+Before staging, audio transforms inspect tags. If the target cannot store
+them, Save as New File warns and keeps the original; Replace refuses and
+suggests Save as New File. Unreadable tags follow the same policy instead of
+being treated as absent. Always-Derived subtitle exports keep their source.
+The current Float32 audio path refuses 32-bit integer sources for lossless
+conversion, normalization, and trim before staging, because it cannot retain
+their low bits. Lossy targets remain available.
+
 (ADR 0010). AAC output supports at most six channels; raw ADTS output refuses
 quadraphonic layouts. Recognized 3.0 and 5.0 AAC tags, including engine output,
 are converted to canonical PCM speaker order. Center-surround AAC 4.0 remains
@@ -1727,6 +1735,8 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Refuse audio metadata loss on replacement and lossless 32-bit integer transforms before staging; warn about metadata loss when saving a new file.
 
 - 2026-10-22: Preserve video alpha in compression, PQ/HLG in ordinary
   re-encodes, and metadata and track attributes in native outputs; disclose

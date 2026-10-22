@@ -44,6 +44,12 @@ enum UserMessages {
                 localized:
                     "“\(file)” could not be converted because the output cannot preserve its audio channel layout. The original was kept."
             )
+        case .audioMetadataUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because its audio metadata cannot be preserved. Choose Save as New File. The original was kept.",
+                comment: "Refuses audio metadata loss on replacement"
+            )
         case .imageGainMapUnsupported:
             String(
                 localized:

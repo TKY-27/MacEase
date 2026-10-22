@@ -286,7 +286,7 @@ enum AudioJob {
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         var format = try compressedFormat(input, kilobits: nil)
         try format.validateLayout(input)
-        let tags = await tags(of: input, context: context)
+        let tags = try await tags(of: input, context: context)
         var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         var budget = bytes - tagBytes(tags, format: format)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
@@ -382,8 +382,15 @@ enum AudioJob {
     ) async throws -> ItemResult {
         try await requirePreservableContent(input)
         try target.format.validateLayout(input)
-        let tags = await tags(of: input, context: context)
-        if !tags.isEmpty, !target.format.holdsTags { context.warn(.metadataDropped) }
+        if input.bitDepth == 32, !input.isFloat, !target.format.isLossy {
+            throw EngineError.unsupportedCodec(
+                String(localized: "32-bit integer audio to lossless output", comment: "Refuses integer precision loss"))
+        }
+        let tags = try await tags(of: input, context: context)
+        if !tags.isEmpty, !target.format.holdsTags {
+            guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
+            context.warn(.metadataDropped)
+        }
         let staged = try context.stagingURL(for: url, name: outputName(for: url, format: target.format))
         try await encode(
             input, to: target, at: staged, tags: tags, frames: frames, gain: gain, progressStart: progressStart,
@@ -391,11 +398,13 @@ enum AudioJob {
         return .replace(original: url, output: StagedFile(url: staged, name: staged.lastPathComponent, check: .audio))
     }
 
-    /// Unreadable tags are dropped with a warning.
-    private static func tags(of input: AudioInput, context: ItemContext) async -> AudioTags {
+    private static func tags(of input: AudioInput, context: ItemContext) async throws -> AudioTags {
         do {
             return try await input.tags()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
             return AudioTags()
         }
