@@ -4,6 +4,19 @@ import MenuCatalog
 
 /// Localized, actionable text for engine outcomes.
 enum UserMessages {
+    private static func videoMetadataProperties(_ properties: [VideoMetadataProperty]) -> String {
+        properties.map { property in
+            switch property {
+            case .descriptiveMetadata: String(localized: "video metadata")
+            case .trackMetadata: String(localized: "track metadata")
+            case .language: String(localized: "track language")
+            case .volume: String(localized: "track volume")
+            case .enabledState: String(localized: "track enabled state")
+            case .alternateGroups: String(localized: "alternate track groups")
+            }
+        }.formatted(.list(type: .and))
+    }
+
     private static func metadataClasses(_ fields: [MetadataField]) -> String {
         fields.map { field in
             switch field {
@@ -69,7 +82,22 @@ enum UserMessages {
         case .videoAlphaUnsupported:
             String(
                 localized:
-                    "“\(file)” could not be edited because the output container cannot preserve transparency. The original was kept."
+                    "“\(file)” cannot preserve transparency in this output. Choose Save as New File to flatten onto the video background color. The original was kept."
+            )
+        case .videoHDRUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept."
+            )
+        case .videoDolbyVisionUnsupported:
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose Dolby Vision dynamic metadata. Choose Save as New File. The original was kept.",
+                comment: "Refuses Dolby Vision metadata loss")
+        case .videoMetadataUnsupported(let properties):
+            String(
+                localized:
+                    "“\(file)” cannot replace the original because the output would lose \(videoMetadataProperties(properties)). Choose Save as New File. The original was kept."
             )
         case .videoDisplayTransformUnsupported:
             String(
@@ -165,6 +193,16 @@ enum UserMessages {
         case .imageToneMappedToSDR:
             String(
                 localized: "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.")
+        case .videoToneMappedToSDR:
+            String(
+                localized: "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.")
+        case .videoTransparencyFlattened:
+            String(
+                localized: "Transparency was flattened onto the video background color. The original was kept.")
+        case .videoMetadataDropped(let properties):
+            String(
+                localized:
+                    "This output cannot preserve \(videoMetadataProperties(properties)). The original was kept.")
         case .imageMetadataDropped(let fields):
             String(
                 localized:
@@ -196,7 +234,9 @@ enum UserMessages {
         case .hdrProvenanceUnknown:
             String(localized: "The source signals HDR, but its capture or expansion origin is unknown.")
         case .dolbyVisionRemoved:
-            String(localized: "The SDR output does not contain Dolby Vision dynamic metadata.")
+            String(
+                localized: "The output does not contain Dolby Vision dynamic metadata.",
+                comment: "Discloses Dolby Vision metadata loss")
         }
     }
 

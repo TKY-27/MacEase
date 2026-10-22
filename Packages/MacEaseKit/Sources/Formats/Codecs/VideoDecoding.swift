@@ -6,7 +6,6 @@ import Foundation
 import ImageIO
 import VideoToolbox
 
-/// BGRA at presentation time.
 public struct DecodedFrame {
     public let image: CVPixelBuffer
     public let timestamp: Int64
@@ -37,8 +36,12 @@ public enum VideoDecoders {
         return bytes
     }
 
-    public static func make(for track: MediaTrack) throws -> any VideoFrameDecoder {
-        switch track.codec {
+    public static func make(for track: MediaTrack, hdr: VideoHDRConfiguration? = nil) throws -> any VideoFrameDecoder {
+        if hdr != nil {
+            guard track.codec == .hevc else { throw FormatError.decoderFailure("HDR decoding requires HEVC") }
+            return try ToolboxFrameDecoder(track: track, hdr: true)
+        }
+        return switch track.codec {
         case .vp8, .vp9: try LibVPXFrameDecoder(track: track)
         case .av1 where !ToolboxFrameDecoder.opensSession(for: track): try Dav1dFrameDecoder()
         case .mjpeg: JPEGFrameDecoder()
@@ -67,9 +70,11 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
     private let output = CallbackResults<DecodedFrame> { .decoderFailure("VideoToolbox frame (\($0))") }
     private var annexB = false
     private var reorder: ReorderBuffer
+    private let hdr: Bool
 
-    init(track: MediaTrack) throws {
+    init(track: MediaTrack, hdr: Bool = false) throws {
         self.track = track
+        self.hdr = hdr
         guard case .video(let width, let height) = track.kind else { throw FormatError.unsupported("not video") }
         reorder = try ReorderBuffer(width: width, height: height)
     }
@@ -102,7 +107,8 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
         }
         let format = try VideoFormat.description(for: track)
         let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: VideoDecoders.pixelFormat,
+            kCVPixelBufferPixelFormatTypeKey: hdr
+                ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : VideoDecoders.pixelFormat,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
         ]
         var session: VTDecompressionSession?
@@ -122,6 +128,7 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
         let (session, format) = try prepare(with: packet)
         let payload = try annexB ? VideoFormat.lengthPrefixed(annexB: packet.payload) : packet.payload
         let sample = try SampleBuffers.make(payload, packet: packet, format: format)
+        let hdr = hdr
         let status = VTDecompressionSessionDecodeFrame(
             session, sampleBuffer: sample, flags: [], infoFlagsOut: nil
         ) { [output] status, _, image, presentation, _ in
@@ -130,6 +137,10 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
                 return
             }
             guard let image else { return }
+            if hdr, CVPixelBufferGetPixelFormatType(image) != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange {
+                output.fail(kCVReturnInvalidPixelFormat)
+                return
+            }
             output.append(DecodedFrame(image: image, timestamp: SampleBuffers.nanoseconds(presentation)))
         }
         guard status == noErr else { throw FormatError.decoderFailure("VideoToolbox decode (\(status))") }

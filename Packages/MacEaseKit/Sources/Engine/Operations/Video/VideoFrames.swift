@@ -38,7 +38,7 @@ enum VideoAnimations {
     private static let rgbaBytesPerPixel = 4
     private static let millisecondsPerSecond = 1_000.0
     static func gif(_ rendering: AnimationRendering, url: URL, context: ItemContext) async throws -> ItemResult {
-        let sampling = try await Sampling(rendering, url: url)
+        let sampling = try await Sampling(rendering, url: url, context: context)
         let name = url.deletingPathExtension().lastPathComponent + ".gif"
         let output = try context.stagingURL(for: url, name: name)
         try await encodeGIF(rendering, sampling: sampling, to: output, context: context)
@@ -46,7 +46,7 @@ enum VideoAnimations {
     }
 
     static func apng(_ rendering: AnimationRendering, url: URL, context: ItemContext) async throws -> ItemResult {
-        let sampling = try await Sampling(rendering, url: url)
+        let sampling = try await Sampling(rendering, url: url, context: context)
         let name = url.deletingPathExtension().lastPathComponent + ".png"
         let output = try context.stagingURL(for: url, name: name)
         guard
@@ -71,7 +71,7 @@ enum VideoAnimations {
     }
 
     static func webP(_ rendering: AnimationRendering, url: URL, context: ItemContext) async throws -> ItemResult {
-        let sampling = try await Sampling(rendering, url: url)
+        let sampling = try await Sampling(rendering, url: url, context: context)
         let encoder = try WebPAnimationEncoder.Stream(
             width: sampling.size.width, height: sampling.size.height,
             quality: Double(context.settings.image.webpQuality), loops: rendering.loops,
@@ -114,7 +114,8 @@ enum VideoAnimations {
         let output = try context.stagingURL(for: url, name: name)
         func attempt() async throws -> Int64 {
             let sampling = try await Sampling(
-                rendering, maxHeight: maxHeight, minimumFrameDuration: minimumFrameDuration, url: url)
+                rendering, maxHeight: maxHeight, minimumFrameDuration: minimumFrameDuration, url: url,
+                context: context)
             guard sampling.frameCount <= maxFrames else {
                 throw EngineError.invalidInput(.malformed("X GIF exceeds its frame limit"))
             }
@@ -170,15 +171,21 @@ enum VideoAnimations {
         let end: Int64
         let interval: Int64
         let frameCount: Int
+        let toneMapToSDR: Bool
         var duration: Double { Double(interval) / Double(Nanoseconds.perSecond) }
 
         init(
-            _ rendering: AnimationRendering, maxHeight: Int? = nil, minimumFrameDuration: Int64 = 0, url: URL
+            _ rendering: AnimationRendering, maxHeight: Int? = nil, minimumFrameDuration: Int64 = 0, url: URL,
+            context: ItemContext
         ) async throws {
             guard rendering.width > 0, rendering.framesPerSecond > 0 else {
                 throw EngineError.invalidInput(.invalidAnimationRange)
             }
             input = try await MediaInput.open(url)
+            let metadata = try await VideoMetadata.load(from: input)
+            let losses = metadata.losses(for: nil, includingAudio: false)
+            if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
+            toneMapToSDR = try await VideoProperties.toneMapsExport(input, context: context)
             let display = input.displaySize
             let scale = min(
                 1,
@@ -214,7 +221,8 @@ enum VideoAnimations {
         func consume(context: ItemContext, frameBody: (CGImage) throws -> Void) async throws {
             let edit = FrameEdit(displayOrientation: try input.displayOrientation, size: size)
             let sampler = try await FrameSampler(
-                input: input, frameDuration: interval, edit: edit, start: start, end: end)
+                input: input, frameDuration: interval, edit: edit, start: start, end: end,
+                toneMapToSDR: toneMapToSDR)
             var sampledCount = 0
             while let frame = try await sampler.next() {
                 try autoreleasepool {

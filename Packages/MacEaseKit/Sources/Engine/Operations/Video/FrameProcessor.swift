@@ -1,5 +1,6 @@
 import CoreImage
 import CoreVideo
+import Formats
 import Foundation
 
 enum VideoDisplayOrientation: Hashable, Sendable {
@@ -54,6 +55,7 @@ struct FrameEdit: Hashable, Sendable {
     var flipsHorizontally = false
     var flipsVertically = false
     var fill = RGBColor.black
+    var flattensAlpha = false
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
     var aspect: AspectRange?
@@ -69,13 +71,11 @@ struct PixelSize: Hashable, Sendable {
     }
 }
 
-/// Unmanaged color, so values pass through.
 final class FrameProcessor {
-    private let context: CIContext = {
-        let options: [CIContextOption: Any] = [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()]
-        return CIContext(options: options)
-    }()
+    private let context: CIContext
     private let pool: CVPixelBufferPool
+    private let hdr: VideoHDRConfiguration?
+    private let outputColorSpace: CGColorSpace?
     private let geometry: CGAffineTransform
     private let scale: CGAffineTransform
     private let viewport: CGRect
@@ -92,7 +92,19 @@ final class FrameProcessor {
         return (edit.size ?? natural).evened()
     }
 
-    init(source: PixelSize, edit: FrameEdit) throws {
+    init(source: PixelSize, edit: FrameEdit, hdr: VideoHDRConfiguration? = nil) throws {
+        self.hdr = hdr
+        if let hdr {
+            guard let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020),
+                let output = CGColorSpace(
+                    name: hdr.transfer == .pq ? CGColorSpace.itur_2100_PQ : CGColorSpace.itur_2100_HLG)
+            else { throw EngineError.encodeFailed("HDR color space unavailable") }
+            context = CIContext(options: [.workingColorSpace: working, .workingFormat: CIFormat.RGBAh])
+            outputColorSpace = output
+        } else {
+            context = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+            outputColorSpace = nil
+        }
         geometry = Self.orientation(edit, width: Double(source.width), height: Double(source.height))
         let bounds = Self.viewport(source: source, edit: edit, geometry: geometry)
         viewport = bounds
@@ -101,14 +113,15 @@ final class FrameProcessor {
             scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
         background =
-            rightAngle && edit.aspect?.fit != .letterbox
+            !edit.flattensAlpha && rightAngle && edit.aspect?.fit != .letterbox
             ? nil
             : CIImage(
                 color: CIColor(
                     red: CGFloat(edit.fill.red) / 255, green: CGFloat(edit.fill.green) / 255,
                     blue: CGFloat(edit.fill.blue) / 255))
         let attributes: [CFString: Any] = [
-            kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferPixelFormatTypeKey: hdr == nil
+                ? kCVPixelFormatType_32BGRA : kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
             kCVPixelBufferWidthKey: size.width, kCVPixelBufferHeightKey: size.height,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
         ]
@@ -150,7 +163,14 @@ final class FrameProcessor {
         var output: CVPixelBuffer?
         let status = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
         guard status == kCVReturnSuccess, let output else { throw EngineError.encodeFailed("frame buffer \(status)") }
-        context.render(image.cropped(to: extent), to: output, bounds: extent, colorSpace: nil)
+        if let hdr {
+            CVBufferSetAttachment(
+                output, kCVImageBufferColorPrimariesKey, kCVImageBufferColorPrimaries_ITU_R_2020, .shouldPropagate)
+            CVBufferSetAttachment(output, kCVImageBufferTransferFunctionKey, hdr.transferFunction, .shouldPropagate)
+            CVBufferSetAttachment(
+                output, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_2020, .shouldPropagate)
+        }
+        context.render(image.cropped(to: extent), to: output, bounds: extent, colorSpace: outputColorSpace)
         return output
     }
 }

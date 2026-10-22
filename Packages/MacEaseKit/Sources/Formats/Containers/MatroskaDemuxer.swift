@@ -4,6 +4,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
     /// Keeps laced timestamps far from overflow.
     private static let maximumFrameDuration = 10 * 60 * Nanoseconds.perSecond
     private static let maximumClusterTimestamp: Int64 = 1 << 62
+    private static let hdrTransferCharacteristics: Set<Int> = [16, 18]
 
     public private(set) var tracks: [MediaTrack] = []
     public private(set) var skippedStreams: Set<SkippedMediaStream> = []
@@ -122,6 +123,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             var width = 0
             var height = 0
             var alpha = false
+            var hasContainerHDR = false
             var sampleRate = 8_000.0
             var channels = 1
             var bitDepth: Int?
@@ -144,6 +146,18 @@ public struct MatroskaDemuxer: MediaDemuxer {
                         case MatroskaID.pixelWidth: width = try integer(detail)
                         case MatroskaID.pixelHeight: height = try integer(detail)
                         case MatroskaID.alphaMode: alpha = try integer(detail) == 1
+                        case MatroskaID.colour:
+                            for property in try children(of: detail) {
+                                switch property.id {
+                                case MatroskaID.transferCharacteristics:
+                                    if Self.hdrTransferCharacteristics.contains(try integer(property)) {
+                                        hasContainerHDR = true
+                                    }
+                                case MatroskaID.masteringMetadata, MatroskaID.maxCLL, MatroskaID.maxFALL:
+                                    hasContainerHDR = true
+                                default: break
+                                }
+                            }
                         default: break
                         }
                     }
@@ -184,6 +198,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             track.defaultDuration = defaultDuration
             track.language = language
             track.hasAlpha = alpha
+            track.hasContainerHDR = hasContainerHDR
             track.codecDelay = delay
             track.seekPreRoll = preRoll
             tracks.append(track)

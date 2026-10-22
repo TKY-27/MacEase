@@ -6,6 +6,54 @@ import ImageIO
 import UniformTypeIdentifiers
 import VideoToolbox
 
+public struct VideoHDRConfiguration: Sendable, Equatable {
+    private static let masteringDisplayByteCount = 24
+    private static let contentLightByteCount = 4
+
+    public enum Transfer: Sendable, Equatable {
+        case pq
+        case hlg
+    }
+
+    public let transfer: Transfer
+    public let masteringDisplay: Data?
+    public let contentLight: Data?
+
+    public init?(format: CMFormatDescription) {
+        guard
+            CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_ColorPrimaries)
+                as? String == kCVImageBufferColorPrimaries_ITU_R_2020 as String,
+            CMFormatDescriptionGetExtension(format, extensionKey: kCMFormatDescriptionExtension_YCbCrMatrix)
+                as? String == kCVImageBufferYCbCrMatrix_ITU_R_2020 as String,
+            let transfer = CMFormatDescriptionGetExtension(
+                format, extensionKey: kCMFormatDescriptionExtension_TransferFunction) as? String
+        else { return nil }
+        if transfer == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String {
+            self.transfer = .pq
+        } else if transfer == kCVImageBufferTransferFunction_ITU_R_2100_HLG as String {
+            self.transfer = .hlg
+        } else {
+            return nil
+        }
+        let mastering = CMFormatDescriptionGetExtension(
+            format, extensionKey: kCMFormatDescriptionExtension_MasteringDisplayColorVolume)
+        let lighting = CMFormatDescriptionGetExtension(
+            format, extensionKey: kCMFormatDescriptionExtension_ContentLightLevelInfo)
+        guard (mastering == nil || (mastering as? Data)?.count == Self.masteringDisplayByteCount),
+            (lighting == nil || (lighting as? Data)?.count == Self.contentLightByteCount)
+        else { return nil }
+        masteringDisplay = mastering as? Data
+        contentLight = lighting as? Data
+    }
+
+    public var transferFunction: CFString {
+        switch transfer {
+        case .pq: kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
+        case .hlg: kCVImageBufferTransferFunction_ITU_R_2100_HLG
+        }
+    }
+}
+
 public struct VideoEncoding: Sendable {
     public enum Codec: Sendable {
         case h264
@@ -26,6 +74,7 @@ public struct VideoEncoding: Sendable {
     public var keyframeInterval = 2 * Nanoseconds.perSecond
     /// ProRes 4444 keeps alpha regardless.
     public var alpha = false
+    public var hdr: VideoHDRConfiguration?
     /// Off keeps variable source frame durations exact.
     public var allowsFrameReordering = true
 
@@ -53,7 +102,6 @@ public protocol VideoFrameEncoder {
     var track: MediaTrack { get }
     /// AVAssetWriter needs it for ProRes.
     var formatDescription: CMFormatDescription? { get }
-    /// BGRA in, decode order out.
     mutating func encode(_ image: CVPixelBuffer, timestamp: Int64) throws -> [MediaPacket]
     mutating func finish() throws -> [MediaPacket]
 }
@@ -66,6 +114,9 @@ public enum VideoEncoders {
         else {
             throw FormatError.corrupt(
                 String(localized: "Video encoding settings out of range", comment: "Invalid video metadata"))
+        }
+        if settings.hdr != nil, settings.codec != .hevc || settings.alpha {
+            throw FormatError.encoderFailure("HDR requires HEVC Main10 without alpha")
         }
         return switch settings.codec {
         case .h264, .hevc, .prores4444: try ToolboxFrameEncoder(settings, number: number)
@@ -86,6 +137,13 @@ public enum VideoEncoders {
 /// H.264, HEVC with alpha, or ProRes 4444.
 final class ToolboxFrameEncoder: VideoFrameEncoder {
     private let bitsPerByte = 8
+    private let hevcMain10Profile: UInt8 = 2
+    private let hevcProfileMask: UInt8 = 0x1F
+    private let hevcBitDepthMask: UInt8 = 0x07
+    private let tenBitMinusEight: UInt8 = 2
+    private let profileIndex = 1
+    private let lumaBitDepthIndex = 17
+    private let chromaBitDepthIndex = 18
     private(set) var track: MediaTrack
     private(set) var formatDescription: CMFormatDescription?
     private let session: VTCompressionSession
@@ -117,9 +175,26 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
             kVTCompressionPropertyKey_TransferFunction: kCVImageBufferTransferFunction_ITU_R_709_2,
             kVTCompressionPropertyKey_YCbCrMatrix: kCVImageBufferYCbCrMatrix_ITU_R_709_2,
         ]
+        if let hdr = settings.hdr {
+            properties[kVTCompressionPropertyKey_ColorPrimaries] = kCVImageBufferColorPrimaries_ITU_R_2020
+            properties[kVTCompressionPropertyKey_TransferFunction] = hdr.transferFunction
+            properties[kVTCompressionPropertyKey_YCbCrMatrix] = kCVImageBufferYCbCrMatrix_ITU_R_2020
+            if hdr.transfer == .hlg {
+                // Avoid generating Dolby Vision from plain HLG.
+                properties[kVTCompressionPropertyKey_HDRMetadataInsertionMode] = kVTHDRMetadataInsertionMode_None
+            }
+            if let mastering = hdr.masteringDisplay {
+                properties[kVTCompressionPropertyKey_MasteringDisplayColorVolume] = mastering as CFData
+            }
+            if let lighting = hdr.contentLight {
+                properties[kVTCompressionPropertyKey_ContentLightLevelInfo] = lighting as CFData
+            }
+        }
         if settings.codec != .prores4444 {
             properties[kVTCompressionPropertyKey_ProfileLevel] =
-                settings.codec == .h264 ? kVTProfileLevel_H264_High_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
+                settings.codec == .h264
+                ? kVTProfileLevel_H264_High_AutoLevel
+                : settings.hdr != nil ? kVTProfileLevel_HEVC_Main10_AutoLevel : kVTProfileLevel_HEVC_Main_AutoLevel
             properties[kVTCompressionPropertyKey_AllowFrameReordering] = settings.allowsFrameReordering
             properties[kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration] =
                 Double(settings.keyframeInterval) / Double(Nanoseconds.perSecond)
@@ -145,6 +220,11 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
     }
 
     func encode(_ image: CVPixelBuffer, timestamp: Int64) throws -> [MediaPacket] {
+        if settings.hdr != nil,
+            CVPixelBufferGetPixelFormatType(image) != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+        {
+            throw FormatError.encoderFailure("HDR encoding requires 10-bit frames")
+        }
         let status = VTCompressionSessionEncodeFrame(
             session, imageBuffer: image,
             presentationTimeStamp: CMTime(value: timestamp, timescale: SampleBuffers.nanosecondScale),
@@ -167,6 +247,15 @@ final class ToolboxFrameEncoder: VideoFrameEncoder {
     private func drained() throws -> [MediaPacket] {
         let samples = try output.take()
         if formatDescription == nil, let format = samples.first.flatMap(CMSampleBufferGetFormatDescription) {
+            if let hdr = settings.hdr {
+                guard VideoHDRConfiguration(format: format) == hdr,
+                    let configuration = VideoFormat.decoderConfiguration(of: format),
+                    configuration.count > chromaBitDepthIndex,
+                    configuration[profileIndex] & hevcProfileMask == hevcMain10Profile,
+                    configuration[lumaBitDepthIndex] & hevcBitDepthMask == tenBitMinusEight,
+                    configuration[chromaBitDepthIndex] & hevcBitDepthMask == tenBitMinusEight
+                else { throw FormatError.encoderFailure("HDR output format differs from source") }
+            }
             formatDescription = format
             track.codecPrivate = VideoFormat.decoderConfiguration(of: format)
         }

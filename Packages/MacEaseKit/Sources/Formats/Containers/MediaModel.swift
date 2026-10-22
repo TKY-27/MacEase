@@ -67,6 +67,7 @@ public struct MediaTrack: Hashable, Sendable {
     public var language: String?
     /// VP9 alpha travels in BlockAdditions.
     public var hasAlpha = false
+    public var hasContainerHDR = false
     public var codecDelay: Int64 = 0
     public var seekPreRoll: Int64 = 0
 

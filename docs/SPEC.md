@@ -829,10 +829,58 @@ permits the requested audio omission. Explicit Derived exports report other
 stream omissions while keeping the original. No frame, stream, metadata, alpha,
 or channel loss is silent.
 
-Resize, flip, frame-rate changes and exact trim preserve input alpha when
-re-encoding MOV through HEVC with alpha or ProRes 4444, and WebM through VP9
-with alpha. Other containers reject these alpha re-encodes before writing;
-stream-copy edits retain their existing alpha (ADR 0010).
+Resize, rotation, flip, frame-rate changes, exact trim, conversion and every
+compression attempt preserve input alpha through HEVC with alpha or ProRes
+4444 in MOV, and VP9 with alpha in WebM. Generic compression selects MOV or
+WebM for transparent sources. Explicit codec/container constraints remain
+binding. When they cannot carry alpha, Save as New File composites onto the
+configured video rotation background and reports `videoTransparencyFlattened`.
+Replace refuses before staging. Stream-copy edits retain existing alpha only
+when the destination can carry it (ADR 0026).
+
+Ordinary re-encodes preserve supported BT.2020 PQ/HLG through 10-bit HEVC
+Main10, including transfer, primaries, matrix, mastering-display and
+content-light metadata. Decode and geometry processing retain HDR precision.
+HLG does not require mastering-display or content-light metadata. HLG encoding
+disables VideoToolbox's automatic Dolby Vision generation; PQ retains its
+static HDR metadata. Encoded outputs are reopened before commit to verify
+these HDR properties; writer omissions fail without replacing the source.
+Dolby Vision 8.4 sources use their HLG-compatible base layer. Ordinary edits
+and compression in Save as New File encode HEVC Main10 when supported and
+report `dolbyVisionRemoved`. Copy-based edits re-encode the base layer so
+the output does not retain stale dynamic metadata. Replace refuses before
+staging because these operations cannot preserve Dolby Vision metadata.
+Verification compares the base-layer HLG configuration without requiring a
+Dolby Vision record in the output. Other Dolby Vision profiles, mixed Dolby
+Vision and non-Dolby Vision formats, and unsupported dynamic metadata refuse.
+Targets requiring SDR, including H.264 and animation exports, share the
+Convert > SDR decoding path and report `videoToneMappedToSDR` in new-file
+mode. Replace refuses before staging. Always-Derived exports keep their
+resolved mode. Dolby Vision 8.4 SDR targets also report `dolbyVisionRemoved`.
+Unsupported HDR decoding, dynamic metadata or incompatible source formats
+refuse rather than silently lose HDR. BT.709 tags describe only SDR output.
+Matroska/WebM Colour transfer and static HDR fields are detected before
+decoding. Container-side HDR metadata currently refuses remuxing and editing
+because these fields cannot yet be carried or tone-mapped safely by that
+backend. HEVC HDR signalled entirely in parameter sets uses Main10 preservation.
+
+Native MOV, MP4 and M4V remuxes and edits carry asset and track metadata,
+language, preferred volume, enabled state and representable alternate track
+groups. A destination that cannot store a present property reports its typed
+metadata-loss warning in new-file mode and refuses before staging in Replace.
+The refusal follows the resolved result mode. Audio extraction, animation and
+background exports warn even when General settings selects Replace.
+Container conversion remains a Transform and follows that setting.
+Singleton alternate groups and encoder/software tags are not user-property
+loss. Titles, descriptions, locations, creation dates, authorship and other
+user metadata remain protected.
+Alternate groups requiring omitted tracks are not reconstructed partially.
+MOV retains QuickTime ISO6709 locations exactly. MP4/M4V location conversion
+can add an absent altitude; this is disclosed property loss, with coordinates
+retained in new-file mode and refusal before staging in Replace. Native outputs
+are also compared with source properties before commit to catch unexpected
+writer omissions or normalization.
+These rules extend ADR 0019's property-loss policy to video (ADR 0026).
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
@@ -1679,6 +1727,12 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Preserve video alpha in compression, PQ/HLG in ordinary
+  re-encodes, and metadata and track attributes in native outputs; disclose
+  unsupported new-file property loss and refuse replacement. Derived exports
+  always warn; encoding provenance and singleton groups are not losses.
+  Dolby Vision 8.4 new-file edits keep the HLG base layer (ADR 0026).
 
 - 2026-10-22: Keep complete dotted folder names when naming compressed
   archives, including `project.v1.zip` (ADR 0025).

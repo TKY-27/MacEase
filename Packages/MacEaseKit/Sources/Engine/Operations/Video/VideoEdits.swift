@@ -10,7 +10,7 @@ enum VideoEdits {
         let input = try await MediaInput.open(url)
         try input.requireSingleTracksForReplacement()
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
-        let plan: TranscodePlan
+        var plan: TranscodePlan
         do {
             plan = try self.plan(
                 operation, input: input, source: source, settings: context.settings.video,
@@ -18,9 +18,11 @@ enum VideoEdits {
         } catch let skip as SkipError {
             return .skipped(skip.reason)
         }
+        plan = try await VideoProperties.prepare(plan, input: input, context: context)
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await VideoProperties.verify(plan, output: output, context: context)
         return .replace(original: url, output: StagedFile(url: output, name: name, check: .media))
     }
 
@@ -121,7 +123,7 @@ enum VideoEdits {
         switch container ?? input.container {
         case .mov: selected.codec = source.codec == .prores ? .prores4444 : .hevc
         case .webm: selected.codec = .vp9
-        case .mp4, .m4v, .mkv, .avi, .flv: throw EngineError.videoAlphaUnsupported
+        case .mp4, .m4v, .mkv, .avi, .flv: return selected
         }
         selected.alpha = true
         return selected
@@ -169,7 +171,7 @@ enum VideoEdits {
             }
         }
         var encoding = try alphaEncoding(input, source: source, settings: settings, container: target)
-        if !source.hasAlpha {
+        if !encoding.alpha {
             encoding.codec = target == .mkv ? .h264 : codec(for: target, source: source.codec, settings: settings)
         }
         return TranscodePlan(container: target, video: .encode(encoding, try baked(input)), audio: audio)

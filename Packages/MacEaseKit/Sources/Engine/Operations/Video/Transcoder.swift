@@ -26,6 +26,9 @@ struct TranscodePlan {
     var transform: CGAffineTransform?
     /// Replaces backgrounds before encoding.
     var matte: BackgroundMatte?
+    var toneMapToSDR = false
+    var metadata: VideoMetadata?
+    var derived = false
 }
 
 /// Pulls one output stream in time order.
@@ -57,7 +60,9 @@ enum Transcoder {
         var stages: [any StreamStage] = []
         if let video = plan.video, let track = input.video {
             stages.append(
-                try await videoStage(video, track: track, input: input, matte: plan.matte, start: start, end: end))
+                try await videoStage(
+                    video, track: track, input: input, matte: plan.matte, start: start, end: end,
+                    toneMapToSDR: plan.toneMapToSDR))
         }
         if let audio = plan.audio, let track = input.audio {
             let number = stages.count + 1
@@ -81,21 +86,13 @@ enum Transcoder {
             guard let output = stage.output else { throw EngineError.encodeFailed("stream produced nothing") }
             return output
         }
-        var metadata: [AVMetadataItem] = []
-        if case .toneMapToSDR = plan.video,
-            case .asset(let asset, let video, let audio) = input.backend
-        {
-            metadata = try await asset.load(.metadata)
-            for index in tracks.indices {
-                if let track = tracks[index].track.isVideo ? video : audio {
-                    tracks[index].metadata = try await track.load(.metadata)
-                    tracks[index].languageCode = try await track.load(.languageCode)
-                    tracks[index].extendedLanguageTag = try await track.load(.extendedLanguageTag)
-                    tracks[index].preferredVolume = try await track.load(.preferredVolume)
-                    tracks[index].isEnabled = try await track.load(.isEnabled)
-                }
-            }
+        let properties: VideoMetadata
+        if let cached = plan.metadata {
+            properties = cached
+        } else {
+            properties = try await VideoMetadata.load(from: input)
         }
+        let metadata = properties.apply(to: &tracks, container: plan.container)
         // FLV alone cannot store negative decode times.
         let firstDecode = primed.flatMap { $0 }.compactMap(\.decodeTimestamp).min() ?? start
         let origin = plan.container == .flv ? min(start, firstDecode) : start
@@ -177,14 +174,15 @@ enum Transcoder {
 
     private static func videoStage(
         _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
-        end: Int64
+        end: Int64, toneMapToSDR: Bool
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
             try await PacketCopyStage(input: input, track: track, number: 1, start: start, end: end)
         case .encode(let encoding, let edit):
             try await FrameEncodeStage(
-                input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end)
+                input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
+                toneMapToSDR: toneMapToSDR)
         case .toneMapToSDR(let encoding):
             try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }
@@ -383,10 +381,11 @@ final class FrameEncodeStage: StreamStage {
 
     init(
         input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, matte: BackgroundMatte?, start: Int64,
-        end: Int64
+        end: Int64, toneMapToSDR: Bool = false
     ) async throws {
         sampler = try await FrameSampler(
-            input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end)
+            input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end,
+            hdr: encoding.hdr, toneMapToSDR: toneMapToSDR)
         encoder = try VideoEncoders.make(encoding, track: 1)
         self.matte = matte
         upcoming = start

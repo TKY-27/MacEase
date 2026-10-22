@@ -89,6 +89,7 @@ final class AssetTrackReader: @unchecked Sendable {
     enum Mode {
         case packets
         case frames
+        case hdrFrames
         case sdrFrames
         /// Interleaved 32-bit float.
         case pcm
@@ -97,18 +98,25 @@ final class AssetTrackReader: @unchecked Sendable {
     private let reader: AVAssetReader
     private let output: AVAssetReaderTrackOutput
     private let number: Int
+    private let mode: Mode
     private let queue = DispatchQueue(label: "MacEase.AssetTrackReader")
 
     init(asset: AVAsset, track: AVAssetTrack, number: Int, mode: Mode, range: CMTimeRange? = nil) throws {
         reader = try AVAssetReader(asset: asset)
         if let range { reader.timeRange = range }
         self.number = number
+        self.mode = mode
         let settings: [String: Any]? =
             switch mode {
             case .packets: nil
             case .frames:
                 [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                    kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+                ]
+            case .hdrFrames:
+                [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
                     kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
                 ]
             case .sdrFrames:
@@ -165,6 +173,11 @@ final class AssetTrackReader: @unchecked Sendable {
     func nextFrame() async throws -> DecodedFrame? {
         while let sample = try await nextSample() {
             guard let image = CMSampleBufferGetImageBuffer(sample) else { continue }
+            if case .hdrFrames = mode,
+                CVPixelBufferGetPixelFormatType(image) != kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            {
+                throw EngineError.decodeFailed("HDR decoder did not produce 10-bit frames")
+            }
             return DecodedFrame(image: image, timestamp: SampleBuffers.nanoseconds(sample.presentationTimeStamp))
         }
         return nil

@@ -50,8 +50,9 @@ struct OutputTrack {
     var metadata: [AVMetadataItem] = []
     var languageCode: String?
     var extendedLanguageTag: String?
-    var preferredVolume: Float = 1
+    var preferredVolume: Float?
     var isEnabled = true
+    var alternateGroup: Int?
 }
 
 protocol PacketSink {
@@ -117,6 +118,8 @@ final class AssetWriterSink: PacketSink {
         writer = try AVAssetWriter(outputURL: url, fileType: fileType)
         writer.metadata = metadata
         writer.shouldOptimizeForNetworkUse = true
+        var groupedInputs: [Int: [AVAssetWriterInput]] = [:]
+        var enabledInputs: [Int: AVAssetWriterInput] = [:]
         for output in tracks {
             let format =
                 try output.format
@@ -129,13 +132,24 @@ final class AssetWriterSink: PacketSink {
             input.languageCode = output.languageCode
             input.extendedLanguageTag = output.extendedLanguageTag
             input.marksOutputTrackAsEnabled = output.isEnabled
-            if !output.track.isVideo { input.preferredVolume = output.preferredVolume }
+            if let volume = output.preferredVolume { input.preferredVolume = volume }
             if output.track.isVideo { input.transform = transform }
             guard writer.canAdd(input) else {
                 throw EngineError.encodeFailed("\(output.track.codec.displayName) cannot go into \(fileType.rawValue)")
             }
             writer.add(input)
             inputs[output.track.number] = (input, format)
+            if let group = output.alternateGroup {
+                groupedInputs[group, default: []].append(input)
+                if output.isEnabled { enabledInputs[group] = input }
+            }
+        }
+        for (group, members) in groupedInputs {
+            let inputGroup = AVAssetWriterInputGroup(inputs: members, defaultInput: enabledInputs[group])
+            guard writer.canAdd(inputGroup) else {
+                throw EngineError.encodeFailed("alternate track group unsupported by \(fileType.rawValue)")
+            }
+            writer.add(inputGroup)
         }
         guard writer.startWriting() else { throw EngineError.encodeFailed(Self.describe(writer.error)) }
         writer.startSession(atSourceTime: .zero)

@@ -11,6 +11,8 @@ public enum VideoFormat {
     private static let avcSequenceParameterSet: UInt8 = 7
     private static let avcPictureParameterSet: UInt8 = 8
     private static let maximumSequenceSets = 31
+    private static let minimumHEVCParameterSets = 3
+    private static let maximumHEVCParameterSets = 64
 
     public static func containsAlpha(_ format: CMFormatDescription) -> Bool {
         if let declared = CMFormatDescriptionGetExtension(
@@ -65,7 +67,39 @@ public enum VideoFormat {
             extensions: extensions as CFDictionary, formatDescriptionOut: &description
         )
         guard status == noErr, let description else { throw FormatError.corrupt("format description (\(status))") }
-        return description
+        guard track.codec == .hevc else { return description }
+        var count = 0
+        var nalUnitHeaderLength: Int32 = 0
+        let parameterStatus = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+            description, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil,
+            parameterSetCountOut: &count, nalUnitHeaderLengthOut: &nalUnitHeaderLength)
+        guard parameterStatus == noErr, (minimumHEVCParameterSets...maximumHEVCParameterSets).contains(count) else {
+            throw FormatError.corrupt("HEVC parameter sets (\(parameterStatus))")
+        }
+        var pointers: [UnsafePointer<UInt8>] = []
+        var sizes: [Int] = []
+        for index in 0..<count {
+            var pointer: UnsafePointer<UInt8>?
+            var size = 0
+            let status = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                description, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
+                parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
+            guard status == noErr, let pointer, size > 0 else {
+                throw FormatError.corrupt("HEVC parameter set (\(status))")
+            }
+            pointers.append(pointer)
+            sizes.append(size)
+        }
+        var parsed: CMFormatDescription?
+        let parsedStatus = withExtendedLifetime(description) {
+            CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                allocator: nil, parameterSetCount: count, parameterSetPointers: pointers, parameterSetSizes: sizes,
+                nalUnitHeaderLength: nalUnitHeaderLength, extensions: nil, formatDescriptionOut: &parsed)
+        }
+        guard parsedStatus == noErr, let parsed else {
+            throw FormatError.corrupt("HEVC format description (\(parsedStatus))")
+        }
+        return parsed
     }
 
     public static func decoderConfiguration(of description: CMFormatDescription) -> Data? {

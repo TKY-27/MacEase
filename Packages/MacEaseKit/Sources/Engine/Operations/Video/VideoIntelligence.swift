@@ -78,9 +78,12 @@ enum VideoBackgroundRemoval {
             container: container, video: .encode(encoding, FrameEdit(displayOrientation: try input.displayOrientation)),
             audio: audio(for: input, in: container, settings: context.settings.audio))
         plan.matte = BackgroundMatte(source: request.mask, fill: request.fill)
+        plan.derived = true
+        plan = try await VideoProperties.prepare(plan, input: input, context: context, allowsCodecChange: false)
         let name = url.deletingPathExtension().lastPathComponent + " (background removed)." + container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await VideoProperties.verify(plan, output: output, context: context)
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .media)])
     }
 

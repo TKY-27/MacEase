@@ -4851,16 +4851,6 @@
         }
       }
     },
-    "The SDR output does not contain Dolby Vision dynamic metadata.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SDR 出力には Dolby Vision のダイナミックメタデータが含まれません。"
-          }
-        }
-      }
-    },
     "The narrowest ratio must not be wider than the widest.": {
       "localizations": {
         "ja": {
@@ -4918,6 +4908,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” の元のファイルはゴミ箱にありません。"
+          }
+        }
+      }
+    },
+    "The output does not contain Dolby Vision dynamic metadata.": {
+      "comment": "Discloses Dolby Vision metadata loss",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力には Dolby Vision の動的メタデータが含まれていません。"
           }
         }
       }
@@ -5098,6 +5099,16 @@
         }
       }
     },
+    "This output cannot preserve %@. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この出力形式では%@を保持できません。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "Thumbnail format": {
       "localizations": {
         "ja": {
@@ -5177,6 +5188,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "透明部分を設定した背景色で塗りつぶしました。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "Transparency was flattened onto the video background color. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明部分を動画の背景色で塗りつぶしました。元のファイルはそのまま残しています。"
           }
         }
       }
@@ -5575,6 +5596,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "このプリセットへの変更内容は削除されます。"
+          }
+        }
+      }
+    },
+    "alternate track groups": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代替トラックグループ"
           }
         }
       }
@@ -10220,6 +10251,56 @@
         }
       }
     },
+    "track enabled state": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラックの有効状態"
+          }
+        }
+      }
+    },
+    "track language": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラックの言語"
+          }
+        }
+      }
+    },
+    "track metadata": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラックのメタデータ"
+          }
+        }
+      }
+    },
+    "track volume": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラックの音量"
+          }
+        }
+      }
+    },
+    "video metadata": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画のメタデータ"
+          }
+        }
+      }
+    },
     "“%@” cannot get under the target size. The smallest result was %@.": {
       "localizations": {
         "ja": {
@@ -10230,12 +10311,43 @@
         }
       }
     },
+    "“%@” cannot preserve transparency in this output. Choose Save as New File to flatten onto the video background color. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この出力形式では “%@” の透明部分を保持できません。「新しいファイルとして保存」を選ぶと、動画の背景色で透明部分を塗りつぶします。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
     "“%@” cannot replace the original because the output would lose %@ metadata. Choose Save as New File. The original was kept.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "出力すると %2$@ のメタデータが失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "“%@” cannot replace the original because the output would lose %@. Choose Save as New File. The original was kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力すると%2$@が失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+          }
+        }
+      }
+    },
+    "“%@” cannot replace the original because the output would lose Dolby Vision dynamic metadata. Choose Save as New File. The original was kept.": {
+      "comment": "Refuses Dolby Vision metadata loss",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力すると Dolby Vision の動的メタデータが失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
           }
         }
       }
@@ -10357,16 +10469,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "HDR ゲインマップを保持できないため、“%@” を編集できませんでした。元のファイルはそのまま残しています。"
-          }
-        }
-      }
-    },
-    "“%@” could not be edited because the output container cannot preserve transparency. The original was kept.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "出力コンテナで透明部分を保持できないため、“%@” を編集できませんでした。元のファイルはそのまま残しています。"
           }
         }
       }

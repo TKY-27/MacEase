@@ -311,6 +311,9 @@ enum VideoAudio {
         guard let track = input.audio, case .audio(let sampleRate, _) = track.kind else {
             throw EngineError.invalidInput(.malformed("no audio track"))
         }
+        let metadata = try await VideoMetadata.load(from: input)
+        let losses = metadata.losses(for: nil, includingVideo: false, includingAudio: true)
+        if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
         let name = url.deletingPathExtension().lastPathComponent + "." + format.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         if kilobits == nil, canCopy(track, to: format) {

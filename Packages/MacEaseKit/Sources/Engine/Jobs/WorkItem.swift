@@ -97,6 +97,9 @@ public enum ItemWarning: Equatable, Sendable {
     case imageTransparencyFlattened
     case imageToneMappedToSDR
     case imageMetadataDropped([MetadataField])
+    case videoTransparencyFlattened
+    case videoToneMappedToSDR
+    case videoMetadataDropped([VideoMetadataProperty])
     case pngOptimizationSkipped
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived

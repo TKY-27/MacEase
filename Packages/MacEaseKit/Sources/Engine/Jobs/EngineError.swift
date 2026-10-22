@@ -19,6 +19,9 @@ public enum EngineError: Error, Equatable, Sendable {
     case hdrConversionUnsupported
     case sdrVerificationFailed
     case videoAlphaUnsupported
+    case videoHDRUnsupported
+    case videoDolbyVisionUnsupported
+    case videoMetadataUnsupported([VideoMetadataProperty])
     case videoDisplayTransformUnsupported
     case duplicateArchiveRootName(String)
     case permissionDenied(PermissionLocation)

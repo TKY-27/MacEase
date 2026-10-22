@@ -5,6 +5,8 @@ import Foundation
 
 /// Edited frames at a constant rate.
 final class FrameSampler {
+    private static let hdrWorkingFrames: Int64 = 4
+    private static let hdrBytesPerPixel = 8
     private enum Source {
         case asset(AssetTrackReader)
         case container(any MediaDemuxer, any VideoFrameDecoder, sourceTrack: Int, decodeFrom: Int64)
@@ -13,6 +15,7 @@ final class FrameSampler {
     private var source: Source
     private var processor: FrameProcessor?
     private let edit: FrameEdit
+    private let hdr: VideoHDRConfiguration?
     let frameDuration: Int64
     private let sourceFrameDuration: Int64
     private let end: Int64
@@ -23,9 +26,19 @@ final class FrameSampler {
     /// Source time read so far.
     private(set) var position: Int64
 
-    init(input: MediaInput, frameDuration: Int64, edit: FrameEdit, start: Int64, end: Int64) async throws {
+    init(
+        input: MediaInput, frameDuration: Int64, edit: FrameEdit, start: Int64, end: Int64,
+        hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool = false
+    ) async throws {
         guard let track = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
+        if hdr != nil {
+            var budget = FrameMemoryBudget()
+            try budget.reserve(
+                width: input.codedSize.width, height: input.codedSize.height,
+                bytesPerPixel: Self.hdrBytesPerPixel, frameCount: Self.hdrWorkingFrames)
+        }
         self.edit = edit
+        self.hdr = hdr
         self.frameDuration = frameDuration
         sourceFrameDuration = input.frameDuration
         self.end = end
@@ -36,12 +49,15 @@ final class FrameSampler {
             let range = CMTimeRange(
                 start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
                 end: Transcoder.readerTime(end))
-            source = .asset(try AssetTrackReader(asset: asset, track: video, number: 1, mode: .frames, range: range))
+            let mode: AssetTrackReader.Mode = toneMapToSDR ? .sdrFrames : hdr != nil ? .hdrFrames : .frames
+            source = .asset(try AssetTrackReader(asset: asset, track: video, number: 1, mode: mode, range: range))
         default:
+            if toneMapToSDR { throw EngineError.hdrConversionUnsupported }
             guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
             let decodeFrom = start > 0 ? try await Transcoder.keyframe(atOrBefore: start, in: input) : 0
             source = .container(
-                demuxer, try VideoDecoders.make(for: track), sourceTrack: track.number, decodeFrom: decodeFrom)
+                demuxer, try VideoDecoders.make(for: track, hdr: hdr), sourceTrack: track.number, decodeFrom: decodeFrom
+            )
         }
     }
 
@@ -77,7 +93,7 @@ final class FrameSampler {
     private func processor(for image: CVPixelBuffer) throws -> FrameProcessor {
         if let processor { return processor }
         let size = PixelSize(width: CVPixelBufferGetWidth(image), height: CVPixelBufferGetHeight(image))
-        let created = try FrameProcessor(source: size, edit: edit)
+        let created = try FrameProcessor(source: size, edit: edit, hdr: hdr)
         processor = created
         return created
     }

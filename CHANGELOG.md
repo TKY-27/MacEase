@@ -55,6 +55,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Video compression preserves transparency in supported MOV and WebM outputs.
+- Ordinary video edits preserve supported PQ/HLG HDR with HEVC Main10.
+  SDR-only outputs tone-map with a warning; replacement refuses HDR loss.
+- Dolby Vision 8.4 (iPhone HDR) new-file edits keep the HLG base layer or
+  tone-map for SDR targets, with warnings; replacement refuses.
+- Native video remuxes and edits preserve metadata and track attributes;
+  unsupported property loss warns for new files and refuses replacement.
+
 - Preserve Finder dates, tags, and comments on source-backed exports.
 - Apply the confirmed batch rename preview with snapshotted exclusions and
   targets; refuse names occupied after confirmation.

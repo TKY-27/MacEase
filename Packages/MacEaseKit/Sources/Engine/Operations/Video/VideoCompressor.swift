@@ -77,6 +77,12 @@ enum VideoCompressor {
             guard input.video?.codec == destination.mediaCodec, edit.size == input.codedSize, edit.aspect == nil,
                 input.transform == .identity || destination.container.fileType != nil
             else { return nil }
+            if input.video?.hasAlpha == true {
+                let preservesAlpha =
+                    (destination.container == .mov && destination.codec == .hevc)
+                    || (destination.container == .webm && destination.codec == .vp9)
+                guard preservesAlpha else { return nil }
+            }
             guard try await preservesProfile() else { return nil }
             if input.audio == nil || input.audio?.codec == destination.audioCodec {
                 let plan = TranscodePlan(
@@ -197,11 +203,15 @@ enum VideoCompressor {
             target = video.targetBytes
             quality = video.quality.map { Double($0) / 100 } ?? defaultQuality
         }
-        let container = platformOutput?.container ?? (input.container.holds(.hevc) ? input.container : .mp4)
-        let codec = platformOutput?.video ?? .hevc
+        let alpha = input.video?.hasAlpha == true
+        let usesVP9Alpha = alpha && input.video?.codec == .vp9 && input.container.fileType == nil
+        let genericContainer: OutputContainer =
+            alpha ? (usesVP9Alpha ? .webm : .mov) : (input.container.holds(.hevc) ? input.container : .mp4)
+        let container = platformOutput?.container ?? genericContainer
+        let codec = platformOutput?.video ?? (usesVP9Alpha ? .vp9 : .hevc)
         return Destination(
-            container: container, codec: codec, mediaCodec: platformOutput?.mediaCodec ?? .hevc,
-            audioCodec: platformOutput?.audio ?? .aac,
+            container: container, codec: codec, mediaCodec: platformOutput?.mediaCodec ?? (usesVP9Alpha ? .vp9 : .hevc),
+            audioCodec: platformOutput?.audio ?? (usesVP9Alpha ? .opus : .aac),
             limits: limits, target: target, quality: quality)
     }
 
@@ -254,8 +264,10 @@ enum VideoCompressor {
         async throws -> (url: URL, bytes: Int64)
     {
         try Task.checkCancellation()
+        let plan = try await VideoProperties.prepare(plan, input: input, context: context, allowsCodecChange: false)
         let output = try context.stagingURL(for: input.url, name: name)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await VideoProperties.verify(plan, output: output, context: context)
         let attributes = try output.resourceValues(forKeys: [.fileSizeKey])
         guard let bytes = attributes.fileSize, bytes > 0 else {
             throw EngineError.encodeFailed("empty compression output")

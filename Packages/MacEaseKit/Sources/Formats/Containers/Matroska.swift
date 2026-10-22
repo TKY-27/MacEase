@@ -36,6 +36,11 @@ enum MatroskaID {
     static let pixelWidth: UInt32 = 0xB0
     static let pixelHeight: UInt32 = 0xBA
     static let alphaMode: UInt32 = 0x53C0
+    static let colour: UInt32 = 0x55B0
+    static let transferCharacteristics: UInt32 = 0x55BA
+    static let masteringMetadata: UInt32 = 0x55D0
+    static let maxCLL: UInt32 = 0x55BC
+    static let maxFALL: UInt32 = 0x55BD
     static let audio: UInt32 = 0xE1
     static let samplingFrequency: UInt32 = 0xB5
     static let channels: UInt32 = 0x9F
