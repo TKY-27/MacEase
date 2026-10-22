@@ -898,9 +898,11 @@ Explicit Convert > SDR uses the same metadata preflight and output comparison;
 permission to remove HDR does not permit other property loss.
 These rules extend ADR 0019's property-loss policy to video (ADR 0026).
 
-Matroska/WebM display dimensions, display units and pixel cropping are read
-separately from coded dimensions. Copies to Matroska/WebM retain these fields;
-native MOV/MP4/M4V copies retain representable clean aperture and pixel aspect
+Matroska/WebM display dimensions, display units and pixel cropping, and native
+clean aperture and pixel aspect ratio, are read separately from coded
+dimensions. Matroska/WebM copies retain the original container fields and map
+representable native geometry to display dimensions and pixel cropping.
+Native MOV/MP4/M4V copies retain representable clean aperture and pixel aspect
 ratio. Re-encoding and image exports crop first, then apply the display aspect
 before rotation, reflection or resizing. Pixel units retain the declared
 display size; physical units and aspect-ratio units use the cropped height
@@ -913,8 +915,9 @@ Lossless audio extraction retains the source ALAC/FLAC precision when
 re-encoding. Unknown or unrepresentable precision refuses before staging.
 PCM copies retain integer samples exactly, apply source trim/edit timing,
 and fill initial delays and timestamp gaps with silence at the source depth.
-Within a container timestamp quantum plus sample rounding, consecutive PCM
-packets advance by their sample counts instead of rounded container times.
+PCM copies and audio re-encodes share timestamp continuity handling. Within a
+container timestamp quantum plus sample rounding, consecutive PCM packets
+advance by their sample counts instead of rounded container times.
 They share the cumulative synthesized-silence limit in section 13.
 
 | ID | Presets | Mode | Behavior and acceptance |
@@ -1773,6 +1776,10 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 ## Changelog
 
 - 2026-10-22: Preserve 16-bit SDR precision and budget drawing canvases.
+
+- 2026-10-22: Preserve native video crop and pixel aspect in Matroska copies;
+  share sample-count continuity across PCM copying and audio re-encoding
+  (ADR 0026).
 
 - 2026-10-22: Preserve Matroska display geometry in supported copies and
   re-encodes; disclose unsupported loss and refuse Replace before staging

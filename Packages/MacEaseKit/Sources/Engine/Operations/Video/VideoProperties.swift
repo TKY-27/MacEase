@@ -65,12 +65,20 @@ enum VideoProperties {
         var prepared = plan
         let metadata = try await VideoMetadata.load(from: input)
         var losses = metadata.losses(for: prepared.container, includingAudio: prepared.audio != nil)
-        let losesDisplay = losesDisplayGeometry(plan, input: input)
+        let losesDisplay = try await losesDisplayGeometry(plan, input: input)
         if losesDisplay, !losses.contains(.trackMetadata) {
             losses.append(.trackMetadata)
         }
-        if case .copy = plan.video, input.video?.displayGeometry != nil, !losesDisplay {
+        if case .copy = plan.video,
+            input.video?.displayGeometry != nil || input.video?.hasUnrepresentableDisplayGeometry == true,
+            !losesDisplay
+        {
             prepared.copiedDisplayTrack = input.video
+            if input.video?.hasUnrepresentableDisplayGeometry == true,
+                case .asset(_, let track?, _) = input.backend
+            {
+                prepared.copiedDisplayFormat = try await track.load(.formatDescriptions).first
+            }
         }
         if !losses.isEmpty {
             guard prepared.derived || context.settings.outputMode == .newFile else {
@@ -94,7 +102,8 @@ enum VideoProperties {
         var losses = try await metadata.losses(
             in: output, container: plan.container, includingAudio: plan.audio != nil)
         if let source = plan.copiedDisplayTrack,
-            try await !preservesDisplayGeometry(source, in: output, container: plan.container),
+            try await !preservesDisplayGeometry(
+                source, sourceFormat: plan.copiedDisplayFormat, in: output, container: plan.container),
             !losses.contains(.trackMetadata)
         {
             losses.append(.trackMetadata)
@@ -106,8 +115,29 @@ enum VideoProperties {
         warn(.videoMetadataDropped(losses), context: context)
     }
 
-    private static func losesDisplayGeometry(_ plan: TranscodePlan, input: MediaInput) -> Bool {
-        guard let display = input.video?.displayGeometry, let video = plan.video else { return false }
+    private static func losesDisplayGeometry(_ plan: TranscodePlan, input: MediaInput) async throws -> Bool {
+        guard let source = input.video, let video = plan.video else { return false }
+        if source.hasUnrepresentableDisplayGeometry {
+            if case .copy = video, plan.container.fileType != nil,
+                case .asset(_, let track?, _) = input.backend
+            {
+                let formats = try await track.load(.formatDescriptions)
+                guard let first = formats.first else { return true }
+                let dimensions = CMVideoFormatDescriptionGetDimensions(first)
+                let aperture = CMVideoFormatDescriptionGetCleanAperture(first, originIsAtTopLeft: true)
+                let presentation = CMVideoFormatDescriptionGetPresentationDimensions(
+                    first, usePixelAspectRatio: true, useCleanAperture: true)
+                return !formats.allSatisfy {
+                    CMVideoFormatDescriptionGetDimensions($0).width == dimensions.width
+                        && CMVideoFormatDescriptionGetDimensions($0).height == dimensions.height
+                        && CMVideoFormatDescriptionGetCleanAperture($0, originIsAtTopLeft: true) == aperture
+                        && CMVideoFormatDescriptionGetPresentationDimensions(
+                            $0, usePixelAspectRatio: true, useCleanAperture: true) == presentation
+                }
+            }
+            return true
+        }
+        guard let display = source.displayGeometry else { return false }
         let size = input.codedSize
         switch video {
         case .copy:
@@ -122,13 +152,13 @@ enum VideoProperties {
     }
 
     private static func preservesDisplayGeometry(
-        _ source: MediaTrack, in output: URL, container: OutputContainer
+        _ source: MediaTrack, sourceFormat: CMFormatDescription?, in output: URL, container: OutputContainer
     ) async throws -> Bool {
         if container == .mkv || container == .webm {
             let written = try MatroskaDemuxer(url: output).tracks.first(where: \.isVideo)
             return written?.displayGeometry == source.displayGeometry && written?.kind == source.kind
         }
-        let expected = try VideoFormat.description(for: source)
+        let expected = try sourceFormat ?? VideoFormat.description(for: source)
         let aperture = CMVideoFormatDescriptionGetCleanAperture(expected, originIsAtTopLeft: true)
         let presentation = CMVideoFormatDescriptionGetPresentationDimensions(
             expected, usePixelAspectRatio: true, useCleanAperture: true)
@@ -187,8 +217,10 @@ enum VideoProperties {
 
     static func toneMapsExport(_ input: MediaInput, context: ItemContext) async throws -> Bool {
         let size = input.codedSize
-        if let display = input.video?.displayGeometry,
-            display.presentationSize(width: size.width, height: size.height) == nil
+        if input.video?.hasUnrepresentableDisplayGeometry == true
+            || (input.video?.displayGeometry.map {
+                $0.presentationSize(width: size.width, height: size.height) == nil
+            } ?? false)
         {
             warn(.videoMetadataDropped([.trackMetadata]), context: context)
         }

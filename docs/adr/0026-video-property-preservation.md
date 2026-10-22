@@ -68,10 +68,12 @@ attribute copying only ran during explicit HDR-to-SDR conversion.
   properties before commit to detect other writer omissions or normalization.
   Explicit SDR conversion shares these metadata checks while permitting
   the requested HDR removal.
-- Read Matroska/WebM display dimensions, units and pixel cropping. Keep the
-  original fields in Matroska/WebM copies and representable clean aperture
-  and pixel aspect in native copies. Apply crop before display aspect and
-  requested geometry during re-encoding and image exports. Pixel units use
+- Read Matroska/WebM display dimensions, units and pixel cropping, plus native
+  clean aperture and pixel aspect ratio. Matroska/WebM copies retain original
+  container fields and map representable native display dimensions and crop.
+  Native copies retain representable clean aperture and pixel aspect.
+  Apply crop before display aspect and requested geometry during re-encoding
+  and image exports. Pixel units use
   declared dimensions; physical and ratio units use the cropped height and
   declared ratio. Unknown units and unsupported destinations use the existing
   track-metadata warning or replacement refusal before staging. Reopen copies

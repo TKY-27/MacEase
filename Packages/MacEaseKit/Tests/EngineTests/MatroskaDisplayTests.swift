@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreGraphics
+import CoreMedia
 import Foundation
 import Testing
 
@@ -54,6 +55,111 @@ import Testing
             format, usePixelAspectRatio: true, useCleanAperture: true)
         #expect(abs(presentation.width / presentation.height - 112.0 / 36) < 0.0001)
         #expect(context.warnings.isEmpty)
+    }
+
+    @Test func nativeToMatroskaRetainsCropAndPixelAspect() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = try fixture(folder: folder, fields: Self.croppedDisplay)
+        let toMov = context(folder: folder, mode: .replace)
+        defer { toMov.removeStaging() }
+        let mov = try staged(try await VideoEdits.run(.convert(.mov), url: source, context: toMov))
+        let toMatroska = context(folder: folder, mode: .replace)
+        defer { toMatroska.removeStaging() }
+        let output = try staged(try await VideoEdits.run(.convert(.mkv), url: mov, context: toMatroska))
+        let written = try #require(MatroskaDemuxer(url: output).tracks.first)
+        #expect(written.kind == .video(width: 64, height: 48))
+        #expect(
+            written.displayGeometry
+                == VideoDisplayGeometry(
+                    displayWidth: 112, displayHeight: 36, cropTop: 8, cropBottom: 4, cropLeft: 4, cropRight: 4))
+        #expect(toMatroska.warnings.isEmpty)
+        #expect(try videoPackets(output) == videoPackets(source))
+    }
+
+    @Test func nativeReencodingCropsAndStretchesOnce() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = try fixture(folder: folder, fields: Self.croppedDisplay)
+        let toMov = context(folder: folder, mode: .replace)
+        defer { toMov.removeStaging() }
+        let mov = try staged(try await VideoEdits.run(.convert(.mov), url: source, context: toMov))
+        let flip = context(folder: folder, mode: .replace)
+        defer { flip.removeStaging() }
+        let output = try staged(try await VideoEdits.run(.flip(horizontally: true), url: mov, context: flip))
+        let written = try await MediaInput.open(output)
+        #expect(written.codedSize == PixelSize(width: 112, height: 36))
+        let sampler = try await FrameSampler(
+            input: written, frameDuration: written.frameDuration, edit: FrameEdit(), start: 0, end: written.duration)
+        let frame = try #require(try await sampler.next())
+        let pixels = try PixelBuffer(cgImage: CGImage.make(from: frame.image))
+        let left = (pixels.height / 2 * pixels.width + pixels.width / 4) * 4
+        let right = (pixels.height / 2 * pixels.width + pixels.width * 3 / 4) * 4
+        #expect(pixels.rgba[left + 2] > 180 && pixels.rgba[left] < 80)
+        #expect(pixels.rgba[right] > 180 && pixels.rgba[right + 2] < 80)
+        for y in [2, pixels.height - 3] {
+            let edge = (y * pixels.width + pixels.width / 4) * 4
+            #expect(pixels.rgba[edge + 1] < 80)
+        }
+        #expect(flip.warnings.isEmpty)
+    }
+
+    @Test func fractionalNativeApertureUsesLossPolicy() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let jpegSource = try fixture(folder: folder, fields: [])
+        let jpeg = try #require(videoPackets(jpegSource).first)
+        let aperture: [CFString: Any] = [
+            kCMFormatDescriptionKey_CleanApertureWidth: 55.5,
+            kCMFormatDescriptionKey_CleanApertureHeight: 36,
+            kCMFormatDescriptionKey_CleanApertureHorizontalOffset: 0,
+            kCMFormatDescriptionKey_CleanApertureVerticalOffset: 0,
+        ]
+        var description: CMVideoFormatDescription?
+        let status = CMVideoFormatDescriptionCreate(
+            allocator: nil, codecType: kCMVideoCodecType_JPEG, width: 64, height: 48,
+            extensions: [kCMFormatDescriptionExtension_CleanAperture: aperture] as CFDictionary,
+            formatDescriptionOut: &description)
+        #expect(status == noErr)
+        let format = try #require(description)
+        let source = folder.appending(path: "fractional.mov")
+        let media = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .mjpeg)
+        let sink = try AssetWriterSink(
+            url: source, fileType: .mov, tracks: [OutputTrack(track: media, format: format)],
+            transform: .identity)
+        try await sink.write(
+            MediaPacket(track: 1, timestamp: 0, duration: 125_000_000, isKeyframe: true, payload: jpeg))
+        try await sink.finish()
+        let sourceBytes = try Data(contentsOf: source)
+        let sourceTrack = try #require(try await AVURLAsset(url: source).loadTracks(withMediaType: .video).first)
+        let sourceFormat = try #require(try await sourceTrack.load(.formatDescriptions).first)
+        let sourceAperture = CMVideoFormatDescriptionGetCleanAperture(sourceFormat, originIsAtTopLeft: true)
+        #expect(
+            sourceAperture.minX.rounded() != sourceAperture.minX
+                || sourceAperture.width.rounded() != sourceAperture.width)
+        let opened = try await MediaInput.open(source)
+        #expect(opened.video?.hasUnrepresentableDisplayGeometry == true)
+        let replacement = context(folder: folder, mode: .replace)
+        defer { replacement.removeStaging() }
+        await #expect(throws: EngineError.videoMetadataUnsupported([.trackMetadata])) {
+            _ = try await VideoEdits.run(.convert(.mkv), url: source, context: replacement)
+        }
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "staging.json").path))
+        #expect(try Data(contentsOf: source) == sourceBytes)
+        let native = context(folder: folder, mode: .replace)
+        defer { native.removeStaging() }
+        let copied = try staged(
+            try await VideoEdits.run(
+                .rotate(degrees: 90, fill: native.settings.video.rotationFill), url: source, context: native))
+        let nativeTrack = try #require(try await AVURLAsset(url: copied).loadTracks(withMediaType: .video).first)
+        let nativeFormat = try #require(try await nativeTrack.load(.formatDescriptions).first)
+        #expect(CMVideoFormatDescriptionGetCleanAperture(nativeFormat, originIsAtTopLeft: true) == sourceAperture)
+        #expect(native.warnings.isEmpty)
+        #expect(try Data(contentsOf: source) == sourceBytes)
+        let newFile = context(folder: folder, mode: .newFile)
+        defer { newFile.removeStaging() }
+        _ = try await VideoEdits.run(.convert(.mkv), url: source, context: newFile)
+        #expect(newFile.warnings == [.videoMetadataDropped([.trackMetadata])])
     }
 
     @Test(arguments: [UInt64(0), 1, 2, 3])

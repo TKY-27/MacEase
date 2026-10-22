@@ -167,6 +167,7 @@ public struct MediaTrack: Hashable, Sendable {
     public var hasAlpha = false
     public var hasContainerHDR = false
     public var displayGeometry: VideoDisplayGeometry?
+    public var hasUnrepresentableDisplayGeometry = false
     public var timestampQuantum: Int64?
     public var codecDelay: Int64 = 0
     public var seekPreRoll: Int64 = 0

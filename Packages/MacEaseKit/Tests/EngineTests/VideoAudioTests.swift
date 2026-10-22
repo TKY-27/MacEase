@@ -102,6 +102,89 @@ import UniformTypeIdentifiers
         #expect(try decodedAudio(demuxer) > 80_000)
     }
 
+    @Test(arguments: [0, 4_128, 4_800])
+    func quantizedPCMReencodingPreservesFrameCountAndRealGap(gapFrames: Int) async throws {
+        let sampleRate = 48_000
+        let packetFrames = 1_024
+        let packetCount = 12
+        let gapStartPacket = 6
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "quantized.mkv")
+        let videoResource = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+        let asset = AVURLAsset(url: videoResource)
+        let sourceVideo = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let video = try await AssetTracks.describe(sourceVideo, number: 1)
+        let reader = try AssetTrackReader(asset: asset, track: sourceVideo, number: 1, mode: .packets)
+        var firstKeyframe: MediaPacket?
+        while let packets = try await reader.nextPackets() {
+            if let keyframe = packets.first(where: { $0.isKeyframe }) {
+                firstKeyframe = keyframe
+                break
+            }
+        }
+        let videoPacket = try #require(firstKeyframe)
+        let audio = MediaTrack(
+            number: 2, kind: .audio(sampleRate: Double(sampleRate), channels: 1),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        var muxer = try MatroskaMuxer(url: source, tracks: [video, audio], webm: false)
+        try muxer.write(videoPacket)
+        for packet in 0..<packetCount {
+            let offset = packet * packetFrames + (packet >= gapStartPacket ? gapFrames : 0)
+            let timestamp = try Nanoseconds.scale(
+                Int64(offset), by: Nanoseconds.perSecond, over: Int64(sampleRate))
+            try muxer.write(
+                MediaPacket(
+                    track: audio.number, timestamp: timestamp, isKeyframe: true,
+                    payload: Data(repeating: 1, count: packetFrames * MemoryLayout<Int16>.size)))
+        }
+        try muxer.finish()
+        #expect(
+            try MatroskaDemuxer(url: source).tracks.first { !$0.isVideo }?.timestampQuantum
+                == Nanoseconds.perMillisecond)
+
+        let expectedFrames = packetCount * packetFrames + gapFrames
+        let gapStartFrame = gapStartPacket * packetFrames
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .replace(_, let converted) = try await VideoEdits.run(.convert(.avi), url: source, context: context)
+        else {
+            Issue.record("expected staged AVI")
+            return
+        }
+        var aviDemuxer = try AVIDemuxer(url: converted.url)
+        let aviAudio = try #require(aviDemuxer.tracks.first { !$0.isVideo })
+        let decoder = try AudioPacketDecoder(track: aviAudio)
+        var aviSamples: [Float] = []
+        while let packet = try aviDemuxer.nextPacket() {
+            if packet.track == aviAudio.number { aviSamples += try decoder.decode(packet) }
+        }
+        try #require(aviSamples.count == expectedFrames)
+        #expect(aviSamples[0] != 0)
+        #expect(aviSamples[gapStartFrame + gapFrames] != 0)
+        if gapFrames > 0 {
+            #expect(aviSamples[gapStartFrame..<gapStartFrame + gapFrames].allSatisfy { $0 == 0 })
+        }
+
+        guard
+            case .derived(_, let outputs) = try await VideoAudio.extract(
+                .wav, kilobits: 0, url: source, context: context)
+        else {
+            Issue.record("expected derived WAV")
+            return
+        }
+        let output = try #require(outputs.first)
+        let (_, samples) = try AudioSignals.decode(output.url)
+        try #require(samples.count == expectedFrames)
+        #expect(samples[0] != 0)
+        #expect(samples[gapStartFrame + gapFrames] != 0)
+        if gapFrames > 0 {
+            #expect(samples[gapStartFrame..<gapStartFrame + gapFrames].allSatisfy { $0 == 0 })
+        }
+    }
+
     @Test func convertingFloatPCMMatroskaToAVIRejectsNaNWithoutTouchingSource() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "InvalidPCM-\(UUID().uuidString)")
         TestTemporaryFolders.register(folder)

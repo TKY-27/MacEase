@@ -29,6 +29,7 @@ struct TranscodePlan {
     var toneMapToSDR = false
     var metadata: VideoMetadata?
     var copiedDisplayTrack: MediaTrack?
+    var copiedDisplayFormat: CMFormatDescription?
     var derived = false
 }
 

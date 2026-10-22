@@ -5,7 +5,8 @@ import Foundation
 
 enum AssetTracks {
     static func describe(_ track: AVAssetTrack, number: Int) async throws -> MediaTrack {
-        guard let format = try await track.load(.formatDescriptions).first else {
+        let formats = try await track.load(.formatDescriptions)
+        guard let format = formats.first else {
             throw EngineError.decodeFailed("track without a format")
         }
         let subtype = CMFormatDescriptionGetMediaSubType(format)
@@ -14,6 +15,13 @@ enum AssetTracks {
             var described = MediaTrack(
                 number: number, kind: .video(width: Int(size.width), height: Int(size.height)),
                 codec: videoCodec(subtype), codecPrivate: VideoFormat.decoderConfiguration(of: format))
+            let geometries = formats.map { nativeDisplayGeometry($0) }
+            if let first = geometries.first, geometries.allSatisfy({ $0 == first }) {
+                described.displayGeometry = first.geometry
+                described.hasUnrepresentableDisplayGeometry = first.unrepresentable
+            } else {
+                described.hasUnrepresentableDisplayGeometry = true
+            }
             let rate = try await track.load(.nominalFrameRate)
             guard rate.isFinite, rate >= 0 else { throw EngineError.decodeFailed("video frame rate out of range") }
             if rate > 0 {
@@ -39,6 +47,71 @@ enum AssetTracks {
             }
         }
         return described
+    }
+
+    private static func nativeDisplayGeometry(_ format: CMFormatDescription) -> (
+        geometry: VideoDisplayGeometry?, unrepresentable: Bool
+    ) {
+        let apertureField = CMFormatDescriptionGetExtension(
+            format, extensionKey: kCMFormatDescriptionExtension_CleanAperture)
+        let aspectField = CMFormatDescriptionGetExtension(
+            format, extensionKey: kCMFormatDescriptionExtension_PixelAspectRatio)
+        guard apertureField != nil || aspectField != nil else { return (nil, false) }
+        if let apertureField {
+            guard let fields = apertureField as? [CFString: Any],
+                let rawWidth = fields[kCMFormatDescriptionKey_CleanApertureWidth] as? NSNumber,
+                let rawHeight = fields[kCMFormatDescriptionKey_CleanApertureHeight] as? NSNumber,
+                rawWidth.doubleValue.isFinite, rawHeight.doubleValue.isFinite,
+                rawWidth.doubleValue > 0, rawHeight.doubleValue > 0
+            else { return (nil, true) }
+        }
+        let dimensions = CMVideoFormatDescriptionGetDimensions(format)
+        let width = Int(dimensions.width)
+        let height = Int(dimensions.height)
+        let aperture = CMVideoFormatDescriptionGetCleanAperture(format, originIsAtTopLeft: true)
+        let edges = [aperture.minX, aperture.minY, aperture.width, aperture.height]
+        guard width > 0, height > 0,
+            edges.allSatisfy({ $0.isFinite && $0 >= 0 && $0.rounded() == $0 }),
+            aperture.maxX <= CGFloat(width), aperture.maxY <= CGFloat(height),
+            aperture.width > 0, aperture.height > 0
+        else { return (nil, true) }
+        let cropLeft = Int(aperture.minX)
+        let cropTop = Int(aperture.minY)
+        let cropRight = width - Int(aperture.maxX)
+        let cropBottom = height - Int(aperture.maxY)
+        let croppedWidth = Int(aperture.width)
+        let croppedHeight = Int(aperture.height)
+        var horizontal = 1
+        var vertical = 1
+        if let aspectField {
+            guard let aspect = aspectField as? [CFString: Any],
+                let rawHorizontal = aspect[kCMFormatDescriptionKey_PixelAspectRatioHorizontalSpacing] as? NSNumber,
+                let rawVertical = aspect[kCMFormatDescriptionKey_PixelAspectRatioVerticalSpacing] as? NSNumber,
+                rawHorizontal.doubleValue > 0, rawVertical.doubleValue > 0,
+                rawHorizontal.doubleValue <= Double(Int32.max), rawVertical.doubleValue <= Double(Int32.max),
+                rawHorizontal.doubleValue.rounded() == rawHorizontal.doubleValue,
+                rawVertical.doubleValue.rounded() == rawVertical.doubleValue
+            else { return (nil, true) }
+            horizontal = rawHorizontal.intValue
+            vertical = rawVertical.intValue
+        }
+        let scaledWidth = croppedWidth * horizontal
+        let scaledHeight = croppedHeight * vertical
+        let integralDisplay = scaledWidth % vertical == 0
+        let geometry = VideoDisplayGeometry(
+            displayWidth: integralDisplay ? scaledWidth / vertical : scaledWidth,
+            displayHeight: integralDisplay ? croppedHeight : scaledHeight,
+            displayUnit: integralDisplay ? 0 : 3,
+            cropTop: cropTop, cropBottom: cropBottom, cropLeft: cropLeft, cropRight: cropRight)
+        guard (try? geometry.validate(width: width, height: height)) != nil,
+            geometry.pixelAspectRatio(width: width, height: height) != nil
+        else { return (nil, true) }
+        if geometry.cropTop == 0, geometry.cropBottom == 0, geometry.cropLeft == 0,
+            geometry.cropRight == 0, horizontal == vertical
+        {
+            return (nil, false)
+        }
+        return (geometry, false)
     }
 
     static func videoCodec(_ subtype: FourCharCode) -> MediaCodec {

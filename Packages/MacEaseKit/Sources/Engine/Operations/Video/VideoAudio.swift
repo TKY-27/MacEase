@@ -8,6 +8,39 @@ private let silenceChunkFrames = 4_096
 private let maximumSynthesizedSilence = 600 * Nanoseconds.perSecond
 private let pcmFrameRoundingTolerance = 0.5
 
+private struct PCMFrameContinuity {
+    let sampleRate: Double
+    let timestampToleranceFrames: Double
+
+    init(sampleRate: Double, timestampQuantum: Int64?) {
+        self.sampleRate = sampleRate
+        timestampToleranceFrames =
+            Double(timestampQuantum ?? 0) * sampleRate / Double(Nanoseconds.perSecond)
+            + pcmFrameRoundingTolerance
+    }
+
+    func framePosition(_ timestamp: Int64) throws -> Int64 {
+        let time = CMTime(value: timestamp, timescale: SampleBuffers.nanosecondScale)
+        let frames = CMTimeConvertScale(
+            CMTimeMultiplyByFloat64(time, multiplier: sampleRate), timescale: 1, method: .roundHalfAwayFromZero)
+        guard frames.isNumeric else { throw EngineError.decodeFailed("audio frame count out of range") }
+        return frames.value
+    }
+
+    func gap(at timestamp: Int64, relativeTo origin: Int64 = 0, adjustment: Int64 = 0, after frames: Int64)
+        throws -> Int64
+    {
+        let (relative, timestampOverflow) = timestamp.subtractingReportingOverflow(origin)
+        guard !timestampOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        let (due, adjustmentOverflow) = try framePosition(relative).addingReportingOverflow(adjustment)
+        guard !adjustmentOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+        let (difference, gapOverflow) = due.subtractingReportingOverflow(frames)
+        guard !gapOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+        if frames > 0, abs(Double(difference)) <= timestampToleranceFrames { return 0 }
+        return difference
+    }
+}
+
 final class VideoPCMSource {
     private enum Source {
         case asset(AssetTrackReader)
@@ -121,10 +154,12 @@ final class AudioEncodeStage: StreamStage {
     private let start: Int64
     private let number: Int
     private let maximumSilenceFrames: Int64
+    private let continuity: PCMFrameContinuity
     private var position: Int64
     private var clockOrigin: Int64?
-    private var sourceCursor: Int64?
+    private var sourceFrames: Int64 = 0
     private var pendingChunk: (samples: [Float], timestamp: Int64)?
+    private var pendingSilenceFrames: Int64 = 0
     private var inputFrames: Int64 = 0
     private var encodedFrames: Int64 = 0
     private var synthesizedSilenceFrames: Int64 = 0
@@ -147,6 +182,7 @@ final class AudioEncodeStage: StreamStage {
         default: throw EngineError.unsupportedCodec(codec.displayName)
         }
         sampleRate = Int(format.outputSampleRate(source.sampleRate))
+        continuity = PCMFrameContinuity(sampleRate: source.sampleRate, timestampQuantum: track.timestampQuantum)
         maximumSilenceFrames = Int64(
             (Double(maximumSynthesizedSilence) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded(.down))
         channels = format.outputChannels(source.channels)
@@ -189,43 +225,39 @@ final class AudioEncodeStage: StreamStage {
             if clockOrigin == nil {
                 clockOrigin = max(start, chunk.timestamp)
                 position = clockOrigin ?? start
-                sourceCursor = chunk.timestamp
             }
-            if let sourceCursor, chunk.timestamp > sourceCursor {
-                let (gap, gapOverflow) = chunk.timestamp.subtractingReportingOverflow(sourceCursor)
-                guard !gapOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                let missingEstimate =
-                    (Double(gap) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded()
-                guard missingEstimate < Double(Int.max) else {
-                    throw EngineError.decodeFailed("media timestamp out of range")
-                }
-                let missing = Int(missingEstimate)
-                if missing > 1 {
-                    let (projected, budgetOverflow) = synthesizedSilenceFrames.addingReportingOverflow(Int64(missing))
+            let gap = try continuity.gap(
+                at: chunk.timestamp, relativeTo: clockOrigin ?? start, after: sourceFrames)
+            if pendingSilenceFrames > 0 || gap > 0 {
+                if pendingSilenceFrames == 0 {
+                    let (projected, budgetOverflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                     guard !budgetOverflow, projected <= maximumSilenceFrames else {
                         throw EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")
                     }
-                    let frames = min(missing, silenceChunkFrames)
-                    pendingChunk = chunk
-                    let elapsed = try roundedElapsed(frames)
-                    let (following, overflow) = sourceCursor.addingReportingOverflow(elapsed)
-                    guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                    self.sourceCursor = following
-                    let silence = [Float](repeating: 0, count: frames * source.channels)
-                    let converted = try converter?.convert(silence) ?? silence
-                    let packets = try encoded(converted)
-                    let (total, totalOverflow) = synthesizedSilenceFrames.addingReportingOverflow(Int64(frames))
-                    guard !totalOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
-                    synthesizedSilenceFrames = total
-                    if !packets.isEmpty { return packets }
-                    continue
+                    pendingSilenceFrames = gap
                 }
+                let frames = Int(min(pendingSilenceFrames, Int64(silenceChunkFrames)))
+                pendingSilenceFrames -= Int64(frames)
+                pendingChunk = chunk
+                let (following, overflow) = sourceFrames.addingReportingOverflow(Int64(frames))
+                guard !overflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                sourceFrames = following
+                let silence = [Float](repeating: 0, count: frames * source.channels)
+                let converted = try converter?.convert(silence) ?? silence
+                let packets = try encoded(converted)
+                let (total, totalOverflow) = synthesizedSilenceFrames.addingReportingOverflow(Int64(frames))
+                guard !totalOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                synthesizedSilenceFrames = total
+                if !packets.isEmpty { return packets }
+                continue
             }
-            let elapsed = try roundedElapsed(chunk.samples.count / source.channels)
-            let (following, overflow) = chunk.timestamp.addingReportingOverflow(elapsed)
-            guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-            sourceCursor = following
-            let converted = try converter?.convert(chunk.samples) ?? chunk.samples
+            let overlap = Int(min(UInt64(chunk.samples.count / source.channels), gap < 0 ? gap.magnitude : 0))
+            let remaining = chunk.samples.count / source.channels - overlap
+            let (following, overflow) = sourceFrames.addingReportingOverflow(Int64(remaining))
+            guard !overflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+            sourceFrames = following
+            let kept = overlap == 0 ? chunk.samples : Array(chunk.samples.dropFirst(overlap * source.channels))
+            let converted = try converter?.convert(kept) ?? kept
             let packets = try encoded(converted)
             if !packets.isEmpty { return packets }
         }
@@ -262,14 +294,6 @@ final class AudioEncodeStage: StreamStage {
         return try timed([EncodedAudioPacket(data: bytes, frames: samples.count / channels)])
     }
 
-    private func roundedElapsed(_ frames: Int) throws -> Int64 {
-        let estimate = (Double(frames) * Double(Nanoseconds.perSecond) / source.sampleRate).rounded()
-        guard estimate.isFinite, abs(estimate) < Double(Int64.max) else {
-            throw EngineError.decodeFailed("media timestamp out of range")
-        }
-        return Int64(estimate)
-    }
-
     private func timed(_ encoded: [EncodedAudioPacket]) throws -> [MediaPacket] {
         try encoded.map { packet in
             let origin = clockOrigin ?? start
@@ -302,9 +326,6 @@ enum VideoAudio {
     private static let flacMarkerLength = 4
     private static let flacBlockHeaderLength = 4
     private static let opusSampleRate = 48_000
-    /// Rounding jitter, not a real gap.
-    private static let gapToleranceFrames: Int64 = 2
-
     static func extract(
         _ format: AudioFormat, kilobits: Int? = nil, url: URL, context: ItemContext
     ) async throws -> ItemResult {
@@ -345,33 +366,36 @@ enum VideoAudio {
             bitDepth: precision.bits, isFloat: precision.float)
         var frames: Int64 = 0
         var synthesizedSilenceFrames: Int64 = 0
+        let continuity = PCMFrameContinuity(sampleRate: source.sampleRate, timestampQuantum: track.timestampQuantum)
         let expectedFrames = max(sampleRate * Double(input.duration) / Double(Nanoseconds.perSecond), 1)
         let maximumSilenceFrames = Int64(
             (Double(maximumSynthesizedSilence) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded(.down))
         while let chunk = try await source.next() {
             try Task.checkCancellation()
-            let due = try Nanoseconds.scale(chunk.timestamp, by: Int64(source.sampleRate), over: Nanoseconds.perSecond)
-            let (gap, gapOverflow) = due.subtractingReportingOverflow(frames)
-            guard !gapOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
-            if gap > gapToleranceFrames {
+            let gap = try continuity.gap(at: chunk.timestamp, after: frames)
+            if gap > 0 {
                 let (projected, budgetOverflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                 guard !budgetOverflow, projected <= maximumSilenceFrames else {
                     throw EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")
                 }
-                while frames < due {
+                var missing = gap
+                while missing > 0 {
                     try Task.checkCancellation()
-                    let count = Int(min(due - frames, Int64(silenceChunkFrames)))
+                    let count = Int(min(missing, Int64(silenceChunkFrames)))
                     try await encoder.write([Float](repeating: 0, count: count * source.channels))
                     let (following, overflow) = frames.addingReportingOverflow(Int64(count))
                     guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
                     frames = following
+                    missing -= Int64(count)
                     let (total, totalOverflow) = synthesizedSilenceFrames.addingReportingOverflow(Int64(count))
                     guard !totalOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
                     synthesizedSilenceFrames = total
                 }
             }
-            try await encoder.write(chunk.samples)
-            let (following, overflow) = frames.addingReportingOverflow(Int64(chunk.samples.count / source.channels))
+            let overlap = Int(min(UInt64(chunk.samples.count / source.channels), gap < 0 ? gap.magnitude : 0))
+            let kept = overlap == 0 ? chunk.samples : Array(chunk.samples.dropFirst(overlap * source.channels))
+            try await encoder.write(kept)
+            let (following, overflow) = frames.addingReportingOverflow(Int64(kept.count / source.channels))
             guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
             frames = following
             progress(min(1, Double(frames) / expectedFrames))
@@ -618,12 +642,9 @@ enum VideoAudio {
         do {
             var packetNumber: Int64 = 0
             var synthesizedSilenceFrames: Int64 = 0
-            let maximumSilenceFrames = try pcmFramePosition(maximumSynthesizedSilence, sampleRate: sampleRate)
-            let codecDelay = try pcmFramePosition(track.codecDelay, sampleRate: sampleRate)
-            let timestampToleranceFrames =
-                track.timestampQuantum.map {
-                    Double($0) * sampleRate / Double(Nanoseconds.perSecond) + pcmFrameRoundingTolerance
-                } ?? 0
+            let continuity = PCMFrameContinuity(sampleRate: sampleRate, timestampQuantum: track.timestampQuantum)
+            let maximumSilenceFrames = try continuity.framePosition(maximumSynthesizedSilence)
+            let codecDelay = try continuity.framePosition(track.codecDelay)
             func write(_ payload: Data) throws {
                 guard !payload.isEmpty else { return }
                 let expectedPackets = UInt32(payload.count / bytesPerFrame)
@@ -649,32 +670,40 @@ enum VideoAudio {
                         throw EngineError.decodeFailed("unaligned PCM packet")
                     }
                     let count = Int64(packet.payload.count / bytesPerFrame)
-                    let leading = try pcmFramePosition(packet.trimDurationAtStart ?? 0, sampleRate: sampleRate)
-                    let padding = try pcmFramePosition(packet.discardPadding ?? 0, sampleRate: sampleRate)
-                    let first = min(count, max(0, leading) + max(0, -padding))
+                    let leading = try continuity.framePosition(packet.trimDurationAtStart ?? 0)
+                    let padding = try continuity.framePosition(packet.discardPadding ?? 0)
+                    let initialTrim = min(count, max(0, leading))
+                    let negativePadding = padding < 0 ? min(UInt64(count - initialTrim), padding.magnitude) : 0
+                    let first = initialTrim + Int64(negativePadding)
                     let last = count - min(count, max(0, padding))
                     guard last > first else { continue }
-                    let presented = try pcmFramePosition(
-                        packet.outputTimestamp ?? packet.timestamp, sampleRate: sampleRate)
-                    let due = presented + (packet.outputTimestamp == nil ? first - codecDelay : 0)
-                    let (timestampGap, gapOverflow) = due.subtractingReportingOverflow(packetNumber)
-                    guard !gapOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
-                    let gap =
-                        packetNumber > 0 && Double(timestampGap) >= -timestampToleranceFrames
-                            && Double(timestampGap) <= timestampToleranceFrames ? 0 : timestampGap
+                    let adjustment: Int64
+                    if packet.outputTimestamp == nil {
+                        let (trimmed, overflow) = first.subtractingReportingOverflow(codecDelay)
+                        guard !overflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                        adjustment = trimmed
+                    } else {
+                        adjustment = 0
+                    }
+                    let gap = try continuity.gap(
+                        at: packet.outputTimestamp ?? packet.timestamp,
+                        adjustment: adjustment,
+                        after: packetNumber)
                     if gap > 0 {
                         let (total, overflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                         guard !overflow, total <= maximumSilenceFrames else {
                             throw EngineError.decodeFailed("audio synthesized silence exceeds 10 minutes")
                         }
-                        while packetNumber < due {
+                        var missing = gap
+                        while missing > 0 {
                             try Task.checkCancellation()
-                            let frames = Int(min(due - packetNumber, Int64(silenceChunkFrames)))
+                            let frames = Int(min(missing, Int64(silenceChunkFrames)))
                             try write(Data(repeating: bits == 8 ? 128 : 0, count: frames * bytesPerFrame))
+                            missing -= Int64(frames)
                         }
                         synthesizedSilenceFrames = total
                     }
-                    let overlap = min(last - first, max(0, -gap))
+                    let overlap = Int64(min(UInt64(last - first), gap < 0 ? gap.magnitude : 0))
                     if first + overlap < last {
                         try write(
                             packet.payload.subdata(in: Int(first + overlap) * bytesPerFrame..<Int(last) * bytesPerFrame)
@@ -691,11 +720,4 @@ enum VideoAudio {
         guard closed == noErr else { throw EngineError.encodeFailed("AudioFileClose \(closed)") }
     }
 
-    private static func pcmFramePosition(_ timestamp: Int64, sampleRate: Double) throws -> Int64 {
-        let time = CMTime(value: timestamp, timescale: SampleBuffers.nanosecondScale)
-        let frames = CMTimeConvertScale(
-            CMTimeMultiplyByFloat64(time, multiplier: sampleRate), timescale: 1, method: .roundHalfAwayFromZero)
-        guard frames.isNumeric else { throw EngineError.decodeFailed("audio frame count out of range") }
-        return frames.value
-    }
 }

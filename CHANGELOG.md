@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve 16-bit SDR precision in PNG and TIFF image edits, including
   arbitrary-angle rotation and transparent padding.
 
+- Preserve native video clean aperture and pixel aspect ratio when copying
+  MOV, MP4 and M4V inputs to Matroska, with the existing loss warning or
+  replacement refusal for unsupported geometry.
+
 - Preserve Matroska display aspect and pixel cropping when supported; warn
   about unsupported output geometry and refuse replacement before staging.
 
