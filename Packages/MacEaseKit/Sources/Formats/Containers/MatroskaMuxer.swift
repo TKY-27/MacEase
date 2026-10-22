@@ -7,6 +7,10 @@ public struct MatroskaMuxer: MediaMuxer {
     /// Relative block timestamps are 16-bit milliseconds.
     private static let maximumRelative: Int64 = 32_000 * Nanoseconds.perMillisecond
     private static let clusterBytes = 5 << 20
+    private static let maximumLaceFrames = 256
+    private static let maximumPendingLaceBytes = 250_000_000
+    private static let invalidLaceMessage = String(
+        localized: "Matroska lace cannot be represented", comment: "Lace metadata cannot fit one block")
     private static let seekHeadReserve = 96
     private static let sizeWidth = 8
 
@@ -20,7 +24,9 @@ public struct MatroskaMuxer: MediaMuxer {
     private var durationOffset: Int64 = 0
     private var infoPosition: Int64 = 0
     private var tracksPosition: Int64 = 0
-    private var pending: [MediaPacket] = []
+    private var pending: [[MediaPacket]] = []
+    private var lastPendingBlockByTrack: [Int: Int] = [:]
+    private var incompleteLaceCount = 0
     private var pendingBytes = 0
     private var cues: [(time: Int64, position: Int64)] = []
     private var lastEnd: Int64 = 0
@@ -98,7 +104,7 @@ public struct MatroskaMuxer: MediaMuxer {
         var body =
             EBML.element(MatroskaID.trackNumber, unsigned: UInt64(track.number))
             + EBML.element(MatroskaID.trackUID, unsigned: UInt64(track.number) &* 0x9E37_79B9 | 1)
-            + EBML.element(MatroskaID.flagLacing, unsigned: 0)
+            + EBML.element(MatroskaID.flagLacing, unsigned: 1)
             + EBML.element(MatroskaID.codecID, string: try MatroskaCodec.id(for: track.codec))
         switch track.kind {
         case .video(let width, let height):
@@ -151,17 +157,50 @@ public struct MatroskaMuxer: MediaMuxer {
             + [UInt8](repeating: 0, count: totalSize - 1 - Self.sizeWidth)
     }
 
-    /// Packets must arrive in timestamp order.
     public mutating func write(_ packet: MediaPacket) throws {
         guard tracks.contains(where: { $0.number == packet.track }) else {
             throw FormatError.encoderFailure("packet for unknown track \(packet.track)")
         }
-        let (end, endOverflow) = packet.timestamp.addingReportingOverflow(packet.duration ?? 0)
+        guard packet.remainingLaceFrames >= 0, packet.remainingLaceFrames < Self.maximumLaceFrames else {
+            throw FormatError.encoderFailure(Self.invalidLaceMessage)
+        }
+        if packet.continuesPrevious {
+            guard let blockIndex = lastPendingBlockByTrack[packet.track] else {
+                throw FormatError.encoderFailure(Self.invalidLaceMessage)
+            }
+            let block = pending[blockIndex]
+            guard
+                block.count < Self.maximumLaceFrames,
+                let previous = block.last, previous.remainingLaceFrames > 0,
+                packet.remainingLaceFrames == previous.remainingLaceFrames - 1,
+                packet.timestamp == block[0].timestamp, packet.duration == nil, block[0].duration == nil,
+                packet.isKeyframe == block[0].isKeyframe, packet.additional == block[0].additional,
+                packet.laceDuration == nil, previous.discardPadding == nil
+            else {
+                throw FormatError.encoderFailure(Self.invalidLaceMessage)
+            }
+        } else {
+            if let blockIndex = lastPendingBlockByTrack[packet.track],
+                pending[blockIndex].last?.remainingLaceFrames != 0
+            {
+                throw FormatError.encoderFailure(Self.invalidLaceMessage)
+            }
+            guard
+                packet.remainingLaceFrames == 0 || packet.duration == nil,
+                packet.remainingLaceFrames > 0 || packet.laceDuration == nil
+            else {
+                throw FormatError.encoderFailure(Self.invalidLaceMessage)
+            }
+        }
+        guard packet.laceDuration.map({ $0 >= 0 }) ?? true else {
+            throw FormatError.encoderFailure(Self.invalidLaceMessage)
+        }
+        let (end, endOverflow) = packet.timestamp.addingReportingOverflow(packet.laceDuration ?? packet.duration ?? 0)
         guard !endOverflow else {
             throw FormatError.encoderFailure(
                 String(localized: "Matroska timestamp out of range", comment: "Unrepresentable output timeline"))
         }
-        if let first = pending.first {
+        if let first = pending.first?.first {
             let (span, spanOverflow) = packet.timestamp.subtractingReportingOverflow(first.timestamp)
             guard !spanOverflow else {
                 throw FormatError.encoderFailure(
@@ -169,14 +208,39 @@ public struct MatroskaMuxer: MediaMuxer {
             }
             let startsGroup = packet.track == videoTrack ? packet.isKeyframe : videoTrack == nil
             let full = span >= Self.maximumRelative || pendingBytes >= Self.clusterBytes
-            if full || (startsGroup && span >= Self.clusterSpan) { try flushCluster() }
+            // A frame group cannot cross cluster boundaries.
+            if !packet.continuesPrevious && incompleteLaceCount == 0
+                && (full || (startsGroup && span >= Self.clusterSpan))
+            {
+                try flushCluster()
+            }
+            if let first = pending.first?.first {
+                let base = max(Self.ticks(first.timestamp), 0)
+                let (relative, relativeOverflow) = Self.ticks(packet.timestamp).subtractingReportingOverflow(base)
+                guard !relativeOverflow, Int16(exactly: relative) != nil else {
+                    throw FormatError.encoderFailure(Self.invalidLaceMessage)
+                }
+            }
         }
         let (newPendingBytes, byteOverflow) = pendingBytes.addingReportingOverflow(packet.payload.count)
         guard !byteOverflow else {
             throw FormatError.corrupt(
                 String(localized: "Matroska cluster too large", comment: "Invalid packet payload"))
         }
-        pending.append(packet)
+        if (incompleteLaceCount > 0 || packet.remainingLaceFrames > 0)
+            && newPendingBytes > Self.maximumPendingLaceBytes
+        {
+            throw FormatError.corrupt(
+                String(localized: "Matroska cluster too large", comment: "Invalid packet payload"))
+        }
+        if packet.continuesPrevious, let blockIndex = lastPendingBlockByTrack[packet.track] {
+            pending[blockIndex].append(packet)
+            if packet.remainingLaceFrames == 0 { incompleteLaceCount -= 1 }
+        } else {
+            lastPendingBlockByTrack[packet.track] = pending.count
+            pending.append([packet])
+            if packet.remainingLaceFrames > 0 { incompleteLaceCount += 1 }
+        }
         pendingBytes = newPendingBytes
         lastEnd = max(lastEnd, end)
     }
@@ -190,19 +254,33 @@ public struct MatroskaMuxer: MediaMuxer {
     }
 
     private mutating func flushCluster() throws {
-        guard let first = pending.first else { return }
+        guard let first = pending.first?.first else { return }
         let base = max(Self.ticks(first.timestamp), 0)
         var body = EBML.element(MatroskaID.clusterTimestamp, unsigned: UInt64(base))
-        for packet in pending {
+        for frames in pending {
+            let packet = frames[0]
             let (relativeTicks, overflow) = Self.ticks(packet.timestamp).subtractingReportingOverflow(base)
             guard !overflow, let relative = Int16(exactly: relativeTicks) else {
                 throw FormatError.encoderFailure("packet outside its cluster's time range")
             }
             var block = EBML.encodeSize(Int64(packet.track))
             block += [UInt8(truncatingIfNeeded: relative >> 8), UInt8(truncatingIfNeeded: relative)]
-            if packet.additional != nil || packet.discardPadding != nil {
-                block.append(0)
-                block += packet.payload
+            let lacing = frames.count > 1
+            let frameBytes: [UInt8]
+            if lacing {
+                var bytes: [UInt8] = [UInt8(frames.count - 1)]
+                for frame in frames.dropLast() {
+                    bytes += [UInt8](repeating: 255, count: frame.payload.count / 255)
+                    bytes.append(UInt8(frame.payload.count % 255))
+                }
+                for frame in frames { bytes += frame.payload }
+                frameBytes = bytes
+            } else {
+                frameBytes = [UInt8](packet.payload)
+            }
+            if packet.additional != nil || frames.last?.discardPadding != nil || packet.laceDuration != nil {
+                block.append(lacing ? 0x02 : 0)
+                block += frameBytes
                 var group = EBML.element(MatroskaID.block, block)
                 if let additional = packet.additional {
                     let more =
@@ -210,14 +288,17 @@ public struct MatroskaMuxer: MediaMuxer {
                         + EBML.element(MatroskaID.blockAdditional, [UInt8](additional))
                     group += EBML.element(MatroskaID.blockAdditions, EBML.element(MatroskaID.blockMore, more))
                 }
-                if let discardPadding = packet.discardPadding {
+                if let discardPadding = frames.last?.discardPadding {
                     group += EBML.element(MatroskaID.discardPadding, signed: discardPadding)
+                }
+                if let laceDuration = packet.laceDuration {
+                    group += EBML.element(MatroskaID.blockDuration, unsigned: UInt64(Self.ticks(laceDuration)))
                 }
                 if !packet.isKeyframe { group += EBML.element(MatroskaID.referenceBlock, unsigned: 0) }
                 body += EBML.element(MatroskaID.blockGroup, group)
             } else {
-                block.append(packet.isKeyframe ? 0x80 : 0)
-                block += packet.payload
+                block.append((packet.isKeyframe ? 0x80 : 0) | (lacing ? 0x02 : 0))
+                block += frameBytes
                 body += EBML.element(MatroskaID.simpleBlock, block)
             }
         }
@@ -225,10 +306,13 @@ public struct MatroskaMuxer: MediaMuxer {
         if cueWanted { cues.append((base, file.position - segmentDataStart)) }
         try file.append(EBML.element(MatroskaID.cluster, body))
         pending = []
+        lastPendingBlockByTrack = [:]
+        incompleteLaceCount = 0
         pendingBytes = 0
     }
 
     public mutating func finish() throws {
+        guard incompleteLaceCount == 0 else { throw FormatError.encoderFailure(Self.invalidLaceMessage) }
         try flushCluster()
         let cuesPosition = file.position - segmentDataStart
         let cueTrack = UInt64(videoTrack ?? tracks.first?.number ?? 1)

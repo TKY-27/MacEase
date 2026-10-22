@@ -19,6 +19,7 @@ final class FrameSampler {
     private let display: VideoDisplayGeometry?
     let frameDuration: Int64
     private let sourceFrameDuration: Int64
+    private let sourceCodec: MediaCodec
     private let end: Int64
     private var decoded: [DecodedFrame] = []
     private var sourceQueue: [DecodedFrame] = []
@@ -43,6 +44,7 @@ final class FrameSampler {
         display = track.displayGeometry
         self.frameDuration = frameDuration
         sourceFrameDuration = input.frameDuration
+        sourceCodec = track.codec
         self.end = end
         nextOutput = start
         position = start
@@ -120,6 +122,9 @@ final class FrameSampler {
             while sourceQueue.isEmpty, let packet = try demuxer.nextPacket() {
                 try Task.checkCancellation()
                 guard packet.track == sourceTrack, packet.timestamp >= decodeFrom else { continue }
+                guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
+                    throw EngineError.unsupportedCodec(sourceCodec.displayName)
+                }
                 sourceQueue = try decoder.decode(packet)
             }
             if sourceQueue.isEmpty { sourceQueue = try decoder.finish() }

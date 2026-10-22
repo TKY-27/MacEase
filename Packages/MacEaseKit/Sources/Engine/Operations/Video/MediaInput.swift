@@ -81,7 +81,8 @@ struct MediaInput {
         var end: Int64 = 0
         while let packet = try demuxer.nextPacket() {
             try Task.checkCancellation()
-            let (packetEnd, overflow) = packet.timestamp.addingReportingOverflow(packet.duration ?? 0)
+            let (packetEnd, overflow) = packet.timestamp.addingReportingOverflow(
+                packet.laceDuration ?? packet.duration ?? 0)
             guard !overflow else { throw EngineError.decodeFailed("media duration out of range") }
             end = max(end, packetEnd)
         }

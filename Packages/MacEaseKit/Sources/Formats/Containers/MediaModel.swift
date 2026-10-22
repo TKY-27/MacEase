@@ -193,6 +193,9 @@ public struct MediaPacket: Hashable, Sendable {
     /// Differs from `timestamp` with reordered frames.
     public var decodeTimestamp: Int64?
     public var duration: Int64?
+    public var continuesPrevious: Bool
+    public var remainingLaceFrames: Int
+    public var laceDuration: Int64?
     public var isKeyframe: Bool
     public var payload: Data
     public var additional: Data?
@@ -203,12 +206,16 @@ public struct MediaPacket: Hashable, Sendable {
 
     public init(
         track: Int, timestamp: Int64, decodeTimestamp: Int64? = nil, duration: Int64? = nil, isKeyframe: Bool,
-        payload: Data, additional: Data? = nil
+        payload: Data, additional: Data? = nil, continuesPrevious: Bool = false,
+        remainingLaceFrames: Int = 0, laceDuration: Int64? = nil
     ) {
         self.track = track
         self.timestamp = timestamp
         self.decodeTimestamp = decodeTimestamp
         self.duration = duration
+        self.continuesPrevious = continuesPrevious
+        self.remainingLaceFrames = remainingLaceFrames
+        self.laceDuration = laceDuration
         self.isKeyframe = isKeyframe
         self.payload = payload
         self.additional = additional

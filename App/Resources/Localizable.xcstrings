@@ -3119,6 +3119,17 @@
         }
       }
     },
+    "Matroska lace cannot be represented": {
+      "comment": "Lace metadata cannot fit one block",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska のレーシングを表現できません"
+          }
+        }
+      }
+    },
     "Matroska timestamp out of range": {
       "comment": "Unrepresentable output timeline",
       "localizations": {

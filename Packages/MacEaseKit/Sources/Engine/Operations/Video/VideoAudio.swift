@@ -27,9 +27,13 @@ private struct PCMFrameContinuity {
         return frames.value
     }
 
-    func gap(at timestamp: Int64, relativeTo origin: Int64 = 0, adjustment: Int64 = 0, after frames: Int64)
+    func gap(
+        at timestamp: Int64, relativeTo origin: Int64 = 0, adjustment: Int64 = 0, after frames: Int64,
+        continuesPrevious: Bool = false
+    )
         throws -> Int64
     {
+        if continuesPrevious { return 0 }
         let (relative, timestampOverflow) = timestamp.subtractingReportingOverflow(origin)
         guard !timestampOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
         let (due, adjustmentOverflow) = try framePosition(relative).addingReportingOverflow(adjustment)
@@ -42,6 +46,12 @@ private struct PCMFrameContinuity {
 }
 
 final class VideoPCMSource {
+    struct Chunk {
+        let samples: [Float]
+        let timestamp: Int64
+        var continuesPrevious = false
+    }
+
     private enum Source {
         case asset(AssetTrackReader)
         case container(any MediaDemuxer, track: Int)
@@ -52,6 +62,9 @@ final class VideoPCMSource {
     private let start: Int64
     private let end: Int64
     private let codecDelay: Int64
+    private var laceOrigin: Int64 = 0
+    private var laceFrames: Int64 = 0
+    private var returnedLaceSamples = false
     let sampleRate: Double
     let channels: Int
 
@@ -84,7 +97,7 @@ final class VideoPCMSource {
         }
     }
 
-    func next() async throws -> (samples: [Float], timestamp: Int64)? {
+    func next() async throws -> Chunk? {
         switch source {
         case .asset(let reader):
             while let sample = try await reader.nextSample() {
@@ -106,7 +119,7 @@ final class VideoPCMSource {
                 guard status == noErr else { throw EngineError.decodeFailed("PCM block copy (\(status))") }
                 guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
                 if !samples.isEmpty {
-                    return (samples, SampleBuffers.nanoseconds(sample.presentationTimeStamp))
+                    return Chunk(samples: samples, timestamp: SampleBuffers.nanoseconds(sample.presentationTimeStamp))
                 }
             }
             return nil
@@ -117,11 +130,21 @@ final class VideoPCMSource {
                 guard packet.track == track else { continue }
                 let (adjustedTimestamp, timestampOverflow) = packet.timestamp.subtractingReportingOverflow(codecDelay)
                 guard !timestampOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                let timestamp = max(0, adjustedTimestamp)
+                if !packet.continuesPrevious {
+                    laceOrigin = max(0, adjustedTimestamp)
+                    laceFrames = 0
+                    returnedLaceSamples = false
+                }
+                let offset = try Nanoseconds.from(seconds: Double(laceFrames) / sampleRate)
+                let (timestamp, laceOverflow) = laceOrigin.addingReportingOverflow(offset)
+                guard !laceOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
                 if timestamp >= end { return nil }
                 guard let decoder else { throw EngineError.decodeFailed("missing audio decoder") }
                 let samples = try decoder.decode(packet)
                 let availableFrames = samples.count / channels
+                let (followingFrames, frameOverflow) = laceFrames.addingReportingOverflow(Int64(availableFrames))
+                guard !frameOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                laceFrames = followingFrames
                 let discarded = Int(
                     min(
                         Double(availableFrames),
@@ -137,7 +160,12 @@ final class VideoPCMSource {
                             ((Double(end) - Double(timestamp)) * sampleRate / Double(Nanoseconds.perSecond)).rounded()))
                 )
                 if kept > discarded {
-                    return (Array(samples[discarded * channels..<kept * channels]), max(timestamp, start))
+                    let continuesPrevious = packet.continuesPrevious && returnedLaceSamples
+                    returnedLaceSamples = true
+                    return Chunk(
+                        samples: Array(samples[discarded * channels..<kept * channels]),
+                        timestamp: max(timestamp, start),
+                        continuesPrevious: continuesPrevious)
                 }
             }
             return nil
@@ -158,7 +186,7 @@ final class AudioEncodeStage: StreamStage {
     private var position: Int64
     private var clockOrigin: Int64?
     private var sourceFrames: Int64 = 0
-    private var pendingChunk: (samples: [Float], timestamp: Int64)?
+    private var pendingChunk: VideoPCMSource.Chunk?
     private var pendingSilenceFrames: Int64 = 0
     private var inputFrames: Int64 = 0
     private var encodedFrames: Int64 = 0
@@ -213,7 +241,7 @@ final class AudioEncodeStage: StreamStage {
         guard !sourceEnded else { return [] }
         while true {
             try Task.checkCancellation()
-            let chunk: (samples: [Float], timestamp: Int64)
+            let chunk: VideoPCMSource.Chunk
             if let pendingChunk {
                 chunk = pendingChunk
             } else if let next = try await source.next() {
@@ -227,7 +255,8 @@ final class AudioEncodeStage: StreamStage {
                 position = clockOrigin ?? start
             }
             let gap = try continuity.gap(
-                at: chunk.timestamp, relativeTo: clockOrigin ?? start, after: sourceFrames)
+                at: chunk.timestamp, relativeTo: clockOrigin ?? start, after: sourceFrames,
+                continuesPrevious: chunk.continuesPrevious)
             if pendingSilenceFrames > 0 || gap > 0 {
                 if pendingSilenceFrames == 0 {
                     let (projected, budgetOverflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
@@ -372,7 +401,8 @@ enum VideoAudio {
             (Double(maximumSynthesizedSilence) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded(.down))
         while let chunk = try await source.next() {
             try Task.checkCancellation()
-            let gap = try continuity.gap(at: chunk.timestamp, after: frames)
+            let gap = try continuity.gap(
+                at: chunk.timestamp, after: frames, continuesPrevious: chunk.continuesPrevious)
             if gap > 0 {
                 let (projected, budgetOverflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                 guard !budgetOverflow, projected <= maximumSilenceFrames else {
@@ -511,14 +541,22 @@ enum VideoAudio {
         case .m4aAAC, .m4aALAC:
             guard let outputTrack = stage.output else { throw EngineError.decodeFailed("missing audio track") }
             let sink = try AssetWriterSink(url: output, fileType: .m4a, tracks: [outputTrack], transform: .identity)
-            while stage.nextTime != nil {
-                try Task.checkCancellation()
-                for packet in try await stage.pull() {
-                    try await sink.write(packet)
-                    progress(Double(packet.timestamp) / Double(max(input.duration, 1)))
+            do {
+                while stage.nextTime != nil {
+                    try Task.checkCancellation()
+                    for packet in try await stage.pull() {
+                        guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
+                            throw EngineError.unsupportedCodec(track.codec.displayName)
+                        }
+                        try await sink.write(packet)
+                        progress(Double(packet.timestamp) / Double(max(input.duration, 1)))
+                    }
                 }
+                try await sink.finish()
+            } catch {
+                sink.cancel()
+                throw error
             }
-            try await sink.finish()
         case .aac, .mp3, .flac:
             try Data().write(to: output, options: .withoutOverwriting)
             let file = try FileHandle(forWritingTo: output)
@@ -581,6 +619,9 @@ enum VideoAudio {
         while stage.nextTime != nil {
             try Task.checkCancellation()
             for packet in try await stage.pull() {
+                guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
+                    throw EngineError.unsupportedCodec(track.codec.displayName)
+                }
                 if let held {
                     let duration: Int64
                     if let declared = held.duration {
@@ -688,7 +729,7 @@ enum VideoAudio {
                     let gap = try continuity.gap(
                         at: packet.outputTimestamp ?? packet.timestamp,
                         adjustment: adjustment,
-                        after: packetNumber)
+                        after: packetNumber, continuesPrevious: packet.continuesPrevious)
                     if gap > 0 {
                         let (total, overflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                         guard !overflow, total <= maximumSilenceFrames else {

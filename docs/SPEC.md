@@ -919,6 +919,23 @@ PCM copies and audio re-encodes share timestamp continuity handling. Within a
 container timestamp quantum plus sample rounding, consecutive PCM packets
 advance by their sample counts instead of rounded container times.
 They share the cumulative synthesized-silence limit in section 13.
+Matroska laces retain contiguous timing from DefaultDuration or known codec
+sample counts. BlockDuration is a fallback divided only among equal-sized
+laces, never copied whole onto each packet. Unresolved later laces carry an
+explicit continuation marker and never prevent demuxing unused tracks.
+PCM copies and decoded audio advance continuations by their sample counts
+without inserting silence or dropping overlaps. Matroska/WebM copies retain
+unresolved laces in a single block. Copy paths requiring individual packet
+timestamps refuse unresolved selected tracks during packet consumption with
+the existing unsupported-codec error; raw elementary-stream copies remain
+available.
+Unsplit BlockDuration remains attached to its lace group. Timed video edits
+also refuse unresolved video timing. Range copies may retain whole unresolved
+groups but refuse cuts through them during packet consumption; excluded groups
+do not prevent a trim. These input limitations discard staging, leave the
+original untouched, and produce no output. Policy preparation does not scan
+packets for unresolved timing. Incomplete output lace groups retain at most
+250 MB of payload.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
@@ -1774,6 +1791,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Preserve exact Matroska lace timing; keep unresolved laces as
+  continuations and refuse them inline only where a path needs timestamps.
 
 - 2026-10-22: Preserve 16-bit SDR precision and budget drawing canvases.
 

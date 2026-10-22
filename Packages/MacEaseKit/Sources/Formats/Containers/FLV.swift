@@ -19,7 +19,7 @@ enum FLV {
     static let audioTrack = 2
     private static let amfNestingLimit = 16
     private static let amfString: UInt8 = 2
-    private static let aacSampleRates: [Double] = [
+    static let aacSampleRates: [Double] = [
         96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
     ]
 

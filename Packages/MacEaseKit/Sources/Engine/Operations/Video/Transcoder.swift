@@ -64,7 +64,7 @@ enum Transcoder {
             stages.append(
                 try await videoStage(
                     video, track: track, input: input, matte: plan.matte, start: start, end: end,
-                    toneMapToSDR: plan.toneMapToSDR))
+                    toneMapToSDR: plan.toneMapToSDR, destination: plan.container))
         }
         if let audio = plan.audio, let track = input.audio {
             let number = stages.count + 1
@@ -176,11 +176,12 @@ enum Transcoder {
 
     private static func videoStage(
         _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
-        end: Int64, toneMapToSDR: Bool
+        end: Int64, toneMapToSDR: Bool, destination: OutputContainer
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
-            try await PacketCopyStage(input: input, track: track, number: 1, start: start, end: end)
+            try await PacketCopyStage(
+                input: input, track: track, number: 1, start: start, end: end, destination: destination)
         case .encode(let encoding, let edit):
             try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
@@ -243,6 +244,8 @@ final class PacketCopyStage: StreamStage {
     private let start: Int64
     private let end: Int64
     private let isVideo: Bool
+    private let codec: MediaCodec
+    private let preservesLacing: Bool
     private let usesPresentedAudioTime: Bool
     private let synthesizesDecodeTimes: Bool
     private var window: [MediaPacket] = []
@@ -251,6 +254,7 @@ final class PacketCopyStage: StreamStage {
     private var lastDecodeTime: Int64?
     private var reorderShift: Int64?
     private var pendingAsset: [MediaPacket] = []
+    private var unresolvedLaceStart: Int64?
     private(set) var output: OutputTrack?
 
     init(
@@ -261,6 +265,8 @@ final class PacketCopyStage: StreamStage {
         self.start = start
         self.end = end
         isVideo = track.isVideo
+        codec = track.codec
+        preservesLacing = destination == nil || destination == .mkv || destination == .webm
         usesPresentedAudioTime = (destination.map { $0.fileType == nil } ?? false) && track.codec != .opus
         var described = track
         described.number = number
@@ -278,6 +284,9 @@ final class PacketCopyStage: StreamStage {
             synthesizesDecodeTimes = false
         default:
             guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
+            if destination == .mkv || destination == .webm {
+                described.defaultDuration = demuxer.tracks.first { $0.number == track.number }?.defaultDuration
+            }
             source = .container(demuxer, sourceTrack: track.number)
             output = OutputTrack(track: described, format: nil)
             synthesizesDecodeTimes = Self.reorderingCodecs.contains(track.codec)
@@ -340,9 +349,41 @@ final class PacketCopyStage: StreamStage {
             defer { source = .container(demuxer, sourceTrack: sourceTrack) }
             while let packet = try demuxer.nextPacket() {
                 try Task.checkCancellation()
-                if packet.track == sourceTrack { return packet }
+                guard packet.track == sourceTrack else { continue }
+                if !packet.continuesPrevious {
+                    if let unresolvedLaceStart {
+                        try validateLace(
+                            from: unresolvedLaceStart,
+                            to: packet.timestamp > unresolvedLaceStart ? packet.timestamp : .max)
+                        self.unresolvedLaceStart = nil
+                    }
+                    if packet.remainingLaceFrames > 0, packet.timestamp < end {
+                        if !preservesLacing, packet.timestamp >= start {
+                            throw EngineError.unsupportedCodec(codec.displayName)
+                        }
+                        if let duration = packet.laceDuration {
+                            let (following, overflow) = packet.timestamp.addingReportingOverflow(duration)
+                            guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+                            try validateLace(from: packet.timestamp, to: following)
+                        } else {
+                            unresolvedLaceStart = packet.timestamp
+                        }
+                    }
+                }
+                return packet
+            }
+            if let unresolvedLaceStart {
+                try validateLace(from: unresolvedLaceStart, to: .max)
+                self.unresolvedLaceStart = nil
             }
             return nil
+        }
+    }
+
+    private func validateLace(from timestamp: Int64, to following: Int64) throws {
+        if timestamp >= end || following <= start { return }
+        guard preservesLacing, timestamp >= start, following <= end else {
+            throw EngineError.unsupportedCodec(codec.displayName)
         }
     }
 

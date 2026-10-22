@@ -1,3 +1,4 @@
+import COpus
 import Foundation
 
 public struct MatroskaDemuxer: MediaDemuxer {
@@ -5,6 +6,12 @@ public struct MatroskaDemuxer: MediaDemuxer {
     private static let maximumFrameDuration = 10 * 60 * Nanoseconds.perSecond
     private static let maximumClusterTimestamp: Int64 = 1 << 62
     private static let hdrTransferCharacteristics: Set<Int> = [16, 18]
+    private static let aacLongFrameSamples: Int64 = 1_024
+    private static let aacShortFrameSamples: Int64 = 960
+    private static let ac3FrameSamples: Int64 = 1_536
+    private static let mpeg1Layer3Samples: Int64 = 1_152
+    private static let mpeg2Layer3Samples: Int64 = 576
+    private static let mpeg1SampleRates = [44_100, 48_000, 32_000]
 
     public private(set) var tracks: [MediaTrack] = []
     public private(set) var skippedStreams: Set<SkippedMediaStream> = []
@@ -248,7 +255,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             } else {
                 try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
             }
-            if let defaultDuration, defaultDuration > Self.maximumFrameDuration {
+            if let defaultDuration, defaultDuration <= 0 || defaultDuration > Self.maximumFrameDuration {
                 throw FormatError.corrupt("DefaultDuration out of range")
             }
             var track = MediaTrack(
@@ -363,14 +370,136 @@ public struct MatroskaDemuxer: MediaDemuxer {
         let isKeyframe = keyframe ?? (flags & 0x80 != 0)
         let frames = try Self.unlace(block, from: numberLength + 3, lacing: flags >> 1 & 0x03)
         let timestamp = try Nanoseconds.scale(clusterTimestamp + relative, by: timestampScale, over: 1)
-        let step = track.defaultDuration
         let prefix = strippedHeaders[track.number] ?? []
-        return frames.enumerated().map { index, frame in
-            MediaPacket(
-                track: track.number, timestamp: timestamp + Int64(index) * (step ?? 0), duration: duration ?? step,
-                isKeyframe: isKeyframe, payload: Data(prefix + frame), additional: additional
-            )
+        let payloads = frames.map { Data(prefix + $0) }
+        if payloads.count == 1 {
+            return [
+                MediaPacket(
+                    track: track.number, timestamp: timestamp, duration: duration ?? track.defaultDuration,
+                    isKeyframe: isKeyframe, payload: payloads[0], additional: additional)
+            ]
         }
+        guard let frameDurations = try lacedDurations(payloads, track: track, blockDuration: duration) else {
+            return payloads.enumerated().map { index, payload in
+                MediaPacket(
+                    track: track.number, timestamp: timestamp, isKeyframe: isKeyframe, payload: payload,
+                    additional: additional, continuesPrevious: index > 0,
+                    remainingLaceFrames: payloads.count - index - 1, laceDuration: index == 0 ? duration : nil)
+            }
+        }
+        var offset: Int64 = 0
+        return try zip(payloads, frameDurations).map { payload, frameDuration in
+            let (presentation, timestampOverflow) = timestamp.addingReportingOverflow(offset)
+            let (following, durationOverflow) = offset.addingReportingOverflow(frameDuration)
+            let (_, endOverflow) = presentation.addingReportingOverflow(frameDuration)
+            guard !timestampOverflow, !durationOverflow, !endOverflow else {
+                throw FormatError.corrupt("laced timestamp out of range")
+            }
+            offset = following
+            return MediaPacket(
+                track: track.number, timestamp: presentation, duration: frameDuration,
+                isKeyframe: isKeyframe, payload: payload, additional: additional)
+        }
+    }
+
+    private func lacedDurations(_ payloads: [Data], track: MediaTrack, blockDuration: Int64?) throws -> [Int64]? {
+        if let defaultDuration = track.defaultDuration {
+            return [Int64](repeating: defaultDuration, count: payloads.count)
+        }
+        if case .audio(let sampleRate, let channels) = track.kind {
+            var sampleCounts: [Int64] = []
+            var timingRate = sampleRate
+            switch track.codec {
+            case .pcm(let bits, _, _):
+                guard bits.isMultiple(of: 8) else { throw FormatError.corrupt("unaligned PCM sample depth") }
+                let bytesPerFrame = channels * (bits / 8)
+                for payload in payloads {
+                    guard payload.count.isMultiple(of: bytesPerFrame) else {
+                        throw FormatError.corrupt("unaligned PCM packet")
+                    }
+                    sampleCounts.append(Int64(payload.count / bytesPerFrame))
+                }
+            case .opus:
+                timingRate = Double(OpusAudioEncoder.sampleRate)
+                sampleCounts = payloads.compactMap { payload in
+                    guard !payload.isEmpty, let length = Int32(exactly: payload.count) else {
+                        return nil
+                    }
+                    let samples = payload.withUnsafeBytes { bytes in
+                        bytes.bindMemory(to: UInt8.self).baseAddress.map {
+                            opus_packet_get_nb_samples($0, length, Int32(OpusAudioEncoder.sampleRate))
+                        }
+                    }
+                    guard let samples, samples > 0 else { return nil }
+                    return Int64(samples)
+                }
+            case .aac:
+                if let codecPrivate = track.codecPrivate, codecPrivate.count == 2 {
+                    let config = [UInt8](codecPrivate)
+                    let frequencyIndex = Int(config[0] & 7) << 1 | Int(config[1] >> 7)
+                    let channelConfiguration = Int(config[1] >> 3 & 15)
+                    if config[0] >> 3 == 2, config[1] & 0x03 == 0,
+                        frequencyIndex < FLV.aacSampleRates.count, (1...7).contains(channelConfiguration)
+                    {
+                        let configured = try FLV.aacFormat(config)
+                        if configured.sampleRate == sampleRate, configured.channels == channels {
+                            let samples =
+                                config[1] & 0x04 == 0 ? Self.aacLongFrameSamples : Self.aacShortFrameSamples
+                            sampleCounts = [Int64](repeating: samples, count: payloads.count)
+                        }
+                    }
+                }
+            case .ac3:
+                sampleCounts = [Int64](repeating: Self.ac3FrameSamples, count: payloads.count)
+            case .mp3:
+                sampleCounts = payloads.compactMap { Self.mp3FrameSamples($0, sampleRate: sampleRate) }
+            default:
+                break
+            }
+            if sampleCounts.count == payloads.count {
+                var elapsedSamples: Int64 = 0
+                var previousOffset: Int64 = 0
+                return try sampleCounts.map { samples in
+                    let (following, overflow) = elapsedSamples.addingReportingOverflow(samples)
+                    guard !overflow else { throw FormatError.corrupt("laced sample count out of range") }
+                    elapsedSamples = following
+                    let offset = try Nanoseconds.from(seconds: Double(elapsedSamples) / timingRate)
+                    let frameDuration = offset - previousOffset
+                    guard frameDuration > 0 else { throw FormatError.corrupt("laced frame duration out of range") }
+                    previousOffset = offset
+                    return frameDuration
+                }
+            }
+        }
+        if let blockDuration, payloads.allSatisfy({ $0.count == payloads[0].count }) {
+            var previousOffset: Int64 = 0
+            return try payloads.indices.map { index in
+                let offset = try Nanoseconds.scale(Int64(index + 1), by: blockDuration, over: Int64(payloads.count))
+                let frameDuration = offset - previousOffset
+                guard frameDuration > 0 else { throw FormatError.corrupt("laced frame duration out of range") }
+                previousOffset = offset
+                return frameDuration
+            }
+        }
+        return nil
+    }
+
+    private static func mp3FrameSamples(_ payload: Data, sampleRate: Double) -> Int64? {
+        guard payload.count >= 4, payload[0] == 0xFF, payload[1] & 0xE0 == 0xE0,
+            payload[1] & 0x06 == 0x02,
+            ![0, 15].contains(Int(payload[2] >> 4)), payload[2] & 0x0C != 0x0C
+        else { return nil }
+        let version = payload[1] & 0x18
+        let divisor: Int
+        switch version {
+        case 0x18: divisor = 1
+        case 0x10: divisor = 2
+        case 0x00: divisor = 4
+        default: return nil
+        }
+        let rate = Self.mpeg1SampleRates[Int(payload[2] >> 2 & 0x03)] / divisor
+        guard sampleRate == Double(rate) else { return nil }
+        return version == 0x18 ? Self.mpeg1Layer3Samples : Self.mpeg2Layer3Samples
     }
 
     static func unlace(_ block: [UInt8], from start: Int, lacing: UInt8) throws -> [[UInt8]] {
