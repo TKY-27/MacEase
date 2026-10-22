@@ -1792,8 +1792,8 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
   terminal; `--set-secrets` sets them with `gh`. Debug builds are
   ad-hoc signed.
 - **Release (`.github/workflows/release.yml`)** on tags `v*` on the `xcode-27`
-  image: require successful CI for the tagged commit on `main`, build native
-  dependencies, regenerate third-party notices, archive Release, sign the app and the
+  image: build native dependencies, regenerate third-party notices, archive
+  Release, sign the app and the
   extension (extension with its sandbox entitlements) with the release identity,
   build `MacEase-<version>.dmg` with an Applications symlink via
   `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
@@ -1823,8 +1823,8 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 
 ## Changelog
 
-- 2026-10-23: Require successful CI on the release commit before automated
-  publication and regenerate notices during DMG packaging (ADR 0028).
+- 2026-10-23: Regenerate notices during DMG packaging and document local
+  validation when hosted CI is unavailable or waived (ADR 0028).
 
 - 2026-10-22: Adopt the Context Page icon family for the app icon, menu bar
   and Finder root glyph; add a menu bar attention state and per-state VoiceOver

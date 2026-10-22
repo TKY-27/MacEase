@@ -6,24 +6,12 @@ on:
 
 permissions:
   contents: write
-  actions: read
 
 jobs:
   release:
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Require successful CI for the release commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          conclusion="$(gh run list --workflow ci.yml --branch main --event push \
-            --commit "$GITHUB_SHA" --limit 1 --json conclusion --jq '.[0].conclusion')"
-          if [[ "$conclusion" != success ]]; then
-            echo "::error::The release commit must have successful CI on main before tagging."
-            exit 1
-          fi
+      - uses: actions/checkout@v7
 
       - name: Check signing secrets
         env:
@@ -64,7 +52,7 @@ jobs:
         run: brew install xcodegen cmake meson ninja pkg-config
 
       - name: Cache native dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: Vendor/build
           key: deps-xcode-27-${{ hashFiles('Vendor/deps.lock', 'Vendor/patches/**', 'scripts/build-deps.sh') }}

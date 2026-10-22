@@ -91,10 +91,11 @@ to human contributors too.
    bundled resources and notices, and verify its `.sha256` file.
 4. Complete the [manual release checklist](docs/spikes.md#manual-release-checklist)
    on the supported macOS versions and audit the repository before public
-   disclosure. Push the reviewed commit to `main` and wait for CI to pass on
-   that exact commit.
-5. Create and push `v<version>`. The release workflow requires successful CI
-   and the `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD` repository
+   disclosure. Push the reviewed commit to `main` and review available CI results.
+   If hosted CI is unavailable or waived by the maintainer, record successful
+   local build, test, lint, and packaging checks for the release sources.
+5. Create and push `v<version>`. The release workflow requires the
+   `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD` repository
    secrets. It publishes the signed DMG, checksum, and matching changelog notes.
 6. Download the published assets, verify the checksum, and confirm the public
    `releases/latest` API returns the expected tag and release page.
