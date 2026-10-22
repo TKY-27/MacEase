@@ -24,6 +24,7 @@ struct VideoMetadata {
 
     private let assetMetadata: [AVMetadataItem]
     private let mpeg4Metadata: [AVMetadataItem]
+    private let containerMetadata: Set<VideoMetadataProperty>
     private let sourceContainer: OutputContainer?
     private let video: TrackAttributes?
     private let audio: TrackAttributes?
@@ -31,8 +32,12 @@ struct VideoMetadata {
 
     static func load(from input: MediaInput) async throws -> VideoMetadata {
         guard case .asset(let asset, let videoTrack, let audioTrack) = input.backend else {
+            var containerMetadata: Set<VideoMetadataProperty> = []
+            if input.hasContainerDescriptiveMetadata { containerMetadata.insert(.descriptiveMetadata) }
+            if input.hasContainerTrackMetadata { containerMetadata.insert(.trackMetadata) }
             return VideoMetadata(
-                assetMetadata: [], mpeg4Metadata: [], sourceContainer: input.container,
+                assetMetadata: [], mpeg4Metadata: [], containerMetadata: containerMetadata,
+                sourceContainer: input.container,
                 video: input.video.map(attributes(of:)),
                 audio: input.audio.map(attributes(of:)),
                 groups: [])
@@ -56,7 +61,8 @@ struct VideoMetadata {
             mpeg4Metadata.append(mapped)
         }
         return VideoMetadata(
-            assetMetadata: metadata, mpeg4Metadata: mpeg4Metadata, sourceContainer: input.container,
+            assetMetadata: metadata, mpeg4Metadata: mpeg4Metadata, containerMetadata: [],
+            sourceContainer: input.container,
             video: video, audio: audio, groups: groups)
     }
 
@@ -67,6 +73,7 @@ struct VideoMetadata {
         let selectedIDs = Set(selected.map(\.identifier))
         let relevantGroups = groups.filter { !$0.isEmpty && !$0.allSatisfy { !selectedIDs.contains($0) } }
         var losses: [VideoMetadataProperty] = []
+        losses.append(contentsOf: containerMetadata)
         if container?.fileType == nil {
             if !assetMetadata.isEmpty { losses.append(.descriptiveMetadata) }
             if selected.contains(where: { !$0.metadata.isEmpty }) {

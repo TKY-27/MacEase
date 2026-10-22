@@ -51,12 +51,20 @@ enum VideoProperties {
                     warn(.videoToneMappedToSDR, context: context)
                 }
             }
+            edit.preservesAlpha = encoding.alpha
             prepared.video = .encode(encoding, edit)
         }
+        return try await prepareMetadata(prepared, input: input, context: context)
+    }
+
+    static func prepareMetadata(
+        _ plan: TranscodePlan, input: MediaInput, context: ItemContext
+    ) async throws -> TranscodePlan {
+        var prepared = plan
         let metadata = try await VideoMetadata.load(from: input)
         let losses = metadata.losses(for: prepared.container, includingAudio: prepared.audio != nil)
         if !losses.isEmpty {
-            guard keepsOriginal else {
+            guard prepared.derived || context.settings.outputMode == .newFile else {
                 throw EngineError.videoMetadataUnsupported(losses)
             }
             warn(.videoMetadataDropped(losses), context: context)

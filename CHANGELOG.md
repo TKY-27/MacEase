@@ -59,8 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   conversion reports a warning and retains the original.
 - Refuse lossless transforms of 32-bit integer audio before writing instead
   of silently losing precision through Float32 decoding.
-
 - Video compression preserves transparency in supported MOV and WebM outputs.
+- Arbitrary-angle video rotation preserves source transparency in alpha outputs.
+- Matroska and WebM title or tag loss warns for new files and refuses replacement.
+- HDR thumbnails tone-map to SDR and report the conversion while keeping originals.
+- Explicit video SDR conversion checks metadata loss before staging and after writing.
 - Ordinary video edits preserve supported PQ/HLG HDR with HEVC Main10.
   SDR-only outputs tone-map with a warning; replacement refuses HDR loss.
 - Dolby Vision 8.4 (iPhone HDR) new-file edits keep the HLG base layer or

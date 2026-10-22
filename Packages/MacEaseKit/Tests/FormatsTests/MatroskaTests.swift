@@ -4,6 +4,9 @@ import Testing
 @testable import Formats
 
 @Suite struct MatroskaTests {
+    private static let tagNameID: UInt32 = 0x45A3
+    private static let tagStringID: UInt32 = 0x4487
+
     private func syntheticPackets() -> (tracks: [MediaTrack], packets: [MediaPacket]) {
         var video = MediaTrack(number: 1, kind: .video(width: 64, height: 48), codec: .vp9)
         video.hasAlpha = true
@@ -55,6 +58,84 @@ import Testing
         }
         let duration = try #require(demuxer.duration)
         #expect(abs(duration - 299 * 40 * Nanoseconds.perMillisecond) <= 40 * Nanoseconds.perMillisecond)
+    }
+
+    @Test func detectsTitlesAndTagsBeyondTheFirstCluster() throws {
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let provenance = EBML.element(MatroskaID.info, EBML.element(MatroskaID.muxingApp, string: "MacEase"))
+        let tracks = EBML.element(MatroskaID.tracks, track)
+        let title = EBML.element(MatroskaID.info, EBML.element(MatroskaID.title, string: "Holiday"))
+        let tags = EBML.element(
+            MatroskaID.tags,
+            EBML.element(
+                MatroskaID.tag,
+                EBML.element(
+                    MatroskaID.simpleTag,
+                    EBML.element(Self.tagNameID, string: "COLLECTION")
+                        + EBML.element(
+                            MatroskaID.simpleTag,
+                            EBML.element(Self.tagNameID, string: "DESCRIPTION")
+                                + EBML.element(Self.tagStringID, string: "Holiday"))))
+                + EBML.element(
+                    MatroskaID.tag,
+                    EBML.element(
+                        MatroskaID.targets,
+                        EBML.element(MatroskaID.tagTrackUID, unsigned: 23))
+                        + EBML.element(
+                            MatroskaID.simpleTag,
+                            EBML.element(Self.tagNameID, string: "PERFORMER")
+                                + EBML.element(Self.tagStringID, string: "Artist"))))
+        let segment = provenance + tracks + EBML.encodeID(MatroskaID.cluster) + [0xFF] + title + tags
+        let url = ContainerFixtures.temporaryURL("metadata.mkv")
+        try Data(header + EBML.element(MatroskaID.segment, segment)).write(to: url)
+        let demuxer = try MatroskaDemuxer(url: url)
+        #expect(demuxer.hasDescriptiveMetadata)
+        #expect(demuxer.hasTrackMetadata)
+
+        let tagsOnlyURL = ContainerFixtures.temporaryURL("tags-only.mkv")
+        try Data(header + EBML.element(MatroskaID.segment, provenance + tracks + tags)).write(to: tagsOnlyURL)
+        let tagsOnly = try MatroskaDemuxer(url: tagsOnlyURL)
+        #expect(tagsOnly.hasDescriptiveMetadata)
+        #expect(tagsOnly.hasTrackMetadata)
+
+        let titleOnlyURL = ContainerFixtures.temporaryURL("title-only.mkv")
+        try Data(header + EBML.element(MatroskaID.segment, provenance + tracks + title)).write(to: titleOnlyURL)
+        let titleOnly = try MatroskaDemuxer(url: titleOnlyURL)
+        #expect(titleOnly.hasDescriptiveMetadata)
+        #expect(!titleOnly.hasTrackMetadata)
+    }
+
+    @Test func ignoresMuxerAndWriterProvenance() throws {
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "webm"))
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let segment =
+            EBML.element(
+                MatroskaID.info,
+                EBML.element(MatroskaID.muxingApp, string: "muxer")
+                    + EBML.element(MatroskaID.writingApp, string: "writer"))
+            + EBML.element(MatroskaID.tracks, track)
+        let url = ContainerFixtures.temporaryURL("provenance.webm")
+        try Data(header + EBML.element(MatroskaID.segment, segment)).write(to: url)
+        let demuxer = try MatroskaDemuxer(url: url)
+        #expect(!demuxer.hasDescriptiveMetadata)
+        #expect(!demuxer.hasTrackMetadata)
     }
 
     @Test func webmRefusesCodecsOutsideTheProfile() {

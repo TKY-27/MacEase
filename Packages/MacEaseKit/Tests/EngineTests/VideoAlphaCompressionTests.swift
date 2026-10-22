@@ -15,6 +15,33 @@ import Testing
     private static let targetBytes: Int64 = 20_000
     private static let alphaTolerance: UInt8 = 8
 
+    @Test func arbitraryRotationKeepsPartialAlphaAndTransparentCanvas() throws {
+        let bounds = CGRect(x: 0, y: 0, width: Self.width, height: Self.height)
+        let image = CIImage(color: CIColor(red: 1, green: 0, blue: 0, alpha: 0.5)).cropped(to: bounds)
+        var created: CVPixelBuffer?
+        try #require(
+            CVPixelBufferCreate(
+                nil, Self.width, Self.height, kCVPixelFormatType_32BGRA,
+                [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &created) == kCVReturnSuccess)
+        let source = try #require(created)
+        CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()]).render(image, to: source)
+        var edit = FrameEdit(rotation: 45)
+        edit.preservesAlpha = true
+        let output = try FrameProcessor(source: PixelSize(width: Self.width, height: Self.height), edit: edit)
+            .process(source)
+        let pixels = try PixelBuffer(cgImage: CGImage.make(from: output))
+        let corner = pixels.rgba[(pixels.width + 1) * 4 + 3]
+        let center = pixels.rgba[(pixels.height / 2 * pixels.width + pixels.width / 2) * 4 + 3]
+        #expect(corner < Self.alphaTolerance)
+        #expect(center > 110 && center < 145)
+
+        edit.preservesAlpha = false
+        let flattened = try FrameProcessor(source: PixelSize(width: Self.width, height: Self.height), edit: edit)
+            .process(source)
+        let flattenedPixels = try PixelBuffer(cgImage: CGImage.make(from: flattened))
+        #expect(flattenedPixels.rgba[(flattenedPixels.width + 1) * 4 + 3] == 255)
+    }
+
     private func folder() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "VideoAlpha-\(UUID().uuidString)")
         TestTemporaryFolders.register(directory)

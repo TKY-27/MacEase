@@ -27,6 +27,8 @@ import VideoToolbox
     private static let timescale: CMTimeScale = 1_000
     private static let lumaCodes: [UInt16] = [96, 176, 256, 336, 416, 496, 576, 656]
     private static let title = "HDR calibration clip"
+    private static let location = "+35.6895+139.6917/"
+    private static let normalizedLocation = "+35.6895+139.6917+000.000/"
     private static let audioTitle = "Calibration audio"
     private static let audioPreferredVolume: Float = 0.5
     private static let mirroredQuarterTurn = CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
@@ -457,6 +459,65 @@ import VideoToolbox
                     abs($0 - $1) <= Self.temporalVariationLimit
                 })
         }
+    }
+
+    private func locatedHDR(in directory: URL, suffix: String) throws -> URL {
+        let movie = AVMutableMovie(url: try x265Source(.hlg, in: directory))
+        let location = AVMutableMetadataItem()
+        location.identifier = .quickTimeMetadataLocationISO6709
+        location.value = Self.location as NSString
+        movie.metadata = [location]
+        let source = directory.appending(path: "located.\(suffix)")
+        let headerURL = directory.appending(path: "location-header.mov")
+        try movie.writeHeader(to: headerURL, fileType: .mov, options: .addMovieHeaderToDestination)
+        try FileManager.default.moveItem(at: headerURL, to: source)
+        return source
+    }
+
+    @Test func locationNormalizationRefusesSDRReplacementBeforeStaging() async throws {
+        let directory = try folder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
+        let source = try locatedHDR(in: directory, suffix: "mp4")
+        let original = try Data(contentsOf: source)
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: directory), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.videoMetadataUnsupported([.descriptiveMetadata])) {
+            try await VideoSDR.run(url: source, context: context)
+        }
+        #expect(context.warnings.isEmpty)
+        #expect(try Data(contentsOf: source) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == files)
+    }
+
+    @Test(arguments: [Settings.OutputMode.newFile, .replace])
+    func sdrConversionProtectsLocationUsingResolvedMode(outputMode: Settings.OutputMode) async throws {
+        let directory = try folder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
+        let source = try locatedHDR(in: directory, suffix: outputMode == .newFile ? "mp4" : "mov")
+        let original = try Data(contentsOf: source)
+        var settings = Settings()
+        settings.outputMode = outputMode
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: directory), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .replace(let originalURL, let staged) = try await VideoSDR.run(url: source, context: context) else {
+            Issue.record("expected staged SDR video")
+            return
+        }
+        #expect(originalURL == source)
+        #expect(try Data(contentsOf: source) == original)
+        try await OutputVerifier.verify(staged)
+        let metadata = try await AVURLAsset(url: staged.url).load(.metadata)
+        let location = try #require(
+            metadata.first { $0.commonKey == .commonKeyLocation || $0.identifier == .quickTimeMetadataLocationISO6709 })
+        let expectedLocation = outputMode == .newFile ? Self.normalizedLocation : Self.location
+        #expect(try await location.load(.stringValue) == expectedLocation)
+        let loss = ItemWarning.videoMetadataDropped([.descriptiveMetadata])
+        #expect(context.warnings.contains(loss) == (outputMode == .newFile))
     }
 
     @Test(arguments: Transfer.allCases) func toneMapsTaggedMain10Video(transfer: Transfer) async throws {

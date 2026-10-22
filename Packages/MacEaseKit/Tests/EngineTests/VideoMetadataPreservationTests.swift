@@ -1,12 +1,14 @@
 import AVFoundation
 import CoreMedia
-import Formats
 import Foundation
 import Testing
 
 @testable import Engine
+@testable import Formats
 
 @Suite(.serialized) struct VideoMetadataPreservationTests {
+    private static let tagNameID: UInt32 = 0x45A3
+    private static let tagStringID: UInt32 = 0x4487
     private static let title = "A preserved title"
     private static let description = "A preserved description"
     private static let location = "+35.6895+139.6917/"
@@ -17,6 +19,73 @@ import Testing
     private static let audioVolume: Float = 0.5
     private static let videoVolume: Float = 0.25
     private static let readinessTimeout = Duration.seconds(30)
+
+    @Test(arguments: [OutputContainer.mkv, .webm], [VideoOperation.resize(.percent(50)), .convert(.mov)])
+    func matroskaMetadataFollowsResolvedOutputMode(container: OutputContainer, operation: VideoOperation) async throws {
+        let folder = try folder()
+        let sourceURL = folder.appending(path: "tagged.\(container.fileExtension)")
+        let header = EBML.element(
+            MatroskaID.ebml,
+            EBML.element(MatroskaID.docType, string: container == .webm ? "webm" : "matroska"))
+        let video = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackUID, unsigned: 23)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(MatroskaID.defaultDuration, unsigned: 40_000_000)
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        let tag = EBML.element(
+            MatroskaID.tag,
+            EBML.element(MatroskaID.targets, EBML.element(MatroskaID.tagTrackUID, unsigned: 23))
+                + EBML.element(
+                    MatroskaID.simpleTag,
+                    EBML.element(Self.tagNameID, string: "ARTIST")
+                        + EBML.element(Self.tagStringID, string: "Performer")))
+        let segment =
+            EBML.element(
+                MatroskaID.info,
+                EBML.element(MatroskaID.duration, float: 1)
+                    + EBML.element(MatroskaID.title, string: "Holiday")
+                    + EBML.element(MatroskaID.muxingApp, string: "muxer")
+                    + EBML.element(MatroskaID.writingApp, string: "writer"))
+            + EBML.element(MatroskaID.tracks, video)
+            + EBML.element(MatroskaID.tags, tag)
+        try Data(header + EBML.element(MatroskaID.segment, segment)).write(to: sourceURL)
+        let original = try Data(contentsOf: sourceURL)
+        let source = try await MediaInput.open(sourceURL)
+        let losses: [VideoMetadataProperty] = [.descriptiveMetadata, .trackMetadata]
+        let plan = try VideoEdits.plan(
+            operation, input: source, source: #require(source.video), settings: VideoSettings())
+
+        var replacementSettings = Settings()
+        replacementSettings.outputMode = .replace
+        let replacement = ItemContext(
+            settings: replacementSettings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        await #expect(throws: EngineError.videoMetadataUnsupported(losses)) {
+            _ = try await VideoEdits.run(operation, url: sourceURL, context: replacement)
+        }
+        #expect(replacement.warnings.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "staging.json").path))
+
+        var newFileSettings = Settings()
+        newFileSettings.outputMode = .newFile
+        let newFile = ItemContext(
+            settings: newFileSettings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        _ = try await VideoProperties.prepare(plan, input: source, context: newFile)
+        #expect(newFile.warnings == [.videoMetadataDropped(losses)])
+
+        var derived = plan
+        derived.derived = true
+        let derivedContext = ItemContext(
+            settings: replacementSettings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        _ = try await VideoProperties.prepare(derived, input: source, context: derivedContext)
+        #expect(derivedContext.warnings == [.videoMetadataDropped(losses)])
+        #expect(try Data(contentsOf: sourceURL) == original)
+    }
 
     @Test(arguments: [OutputContainer.webm, .avi])
     func encodingTagsAndSingletonGroupsDoNotCountAsLoss(container: OutputContainer) async throws {
@@ -53,6 +122,29 @@ import Testing
         #expect(
             metadata.losses(for: nil, includingVideo: false, includingAudio: true)
                 == [.descriptiveMetadata, .trackMetadata, .language, .volume, .enabledState])
+    }
+
+    @Test func thumbnailWarnsAboutMetadataUnderReplaceSetting() async throws {
+        let folder = try folder()
+        let sourceURL = try await source(in: folder)
+        let original = try Data(contentsOf: sourceURL)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .derived(let nextTo, let outputs) = try await VideoStills.run(.first, url: sourceURL, context: context),
+            let output = outputs.first
+        else {
+            Issue.record("expected derived thumbnail")
+            return
+        }
+        #expect(nextTo == sourceURL)
+        #expect(
+            context.warnings == [.videoMetadataDropped([.descriptiveMetadata, .trackMetadata, .language, .volume])])
+        try await OutputVerifier.verify(output)
+        #expect(try Data(contentsOf: sourceURL) == original)
     }
 
     @Test func audioExtractionWarnsUnderReplaceSetting() async throws {

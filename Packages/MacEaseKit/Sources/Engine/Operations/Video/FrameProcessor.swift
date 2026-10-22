@@ -56,6 +56,7 @@ struct FrameEdit: Hashable, Sendable {
     var flipsVertically = false
     var fill = RGBColor.black
     var flattensAlpha = false
+    var preservesAlpha = false
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
     var aspect: AspectRange?
@@ -113,7 +114,7 @@ final class FrameProcessor {
             scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
         background =
-            !edit.flattensAlpha && rightAngle && edit.aspect?.fit != .letterbox
+            !edit.flattensAlpha && (edit.preservesAlpha || rightAngle && edit.aspect?.fit != .letterbox)
             ? nil
             : CIImage(
                 color: CIColor(

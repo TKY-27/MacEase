@@ -18,6 +18,8 @@ struct MediaInput {
     let hasMultipleTracks: Bool
     let skippedStreams: Set<SkippedMediaStream>
     let duration: Int64
+    var hasContainerDescriptiveMetadata = false
+    var hasContainerTrackMetadata = false
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
 
@@ -46,9 +48,13 @@ struct MediaInput {
             skippedStreams.insert(.track(track.number))
         }
         let duration = try opened.duration ?? Self.scanDuration(try demuxer())
+        let matroska = opened as? MatroskaDemuxer
         return MediaInput(
             url: url, backend: backend, video: video, audio: audio, hasMultipleTracks: hasMultipleTracks,
-            skippedStreams: skippedStreams, duration: duration, transform: .identity)
+            skippedStreams: skippedStreams, duration: duration,
+            hasContainerDescriptiveMetadata: matroska?.hasDescriptiveMetadata ?? false,
+            hasContainerTrackMetadata: matroska?.hasTrackMetadata ?? false,
+            transform: .identity)
     }
 
     /// Median spacing of the first frames.
@@ -110,7 +116,8 @@ struct MediaInput {
         return MediaInput(
             url: url, backend: .asset(asset, video: videoTrack, audio: audioTrack), video: video, audio: audio,
             hasMultipleTracks: videoTracks.count > 1 || audioTracks.count > 1, skippedStreams: skippedStreams,
-            duration: duration, transform: transform)
+            duration: duration, hasContainerDescriptiveMetadata: false, hasContainerTrackMetadata: false,
+            transform: transform)
     }
 
     func requireSingleTracksForReplacement() throws {

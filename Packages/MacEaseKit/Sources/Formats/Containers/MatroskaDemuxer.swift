@@ -10,6 +10,8 @@ public struct MatroskaDemuxer: MediaDemuxer {
     public private(set) var skippedStreams: Set<SkippedMediaStream> = []
     public private(set) var duration: Int64?
     public private(set) var docType = ""
+    public private(set) var hasDescriptiveMetadata = false
+    public private(set) var hasTrackMetadata = false
 
     private let file: RandomAccessFile
     private var timestampScale: Int64 = 1_000_000
@@ -46,19 +48,23 @@ public struct MatroskaDemuxer: MediaDemuxer {
             guard let size = element.size else {
                 if element.id == MatroskaID.cluster {
                     skippedStreams.insert(.unknown)
-                    break
+                    position = try endOfUnknownCluster(startingAt: element.dataStart)
+                    continue
                 }
                 throw FormatError.corrupt("unknown-size top-level element")
             }
             switch element.id {
             case MatroskaID.info where firstCluster == nil: try parseInfo(element)
+            case MatroskaID.info:
+                if try children(of: element).contains(where: { $0.id == MatroskaID.title }) {
+                    hasDescriptiveMetadata = true
+                }
             case MatroskaID.tracks where firstCluster == nil: try parseTracks(element)
             case MatroskaID.tracks: skippedStreams.insert(.unknown)
+            case MatroskaID.tags: try parseTags(element)
             case MatroskaID.attachments: skippedStreams.insert(.attachment)
             case MatroskaID.chapters: skippedStreams.insert(.chapter)
-            case MatroskaID.info, MatroskaID.seekHead, MatroskaID.cues, MatroskaID.void, MatroskaID.crc32,
-                MatroskaID.tags,
-                MatroskaID.cluster:
+            case MatroskaID.seekHead, MatroskaID.cues, MatroskaID.void, MatroskaID.crc32, MatroskaID.cluster:
                 break
             default: skippedStreams.insert(.unknown)
             }
@@ -87,6 +93,20 @@ public struct MatroskaDemuxer: MediaDemuxer {
         return try Self.children(file, from: element.dataStart, to: element.dataStart + size)
     }
 
+    private func endOfUnknownCluster(startingAt start: Int64) throws -> Int64 {
+        var offset = start
+        while offset < segmentEnd {
+            try Task.checkCancellation()
+            let element = try EBML.readHeader(file, at: offset)
+            if MatroskaID.topLevel.contains(element.id) { return offset }
+            guard let size = element.size, element.dataStart + size <= segmentEnd else {
+                throw FormatError.corrupt("unknown-size cluster child")
+            }
+            offset = element.dataStart + size
+        }
+        return offset
+    }
+
     private func payload(_ element: EBML.Header) throws -> [UInt8] {
         guard let size = element.size, size <= Int64(Int32.max) else { throw FormatError.corrupt("element too large") }
         return try file.bytes(at: element.dataStart, count: Int(size))
@@ -102,6 +122,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
             switch child.id {
             case MatroskaID.timestampScale: timestampScale = Int64(try integer(child))
             case MatroskaID.duration: rawDuration = try EBML.float(try payload(child))
+            case MatroskaID.title: hasDescriptiveMetadata = true
             default: break
             }
         }
@@ -109,6 +130,20 @@ public struct MatroskaDemuxer: MediaDemuxer {
         if let rawDuration {
             duration = try Nanoseconds.from(
                 seconds: rawDuration * Double(timestampScale) / Double(Nanoseconds.perSecond))
+        }
+    }
+
+    private mutating func parseTags(_ tags: EBML.Header) throws {
+        for tag in try children(of: tags) where tag.id == MatroskaID.tag {
+            let fields = try children(of: tag)
+            guard fields.contains(where: { $0.id == MatroskaID.simpleTag }) else { continue }
+            var targetsTrack = false
+            for targets in fields where targets.id == MatroskaID.targets {
+                if try children(of: targets).contains(where: { $0.id == MatroskaID.tagTrackUID }) {
+                    targetsTrack = true
+                }
+            }
+            if targetsTrack { hasTrackMetadata = true } else { hasDescriptiveMetadata = true }
         }
     }
 

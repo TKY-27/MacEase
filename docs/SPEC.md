@@ -837,6 +837,8 @@ binding. When they cannot carry alpha, Save as New File composites onto the
 configured video rotation background and reports `videoTransparencyFlattened`.
 Replace refuses before staging. Stream-copy edits retain existing alpha only
 when the destination can carry it (ADR 0026).
+Arbitrary-angle rotation keeps source transparency and leaves added canvas
+transparent when the selected encoder preserves alpha.
 
 Ordinary re-encodes preserve supported BT.2020 PQ/HLG through 10-bit HEVC
 Main10, including transfer, primaries, matrix, mastering-display and
@@ -853,7 +855,7 @@ staging because these operations cannot preserve Dolby Vision metadata.
 Verification compares the base-layer HLG configuration without requiring a
 Dolby Vision record in the output. Other Dolby Vision profiles, mixed Dolby
 Vision and non-Dolby Vision formats, and unsupported dynamic metadata refuse.
-Targets requiring SDR, including H.264 and animation exports, share the
+Targets requiring SDR, including H.264, animation and thumbnail exports, share the
 Convert > SDR decoding path and report `videoToneMappedToSDR` in new-file
 mode. Replace refuses before staging. Always-Derived exports keep their
 resolved mode. Dolby Vision 8.4 SDR targets also report `dolbyVisionRemoved`.
@@ -868,18 +870,24 @@ Native MOV, MP4 and M4V remuxes and edits carry asset and track metadata,
 language, preferred volume, enabled state and representable alternate track
 groups. A destination that cannot store a present property reports its typed
 metadata-loss warning in new-file mode and refuses before staging in Replace.
-The refusal follows the resolved result mode. Audio extraction, animation and
+The refusal follows the resolved result mode. Audio extraction, animation, thumbnail and
 background exports warn even when General settings selects Replace.
 Container conversion remains a Transform and follows that setting.
 Singleton alternate groups and encoder/software tags are not user-property
 loss. Titles, descriptions, locations, creation dates, authorship and other
 user metadata remain protected.
+Matroska/WebM Info Title and Tags SimpleTag entries count as user metadata;
+track-targeted tags count as track metadata. Their loss warns for new files
+and always-Derived exports, and refuses Replace before staging. MuxingApp and
+WritingApp identify provenance and do not count as user metadata.
 Alternate groups requiring omitted tracks are not reconstructed partially.
 MOV retains QuickTime ISO6709 locations exactly. MP4/M4V location conversion
 can add an absent altitude; this is disclosed property loss, with coordinates
 retained in new-file mode and refusal before staging in Replace. Native outputs
 are also compared with source properties before commit to catch unexpected
 writer omissions or normalization.
+Explicit Convert > SDR uses the same metadata preflight and output comparison;
+permission to remove HDR does not permit other property loss.
 These rules extend ADR 0019's property-loss policy to video (ADR 0026).
 
 | ID | Presets | Mode | Behavior and acceptance |
@@ -921,14 +929,6 @@ AVAudioFile supplies native decoding (ADR 0010).
 Audio Transform in either output mode refuses extra streams or chapters that
 its output cannot preserve before writing (ADR 0010).
 
-Chained Ogg streams are not supported. Input initialization scans Ogg pages
-and rejects a new logical stream after EOS before writing any output. The
-original is kept (ADR 0010).
-
-Audio transforms preserve the source speaker layout whenever the output
-encoder can represent it. Unsupported layouts fail before writing instead of
-downmixing. The current MP3 and Opus implementations accept only mono and
-stereo; multichannel Opus requires a future multistream implementation
 Before staging, audio transforms inspect tags. If the target cannot store
 them, Save as New File warns and keeps the original; Replace refuses and
 suggests Save as New File. Unreadable tags follow the same policy instead of
@@ -937,6 +937,14 @@ The current Float32 audio path refuses 32-bit integer sources for lossless
 conversion, normalization, and trim before staging, because it cannot retain
 their low bits. Lossy targets remain available.
 
+Chained Ogg streams are not supported. Input initialization scans Ogg pages
+and rejects a new logical stream after EOS before writing any output. The
+original is kept (ADR 0010).
+
+Audio transforms preserve the source speaker layout whenever the output
+encoder can represent it. Unsupported layouts fail before writing instead of
+downmixing. The current MP3 and Opus implementations accept only mono and
+stereo; multichannel Opus requires a future multistream implementation
 (ADR 0010). AAC output supports at most six channels; raw ADTS output refuses
 quadraphonic layouts. Recognized 3.0 and 5.0 AAC tags, including engine output,
 are converted to canonical PCM speaker order. Center-surround AAC 4.0 remains
@@ -1737,6 +1745,8 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 ## Changelog
 
 - 2026-10-22: Refuse audio metadata loss on replacement and lossless 32-bit integer transforms before staging; warn about metadata loss when saving a new file.
+
+- 2026-10-22: Preserve alpha during arbitrary video rotation, detect Matroska user tags, tone-map HDR thumbnails, and enforce metadata protection during explicit SDR conversion (ADR 0026).
 
 - 2026-10-22: Preserve video alpha in compression, PQ/HLG in ordinary
   re-encodes, and metadata and track attributes in native outputs; disclose

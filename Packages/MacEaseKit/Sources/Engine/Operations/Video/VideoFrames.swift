@@ -9,6 +9,10 @@ enum VideoStills {
 
     static func run(_ still: VideoStill, url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try await MediaInput.open(url)
+        let metadata = try await VideoMetadata.load(from: input)
+        let losses = metadata.losses(for: nil, includingAudio: false)
+        if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
+        let toneMapToSDR = try await VideoProperties.toneMapsExport(input, context: context)
         let time: Int64 =
             switch still {
             case .first: 0
@@ -21,7 +25,7 @@ enum VideoStills {
         let sampler = try await FrameSampler(
             input: input, frameDuration: input.frameDuration,
             edit: FrameEdit(displayOrientation: try input.displayOrientation),
-            start: time, end: end)
+            start: time, end: end, toneMapToSDR: toneMapToSDR)
         guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
         let format = context.settings.video.thumbnailFormat
         let type: UTType = format == .png ? .png : .jpeg

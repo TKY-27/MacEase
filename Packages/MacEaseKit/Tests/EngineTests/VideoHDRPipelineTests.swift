@@ -328,6 +328,62 @@ import VideoToolbox
         #expect(Set(red).count > 2)
     }
 
+    @Test(arguments: Transfer.allCases)
+    func hdrThumbnailUsesSDRToneMappingInDerivedMode(transfer: Transfer) async throws {
+        let source = try copiedFixture(transfer)
+        let original = try Data(contentsOf: source)
+        let context = context(for: source, outputMode: .replace)
+        defer { context.removeStaging() }
+        guard case .derived(_, let outputs) = try await VideoStills.run(.first, url: source, context: context),
+            let output = outputs.first
+        else {
+            Issue.record("expected staged thumbnail")
+            return
+        }
+        #expect(context.warnings.contains(.videoToneMappedToSDR))
+        let thumbnail = try #require(CGImageSourceCreateWithURL(output.url as CFURL, nil))
+        let picture = try #require(CGImageSourceCreateImageAtIndex(thumbnail, 0, nil))
+        let pixels = try PixelBuffer(cgImage: picture)
+        let asset = AVURLAsset(url: source)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let referenceReader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .sdrFrames)
+        let referenceFrame = try #require(try await referenceReader.nextFrame())
+        let reference = try PixelBuffer(cgImage: CGImage.make(from: referenceFrame.image))
+        let plainReader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .frames)
+        let plainFrame = try #require(try await plainReader.nextFrame())
+        let plain = try PixelBuffer(cgImage: CGImage.make(from: plainFrame.image))
+        func reds(_ samples: PixelBuffer) -> [UInt8] {
+            stride(from: 0, to: samples.width, by: samples.width / Self.barCount).map {
+                samples.rgba[(samples.height / 2 * samples.width + $0) * 4]
+            }
+        }
+        let actualReds = reds(pixels)
+        let referenceReds = reds(reference)
+        let plainReds = reds(plain)
+        #expect(actualReds.count == referenceReds.count)
+        #expect(zip(actualReds, referenceReds).allSatisfy { abs(Int($0) - Int($1)) <= 2 })
+        #expect(zip(plainReds, referenceReds).contains { abs(Int($0) - Int($1)) > 2 })
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func dolbyVisionThumbnailReportsSDRAndDynamicMetadataLoss() async throws {
+        let source = try await dolbyVisionFixture()
+        let original = try Data(contentsOf: source)
+        let context = context(for: source, outputMode: .replace)
+        defer { context.removeStaging() }
+        guard case .derived(_, let outputs) = try await VideoStills.run(.first, url: source, context: context),
+            let output = outputs.first
+        else {
+            Issue.record("expected staged thumbnail")
+            return
+        }
+        #expect(context.warnings.contains(.videoToneMappedToSDR))
+        #expect(context.warnings.contains(.dolbyVisionRemoved))
+        let thumbnail = try #require(CGImageSourceCreateWithURL(output.url as CFURL, nil))
+        #expect(CGImageSourceCreateImageAtIndex(thumbnail, 0, nil) != nil)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
     @Test func h264PlatformToneMapsNewFile() async throws {
         let source = try copiedFixture(.pq)
         let original = try Data(contentsOf: source)

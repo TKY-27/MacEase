@@ -18,6 +18,7 @@ enum MatroskaID {
     static let info: UInt32 = 0x1549_A966
     static let timestampScale: UInt32 = 0x2AD7B1
     static let duration: UInt32 = 0x4489
+    static let title: UInt32 = 0x7BA9
     static let muxingApp: UInt32 = 0x4D80
     static let writingApp: UInt32 = 0x5741
     static let tracks: UInt32 = 0x1654_AE6B
@@ -64,6 +65,10 @@ enum MatroskaID {
     static let maxBlockAdditionID: UInt32 = 0x55EE
     static let contentEncryption: UInt32 = 0x5035
     static let tags: UInt32 = 0x1254_C367
+    static let tag: UInt32 = 0x7373
+    static let targets: UInt32 = 0x63C0
+    static let tagTrackUID: UInt32 = 0x63C5
+    static let simpleTag: UInt32 = 0x67C8
     static let chapters: UInt32 = 0x1043_A770
     static let attachments: UInt32 = 0x1941_A469
     static let referenceBlock: UInt32 = 0xFB

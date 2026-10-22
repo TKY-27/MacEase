@@ -400,6 +400,38 @@ import Testing
         try await expectTransparentVideo(result, width: 32)
     }
 
+    @Test func arbitraryRotationOfAlphaMOVKeepsSourceAndCanvasTransparency() async throws {
+        let source = try await transparentVideo()
+        let original = try Data(contentsOf: source)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: source.deletingLastPathComponent()),
+            progress: { _ in })
+        defer { context.removeStaging() }
+        guard
+            case .replace(_, let staged) = try await VideoEdits.run(
+                .rotate(degrees: 45, fill: .black), url: source, context: context)
+        else {
+            Issue.record("expected staged rotation")
+            return
+        }
+        let output = try await MediaInput.open(staged.url)
+        #expect(output.video?.hasAlpha == true)
+        #expect(context.warnings.isEmpty)
+        let sampler = try await FrameSampler(
+            input: output, frameDuration: output.frameDuration, edit: FrameEdit(), start: 0, end: output.duration)
+        let frame = try #require(try await sampler.next())
+        let pixels = try PixelBuffer(cgImage: CGImage.make(from: frame.image))
+        func alpha(_ x: Int, _ y: Int) -> UInt8 {
+            pixels.rgba[(y * pixels.width + x) * 4 + 3]
+        }
+        #expect(alpha(1, 1) < 16)
+        #expect(alpha(pixels.width * 3 / 10, pixels.height / 2) < 16)
+        #expect(alpha(pixels.width * 7 / 10, pixels.height / 2) > 240)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
     @Test func alphaConversionToMP4FailsBeforeReplacement() async throws {
         let url = try await transparentVideo()
         let original = try Data(contentsOf: url)

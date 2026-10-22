@@ -20,6 +20,8 @@ attribute copying only ran during explicit HDR-to-SDR conversion.
   in WebM. Explicit platform constraints remain binding. Opaque targets
   composite onto the configured video rotation background and warn.
   Every bitrate, resolution and frame-rate retry shares this preflight.
+  Arbitrary-angle rotation leaves added canvas transparent when the encoder
+  preserves alpha, without compositing away source transparency.
 - Preserve BT.2020 PQ/HLG with 10-bit decoding and HEVC Main10. Carry
   primaries, transfer, matrix, mastering-display and content-light metadata
   through VideoToolbox. Use CoreMedia parameter-set reconstruction for HEVC
@@ -45,6 +47,8 @@ attribute copying only ran during explicit HDR-to-SDR conversion.
   warning/refusal policy. Unsupported HDR layouts, dynamic metadata and
   unsupported tone-mapping decoders retain typed refusal. No approximate HDR
   conversion or unverified metadata fallback is introduced.
+  Thumbnails share animation exports' tone mapping and warnings, and always
+  keep the original under either saved output mode.
 - Share metadata and track-attribute copying across native MOV/MP4/M4V
   outputs. Preserve supported language in Matroska/WebM. Reconstruct only
   complete alternate groups supported by AVAssetWriter. Warn or refuse
@@ -52,10 +56,16 @@ attribute copying only ran during explicit HDR-to-SDR conversion.
 - Ignore singleton alternate groups and software or encoding-tool tags in
   loss detection. Keep encoder attribution, titles, descriptions, locations,
   creation dates and other user metadata in the preservation contract.
+  Detect Matroska/WebM Info Title and Tags SimpleTag entries, including
+  track-targeted tags. Carrying these tags is unsupported, so new-file results
+  warn and Replace refuses before staging. MuxingApp and WritingApp are
+  provenance, not user metadata.
 - MOV retains QuickTime ISO6709 locations. MP4/M4V conversion can insert
   zero altitude where the source has none; keep coordinates with a warning
   in new-file mode and refuse Replace before staging. Compare native output
   properties before commit to detect other writer omissions or normalization.
+  Explicit SDR conversion shares these metadata checks while permitting
+  the requested HDR removal.
 
 ## Consequences
 

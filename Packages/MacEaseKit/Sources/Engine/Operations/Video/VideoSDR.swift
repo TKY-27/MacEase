@@ -76,10 +76,13 @@ enum VideoSDR {
             frameDuration: input.frameDuration, bitrate: nil)
         encoding.quality = quality
         encoding.allowsFrameReordering = false
-        let plan = TranscodePlan(container: input.container, video: .toneMapToSDR(encoding), audio: .copy)
+        let plan = try await VideoProperties.prepareMetadata(
+            TranscodePlan(container: input.container, video: .toneMapToSDR(encoding), audio: .copy),
+            input: input, context: context)
         let name = url.lastPathComponent
         let output = try context.stagingURL(for: url, name: name)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await VideoProperties.verify(plan, output: output, context: context)
         context.warn(.hdrProvenanceUnknown)
         if dolbyVision { context.warn(.dolbyVisionRemoved) }
         return .replace(original: url, output: StagedFile(url: output, name: name, check: .sdrVideo))
