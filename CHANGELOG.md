@@ -55,6 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- MKV and WebM files from ffmpeg or mkvmerge no longer report lost metadata
+  or refuse replacement because of encoder and statistics tags.
+
 - FLV files written by ffmpeg, OBS and similar tools convert and edit again;
   their technical and encoder metadata no longer blocks processing.
 

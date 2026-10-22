@@ -241,6 +241,45 @@ import Testing
         #expect(!demuxer.hasTrackMetadata)
     }
 
+    @Test func ignoresEncoderAndStatisticsTags() throws {
+        let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "webm"))
+        let track = EBML.element(
+            MatroskaID.trackEntry,
+            EBML.element(MatroskaID.trackNumber, unsigned: 1)
+                + EBML.element(MatroskaID.trackType, unsigned: 1)
+                + EBML.element(MatroskaID.codecID, string: "V_VP9")
+                + EBML.element(
+                    MatroskaID.video,
+                    EBML.element(MatroskaID.pixelWidth, unsigned: 64)
+                        + EBML.element(MatroskaID.pixelHeight, unsigned: 48)))
+        func simple(_ name: String, _ value: String) -> [UInt8] {
+            EBML.element(
+                MatroskaID.simpleTag,
+                EBML.element(Self.tagNameID, string: name) + EBML.element(Self.tagStringID, string: value))
+        }
+        let trackTarget = EBML.element(MatroskaID.targets, EBML.element(MatroskaID.tagTrackUID, unsigned: 1))
+        let written =
+            EBML.element(MatroskaID.tag, simple("ENCODER", "Lavf63.1.102"))
+            + EBML.element(
+                MatroskaID.tag,
+                trackTarget + simple("ENCODER", "Lavc libvpx-vp9") + simple("DURATION", "00:00:05.000000000"))
+        let segment = EBML.element(MatroskaID.tracks, track)
+        let encoderURL = ContainerFixtures.temporaryURL("encoder-tags.webm")
+        try Data(header + EBML.element(MatroskaID.segment, segment + EBML.element(MatroskaID.tags, written)))
+            .write(to: encoderURL)
+        let encoderOnly = try MatroskaDemuxer(url: encoderURL)
+        #expect(!encoderOnly.hasDescriptiveMetadata)
+        #expect(!encoderOnly.hasTrackMetadata)
+
+        let titled = written + EBML.element(MatroskaID.tag, simple("TITLE", "Holiday"))
+        let titledURL = ContainerFixtures.temporaryURL("titled-tags.webm")
+        try Data(header + EBML.element(MatroskaID.segment, segment + EBML.element(MatroskaID.tags, titled)))
+            .write(to: titledURL)
+        let titledTags = try MatroskaDemuxer(url: titledURL)
+        #expect(titledTags.hasDescriptiveMetadata)
+        #expect(!titledTags.hasTrackMetadata)
+    }
+
     @Test(arguments: [true, false])
     func trackNameAndBCP47LanguageOverrideLegacyInEitherOrder(bcp47First: Bool) throws {
         let header = EBML.element(MatroskaID.ebml, EBML.element(MatroskaID.docType, string: "matroska"))

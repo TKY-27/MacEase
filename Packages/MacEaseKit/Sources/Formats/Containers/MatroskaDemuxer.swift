@@ -145,7 +145,7 @@ public struct MatroskaDemuxer: MediaDemuxer {
     private mutating func parseTags(_ tags: EBML.Header) throws {
         for tag in try children(of: tags) where tag.id == MatroskaID.tag {
             let fields = try children(of: tag)
-            guard fields.contains(where: { $0.id == MatroskaID.simpleTag }) else { continue }
+            guard try fields.contains(where: { try $0.id == MatroskaID.simpleTag && isUserTag($0) }) else { continue }
             var targetsTrack = false
             for targets in fields where targets.id == MatroskaID.targets {
                 if try children(of: targets).contains(where: { $0.id == MatroskaID.tagTrackUID }) {
@@ -154,6 +154,21 @@ public struct MatroskaDemuxer: MediaDemuxer {
             }
             if targetsTrack { hasTrackMetadata = true } else { hasDescriptiveMetadata = true }
         }
+    }
+
+    /// Muxer statistics, not user metadata.
+    private static let technicalTagNames: Set<String> = [
+        "ENCODER", "ENCODER_SETTINGS", "DURATION", "BPS", "NUMBER_OF_FRAMES", "NUMBER_OF_BYTES",
+        "_STATISTICS_WRITING_APP", "_STATISTICS_WRITING_DATE_UTC", "_STATISTICS_TAGS", "HANDLER_NAME",
+        "VENDOR_ID",
+    ]
+
+    private func isUserTag(_ simpleTag: EBML.Header) throws -> Bool {
+        let fields = try children(of: simpleTag)
+        guard !fields.contains(where: { $0.id == MatroskaID.simpleTag }),
+            let name = fields.first(where: { $0.id == MatroskaID.tagName })
+        else { return true }
+        return !Self.technicalTagNames.contains(EBML.string(try payload(name)).uppercased())
     }
 
     private mutating func parseTracks(_ list: EBML.Header) throws {

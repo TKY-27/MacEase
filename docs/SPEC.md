@@ -882,7 +882,10 @@ Singleton alternate groups and encoder/software tags are not user-property
 loss. Titles, descriptions, locations, creation dates, authorship and other
 user metadata remain protected.
 Matroska/WebM Info Title and Tags SimpleTag entries count as user metadata;
-track-targeted tags and TrackEntry Name count as track metadata.
+track-targeted tags and TrackEntry Name count as track metadata. Muxer
+ENCODER, ENCODER_SETTINGS, DURATION and statistics tags (BPS,
+NUMBER_OF_FRAMES, NUMBER_OF_BYTES, _STATISTICS_*) are provenance, not user
+metadata.
 TrackEntry LanguageBCP47 takes precedence over legacy Language regardless of
 element order. Unsupported track names and languages use the same loss checks.
 TrackEntry FlagEnabled defaults to enabled when absent. Matroska/WebM outputs
@@ -1810,6 +1813,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-22: Ignore Matroska ENCODER, DURATION and statistics SimpleTags
+  in metadata loss checks; user tags such as TITLE stay protected.
 
 - 2026-10-22: Treat standard FLV onMetaData technical and encoder fields as
   regenerated so ordinary FLV files are not refused; user fields stay protected.

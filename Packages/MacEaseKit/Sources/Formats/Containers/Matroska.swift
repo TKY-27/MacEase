@@ -79,6 +79,7 @@ enum MatroskaID {
     static let targets: UInt32 = 0x63C0
     static let tagTrackUID: UInt32 = 0x63C5
     static let simpleTag: UInt32 = 0x67C8
+    static let tagName: UInt32 = 0x45A3
     static let chapters: UInt32 = 0x1043_A770
     static let attachments: UInt32 = 0x1941_A469
     static let referenceBlock: UInt32 = 0xFB
