@@ -27,6 +27,18 @@ read -r toml_name toml_version toml_license toml_hash toml_url _ <<<"$toml_pin"
     exit 1
 }
 
+foundation_pin="$(awk '$1 == "swift-corelibs-foundation" { print }' "$lock")"
+read -r foundation_name foundation_version foundation_license foundation_hash foundation_url _ <<<"$foundation_pin"
+foundation_notice="$package_licenses/swift-corelibs-foundation/LICENSE"
+[[ "$foundation_name" == "swift-corelibs-foundation" && -f "$foundation_notice" ]] || {
+    echo "error: swift-corelibs-foundation license or pin is missing" >&2
+    exit 1
+}
+[[ "$(shasum -a 256 "$foundation_notice" | cut -d' ' -f1)" == "$foundation_hash" ]] || {
+    echo "error: swift-corelibs-foundation license SHA-256 mismatch" >&2
+    exit 1
+}
+
 [[ -d "$licenses" ]] || { echo "error: run scripts/build-deps.sh first" >&2; exit 1; }
 
 pinned_version() {
@@ -70,9 +82,17 @@ notice() {
     echo "MacEase includes the following third-party software."
     echo
     while read -r name version license _ url files; do
-        [[ -z "$name" || "$name" == \#* || "$files" == "-" && "$name" != "cfr" ]] && continue
+        [[ -z "$name" || "$name" == \#* || "$name" == "swift-corelibs-foundation" \
+            || "$files" == "-" && "$name" != "cfr" ]] && continue
         notice "$name" "$version" "$license" "$url" "$licenses/$name"
     done <"$lock"
+    echo "================================================================================"
+    echo "MacEase JSON comparison attribution"
+    echo "================================================================================"
+    cat "$root/Vendor/JSONCompare/NOTICE"
+    echo
+    notice "$foundation_name" "$foundation_version" "$foundation_license" \
+        "$foundation_url" "$package_licenses/swift-corelibs-foundation"
     notice "$toml_name" "$toml_version" "$toml_license" "$toml_url" "$package_licenses/$toml_name"
     for entry in "${swift_packages[@]}"; do
         read -r name version license _ _ url <<<"$entry"

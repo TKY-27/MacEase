@@ -1,0 +1,15 @@
+JSONCompare.mm adapts comparison behavior from Swift CoreFoundation.
+
+Copyright (c) 1999-2019, Apple Inc. and the Swift project authors
+Portions Copyright (c) 2014-2019, Apple Inc. and the Swift project authors
+Licensed under Apache License v2.0 with Runtime Library Exception.
+
+Original sources:
+https://github.com/swiftlang/swift-corelibs-foundation/blob/28249ced079d8e7ec03b821c039bf9868738c3fc/Sources/CoreFoundation/CFString.c
+https://github.com/swiftlang/swift-corelibs-foundation/blob/28249ced079d8e7ec03b821c039bf9868738c3fc/Sources/CoreFoundation/CFStringUtilities.c
+
+The adaptations stream file ranges and retain Foundation numeric wrapping,
+comparison levels, contextual restart, and width/composition ordering.
+
+prepare-icu.py adapts the pinned Unicode ICU collation iterator and comparator.
+The generated sources retain their upstream copyright and license notices.

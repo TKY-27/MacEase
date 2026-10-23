@@ -1,3 +1,5 @@
+import CJSONCompare
+import Darwin
 import Foundation
 
 enum JSONFormatter {
@@ -120,6 +122,7 @@ private final class JSONExternalSort {
         var index: UInt64
         var span: JSONSpan
         var folded: JSONSpan
+        var natural: JSONSpan
         var rank: UInt64
         static var size: UInt64 { UInt64(MemoryLayout<Self>.size) }
     }
@@ -130,8 +133,9 @@ private final class JSONExternalSort {
     private let settings: TextSettings
     private let orders: JSONFile
     private let folded: JSONFile
+    private let natural: JSONFile?
+    private let comparisonDirectory: FileHandle?
     private var pinned: [JSONSpan] = []
-    private static let comparisonLocale = Locale(identifier: "en_US_POSIX")
 
     init(index: JSONIndex, directory: URL, settings: TextSettings) throws {
         self.index = index
@@ -139,6 +143,15 @@ private final class JSONExternalSort {
         self.settings = settings
         orders = try JSONFile(directory.appendingPathComponent("order"))
         folded = try JSONFile(directory.appendingPathComponent("folded"))
+        if settings.jsonKeyComparison == .natural {
+            natural = try JSONFile(directory.appendingPathComponent("natural"))
+            let descriptor = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+            comparisonDirectory = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        } else {
+            natural = nil
+            comparisonDirectory = nil
+        }
         for key in settings.jsonPinnedKeys {
             let start = index.keys.count
             var chunk = Data()
@@ -192,9 +205,12 @@ private final class JSONExternalSort {
         for ordinal in 0..<record.children {
             let member = try index.record(child)
             var foldedKey = JSONSpan()
+            var naturalKey = JSONSpan()
             var rank = pinned.count
             if object, settings.jsonKeyComparison != .ordinal || !pinned.isEmpty {
-                foldedKey = try folded.appendCaseFolded(member.rawKey, from: index.keys)
+                naturalKey.offset = natural?.count ?? 0
+                foldedKey = try folded.appendCaseFolded(member.rawKey, from: index.keys, utf16: natural)
+                naturalKey.length = (natural?.count ?? 0) - naturalKey.offset
                 for (offset, pin) in pinned.enumerated() {
                     if try folded.compare(foldedKey, pin) == .orderedSame {
                         rank = offset
@@ -204,7 +220,8 @@ private final class JSONExternalSort {
             }
             references.append(
                 Reference(
-                    index: child, span: object ? member.rawKey : member.payload, folded: foldedKey, rank: UInt64(rank)))
+                    index: child, span: object ? member.rawKey : member.payload, folded: foldedKey, natural: naturalKey,
+                    rank: UInt64(rank)))
             child = member.end
             if references.count == Self.runCapacity || ordinal + 1 == record.children {
                 try references.sort { try precedes($0, $1, object: object) }
@@ -291,15 +308,40 @@ private final class JSONExternalSort {
         if object, settings.jsonKeyComparison != .ordinal, ordinal != .orderedSame {
             var primary = try folded.compare(left.folded, right.folded)
             if settings.jsonKeyComparison == .natural, primary != .orderedSame {
-                primary = try autoreleasepool {
-                    try folded.string(left.folded).compare(
-                        folded.string(right.folded), options: [.literal, .numeric], locale: Self.comparisonLocale)
-                }
+                primary = try naturalOrder(left.natural, right.natural)
             }
             if primary != .orderedSame { order = primary }
         }
         if order == .orderedSame { return left.index < right.index }
         return settings.jsonDescending ? order == .orderedDescending : order == .orderedAscending
+    }
+
+    private func naturalOrder(_ left: JSONSpan, _ right: JSONSpan) throws -> ComparisonResult {
+        guard let natural, let comparisonDirectory else {
+            throw EngineError.unexpected("Missing JSON natural comparison storage")
+        }
+        try natural.flush()
+        let result = MEJSONCompareFoldedUTF16(
+            MEJSONUTF16Span(descriptor: natural.file.fileDescriptor, byteOffset: left.offset, byteLength: left.length),
+            MEJSONUTF16Span(
+                descriptor: natural.file.fileDescriptor, byteOffset: right.offset, byteLength: right.length),
+            comparisonDirectory.fileDescriptor, { _ in Task<Never, Never>.isCancelled ? 1 : 0 }, nil)
+        switch result.status {
+        case ME_JSON_COMPARE_OK:
+            if result.ordering == 0 { return .orderedSame }
+            return result.ordering < 0 ? .orderedAscending : .orderedDescending
+        case ME_JSON_COMPARE_CANCELLED:
+            throw CancellationError()
+        case ME_JSON_COMPARE_IO:
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(result.systemError))
+        case ME_JSON_COMPARE_OFFSET_OVERFLOW:
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EFBIG))
+        case ME_JSON_COMPARE_MEMORY:
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOMEM))
+        default:
+            throw EngineError.unexpected(
+                "JSON collation failed (status \(result.status.rawValue), ICU \(result.icuError))")
+        }
     }
 
     private struct WriteFrame {

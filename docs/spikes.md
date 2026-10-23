@@ -63,12 +63,12 @@ shared machine, not throughput comparisons. Random-key fixtures use Python's
 seed 20261023 and base64-encoded 196,608-byte blocks, with first characters
 `é` and `f`; common-prefix fixtures differ only at their final `A`/`Z`.
 
-All listed streaming outputs pass the independent byte check. Natural sorting
-still allocates two complete folded strings. The 2.4 GB and 3.2 GB fixtures
+All listed streaming outputs pass the independent byte check. That natural
+comparator still allocates two complete folded strings. The 2.4 GB and 3.2 GB fixtures
 have peak physical footprints of 2.75 GB and 3.65 GB respectively; footprint
 is not RSS. Resident measurements below 1.5 GB do not establish a bound for
 arbitrary keys, particularly when compression and page reclamation can affect
-residency. This release gate remains unestablished (ADR 0029).
+residency. Those measurements did not establish the release gate (ADR 0029).
 
 Instruments attach and launch recordings fail with `Failed starting ktrace
 session`, including after Developer mode was enabled. Partial traces are not
@@ -79,6 +79,37 @@ The owner approved an equivalent official measurement method. Darwin
 reports this high-water mark after the actual host exits. The kernel rows
 above include launch, request execution, verified commit and exit. They are
 accepted measurements under ADR 0031, not a proof of bounded natural sorting.
+
+The subsequent bounded comparator uses fixed caches and disk-backed UTF-16,
+collation elements, numeric runs and canonical ordering (ADR 0032). The signed
+Release executable SHA-256 is
+`4f120d39562579087336a88a876dff6745e949572328c4dedf22a0118a421c11`.
+The same full-app kernel harness measures launch through commit and exit.
+These are single acceptance runs on the shared M5, not comparative speedups.
+
+| Fixture and operation | Input | Peak RSS | Peak footprint | Elapsed |
+| --- | --- | --- | --- | --- |
+| Dense zero array, Pretty Print | 200 MB | 133.5 MB | 75.6 MB | 19.2 s |
+| Base64-random keys, natural Sort Keys | 3.2 GB | 128.9 MB | 74.3 MB | 121.7 s |
+| Secondary-weight keys, natural Sort Keys | 200 MB | 132.4 MB | 72.8 MB | 42.0 s |
+| Long combining-mark prefixes, natural Sort Keys | 200 MB | 128.6 MB | 74.7 MB | 17.5 s |
+| Non-ASCII numeric runs, natural Sort Keys | 200 MB | 139.7 MB | 77.2 MB | 9.5 s |
+
+The secondary-weight pair starts with `a` plus grave/acute and then 100 million
+`x` characters. The combining pair contains `a`, 50 million U+0315 marks and
+one grave/acute mark. Numeric keys contain 50 million Arabic-Indic threes/twos.
+Independent fixed-byte SHA-256 checks verify every complete output and unchanged
+source. The largest comparator cache budget is 259 fixed 64 KiB pages, plus
+fixed metadata and tables. Input-dependent comparison state spills to disk.
+This source-level bound is separate from the measured resident peaks.
+
+A Foundation-only witness exposes inconsistent comparison of long common
+combining prefixes. Constructed and UTF-8-decoded strings have identical bytes
+and UTF-16 units, yet their comparison direction can differ across representations
+and processes. Complete UTF-16 CFStrings consistently agree with the bounded
+comparator. A fixed regression checks both input orders and ascending/descending
+output. ADR 0032 distinguishes the public-source defect from the untraced OS
+machine code; unstable results are not preserved as an ordering contract.
 
 ### Platform and HDR checks
 
@@ -94,7 +125,41 @@ Display P3, headroom 1, with neither gain map retained. Against ImageIO's SDR
 reference at 512-pixel resolution, RGB mean absolute error is 1.46/255,
 RMSE 1.69/255 and maximum error 13/255. These checks and inspected SDR previews
 do not replace the required HDR/SDR display comparison. New-file and Replace
-outputs were exercised on disposable copies; UI Undo remains unverified.
+outputs were exercised on disposable copies. Activity's Undo removes four
+new-file SDR outputs, which Finder shows in Trash, while every original hash
+remains unchanged. Stopping a 1,000-copy HDR batch after 109 committed outputs
+leaves all originals unchanged and no staged files. Activity's subsequent Undo
+removes all 109 committed outputs. These checks use disposable copies only.
+
+The owner compares that real capture and its SDR output side by side in
+Preview on the built-in XDR display and reports no unnatural color cast or
+highlight clipping in the white bag, desk or mouse. This is a human-observed
+HDR-display result; screenshots do not measure HDR luminance. A separate
+SDR-display observation remains pending.
+
+The installed Release app also converts independently generated PQ and HLG
+ramps through its normal request and commit path. The 16-bit PNG outputs
+match CoreGraphics' reference-white SDR conversion exactly, retain 128
+strictly increasing gray steps, have headroom 1 and contain no gain maps.
+Main10 MOV inputs retain all 16 frames and their 0.1-second presentation
+intervals. Their SDR HEVC outputs carry BT.709 primaries, transfer and matrix
+tags. Against VTPixelTransfer's reference, maximum RGB error is 3/255 for PQ
+and 2/255 for HLG; mean error is 1.16 and 0.56 respectively. Repeated-pattern
+frame variation is at most 4/255 and 3/255, with no ramp-order violations.
+Every source hash remains unchanged. These numerical checks do not substitute
+for physical display acceptance.
+
+On the physical Mac, Activity's Undo button removes a completed Pretty Print
+output from a 50 MB dense JSON array while preserving the source SHA-256.
+Finder shows the output in Trash; Put Back restores the same output inode
+to its disposable test directory. No other Trash contents are changed.
+
+Accessibility inspection finds that 12 settings toggles expose their detail
+text without their visible title. Explicit labels and hints restore the
+titles while retaining switch roles and values. The signed Release app's
+accessibility tree verifies all 12 names; toggling progress off and on works.
+VoiceOver navigation reaches the Settings tabs. This does not claim an
+auditory transcript or complete the remaining appearance checks.
 
 The macOS 26.6.2 (25G83) VM installs the self-signed DMG, completes onboarding,
 enables Finder Sync and performs JSON sorting with correct output and retained
@@ -105,8 +170,7 @@ output to Trash and leaves the input SHA-256 unchanged. This verifies the
 new-file UI Undo path in the VM. A separate Replace operation records the
 exact original bytes and Trash backup inode, then restarts the host before
 UI Undo. Undo restores those bytes and that backup inode, and removes the
-backup from Trash. This does not prove privacy-grant migration, physical
-display behavior or downloaded-app
+backup from Trash. These checks do not prove physical display behavior or
 Gatekeeper handling of a real browser download. A signature-verified copy
 with an explicit quarantine attribute is rejected by Gatekeeper. After the
 owner authorizes the VM-only exception, Settings → Privacy & Security →
@@ -114,6 +178,15 @@ Open Anyway and administrator authentication permit launch. Installing the
 same copy into Applications then launches from `/Applications/MacEase.app`;
 Gatekeeper assessments remain enabled. The published-asset download path
 still requires verification after publication.
+
+The VM image initially had SIP disabled. After enabling SIP in Recovery,
+`csrutil status` and `spctl --status` confirm both protections are enabled.
+Launching MacEase from Finder and converting a disposable Downloads file
+then displays the actual macOS folder-access prompt. Allowing it records a
+MacEase-specific Downloads grant. Installing the updated self-signed DMG
+preserves that grant and Finder Sync enablement. A new Downloads conversion
+succeeds without another prompt, with exact expected output and unchanged
+source bytes. Earlier runs with SIP disabled are not privacy-grant evidence.
 
 The physical Release host accepts one URL containing 5,000 distinct JSON
 paths (200,153 URL bytes), commits 5,000 exact Minify outputs in 11.79 s,
@@ -127,19 +200,19 @@ outputs in 31.48 s. ImageIO fully decodes every output at 1512 × 2016; all
 source hashes remain unchanged. The Settings window responds and changes
 tabs during processing. This observation does not measure menu-bar latency.
 
-The device-enabled package run passes 1,011 tests without skips. Subsequent
-key-folding, giant-key ordering and deterministic-settings changes pass the
-focused JSON, streaming-text and settings run (82 tests). Debug and Release
-builds, strict lint and independent source reviews pass. A subsequent
-project-wide test audit consolidates the old malformed-container harness
-without dropping any of its 600 mutations, removes one redundant JSON
-flush test, and strengthens menu, token, PNG, GIF, archive and extracted-PCM
-oracles. The affected tests pass before and after; independent review finds
-no lost proof. These test-only changes do not constitute another full run.
-CI remains excluded
-under the owner's billing decision. Full manual accessibility, menu-bar
-responsiveness, permission migration and physical-Mac UI Undo remain incomplete; no stable release
-or anonymous post-publication verification is claimed.
+The final device-enabled package run passes 1,022 tests without skips:
+44 MenuCatalog, 211 Formats and 767 Engine tests. Debug and Release builds,
+strict lint and independent source reviews pass. The project-wide test audit
+consolidates the malformed-container harness without dropping any of its
+600 mutations, removes one redundant JSON flush test, and strengthens menu,
+token, PNG, GIF, archive and extracted-PCM oracles. Focused before/after checks
+and independent review find no lost proof. A cancellation test's short-lived
+spool observation failed in the first full run. A longer multi-key fixture and
+wall-clock deadline retain its cancellation, source-integrity and cleanup
+assertions; both focused checks and the complete rerun pass.
+
+CI remains excluded under the owner's billing decision. Remaining manual
+checks and anonymous post-publication verification are not claimed complete.
 
 ## Finder Sync spike (2026-10-20)
 

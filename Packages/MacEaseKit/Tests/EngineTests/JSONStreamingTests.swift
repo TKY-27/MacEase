@@ -223,8 +223,13 @@ import Testing
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
         let source = directory.appendingPathComponent("source.json")
         let output = directory.appendingPathComponent("output.json")
-        let scalar = String(repeating: "a", count: 12 * 1024 * 1024)
-        let document = phase == "folded" ? "{\"" + scalar + "\":1,\"b\":2}" : "\"" + scalar + "\""
+        let document: String
+        if phase == "folded" {
+            let key = String(repeating: "a", count: 128 * 1024)
+            document = "{" + (0..<128).map { "\"\($0)-\(key)\":\($0)" }.joined(separator: ",") + "}"
+        } else {
+            document = "\"" + String(repeating: "a", count: 12 * 1024 * 1024) + "\""
+        }
         let bytes = Data(document.utf8)
         try bytes.write(to: source)
         let task = Task.detached {
@@ -233,7 +238,9 @@ import Testing
             try JSONFormatter.write(source, .sortKeys, settings: settings, to: output)
         }
         var reachedSpooling = false
-        for _ in 0..<10_000 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(120))
+        while clock.now < deadline {
             let children = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             if let scratch = children.first(where: { $0.lastPathComponent.hasPrefix(".json-") }) {
                 let values = scratch.appendingPathComponent(phase)

@@ -474,6 +474,8 @@ SHA-256 are pinned in `Vendor/deps.lock`; it needs no download or xcframework.
 | libdeflate | MIT | Optimized DEFLATE for PNG and ZIP | CMake |
 | CFR | MIT | JAR decompilation (bundled `cfr.jar`, run with the user's Java) | Downloaded jar |
 | toml++ 3.4.0 | MIT | TOML parsing and emitting | Vendored single header, C++17 behind an owned C bridge |
+| ICU 78.3, Apple ICU 76 data | Unicode-3.0 | Bounded natural JSON comparison across known macOS collation generations | Filtered static data and adapted disk-backed iterators (ADR 0032) |
+| Swift CoreFoundation comparison shell | Apache-2.0 with Swift Runtime Library Exception | Preserve Foundation natural-order semantics | Adapted behind the JSON comparison C bridge; source revision pinned |
 
 Swift packages are pinned with `exact:` in `Packages/MacEaseKit/Package.swift`
 and recorded in the committed `Package.resolved`. Their license texts, checked
@@ -1244,9 +1246,15 @@ value spans and container records in private temporary files, sorts bounded
 reference batches, and merges them on disk. The existing depth limit, numeric
 lexemes, duplicate members and ordering semantics remain unchanged. Temporary
 files are removed on completion or failure. Case-insensitive comparison and
-pin matching fold scalar-aligned chunks to disk. Natural comparison retains
-Foundation's existing semantics and still materializes the two folded keys
-being compared (ADR 0029).
+pin matching fold scalar-aligned chunks to disk. Natural comparison uses
+file-backed UTF-16 spans and pinned ICU collation with bounded caches,
+preserving Foundation's existing comparison shell and scalar tie-breaking.
+Collation elements, numeric runs and canonical-ordering state spill to private
+temporary files rather than retaining complete keys (ADR 0032).
+Long common combining prefixes use content-based ordering. Foundation can
+return inconsistent results for identical text in different internal string
+representations; those unstable results are not an ordering contract. The
+bounded comparator agrees with Foundation given complete UTF-16 storage.
 
 OCR files share the encoding writer. UTF-8, UTF-8 BOM, UTF-16 LE BOM, and
 Shift_JIS/CP932 are available. A custom substitute must be nonempty, one Unicode
@@ -1758,15 +1766,15 @@ The JSON result from that run predates the streaming scanner: its 200 MB
 record fixture peaked at 917 MB RSS while retaining the input and value tree.
 
 The 2026-10-23 implementation streams Pretty Print and Minify and uses
-file-backed indexes for Sort Keys. Actual Release-app samples for dense arrays,
-padded records, long strings and two million object members peak at 49–85 MB
-RSS. An 800 MB giant-key natural sort peaks at 872 MB in the kernel's resident
-high-water measurement after removing redundant key copies. Natural comparison
-still retains two complete folded keys; its memory use remains key-length
-dependent. No total-file cap or comparison-semantic change is added. These
-results do not establish the memory target for arbitrary natural-sort keys.
-See `docs/spikes.md` for fixture definitions, measurement limits and outstanding
-release checks.
+file-backed indexes for Sort Keys. The bounded natural comparator also keeps
+complete keys and collation state on disk (ADR 0032). Actual Release-app kernel
+measurements cover a 200 MB dense array, 200 MB secondary-weight, combining-mark
+and non-ASCII numeric keys, and 3.2 GB random keys. Peak RSS is 129–140 MB;
+peak physical footprint is 73–77 MB. Every output passes an independent byte
+check and every source remains unchanged. The comparator has a fixed page
+budget independent of key length; finite measurements alone do not establish
+that bound. Earlier whole-key results remain historical evidence in
+`docs/spikes.md`, alongside measurement limits and outstanding release checks.
 
 ## 17. Testing
 
@@ -1854,6 +1862,9 @@ release checks.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-23: Replace whole-key natural JSON comparison with bounded,
+  disk-backed ICU comparison while preserving existing ordering (ADR 0032).
 
 - 2026-10-23: Accept Darwin kernel resident high-water measurements of the
   actual Release app when Instruments recording is unavailable (ADR 0031).

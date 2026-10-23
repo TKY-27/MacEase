@@ -80,6 +80,12 @@ Planned first stable release: 1.0.0. No release has been published yet.
 
 ### Fixed
 
+- Keep natural JSON ordering deterministic for long combining-character
+  prefixes affected by Foundation's string-representation-dependent results.
+
+- Bound natural JSON key comparison memory with disk-backed collation while
+  preserving existing Unicode and numeric ordering.
+- Expose settings switch titles and onboarding status labels to VoiceOver.
 - Keep Finder catalog versions stable across launches with unchanged metadata
   settings, avoiding rejected requests caused by unordered set encoding.
 - Preserve U+FEFF within UTF-8 text at chunk boundaries during encoding,

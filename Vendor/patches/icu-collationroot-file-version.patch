@@ -1,0 +1,15 @@
+--- a/icu4c/source/i18n/collationroot.cpp
++++ b/icu4c/source/i18n/collationroot.cpp
+@@ -89,6 +89,12 @@
+                                                CollationDataReader::isAcceptable,
+                                                t->version, &errorCode);
+     if(U_FAILURE(errorCode)) { return; }
++    if(ucadataPath) {
++        UDataInfo metadata;
++        metadata.size = sizeof(metadata);
++        udata_getInfo(t->memory, &metadata);
++        uprv_memcpy(t->version, metadata.dataVersion, sizeof(UVersionInfo));
++    }
+     const uint8_t *inBytes = static_cast<const uint8_t *>(udata_getMemory(t->memory));
+     CollationDataReader::read(nullptr, inBytes, udata_getLength(t->memory), *t, errorCode);
+     if(U_FAILURE(errorCode)) { return; }

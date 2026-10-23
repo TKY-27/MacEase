@@ -82,7 +82,7 @@ private func formattedJSON(_ text: String, _ formatting: JSONFormatting, setting
         #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
     }
 
-    @Test(arguments: ["unicode", "numeric", "tie"])
+    @Test(arguments: ["unicode", "numeric", "tie", "secondary", "nonstarter", "icuNumeric"])
     func naturalGiantKeysMatchWholeFoundationComparison(_ variant: String) throws {
         let prefix = String(repeating: "a", count: 4 * 65_536 - 4)
         let left: String
@@ -94,6 +94,17 @@ private func formattedJSON(_ text: String, _ formatting: JSONFormatting, setting
         case "numeric":
             left = prefix + "2"
             right = prefix + "100000"
+        case "secondary":
+            left = "a\u{301}" + prefix
+            right = "a\u{300}" + prefix
+        case "nonstarter":
+            let marks = String(repeating: "\u{315}", count: 40_000)
+            left = "a" + marks + "\u{300}"
+            right = "a\u{300}" + marks
+        case "icuNumeric":
+            let digits = String(repeating: "2", count: 80_000)
+            left = "é" + digits + "1"
+            right = "e\u{301}" + digits + "2"
         default:
             left = prefix + "000002"
             right = prefix + "2"
@@ -114,6 +125,44 @@ private func formattedJSON(_ text: String, _ formatting: JSONFormatting, setting
         let source = JSONValue.object([rightMember, leftMember]).serialized(indent: nil)
         var settings = TextSettings()
         settings.jsonKeyComparison = .natural
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+    }
+
+    @Test func naturalLongCombiningPrefixesKeepContentBasedOrder() throws {
+        let prefix = "a" + String(repeating: "\u{315}", count: 40_000)
+        let acute = (prefix + "\u{301}", JSONValue.number("1"))
+        let grave = (prefix + "\u{300}", JSONValue.number("2"))
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .natural
+        for descending in [false, true] {
+            settings.jsonDescending = descending
+            let expected =
+                JSONValue.object(descending ? [grave, acute] : [acute, grave]).serialized(indent: "  ") + "\n"
+            for members in [[acute, grave], [grave, acute]] {
+                let source = JSONValue.object(members).serialized(indent: nil)
+                #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+            }
+        }
+    }
+
+    @Test(arguments: [
+        ("\u{1D165}a", "\u{1D165}b"),
+        ("\u{10100}a", "\u{10100}b"),
+        ("\u{11131}\u{11127}", "\u{11131}a"),
+        ("\u{10940}", "中"),
+        ("\u{1FAEA}", "a"),
+    ])
+    func naturalOrderingPreservesFoundationContextAndDataGeneration(_ left: String, _ right: String) throws {
+        let locale = Locale(identifier: "en_US_POSIX")
+        let primary = left.compare(right, options: [.literal, .numeric], locale: locale)
+        let leftMember = (key: left, value: JSONValue.number("1"))
+        let rightMember = (key: right, value: JSONValue.number("2"))
+        let expected =
+            JSONValue.object(primary == .orderedAscending ? [leftMember, rightMember] : [rightMember, leftMember])
+            .serialized(indent: "  ") + "\n"
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .natural
+        let source = JSONValue.object([rightMember, leftMember]).serialized(indent: nil)
         #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
     }
 

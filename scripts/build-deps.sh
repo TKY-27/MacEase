@@ -11,6 +11,9 @@ deployment_target="26.0"
 stamp_file="$out/.stamp"
 
 stamp_inputs=("$lock" "$0" "$root/scripts/generate-notices.sh")
+stamp_inputs+=("$root"/Vendor/JSONCompare/*.mm "$root"/Vendor/JSONCompare/*.hpp)
+stamp_inputs+=("$root"/Vendor/JSONCompare/*.py "$root"/Vendor/JSONCompare/include/*.h)
+stamp_inputs+=("$root/Vendor/JSONCompare/NOTICE" "$root/Vendor/licenses/swift-corelibs-foundation/LICENSE")
 if [[ -d "$root/Vendor/patches" ]]; then
     stamp_inputs+=("$root"/Vendor/patches/*.patch)
 fi
@@ -21,7 +24,7 @@ if [[ "${1:-}" != "--force" && -f "$stamp_file" && "$(cat "$stamp_file")" == "$s
     exit 0
 fi
 
-for tool in cmake meson ninja pkg-config; do
+for tool in cmake meson ninja pkg-config make python3; do
     command -v "$tool" >/dev/null || { echo "error: $tool is missing; run make bootstrap" >&2; exit 1; }
 done
 
@@ -62,7 +65,7 @@ unpack() {
     mkdir -p "$dir"
     tar xf "$archive" -C "$dir" --strip-components 1
     for patch in "$root/Vendor/patches/$name"-*.patch; do
-        [[ -f "$patch" ]] && patch -d "$dir" -p1 < "$patch"
+        [[ -f "$patch" ]] && patch -d "$dir" -p1 < "$patch" >&2
     done
     echo "$dir"
 }
@@ -202,23 +205,100 @@ build_libarchive() {
         -DENABLE_WERROR=OFF -DENABLE_ACL=ON -DENABLE_XATTR=ON
 }
 
+package_icu_data() {
+    local icu_build="$1" source_data="$2" name="$3" entry="$4"
+    local data_dir package_dir file
+    data_dir="$work/icu-data-$name"
+    package_dir="$work/icu-package-$name"
+    mkdir -p "$data_dir/coll" "$package_dir"
+    cp "$source_data/in/coll/ucadata-unihan.icu" "$data_dir/coll/ucadata.icu"
+    cp "$source_data/in/nfc.nrm" "$data_dir/nfc.nrm"
+    "$icu_build/bin/genrb" -q -R --ucadata "$data_dir/coll/ucadata.icu" \
+        -d "$data_dir/coll" "$source_data/coll/root.txt" "$source_data/coll/en.txt" \
+        "$source_data/coll/en_US_POSIX.txt" >"$package_dir/genrb.log" 2>&1 \
+        || { cat "$package_dir/genrb.log" >&2; exit 1; }
+    for file in coll/ucadata.icu nfc.nrm coll/root.res coll/en.res coll/en_US_POSIX.res; do
+        echo "$file"
+    done >"$package_dir/files.lst"
+    "$icu_build/bin/pkgdata" -O "$icu_build/data/icupkg.inc" -p icudt78l -e "$entry" \
+        -m static -s "$data_dir" -d "$package_dir" "$package_dir/files.lst" \
+        >"$package_dir/pkgdata.log" 2>&1 \
+        || { cat "$package_dir/pkgdata.log" >&2; exit 1; }
+    cp "$package_dir/libicudt78l.a" "$lib/libicudata-$name.a"
+}
+
+build_icu() {
+    local dir="$1" icu_source icu_build
+    local apple_dir generated source build_log flags object
+    icu_source="$dir/icu4c/source"
+    icu_build="$dir/_build"
+    apple_dir="$(unpack icu-apple)"
+    keep_licenses icu-apple "$apple_dir"
+    generated="$work/icu-generated"
+    python3 "$root/Vendor/JSONCompare/prepare-icu.py" "$icu_source" "$generated"
+    cp "$generated/include/unicode/tblcoll.h" "$icu_source/i18n/unicode/tblcoll.h"
+    mkdir -p "$icu_build"
+    (
+        cd "$icu_build"
+        "$icu_source/configure" --prefix="$prefix" --enable-static --disable-shared \
+            --disable-extras --disable-icuio --disable-tests --disable-samples \
+            --disable-dyload --with-data-packaging=archive \
+            CFLAGS="-O2 $arch_flags" CXXFLAGS="-O2 $arch_flags" LDFLAGS="$arch_flags" \
+            >"$dir/_configure.log" 2>&1 || { tail -40 "$dir/_configure.log" >&2; exit 1; }
+        mkdir -p lib bin sbin
+        for source in common i18n stubdata tools/toolutil tools/genrb tools/pkgdata; do
+            build_log="$dir/_build-${source//\//-}.log"
+            make -C "$source" -j"$jobs" >"$build_log" 2>&1 \
+                || { tail -40 "$build_log" >&2; exit 1; }
+        done
+        make -C data icupkg.inc >"$dir/_build-data.log" 2>&1 \
+            || { tail -40 "$dir/_build-data.log" >&2; exit 1; }
+    )
+    mkdir -p "$lib"
+    cp "$icu_build/lib/libicuuc.a" "$icu_build/lib/libicui18n.a" "$lib/"
+    package_icu_data "$icu_build" "$icu_source/data" current icudt78
+    package_icu_data "$icu_build" "$apple_dir/icu/icu4c/source/data" legacy macease_legacy
+
+    flags=(-O2 -std=c++17 -fPIC -arch arm64 "-mmacosx-version-min=$deployment_target"
+        -DU_STATIC_IMPLEMENTATION
+        -I"$generated/include" -I"$root/Vendor/JSONCompare/include"
+        -I"$root/Vendor/JSONCompare" -I"$generated"
+        -I"$icu_source/common" -I"$icu_source/i18n")
+    for source in "$generated/externaliterator.cpp" "$generated/externalcompare.cpp" \
+        "$root/Vendor/JSONCompare/JSONCompare.mm"; do
+        object="$work/$(basename "$source").o"
+        if [[ "$source" == *.mm ]]; then
+            clang++ "${flags[@]}" -fobjc-arc -c "$source" -o "$object" \
+                >"$dir/_compile-$(basename "$source").log" 2>&1 \
+                || { tail -40 "$dir/_compile-$(basename "$source").log" >&2; exit 1; }
+        else
+            clang++ "${flags[@]}" -c "$source" -o "$object" \
+                >"$dir/_compile-$(basename "$source").log" 2>&1 \
+                || { tail -40 "$dir/_compile-$(basename "$source").log" >&2; exit 1; }
+        fi
+        merge_inputs+=("$object")
+    done
+}
+
 for name in libdeflate xz zstd libogg libvorbis opus flac libwebp libaom dav1d libavif libjxl libvpx libarchive; do
     build "$name"
 done
+merge_inputs=()
+lib="$prefix/lib"
+build icu
 
 cp "$(fetch cfr)" "$out/cfr.jar"
 mkdir -p "$out/licenses/cfr"
 cp "$(fetch cfr-license)" "$out/licenses/cfr/LICENSE"
 
 echo "Packaging CNative.xcframework"
-lib="$prefix/lib"
 libraries=(
     libdeflate.a liblzma.a libzstd.a libogg.a libvorbis.a libvorbisenc.a libopus.a libFLAC.a
     libsharpyuv.a libwebp.a libwebpdemux.a libwebpmux.a libaom.a libdav1d.a libavif.a
     libjxl.a libjxl_cms.a libjxl_threads.a libhwy.a libbrotlicommon.a libbrotlienc.a libbrotlidec.a
     libvpx.a libarchive.a
+    libicui18n.a libicuuc.a libicudata-current.a libicudata-legacy.a
 )
-merge_inputs=()
 for name in "${libraries[@]}"; do
     [[ -f "$lib/$name" ]] || { echo "error: $name was not built" >&2; exit 1; }
     merge_inputs+=("$lib/$name")
@@ -232,6 +312,7 @@ for header_dir in webp avif dav1d jxl vpx ogg vorbis opus FLAC; do
 done
 cp "$prefix/include/archive.h" "$prefix/include/archive_entry.h" "$prefix/include/libdeflate.h" \
     "$staging/include/"
+cp "$root/Vendor/JSONCompare/include/JSONCompare.h" "$staging/include/"
 cat >"$staging/include/module.modulemap" <<'MAP'
 module CWebP {
     header "webp/encode.h"
@@ -284,6 +365,10 @@ module CArchive {
 }
 module CDeflate {
     header "libdeflate.h"
+    export *
+}
+module CJSONCompare {
+    header "JSONCompare.h"
     export *
 }
 MAP

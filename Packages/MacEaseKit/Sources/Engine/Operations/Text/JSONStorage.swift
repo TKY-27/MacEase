@@ -118,21 +118,7 @@ final class JSONFile {
         }
     }
 
-    func string(_ span: JSONSpan) throws -> String {
-        try String(unsafeUninitializedCapacity: Int(span.length)) { buffer in
-            var offset = 0
-            while offset < buffer.count {
-                try Task.checkCancellation()
-                let length = min(Self.chunkBytes, buffer.count - offset)
-                let bytes = try read(at: span.offset + UInt64(offset), count: length)
-                offset += bytes.copyBytes(
-                    to: UnsafeMutableBufferPointer(rebasing: buffer[offset..<(offset + length)]))
-            }
-            return offset
-        }
-    }
-
-    func appendCaseFolded(_ span: JSONSpan, from source: JSONFile) throws -> JSONSpan {
+    func appendCaseFolded(_ span: JSONSpan, from source: JSONFile, utf16: JSONFile? = nil) throws -> JSONSpan {
         let start = count
         let maximumIncompleteBytes = 3
         var offset: UInt64 = 0
@@ -144,7 +130,12 @@ final class JSONFile {
                 for suffix in 0...min(maximumIncompleteBytes, bytes.count) {
                     let prefix = bytes.prefix(bytes.count - suffix)
                     if let text = String(validating: prefix, as: UTF8.self) {
-                        try append(text.folding(options: .caseInsensitive, locale: Self.caseFoldLocale))
+                        let folded = text.folding(options: .caseInsensitive, locale: Self.caseFoldLocale)
+                        try append(folded)
+                        if let utf16 {
+                            let units = Array(folded.utf16)
+                            try units.withUnsafeBytes { try utf16.append(Data($0)) }
+                        }
                         return prefix.count
                     }
                 }

@@ -20,5 +20,8 @@ skcms 96d9171c94b937a1b5f0293de7309ac16311b722 BSD-3-Clause 9bb4b5bba0b7c04f6c2b
 libjxl 0.12.0 BSD-3-Clause 03e9be69a30be4011f559da75328b6d7cea8ad921fabfbd551ce10bf45cdc992 https://github.com/libjxl/libjxl/archive/refs/tags/v0.12.0.tar.gz LICENSE,PATENTS
 libvpx 1.17.0 BSD-3-Clause 1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a https://github.com/webmproject/libvpx/archive/refs/tags/v1.17.0.tar.gz LICENSE,PATENTS
 libarchive 3.8.10 BSD-2-Clause 56cad765459d5ee25a3b761f90c47d99379d28297fbfb72d908880d6b875fb96 https://www.libarchive.org/downloads/libarchive-3.8.10.tar.xz COPYING
+icu 78.3 Unicode-3.0 f06bcab72736ee9d55689033b8198a178562354128cf38edb2afc2e67e3fd931 https://codeload.github.com/unicode-org/icu/tar.gz/refs/tags/release-78.3 LICENSE
+icu-apple 2a6dc3a0f0ebc3fed1c9c0a96825e985f8db2f51 Unicode-3.0 3583167dbd799d4e9a7f4943a847ef54168e27efe925fdfc213d73035a56d6d5 https://codeload.github.com/apple-oss-distributions/ICU/tar.gz/2a6dc3a0f0ebc3fed1c9c0a96825e985f8db2f51 icu/LICENSE
+swift-corelibs-foundation 28249ced079d8e7ec03b821c039bf9868738c3fc Apache-2.0-with-Swift-exception 0ca84095d1de77cad1a866ebbad28f8db98a0826c6055d92b0608c5baa1643e2 https://raw.githubusercontent.com/swiftlang/swift-corelibs-foundation/28249ced079d8e7ec03b821c039bf9868738c3fc/LICENSE LICENSE
 cfr 0.152 MIT f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2 https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar -
 cfr-license 0.152 MIT d0b36fd265410a15e634220fdc6101976582799a09c69764f44bc21c21611527 https://raw.githubusercontent.com/leibnitz27/cfr/0.152/LICENSE -

@@ -36,7 +36,7 @@ let package = Package(
         .target(
             name: "Engine",
             dependencies: [
-                "MenuCatalog", "Formats",
+                "MenuCatalog", "Formats", "CNative",
                 .product(name: "cmark-gfm", package: "swift-cmark"),
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
                 .product(name: "Yams", package: "Yams"),
