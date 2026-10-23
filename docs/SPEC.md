@@ -1667,7 +1667,7 @@ check.
   APNG and WebP use incremental writers. TIFF pages and image-to-PDF inputs
   retain the 250 MB cumulative cap. Transform and encoder checks
   account for additional pixel copies before allocation. Limits are estimates
-  of explicit allocations, not a substitute for the Instruments acceptance
+  of explicit allocations, not a substitute for the full-app memory acceptance
   check in section 16. Full-resolution 200 MP transforms and encoders remain
   limited by their additional buffers; accepting a 200 MP source does not
   imply that every operation fits. Broader support requires tiled processing.
@@ -1726,7 +1726,7 @@ check.
 | Request transport | 5,000 paths in one request | Automated host test of URL parsing; manual end-to-end check |
 | Image conversion | 12 MP HEIC to JPEG ≤ 0.5 s on M1 | `scripts/bench.sh`, manual |
 | Video compression | 60 s 1080p30 H.264 15 Mbps with AAC to 20 MB ≤ 30 s on M1 | `scripts/bench.sh`, manual |
-| Memory | Peak resident memory ≤ 1.5 GB for any single item except 8K video | Manual with Instruments |
+| Memory | Peak resident memory ≤ 1.5 GB for any single item except 8K video | Actual Release app: Instruments or Darwin kernel resident high-water mark |
 | Large batches | 1,000 images processed without UI stalls; menu bar stays responsive | Manual |
 | Idle | Host idle CPU ≈ 0%, resident memory ≤ 80 MB | Manual |
 
@@ -1734,6 +1734,13 @@ For v1.0.0, the owner approved the available Apple M5 Mac running macOS 27
 as the physical acceptance machine. M1 performance and macOS 26 physical-Mac
 results are not claimed. The numerical targets remain unchanged; macOS 26
 checks use the available VM where applicable (ADR 0030).
+
+When Instruments cannot record, `/usr/bin/time -l` may measure the actual
+Release host from launch through verified commit and process exit. Its
+`maximum resident set size` is the kernel high-water mark, in bytes. Report
+peak physical footprint separately; sampled RSS alone can miss peaks.
+Neither a standalone converter nor finite fixtures prove an arbitrary-input
+memory bound (ADR 0031).
 
 `scripts/bench.sh <operation> <file> [preset]` runs one operation on a copy of
 the file in a scratch volume; run it under `/usr/bin/time -l` to read peak
@@ -1847,6 +1854,9 @@ release checks.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-23: Accept Darwin kernel resident high-water measurements of the
+  actual Release app when Instruments recording is unavailable (ADR 0031).
 
 - 2026-10-23: Use the available M5/macOS 27 physical Mac and macOS 26 VM
   for v1.0.0 acceptance, as approved by the owner (ADR 0030).

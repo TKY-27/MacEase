@@ -72,8 +72,13 @@ residency. This release gate remains unestablished (ADR 0029).
 
 Instruments attach and launch recordings fail with `Failed starting ktrace
 session`, including after Developer mode was enabled. Partial traces are not
-accepted as evidence. Kernel measurements remain separate from the required
-Instruments check.
+accepted as evidence. `DevToolsSecurity -status` confirms Developer mode is
+enabled; `ktrace info` also fails with `Too many levels of remote in path`.
+The owner approved an equivalent official measurement method. Darwin
+`getrusage(2)` defines `ru_maxrss` as maximum resident bytes; `/usr/bin/time -l`
+reports this high-water mark after the actual host exits. The kernel rows
+above include launch, request execution, verified commit and exit. They are
+accepted measurements under ADR 0031, not a proof of bounded natural sorting.
 
 ### Platform and HDR checks
 
@@ -94,17 +99,46 @@ outputs were exercised on disposable copies; UI Undo remains unverified.
 The macOS 26.6.2 (25G83) VM installs the self-signed DMG, completes onboarding,
 enables Finder Sync and performs JSON sorting with correct output and retained
 input. The final candidate repeats the sort and signature checks successfully.
-A same-certificate update preserves extension enablement. This does not
-prove privacy-grant migration, physical display behavior or downloaded-app
-Gatekeeper handling. Gatekeeper rejection of an unnotarized build is expected;
-the interactive Open Anyway flow remains unverified.
+A same-certificate update preserves extension enablement. Through Apple
+Screen Sharing, the menu-bar history Undo action moves the newly sorted
+output to Trash and leaves the input SHA-256 unchanged. This verifies the
+new-file UI Undo path in the VM. A separate Replace operation records the
+exact original bytes and Trash backup inode, then restarts the host before
+UI Undo. Undo restores those bytes and that backup inode, and removes the
+backup from Trash. This does not prove privacy-grant migration, physical
+display behavior or downloaded-app
+Gatekeeper handling of a real browser download. A signature-verified copy
+with an explicit quarantine attribute is rejected by Gatekeeper. After the
+owner authorizes the VM-only exception, Settings → Privacy & Security →
+Open Anyway and administrator authentication permit launch. Installing the
+same copy into Applications then launches from `/Applications/MacEase.app`;
+Gatekeeper assessments remain enabled. The published-asset download path
+still requires verification after publication.
+
+The physical Release host accepts one URL containing 5,000 distinct JSON
+paths (200,153 URL bytes), commits 5,000 exact Minify outputs in 11.79 s,
+and preserves every original byte. A second check selects all 5,000 originals
+in Finder and invokes Minify through the extension menu. All 5,000 outputs
+match and all originals remain unchanged; Finder retains focus. The 11.79 s
+timing belongs to the Launch Services run, not the Finder run.
+
+A batch of 1,000 disposable copies of a 12 MP JPEG produces 1,000 resized
+outputs in 31.48 s. ImageIO fully decodes every output at 1512 × 2016; all
+source hashes remain unchanged. The Settings window responds and changes
+tabs during processing. This observation does not measure menu-bar latency.
 
 The device-enabled package run passes 1,011 tests without skips. Subsequent
 key-folding, giant-key ordering and deterministic-settings changes pass the
 focused JSON, streaming-text and settings run (82 tests). Debug and Release
-builds, strict lint and independent source reviews pass. CI remains excluded
-under the owner's billing decision. Full manual accessibility, large-batch,
-permission migration and Undo acceptance remain incomplete; no stable release
+builds, strict lint and independent source reviews pass. A subsequent
+project-wide test audit consolidates the old malformed-container harness
+without dropping any of its 600 mutations, removes one redundant JSON
+flush test, and strengthens menu, token, PNG, GIF, archive and extracted-PCM
+oracles. The affected tests pass before and after; independent review finds
+no lost proof. These test-only changes do not constitute another full run.
+CI remains excluded
+under the owner's billing decision. Full manual accessibility, menu-bar
+responsiveness, permission migration and physical-Mac UI Undo remain incomplete; no stable release
 or anonymous post-publication verification is claimed.
 
 ## Finder Sync spike (2026-10-20)
