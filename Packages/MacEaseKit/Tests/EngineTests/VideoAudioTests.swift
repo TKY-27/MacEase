@@ -238,6 +238,8 @@ import UniformTypeIdentifiers
 
     @Test func extractAudioCopiesAACAndEncodesWave() async throws {
         let source = try fixture()
+        let originalBytes = try Data(contentsOf: source)
+        let sourceAudio = try AudioSignals.decode(source)
         let m4a = try await run(.videoExtractAudio, preset: "m4a", on: source)
         #expect(FileManager.default.fileExists(atPath: source.path))
         let copied = try AudioInput(url: m4a)
@@ -250,7 +252,16 @@ import UniformTypeIdentifiers
         let wave = try await run(.videoExtractAudio, preset: "wav", on: source)
         let encoded = try AudioInput(url: wave)
         #expect(encoded.codec == .pcm)
-        #expect((encoded.frameCount ?? 0) > 0)
+        let waveAudio = try AudioSignals.decode(wave)
+        #expect(waveAudio.input.sampleRate == sourceAudio.input.sampleRate)
+        #expect(waveAudio.input.channels == sourceAudio.input.channels)
+        #expect(waveAudio.samples.count == sourceAudio.samples.count)
+        let audibleAmplitude: Float = 0.05
+        #expect(sourceAudio.samples.contains { abs($0) > audibleAmplitude })
+        let maximumDifference = zip(waveAudio.samples, sourceAudio.samples).map { abs($0 - $1) }.max() ?? .infinity
+        let pcmTolerance: Float = 1.0 / 32_768
+        #expect(maximumDifference <= pcmTolerance)
+        #expect(try Data(contentsOf: source) == originalBytes)
     }
 
     @Test func extractAudioWithChosenBitrateReencodesAAC() async throws {

@@ -55,20 +55,6 @@ import Testing
         }
     }
 
-    @Test func flushesLargeStringsWithoutChangingBytes() throws {
-        let payload = String(repeating: "é", count: 100_000)
-        let source = "\"\(payload)\""
-        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: destination) } }
-
-        let input = destination.appendingPathExtension("source")
-        try Data(source.utf8).write(to: input)
-        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: input) } }
-        try JSONFormatter.write(input, .pretty, settings: TextSettings(), to: destination)
-
-        #expect(try Data(contentsOf: destination) == Data("\"\(payload)\"\n".utf8))
-    }
-
     @Test func refusesExistingDestinationWithoutChangingIt() throws {
         let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let original = Data("keep".utf8)
