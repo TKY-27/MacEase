@@ -31,7 +31,8 @@ without GitHub authentication (CONTRIBUTING.md, Releasing step 6).
 ## v1.0.0 candidate verification (2026-10-23)
 
 Environment: Apple M5, 24 GB, macOS 27.0.1 (26A434), Xcode 27.1,
-Swift 6.4. These checks do not complete the release checklist above.
+Swift 6.4. The pre-publication checklist passes in the approved v1.0.0
+environments below; anonymous published-asset checks follow publication.
 
 ### JSON memory and correctness
 
@@ -134,8 +135,11 @@ removes all 109 committed outputs. These checks use disposable copies only.
 The owner compares that real capture and its SDR output side by side in
 Preview on the built-in XDR display and reports no unnatural color cast or
 highlight clipping in the white bag, desk or mouse. This is a human-observed
-HDR-display result; screenshots do not measure HDR luminance. A separate
-SDR-display observation remains pending.
+HDR-display result; screenshots do not measure HDR luminance. The owner
+also reports no unnatural color cast, clipping or extreme brightness changes
+in Apple Display (P3-600 nits) and Photography (P3-D65) SDR modes. The latter
+reports EDR headroom 1.0. These are physical observations, not screenshot
+measurements.
 
 On macOS 26.6.2, ImageIO changes a valid ISO gain map's negative
 `GainMapMin` to its positive magnitude during JPEG re-encoding. The same
@@ -182,8 +186,11 @@ appearance and with Increase Contrast and Reduce Transparency enabled.
 At the display's 1024 × 665 Larger Text setting, labels wrap without overlap,
 and scrolling reaches the expanded JSON controls and final PDF options.
 The original 1512 × 982 resolution and appearance settings are restored.
-VoiceOver navigation reaches the Settings tabs, but an auditory transcript
-and menu-bar VoiceOver activation are not verified.
+The owner verifies VoiceOver on the physical Mac: the menu-bar Settings
+action opens settings, and the progress switch reads its name and on/off
+state and can be toggled. This human verification supplements the automated
+accessibility inspection; remote modifier-key forwarding did not provide
+a reliable VoiceOver check in the VM.
 
 The macOS 26.6.2 (25G83) VM installs the self-signed DMG, completes onboarding,
 enables Finder Sync and performs JSON sorting with correct output and retained
@@ -222,7 +229,11 @@ timing belongs to the Launch Services run, not the Finder run.
 A batch of 1,000 disposable copies of a 12 MP JPEG produces 1,000 resized
 outputs in 31.48 s. ImageIO fully decodes every output at 1512 × 2016; all
 source hashes remain unchanged. The Settings window responds and changes
-tabs during processing. This observation does not measure menu-bar latency.
+tabs during processing. A second batch with Reduce Motion enabled produces
+1,000 resized HEIC outputs in 202.11 s, preserving every source hash. During
+that batch, the owner confirms that the busy icon stays static and the menu
+and Settings remain responsive. This is an interaction check, not a numeric
+menu-bar latency measurement.
 
 The benchmark fixture writer previously waited for video readiness before
 feeding audio, allowing the two tracks to block one another. Independent
@@ -250,8 +261,50 @@ spool observation failed in the first full run. A longer multi-key fixture and
 wall-clock deadline retain its cancellation, source-integrity and cleanup
 assertions; both focused checks and the complete rerun pass.
 
-CI remains excluded under the owner's billing decision. Remaining manual
-checks and anonymous post-publication verification are not claimed complete.
+Finder Sync initially omitted a separately mounted APFS volume when only
+`/` was registered. Explicit mounted-root registration fixes the omission.
+The signed Release extension invokes Sort Keys from Finder on that volume,
+then again after rename, detach and reattach after extension startup. A
+loopback WebDAV mount also exposes the menu and commits the exact expected
+sorted bytes. Every source remains unchanged. These checks exercise mounted
+APFS and macOS WebDAV paths, not physical USB hardware or a remote SMB server.
+
+Activity previously counted successful SDR fallback notices as problems.
+The signed Release now shows Done for 12 successful HDR resizes, with one
+notice covering 12 files; Show All retains every filename. Mixed batches
+report only the one actual skip or one truncated-image read failure, while
+12 successful conversions remain separate. Explicit SDR conversion reports
+Done without an automatic tone-mapping notice; its existing unknown-source-
+provenance notice remains informational. All 40 valid source hashes remain
+unchanged, and neither invalid input produces an output.
+
+Location acceptance runs one operation for each of the ten concrete file
+kinds (image, video, audio, PDF, document, plist, text, archive, JAR and folder).
+On macOS 27, all 50 operations pass across Desktop, Documents, Downloads,
+a separate APFS volume and iCloud Drive. The owner permits the protected
+folder prompts; all source hashes remain unchanged. Output checks cover
+image decoding, full audio/video decoding, PDF rotation, exact text/JSON,
+archive contents, decompiled Java and the folder listing. iCloud reports the
+output as ubiquitous, but account connection error 4355 prevents upload;
+local provider access passes and remote synchronization is not claimed.
+Only synthetic fixtures are used in iCloud Drive.
+
+On macOS 26, all 40 corresponding operations pass across Desktop, Documents,
+Downloads and a separate APFS volume. Desktop and Documents each show one
+macOS permission prompt; the existing Downloads grant is reused. TCC records
+all three as user-approved. Every source hash is unchanged; format/content
+checks pass. The JAR check uses a separately installed OpenJDK 21 runtime.
+The VM has no signed-in iCloud account; iCloud local-provider acceptance uses
+the physical Mac. Separate volumes are APFS images, not physical USB devices.
+
+For notification Undo, the owner presses Undo on the physical Mac's completed
+JSON Replace notification. The restored file matches its original SHA-256
+and the Trash inode recorded by the commit; persisted history marks the batch
+undone. This supplements the automated Activity and VM menu-bar Undo checks.
+
+CI remains excluded under the owner's billing decision and Actions stays
+disabled. Anonymous download, published checksums and public update checking
+are post-publication checks; their results belong to the release record.
 
 ## Finder Sync spike (2026-10-20)
 
@@ -393,8 +446,8 @@ Environment: macOS 27.0.1, Apple Silicon, FFmpeg 9.0.2 with x265.
 2. Check the menu at all four levels for single-kind and mixed selections, and
    the container menu on a folder background.
 3. Run one operation per kind on Desktop, Documents, Downloads, an external
-   volume and an iCloud Drive folder; confirm TCC prompts appear once per
-   location.
+   volume and an iCloud Drive folder; confirm protected locations request
+   access when needed and reuse granted permissions.
 4. Send a 5,000-file selection and confirm the batch starts.
 5. Install the next build over it and confirm TCC grants and the extension's
    enabled state survive.

@@ -19,10 +19,6 @@ right-click menu, without opening another app.
 
 ## Installation
 
-The first stable release is in preparation. No binary release is published yet;
-[build from source](#build-from-source) to try the current version. The following
-steps apply once a verified DMG is available.
-
 1. Download `MacEase-<version>.dmg` from
    [Releases](https://github.com/TKY-27/MacEase/releases) and check its
    SHA-256 against the checksum on the release page.

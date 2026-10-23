@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Planned first stable release: 1.0.0. No release has been published yet.
+## [1.0.0] - 2026-10-23
 
 ### Added
 
@@ -80,11 +80,15 @@ Planned first stable release: 1.0.0. No release has been published yet.
 
 ### Fixed
 
+- Report successful conversions as complete in Activity and group repeated
+  notices without counting them as failures.
+- Show Finder actions on separately mounted and network volumes, including
+  volumes attached after the extension starts.
+
 - When ImageIO cannot preserve a valid HDR gain map during an image edit,
   new-file output uses SDR with a warning. Replace still refuses HDR loss.
 - Keep natural JSON ordering deterministic for long combining-character
   prefixes affected by Foundation's string-representation-dependent results.
-
 - Bound natural JSON key comparison memory with disk-backed collation while
   preserving existing Unicode and numeric ordering.
 - Expose settings switch titles and onboarding status labels to VoiceOver.
