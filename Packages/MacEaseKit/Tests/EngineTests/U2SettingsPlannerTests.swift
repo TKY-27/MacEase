@@ -5,6 +5,50 @@ import Testing
 @testable import Engine
 
 @Suite struct U2SettingsPlannerTests {
+    @Test func metadataSelectionsEncodeInCanonicalOrder() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var first = Settings()
+        first.image.strippedMetadata = Set(MetadataField.allCases)
+        var second = first
+        second.image.strippedMetadata = Set(MetadataField.allCases.reversed())
+        let encoded = try encoder.encode(first)
+        #expect(encoded == (try encoder.encode(second)))
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let image = try #require(object["image"] as? [String: Any])
+        #expect(image["strippedMetadata"] as? [String] == ["comments", "exif", "gps", "iptc", "makerNotes", "xmp"])
+        second.image.strippedMetadata.remove(.gps)
+        #expect(encoded != (try encoder.encode(second)))
+    }
+
+    @Test func imageSettingsPreserveEverySavedOption() throws {
+        var image = ImageSettings()
+        image.jpegQuality = 41
+        image.heicQuality = 42
+        image.webpQuality = 43
+        image.avifQuality = 44
+        image.jxlQuality = 45
+        image.optimizePNGOnConvert = false
+        image.gifDithering = .none
+        image.strippedMetadata = [.xmp, .gps]
+        image.keepGPSOnPlatformPresets = true
+        image.colorKey = .black
+        image.colorKeyTolerance = 0.34
+        image.greenBackground = .white
+        image.blueBackground = .black
+        image.customBackground = .chromaBlue
+        image.backgroundMask = .person
+        image.backgroundBlurRadius = 31
+        image.rotationFillsWithColor = true
+        image.rotationFill = .chromaGreen
+        image.svgColors = 4
+        image.svgMode = .embeddedPNG
+        let encoded = try JSONEncoder().encode(image)
+        #expect(try JSONDecoder().decode(ImageSettings.self, from: encoded) == image)
+        let legacy = Data(#"{"image":{"strippedMetadata":["xmp","gps"]}}"#.utf8)
+        #expect(try Settings.decode(legacy).image.strippedMetadata == [.gps, .xmp])
+    }
+
     @Test func savedSettingsMigrateAndRoundTrip() throws {
         let legacy = Data(#"{"image":{"jpegQuality":42},"video":{"gifWidth":600,"gifStartSeconds":2}}"#.utf8)
         var settings = try Settings.decode(legacy)

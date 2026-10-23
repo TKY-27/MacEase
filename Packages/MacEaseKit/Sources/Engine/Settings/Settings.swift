@@ -129,6 +129,30 @@ public struct ImageSettings: Codable, Equatable, Sendable {
     public var svgMode = SVGMode.trace
 
     public init() {}
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(jpegQuality, forKey: .jpegQuality)
+        try container.encode(heicQuality, forKey: .heicQuality)
+        try container.encode(webpQuality, forKey: .webpQuality)
+        try container.encode(avifQuality, forKey: .avifQuality)
+        try container.encode(jxlQuality, forKey: .jxlQuality)
+        try container.encode(optimizePNGOnConvert, forKey: .optimizePNGOnConvert)
+        try container.encode(gifDithering, forKey: .gifDithering)
+        try container.encode(strippedMetadata.sorted { $0.rawValue < $1.rawValue }, forKey: .strippedMetadata)
+        try container.encode(keepGPSOnPlatformPresets, forKey: .keepGPSOnPlatformPresets)
+        try container.encode(colorKey, forKey: .colorKey)
+        try container.encode(colorKeyTolerance, forKey: .colorKeyTolerance)
+        try container.encode(greenBackground, forKey: .greenBackground)
+        try container.encode(blueBackground, forKey: .blueBackground)
+        try container.encode(customBackground, forKey: .customBackground)
+        try container.encode(backgroundMask, forKey: .backgroundMask)
+        try container.encode(backgroundBlurRadius, forKey: .backgroundBlurRadius)
+        try container.encode(rotationFillsWithColor, forKey: .rotationFillsWithColor)
+        try container.encode(rotationFill, forKey: .rotationFill)
+        try container.encode(svgColors, forKey: .svgColors)
+        try container.encode(svgMode, forKey: .svgMode)
+    }
 }
 
 public struct VideoSettings: Codable, Equatable, Sendable {
