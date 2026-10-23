@@ -129,6 +129,17 @@
         }
       }
     },
+    "%lld files: %@": {
+      "comment": "Grouped file warning in Activity",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件のファイル: %@"
+          }
+        }
+      }
+    },
     "%lld groups, %@ reclaimable": {
       "localizations": {
         "ja": {
@@ -4758,7 +4769,7 @@
       }
     },
     "Show All…": {
-      "comment": "Activity button listing every problem and skip",
+      "comment": "Activity button listing every result detail",
       "localizations": {
         "ja": {
           "stringUnit": {

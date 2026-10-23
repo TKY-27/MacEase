@@ -80,7 +80,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
 
     private func closesAutomatically(_ result: ActivityResult) -> Bool {
         switch result.status {
-        case .done: settings.activityClosesAfterSuccess
+        case .done: result.warnings.isEmpty && settings.activityClosesAfterSuccess
         case .cancelled: settings.activityClosesAfterCancel
         case .failed: settings.activityClosesAfterFailure
         case .problems: result.problems.contains(where: \.isFailure) && settings.activityClosesAfterFailure
@@ -143,6 +143,20 @@ private struct ActivityProblem {
     let isFailure: Bool
 }
 
+private struct ActivityWarning {
+    let message: String
+    let file: String
+    var count: Int
+
+    var summary: ActivityProblem {
+        let text =
+            count == 1
+            ? String(localized: "“\(file)”: \(message)", comment: "File warning in batch results")
+            : String(localized: "\(count) files: \(message)", comment: "Grouped file warning in Activity")
+        return ActivityProblem(message: text, isFailure: false)
+    }
+}
+
 private struct ActivityResult {
     enum Status {
         case done
@@ -154,26 +168,32 @@ private struct ActivityResult {
     let status: Status
     /// Includes skips, which are not problems.
     let problems: [ActivityProblem]
+    let warnings: [ActivityWarning]
     let skipped: Int
     let details: String
     let hasHistory: Bool
 
     init(_ outcome: BatchOutcome) {
         var problems: [ActivityProblem] = []
+        var warnings: [ActivityWarning] = []
         var succeeded = 0
         var failed = 0
         var skipped = 0
         for (result, inputs) in zip(outcome.outcomes, outcome.inputs) {
             let file = inputs.first?.lastPathComponent ?? ""
             switch result {
-            case .succeeded(_, let warnings):
+            case .succeeded(_, let itemWarnings):
                 succeeded += 1
-                problems += warnings.map { warning in
-                    ActivityProblem(
-                        message: String(
-                            localized: "“\(file)”: \(UserMessages.describe(warning))",
-                            comment: "File warning in batch results"),
-                        isFailure: false)
+                var itemMessages: [String] = []
+                for warning in itemWarnings {
+                    let message = UserMessages.describe(warning)
+                    guard !itemMessages.contains(message) else { continue }
+                    itemMessages.append(message)
+                    if let index = warnings.firstIndex(where: { $0.message == message }) {
+                        warnings[index].count += 1
+                    } else {
+                        warnings.append(ActivityWarning(message: message, file: file, count: 1))
+                    }
                 }
             case .skipped(let reason):
                 skipped += 1
@@ -199,10 +219,14 @@ private struct ActivityResult {
             status = problems.isEmpty ? .done : .problems
         }
         self.problems = problems
+        self.warnings = warnings
         self.skipped = skipped
         details = BatchSummary(outcome).details
         hasHistory = outcome.record != nil
     }
+
+    var notices: [ActivityProblem] { problems + warnings.map(\.summary) }
+    var hasCondensedWarnings: Bool { warnings.contains { $0.count > 1 } }
 
     var statusText: String {
         switch status {
@@ -263,7 +287,7 @@ private struct ActivityRowView: View {
     let jobs: JobCenter
 
     private static let lineSpacing: CGFloat = 6
-    private static let visibleProblems = 5
+    private static let visibleNotices = 5
 
     var body: some View {
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
@@ -341,7 +365,7 @@ private struct ActivityRowView: View {
                 .foregroundStyle(result.status == .failed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
         }
         .accessibilityElement(children: .combine)
-        ForEach(Array(result.problems.prefix(Self.visibleProblems).enumerated()), id: \.offset) { _, problem in
+        ForEach(Array(result.notices.prefix(Self.visibleNotices).enumerated()), id: \.offset) { _, problem in
             Label {
                 Text(problem.message)
                     .fixedSize(horizontal: false, vertical: true)
@@ -352,8 +376,8 @@ private struct ActivityRowView: View {
             .font(.callout)
         }
         HStack {
-            if result.problems.count > Self.visibleProblems {
-                Button(String(localized: "Show All…", comment: "Activity button listing every problem and skip")) {
+            if result.notices.count > Self.visibleNotices || result.hasCondensedWarnings {
+                Button(String(localized: "Show All…", comment: "Activity button listing every result detail")) {
                     jobs.presentReport?(result.details, row.operation)
                 }
             }

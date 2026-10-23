@@ -534,8 +534,9 @@ Ogg pages use libogg; the in-house code only arranges packets and granule positi
 
 ### 4.1 Scope and selection
 
-- `directoryURLs` is `/`, covering mounted volumes. Local folders are verified;
-  external and network volumes require release checks.
+- `directoryURLs` includes `/` and every mounted volume root. Workspace mount,
+  unmount and rename notifications refresh registration outside menu handlers
+  (ADR 0033). Local, separate-volume and network paths require release checks.
 - Item menus use `contextualMenuForItems`. Folder-background menus use
   `contextualMenuForContainer` and the targeted folder's operations.
 - `menu(for:)` returns within 30 ms for 1,000 selected items. Classification and
@@ -702,14 +703,17 @@ a determinate progress bar or indeterminate scan, and a separately labelled
 Stop button. Rows use spacing rather than cards. Status is **Done.**,
 **Finished with {n} problems.**, **Finished — {n} skipped.**,
 **Finished with {n} problems, {m} skipped.**, **Cancelled.**, or **Failed.**
-Skipped items are not problems. Problems and skips expand inline with
-filenames and actionable reasons. Only failures use the error color.
+Skipped items and warnings on successful items are not problems. Repeated
+warnings appear once with the affected file count; Show All reveals individual
+file warnings. Problems and skips expand inline with filenames and actionable
+reasons. Only failures use the error color.
 Scan rows read **Scanning {folders}…** with an indeterminate bar until the
 scan reports progress; Stop cancels the scan and opens nothing. Finished rows offer Show in Finder and Undo when applicable. VoiceOver
 reads progress and announces completion.
 
 General settings default to close after success on, after cancel on, after
-failure off. Success with warnings or skips stays visible. The window closes
+failure off. Success with warnings reports Done and stays visible; skips also
+stay visible. The window closes
 when no rows remain. Closing Activity hides it without cancelling jobs. Stop
 cancels the chosen batch. Turning Show progress window off keeps menu-bar and
 notification feedback.
@@ -1774,7 +1778,7 @@ peak physical footprint is 73–77 MB. Every output passes an independent byte
 check and every source remains unchanged. The comparator has a fixed page
 budget independent of key length; finite measurements alone do not establish
 that bound. Earlier whole-key results remain historical evidence in
-`docs/spikes.md`, alongside measurement limits and outstanding release checks.
+`docs/spikes.md`, alongside measurement limits and release acceptance records.
 
 ## 17. Testing
 
@@ -1862,6 +1866,12 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-23: Keep successful file warnings out of Activity problem counts,
+  group repeated warnings, and retain file details (ADR 0034).
+
+- 2026-10-23: Register mounted Finder volume roots explicitly and refresh on
+  mount, unmount and rename; `/` alone misses separate volumes (ADR 0033).
 
 - 2026-10-23: Replace whole-key natural JSON comparison with bounded,
   disk-backed ICU comparison while preserving existing ordering (ADR 0032).

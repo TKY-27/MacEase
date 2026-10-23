@@ -13,6 +13,7 @@ final class FinderSyncExtension: FIFinderSync {
 
     private static let rootImageName = "FinderRoot"
     private let cache = Mutex(Cache())
+    private let directoryRegistration = Mutex(())
     private let scheme: String
     private let menuFileURL: URL
 
@@ -24,7 +25,35 @@ final class FinderSyncExtension: FIFinderSync {
         menuFileURL = Self.realHomeDirectory
             .appending(path: "Library/Application Support/\(supportFolder)/menu.json")
         super.init()
-        FIFinderSyncController.default().directoryURLs = [URL(fileURLWithPath: "/")]
+        let notifications = NSWorkspace.shared.notificationCenter
+        for name in [
+            NSWorkspace.didMountNotification,
+            NSWorkspace.didUnmountNotification,
+            NSWorkspace.didRenameVolumeNotification,
+        ] {
+            notifications.addObserver(self, selector: #selector(volumesDidChange(_:)), name: name, object: nil)
+        }
+        updateMonitoredDirectories()
+    }
+
+    deinit {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+    }
+
+    @objc private func volumesDidChange(_ notification: Notification) {
+        updateMonitoredDirectories()
+    }
+
+    private func updateMonitoredDirectories() {
+        directoryRegistration.withLock { _ in
+            var directories: Set<URL> = [URL(fileURLWithPath: "/", isDirectory: true)]
+            if let volumes = FileManager.default.mountedVolumeURLs(
+                includingResourceValuesForKeys: [], options: [])
+            {
+                directories.formUnion(volumes)
+            }
+            FIFinderSyncController.default().directoryURLs = directories
+        }
     }
 
     // The sandbox redirects NSHomeDirectory into the container.
