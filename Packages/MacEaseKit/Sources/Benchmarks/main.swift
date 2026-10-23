@@ -88,7 +88,8 @@ func hdiutil(_ arguments: [String]) throws {
     guard process.terminationStatus == 0 else { throw BenchError(description: "hdiutil \(arguments[0]) failed") }
 }
 
-func run(_ op: OperationID, preset: String?, on url: URL) async throws {
+@discardableResult
+func run(_ op: OperationID, preset: String?, on url: URL) async throws -> [URL] {
     let settings = Settings()
     guard let options = OperationPlanner.options(for: op, preset: preset, settings: settings) else {
         throw BenchError(description: "\(op.rawValue) has no preset \(preset ?? "(none)")")
@@ -99,9 +100,10 @@ func run(_ op: OperationID, preset: String?, on url: URL) async throws {
     let batch = OperationPlanner.batch(
         for: OperationRequest(op: op, options: options, inputs: [url]), settings: settings)
     let outcome = await engine.run(batch, settings: settings) { _ in }
-    guard case .succeeded = outcome.outcomes.first else {
+    guard case .succeeded(let outputs, _) = outcome.outcomes.first else {
         throw BenchError(description: "\(op.rawValue) did not succeed: \(String(describing: outcome.outcomes.first))")
     }
+    return outputs
 }
 
 func writePhoto(to url: URL) throws {
@@ -165,85 +167,90 @@ func writeClip(to url: URL) async throws {
     writer.startSession(atSourceTime: .zero)
     let frames = Targets.clipSeconds * Int(Targets.clipFrameRate)
     let audioFramesPerVideoFrame = Targets.audioSampleRate / Int(Targets.clipFrameRate)
-    for index in 0..<frames {
-        while !video.isReadyForMoreMediaData {
+    var videoIndex = 0
+    var audioIndex = 0
+    while videoIndex < frames || audioIndex < frames {
+        var appended = false
+        if videoIndex < frames, video.isReadyForMoreMediaData {
+            let index = videoIndex
+            guard let pool = adaptor.pixelBufferPool else { throw BenchError(description: "no pixel pool") }
+            var buffer: CVPixelBuffer?
+            let bufferStatus = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
+            guard bufferStatus == kCVReturnSuccess else {
+                throw BenchError(
+                    description: String(
+                        localized: "Pixel buffer allocation failed (\(bufferStatus)).",
+                        comment: "Benchmark error with system status"))
+            }
+            guard let buffer else { throw BenchError(description: "no pixel buffer") }
+            let lockStatus = CVPixelBufferLockBaseAddress(buffer, [])
+            guard lockStatus == kCVReturnSuccess else {
+                throw BenchError(
+                    description: String(
+                        localized: "Pixel buffer lock failed (\(lockStatus)).",
+                        comment: "Benchmark error with system status"))
+            }
+            guard let base = CVPixelBufferGetBaseAddress(buffer) else {
+                CVPixelBufferUnlockBaseAddress(buffer, [])
+                throw BenchError(
+                    description: String(localized: "The pixel buffer has no base address.", comment: "Benchmark error"))
+            }
+            let bytes = base.assumingMemoryBound(to: UInt8.self)
+            let count = CVPixelBufferGetBytesPerRow(buffer) * Targets.clipHeight
+            var grain = UInt64(index + 1)
+            for offset in 0..<count {
+                grain = grain &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                bytes[offset] = UInt8(truncatingIfNeeded: (offset / 4) &+ index &+ Int(grain >> 61))
+            }
+            let unlockStatus = CVPixelBufferUnlockBaseAddress(buffer, [])
+            guard unlockStatus == kCVReturnSuccess else {
+                throw BenchError(
+                    description: String(
+                        localized: "Pixel buffer unlock failed (\(unlockStatus)).",
+                        comment: "Benchmark error with system status"))
+            }
+            guard
+                adaptor.append(
+                    buffer, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: Targets.clipFrameRate))
+            else {
+                throw writer.error
+                    ?? BenchError(description: String(localized: "Appending video failed.", comment: "Benchmark error"))
+            }
+            videoIndex += 1
+            if videoIndex == frames { video.markAsFinished() }
+            appended = true
+        }
+        if audioIndex < frames, audio.isReadyForMoreMediaData {
+            let index = audioIndex
+            let firstAudioFrame = index * audioFramesPerVideoFrame
+            var samples: [Float] = []
+            samples.reserveCapacity(audioFramesPerVideoFrame * Targets.audioChannels)
+            for offset in 0..<audioFramesPerVideoFrame {
+                let phase =
+                    2 * Double.pi * Targets.audioToneHertz * Double(firstAudioFrame + offset)
+                    / Double(Targets.audioSampleRate)
+                let sample = Float(sin(phase) * Targets.audioToneAmplitude)
+                samples.append(sample)
+                samples.append(sample)
+            }
+            let sample = try audioSampleBuffer(samples, format: format, position: firstAudioFrame)
+            guard audio.append(sample) else {
+                throw writer.error
+                    ?? BenchError(description: String(localized: "Appending audio failed.", comment: "Benchmark error"))
+            }
+            audioIndex += 1
+            if audioIndex == frames { audio.markAsFinished() }
+            appended = true
+        }
+        if !appended {
             guard writer.status == .writing else {
                 throw writer.error
                     ?? BenchError(
                         description: String(localized: "The clip writer stopped.", comment: "Benchmark error"))
             }
             try await Task.sleep(for: .milliseconds(2))
-        }
-        guard let pool = adaptor.pixelBufferPool else { throw BenchError(description: "no pixel pool") }
-        var buffer: CVPixelBuffer?
-        let bufferStatus = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-        guard bufferStatus == kCVReturnSuccess else {
-            throw BenchError(
-                description: String(
-                    localized: "Pixel buffer allocation failed (\(bufferStatus)).",
-                    comment: "Benchmark error with system status"))
-        }
-        guard let buffer else { throw BenchError(description: "no pixel buffer") }
-        let lockStatus = CVPixelBufferLockBaseAddress(buffer, [])
-        guard lockStatus == kCVReturnSuccess else {
-            throw BenchError(
-                description: String(
-                    localized: "Pixel buffer lock failed (\(lockStatus)).",
-                    comment: "Benchmark error with system status"))
-        }
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else {
-            CVPixelBufferUnlockBaseAddress(buffer, [])
-            throw BenchError(
-                description: String(localized: "The pixel buffer has no base address.", comment: "Benchmark error"))
-        }
-        let bytes = base.assumingMemoryBound(to: UInt8.self)
-        let count = CVPixelBufferGetBytesPerRow(buffer) * Targets.clipHeight
-        var grain = UInt64(index + 1)
-        for offset in 0..<count {
-            grain = grain &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            bytes[offset] = UInt8(truncatingIfNeeded: (offset / 4) &+ index &+ Int(grain >> 61))
-        }
-        let unlockStatus = CVPixelBufferUnlockBaseAddress(buffer, [])
-        guard unlockStatus == kCVReturnSuccess else {
-            throw BenchError(
-                description: String(
-                    localized: "Pixel buffer unlock failed (\(unlockStatus)).",
-                    comment: "Benchmark error with system status"))
-        }
-        guard
-            adaptor.append(
-                buffer, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: Targets.clipFrameRate))
-        else {
-            throw writer.error
-                ?? BenchError(description: String(localized: "Appending video failed.", comment: "Benchmark error"))
-        }
-        while !audio.isReadyForMoreMediaData {
-            guard writer.status == .writing else {
-                throw writer.error
-                    ?? BenchError(
-                        description: String(localized: "The clip writer stopped.", comment: "Benchmark error"))
-            }
-            try await Task.sleep(for: .milliseconds(2))
-        }
-        let firstAudioFrame = index * audioFramesPerVideoFrame
-        var samples: [Float] = []
-        samples.reserveCapacity(audioFramesPerVideoFrame * Targets.audioChannels)
-        for offset in 0..<audioFramesPerVideoFrame {
-            let phase =
-                2 * Double.pi * Targets.audioToneHertz * Double(firstAudioFrame + offset)
-                / Double(Targets.audioSampleRate)
-            let sample = Float(sin(phase) * Targets.audioToneAmplitude)
-            samples.append(sample)
-            samples.append(sample)
-        }
-        let sample = try audioSampleBuffer(samples, format: format, position: firstAudioFrame)
-        guard audio.append(sample) else {
-            throw writer.error
-                ?? BenchError(description: String(localized: "Appending audio failed.", comment: "Benchmark error"))
         }
     }
-    video.markAsFinished()
-    audio.markAsFinished()
     await writer.finishWriting()
     guard writer.status == .completed else {
         throw writer.error
@@ -310,13 +317,23 @@ func verifyClip(at url: URL) async throws {
     }
     for track in [video[0], audio[0]] {
         let range = try await track.load(.timeRange)
-        guard abs(CMTimeGetSeconds(range.duration) - Double(Targets.clipSeconds)) <= Targets.durationTolerance else {
+        let seconds = CMTimeGetSeconds(range.duration)
+        guard seconds.isFinite, abs(seconds - Double(Targets.clipSeconds)) <= Targets.durationTolerance else {
             throw BenchError(
                 description: String(
                     localized: "A clip track differs from \(Targets.clipSeconds) seconds.",
                     comment: "Benchmark input duration validation"))
         }
     }
+    let reader = try AVAssetReader(asset: asset)
+    let decoded = AVAssetReaderTrackOutput(
+        track: video[0], outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    guard reader.canAdd(decoded) else { throw BenchError(description: "clip decoder rejected video") }
+    reader.add(decoded)
+    guard reader.startReading(), decoded.copyNextSampleBuffer() != nil else {
+        throw BenchError(description: "clip video does not decode")
+    }
+    reader.cancelReading()
 }
 
 func chipName() throws -> String {
@@ -472,8 +489,15 @@ func benchmarkSingle(_ arguments: [String]) async throws {
         let input = volume.appending(
             path: source.lastPathComponent, directoryHint: source.hasDirectoryPath ? .isDirectory : .notDirectory)
         try FileManager.default.copyItem(at: source, to: input)
+        var outputs: [URL] = []
         try await measure("\(op.rawValue) \(source.lastPathComponent)", target: .infinity) {
-            try await run(op, preset: arguments.dropFirst(2).first, on: input)
+            outputs = try await run(op, preset: arguments.dropFirst(2).first, on: input)
+        }
+        if op == .videoCompress {
+            guard outputs.count == 1, let output = outputs.first,
+                let bytes = try output.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes > 0
+            else { throw BenchError(description: "compression produced no output") }
+            print("Compressed output: \(bytes) bytes")
         }
     }
 }
