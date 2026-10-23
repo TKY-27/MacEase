@@ -39,6 +39,20 @@ enum ImageCompressor {
             document, as: format, context: context,
             preservesGainMaps: limits?.aspect?.fit != .letterbox,
             preservesHDRPixels: format == .tiff && limits == nil)
+        do {
+            return try await compressPrepared(
+                document, as: format, limits: limits, compression: compression, context: context)
+        } catch EngineError.imageGainMapUnsupported {
+            let converted = try ImageOutput.toneMappedAfterGainMapFailure(document, context: context)
+            return try await compressPrepared(
+                converted, as: format, limits: limits, compression: compression, context: context)
+        }
+    }
+
+    private static func compressPrepared(
+        _ document: ImageDocument, as format: ImageFormat, limits: MediaLimits?,
+        compression: ImageCompression, context: ItemContext
+    ) async throws -> ItemResult {
         if document.isAnimated, format.holdsAnimation {
             return try await compressAnimated(
                 document, as: format, limits: limits, compression: compression, context: context)
@@ -78,19 +92,20 @@ enum ImageCompressor {
         let unchanged =
             !document.toneMapsHDR && format == document.format
             && sizes(plan.frames) == sizes(document.frames)
-        let originalBytes = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        let originalBytes = Int64(try document.url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
 
         guard let target = targetBytes(for: compression.goal, limits: limits) else {
             apply(qualityFor: compression.goal, limits: limits, to: &plan)
             let data = try ImageEncoder.encode(
                 plan.frames, as: plan.format, options: plan.options, retaining: plan.retained)
             if unchanged, Int64(data.count) >= originalBytes {
-                return try await keptSize(url, stripsGPS: compression.stripsGPS, reason: .outputNotSmaller, context)
+                return try await keptSize(
+                    document.url, stripsGPS: compression.stripsGPS, reason: .outputNotSmaller, context)
             }
             return try ImageOutput.stage(data, for: document, as: format, context: context)
         }
         if unchanged, originalBytes <= target {
-            return try await keptSize(url, stripsGPS: compression.stripsGPS, reason: .alreadyDone, context)
+            return try await keptSize(document.url, stripsGPS: compression.stripsGPS, reason: .alreadyDone, context)
         }
         let data = try fit(plan, under: target, compression: compression, context: context)
         return try ImageOutput.stage(data, for: document, as: format, context: context)

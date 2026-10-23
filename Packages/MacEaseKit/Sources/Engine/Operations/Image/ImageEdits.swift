@@ -74,6 +74,16 @@ enum ImageOutput {
         return converted
     }
 
+    static func toneMappedAfterGainMapFailure(_ document: ImageDocument, context: ItemContext) throws
+        -> ImageDocument
+    {
+        guard !document.gainMaps.isEmpty else { throw EngineError.imageGainMapUnsupported }
+        guard context.settings.outputMode == .newFile else { throw EngineError.imageHDRUnsupported }
+        let converted = try document.toneMappedToSDR()
+        if !context.warnings.contains(.imageToneMappedToSDR) { context.warn(.imageToneMappedToSDR) }
+        return converted
+    }
+
     @discardableResult static func validateTransparency(
         _ image: CGImage, as format: ImageFormat, keepsOriginal: Bool, context: ItemContext
     ) throws -> Bool {
@@ -153,6 +163,20 @@ enum ImageOutput {
         _ transform: (CGImage) async throws -> CGImage
     ) async throws -> ItemResult {
         let document = try prepared(document, as: format, context: context)
+        do {
+            return try await transformedPrepared(document, as: format, context: context, geometry: geometry, transform)
+        } catch EngineError.imageGainMapUnsupported {
+            let converted = try toneMappedAfterGainMapFailure(document, context: context)
+            return try await transformedPrepared(
+                converted, as: format, context: context, geometry: geometry, transform)
+        }
+    }
+
+    private static func transformedPrepared(
+        _ document: ImageDocument, as format: ImageFormat, context: ItemContext,
+        geometry: (CGImage, CGImage) -> GainMapGeometry,
+        _ transform: (CGImage) async throws -> CGImage
+    ) async throws -> ItemResult {
         if document.isAnimated {
             let count = try keptFrameCount(of: document, for: format)
             let options = defaultOptions(for: document, format: format, settings: context.settings.image)
@@ -247,6 +271,17 @@ enum ImageEdits {
         document = try ImageOutput.prepared(
             document, as: conversion.format, context: context,
             preservesHDRPixels: [.png, .tiff].contains(conversion.format))
+        do {
+            return try await convertPrepared(document, conversion, context: context)
+        } catch EngineError.imageGainMapUnsupported {
+            let converted = try ImageOutput.toneMappedAfterGainMapFailure(document, context: context)
+            return try await convertPrepared(converted, conversion, context: context)
+        }
+    }
+
+    private static func convertPrepared(_ document: ImageDocument, _ conversion: ImageConversion, context: ItemContext)
+        async throws -> ItemResult
+    {
         let count = try ImageOutput.keptFrameCount(of: document, for: conversion.format)
         var options = ImageOutput.defaultOptions(
             for: document, format: conversion.format, settings: context.settings.image)
@@ -256,7 +291,7 @@ enum ImageEdits {
         options.optimizesPNG = context.settings.image.optimizePNGOnConvert
         if document.isAnimated, count > 1 {
             let staged = try context.stagingURL(
-                for: url, name: ImageOutput.outputName(for: document, format: conversion.format))
+                for: document.url, name: ImageOutput.outputName(for: document, format: conversion.format))
             try await ImageEncoder.encodeStreaming(
                 frameCount: count, as: conversion.format, options: options, to: staged
             ) { index in

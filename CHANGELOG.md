@@ -80,6 +80,8 @@ Planned first stable release: 1.0.0. No release has been published yet.
 
 ### Fixed
 
+- When ImageIO cannot preserve a valid HDR gain map during an image edit,
+  new-file output uses SDR with a warning. Replace still refuses HDR loss.
 - Keep natural JSON ordering deterministic for long combining-character
   prefixes affected by Foundation's string-representation-dependent results.
 

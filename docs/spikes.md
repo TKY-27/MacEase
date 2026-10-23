@@ -137,6 +137,24 @@ highlight clipping in the white bag, desk or mouse. This is a human-observed
 HDR-display result; screenshots do not measure HDR luminance. A separate
 SDR-display observation remains pending.
 
+On macOS 26.6.2, ImageIO changes a valid ISO gain map's negative
+`GainMapMin` to its positive magnitude during JPEG re-encoding. The same
+input and probe preserve it on macOS 27. Changing the metadata value's
+string or numeric representation does not avoid the macOS 26 defect.
+Strict calibration verification correctly rejects the changed map. Image
+resize, conversion and compression now retry this post-read failure as
+SDR in new-file mode, with the existing warning; Replace still refuses
+HDR loss. Decode, cancellation and I/O failures are not caught by this retry.
+A synthetic two-color JPEG reproduces the calibration issue without private
+image content. The 33 focused SDR, gain-map and compression tests pass,
+including a deterministic fallback and original-preservation regression.
+The updated signed Release app in the VM produces JPEG resize, HEIC
+conversion and JPEG compression outputs from the affected real capture.
+Activity displays the SDR warning. Independent ImageIO decoding confirms
+headroom 1 and no retained gain maps; every source hash remains unchanged.
+Repeating those three edits in Replace mode displays the HDR-loss refusal;
+all original bytes and inodes remain intact, with no output committed.
+
 The installed Release app also converts independently generated PQ and HLG
 ramps through its normal request and commit path. The 16-bit PNG outputs
 match CoreGraphics' reference-white SDR conversion exactly, retain 128
@@ -158,8 +176,14 @@ Accessibility inspection finds that 12 settings toggles expose their detail
 text without their visible title. Explicit labels and hints restore the
 titles while retaining switch roles and values. The signed Release app's
 accessibility tree verifies all 12 names; toggling progress off and on works.
-VoiceOver navigation reaches the Settings tabs. This does not claim an
-auditory transcript or complete the remaining appearance checks.
+Keyboard navigation reaches the progress switch and Space toggles it in both
+directions. General and Text settings remain readable in light and dark
+appearance and with Increase Contrast and Reduce Transparency enabled.
+At the display's 1024 × 665 Larger Text setting, labels wrap without overlap,
+and scrolling reaches the expanded JSON controls and final PDF options.
+The original 1512 × 982 resolution and appearance settings are restored.
+VoiceOver navigation reaches the Settings tabs, but an auditory transcript
+and menu-bar VoiceOver activation are not verified.
 
 The macOS 26.6.2 (25G83) VM installs the self-signed DMG, completes onboarding,
 enables Finder Sync and performs JSON sorting with correct output and retained
@@ -199,6 +223,21 @@ A batch of 1,000 disposable copies of a 12 MP JPEG produces 1,000 resized
 outputs in 31.48 s. ImageIO fully decodes every output at 1512 × 2016; all
 source hashes remain unchanged. The Settings window responds and changes
 tabs during processing. This observation does not measure menu-bar latency.
+
+The benchmark fixture writer previously waited for video readiness before
+feeding audio, allowing the two tracks to block one another. Independent
+readiness and end-of-track notifications remove that cycle. The generated
+60-second 1080p30 H.264/AAC fixture is 112,756,486 bytes, with a measured
+14.88 Mbps video stream. An unprofiled Release benchmark compresses it to
+18,582,646 bytes in 15.579 seconds. The installed Release app completes the
+same input through its request and commit path in 16.928 seconds, producing
+18,582,838 bytes. Independent decoding reads all 1,800 video frames and the
+audio stream without errors; the source hash is unchanged. Both timings are
+single acceptance observations on the shared M5. An earlier profiled run
+took 79.815 seconds under heavier shared load and is not used for acceptance.
+The initial complete benchmark measures the 1,000-item menu at 19 ms and 12 MP
+HEIC-to-JPEG conversion at 291 ms, within their respective 30 ms and 500 ms
+targets. These are M5 results, not M1 performance claims.
 
 The final device-enabled package run passes 1,022 tests without skips:
 44 MenuCatalog, 211 Formats and 767 Engine tests. Debug and Release builds,

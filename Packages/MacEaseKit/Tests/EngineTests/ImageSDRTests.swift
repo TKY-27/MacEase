@@ -8,6 +8,10 @@ import UniformTypeIdentifiers
 @testable import Engine
 
 @Suite(.serialized) struct ImageSDRTests {
+    enum GainMapRetryOperation: CaseIterable {
+        case resize, convert, compress
+    }
+
     private static let width = 128
     private static let height = 64
     private static let colorTolerance = 2
@@ -88,6 +92,137 @@ import UniformTypeIdentifiers
             CGImageSourceCreateImageAtIndex(
                 source, 0,
                 [kCGImageSourceDecodeRequest: kCGImageSourceDecodeToSDR] as CFDictionary))
+    }
+
+    private static func runGainMapRetry(
+        _ operation: GainMapRetryOperation, input: URL, context: ItemContext
+    ) async throws -> ItemResult {
+        switch operation {
+        case .resize:
+            return try await ImageEdits.resize(input, ImageResize(size: .percent(50)), context: context)
+        case .convert:
+            return try await ImageEdits.convert(input, ImageConversion(format: .heic, quality: 100), context: context)
+        case .compress:
+            var limits = MediaLimits()
+            limits.maxWidth = 64
+            limits.quality = 85
+            let preset = PlatformPreset(
+                id: "negative-gain-map", name: LocalizedName(en: "Small", ja: "Small"),
+                image: limits, gif: nil, video: nil, audio: nil)
+            return try await ImageCompressor.compress(
+                input,
+                ImageCompression(
+                    goal: .platform(preset), allowsDownscale: false,
+                    allowsFrameRateReduction: false, stripsGPS: false), context: context)
+        }
+    }
+
+    @Test(arguments: GainMapRetryOperation.allCases)
+    func negativeISOGainMapKeepsCalibrationOrToneMapsAfterEncodeFailure(_ operation: GainMapRetryOperation)
+        async throws
+    {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let resource = try #require(
+            Bundle.module.url(forResource: "negative-iso-gain-map", withExtension: "jpg", subdirectory: "Resources"))
+        let input = folder.appending(path: "hdr.jpg")
+        let original = try Data(contentsOf: resource)
+        try original.write(to: input)
+        let source = try ImageFixtures.source(input)
+        let sourceMap = try #require(
+            CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeISOGainMap))
+        let sourceValue = try #require((sourceMap as NSDictionary)[kCGImageAuxiliaryDataInfoMetadata])
+        guard case let sourceMetadata as CGImageMetadata = sourceValue else {
+            throw EngineError.imageGainMapUnsupported
+        }
+        let calibrationPath = "HDRToneMap:ChannelMetadata[0].GainMapMin" as CFString
+        #expect(CGImageMetadataCopyStringValueWithPath(sourceMetadata, nil, calibrationPath) as String? == "-0.000131")
+        let reference = try Self.platformReference(input)
+        var settings = Settings()
+        settings.outputMode = .newFile
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        guard case .replace(_, let output) = try await Self.runGainMapRetry(operation, input: input, context: context)
+        else { Issue.record("Expected a staged image"); return }
+        try await OutputVerifier.verify(output)
+        let written = try ImageFixtures.source(output.url)
+        if context.warnings == [.imageToneMappedToSDR] {
+            guard case .sdrImage = output.check else { Issue.record("Expected SDR verification"); return }
+            #expect(try ImageSDR.classification(output.url) == .sdr)
+            #expect(CGImageSourceCopyAuxiliaryDataInfoAtIndex(written, 0, kCGImageAuxiliaryDataTypeISOGainMap) == nil)
+            let rendered = try ImageFixtures.image(output.url)
+            for fraction in [0.25, 0.75] {
+                let actual = try ImageFixtures.pixel(
+                    rendered, x: Int(Double(rendered.width) * fraction), y: rendered.height / 2)
+                let expected = try ImageFixtures.pixel(
+                    reference, x: Int(Double(reference.width) * fraction), y: reference.height / 2)
+                for channel in 0..<3 { #expect(abs(Int(actual[channel]) - Int(expected[channel])) <= 24) }
+            }
+            settings.outputMode = .replace
+            let replacement = ItemContext(
+                settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+            defer { replacement.removeStaging() }
+            await #expect(throws: EngineError.imageHDRUnsupported) {
+                try await Self.runGainMapRetry(operation, input: input, context: replacement)
+            }
+            #expect(replacement.warnings.isEmpty)
+        } else {
+            #expect(context.warnings.isEmpty)
+            guard case .image = output.check else { Issue.record("Expected HDR image verification"); return }
+            let writtenMap = try #require(
+                CGImageSourceCopyAuxiliaryDataInfoAtIndex(written, 0, kCGImageAuxiliaryDataTypeISOGainMap))
+            let writtenValue = try #require((writtenMap as NSDictionary)[kCGImageAuxiliaryDataInfoMetadata])
+            guard case let writtenMetadata as CGImageMetadata = writtenValue else {
+                throw EngineError.imageGainMapUnsupported
+            }
+            #expect(
+                CGImageMetadataCreateXMPData(sourceMetadata, nil) as Data?
+                    == CGImageMetadataCreateXMPData(writtenMetadata, nil) as Data?)
+        }
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test func postReadGainMapGeometryFailureToneMapsNewFileAndRefusesReplacement() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "hdr.jpg")
+        try ImageGainMapIntegrationTests.fixture(input, variant: .isoMono, heic: false)
+        let original = try Data(contentsOf: input)
+        let document = try await ImageDocument.load(input)
+        let reference = try Self.platformReference(input)
+        var settings = Settings()
+        settings.outputMode = .newFile
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        func rotate(_ context: ItemContext) async throws -> ItemResult {
+            try await ImageOutput.transformed(
+                document, as: .jpeg, context: context,
+                geometry: { source, output in GainMapGeometry.rotation(source, to: output, degrees: 45) }
+            ) { image in try ImagePixels.rotated(image, degrees: 45, fill: CGColor(gray: 1, alpha: 1)) }
+        }
+        guard case .replace(_, let output) = try await rotate(context) else {
+            Issue.record("Expected a staged SDR rotation")
+            return
+        }
+        #expect(context.warnings == [.imageToneMappedToSDR])
+        guard case .sdrImage = output.check else { Issue.record("Expected SDR verification"); return }
+        try await OutputVerifier.verify(output)
+        #expect(try ImageSDR.classification(output.url) == .sdr)
+        let written = try ImageFixtures.source(output.url)
+        #expect(CGImageSourceCopyAuxiliaryDataInfoAtIndex(written, 0, kCGImageAuxiliaryDataTypeISOGainMap) == nil)
+        let rendered = try ImageFixtures.image(output.url)
+        let actual = try ImageFixtures.pixel(rendered, x: rendered.width / 2, y: rendered.height / 2)
+        let expected = try ImageFixtures.pixel(reference, x: reference.width / 2, y: reference.height / 2)
+        for channel in 0..<3 { #expect(abs(Int(actual[channel]) - Int(expected[channel])) <= 24) }
+        settings.outputMode = .replace
+        let replacement = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { replacement.removeStaging() }
+        await #expect(throws: EngineError.imageHDRUnsupported) { try await rotate(replacement) }
+        #expect(replacement.warnings.isEmpty)
+        #expect(try Data(contentsOf: input) == original)
     }
 
     private static func expectDistinctRamp(_ image: CGImage) throws {
