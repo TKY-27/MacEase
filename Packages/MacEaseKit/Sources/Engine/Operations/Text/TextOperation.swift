@@ -129,9 +129,8 @@ enum TextPlanner {
             let encoding = try StreamingText.normalize(url, to: staged, ending: ending)
             return try replacement(url, staged: staged, encoding: encoding)
         case .json(let formatting):
-            let input = try Data(contentsOf: url)
             let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
-            try JSONFormatter.write(TextEncoding.decode(input).text, formatting, settings: settings, to: staged)
+            try JSONFormatter.write(url, formatting, settings: settings, to: staged)
             return try replacement(url, staged: staged, encoding: .utf8)
         case .convert(let conversion, let source):
             return try await convert(conversion, source: source, on: url, settings: settings, context: context)

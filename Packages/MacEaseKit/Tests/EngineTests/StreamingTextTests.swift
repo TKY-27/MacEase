@@ -87,6 +87,24 @@ import Testing
         #expect(try StreamingText.equalContents(input, input))
     }
 
+    @Test(arguments: [false, true])
+    func transcodingPreservesInteriorByteOrderMarksAcrossChunks(_ withHeader: Bool) throws {
+        let directory = try folder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
+        let input = directory.appending(path: "input.txt")
+        let output = directory.appending(path: "output.txt")
+        let header = withHeader ? Data([0xEF, 0xBB, 0xBF]) : Data()
+        for offset in -2...2 {
+            let text = String(repeating: "a", count: 65_536 + offset) + "\u{FEFF}b"
+            let original = header + Data(text.utf8)
+            try original.write(to: input)
+            _ = try StreamingText.transcode(input, to: output, target: .utf8, source: nil, settings: TextSettings())
+            #expect(try Data(contentsOf: output) == Data(text.utf8), "Offset \(offset), header \(withHeader)")
+            #expect(try Data(contentsOf: input) == original)
+            try FileManager.default.removeItem(at: output)
+        }
+    }
+
     @Test func ambiguousLegacyInputStillRequiresAChoice() throws {
         let directory = try folder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }

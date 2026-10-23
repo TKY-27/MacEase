@@ -6,7 +6,11 @@ import Testing
 private func formattedJSON(_ text: String, _ formatting: JSONFormatting, settings: TextSettings) throws -> String {
     let output = FileManager.default.temporaryDirectory.appending(path: "MacEaseJSON-\(UUID().uuidString)")
     defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: output) } }
-    try JSONFormatter.write(text, formatting, settings: settings, to: output)
+    let source = output.appendingPathExtension("source")
+    try Data(text.utf8).write(to: source)
+    defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: source) } }
+    try JSONFormatter.write(source, formatting, settings: settings, to: output)
+    #expect(try Data(contentsOf: source) == Data(text.utf8))
     return try String(contentsOf: output, encoding: .utf8)
 }
 
@@ -38,6 +42,15 @@ private func formattedJSON(_ text: String, _ formatting: JSONFormatting, setting
         #expect(output == "{\n  \"A\": 1,\n  \"a\": 2,\n  \"B\": 3,\n  \"b\": 0\n}\n")
     }
 
+    @Test func caseFoldingPreservesScalarTieBreaksAndCombiningSequences() throws {
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .caseInsensitive
+        let source = "{\"ß\":1,\"ss\":2,\"SS\":3,\"İ\":4,\"i\u{307}\":5,\"é\":6,\"e\u{301}\":7}"
+        let expected =
+            "{\n  \"e\u{301}\": 7,\n  \"i\u{307}\": 5,\n  \"İ\": 4,\n  \"SS\": 3,\n  \"ss\": 2,\n  \"ß\": 1,\n  \"é\": 6\n}\n"
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+    }
+
     @Test func naturalOrderUsesNumericRuns() throws {
         var settings = TextSettings()
         settings.jsonKeyComparison = .natural
@@ -45,6 +58,115 @@ private func formattedJSON(_ text: String, _ formatting: JSONFormatting, setting
         let output = try formattedJSON(#"{"file10":10,"File2":2,"file1":1}"#, .sortKeys, settings: settings)
 
         #expect(output == "{\n  \"file1\": 1,\n  \"File2\": 2,\n  \"file10\": 10\n}\n")
+    }
+
+    @Test(arguments: [
+        ("a18446744073709551616", "a2"),
+        ("a0002", "a02"),
+        ("a02", "a2"),
+        ("a١", "a2"),
+        ("a２", "a10"),
+        ("e\u{301}", "é"),
+        ("a\u{301}\u{327}", "a\u{327}\u{301}"),
+        ("ab", "a\u{34F}b"),
+        ("ss", "ß"),
+        ("i\u{307}", "İ"),
+        ("a𐐀", "a𐐨"),
+    ])
+    func naturalOrderingRetainsPlatformNumericAndCanonicalRules(_ first: String, _ second: String) throws {
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .natural
+        let source = JSONValue.object([(second, .number("2")), (first, .number("1"))]).serialized(indent: nil)
+        let expected =
+            JSONValue.object([(first, .number("1")), (second, .number("2"))]).serialized(indent: "  ") + "\n"
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+    }
+
+    @Test(arguments: ["unicode", "numeric", "tie"])
+    func naturalGiantKeysMatchWholeFoundationComparison(_ variant: String) throws {
+        let prefix = String(repeating: "a", count: 4 * 65_536 - 4)
+        let left: String
+        let right: String
+        switch variant {
+        case "unicode":
+            left = "É" + prefix + "2"
+            right = "F" + prefix + "10"
+        case "numeric":
+            left = prefix + "2"
+            right = prefix + "100000"
+        default:
+            left = prefix + "000002"
+            right = prefix + "2"
+        }
+        let locale = Locale(identifier: "en_US_POSIX")
+        let foldedLeft = left.folding(options: .caseInsensitive, locale: locale)
+        let foldedRight = right.folding(options: .caseInsensitive, locale: locale)
+        #expect(Array(foldedLeft.utf8) != Array(foldedRight.utf8))
+        let primary = foldedLeft.compare(foldedRight, options: [.literal, .numeric], locale: locale)
+        let leftFirst =
+            primary == .orderedSame
+            ? left.unicodeScalars.lexicographicallyPrecedes(right.unicodeScalars) : primary == .orderedAscending
+        let leftMember = (key: left, value: JSONValue.number("1"))
+        let rightMember = (key: right, value: JSONValue.number("2"))
+        let expected =
+            JSONValue.object(leftFirst ? [leftMember, rightMember] : [rightMember, leftMember])
+            .serialized(indent: "  ") + "\n"
+        let source = JSONValue.object([rightMember, leftMember]).serialized(indent: nil)
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .natural
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+    }
+
+    @Test(arguments: [JSONKeyComparison.ordinal, .caseInsensitive, .natural])
+    func giantCombiningKeysAndPinsRetainCaseFoldTies(_ comparison: JSONKeyComparison) throws {
+        let marks = String(repeating: "\u{301}", count: 600_000)
+        let upper = "A" + marks + "Z"
+        let lower = "a" + marks + "z"
+        var settings = TextSettings()
+        settings.jsonKeyComparison = comparison
+        settings.jsonDescending = true
+        settings.jsonPinnedKeys = [lower, upper]
+        let source = JSONValue.object([
+            ("z", .number("0")), (upper, .number("1")), (lower, .number("2")), (upper, .number("3")),
+        ]).serialized(indent: nil)
+        let expected =
+            JSONValue.object([
+                (lower, .number("2")), (upper, .number("1")), (upper, .number("3")), ("z", .number("0")),
+            ]).serialized(indent: "  ") + "\n"
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+    }
+
+    @Test(arguments: Array(65_532...65_538))
+    func caseFoldExpansionsAndSupplementaryScalarsCrossChunkBoundaries(_ boundary: Int) throws {
+        let prefix = String(repeating: "A", count: boundary)
+        let upper = prefix + "İß𐐀Σ\u{345}\u{301}Z"
+        let folded = String(repeating: "a", count: boundary) + "i\u{307}ss𐐨σ\u{3B9}\u{301}z"
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .caseInsensitive
+        settings.jsonPinnedKeys = [folded]
+        let source = JSONValue.object([("!", .number("0")), (folded, .number("2")), (upper, .number("1"))]).serialized(
+            indent: nil)
+        let expected =
+            JSONValue.object([(upper, .number("1")), (folded, .number("2")), ("!", .number("0"))]).serialized(
+                indent: "  ") + "\n"
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
+    }
+
+    @Test func diskCaseFoldingMatchesWholeFoundationForEveryUnicodeScalar() throws {
+        var key = ""
+        for code in UInt32(0)...0x10FFFF {
+            if let scalar = Unicode.Scalar(code) { key.unicodeScalars.append(scalar) }
+        }
+        let folded = key.folding(options: .caseInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+        var settings = TextSettings()
+        settings.jsonKeyComparison = .caseInsensitive
+        settings.jsonPinnedKeys = [folded]
+        let source = JSONValue.object([("!", .number("0")), (key, .number("1")), (folded, .number("2"))]).serialized(
+            indent: nil)
+        let expected =
+            JSONValue.object([(key, .number("1")), (folded, .number("2")), ("!", .number("0"))]).serialized(
+                indent: "  ") + "\n"
+        #expect(try formattedJSON(source, .sortKeys, settings: settings) == expected)
     }
 
     @Test func pinnedKeysKeepTheirOrderWhenDescending() throws {

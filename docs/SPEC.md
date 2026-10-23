@@ -283,7 +283,7 @@ Flect's derive rules for corresponding operations:
 | Remove metadata; image background | `stem_clean.ext`; `stem_keyed.png` for Remove or Color Key, with the resolved extension for other background edits |
 | OCR; thumbnail; subtitles | `stem_ocr.txt`; `stem_thumbnail.png` or `.jpg`; `stem.srt`, `.vtt`, or `.txt` |
 | Text encoding | `stem_utf8.ext`, `stem_utf8bom.ext`, `stem_utf16.ext`, `stem_sjis.ext` |
-| Line endings; JSON | `stem_lf.ext`, `stem_crlf.ext`; `stem_pretty.ext`, `stem_minified.ext`, `stem_sorted.ext` |
+| Line endings; JSON | `stem_lf.ext`, `stem_crlf.ext`; `stem_pretty.ext`, `stem_min.ext`, `stem_sorted.ext` |
 | PDF merge | `first-ordered-stem_merged.pdf` beside the first ordered source |
 | PDF page images | One page: `stem.png` or `stem.jpg`. Multiple pages: `stem_pN.png` or `.jpg`, with N padded to the total page-count width |
 | PDF text; archive extraction; JAR decompilation | `stem.txt`; directory `stem`; directory `stem` |
@@ -1238,6 +1238,16 @@ arrays retain their order. Formatting preserves values, including numeric
 precision, and retains the selected indentation policy. Strict JSON remains
 the input contract; comments and trailing commas are not silently discarded.
 
+File formatting uses a shared strict scanner and bounded UTF-8 chunks.
+Pretty Print and Minify write directly to staged output. Sort Keys stores
+value spans and container records in private temporary files, sorts bounded
+reference batches, and merges them on disk. The existing depth limit, numeric
+lexemes, duplicate members and ordering semantics remain unchanged. Temporary
+files are removed on completion or failure. Case-insensitive comparison and
+pin matching fold scalar-aligned chunks to disk. Natural comparison retains
+Foundation's existing semantics and still materializes the two folded keys
+being compared (ADR 0029).
+
 OCR files share the encoding writer. UTF-8, UTF-8 BOM, UTF-16 LE BOM, and
 Shift_JIS/CP932 are available. A custom substitute must be nonempty, one Unicode
 scalar, and encodable in CP932. Invalid substitutes fail inline validation.
@@ -1720,6 +1730,11 @@ check.
 | Large batches | 1,000 images processed without UI stalls; menu bar stays responsive | Manual |
 | Idle | Host idle CPU ≈ 0%, resident memory ≤ 80 MB | Manual |
 
+For v1.0.0, the owner approved the available Apple M5 Mac running macOS 27
+as the physical acceptance machine. M1 performance and macOS 26 physical-Mac
+results are not claimed. The numerical targets remain unchanged; macOS 26
+checks use the available VM where applicable (ADR 0030).
+
 `scripts/bench.sh <operation> <file> [preset]` runs one operation on a copy of
 the file in a scratch volume; run it under `/usr/bin/time -l` to read peak
 memory. Measured on 2026-10-21 (Apple M5, macOS 27.0.1, details in
@@ -1732,12 +1747,19 @@ The 2026-10-22 Release follow-up measures generated-file conversion, staged
 writing and output verification in a standalone executable. A 400 MB UTF-8
 fixture peaks at about 8 MB RSS for UTF-16 or CRLF output. This excludes the
 host, JobEngine and final commit, so it does not establish full-app acceptance.
-JSON formatting streams serialized output through the existing parser and
-serializer. It still retains decoded input, parser bytes and a JSON value tree;
-sorting can retain another tree. The 200 MB record fixture peaks at 917 MB RSS,
-but memory depends on document shape and can still exceed 1.5 GB. Arbitrary
-large JSON does not meet the memory target yet. No new total-file cap is added.
-See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
+The JSON result from that run predates the streaming scanner: its 200 MB
+record fixture peaked at 917 MB RSS while retaining the input and value tree.
+
+The 2026-10-23 implementation streams Pretty Print and Minify and uses
+file-backed indexes for Sort Keys. Actual Release-app samples for dense arrays,
+padded records, long strings and two million object members peak at 49–85 MB
+RSS. An 800 MB giant-key natural sort peaks at 872 MB in the kernel's resident
+high-water measurement after removing redundant key copies. Natural comparison
+still retains two complete folded keys; its memory use remains key-length
+dependent. No total-file cap or comparison-semantic change is added. These
+results do not establish the memory target for arbitrary natural-sort keys.
+See `docs/spikes.md` for fixture definitions, measurement limits and outstanding
+release checks.
 
 ## 17. Testing
 
@@ -1771,6 +1793,9 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Before each release, the operator runs the manual checklist in
   `docs/spikes.md` on macOS 26 and macOS 27 (menu levels, transport, menu file
   entitlement, translocation detection, update survival of permissions).
+  For v1.0.0, macOS 26 VM results supplement the approved macOS 27 physical
+  acceptance machine; unavailable physical hardware alone does not block
+  publication. Failed checks remain release blockers (ADR 0030).
 
 ## 18. Build, CI, signing and release
 
@@ -1822,6 +1847,12 @@ See `docs/spikes.md` for fixture definitions, run counts and measurement limits.
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-23: Use the available M5/macOS 27 physical Mac and macOS 26 VM
+  for v1.0.0 acceptance, as approved by the owner (ADR 0030).
+
+- 2026-10-23: Stream JSON formatting and use external sorting without a total-file
+  cap; preserve UTF-8 chunk-boundary U+FEFF (ADR 0029).
 
 - 2026-10-23: Regenerate notices during DMG packaging and document local
   validation when hosted CI is unavailable or waived (ADR 0028).

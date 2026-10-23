@@ -153,7 +153,10 @@ enum StreamingText {
                 for suffix in 0...min(maximumIncompleteBytes, pending.count) {
                     let prefix = pending.prefix(pending.count - suffix)
                     if wide, !prefix.count.isMultiple(of: MemoryLayout<UInt16>.size) { continue }
-                    if let text = String(data: prefix, encoding: encoding) {
+                    let decoded =
+                        encoding == .utf8
+                        ? String(validating: prefix, as: UTF8.self) : String(data: prefix, encoding: encoding)
+                    if let text = decoded {
                         try consume(prefix, text)
                         pending = Data(pending.suffix(suffix))
                         return

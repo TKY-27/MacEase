@@ -71,12 +71,19 @@ Planned first stable release: 1.0.0. No release has been published yet.
   files are counted separately from failures.
 - Empty-folder removal uses a confirmation alert after scanning in Activity.
 - Large text encoding and line-ending conversions use less memory.
+- JSON formatting streams input and output; key sorting uses temporary disk
+  storage instead of retaining the entire document in memory.
+- Case-insensitive JSON key comparison and pin matching fold keys in chunks.
 - Large Images to PDF jobs write pages incrementally instead of retaining them all.
 - Large removal batches write less undo history while keeping committed removals
   recoverable after an application crash.
 
 ### Fixed
 
+- Keep Finder catalog versions stable across launches with unchanged metadata
+  settings, avoiding rejected requests caused by unordered set encoding.
+- Preserve U+FEFF within UTF-8 text at chunk boundaries during encoding,
+  line-ending and JSON formatting operations.
 - Split SVG luminance calculation into typed components so Xcode 26 can build it.
 - Use macOS's system Bash for native dependency builds, avoiding a heredoc
   hang with a PATH-selected Bash installation.

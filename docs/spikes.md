@@ -5,6 +5,9 @@
 Run against the release candidate on both macOS 26 and macOS 27, as required
 by SPEC section 17. Record the commit, OS, hardware, and observed results in
 the release review. Historical spikes below do not replace these checks.
+For v1.0.0, the owner approved M5/macOS 27 physical acceptance supplemented
+by the available macOS 26 VM; no M1 or macOS 26 physical results are claimed
+(ADR 0030).
 
 - Install from the signed DMG through the documented Gatekeeper flow. Confirm
   the app runs from Applications, onboarding completes, and Finder enables
@@ -24,6 +27,85 @@ the release review. Historical spikes below do not replace these checks.
 Unavailable checks remain incomplete and block a stable release.
 After publication, separately verify public update checks from a client
 without GitHub authentication (CONTRIBUTING.md, Releasing step 6).
+
+## v1.0.0 candidate verification (2026-10-23)
+
+Environment: Apple M5, 24 GB, macOS 27.0.1 (26A434), Xcode 27.1,
+Swift 6.4. These checks do not complete the release checklist above.
+
+### JSON memory and correctness
+
+Measurements run the installed, self-signed Release app through its request
+URL, JobEngine, staged output verification and final file commit. Each fixture
+uses a disposable copy; source hashes remain unchanged. An independent checker
+compares output SHA-256 against fixed expected bytes, including duplicate keys,
+numeric spelling and ordering. MB and GB below are decimal.
+
+| Fixture and operation | Input | Peak RSS | Elapsed |
+| --- | --- | --- | --- |
+| 50 million zero values, Pretty Print, previous implementation | 100 MB | 1,525–2,140 MB sampled | 7.0–7.6 s |
+| Same dense array, streaming Pretty Print | 100 MB | 85 MB sampled | 10.1 s |
+| 100 million zero values, Pretty Print | 200 MB | 72 MB sampled | 15.7 s |
+| 400,000 padded records, Pretty Print | 206 MB | 56 MB sampled | 4.9 s |
+| One long string, Minify | 400 MB | 49 MB sampled | 8.2 s |
+| Two million object members, ordinal Sort Keys | 41 MB | 51 MB sampled | 37.3 s |
+| Two 400 MB common-prefix keys, natural Sort Keys | 800 MB | 872 MB kernel high-water | 20.3 s |
+| Two 900 MB common-prefix keys, natural Sort Keys | 1.8 GB | 845 MB kernel high-water | 61.0 s |
+| Two base64-random keys, natural Sort Keys | 1.2 GB | 994 MB kernel high-water | 28.8 s |
+| Two base64-random keys, natural Sort Keys | 2.4 GB | 1,396 MB kernel high-water | 62.6 s |
+| Two base64-random keys, natural Sort Keys | 3.2 GB | 1,095 MB kernel high-water | 109.9 s |
+
+Sampled RSS uses `ps` at 50 ms intervals and can miss peaks. Kernel high-water
+values use `/usr/bin/time -l` around the actual app process, including startup.
+Times measure request dispatch to committed output, not just parsing. Except
+for the two previous-implementation runs, these are single observations on a
+shared machine, not throughput comparisons. Random-key fixtures use Python's
+seed 20261023 and base64-encoded 196,608-byte blocks, with first characters
+`é` and `f`; common-prefix fixtures differ only at their final `A`/`Z`.
+
+All listed streaming outputs pass the independent byte check. Natural sorting
+still allocates two complete folded strings. The 2.4 GB and 3.2 GB fixtures
+have peak physical footprints of 2.75 GB and 3.65 GB respectively; footprint
+is not RSS. Resident measurements below 1.5 GB do not establish a bound for
+arbitrary keys, particularly when compression and page reclamation can affect
+residency. This release gate remains unestablished (ADR 0029).
+
+Instruments attach and launch recordings fail with `Failed starting ktrace
+session`, including after Developer mode was enabled. Partial traces are not
+accepted as evidence. Kernel measurements remain separate from the required
+Instruments check.
+
+### Platform and HDR checks
+
+On the physical macOS 27 Mac, Finder's nested menu invokes HEIC-to-JPEG
+conversion successfully. The final DMG-installed app retains the same catalog
+version across three processes; a request created before shutdown succeeds
+on cold launch with exact expected output and unchanged input. Canonical
+metadata-set encoding fixes the previously unstable settings hash.
+A real 12 MP capture containing both Apple and ISO
+gain maps converts to SDR through the Release app in 0.90 s, at 236 MB sampled
+RSS. The original remains unchanged. Output is upright, 3024 × 4032, 8-bit
+Display P3, headroom 1, with neither gain map retained. Against ImageIO's SDR
+reference at 512-pixel resolution, RGB mean absolute error is 1.46/255,
+RMSE 1.69/255 and maximum error 13/255. These checks and inspected SDR previews
+do not replace the required HDR/SDR display comparison. New-file and Replace
+outputs were exercised on disposable copies; UI Undo remains unverified.
+
+The macOS 26.6.2 (25G83) VM installs the self-signed DMG, completes onboarding,
+enables Finder Sync and performs JSON sorting with correct output and retained
+input. The final candidate repeats the sort and signature checks successfully.
+A same-certificate update preserves extension enablement. This does not
+prove privacy-grant migration, physical display behavior or downloaded-app
+Gatekeeper handling. Gatekeeper rejection of an unnotarized build is expected;
+the interactive Open Anyway flow remains unverified.
+
+The device-enabled package run passes 1,011 tests without skips. Subsequent
+key-folding, giant-key ordering and deterministic-settings changes pass the
+focused JSON, streaming-text and settings run (82 tests). Debug and Release
+builds, strict lint and independent source reviews pass. CI remains excluded
+under the owner's billing decision. Full manual accessibility, large-batch,
+permission migration and Undo acceptance remain incomplete; no stable release
+or anonymous post-publication verification is claimed.
 
 ## Finder Sync spike (2026-10-20)
 
