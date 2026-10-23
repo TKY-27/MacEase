@@ -133,6 +133,8 @@ struct FolderSettingsView: View {
                     Text("Leave out Mac metadata files")
                     Text(verbatim: ".DS_Store, __MACOSX, ._*")
                 }
+                .accessibilityLabel(Text("Leave out Mac metadata files"))
+                .accessibilityHint(Text(verbatim: ".DS_Store, __MACOSX, ._*"))
             }
         }
         .sheet(isPresented: $editsExclusionRules) {
@@ -373,6 +375,15 @@ struct TextSettingsView: View {
                                 localized: "Off by default, because list order often carries meaning.",
                                 comment: "JSON primitive array sorting"))
                     }
+                    .accessibilityLabel(
+                        Text(String(localized: "Sort lists of plain values", comment: "JSON primitive array sorting"))
+                    )
+                    .accessibilityHint(
+                        Text(
+                            String(
+                                localized: "Off by default, because list order often carries meaning.",
+                                comment: "JSON primitive array sorting"))
+                    )
                 }
             } header: {
                 Text(verbatim: "JSON")
@@ -396,6 +407,8 @@ struct TextSettingsView: View {
                     Text("Detect numbers and booleans")
                     Text("When off, every CSV value converts as text.")
                 }
+                .accessibilityLabel(Text("Detect numbers and booleans"))
+                .accessibilityHint(Text("When off, every CSV value converts as text."))
             }
             Section(String(localized: "PDF", comment: "PDF export defaults")) {
                 NumberField(

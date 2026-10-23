@@ -85,6 +85,9 @@ struct WelcomeView: View {
                 Label("Move MacEase to Applications", systemImage: "folder.badge.questionmark")
                 Text(moveMessage)
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Move MacEase to Applications"))
+            .accessibilityHint(Text(moveMessage))
         }
     }
 
@@ -112,17 +115,25 @@ struct WelcomeView: View {
                 Text("Finder extension")
                 Text("Adds MacEase to Finder's right-click menu.")
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Finder extension"))
+            .accessibilityHint(Text("Adds MacEase to Finder's right-click menu."))
             LabeledContent {
                 notificationControl
             } label: {
                 Text("Notifications")
                 Text("Results with Undo when a batch finishes.")
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Notifications"))
+            .accessibilityHint(Text("Results with Undo when a batch finishes."))
             Toggle(isOn: $launchesAtLogin) {
                 Text("Launch at login")
                 Text("Keeps the Finder menu instant.")
             }
             .toggleStyle(.switch)
+            .accessibilityLabel(Text("Launch at login"))
+            .accessibilityHint(Text("Keeps the Finder menu instant."))
         } footer: {
             HStack(alignment: .firstTextBaseline) {
                 Text(

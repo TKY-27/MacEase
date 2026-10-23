@@ -53,6 +53,8 @@ struct GeneralSettingsView: View {
                     Text("Show progress window")
                     Text("Appears when a batch takes more than a moment. Finder keeps focus.")
                 }
+                .accessibilityLabel(Text("Show progress window"))
+                .accessibilityHint(Text("Appears when a batch takes more than a moment. Finder keeps focus."))
                 LabeledContent("Close automatically") {
                     VStack(alignment: .leading) {
                         Toggle("After success", isOn: $store.activityClosesAfterSuccess)
@@ -68,6 +70,9 @@ struct GeneralSettingsView: View {
                     Text("Allow permanent delete")
                     Text("Removal operations can skip the Trash. Deleted files cannot be restored or undone.")
                 }
+                .accessibilityLabel(Text("Allow permanent delete"))
+                .accessibilityHint(
+                    Text("Removal operations can skip the Trash. Deleted files cannot be restored or undone."))
             }
             Section {
                 LabeledContent("Setup") {
@@ -105,6 +110,8 @@ struct GeneralSettingsView: View {
             Text("Launch at login")
             Text("Keeps the Finder menu instant.")
         }
+        .accessibilityLabel(Text("Launch at login"))
+        .accessibilityHint(Text("Keeps the Finder menu instant."))
         if loginStatus == .requiresApproval {
             LabeledContent {
                 Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
@@ -119,6 +126,8 @@ struct GeneralSettingsView: View {
             Text("Notifications")
             Text("Results with Undo when a batch finishes.")
         }
+        .accessibilityLabel(Text("Notifications"))
+        .accessibilityHint(Text("Results with Undo when a batch finishes."))
         if store.notificationsEnabled, notificationStatus == .denied {
             LabeledContent {
                 Button("Open Notification Settings") { SystemSettingsPane.open(SystemSettingsPane.notifications) }

@@ -24,6 +24,8 @@ struct ImageSettingsView: View {
                     Text("Optimize PNG files on convert")
                     Text("Lossless; smaller files take a little longer.")
                 }
+                .accessibilityLabel(Text("Optimize PNG files on convert"))
+                .accessibilityHint(Text("Lossless; smaller files take a little longer."))
                 Picker("GIF dithering", selection: $store.settings.image.gifDithering) {
                     ForEach(Dithering.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -36,6 +38,8 @@ struct ImageSettingsView: View {
                     Text("Keep location for platform presets")
                     Text("Applies to Compress items that target a size.")
                 }
+                .accessibilityLabel(Text("Keep location for platform presets"))
+                .accessibilityHint(Text("Applies to Compress items that target a size."))
             }
             Section("Background") {
                 Picker(

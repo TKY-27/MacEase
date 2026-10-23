@@ -55,6 +55,8 @@ struct FinderMenuSettingsView: View {
                     Text("Extra angle")
                     Text("Adds one more angle to Rotate.")
                 }
+                .accessibilityLabel(Text("Extra angle"))
+                .accessibilityHint(Text("Adds one more angle to Rotate."))
                 if store.settings.extraRotationEnabled {
                     ExtraAngleRow(store: store)
                 }
