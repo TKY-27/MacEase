@@ -95,8 +95,14 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         let file = menuFile([.pdfMerge, .pdfSplit])
         let one = MenuLayout.nodes(for: file, selection: [url("a.pdf")])
         let two = MenuLayout.nodes(for: file, selection: [url("a.pdf"), url("b.pdf")])
-        #expect(one.count == 1)
-        #expect(two.count == 2)
+        func operations(_ nodes: [MenuNode]) -> [OperationID] {
+            nodes.compactMap { node in
+                if case .action(_, let index) = node { return file.entries[index].op }
+                return nil
+            }
+        }
+        #expect(operations(one) == [.pdfSplit])
+        #expect(operations(two) == [.pdfMerge, .pdfSplit])
     }
 
     @Test func foldersGetNoAllFilesSection() {
@@ -322,7 +328,8 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     ])
     func singleOnlyOperationsUsePerKindCounts(op: OperationID, suffix: String) {
         let file = menuFile([op])
-        #expect(!MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)", "unknown.bin"])).isEmpty)
+        let mixed = MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)", "unknown.bin"]))
+        #expect(leaves(mixed).contains { file.entries[$0].op == op })
         #expect(MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)", "b.\(suffix)"])).isEmpty)
     }
 
@@ -334,7 +341,9 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 
     @Test func analyzeSupportsMultipleFolders() {
         let folders = ["one", "two"].map { URL(fileURLWithPath: "/missing/\($0)", isDirectory: true) }
-        #expect(!MenuLayout.nodes(for: menuFile([.folderAnalyze]), selection: folders).isEmpty)
+        let file = menuFile([.folderAnalyze])
+        let nodes = MenuLayout.nodes(for: file, selection: folders)
+        #expect(leaves(nodes).contains { file.entries[$0].op == .folderAnalyze })
         #expect(OperationID.folderAnalyze.maximumSelection == nil)
     }
 
@@ -428,10 +437,11 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(!RequestToken.isWellFormed(String(repeating: "g", count: 64)))
     }
 
-    @Test func matchesOnlyIdenticalTokens() throws {
-        let token = try RequestToken.generate()
+    @Test func matchesOnlyIdenticalTokens() {
+        let token = String(repeating: "a", count: 64)
+        let other = String(repeating: "a", count: 63) + "b"
         #expect(RequestToken.matches(token, token))
-        #expect(!RequestToken.matches(String(token.dropLast()) + "0", token) || token.hasSuffix("0"))
+        #expect(!RequestToken.matches(other, token))
         #expect(!RequestToken.matches("", token))
     }
 }

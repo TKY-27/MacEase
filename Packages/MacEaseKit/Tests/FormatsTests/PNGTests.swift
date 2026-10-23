@@ -42,9 +42,18 @@ import UniformTypeIdentifiers
         }
     }
 
-    @Test func returnsInputBytesWhenNothingIsGained() throws {
+    @Test func optimizedOutputIsIdempotent() throws {
         let optimized = try PNGOptimizer.optimize(try inputs()[2].1)
         #expect(try PNGOptimizer.optimize(optimized) == optimized)
+    }
+
+    @Test func returnsInputBytesWhenNothingIsGained() throws {
+        let original = try #require(
+            Data(
+                base64Encoded:
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg=="))
+        #expect(try Fixtures.decode(original).rgba == [0, 0, 0, 255])
+        #expect(try PNGOptimizer.optimize(original) == original)
     }
 
     @Test func keepsAncillaryChunks() throws {

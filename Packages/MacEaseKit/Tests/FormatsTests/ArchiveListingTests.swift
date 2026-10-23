@@ -16,6 +16,7 @@ import Testing
         ditto.arguments = ["-c", "-k", content.path, zip.path]
         try ditto.run()
         ditto.waitUntilExit()
+        #expect(ditto.terminationStatus == 0)
 
         try ArchiveListing.verify(zip)
         let garbage = folder.appending(path: "bad.zip")

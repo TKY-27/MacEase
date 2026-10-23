@@ -127,6 +127,9 @@ extension Fixtures {
             let frame = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
             return frame?[kCGImagePropertyGIFUnclampedDelayTime] as? Double
         }
+        #expect(CGImageSourceGetCount(source) == frames.count)
+        #expect(delays.count == frames.count)
+        for delay in delays { #expect(abs(delay - 1.0 / 15) < 0.011) }
         #expect(abs(delays.reduce(0, +) - 0.4) < 0.011)
     }
 

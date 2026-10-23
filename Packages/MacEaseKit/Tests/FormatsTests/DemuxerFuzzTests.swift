@@ -17,6 +17,9 @@ import Testing
         "ffmpeg-mjpeg-pcm.avi", "ffmpeg-mpeg4-ac3.avi", "ffmpeg-h264.avi",
         "ffmpeg-h264-aac.flv", "ffmpeg-vorbis.ogg", "ffmpeg-opus.opus", "ffmpeg-flac.flac",
     ]
+    private static let burstFixtures: Set<String> = [
+        "ffmpeg-mjpeg-pcm.avi", "ffmpeg-mpeg4-ac3.avi", "ffmpeg-h264-aac.flv", "ffmpeg-mpeg4-ac3-srt.mkv",
+    ]
     private static let ebmlMasters: Set<UInt32> = [
         MatroskaID.ebml, MatroskaID.segment, MatroskaID.seekHead, MatroskaID.seek,
         MatroskaID.info, MatroskaID.tracks, MatroskaID.trackEntry, MatroskaID.video, MatroskaID.audio,
@@ -113,6 +116,22 @@ import Testing
             mutated.replaceSubrange(offset..<(offset + width), with: replacement)
             repairChecksums(&mutated, pages: layout.oggPages)
             try exercise(mutated, at: url)
+        }
+        if Self.burstFixtures.contains(name) {
+            var burstRandom = FixtureRandom(seed: UInt64(original.count))
+            for round in 0..<150 {
+                var damaged = original
+                if round % 3 == 0 {
+                    damaged = damaged.prefix(Int(burstRandom.next() % UInt64(original.count)))
+                } else {
+                    for _ in 0..<(1 + Int(burstRandom.next() % 8)) {
+                        let position = Int(burstRandom.next() % UInt64(original.count))
+                        damaged[position] = round % 3 == 1 ? 0xFF : UInt8(truncatingIfNeeded: burstRandom.next())
+                    }
+                }
+                try damaged.write(to: url)
+                do { try readFully(url, byteCount: damaged.count) } catch is FormatError {}
+            }
         }
     }
 
