@@ -65,6 +65,7 @@ enum Contours {
         }
         var next: [Int: Int] = [:]
         for y in -1..<height {
+            if SVGTraceCancellation.isCancelled { return [] }
             for x in -1..<width {
                 let topLeft = inside(x, y)
                 let topRight = inside(x + 1, y)
@@ -102,9 +103,11 @@ enum Contours {
         var loops: [[Point]] = []
         var visited = Set<Int>()
         for start in next.keys.sorted() where !visited.contains(start) {
+            if SVGTraceCancellation.isCancelled { return [] }
             var loop: [Point] = []
             var edge = start
             while !visited.contains(edge), let following = next[edge] {
+                if SVGTraceCancellation.isCancelled { return [] }
                 visited.insert(edge)
                 loop.append(position(edge))
                 edge = following
@@ -117,6 +120,7 @@ enum Contours {
     static func signedArea(_ loop: [Point]) -> Double {
         var area = 0.0
         for index in loop.indices {
+            if SVGTraceCancellation.isCancelled { return 0 }
             let current = loop[index]
             let next = loop[(index + 1) % loop.count]
             area += current.x * next.y - next.x * current.y
@@ -141,6 +145,7 @@ enum Simplifier {
         var farthest = start
         var distance = 0.0
         for index in (start + 1)..<end {
+            if SVGTraceCancellation.isCancelled { return [start, end] }
             let candidate = perpendicularDistance(points[index], points[start], points[end])
             if candidate > distance {
                 distance = candidate

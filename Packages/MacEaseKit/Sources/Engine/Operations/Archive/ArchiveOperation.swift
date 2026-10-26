@@ -58,7 +58,7 @@ enum ArchivePlanner {
     }
 
     /// Gatekeeper must still see downloaded content.
-    private static func propagateQuarantine(from archive: URL, to root: URL) throws {
+    static func propagateQuarantine(from archive: URL, to root: URL) throws {
         let size = getxattr(archive.path, quarantineAttribute, nil, 0, 0, 0)
         if size < 0, errno == ENOATTR || errno == ENOTSUP { return }
         var value = [UInt8](repeating: 0, count: max(0, size))
@@ -66,14 +66,16 @@ enum ArchivePlanner {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         var paths = [root.path]
-        var walkError: (any Error)?
-        let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil, options: []) {
-            _, error in
-            walkError = error
-            return false
+        if try root.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+            var walkError: (any Error)?
+            let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil, options: []) {
+                _, error in
+                walkError = error
+                return false
+            }
+            while let url = enumerator?.nextObject() as? URL { paths.append(url.path) }
+            if let walkError { throw walkError }
         }
-        while let url = enumerator?.nextObject() as? URL { paths.append(url.path) }
-        if let walkError { throw walkError }
         for path in paths { try setAttribute(value, on: path) }
     }
 

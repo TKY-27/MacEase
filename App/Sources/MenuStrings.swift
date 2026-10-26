@@ -7,6 +7,10 @@ import Speech
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
+        case .imageTraceSVG:
+            String(localized: "menu.op.image.traceSVG", defaultValue: "Trace to SVG…")
+        case .archiveBrowse:
+            String(localized: "menu.op.archive.browse", defaultValue: "Browse Contents…")
         case .imageHDRToSDR:
             String(localized: "menu.op.image.hdrToSDR", defaultValue: "SDR")
         case .videoHDRToSDR:

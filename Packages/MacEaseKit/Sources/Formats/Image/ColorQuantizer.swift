@@ -24,16 +24,22 @@ struct ColorQuantizer {
     private static let lightnessScale: Float = 6
     private static let kMeansIterations = 10
     private static let convergence: Float = 1e-10
+    private static let cancellationCheckMask = 4_095
 
     let includesAlpha: Bool
 
-    static func samples(of pixels: [UInt8], includesAlpha: Bool, skip: (Int) -> Bool = { _ in false }) -> [Sample] {
+    static func samples(
+        of pixels: [UInt8], includesAlpha: Bool, skip: (Int) -> Bool = { _ in false },
+        cancelled: (() -> Bool)? = nil
+    ) -> [Sample] {
         for shift in [2, 3] {
             let bits = 8 - shift
             let alphaBits = includesAlpha ? 4 : 0
             var counts = [UInt32](repeating: 0, count: 1 << (3 * bits + alphaBits))
             var occupied = 0
-            for index in stride(from: 0, to: pixels.count, by: 4) where !skip(index / 4) {
+            for index in stride(from: 0, to: pixels.count, by: 4) {
+                if index & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return [] }
+                if skip(index / 4) { continue }
                 let key = histogramKey(pixels, index, shift: shift, alphaBits: alphaBits)
                 if counts[key] == 0 { occupied += 1 }
                 counts[key] += 1
@@ -41,7 +47,9 @@ struct ColorQuantizer {
             if occupied > 65_536, shift == 2 { continue }
             var samples: [Sample] = []
             samples.reserveCapacity(occupied)
-            for (key, count) in counts.enumerated() where count > 0 {
+            for (key, count) in counts.enumerated() {
+                if key & Self.cancellationCheckMask == 0, cancelled?() == true { return [] }
+                if count == 0 { continue }
                 samples.append(Sample(color: binCenter(key, shift: shift, alphaBits: alphaBits), weight: Double(count)))
             }
             return samples
@@ -101,10 +109,13 @@ struct ColorQuantizer {
         of pixels: [UInt8],
         limit: Int,
         includesAlpha: Bool,
-        skip: (Int) -> Bool = { _ in false }
+        skip: (Int) -> Bool = { _ in false },
+        cancelled: (() -> Bool)? = nil
     ) -> [PaletteColor]? {
         var colors = Set<PaletteColor>()
-        for base in stride(from: 0, to: pixels.count, by: 4) where !skip(base / 4) {
+        for base in stride(from: 0, to: pixels.count, by: 4) {
+            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return nil }
+            if skip(base / 4) { continue }
             let alpha = includesAlpha ? pixels[base + 3] : 255
             colors.insert(
                 PaletteColor(red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: alpha))
@@ -113,13 +124,14 @@ struct ColorQuantizer {
         return colors.sorted { ($0.alpha, $0.red, $0.green, $0.blue) < ($1.alpha, $1.red, $1.green, $1.blue) }
     }
 
-    func palette(from samples: [Sample], count: Int) -> [PaletteColor] {
+    func palette(from samples: [Sample], count: Int, cancelled: (() -> Bool)? = nil) -> [PaletteColor] {
         guard !samples.isEmpty, count > 0 else { return [] }
         if samples.count <= count { return samples.map(\.color) }
         let points = samples.map { point($0.color) }
         let weights = samples.map(\.weight)
         var centers = WuSplitter(points: points, weights: weights).centers(count: count)
-        centers = refine(centers, points: points, weights: weights)
+        if cancelled?() == true { return [] }
+        centers = refine(centers, points: points, weights: weights, cancelled: cancelled)
         return Array(Set(centers.map(color(of:)))).sorted {
             ($0.alpha, $0.red, $0.green, $0.blue) < ($1.alpha, $1.red, $1.green, $1.blue)
         }
@@ -142,12 +154,15 @@ struct ColorQuantizer {
         }
     }
 
-    private func refine(_ initial: [SIMD4<Float>], points: [SIMD4<Float>], weights: [Double]) -> [SIMD4<Float>] {
+    private func refine(
+        _ initial: [SIMD4<Float>], points: [SIMD4<Float>], weights: [Double], cancelled: (() -> Bool)?
+    ) -> [SIMD4<Float>] {
         var centers = initial
         for _ in 0..<Self.kMeansIterations {
             var sums = [SIMD4<Double>](repeating: .zero, count: centers.count)
             var totals = [Double](repeating: 0, count: centers.count)
-            for (point, weight) in zip(points, weights) {
+            for (index, (point, weight)) in zip(points, weights).enumerated() {
+                if index & Self.cancellationCheckMask == 0, cancelled?() == true { return centers }
                 let nearest = Self.nearest(point, in: centers)
                 sums[nearest] += SIMD4<Double>(point) * weight
                 totals[nearest] += weight

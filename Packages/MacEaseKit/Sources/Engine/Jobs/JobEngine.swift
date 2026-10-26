@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import MenuCatalog
 import Synchronization
@@ -148,8 +149,11 @@ public final class JobEngine: Sendable {
             do {
                 try Self.downloadIfNeeded(workItem.inputs)
                 for input in workItem.inputs {
-                    let values = try input.resourceValues(forKeys: [.isDirectoryKey])
-                    if values.isDirectory != true { inputStamps[input] = try FileStamp(of: input) }
+                    var metadata = stat()
+                    guard lstat(input.path, &metadata) == 0 else {
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    if metadata.st_mode & S_IFMT != S_IFDIR { inputStamps[input] = try FileStamp(of: input) }
                 }
                 result = try await workItem.body(context)
                 await gate.release()
@@ -262,6 +266,16 @@ public final class JobEngine: Sendable {
                 outputs.append(output.output)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
+        case .exported(let source, let stamp, let destination, let staged, let preservingAttributes):
+            for file in staged {
+                try await history.checkAcceptingCommits()
+                let output = try await committer.derive(
+                    file, nextTo: destination, expectedStamp: stamp, attributeSource: source,
+                    preservingAttributes: preservingAttributes)
+                records.append(.derived(output: output.output.path, stamp: output.stamp))
+                outputs.append(output.output)
+                await recordCommits(&records, batch: batch, tracker: tracker)
+            }
         case .rename(let plans):
             for plan in plans {
                 try Task.checkCancellation()
@@ -311,6 +325,13 @@ public final class JobEngine: Sendable {
     /// Coordination downloads dataless cloud files.
     private static func downloadIfNeeded(_ urls: [URL]) throws {
         for url in urls {
+            var metadata = stat()
+            guard stat(url.path, &metadata) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            guard metadata.st_mode & S_IFMT == S_IFREG || metadata.st_mode & S_IFMT == S_IFDIR else {
+                throw EngineError.invalidInput(.unsupportedFileType)
+            }
             let values = try url.resourceValues(forKeys: [.isUbiquitousItemKey])
             guard values.isUbiquitousItem == true else { continue }
             var coordinationError: NSError?

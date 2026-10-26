@@ -67,6 +67,7 @@ window for input, review, or confirmation.
 | **Resize** | Scale by percentage or long edge in pixels, or enter a **Custom Size…** |
 | **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
+| **Trace to SVG…** | Compare a static PNG with editable SVG paths; choose 1–8 colors and three detail levels, then save a new file |
 | **Rotate** | Right-angle turns and an extra editable angle; **Flip** horizontally or vertically |
 | **Background** | Remove it, or replace it with a green, blue, or custom color, or a blur |
 | **Remove Metadata** | Strip all metadata, location only, or selected fields |
@@ -79,7 +80,11 @@ window for input, review, or confirmation.
 TGA conversion appears when ImageIO supports reading and writing it. PSD
 exports use the stored composite and offer PNG, JPEG, or TIFF, keeping the
 layered original. Decodable camera RAW files also keep their originals. SVG
-output can trace paths or embed a PNG.
+output can trace paths or embed a PNG. The separate **Trace to SVG…** action opens a
+comparison for one static PNG and always saves editable paths as a new SVG.
+It works best for logos and flat shapes. Photos, editable text, and reconstructed
+gradients are outside its scope. Review any metadata, transparency, or HDR warning
+before saving.
 
 ### Videos
 
@@ -157,8 +162,14 @@ individual features.
 | Operation | What it does |
 | --- | --- |
 | **Extract** | Unpack ZIP, 7z, TAR, gz, bz2, xz, or RAR into a new folder |
+| **Browse Contents…** | Search a ZIP hierarchy, preview selected files, and save selected files or folders without unpacking the whole archive |
 | **Decompile** | Turn a JAR into Java source with bundled CFR and an installed Java runtime |
 | **Checksum** | Calculate SHA-256, MD5, SHA-1, or SHA-512 for any file |
+
+ZIP browsing supports up to 100,000 entries, 32 MiB of name and extra metadata,
+and 256 path components. A preview can expand up to 256 MiB. Images, PDFs, audio,
+video, and read-only text appear in the window; HTML and scripts are never run.
+Closing removes temporary previews. Files you explicitly save remain and support Undo.
 
 ### Apple Intelligence
 

@@ -37,14 +37,11 @@ public struct FileStamp: Codable, Equatable, Sendable {
     init(of url: URL, includingIdentity: Bool = false) throws {
         let metadata = try Self.metadata(of: url)
         let isDirectory = metadata.st_mode & S_IFMT == S_IFDIR
-        var currentURL = url
-        currentURL.removeAllCachedResourceValues()
-        let values = try currentURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        guard let modificationDate = values.contentModificationDate else {
-            throw EngineError.commitFailed("missing modification date")
-        }
-        size = isDirectory ? nil : values.fileSize.map(Int64.init)
-        modified = modificationDate
+        size = isDirectory ? nil : metadata.st_size
+        modified = Date(
+            timeIntervalSinceReferenceDate: TimeInterval(metadata.st_mtimespec.tv_sec)
+                - Date.timeIntervalBetween1970AndReferenceDate
+                + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
         directorySummary = isDirectory ? Self.snapshot(of: url) : nil
         identity =
             includingIdentity

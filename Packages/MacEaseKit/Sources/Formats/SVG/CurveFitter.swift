@@ -16,6 +16,7 @@ enum CurveFitter {
         endTangent: Point,
         error: Double
     ) -> [BezierSegment] {
+        if SVGTraceCancellation.isCancelled { return [] }
         let first = points[points.startIndex]
         let last = points[points.endIndex - 1]
         if points.count == 2 {
@@ -27,12 +28,14 @@ enum CurveFitter {
             ]
         }
         var parameters = chordLengths(points)
+        if SVGTraceCancellation.isCancelled { return [] }
         var curve = generate(points, parameters, startTangent, endTangent)
         var (maximum, split) = maximumError(points, curve, parameters)
         if maximum < error { return [curve] }
         if maximum < error * 4 {
             for _ in 0..<reparameterizations {
                 parameters = reparameterize(points, parameters, curve)
+                if SVGTraceCancellation.isCancelled { return [] }
                 curve = generate(points, parameters, startTangent, endTangent)
                 (maximum, split) = maximumError(points, curve, parameters)
                 if maximum < error { return [curve] }
@@ -47,7 +50,9 @@ enum CurveFitter {
 
     private static func chordLengths(_ points: ArraySlice<Point>) -> [Double] {
         var lengths = [0.0]
+        let checksCancellation = SVGTraceCancellation.enabled
         for index in (points.startIndex + 1)..<points.endIndex {
+            if checksCancellation && Task.isCancelled { return [] }
             lengths.append(lengths[lengths.count - 1] + points[index].distance(to: points[index - 1]))
         }
         guard let total = lengths.last, total > 0 else { return lengths }
@@ -67,7 +72,9 @@ enum CurveFitter {
         var c11 = 0.0
         var x0 = 0.0
         var x1 = 0.0
+        let checksCancellation = SVGTraceCancellation.enabled
         for (offset, t) in parameters.enumerated() {
+            if checksCancellation && Task.isCancelled { break }
             let u = 1 - t
             let a1 = startTangent * (3 * t * u * u)
             let a2 = endTangent * (3 * t * t * u)
@@ -104,7 +111,9 @@ enum CurveFitter {
     ) -> (Double, Int) {
         var maximum = 0.0
         var split = points.startIndex + points.count / 2
+        let checksCancellation = SVGTraceCancellation.enabled
         for (offset, t) in parameters.enumerated() {
+            if checksCancellation && Task.isCancelled { break }
             let distance = curve.point(at: t) - points[points.startIndex + offset]
             let squared = distance.dot(distance)
             if squared >= maximum {
@@ -119,13 +128,16 @@ enum CurveFitter {
     private static func reparameterize(_ points: ArraySlice<Point>, _ parameters: [Double], _ curve: BezierSegment)
         -> [Double]
     {
-        parameters.enumerated().map { offset, t in
+        var refined: [Double] = []
+        let checksCancellation = SVGTraceCancellation.enabled
+        for (offset, t) in parameters.enumerated() {
+            if checksCancellation && Task.isCancelled { return [] }
             let difference = curve.point(at: t) - points[points.startIndex + offset]
             let first = curve.derivative(at: t)
             let second = curve.secondDerivative(at: t)
             let denominator = first.dot(first) + difference.dot(second)
-            guard denominator != 0 else { return t }
-            return min(max(t - difference.dot(first) / denominator, 0), 1)
+            refined.append(denominator == 0 ? t : min(max(t - difference.dot(first) / denominator, 0), 1))
         }
+        return refined
     }
 }

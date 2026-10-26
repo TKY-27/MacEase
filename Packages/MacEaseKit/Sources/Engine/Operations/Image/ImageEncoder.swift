@@ -26,6 +26,15 @@ enum ImageEncoder {
     private static let maximumTracingBytes: Int64 = 100_000_000
     private static let pointsPerInch = 72.0
 
+    static func trace(_ image: CGImage, options: SVGTraceOptions, encoding: EncodeOptions) throws -> Data {
+        var encoding = encoding
+        encoding.svgMode = .trace
+        try validateWorkspace([ImageFrame(image: image, duration: 0)], format: .svg, options: encoding)
+        let pixels = try binaryAlphaPixels(image, options: encoding)
+        let layers = try SVGTracer.trace(pixels, options: options)
+        return Data(SVGTracer.svg(layers, width: pixels.width, height: pixels.height).utf8)
+    }
+
     static func encode(
         _ frames: [ImageFrame], as format: ImageFormat, options: EncodeOptions,
         retaining retained: [CGImage] = []

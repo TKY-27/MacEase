@@ -136,7 +136,8 @@ struct FileCommitter: Sendable {
     }
 
     func derive(
-        _ output: StagedFile, nextTo original: URL, expectedStamp: FileStamp? = nil, attributeSource: URL? = nil
+        _ output: StagedFile, nextTo original: URL, expectedStamp: FileStamp? = nil, attributeSource: URL? = nil,
+        preservingAttributes: Bool = true
     ) async throws -> Committed {
         try await OutputVerifier.verify(output)
         if let sourceURL = attributeSource ?? (expectedStamp == nil ? nil : original) {
@@ -150,11 +151,12 @@ struct FileCommitter: Sendable {
                         return try coordinate(reading: sourceURL, writing: destination, options: .forReplacing) {
                             source, final in
                             if let expectedStamp {
-                                guard try FileStamp(of: source) == expectedStamp else { throw Failure.changedSinceScan }
+                                guard expectedStamp.matches(source.path) else { throw Failure.changedSinceScan }
                             }
-                            let attributes = try FinderAttributes(of: source)
                             try Task.checkCancellation()
-                            try attributes.apply(to: output.url)
+                            if preservingAttributes {
+                                try FinderAttributes(of: source).apply(to: output.url)
+                            }
                             do {
                                 try FileManager.default.moveItem(at: output.url, to: final)
                             } catch let error as CocoaError where error.code == .fileWriteFileExists {

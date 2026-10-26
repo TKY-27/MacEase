@@ -150,4 +150,51 @@ extension Fixtures {
         #expect(layers[0].color == PaletteColor(red: 0, green: 0, blue: 0, alpha: 255))
         #expect(!layers[0].contours.isEmpty)
     }
+
+    @Test func fineDetailRetainsSmallShapesAndHoles() throws {
+        let size = 20
+        let rgba = (0..<(size * size)).flatMap { pixel -> [UInt8] in
+            let x = pixel % size
+            let y = pixel / size
+            let ring =
+                (3...14).contains(x) && (3...14).contains(y)
+                && !((7...10).contains(x) && (7...10).contains(y))
+            let dark = ring || (x == 17 && y == 17)
+            return dark ? [0, 0, 0, 255] : [255, 255, 255, 255]
+        }
+        let pixels = PixelBuffer(width: size, height: size, rgba: rgba)
+        let standard = try SVGTracer.trace(pixels, options: SVGTraceOptions(colors: 1))
+        let fine = try SVGTracer.trace(pixels, options: SVGTraceOptions(colors: 1, detail: .fine))
+        #expect(standard[0].contours.count == 2)
+        #expect(fine[0].contours.count == 3)
+        let document = SVGTracer.svg(fine, width: size, height: size)
+        #expect(XMLParser(data: Data(document.utf8)).parse())
+    }
+
+    @Test func optionsRejectInvalidColorsAndCancellation() async throws {
+        let pixels = Fixtures.logo(size: 32)
+        #expect(throws: SVGTraceError.invalidColors) {
+            try SVGTracer.trace(pixels, options: SVGTraceOptions(colors: 0))
+        }
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try SVGTracer.trace(pixels, options: SVGTraceOptions(colors: 1))
+        }
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+    }
+
+    @Test func paletteScanStopsWhenCancelled() {
+        var rgba = [UInt8](repeating: 0, count: 20_000 * 4)
+        for pixel in 0..<20_000 { rgba[pixel * 4 + 3] = 255 }
+        rgba[rgba.count - 4] = 255
+        #expect(ColorQuantizer.exactPalette(of: rgba, limit: 2, includesAlpha: false)?.count == 2)
+        var probes = 0
+        let cancelled = ColorQuantizer.exactPalette(
+            of: rgba, limit: 2, includesAlpha: false,
+            cancelled: {
+                probes += 1
+                return probes > 1
+            })
+        #expect(cancelled == nil)
+    }
 }

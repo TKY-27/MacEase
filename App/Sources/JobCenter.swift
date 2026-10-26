@@ -121,18 +121,32 @@ final class JobCenter {
     /// Await the task to chain batches.
     @discardableResult
     func run(_ request: OperationRequest) -> Task<BatchOutcome?, Never> {
-        guard !terminating else { return Task { nil } }
         let snapshot = settings.planning
+        return run(settings: snapshot, request: request) {
+            await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
+        }
+    }
+
+    @discardableResult
+    func run(batch: Batch) -> Task<BatchOutcome?, Never> {
+        run(settings: settings.planning, request: nil) { batch }
+    }
+
+    private func run(
+        settings snapshot: Settings, request: OperationRequest?,
+        preparing makeBatch: @escaping @Sendable () async -> Batch
+    ) -> Task<BatchOutcome?, Never> {
+        guard !terminating else { return Task { nil } }
         let engine = engine
         let id = UUID()
         let task = Task { () -> BatchOutcome? in
-            let batch = await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
+            let batch = await makeBatch()
             guard !self.terminating, !Task.isCancelled, !batch.items.isEmpty else {
                 self.forget(id)
                 return nil
             }
             let started = ActiveBatch(
-                id: id, batchID: batch.id, operation: request.op,
+                id: id, batchID: batch.id, operation: batch.operation,
                 fileNames: batch.items.map { $0.inputs.first?.lastPathComponent ?? "" })
             self.active.append(started)
             self.onStart?(started)
@@ -295,7 +309,7 @@ final class JobCenter {
         active.removeAll { $0.id == id }
     }
 
-    private func finish(_ outcome: BatchOutcome, request: OperationRequest, activeID: UUID) {
+    private func finish(_ outcome: BatchOutcome, request: OperationRequest?, activeID: UUID) {
         let batch = active.first { $0.id == activeID }
         forget(activeID)
         guard !terminating else { return }
@@ -315,7 +329,10 @@ final class JobCenter {
             else { return nil }
             return (url, reason)
         }
-        let asked = questions.first.map { askAgain?(request, questions.map(\.0), $0.1) ?? false } ?? false
+        let asked =
+            request.flatMap { request in
+                questions.first.map { askAgain?(request, questions.map(\.0), $0.1) ?? false }
+            } ?? false
         let shownInActivity = batch.map { showsFinished?($0, outcome) ?? false } ?? false
         // Only the banner can open Privacy settings.
         let needsBanner = !shownInActivity || Self.deniedPermission(outcome)

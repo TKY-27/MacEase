@@ -53,6 +53,8 @@ public enum OutputCheck: Sendable {
     /// Decoded fully with MacEase's own audio decoders.
     case audio
     case archive
+    case archiveMember
+    case archiveSelectionFolder
     case pdf
     case plist
     case text(String.Encoding)
@@ -85,6 +87,8 @@ public enum RemovalCondition: Sendable {
 public enum ItemResult: Sendable {
     case replace(original: URL, output: StagedFile)
     case derived(nextTo: URL, outputs: [StagedFile])
+    case exported(
+        from: URL, stamp: FileStamp, to: URL, outputs: [StagedFile], preservingAttributes: Bool = true)
     case rename([RenamePlan])
     case text(String, TextDestination)
     case trash([URL], permanently: Bool, condition: RemovalCondition? = nil)

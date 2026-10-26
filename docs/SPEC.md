@@ -796,6 +796,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 | `image.resize` | 25%, 50%, 75%, long edge 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
 | `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Transform | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
 | `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG/PSD inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
+| `image.traceSVG` | — | Derived | One static PNG; comparison, color and detail controls, then explicit SVG save; section 8.14 |
 | `image.rotate` | 90° right, 90° left, 180°, extra angle from Settings | Transform | Multiples of 90° on JPEG without gain maps change only the orientation tag (lossless); HDR JPEG rotates base and gain-map pixels together; other angles rotate pixels with transparent corners, or the fill color when the format has no alpha, subject to the HDR preservation guard in section 3.5 |
 | `image.flip` | Horizontal, Vertical | Transform | Pixel flip, orientation reset to 1 |
 | `image.trimBorders` | — | Transform | Removes uniform borders matching the corner color within tolerance |
@@ -1082,6 +1083,7 @@ the save panel offers replacement, and remain undoable.
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `archive.extract` | — | Derived | ZIP, 7z, TAR, gz, bz2, xz, tar.gz, RAR (read only) through libarchive into a fresh collision-safe folder named after the archive stem, including when the archive has a single top-level folder; extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
+| `archive.browse` | — | Report / Derived export | One ZIP; hierarchical listing, name/path search, selected-file preview and explicit selective save; section 8.14 |
 
 ### 8.6 PDFs
 
@@ -1519,6 +1521,68 @@ New-file mode does not relax these boundaries. Explicit exports disclose their
 scope and omissions. Favorites, menu reordering, recursive folder media actions,
 and cloud workflows are not parity requirements.
 
+### 8.14 SVG comparison and ZIP browsing
+
+These Finder actions open ordinary resizable windows at normal level. They
+are result and essential-input windows, not a main document workflow. Each
+window owns its tasks and temporary content independently. English and Japanese,
+keyboard navigation, VoiceOver and system appearance settings are supported.
+
+**Trace to SVG.** The menu requires one PNG by extension; the host verifies
+actual static PNG content and refuses animation. Existing Convert > SVG and
+its settings retain their behavior. The dedicated action always traces and
+always saves a Derived file, regardless of the global SVG or output mode.
+Source and SVG share the same display scale. Colors range from 1 to 8, starting
+at the saved SVG color count. Detail starts at Standard. Less uses 1.5 times
+the standard simplification and curve-fitting tolerances; Fine uses half and
+keeps contours below the standard three-pixel area cutoff. Standard retains
+the existing 0.8 simplification and 0.6 fitting tolerances.
+
+Preparation runs off the main actor, supports cancellation, and publishes only
+the latest settings revision. Save remains unavailable during preparation and
+writes the exact complete SVG shown in the comparison. Output uses filled paths,
+not an embedded PNG. Image memory limits and the existing alpha, HDR and metadata
+policies still apply; warnings appear before saving. The original is retained.
+The source's identity, size and modification date are checked again during the
+coordinated export commit. A changed source produces no new output.
+
+**Browse Contents.** The menu requires one ZIP. A seekable libarchive reader
+lists central-directory metadata without expanding all members. A cancellable
+preflight counts actual central records before libarchive allocates its index.
+Listing is limited to 100,000 entries, 32 MiB of names, extra fields and comments,
+and 256 path components. The hierarchy also limits retained paths to 32 MiB.
+Empty ZIPs are valid. Hierarchical rows distinguish duplicate paths by stable entry identifiers.
+AppleDouble members remain visible and are not implicitly expanded.
+Search uses names and paths without opening member contents.
+
+Only selected regular files are materialized for preview, at most 256 MiB per
+file, within managed private local staging even when the archive is read-only.
+Images, PDFs, audio and video use native viewers; text is read-only. HTML and
+scripts are displayed as text, never executed. Text previews may show a clearly
+labelled bounded prefix. Unsupported formats show file information and Save.
+Passwords remain in window memory only. There is no external-application launch.
+
+Absolute or parent-traversing paths, links and special files are refused.
+Declared sizes, actual expanded bytes and CRCs are checked before preview or
+export. Selective export uses the existing expansion limit. Source identity,
+size and modification checks prevent reusing an index for a changed archive.
+Resource-limit failures are explicit; entries are not silently omitted.
+
+A single-file save selects its name with a save panel. Multiple files or a
+folder select a destination directory and create `archive-stem_selected`,
+retaining the selected hierarchy. Overlapping selections are deduplicated;
+duplicate directory records share one exported directory; conflicting file paths
+never overwrite each other. A selective export scans the archive once for all
+selected files. Empty members and folders
+remain valid outputs after successful archive decoding. Exports preserve
+quarantine and use the existing collision-safe, verified, undoable Derived
+commit path. Saved files outlive their browsing window.
+
+Closing stops readers and renderers, waits for writers, and removes owned
+temporary files. Closed sessions cannot create more content. Failed removals
+remain registered for retry, including at the next host launch after a crash.
+Normal application quit also closes these sessions before termination.
+
 ## 9. Presets
 
 Platform presets ship as `Packages/MacEaseKit/Sources/Engine/Resources/platform-presets.json`.
@@ -1866,6 +1930,10 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-26: Add static-PNG SVG comparison and selective ZIP browsing with
+  window-owned staging and snapshot-checked exports. Continue the approved
+  local release validation policy for v1.1.0 (ADR 0035).
 
 - 2026-10-23: Keep successful file warnings out of Activity problem counts,
   group repeated warnings, and retain file details (ADR 0034).

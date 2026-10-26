@@ -44,6 +44,8 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         self.frameRate = frameRate
         self.targetLoudness = targetLoudness
         switch op {
+        case .imageTraceSVG: self.sourceFormats = ["png"]
+        case .archiveBrowse: self.sourceFormats = ["zip"]
         case .imageHDRToSDR: self.sourceFormats = ["heic", "jpeg", "avif", "jxl", "png"]
         case .videoHDRToSDR: self.sourceFormats = ["mov", "mp4", "m4v"]
         case .imageConvert where !["png", "jpeg", "tiff"].contains(preset):

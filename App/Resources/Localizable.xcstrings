@@ -54,6 +54,26 @@
         }
       }
     },
+    "%@ · Preview unavailable. Use Save… to export.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · プレビューはありません。「保存…」から書き出せます。"
+          }
+        }
+      }
+    },
+    "%@ · Use Save… to export.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · 「保存…」から書き出せます。"
+          }
+        }
+      }
+    },
     "%@ ▸ %@": {
       "comment": "Menu value row: kind and operation",
       "localizations": {
@@ -114,6 +134,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 件完了"
+          }
+        }
+      }
+    },
+    "%lld entries": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目"
           }
         }
       }
@@ -240,6 +270,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "スペース 4 個"
+          }
+        }
+      }
+    },
+    "A password is required for this entry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目にはパスワードが必要です。"
           }
         }
       }
@@ -713,6 +753,16 @@
         }
       }
     },
+    "Archive folder paths exceed the 32 MiB display limit.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "階層表示に必要なパスの保持量が上限の32 MiBを超えています。"
+          }
+        }
+      }
+    },
     "Archives": {
       "localizations": {
         "ja": {
@@ -1043,6 +1093,16 @@
         }
       }
     },
+    "Choose Destination": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存先を選択"
+          }
+        }
+      }
+    },
     "Choose an animation range within “%@” and a supported frame rate.": {
       "comment": "Range must fit the source",
       "localizations": {
@@ -1156,6 +1216,16 @@
         }
       }
     },
+    "Close the current preview before opening another.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプレビューを閉じてから次を開いてください。"
+          }
+        }
+      }
+    },
     "Codec for re-encoding": {
       "localizations": {
         "ja": {
@@ -1246,6 +1316,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "固定ビットレート (CBR)"
+          }
+        }
+      }
+    },
+    "Continue": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続ける"
           }
         }
       }
@@ -1352,6 +1432,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 個の同一ファイルのうち保持するファイル"
+          }
+        }
+      }
+    },
+    "Could Not Display SVG": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVGを表示できませんでした"
+          }
+        }
+      }
+    },
+    "Could Not Open Archive": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブを開けませんでした"
+          }
+        }
+      }
+    },
+    "Could Not Trace Image": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像をトレースできませんでした"
           }
         }
       }
@@ -1525,6 +1635,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "実行する内容を入力"
+          }
+        }
+      }
+    },
+    "Detail": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細部"
           }
         }
       }
@@ -1776,6 +1896,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "エンコード"
+          }
+        }
+      }
+    },
+    "Encrypted": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化済み"
           }
         }
       }
@@ -2117,6 +2247,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder メニューのトークン"
+          }
+        }
+      }
+    },
+    "Fine": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細かめ"
           }
         }
       }
@@ -2849,6 +2989,16 @@
         }
       }
     },
+    "Less": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "少なめ"
+          }
+        }
+      }
+    },
     "Letterbox": {
       "localizations": {
         "ja": {
@@ -2875,6 +3025,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "上限値は 0 より大きい値にしてください。"
+          }
+        }
+      }
+    },
+    "Loading page…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページを読み込み中…"
+          }
+        }
+      }
+    },
+    "Loading preview…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを読み込み中…"
           }
         }
       }
@@ -3437,6 +3607,16 @@
         }
       }
     },
+    "Next PDF page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFの次のページ"
+          }
+        }
+      }
+    },
     "Next to the PDF": {
       "comment": "PDF page image layout",
       "localizations": {
@@ -3454,6 +3634,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Java ランタイムが見つかりません。JAR を逆コンパイルするには Java をインストールしてください。"
+          }
+        }
+      }
+    },
+    "No Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューなし"
           }
         }
       }
@@ -3773,6 +3963,16 @@
         }
       }
     },
+    "Original": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原画"
+          }
+        }
+      }
+    },
     "Output": {
       "localizations": {
         "ja": {
@@ -3852,6 +4052,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld ページ目"
+          }
+        }
+      }
+    },
+    "Page %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lldページ中%1$lldページ"
           }
         }
       }
@@ -4083,6 +4293,36 @@
         }
       }
     },
+    "Preview files must be 256 MiB or smaller.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューできるファイルは256 MiB以下です。"
+          }
+        }
+      }
+    },
+    "Preview shows the first 8 MB.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭の8 MBを表示しています。"
+          }
+        }
+      }
+    },
+    "Previous PDF page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFの前のページ"
+          }
+        }
+      }
+    },
     "Privacy and Security": {
       "localizations": {
         "ja": {
@@ -4146,6 +4386,16 @@
         }
       }
     },
+    "Reading archive…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブを読み込み中…"
+          }
+        }
+      }
+    },
     "Recent": {
       "comment": "Menu bar section title",
       "localizations": {
@@ -4184,6 +4434,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "MacEase を再起動しますか？"
+          }
+        }
+      }
+    },
+    "Reload": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
           }
         }
       }
@@ -4267,6 +4527,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” の名前を変更"
+          }
+        }
+      }
+    },
+    "Rendering SVG…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVGを表示中…"
           }
         }
       }
@@ -4501,6 +4771,26 @@
         }
       }
     },
+    "Retry Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを再試行"
+          }
+        }
+      }
+    },
+    "Review before saving": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存前に確認"
+          }
+        }
+      }
+    },
     "Right-click and done.": {
       "comment": "Welcome headline",
       "localizations": {
@@ -4652,6 +4942,16 @@
         }
       }
     },
+    "Search names and paths": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前とパスを検索"
+          }
+        }
+      }
+    },
     "Select All": {
       "comment": "Edit menu item",
       "localizations": {
@@ -4680,6 +4980,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder でファイルを選択して右クリックし、MacEase を選ぶと、変換、圧縮、サイズ変更などを行えます。"
+          }
+        }
+      }
+    },
+    "Select one supported file to preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応するファイルを1つ選択するとプレビューできます。"
+          }
+        }
+      }
+    },
+    "Selected archive paths conflict.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目の保存先パスが重複しています。個別に保存してください。"
           }
         }
       }
@@ -4962,6 +5282,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "音声の言語"
+          }
+        }
+      }
+    },
+    "Standard": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
           }
         }
       }
@@ -5280,6 +5610,86 @@
         }
       }
     },
+    "The SVG preview could not be displayed: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVGのプレビューを表示できませんでした：%@"
+          }
+        }
+      }
+    },
+    "The ZIP archive contains an unsafe entry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPに危険なパス、リンク、または特殊ファイルが含まれています。"
+          }
+        }
+      }
+    },
+    "The ZIP archive exceeds the 100,000-entry limit.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPの項目数が上限の100,000件を超えています。"
+          }
+        }
+      }
+    },
+    "The ZIP archive is damaged or unsupported.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このZIPは破損しているか、対応していない形式です。"
+          }
+        }
+      }
+    },
+    "The archive browser has closed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブの閲覧ウィンドウは閉じられました。"
+          }
+        }
+      }
+    },
+    "The archive changed since it was opened.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いた後にアーカイブが変更されました。再読み込みしてください。"
+          }
+        }
+      }
+    },
+    "The archive password is incorrect.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブのパスワードが正しくありません。"
+          }
+        }
+      }
+    },
+    "The archive selection is unavailable.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したアーカイブ内の項目を利用できません。"
+          }
+        }
+      }
+    },
     "The narrowest ratio must not be wider than the widest.": {
       "localizations": {
         "ja": {
@@ -5539,6 +5949,16 @@
         }
       }
     },
+    "This file is too large to preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはプレビューのサイズ上限を超えています。"
+          }
+        }
+      }
+    },
     "This operation cannot use the selected number of files.": {
       "comment": "Rejects stale selection counts",
       "localizations": {
@@ -5601,6 +6021,16 @@
         }
       }
     },
+    "Traced SVG": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成したSVG"
+          }
+        }
+      }
+    },
     "Tracing colors": {
       "comment": "Saved SVG palette size",
       "localizations": {
@@ -5619,6 +6049,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "図形をトレース"
+          }
+        }
+      }
+    },
+    "Tracing…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トレース中…"
           }
         }
       }
@@ -6150,6 +6590,36 @@
         }
       }
     },
+    "ZIP entry metadata exceeds the 32 MiB limit.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内の項目のメタデータが上限の32 MiBを超えています。"
+          }
+        }
+      }
+    },
+    "ZIP paths cannot exceed 256 components.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内のパスは256階層までです。"
+          }
+        }
+      }
+    },
+    "Zoom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示倍率"
+          }
+        }
+      }
+    },
     "alternate track groups": {
       "localizations": {
         "ja": {
@@ -6409,6 +6879,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "チェックサム"
+          }
+        }
+      }
+    },
+    "menu.op.archive.browse": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse Contents…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容を見る…"
           }
         }
       }
@@ -6902,6 +7388,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "PDF を作成"
+          }
+        }
+      }
+    },
+    "menu.op.image.traceSVG": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trace to SVG…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVGにトレース…"
           }
         }
       }

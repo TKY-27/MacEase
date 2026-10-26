@@ -2,6 +2,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case imageResize = "image.resize"
     case imageCompress = "image.compress"
     case imageConvert = "image.convert"
+    case imageTraceSVG = "image.traceSVG"
     case imageHDRToSDR = "image.hdrToSDR"
     case imageRotate = "image.rotate"
     case imageFlip = "image.flip"
@@ -49,6 +50,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case folderCompress = "folder.compress"
 
     case archiveExtract = "archive.extract"
+    case archiveBrowse = "archive.browse"
 
     case pdfMerge = "pdf.merge"
     case pdfToImages = "pdf.toImages"
@@ -175,14 +177,14 @@ extension OperationID {
 
     public var maximumSelection: Int? {
         switch self {
-        case .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64: 1
+        case .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64, .imageTraceSVG, .archiveBrowse: 1
         default: nil
         }
     }
 
     public static let menuOrder: [OperationID] = [
         .imageResize, .imageCompress, .imageConvert, .imageHDRToSDR, .imageRotate, .imageFlip, .imageBackground,
-        .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTrimBorders, .imageCopyBase64,
+        .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64,
         .imageAIRename, .imageAICustom,
         .videoResize, .videoTrim, .videoThumbnail, .videoSubtitles, .videoCompress, .videoRotate,
         .videoFlip, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR, .videoExtractAudio,
@@ -191,7 +193,7 @@ extension OperationID {
         .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit, .pdfAIRename,
         .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
         .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
-        .folderRemoveEmpty, .folderAIRename, .archiveExtract, .jarDecompile, .anyChecksum,
+        .folderRemoveEmpty, .folderAIRename, .archiveBrowse, .archiveExtract, .jarDecompile, .anyChecksum,
     ]
 
     public var requirement: OperationRequirement? {

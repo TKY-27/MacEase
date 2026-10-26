@@ -175,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         terminationPending = true
         Task {
             do {
+                await panels?.closeFeatureWindows()
                 try await jobs.prepareForTermination()
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
@@ -198,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard !terminationPending else { return }
         guard launchFinished else {
             pendingURLs += urls
             return

@@ -9,6 +9,7 @@ import os
 @MainActor
 final class PanelCoordinator {
     private let host = PanelHost()
+    private let featureHost = FeatureWindowHost()
     private let jobs: JobCenter
     private let store: SettingsStore
     private let logger = Logger(category: "panels")
@@ -36,6 +37,8 @@ final class PanelCoordinator {
             return
         }
         switch op {
+        case .imageTraceSVG: showSVGTrace(inputs[0])
+        case .archiveBrowse: showArchiveBrowser(inputs[0])
         case .imageResize, .videoResize: showSize(op, inputs)
         case .imageCompress, .videoCompress, .audioCompress: showTargetSize(op, inputs)
         case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
@@ -50,6 +53,28 @@ final class PanelCoordinator {
         case .imageAICustom, .videoAICustom, .audioAICustom: showCustomAI(op, inputs)
         default:
             logger.error("No panel for \(op.rawValue, privacy: .public)")
+        }
+    }
+
+    func closeFeatureWindows() async {
+        await featureHost.closeAll()
+    }
+
+    private func showSVGTrace(_ source: URL) {
+        let model = SVGTracePanelModel(source: source, settings: store.settings) { [jobs] batch in
+            jobs.run(batch: batch)
+        }
+        featureHost.show(title: MenuStrings.operationName(.imageTraceSVG), onClose: { await model.close() }) {
+            SVGTracePanel(model: model, close: $0)
+        }
+    }
+
+    private func showArchiveBrowser(_ source: URL) {
+        let model = ArchiveBrowserPanelModel(source: source, staging: jobs.engine.staging) { [jobs] batch in
+            jobs.run(batch: batch)
+        }
+        featureHost.show(title: source.lastPathComponent, onClose: { await model.close() }) {
+            ArchiveBrowserPanel(model: model, close: $0)
         }
     }
 

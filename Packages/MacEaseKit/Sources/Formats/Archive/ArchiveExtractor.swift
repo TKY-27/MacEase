@@ -23,7 +23,7 @@ public struct ExtractionLimits: Sendable {
     // DEFLATE peaks near 1032:1.
     public static let standard = ExtractionLimits(maximumExpansionRatio: 1_000, allowanceBytes: 1 << 30)
 
-    func limit(forArchiveBytes size: Int64) -> Int64 {
+    public func limit(forArchiveBytes size: Int64) -> Int64 {
         let (expanded, overflow) = size.multipliedReportingOverflow(by: maximumExpansionRatio)
         return overflow ? Int64.max : max(allowanceBytes, expanded)
     }

@@ -13,6 +13,25 @@ import Testing
                 speechAvailable: speechAvailable), hiddenEntries: hidden)
     }
 
+    @Test(arguments: [(OperationID.imageTraceSVG, "png"), (.archiveBrowse, "zip")])
+    func previewMenusRequireOneMatchingInputAndRespectVisibility(op: OperationID, suffix: String) throws {
+        let file = catalog()
+        let entry = try #require(file.entries.first { $0.op == op })
+        let source = URL(fileURLWithPath: "/absent/source.\(suffix.uppercased())")
+        #expect(entry.preset == nil)
+        #expect(entry.path == [op.rawValue])
+        #expect(MenuLayout.isApplicable(entry, selection: [source]))
+        #expect(!MenuLayout.isApplicable(entry, selection: [source, source]))
+        for excluded in ["jpg", "apng", "svg", "7z", "tar", "txt"] {
+            #expect(!MenuLayout.isApplicable(entry, selection: [URL(fileURLWithPath: "/absent/source.\(excluded)")]))
+        }
+        let hidden = catalog(hidden: ["\(op.rawValue)/"])
+        #expect(!hidden.entries.contains { $0.op == op })
+        #expect(file.catalogVersion != hidden.catalogVersion)
+        let decoded = try JSONDecoder().decode(MenuFile.self, from: JSONEncoder().encode(file))
+        #expect(decoded.entries.first { $0.op == op } == entry)
+    }
+
     @Test(arguments: [
         (OperationID.imageHDRToSDR, ["heic", "heif", "hif", "jpg", "jpeg", "jpe", "avif", "jxl", "png"]),
         (.videoHDRToSDR, ["mov", "mp4", "m4v"]),

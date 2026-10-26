@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Static-PNG SVG tracing with original/output comparison, 1–8 colors, and
+  three detail levels. Save keeps the original and writes the displayed paths.
+- ZIP browsing with hierarchical search, selected-file previews, and selective
+  export with collision-safe names and Undo. Closing releases temporary content;
+  startup cleanup recovers content left after a crash.
+- Source identity checks for preview exports, bounded ZIP listing and preview
+  sizes, and validation of paths, member types, CRCs, and expansion limits.
+
+### Fixed
+
+- Reject special-file inputs before reading job metadata, and preserve persisted
+  Undo timestamp compatibility when taking file stamps without opening inputs.
+
 ## [1.0.0] - 2026-10-23
 
 ### Added

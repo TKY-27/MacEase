@@ -125,6 +125,16 @@ struct ImageDocument {
         return try await load(url, budget: &budget)
     }
 
+    static func load(bytes: Data, url: URL) throws -> ImageDocument {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(bytes as CFData, sourceOptions),
+            CGImageSourceGetCount(source) > 0,
+            let type = CGImageSourceGetType(source).map({ UTType(importedAs: $0 as String, conformingTo: .image) })
+        else { throw EngineError.decodeFailed(url.lastPathComponent) }
+        var budget = FrameMemoryBudget()
+        return try decode(source, type: type, url: url, budget: &budget)
+    }
+
     static func load(_ url: URL, budget: inout FrameMemoryBudget) async throws -> ImageDocument {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         if let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions), CGImageSourceGetCount(source) > 0,

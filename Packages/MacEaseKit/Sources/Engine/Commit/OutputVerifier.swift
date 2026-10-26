@@ -6,7 +6,21 @@ import PDFKit
 
 enum OutputVerifier {
     static func verify(_ file: StagedFile) async throws {
-        let values = try file.url.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        let values = try file.url.resourceValues(
+            forKeys: [.fileSizeKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
+        switch file.check {
+        case .archiveMember:
+            guard values.isRegularFile == true, values.isSymbolicLink != true else {
+                throw EngineError.encodeFailed("expected a regular archive member")
+            }
+            return
+        case .archiveSelectionFolder:
+            guard values.isDirectory == true, values.isSymbolicLink != true else {
+                throw EngineError.encodeFailed("expected an archive selection folder")
+            }
+            return
+        default: break
+        }
         if values.isDirectory == true {
             guard case .folder = file.check else { throw EngineError.encodeFailed("unexpected directory") }
             let contents = try FileManager.default.contentsOfDirectory(atPath: file.url.path)
@@ -56,9 +70,9 @@ enum OutputVerifier {
             } catch {
                 throw EngineError.encodeFailed("output archive does not list: \(error)")
             }
-        case .folder:
+        case .folder, .archiveSelectionFolder:
             throw EngineError.encodeFailed("expected a folder")
-        case .decompressed:
+        case .decompressed, .archiveMember:
             return
         }
     }
