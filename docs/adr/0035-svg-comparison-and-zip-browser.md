@@ -42,6 +42,7 @@ editable text, gradients or photographic detail. ZIP previews temporarily
 decompress selected content and remove app-owned files on close; this is
 not secure erasure or control over operating-system caches. Crashes require
 startup recovery. Failed mandatory checks continue to block publication.
+ADR 0036 records the owner's subsequent v1.1.0 acceptance exclusions.
 
 ## Review refinements
 

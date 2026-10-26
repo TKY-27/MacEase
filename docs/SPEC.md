@@ -1879,6 +1879,11 @@ that bound. Earlier whole-key results remain historical evidence in
   For v1.0.0, macOS 26 VM results supplement the approved macOS 27 physical
   acceptance machine; unavailable physical hardware alone does not block
   publication. Failed checks remain release blockers (ADR 0030).
+- For v1.1.0, the owner excludes actual VoiceOver operation and the final
+  macOS 26 VM visual smoke test from mandatory acceptance because they are
+  unavailable in the owner's environment. Both remain unverified, not passed.
+  Existing physical-machine checks and earlier VM results remain evidence;
+  all other required checks remain publication gates (ADR 0036).
 
 ## 18. Build, CI, signing and release
 
@@ -1907,6 +1912,10 @@ that bound. Earlier whole-key results remain historical evidence in
   `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
   and checksum, and use the matching CHANGELOG section as release notes. The
   workflow fails when the signing secrets are missing.
+- For v1.1.0, GitHub Actions remains disabled by owner instruction. Build the
+  signed DMG locally from the tag commit and publish it with its SHA-256 and
+  release notes. Verify anonymous downloads and `releases/latest`; do not
+  report the local checks as successful GitHub Actions runs (ADR 0036).
 - Gatekeeper still blocks the first launch. README documents **Open Anyway** in
   System Settings > Privacy & Security and the alternative
   `xattr -dr com.apple.quarantine /Applications/MacEase.app`.
@@ -1930,6 +1939,10 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-26: Exclude actual VoiceOver operation and the final macOS 26 VM
+  visual check from v1.1.0 mandatory acceptance by owner instruction. Preserve
+  their unverified status and the remaining local publication gates (ADR 0036).
 
 - 2026-10-26: Add static-PNG SVG comparison and selective ZIP browsing with
   window-owned staging and snapshot-checked exports. Continue the approved
