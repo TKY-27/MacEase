@@ -569,3 +569,39 @@ with `--filter 'TranscoderTests|AudioCopyTimingTests'`, `--disable-sandbox`,
 configuration, and security directories. SwiftPM's nested sandbox otherwise
 fails with `sandbox_apply: Operation not permitted`. Package compilation treats
 warnings as errors. `make lint` passes. The full suite and app GUI are not run.
+
+## SVG preparation and selective ZIP reads (2026-10-26)
+
+Release engine measurements on Apple M5 (10 cores), macOS 27.0.1 (26A434),
+use five interleaved runs per comparison. Two synthetic PNGs produce identical
+SVG bytes before and after the feature work: 2,817 bytes for the 256-pixel logo
+and 41,649 bytes for the 1,024-pixel shapes fixture. Standard conversion
+medians are 19/19 ms and 82/85 ms before/after, with overlapping ranges; no
+SVG conversion speedup is established. Dedicated in-memory preparation takes
+11.0 ms and 76.3 ms, with process peak RSS of 23.9 MB and 45.3 MB. Its timer
+excludes the UI renderer and save commit, so it is not a conversion comparison.
+
+The stored ZIP fixture has 1,026 entries: one unselected 128 MiB member,
+one selected 34-byte text file, and 1,024 empty metadata files. Median listing,
+first selected preview and close times are 9.5 ms, 6.2 ms and 0.6 ms, sharing
+a process peak RSS of 19.0 MB. Each run verifies that listing creates no staging
+content, preview materializes only the selected member, close removes staging,
+and the closed session refuses reuse.
+
+Exporting the 1,024 empty members through Derived commit takes 1.966 s
+(1.939–2.082 s) with repeated readers and 0.105 s (0.104–0.121 s) with one
+reader: 18.7 times faster for this fixture. Peak RSS remains about 22.4 MB.
+An independent untimed sample identifies repeated archive-header traversal
+as the previous limiter. Exact output paths and zero lengths match in every
+run. This does not establish a speedup for single-member or large-payload
+exports. File/code caches are warm and background GUI services remain active.
+The 45 valid samples succeed; an initial relocated-binary resource-bundle
+setup failure is retained and excluded before any engine measurement.
+
+The seekable reader in pinned libarchive 3.8.10 scans the last 16 KiB for the
+last complete EOCD signature without validating its comment length. Bounded
+preflight must select that same signature before validating the directory;
+choosing an earlier record with a matching comment length is inconsistent.
+Small comment fixtures verify rejection of ambiguous tails and of ZIP64
+locators outside the reader's visible tail. Disable mac-ext processing to
+list AppleDouble entries explicitly and avoid hidden content reads.

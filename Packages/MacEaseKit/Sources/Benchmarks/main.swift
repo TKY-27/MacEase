@@ -1,6 +1,7 @@
 import AVFoundation
 import AudioToolbox
 import CoreGraphics
+import CryptoKit
 import Engine
 import Formats
 import Foundation
@@ -493,6 +494,11 @@ func benchmarkSingle(_ arguments: [String]) async throws {
         try await measure("\(op.rawValue) \(source.lastPathComponent)", target: .infinity) {
             outputs = try await run(op, preset: arguments.dropFirst(2).first, on: input)
         }
+        for output in outputs where op == .imageConvert && arguments.dropFirst(2).first == "svg" {
+            let bytes = try Data(contentsOf: output, options: .mappedIfSafe)
+            let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+            print("Output: \(output.lastPathComponent) bytes=\(bytes.count) sha256=\(digest)")
+        }
         if op == .videoCompress {
             guard outputs.count == 1, let output = outputs.first,
                 let bytes = try output.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes > 0
@@ -504,7 +510,13 @@ func benchmarkSingle(_ arguments: [String]) async throws {
 
 do {
     let arguments = Array(CommandLine.arguments.dropFirst())
-    if arguments.count >= 2 { try await benchmarkSingle(arguments) } else { try await benchmark() }
+    if arguments.first?.hasPrefix("feature.") == true {
+        try await FeatureBenchmarks.run(arguments)
+    } else if arguments.count >= 2 {
+        try await benchmarkSingle(arguments)
+    } else {
+        try await benchmark()
+    }
 } catch {
     print("Benchmark stopped: \(error)")
     exit(1)
