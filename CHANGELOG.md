@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-28
+
 ### Added
 
 - Image long-edge 720/480/360 px and video 360p presets under Resolution & Size.
@@ -19,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Register standard and bookmark-resolved user folders explicitly with Finder.
 - Preserve video/audio timing across speed changes and silent selections.
+- Select supported AAC bitrates for low-sample-rate speed outputs.
+- Clarify requested duration when trimming at keyframes.
 
 ## [1.1.0] - 2026-10-26
 
