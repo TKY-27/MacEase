@@ -296,12 +296,7 @@ private final class MPEG4Sink: AudioSink {
         var settings: [String: Any] = [AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: channels]
         switch codec {
         case .aac(let bitrate):
-            let layout = try PCMFormat.aacLayout(channels: channels)
-            settings[AVChannelLayoutKey] = Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size)
-            settings[AVFormatIDKey] = kAudioFormatMPEG4AAC
-            settings[AVEncoderBitRateKey] = bitrate
-            // Constant bitrate keeps target sizes predictable.
-            settings[AVEncoderBitRateStrategyKey] = AVAudioBitRateStrategy_Constant
+            settings = try PCMFormat.aacEncodingSettings(sampleRate: sampleRate, channels: channels, bitrate: bitrate)
         case .alac(let bits):
             if let layout = format.channelLayout {
                 settings[AVChannelLayoutKey] = Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size)

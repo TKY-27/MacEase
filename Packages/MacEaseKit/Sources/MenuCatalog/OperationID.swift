@@ -18,6 +18,8 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
 
     case videoResize = "video.resize"
     case videoTrim = "video.trim"
+    case videoEdit = "video.edit"
+    case videoSpeed = "video.speed"
     case videoCompress = "video.compress"
     case videoRotate = "video.rotate"
     case videoFlip = "video.flip"
@@ -108,6 +110,7 @@ extension OperationID {
         case .imageOCR: ["copy", "save", "show"]
         case .imageIconSet: ["icns", "appiconset", "ico"]
         case .videoFPS: ["24", "30", "60"]
+        case .videoSpeed: ["0.5", "0.75", "1.25", "1.5", "2", "4"]
         case .videoConvert: ["mp4", "mov", "m4v", "mkv", "webm", "avi", "flv"]
         case .videoToGIF: ["settings", "x"]
         case .videoToAnimatedWebP: ["settings"]
@@ -146,7 +149,7 @@ extension OperationID {
 
     public var offersCustom: Bool {
         switch self {
-        case .imageResize, .videoResize, .imageCompress, .videoCompress, .audioCompress: true
+        case .imageResize, .videoResize, .videoSpeed, .imageCompress, .videoCompress, .audioCompress: true
         default: false
         }
     }
@@ -154,7 +157,10 @@ extension OperationID {
     public var presetGroups: [[String]] {
         switch self {
         case .imageResize:
-            [["percent-75", "percent-50", "percent-25"], ["long-3840", "long-2560", "long-1920", "long-1080"]]
+            [
+                ["percent-75", "percent-50", "percent-25"],
+                ["long-3840", "long-2560", "long-1920", "long-1080", "long-720", "long-480", "long-360"],
+            ]
         case .imageCompress:
             [["discord", "x", "instagram", "email", "web"], ["quality-high", "quality-medium", "quality-low"]]
         case .imageConvert:
@@ -163,7 +169,7 @@ extension OperationID {
                 ["ico", "icns", "svg", "pdf"],
             ]
         case .videoResize:
-            [["percent-50"], ["2160p", "1080p", "720p", "480p"]]
+            [["percent-50"], ["2160p", "1080p", "720p", "480p", "360p"]]
         case .videoCompress:
             [
                 ["discord", "x", "instagram", "line", "email"], ["mb-10", "mb-25", "mb-50", "mb-100"],
@@ -177,7 +183,7 @@ extension OperationID {
 
     public var maximumSelection: Int? {
         switch self {
-        case .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64, .imageTraceSVG, .archiveBrowse: 1
+        case .videoEdit, .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64, .imageTraceSVG, .archiveBrowse: 1
         default: nil
         }
     }
@@ -186,7 +192,7 @@ extension OperationID {
         .imageResize, .imageCompress, .imageConvert, .imageHDRToSDR, .imageRotate, .imageFlip, .imageBackground,
         .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64,
         .imageAIRename, .imageAICustom,
-        .videoResize, .videoTrim, .videoThumbnail, .videoSubtitles, .videoCompress, .videoRotate,
+        .videoResize, .videoEdit, .videoSpeed, .videoThumbnail, .videoSubtitles, .videoCompress, .videoRotate,
         .videoFlip, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR, .videoExtractAudio,
         .videoFPS, .videoRemoveAudio, .videoBackground, .videoAICustom,
         .audioConvert, .audioSubtitles, .audioCompress, .audioNormalize, .audioTrim, .audioAICustom,

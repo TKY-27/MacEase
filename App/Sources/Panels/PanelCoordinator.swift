@@ -41,6 +41,8 @@ final class PanelCoordinator {
         case .archiveBrowse: showArchiveBrowser(inputs[0])
         case .imageResize, .videoResize: showSize(op, inputs)
         case .imageCompress, .videoCompress, .audioCompress: showTargetSize(op, inputs)
+        case .videoEdit: showVideoEdit(inputs[0])
+        case .videoSpeed: showSpeed(inputs)
         case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
         case .videoThumbnail where entry.preset == "choose-frame": showFramePicker(op, file: inputs[0])
         case .imageToPDF, .pdfMerge: showPageOrder(op, inputs)
@@ -53,6 +55,27 @@ final class PanelCoordinator {
         case .imageAICustom, .videoAICustom, .audioAICustom: showCustomAI(op, inputs)
         default:
             logger.error("No panel for \(op.rawValue, privacy: .public)")
+        }
+    }
+
+    private func showVideoEdit(_ url: URL) {
+        host.show(title: MenuStrings.operationName(.videoEdit)) { close in
+            VideoEditPanel(
+                url: url, store: store, trimMode: store.settings.video.trimMode,
+                cancel: close
+            ) { edit in
+                close()
+                self.launch(.videoEdit, .video(.edit(edit)), [url])
+            }
+        }
+    }
+
+    private func showSpeed(_ inputs: [URL]) {
+        host.show(title: MenuStrings.operationName(.videoSpeed)) { close in
+            SpeedPanel(store: store, cancel: close) { speed in
+                close()
+                self.launch(.videoSpeed, .video(.speed(speed)), inputs)
+            }
         }
     }
 

@@ -1322,13 +1322,20 @@
     },
     "Continue": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "続ける"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "Convert": {
       "comment": "Encoding panel action",
@@ -1913,13 +1920,20 @@
     "End (seconds)": {
       "comment": "Trim field",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End (seconds)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了 (秒)"
+            "value": "終了（秒）"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "End (seconds, 0 for full duration)": {
       "comment": "Animated image end time",
@@ -2233,13 +2247,20 @@
     },
     "Finder extension": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder extension"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder 拡張機能"
+            "value": "Finder拡張機能"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "Finder menu token": {
       "localizations": {
@@ -2442,13 +2463,20 @@
     },
     "Full Disk Access…": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Disk Access…"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "フルディスクアクセス…"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "Further file changes were stopped because undo history could not be saved. Check free disk space and access to the history folder, then retry.": {
       "comment": "Avoids implying earlier commits were rolled back",
@@ -4881,13 +4909,20 @@
     "Save as new file": {
       "comment": "Output mode",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save as new file"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "新しいファイルとして保存"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "Save as text file": {
       "localizations": {
@@ -5321,13 +5356,20 @@
     "Start (seconds)": {
       "comment": "Animated image start time",
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start (seconds)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始 (秒)"
+            "value": "開始（秒）"
           }
         }
-      }
+      },
+      "extractionState": "manual"
     },
     "Start at": {
       "localizations": {
@@ -7330,13 +7372,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resize"
+            "value": "Resolution & Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイズ変更"
+            "value": "解像度・サイズ変更"
           }
         }
       }
@@ -7731,6 +7773,23 @@
         }
       }
     },
+    "menu.op.video.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Video…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を編集…"
+          }
+        }
+      }
+    },
     "menu.op.video.extractAudio": {
       "extractionState": "manual",
       "localizations": {
@@ -7822,13 +7881,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resize"
+            "value": "Resolution & Size"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイズ変更"
+            "value": "解像度・サイズ変更"
           }
         }
       }
@@ -7846,6 +7905,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "回転"
+          }
+        }
+      }
+    },
+    "menu.op.video.speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback Speed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生速度"
           }
         }
       }
@@ -9244,6 +9320,23 @@
         }
       }
     },
+    "menu.preset.image.resize.long-360": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long Edge 360 px"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長辺360px"
+          }
+        }
+      }
+    },
     "menu.preset.image.resize.long-3840": {
       "extractionState": "manual",
       "localizations": {
@@ -9257,6 +9350,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "長辺 3840 px"
+          }
+        }
+      }
+    },
+    "menu.preset.image.resize.long-480": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long Edge 480 px"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長辺480px"
+          }
+        }
+      }
+    },
+    "menu.preset.image.resize.long-720": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long Edge 720 px"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長辺720px"
           }
         }
       }
@@ -10808,6 +10935,23 @@
         }
       }
     },
+    "menu.preset.video.resize.360p": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360p"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "360p"
+          }
+        }
+      }
+    },
     "menu.preset.video.resize.480p": {
       "extractionState": "manual",
       "localizations": {
@@ -11891,6 +12035,921 @@
           "stringUnit": {
             "state": "translated",
             "value": "…ほか %lld 件"
+          }
+        }
+      }
+    },
+    "Folder Access": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder Access"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダアクセス"
+          }
+        }
+      }
+    },
+    "Add Folder…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Folder…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを追加…"
+          }
+        }
+      }
+    },
+    "Add Folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを追加"
+          }
+        }
+      }
+    },
+    "Choose folders to register with MacEase.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose folders to register with MacEase."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseに登録するフォルダを選択してください。"
+          }
+        }
+      }
+    },
+    "Not checked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not checked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未確認"
+          }
+        }
+      }
+    },
+    "Readable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Readable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り可能"
+          }
+        }
+      }
+    },
+    "Access denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access denied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス拒否"
+          }
+        }
+      }
+    },
+    "Checking…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認中…"
+          }
+        }
+      }
+    },
+    "Unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できません"
+          }
+        }
+      }
+    },
+    "Saved folders could not be read: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved folders could not be read: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存したフォルダを読み込めませんでした：%@"
+          }
+        }
+      }
+    },
+    "The folder could not be saved: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder could not be saved: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを保存できませんでした：%@"
+          }
+        }
+      }
+    },
+    "Extension Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extension Settings…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能の設定…"
+          }
+        }
+      }
+    },
+    "MacEase registers all local and mounted locations. Access still depends on macOS permissions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase registers all local and mounted locations. Access still depends on macOS permissions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseはローカルと接続済みの場所を登録します。実際のアクセスにはmacOSの権限が必要です。"
+          }
+        }
+      }
+    },
+    "Check Access": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Access"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスを確認"
+          }
+        }
+      }
+    },
+    "Remove from List": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from List"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧から削除"
+          }
+        }
+      }
+    },
+    "Registered Folders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registered Folders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録フォルダ"
+          }
+        }
+      }
+    },
+    "Registration requested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registration requested"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登録要求済み"
+          }
+        }
+      }
+    },
+    "Location unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Location unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "場所を利用できません"
+          }
+        }
+      }
+    },
+    "Removing a folder only removes its explicit registration. It does not revoke macOS permissions or block MacEase there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removing a folder only removes its explicit registration. It does not revoke macOS permissions or block MacEase there."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧から削除しても追加登録が解除されるだけです。macOSの権限は取り消されず、その場所でのMacEaseの利用も禁止されません。"
+          }
+        }
+      }
+    },
+    "Access and Availability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access and Availability"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスと利用状況"
+          }
+        }
+      }
+    },
+    "Readable confirms folder listing only. Write access is checked when saving a result.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Readable confirms folder listing only. Write access is checked when saving a result."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「読み取り可能」はフォルダ一覧の取得を確認した結果です。書き込み権限は結果の保存時に確認します。"
+          }
+        }
+      }
+    },
+    "For cloud folders without a MacEase menu, use Services → Process with MacEase… in Finder.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For cloud folders without a MacEase menu, use Services → Process with MacEase… in Finder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドフォルダにMacEaseメニューが表示されない場合は、Finderの「サービス → MacEaseで操作…」を使ってください。"
+          }
+        }
+      }
+    },
+    "Files and Folders…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and Folders…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルとフォルダ…"
+          }
+        }
+      }
+    },
+    "Refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再確認"
+          }
+        }
+      }
+    },
+    "Folder access": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder access"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダアクセス"
+          }
+        }
+      }
+    },
+    "Select files or folders in Finder first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select files or folders in Finder first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初にFinderでファイルまたはフォルダを選択してください。"
+          }
+        }
+      }
+    },
+    "MacEase is starting. Try the service again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase is starting. Try the service again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseを起動しています。もう一度サービスを実行してください。"
+          }
+        }
+      }
+    },
+    "No enabled operations match this selection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No enabled operations match this selection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この選択に適用できる操作が有効になっていません。"
+          }
+        }
+      }
+    },
+    "Process with MacEase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process with MacEase"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseで操作"
+          }
+        }
+      }
+    },
+    "Process with MacEase…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process with MacEase…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseで操作…"
+          }
+        }
+      }
+    },
+    "The menu changed. Close this window and choose the service again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The menu changed. Close this window and choose the service again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューが変更されました。このウインドウを閉じて、もう一度サービスを選択してください。"
+          }
+        }
+      }
+    },
+    "%lld selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目を選択中"
+          }
+        }
+      }
+    },
+    "Find an operation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find an operation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を検索"
+          }
+        }
+      }
+    },
+    "Playback speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback speed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生速度"
+          }
+        }
+      }
+    },
+    "Presets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセット"
+          }
+        }
+      }
+    },
+    "Change Speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Speed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度を変更"
+          }
+        }
+      }
+    },
+    "Enter a speed from 0.5 to 4. The audio pitch stays the same.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a speed from 0.5 to 4. The audio pitch stays the same."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0.5〜4倍の数値を入力してください。音声の音程は維持されます。"
+          }
+        }
+      }
+    },
+    "Enter a number from 0.5 to 4.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a number from 0.5 to 4."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0.5〜4の数値を入力してください。"
+          }
+        }
+      }
+    },
+    "Save Video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Video"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を保存"
+          }
+        }
+      }
+    },
+    "Preview Selection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲を再生"
+          }
+        }
+      }
+    },
+    "Resolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolution"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解像度"
+          }
+        }
+      }
+    },
+    "Original resolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original resolution"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の解像度"
+          }
+        }
+      }
+    },
+    "The source is already smaller. Its resolution will stay unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The source is already smaller. Its resolution will stay unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の動画はすでに小さいため、解像度は変更しません。"
+          }
+        }
+      }
+    },
+    "Output duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output duration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力の再生時間"
+          }
+        }
+      }
+    },
+    "Output dimensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output dimensions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力の寸法"
+          }
+        }
+      }
+    },
+    "seconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒"
+          }
+        }
+      }
+    },
+    "Enter a valid time range and a speed from 0.5 to 4.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a valid time range and a speed from 0.5 to 4."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な時間範囲と0.5〜4倍の速度を入力してください。"
+          }
+        }
+      }
+    },
+    "Saving": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saving"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存方式"
+          }
+        }
+      }
+    },
+    "Replace original (Trash and Undo)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace original (Trash and Undo)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルを置換（ゴミ箱へ移動・取り消し可能）"
+          }
+        }
+      }
+    },
+    "Custom Speed…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Speed…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム速度…"
+          }
+        }
+      }
+    },
+    "%@ seconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@秒"
+          }
+        }
+      }
+    },
+    "Selected duration": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected duration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定範囲の時間"
+          }
+        }
+      }
+    },
+    "Keyframe cuts may start earlier than the selected range. Choose Exact for an exact duration.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyframe cuts may start earlier than the selected range. Choose Exact for an exact duration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーフレームで切り出すと、指定範囲より前から始まる場合があります。正確な時間で切り出すには「正確」を選んでください。"
+          }
+        }
+      }
+    },
+    "If macOS keeps an access request waiting, select that folder with Add Folder, then restart MacEase and retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If macOS keeps an access request waiting, select that folder with Add Folder, then restart MacEase and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOSのアクセス要求が待機したままの場合は、「フォルダを追加」で対象フォルダを選択し、MacEaseを再起動してから再試行してください。"
           }
         }
       }

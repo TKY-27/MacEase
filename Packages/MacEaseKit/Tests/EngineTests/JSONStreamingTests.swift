@@ -237,7 +237,25 @@ import Testing
             settings.jsonKeyComparison = .caseInsensitive
             try JSONFormatter.write(source, .sortKeys, settings: settings, to: output)
         }
-        var reachedSpooling = false
+        let reachedSpooling: Bool = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue(label: "JSONSpoolCancellationObserver").async {
+                do {
+                    let reached = try Self.waitForSpool(phase, in: directory)
+                    task.cancel()
+                    continuation.resume(returning: reached)
+                } catch {
+                    task.cancel()
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+        #expect(reachedSpooling)
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["source.json"])
+        #expect(try Data(contentsOf: source) == bytes)
+    }
+
+    private static func waitForSpool(_ phase: String, in directory: URL) throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(120))
         while clock.now < deadline {
@@ -247,16 +265,11 @@ import Testing
                 if let attributes = try? FileManager.default.attributesOfItem(atPath: values.path),
                     let size = attributes[.size] as? NSNumber, size.intValue >= 65_536
                 {
-                    reachedSpooling = true
-                    break
+                    return true
                 }
             }
-            try await Task.sleep(for: .milliseconds(1))
+            Thread.sleep(forTimeInterval: 0.001)
         }
-        task.cancel()
-        #expect(reachedSpooling)
-        await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["source.json"])
-        #expect(try Data(contentsOf: source) == bytes)
+        return false
     }
 }

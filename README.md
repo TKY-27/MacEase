@@ -40,6 +40,14 @@ After setup, select files or folders in Finder, right-click, and choose
 **MacEase**. Open **Settings** from the MacEase menu bar icon. Opening MacEase
 again shows Welcome until setup is done, then Settings.
 
+**Settings > Folder Access** lists standard and added folders. Use **Add Folder…**
+here or in Welcome, check access, and open a location in Finder. Registration
+is separate from macOS permissions. Removing an entry does not revoke access.
+If an iCloud folder suppresses the MacEase menu, use **Services > Process with
+MacEase…** (Finder may show it directly in the context menu). If macOS leaves
+an access request waiting, select the affected folder with **Add Folder…**,
+restart MacEase, and retry. This does not require Full Disk Access.
+
 ---
 
 ## Features
@@ -64,7 +72,7 @@ window for input, review, or confirmation.
 
 | Operation | What it does |
 | --- | --- |
-| **Resize** | Scale by percentage or long edge in pixels, or enter a **Custom Size…** |
+| **Resolution & Size** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
 | **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
 | **Trace to SVG…** | Compare a static PNG with editable SVG paths; choose 1–8 colors and three detail levels, then save a new file |
@@ -92,8 +100,9 @@ before saving.
 
 | Operation | What it does |
 | --- | --- |
-| **Resize** | Scale by percentage or to a standard height, or enter a **Custom Size…** |
-| **Trim…** | Keep only the part you mark |
+| **Resolution & Size** | Scale by percentage or to a 2160p/1080p/720p/480p/360p short edge; **Custom Size…** fits a box |
+| **Edit Video…** | Combine time range, speed and resolution in one export; preview output duration, dimensions and save policy |
+| **Playback Speed** | 0.5, 0.75, 1.25, 1.5, 2 and 4× presets, plus arbitrary **Custom Speed…** from 0.5–4×; preserve pitch, including batch processing |
 | **Thumbnail** | Save the first, middle, or a chosen frame as an image |
 | **Subtitles** | Transcribe to SRT, WebVTT, or plain text, or export translated SRT |
 | **Compress** | Discord, X, Instagram Reels, LINE, and Email presets, fixed size targets, quality levels, or a **Custom Size…** |

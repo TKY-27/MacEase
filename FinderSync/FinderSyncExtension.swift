@@ -33,26 +33,33 @@ final class FinderSyncExtension: FIFinderSync {
         ] {
             notifications.addObserver(self, selector: #selector(volumesDidChange(_:)), name: name, object: nil)
         }
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(locationsDidChange(_:)),
+            name: FinderLocations.notificationName(supportFolder: supportFolder), object: nil,
+            suspensionBehavior: .deliverImmediately)
         updateMonitoredDirectories()
     }
 
     deinit {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
+        DistributedNotificationCenter.default().removeObserver(self)
     }
 
     @objc private func volumesDidChange(_ notification: Notification) {
         updateMonitoredDirectories()
     }
 
+    @objc private func locationsDidChange(_ notification: Notification) {
+        cache.withLock { $0.modified = nil }
+        updateMonitoredDirectories()
+    }
+
     private func updateMonitoredDirectories() {
         directoryRegistration.withLock { _ in
-            var directories: Set<URL> = [URL(fileURLWithPath: "/", isDirectory: true)]
-            if let volumes = FileManager.default.mountedVolumeURLs(
-                includingResourceValuesForKeys: [], options: [])
-            {
-                directories.formUnion(volumes)
-            }
-            FIFinderSyncController.default().directoryURLs = directories
+            let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [], options: []) ?? []
+            FIFinderSyncController.default().directoryURLs = FinderLocations.directories(
+                home: Self.realHomeDirectory, volumes: volumes,
+                additionalPaths: currentMenuFile()?.monitoredDirectoryPaths ?? [])
         }
     }
 

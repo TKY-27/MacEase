@@ -33,6 +33,11 @@ enum VideoEdits {
         _ = try input.displayOrientation
         let container = input.container
         switch operation {
+        case .speed(let speed):
+            return try edited(
+                VideoEdit(speed: speed), input: input, source: source, settings: settings, audioSettings: audioSettings)
+        case .edit(let edit):
+            return try edited(edit, input: input, source: source, settings: settings, audioSettings: audioSettings)
         case .removeAudio:
             guard input.audio != nil else { throw SkipError(.nothingToRemove) }
             return TranscodePlan(container: container, video: .copy, audio: nil)
@@ -178,20 +183,47 @@ enum VideoEdits {
     }
 
     private static func resized(_ display: PixelSize, _ resize: VideoResize) throws -> PixelSize {
-        let shortSide = min(display.width, display.height)
-        let scale: Double =
-            switch resize {
-            case .percent(let percent): Double(percent) / 100
-            case .lines(let lines): Double(lines) / Double(shortSide)
-            case .size(let width, let height):
-                min(Double(width) / Double(display.width), Double(height) / Double(display.height))
-            }
-        guard scale.isFinite, scale > 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
-        guard scale < 1 else { throw SkipError(.noUpscale) }
-        guard let width = Int(exactly: (Double(display.width) * scale).rounded()),
-            let height = Int(exactly: (Double(display.height) * scale).rounded())
+        let result = try resize.outputSize(display)
+        guard result != display else { throw SkipError(.noUpscale) }
+        return result
+    }
+
+    private static func edited(
+        _ edit: VideoEdit, input: MediaInput, source: MediaTrack, settings: VideoSettings,
+        audioSettings: AudioSettings
+    ) throws -> TranscodePlan {
+        guard edit.start.isFinite, edit.start >= 0,
+            edit.end.map({ $0.isFinite && $0 > edit.start }) ?? true
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
-        return PixelSize(width: width, height: height).evened()
+        let start = try Nanoseconds.from(seconds: edit.start)
+        let end = try edit.end.map(Nanoseconds.from(seconds:)) ?? input.duration
+        guard start < end, end <= input.duration else {
+            throw EngineError.invalidInput(.malformed("empty or out-of-bounds edit range"))
+        }
+        _ = try VideoTiming(start: start, speed: edit.speed)
+        let size = try edit.resize?.outputSize(input.displaySize)
+        let changesSize = size.map { $0 != input.displaySize } ?? false
+        let changesRange = start != 0 || end != input.duration
+        guard edit.speed != 1 || changesSize || changesRange else { throw SkipError(.alreadyDone) }
+        if edit.speed == 1, !changesSize {
+            return try plan(
+                .trim(start: edit.start, end: Double(end) / Double(Nanoseconds.perSecond), mode: edit.trimMode),
+                input: input, source: source, settings: settings, audioSettings: audioSettings)
+        }
+        var frameEdit = try baked(input)
+        if changesSize { frameEdit.size = size }
+        var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
+        plan.range = start..<end
+        plan.startsAtKeyframe = false
+        plan.playbackSpeed = edit.speed
+        if edit.speed != 1, input.audio != nil {
+            switch input.container {
+            case .webm, .mkv: plan.audio = .encode(.opus, kilobits: audioSettings.opusBitrate)
+            case .avi, .flv: plan.audio = .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)
+            default: plan.audio = .encode(.aac, kilobits: audioSettings.aacBitrate)
+            }
+        }
+        return plan
     }
 
     /// Maps coded pixels to the display.

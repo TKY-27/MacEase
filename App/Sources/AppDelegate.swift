@@ -13,12 +13,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configuration = HostConfiguration.current
     private let logger = Logger(category: "app")
     private let settings = SettingsStore()
+    private let folders = FolderAccessStore()
     private let updates = UpdateChecker()
     private lazy var notifier = BatchNotifier(settings: settings)
     private var jobs: JobCenter?
     private var panels: PanelCoordinator?
     private var activity: ActivityWindow?
     private var router: RequestRouter?
+    private var finderService: FinderService?
     private var statusItem: StatusItemController?
     private var menuFile: MenuFile?
     private var javaAvailable = false
@@ -75,12 +77,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] in self?.showSettings() }
         NSApp.mainMenu = MainMenu.make { [weak self] in self?.showSettings() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
+        folders.onChange = { [weak self] in self?.refreshMenuFile() }
+        for name in [
+            NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+            NSWorkspace.didRenameVolumeNotification,
+        ] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                self, selector: #selector(folderVolumesChanged(_:)), name: name, object: nil)
+        }
         updates.onNewRelease = { [notifier] release in
             notifier.notify(
                 title: String(localized: "MacEase \(release.version) is available", comment: "Update notification"),
                 body: String(localized: "Open the menu bar menu to see the release.", comment: "Update notification")
             )
         }
+        refreshMenuFile()
+        let service = FinderService(catalog: { [weak self] in self?.menuFile }, jobs: jobs)
+        finderService = service
+        NSApp.servicesProvider = service
+        NSUpdateDynamicServices()
         Task { await finishLaunching(engine: engine, jobs: jobs) }
         let isDefaultLaunch = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? false
         if !settings.onboardingCompleted || (isDefaultLaunch && !launchedAsLoginItem) { openApp() }
@@ -113,13 +128,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeWindows(jobs: JobCenter) {
         settingsWindow = SingleWindowPresenter { [unowned self] in
             SettingsWindow.make(
-                store: settings, notifier: notifier, jobs: jobs, supportDirectory: configuration.supportDirectory,
+                store: settings, folders: folders, notifier: notifier, jobs: jobs,
+                supportDirectory: configuration.supportDirectory,
                 showWelcome: { [weak self] in self?.welcomeWindow?.show() },
                 rotateToken: { [weak self] in try self?.rotateToken() }
             )
         }
         welcomeWindow = SingleWindowPresenter { [unowned self] in
-            let view = WelcomeView(notifier: notifier, isFirstRun: !settings.onboardingCompleted) {
+            let view = WelcomeView(notifier: notifier, folders: folders, isFirstRun: !settings.onboardingCompleted) {
                 [weak self] in
                 self?.settings.onboardingCompleted = true
                 self?.welcomeWindow?.close()
@@ -255,9 +271,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func writeMenuFile() throws {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
-            visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning
+            visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
+            monitoredPaths: folders.monitoredPaths
         )
         menuInputs = inputs
+    }
+
+    @objc private func folderVolumesChanged(_ notification: Notification) {
+        folders.refreshLocations()
     }
 
     private var currentMenuInputs: [OperationID] {

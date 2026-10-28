@@ -21,6 +21,7 @@ final class FrameSampler {
     private let sourceFrameDuration: Int64
     private let sourceCodec: MediaCodec
     private let end: Int64
+    private let timing: VideoTiming
     private var decoded: [DecodedFrame] = []
     private var sourceQueue: [DecodedFrame] = []
     private var nextOutput: Int64
@@ -30,7 +31,7 @@ final class FrameSampler {
 
     init(
         input: MediaInput, frameDuration: Int64, edit: FrameEdit, start: Int64, end: Int64,
-        hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool = false
+        hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool = false, speed: Double = 1
     ) async throws {
         guard let track = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         if hdr != nil {
@@ -39,6 +40,7 @@ final class FrameSampler {
                 width: input.codedSize.width, height: input.codedSize.height,
                 bytesPerPixel: Self.hdrBytesPerPixel, frameCount: Self.hdrWorkingFrames)
         }
+        timing = try VideoTiming(start: start, speed: speed)
         self.edit = edit
         self.hdr = hdr
         display = track.displayGeometry
@@ -69,14 +71,17 @@ final class FrameSampler {
     func next() async throws -> DecodedFrame? {
         while true {
             try Task.checkCancellation()
-            let (center, centerOverflow) = nextOutput.addingReportingOverflow(frameDuration / 2)
+            let (outputCenter, centerOverflow) = nextOutput.addingReportingOverflow(frameDuration / 2)
             guard !centerOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-            guard center < end else {
+            let sourceStart = try timing.sourceTime(nextOutput)
+            let center = try timing.sourceTime(outputCenter)
+            let firstShortFrame = timing.speed != 1 && nextOutput == timing.start && sourceStart < end
+            guard center < end || firstShortFrame else {
                 decoded.removeAll()
                 sourceQueue.removeAll()
                 return nil
             }
-            if let chosen = try ready(center: center) {
+            if let chosen = try ready(center: min(center, end - 1)) {
                 let image = try processor(for: chosen.image).process(chosen.image)
                 let timestamp = nextOutput
                 let (following, followingOverflow) = nextOutput.addingReportingOverflow(frameDuration)

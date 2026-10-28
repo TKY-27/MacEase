@@ -8,13 +8,14 @@ enum SettingsWindow {
     private static let frameName = "Settings"
 
     static func make(
-        store: SettingsStore, notifier: BatchNotifier, jobs: JobCenter, supportDirectory: URL,
+        store: SettingsStore, folders: FolderAccessStore, notifier: BatchNotifier, jobs: JobCenter,
+        supportDirectory: URL,
         showWelcome: @escaping () -> Void, rotateToken: @escaping () throws -> Void
     ) -> NSWindow {
         // The window title follows the controller's title.
         var controller: NSHostingController<SettingsView>?
         let view = SettingsView(
-            store: store, notifier: notifier, jobs: jobs, supportDirectory: supportDirectory,
+            store: store, folders: folders, notifier: notifier, jobs: jobs, supportDirectory: supportDirectory,
             showWelcome: showWelcome, rotateToken: rotateToken
         ) { controller?.title = $0 }
         let hosting = NSHostingController(rootView: view)
@@ -33,6 +34,7 @@ enum SettingsWindow {
 enum SettingsPage: String, CaseIterable, Identifiable {
     case general
     case finderMenu
+    case folderAccess
     case images
     case video
     case audio
@@ -47,6 +49,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .general: String(localized: "General", comment: "Settings page")
+        case .folderAccess: String(localized: "Folder Access", comment: "Settings page")
         case .finderMenu: String(localized: "Finder Menu", comment: "Settings page")
         case .images: String(localized: "Images", comment: "Settings page")
         case .video: String(localized: "Video", comment: "Settings page")
@@ -63,6 +66,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .finderMenu: "contextualmenu.and.cursorarrow"
+        case .folderAccess: "folder.badge.gearshape"
         case .images: "photo"
         case .video: "film"
         case .audio: "waveform"
@@ -77,6 +81,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     let store: SettingsStore
+    let folders: FolderAccessStore
     let notifier: BatchNotifier
     let jobs: JobCenter
     let supportDirectory: URL
@@ -106,6 +111,7 @@ struct SettingsView: View {
     @ViewBuilder private func detail(_ page: SettingsPage) -> some View {
         switch page {
         case .general: GeneralSettingsView(store: store, notifier: notifier, showWelcome: showWelcome)
+        case .folderAccess: FolderAccessSettingsView(folders: folders)
         case .finderMenu: FinderMenuSettingsView(store: store, supportDirectory: supportDirectory)
         case .images: ImageSettingsView(store: store)
         case .video: VideoSettingsView(store: store)

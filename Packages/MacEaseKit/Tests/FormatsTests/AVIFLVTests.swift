@@ -221,6 +221,31 @@ private typealias Fixture = ContainerFixtures
 }
 
 @Suite struct FLVTests {
+    @Test(arguments: [1, 2])
+    func pcmAudioRoundTripsWithoutPriming(channels: Int) throws {
+        let url = Fixture.temporaryURL("pcm.flv")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let track = MediaTrack(
+            number: 2, kind: .audio(sampleRate: 44_100, channels: channels),
+            codec: .pcm(bits: 16, float: false, bigEndian: false))
+        var muxer = try FLVMuxer(url: url, tracks: [track])
+        let payload = Data((0..<(441 * channels * 2)).map { UInt8($0 % 256) })
+        for timestamp in [0, 10 * Nanoseconds.perMillisecond] {
+            try muxer.write(
+                MediaPacket(
+                    track: 2, timestamp: timestamp, duration: 10 * Nanoseconds.perMillisecond,
+                    isKeyframe: true, payload: payload))
+        }
+        try muxer.finish()
+        var demuxer = try FLVDemuxer(url: url)
+        #expect(demuxer.tracks.first?.codec == track.codec)
+        #expect(demuxer.tracks.first?.kind == track.kind)
+        let packets = try Fixture.packets(&demuxer)
+        #expect(packets.count == 2)
+        #expect(packets.map(\.timestamp) == [0, 10 * Nanoseconds.perMillisecond])
+        #expect(packets.allSatisfy { $0.payload == payload })
+    }
+
     @Test func rejectsOversizedSPSDimensions() throws {
         let oversizedSPS: [UInt8] = [0x67, 0x42, 0, 0x33, 0xF4, 0, 0x20, 0x0F, 0x20]
         let pictureParameters: [UInt8] = [0x28, 0xEE, 0x3C, 0xB0]

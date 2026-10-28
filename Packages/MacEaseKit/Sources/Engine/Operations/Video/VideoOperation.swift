@@ -52,6 +52,8 @@ public struct AnimationRendering: Codable, Hashable, Sendable {
 public enum VideoOperation: Codable, Hashable, Sendable {
     case hdrToSDR
     case resize(VideoResize)
+    case speed(Double)
+    case edit(VideoEdit)
     case trim(start: Double, end: Double, mode: TrimMode)
     /// Clockwise degrees.
     case rotate(degrees: Double, fill: RGBColor)
@@ -82,6 +84,9 @@ enum VideoPlanner {
         if op == .videoRemoveAudio { return .removeAudio }
         guard let preset else { return nil }
         switch op {
+        case .videoSpeed:
+            guard op.presets.contains(preset), let speed = Double(preset) else { return nil }
+            return .speed(speed)
         case .videoResize:
             let slotID = "video.resize/\(preset)"
             guard let slot = MenuValues.slots.first(where: { $0.id == slotID }),
@@ -229,7 +234,7 @@ extension VideoOperation {
         case .removeAudio, .still, .gif, .apng, .webP, .gifX, .extractAudio, .subtitles: false
         case .trim(_, _, let mode): mode == .exact
         case .convert(let container): container != .webm && container != .avi
-        case .resize, .rotate, .flip, .frameRate, .compress, .background, .hdrToSDR: true
+        case .resize, .speed, .edit, .rotate, .flip, .frameRate, .compress, .background, .hdrToSDR: true
         }
     }
 }

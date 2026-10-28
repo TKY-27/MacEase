@@ -27,6 +27,7 @@ struct TranscodePlan {
     /// Replaces backgrounds before encoding.
     var matte: BackgroundMatte?
     var toneMapToSDR = false
+    var playbackSpeed = 1.0
     var metadata: VideoMetadata?
     var copiedDisplayTrack: MediaTrack?
     var copiedDisplayFormat: CMFormatDescription?
@@ -58,13 +59,14 @@ enum Transcoder {
         let start = try await startTime(input, plan: plan)
         // Streams may outlast the container's stated duration.
         let end = plan.range?.upperBound ?? .max
-        let progressEnd = plan.range?.upperBound ?? input.duration
+        let timing = try VideoTiming(start: start, speed: plan.playbackSpeed)
+        let progressEnd = try timing.outputTime(plan.range?.upperBound ?? input.duration)
         var stages: [any StreamStage] = []
         if let video = plan.video, let track = input.video {
             stages.append(
                 try await videoStage(
                     video, track: track, input: input, matte: plan.matte, start: start, end: end,
-                    toneMapToSDR: plan.toneMapToSDR, destination: plan.container))
+                    toneMapToSDR: plan.toneMapToSDR, destination: plan.container, speed: plan.playbackSpeed))
         }
         if let audio = plan.audio, let track = input.audio {
             let number = stages.count + 1
@@ -75,10 +77,21 @@ enum Transcoder {
                         input: input, track: track, number: number, start: start, end: end,
                         destination: plan.container))
             case .encode(let codec, let kilobits):
-                stages.append(
-                    try AudioEncodeStage(
-                        input: input, track: track, number: number, codec: codec, kilobits: kilobits,
-                        start: start, end: end))
+                if plan.playbackSpeed == 1 {
+                    stages.append(
+                        try AudioEncodeStage(
+                            input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                            start: start, end: end, destination: plan.container))
+                } else {
+                    let stretched = try await TimeStretchedAudio(
+                        input: input, track: track, start: start, end: end, speed: plan.playbackSpeed,
+                        stagingDirectory: url.deletingLastPathComponent())
+                    stages.append(
+                        try AudioEncodeStage(
+                            input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                            start: start, end: end, sourceOverride: VideoPCMSource(stretched: stretched, start: start),
+                            destination: plan.container))
+                }
             }
         }
         guard !stages.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
@@ -176,7 +189,7 @@ enum Transcoder {
 
     private static func videoStage(
         _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
-        end: Int64, toneMapToSDR: Bool, destination: OutputContainer
+        end: Int64, toneMapToSDR: Bool, destination: OutputContainer, speed: Double
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
@@ -185,7 +198,7 @@ enum Transcoder {
         case .encode(let encoding, let edit):
             try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
-                toneMapToSDR: toneMapToSDR)
+                toneMapToSDR: toneMapToSDR, speed: speed)
         case .toneMapToSDR(let encoding):
             try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }
@@ -425,11 +438,11 @@ final class FrameEncodeStage: StreamStage {
 
     init(
         input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, matte: BackgroundMatte?, start: Int64,
-        end: Int64, toneMapToSDR: Bool = false
+        end: Int64, toneMapToSDR: Bool = false, speed: Double = 1
     ) async throws {
         sampler = try await FrameSampler(
             input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end,
-            hdr: encoding.hdr, toneMapToSDR: toneMapToSDR)
+            hdr: encoding.hdr, toneMapToSDR: toneMapToSDR, speed: speed)
         encoder = try VideoEncoders.make(encoding, track: 1)
         self.matte = matte
         upcoming = start
@@ -450,7 +463,7 @@ final class FrameEncodeStage: StreamStage {
             upcoming = nil
             return try encoder.finish()
         }
-        upcoming = sampler.position
+        upcoming = frame.timestamp
         let image = try await matte?.apply(frame.image) ?? frame.image
         return try encoder.encode(image, timestamp: frame.timestamp)
     }

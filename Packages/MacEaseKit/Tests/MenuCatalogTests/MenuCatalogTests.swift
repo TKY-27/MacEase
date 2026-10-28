@@ -160,11 +160,11 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
             })
     }
 
-    @Test func customExistsOnlyForSizeOperations() {
+    @Test func customExistsForSizeAndPlaybackSpeedOperations() {
         let file = menuFile()
         #expect(
             Set(file.entries.filter(\.isCustom).map(\.op)) == [
-                .imageResize, .videoResize, .imageCompress, .videoCompress, .audioCompress,
+                .imageResize, .videoResize, .imageCompress, .videoCompress, .audioCompress, .videoSpeed,
             ])
         #expect(file.entries.contains { $0.op == .videoThumbnail && $0.preset == "choose-frame" && !$0.isCustom })
         #expect(file.entries.filter { $0.op == .imageConvert }.count == 14)
@@ -324,7 +324,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test(arguments: [
-        (OperationID.videoTrim, "mov"), (.audioTrim, "wav"), (.pdfExtractPages, "pdf"), (.imageCopyBase64, "png"),
+        (OperationID.videoEdit, "mov"), (.audioTrim, "wav"), (.pdfExtractPages, "pdf"), (.imageCopyBase64, "png"),
     ])
     func singleOnlyOperationsUsePerKindCounts(op: OperationID, suffix: String) {
         let file = menuFile([op])
@@ -355,7 +355,10 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
                 "image.resize/long-3840", "image.resize/custom",
             ])
         let nodes = MenuLayout.nodes(for: file, selection: selection(["a.png"]))
-        #expect(leaves(nodes).count == 3)
+        #expect(
+            Set(leaves(nodes).compactMap { file.entries[$0].preset }) == [
+                "long-360", "long-480", "long-720", "long-1080", "long-1920", "long-2560",
+            ])
         checkSeparators(nodes)
         let entries = [
             MenuEntry(op: .imageConvert, preset: "jpeg", path: ["Convert", "JPEG"]),

@@ -5,6 +5,7 @@ import UserNotifications
 
 struct WelcomeView: View {
     let notifier: BatchNotifier
+    let folders: FolderAccessStore
     let finish: () -> Void
 
     @State private var extensionEnabled = FIFinderSyncController.isExtensionEnabled
@@ -21,8 +22,9 @@ struct WelcomeView: View {
     private static let margin: CGFloat = 32
 
     /// Later runs keep the user's login choice.
-    init(notifier: BatchNotifier, isFirstRun: Bool, finish: @escaping () -> Void) {
+    init(notifier: BatchNotifier, folders: FolderAccessStore, isFirstRun: Bool, finish: @escaping () -> Void) {
         self.notifier = notifier
+        self.folders = folders
         self.finish = finish
         _launchesAtLogin = State(initialValue: isFirstRun || LoginItem.isOn)
     }
@@ -127,6 +129,10 @@ struct WelcomeView: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Notifications"))
             .accessibilityHint(Text("Results with Undo when a batch finishes."))
+            LabeledContent("Folder access") {
+                Button("Add Folder…", action: folders.addFolder)
+            }
+            if let failure = folders.failure { ProblemLabel(text: failure) }
             Toggle(isOn: $launchesAtLogin) {
                 Text("Launch at login")
                 Text("Keeps the Finder menu instant.")

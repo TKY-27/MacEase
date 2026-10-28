@@ -92,7 +92,12 @@ final class SettingsStore {
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
         ])
         settings = Self.decodeSettings(from: defaults)
-        hiddenEntries = Self.loadHiddenEntries(from: defaults)
+        var hidden = Self.loadHiddenEntries(from: defaults)
+        if hidden.remove(OperationID.videoTrim.menuEntryKey("")) != nil {
+            hidden.insert(OperationID.videoEdit.menuEntryKey(""))
+            defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
+        }
+        hiddenEntries = hidden
         notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
         showsActivity = defaults.bool(forKey: Key.showsActivity)
         activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)

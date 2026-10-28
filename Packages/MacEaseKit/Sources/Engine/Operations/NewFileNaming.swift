@@ -28,6 +28,10 @@ enum NewFileNaming: Sendable {
             case .rotate: self = .edit("rotated")
             case .flip: self = .edit("flipped")
             case .trim: self = .edit("trimmed")
+            case .edit: self = .edit("edited")
+            case .speed(let speed):
+                self = .edit(
+                    "speed\(speed.formatted(.number.grouping(.never).locale(Locale(identifier: "en_US_POSIX"))))x")
             case .frameRate: self = .edit("fps")
             case .removeAudio: self = .edit("noaudio")
             case .extractAudio, .still, .gif, .apng, .webP, .gifX, .subtitles, .background: return nil

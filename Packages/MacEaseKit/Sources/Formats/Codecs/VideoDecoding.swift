@@ -232,7 +232,19 @@ public enum SampleBuffers {
         }
         let presentation = sampleTime(packet.timestamp)
         var sample: CMSampleBuffer?
-        if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio {
+        if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio,
+            let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee,
+            basic.mFormatID == kAudioFormatLinearPCM
+        {
+            let frameBytes = Int(basic.mBytesPerFrame)
+            guard frameBytes > 0, payload.count.isMultiple(of: frameBytes) else {
+                throw FormatError.decoderFailure("invalid PCM packet length")
+            }
+            status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(
+                allocator: nil, dataBuffer: block, formatDescription: format, sampleCount: payload.count / frameBytes,
+                presentationTimeStamp: presentation, packetDescriptions: nil, sampleBufferOut: &sample)
+        } else if CMFormatDescriptionGetMediaType(format) == kCMMediaType_Audio {
+
             var description = AudioStreamPacketDescription(
                 mStartOffset: 0, mVariableFramesInPacket: 0, mDataByteSize: UInt32(payload.count))
             status = CMAudioSampleBufferCreateReadyWithPacketDescriptions(

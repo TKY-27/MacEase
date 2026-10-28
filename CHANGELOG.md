@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Image long-edge 720/480/360 px and video 360p presets under Resolution & Size.
+- Pitch-preserving video speed presets and arbitrary custom values from 0.5–4×.
+- Edit Video combines trimming, speed and resolution, with output previews.
+- Folder Access settings and Welcome folder registration using native pickers.
+- A Finder Services chooser for locations that suppress Finder Sync menus.
+
+### Fixed
+
+- Register standard and bookmark-resolved user folders explicitly with Finder.
+- Preserve video/audio timing across speed changes and silent selections.
+
 ## [1.1.0] - 2026-10-26
 
 ### Added

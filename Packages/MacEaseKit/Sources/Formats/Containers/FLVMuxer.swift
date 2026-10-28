@@ -1,6 +1,6 @@
 import Foundation
 
-/// H.264 and AAC in FLV, with onMetaData.
+/// PCM avoids unsupported AAC trimming.
 public struct FLVMuxer: MediaMuxer {
     private static let aacFlags: UInt8 = 0xAF
     private static let maximumTimestamp = Int64(UInt32.max)
@@ -9,23 +9,31 @@ public struct FLVMuxer: MediaMuxer {
     private let file: PatchableFile
     private let video: MediaTrack?
     private let audio: MediaTrack?
+    private let audioFlags: UInt8
     private var durationOffset: Int64 = 0
     private var end: Int64 = 0
     private var lastVideoTime: Int64 = 0
     private var finished = false
 
     public init(url: URL, tracks: [MediaTrack]) throws {
-        for track in tracks where !(track.codec == .h264 && track.isVideo || track.codec == .aac && !track.isVideo) {
-            throw FormatError.unsupported("\(track.codec.displayName) in FLV")
+        var audioFlags = Self.aacFlags
+        for track in tracks {
+            if track.codec == .h264 && track.isVideo || track.codec == .aac && !track.isVideo { continue }
+            guard track.codec == .pcm(bits: 16, float: false, bigEndian: false),
+                case .audio(let rate, let channels) = track.kind,
+                rate == FLV.pcmSampleRate, (1...2).contains(channels)
+            else { throw FormatError.unsupported("\(track.codec.displayName) in FLV") }
+            audioFlags = FLV.pcmSoundFormat << 4 | 3 << 2 | 2 | (channels == 2 ? 1 : 0)
         }
         guard tracks.filter(\.isVideo).count <= 1, tracks.filter({ !$0.isVideo }).count <= 1 else {
             throw FormatError.unsupported("more than one stream of a kind in FLV")
         }
-        for track in tracks where track.codecPrivate == nil {
+        for track in tracks where track.codecPrivate == nil && (track.codec == .h264 || track.codec == .aac) {
             throw FormatError.encoderFailure("\(track.codec.displayName) without its decoder configuration")
         }
         video = tracks.first(where: \.isVideo)
         audio = tracks.first { !$0.isVideo }
+        self.audioFlags = audioFlags
         file = try PatchableFile(url: url)
         try writeHeader()
     }
@@ -47,7 +55,7 @@ public struct FLVMuxer: MediaMuxer {
         }
         if let audio, case .audio(let sampleRate, let channels) = audio.kind {
             properties += [
-                FLV.amfNumber("audiocodecid", Double(FLV.aacSoundFormat)),
+                FLV.amfNumber("audiocodecid", Double(audioFlags >> 4)),
                 FLV.amfNumber("audiosamplerate", sampleRate), FLV.amfKey("stereo") + [1, channels > 1 ? 1 : 0],
             ]
         }
@@ -63,7 +71,7 @@ public struct FLVMuxer: MediaMuxer {
                 FLV.videoTag, time: 0,
                 Data([FLV.keyFrame << 4 | FLV.avcCodecID, FLV.sequenceHeader, 0, 0, 0]) + codecPrivate)
         }
-        if let codecPrivate = audio?.codecPrivate {
+        if audio?.codec == .aac, let codecPrivate = audio?.codecPrivate {
             try writeTag(FLV.audioTag, time: 0, Data([Self.aacFlags, FLV.sequenceHeader]) + codecPrivate)
         }
     }
@@ -118,7 +126,8 @@ public struct FLVMuxer: MediaMuxer {
             try writeTag(FLV.videoTag, time: time, body + packet.payload)
             lastVideoTime = time
         case audio?.number:
-            try writeTag(FLV.audioTag, time: time, Data([Self.aacFlags, FLV.codedFrames]) + packet.payload)
+            let header = audio?.codec == .aac ? Data([audioFlags, FLV.codedFrames]) : Data([audioFlags])
+            try writeTag(FLV.audioTag, time: time, header + packet.payload)
         default:
             throw FormatError.encoderFailure("packet for unknown track \(packet.track)")
         }

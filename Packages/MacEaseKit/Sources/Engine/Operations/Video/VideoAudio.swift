@@ -8,7 +8,7 @@ private let silenceChunkFrames = 4_096
 private let maximumSynthesizedSilence = 600 * Nanoseconds.perSecond
 private let pcmFrameRoundingTolerance = 0.5
 
-private struct PCMFrameContinuity {
+struct PCMFrameContinuity {
     let sampleRate: Double
     let timestampToleranceFrames: Double
 
@@ -56,6 +56,7 @@ final class VideoPCMSource {
 
     private enum Source {
         case asset(AssetTrackReader)
+        case stretched(TimeStretchedAudio)
         case container(any MediaDemuxer, track: Int)
     }
 
@@ -99,8 +100,24 @@ final class VideoPCMSource {
         }
     }
 
+    init(stretched: TimeStretchedAudio, start: Int64) {
+        source = .stretched(stretched)
+        decoder = nil
+        self.start = start
+        end = .max
+        codecDelay = 0
+        sampleRate = stretched.sampleRate
+        channels = stretched.channels
+    }
+
     func next() async throws -> Chunk? {
         switch source {
+        case .stretched(let stretched):
+            let offset = try Nanoseconds.from(seconds: Double(stretched.position) / sampleRate)
+            guard let samples = try stretched.next() else { return nil }
+            let (timestamp, overflow) = start.addingReportingOverflow(offset)
+            guard !overflow else { throw EngineError.decodeFailed("audio timestamp out of range") }
+            return Chunk(samples: samples, timestamp: timestamp)
         case .asset(let reader):
             while let sample = try await reader.nextSample() {
                 guard let block = CMSampleBufferGetDataBuffer(sample) else {
@@ -213,9 +230,11 @@ final class VideoPCMSource {
 }
 
 final class AudioEncodeStage: StreamStage {
+    private static let flvPCMSampleRate = 44_100
     private let source: VideoPCMSource
     private let encoder: AudioPacketEncoder?
     private let converter: PCMConverter?
+    private let nativeAAC: Bool
     private let channels: Int
     private let sampleRate: Int
     private let start: Int64
@@ -233,10 +252,14 @@ final class AudioEncodeStage: StreamStage {
     private var sourceEnded = false
     private(set) var output: OutputTrack?
 
-    init(input: MediaInput, track: MediaTrack, number: Int, codec: MediaCodec, kilobits: Int, start: Int64, end: Int64)
+    init(
+        input: MediaInput, track: MediaTrack, number: Int, codec: MediaCodec, kilobits: Int, start: Int64, end: Int64,
+        sourceOverride: VideoPCMSource? = nil, destination: OutputContainer = .mov
+    )
         throws
     {
-        source = try VideoPCMSource(input: input, track: track, start: start, end: end)
+        source = try sourceOverride ?? VideoPCMSource(input: input, track: track, start: start, end: end)
+        nativeAAC = sourceOverride != nil && codec == .aac && destination.fileType != nil
         self.start = start
         self.number = number
         position = start
@@ -248,11 +271,15 @@ final class AudioEncodeStage: StreamStage {
         case .pcm(bits: 16, float: false, bigEndian: false): format = .wav
         default: throw EngineError.unsupportedCodec(codec.displayName)
         }
-        sampleRate = Int(format.outputSampleRate(source.sampleRate))
+        sampleRate =
+            destination == .flv && codec.isPCM ? Self.flvPCMSampleRate : Int(format.outputSampleRate(source.sampleRate))
         continuity = PCMFrameContinuity(sampleRate: source.sampleRate, timestampQuantum: track.timestampQuantum)
         maximumSilenceFrames = Int64(
             (Double(maximumSynthesizedSilence) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded(.down))
         channels = format.outputChannels(source.channels)
+        if sourceOverride != nil, channels != source.channels || (destination == .flv && channels > 2) {
+            throw EngineError.audioChannelLayoutUnsupported
+        }
         converter =
             Double(sampleRate) == source.sampleRate && channels == source.channels
             ? nil
@@ -260,7 +287,7 @@ final class AudioEncodeStage: StreamStage {
                 sampleRate: source.sampleRate, channels: source.channels, toSampleRate: Double(sampleRate),
                 channels: channels)
         encoder =
-            codec.isPCM
+            codec.isPCM || nativeAAC
             ? nil
             : try AudioPacketEncoder(
                 codec: codec, sampleRate: sampleRate, channels: channels, kilobits: kilobits)
@@ -272,6 +299,11 @@ final class AudioEncodeStage: StreamStage {
             described.seekPreRoll = 80 * Nanoseconds.perMillisecond
         }
         output = OutputTrack(track: described, format: nil)
+        if nativeAAC {
+            output?.format = try PCMFormat.make(sampleRate: Double(sampleRate), channels: channels).formatDescription
+            output?.aacBitrate =
+                try format.nearestKilobits(kilobits, sampleRate: Double(sampleRate), channels: channels) * 1_000
+        }
     }
 
     var nextTime: Int64? { sourceEnded ? nil : position }
@@ -352,6 +384,10 @@ final class AudioEncodeStage: StreamStage {
         guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
         inputFrames = following
         if let encoder { return try timed(try encoder.encode(samples)) }
+        if nativeAAC {
+            let bytes = samples.withUnsafeBytes { Data($0) }
+            return try timed([EncodedAudioPacket(data: bytes, frames: samples.count / channels)])
+        }
         var bytes = Data(capacity: samples.count * MemoryLayout<Int16>.size)
         for sample in samples {
             var word = Int16(

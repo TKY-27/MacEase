@@ -17,7 +17,7 @@ Principles:
 
 - **Right-click and done.** Every operation starts from the Finder context
   menu. Preset and format leaves run immediately. Custom menu entries are
-  limited to Resize and Compress. Other windows collect essential input,
+  limited to Resize, Compress and Playback Speed. Other windows collect essential input,
   confirm destructive work, or present results.
 - **Never lose a file.** An original is never modified or removed until the
   output is fully written and verified. Replaced originals go to the Trash and
@@ -522,7 +522,7 @@ the luma channel against the source.
 | PNG lossless optimizer | Re-encode PNG without changing pixels | Bit depth and color type reduction, filter selection, libdeflate level 12 | Decoded pixels identical; never larger than the input (otherwise keep input bytes) |
 | Matroska and WebM | Demux and mux; video H.264, HEVC, VP8, VP9, AV1; audio AAC, Opus, Vorbis, FLAC, MP3, AC-3, PCM; BlockAdditions for VP9 alpha; Cues and SeekHead | Per the Matroska specification (RFC 9559) and the WebM container guidelines | Round-trip mux and demux preserves packets and timestamps; Chrome-compatible WebM (VP9 + Opus) plays in WKWebView; AVFoundation-independent tests pass |
 | AVI | Demux (OpenDML included); mux MJPEG + PCM | Microsoft AVI RIFF specification | Files from common encoders open; MJPEG + PCM output opens in QuickTime-compatible players |
-| FLV | Demux; mux H.264 + AAC | Adobe FLV specification v10.1 | Round-trip preserves packets and timestamps |
+| FLV | Demux; mux H.264 + AAC or 44.1 kHz mono/stereo PCM16 | Adobe FLV specification v10.1 | Round-trip preserves packets and timestamps |
 | ICO | Write with PNG-compressed entries 16–256 px; read | Microsoft ICO format | ImageIO reads every entry |
 | ICNS | Write with PNG payloads (`ic07`–`ic14`); read | Apple ICNS format | ImageIO and NSImage read every size |
 | SVG tracer | Monochrome and up to 8 colors | k-means color layers, marching squares contours, Douglas–Peucker simplification, cubic Bézier fitting (Schneider), stacked filled paths | Re-rasterized intersection-over-union ≥ 0.95 per color layer on the logo fixture |
@@ -534,7 +534,24 @@ Ogg pages use libogg; the in-house code only arranges packets and granule positi
 
 ### 4.1 Scope and selection
 
-- `directoryURLs` includes `/` and every mounted volume root. Workspace mount,
+Finder registration does not grant filesystem access. Folder Access shows
+registration separately from read checks; a successful check confirms directory
+listing only, not permission for every child or write. Removing an additional
+folder removes its explicit registration, not macOS permission or eligibility
+under root monitoring. Adding uses NSOpenPanel. Bookmarks refresh on launch,
+configuration changes and volume events. Unavailable entries remain removable.
+
+Some iCloud-managed locations suppress Finder Sync menus. The native Finder
+Services action **Process with MacEase…** offers the same enabled, applicable
+catalog entries and routes them through the normal host validation and job
+pipeline. It reads file URLs only; it never authorizes an arbitrary command.
+The setting explains this fallback and links to macOS permission settings.
+
+- `directoryURLs` includes `/`, home, standard user folders, iCloud Drive and
+  its Desktop/Documents locations, every mounted volume root, and explicitly
+  added folders. Host-owned bookmarks resolve folder moves without mounting
+  unavailable volumes. The resolved paths are an optional menu-file field;
+  absent fields decode as empty. Notifications only trigger a reread. Workspace mount,
   unmount and rename notifications refresh registration outside menu handlers
   (ADR 0033). Local, separate-volume and network paths require release checks.
 - Item menus use `contextualMenuForItems`. Folder-background menus use
@@ -626,14 +643,14 @@ menus.
 
 | Submenu | Groups in display order |
 | --- | --- |
-| Image Resize | 75%, 50%, 25%; Long Edge 3840 px (hidden), 2560 px (hidden), 1920 px, 1080 px; Custom Size… |
+| Image Resize | 75%, 50%, 25%; Long Edge 3840 px (hidden), 2560 px (hidden), 1920 px, 1080 px, 720 px, 480 px, 360 px; Custom Size… |
 | Image Compress | Discord (20 MB), X (5 MB), Instagram (8 MB), Email (18 MB), Web; High Quality, Medium Quality, Low Quality; Custom Size… |
 | Image Convert | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL; GIF, TIFF, BMP (hidden), TGA; ICO (hidden), ICNS (hidden), SVG, PDF; SDR when applicable (section 8.12) |
 | Image and video Rotate | 90° Right, 90° Left, 180°, 45° (hidden, editable extra-angle slot); Flip Horizontal, Flip Vertical |
 | Background | Remove, Green Screen, Blue Screen, Custom Color, Blur; Color Key for images only |
 | Remove Metadata / Recognize Text | All, Location Only, Selected Fields / Copy Text, Save as .txt, Show |
 | Make Icon | macOS Icon (.icns), iOS AppIcon Set, Windows Icon (.ico) |
-| Video Resize | 50%; 2160p (4K) (hidden), 1080p, 720p, 480p; Custom Size… |
+| Video Resize | 50%; 2160p (4K) (hidden), 1080p, 720p, 480p, 360p; Custom Size… |
 | Video Thumbnail | First Frame, Middle Frame; Choose Frame… |
 | Audio and video Subtitles | SRT, WebVTT, Plain Text; Translated SRT |
 | Video Compress | Discord (20 MB), X, Instagram Reels, LINE, Email (18 MB); 10 MB, 25 MB, 50 MB, 100 MB (hidden); High Quality, Medium Quality, Low Quality; Custom Size… |
@@ -671,7 +688,9 @@ system behavior. Values are remembered only for retained panels.
 | --- | --- | --- |
 | Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
 | Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint, live byte equivalent. No quality/platform picker or processing toggles. |
-| Trim | Single video or audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
+| Video edit | Single video | Existing media preview, start/end, 0.5–4× playback speed, original or preset resolution, output dimensions/duration/save policy. |
+| Speed | One or more videos, Custom Speed… | Numeric playback speed, presets, current save policy. |
+| Trim | Audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
 | Frame picker | Single video Choose Frame… | Preview and timestamp. |
 | Page order | PDF Merge, Make PDF with multiple images | Thumbnails, reorder/remove, Move Up and Move Down. |
 | Page select | Single PDF Extract Pages… | Page ranges and thumbnails. |
@@ -750,6 +769,7 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 | Page | Settings and defaults |
 | --- | --- |
 | General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
+| Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
 | Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
 | Images | Per-format quality, PNG optimization, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
 | Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, trim accuracy, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
@@ -793,7 +813,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `image.resize` | 25%, 50%, 75%, long edge 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
+| `image.resize` | 25%, 50%, 75%, long edge 360, 480, 720, 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
 | `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Transform | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
 | `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG/PSD inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
 | `image.traceSVG` | — | Derived | One static PNG; comparison, color and detail controls, then explicit SVG save; section 8.14 |
@@ -825,7 +845,33 @@ Ordinary TIFF flip, rotation, resize and TIFF encoding also retain each page's
 own metadata on the corresponding output page, with orientation reset after
 pixel transforms.
 
+Resolution & Size is distinct from compression: resizing has no byte target,
+uses existing format/quality settings, and preserves aspect ratio. The new
+360/480/720-pixel image presets and 360p video preset never enlarge; smaller
+inputs skip with a reason. Video p values refer to the short edge.
+
 ### 8.2 Videos
+
+The Edit Video panel defaults to the complete range, 1×, original resolution.
+It previews output dimensions, duration and the current save policy. Pure
+keyframe cuts label the requested range as Selected duration and explain that
+the actual cut can start earlier; Exact retains the displayed duration. Native
+containers use the existing player; other containers use thumbnails and numeric
+times. Playback speed also accepts arbitrary finite values from 0.5 to 4.
+Speed changes use a common source/output timeline for video and audio. Slower
+video repeats frames, without interpolation. AVAudioUnitTimePitch preserves
+pitch through bounded offline PCM rendering; disk staging avoids retaining a
+whole recording in memory. Audio offsets, gaps and tails retain their timeline.
+For native MOV/MP4/M4V speed outputs, the final AVAssetWriter accepts PCM and
+encodes AAC itself, preserving a standard priming edit list across players.
+Its bitrate uses the existing sample-rate/channel-specific supported values.
+WebM/MKV use Opus; AVI uses PCM, and FLV uses 44.1 kHz 16-bit little-endian PCM.
+Playback-speed audio currently supports mono and stereo. Unsupported channel
+layouts fail before output instead of silently downmixing.
+Pitch error must stay within 1%; A/V synchronization error at the beginning,
+middle and end must stay within the greater of one video frame and 20 ms.
+All edits use the existing staging, validation, collision, Trash and Undo paths,
+including HDR, transparency and metadata protection.
 
 Containers: MP4, M4V, MOV through AVFoundation; MKV, WebM, AVI, FLV through
 the in-house demuxers. Video codecs: H.264, HEVC, ProRes, MPEG-4 Part 2 and
@@ -972,8 +1018,10 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `video.resize` | 50%, 2160p, 1080p, 720p, 480p | Transform | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
-| `video.trim` | — (panel) | Transform | Keyframe mode copies streams and starts at the keyframe at or before the mark; exact mode re-encodes |
+| `video.resize` | 50%, 2160p, 1080p, 720p, 480p, 360p | Transform | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
+| `video.edit` | — (panel) | Transform | One video: time range, playback speed, and resolution in one export. Unchanged input disables Save. Trim alone keeps keyframe/exact selection; combined edits cut exactly. |
+| `video.speed` | 0.5, 0.75, 1.25, 1.5, 2, 4×, Custom Speed… | Transform | Multiple videos; finite custom values from 0.5 through 4, including fractional values. Preserve audio pitch. |
+| `video.trim` | Legacy requests and LINE panel | Transform | Retained for history and compatibility. Keyframe mode copies streams; exact mode re-encodes. Hidden-menu preference migrates once to `video.edit`. |
 | `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Transform | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
 | `video.rotate` | 90° right, 90° left, 180°, extra angle from Settings | Transform | Multiples of 90° in MP4 and MOV set the track transform without re-encoding; other angles and containers re-encode with the fill color |
 | `video.flip` | Horizontal, Vertical | Transform | Re-encode |
@@ -1668,6 +1716,7 @@ One **Welcome** window replaces the multi-page wizard. It shows the app icon,
 static MacEase screenshot of Resize > 50%, with descriptive alternative text.
 No Flect tagline, illustration, or asset is reused.
 
+The Welcome window also offers Add Folder… using the same folder picker as Settings.
 The checklist contains Finder extension status with Turn On…, Notifications
 with Allow, and Launch at login with its default-on switch. A short note explains
 first-use protected-folder prompts for Desktop, Documents, Downloads, removable,
@@ -1879,11 +1928,11 @@ that bound. Earlier whole-key results remain historical evidence in
   For v1.0.0, macOS 26 VM results supplement the approved macOS 27 physical
   acceptance machine; unavailable physical hardware alone does not block
   publication. Failed checks remain release blockers (ADR 0030).
-- For v1.1.0, the owner excludes actual VoiceOver operation and the final
+- For v1.1.0 and v1.2.0, the owner excludes actual VoiceOver operation and the final
   macOS 26 VM visual smoke test from mandatory acceptance because they are
   unavailable in the owner's environment. Both remain unverified, not passed.
   Existing physical-machine checks and earlier VM results remain evidence;
-  all other required checks remain publication gates (ADR 0036).
+  all other required checks remain publication gates (ADRs 0036 and 0038).
 
 ## 18. Build, CI, signing and release
 
@@ -1912,10 +1961,10 @@ that bound. Earlier whole-key results remain historical evidence in
   `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
   and checksum, and use the matching CHANGELOG section as release notes. The
   workflow fails when the signing secrets are missing.
-- For v1.1.0, GitHub Actions remains disabled by owner instruction. Build the
+- For v1.1.0 and v1.2.0, GitHub Actions remains disabled by owner instruction. Build the
   signed DMG locally from the tag commit and publish it with its SHA-256 and
   release notes. Verify anonymous downloads and `releases/latest`; do not
-  report the local checks as successful GitHub Actions runs (ADR 0036).
+  report the local checks as successful GitHub Actions runs (ADRs 0036 and 0037).
 - Gatekeeper still blocks the first launch. README documents **Open Anyway** in
   System Settings > Privacy & Security and the alternative
   `xattr -dr com.apple.quarantine /Applications/MacEase.app`.
@@ -1939,6 +1988,15 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-28: Extend the owner-approved VoiceOver and macOS 26 VM visual
+  acceptance exclusions to v1.2.0; retain unverified status (ADR 0038).
+
+- 2026-10-28: Add low-resolution image/video presets, pitch-preserving video
+  speed and combined editing, explicit Finder folder registration and a native
+  Services fallback for iCloud-managed locations (ADR 0037). Release 1.2.0 is
+  published locally after real-Mac checks and independent reviews; CI remains
+  disabled.
 
 - 2026-10-26: Exclude actual VoiceOver operation and the final macOS 26 VM
   visual check from v1.1.0 mandatory acceptance by owner instruction. Preserve

@@ -73,6 +73,7 @@ public struct FLVDemuxer: MediaDemuxer {
             }
             tracks.append(audio)
         }
+        for index in tracks.indices { tracks[index].timestampQuantum = Nanoseconds.perMillisecond }
         guard !tracks.isEmpty else { throw FormatError.corrupt("FLV without audio or video") }
         if let seconds = metadata["duration"], seconds > 0 { duration = try Nanoseconds.from(seconds: seconds) }
     }

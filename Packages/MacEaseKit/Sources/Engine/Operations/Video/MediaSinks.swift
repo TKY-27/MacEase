@@ -45,6 +45,7 @@ extension MediaCodec {
 /// What each backend needs per stream.
 struct OutputTrack {
     var track: MediaTrack
+    var aacBitrate: Int?
     /// Wins over one rebuilt from `track`.
     var format: CMFormatDescription?
     var metadata: [AVMetadataItem] = []
@@ -137,8 +138,15 @@ final class AssetWriterSink: PacketSink {
                 try output.format
                 ?? (output.track.isVideo
                     ? VideoFormat.description(for: output.track) : AudioTrackFormat.description(for: output.track))
+            var settings: [String: Any]?
+            if let bitrate = output.aacBitrate, case .audio(let rate, let channels) = output.track.kind {
+                settings = try PCMFormat.aacEncodingSettings(sampleRate: rate, channels: channels, bitrate: bitrate)
+                guard writer.canApply(outputSettings: settings, forMediaType: .audio) else {
+                    throw EngineError.encodeFailed("writer rejected AAC encoding settings")
+                }
+            }
             let input = AVAssetWriterInput(
-                mediaType: output.track.isVideo ? .video : .audio, outputSettings: nil, sourceFormatHint: format)
+                mediaType: output.track.isVideo ? .video : .audio, outputSettings: settings, sourceFormatHint: format)
             input.expectsMediaDataInRealTime = false
             input.metadata = output.metadata
             input.languageCode = output.languageCode

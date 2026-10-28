@@ -90,6 +90,7 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public let hostAvailable: Bool
     public let entries: [MenuEntry]
     public let kinds: [String: KindTitle]
+    public var monitoredDirectoryPaths: [String]?
 
     public init(token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String]) {
         self.schema = Self.currentSchema

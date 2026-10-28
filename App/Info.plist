@@ -45,5 +45,18 @@
 	<string>© 2026 MacEase contributors. MIT License.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>MacEase transcribes speech on this Mac to create subtitles.</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict><key>default</key><string>Process with MacEase…</string></dict>
+			<key>NSMessage</key><string>processFiles</string>
+			<key>NSPortName</key><string>$(MACEASE_DISPLAY_NAME)</string>
+			<key>NSSendFileTypes</key><array><string>public.item</string></array>
+			<key>NSSendTypes</key><array><string>public.file-url</string><string>NSFilenamesPboardType</string></array>
+			<key>NSRequiredContext</key><dict/>
+			<key>NSRestricted</key><true/>
+		</dict>
+	</array>
 </dict>
 </plist>

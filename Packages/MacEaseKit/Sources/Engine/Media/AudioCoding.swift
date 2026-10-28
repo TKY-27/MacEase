@@ -5,6 +5,15 @@ import Foundation
 
 /// Speaker layouts make downmixing possible.
 enum PCMFormat {
+    static func aacEncodingSettings(sampleRate: Double, channels: Int, bitrate: Int) throws -> [String: Any] {
+        let layout = try aacLayout(channels: channels)
+        return [
+            AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: channels,
+            AVEncoderBitRateKey: bitrate, AVEncoderBitRateStrategyKey: AVAudioBitRateStrategy_Constant,
+            AVChannelLayoutKey: Data(bytes: layout.layout, count: MemoryLayout<AudioChannelLayout>.size),
+        ]
+    }
+
     static func layoutTag(channels: Int) -> AudioChannelLayoutTag {
         switch channels {
         case 1: kAudioChannelLayoutTag_Mono

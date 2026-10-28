@@ -10,6 +10,8 @@ enum FLV {
     static let fileHeaderSize = 9
     static let avcCodecID: UInt8 = 7
     static let aacSoundFormat: UInt8 = 10
+    static let pcmSoundFormat: UInt8 = 3
+    static let pcmSampleRate = 44_100.0
     static let sequenceHeader: UInt8 = 0
     static let codedFrames: UInt8 = 1
     static let endOfSequence: UInt8 = 2

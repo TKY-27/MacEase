@@ -53,7 +53,7 @@ enum LoadedMedia {
     }
 }
 
-private struct MediaLoader<Content: View>: View {
+struct MediaLoader<Content: View>: View {
     let url: URL
     let isVideo: Bool
     let close: () -> Void
@@ -311,7 +311,7 @@ struct FramePickerPanel: View {
     }
 }
 
-private struct PlainPlayer: NSViewRepresentable {
+struct PlainPlayer: NSViewRepresentable {
     let player: AVPlayer
 
     func makeNSView(context: Context) -> AVPlayerView {

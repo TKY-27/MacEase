@@ -605,3 +605,65 @@ choosing an earlier record with a matching comment length is inconsistent.
 Small comment fixtures verify rejection of ambiguous tails and of ZIP64
 locators outside the reader's visible tail. Disable mac-ext processing to
 list AppleDouble entries explicitly and avoid hidden content reads.
+
+## Finder Services and playback-speed timing (2026-10-28)
+
+On this Mac, the enabled v1.1.0 Finder Sync extension appears for local
+Downloads and temporary folders but not for iCloud-managed Desktop and
+Documents. Root registration alone does not make those menus appear. The
+Services fallback is therefore required alongside explicit directory registration.
+Finder supplies `NSFilenamesPboardType` on this system: declaring only
+`NSSendFileTypes` invoked the service without readable NSURL objects. Declaring
+file-URL and legacy filename pasteboard types, and reading either representation,
+lets the same selection enter the host operation chooser. `NSRestricted` remains
+enabled; macOS may ask the user to confirm the service.
+
+Native AAC passthrough produced a 2,112-frame priming offset at 48 kHz when
+independently decoded by ffmpeg, although AVFoundation compensated for it.
+Passing Float PCM to the final AVAssetWriter AAC input instead emits standard
+trim timing. External decoding of actual app outputs then measured approximately
+440 Hz and a maximum 8.34 ms audio/video marker difference across MOV, MKV,
+WebM, AVI and FLV at 2x. The fixture contains three audiovisual amplitude markers
+at 60 fps; the acceptance limit is 20 ms here, and pitch error is at most 1%.
+
+FLV has millisecond timestamps. Without declaring that timestamp quantum,
+PCM continuity inserted and removed fractional packet samples, raising the
+440 Hz tone to about 450 Hz. Propagating a 1 ms quantum preserves contiguous
+PCM. Repeating the independent measurement gives 440.008 Hz and at most
+6.31 ms marker error. A separate Matroska fixture with missing audio packets
+from about 1.0 to 1.5 seconds retains its silence and subsequent markers at 2x.
+
+Native six-channel decoding can return AAC speaker order rather than canonical
+MPEG speaker order. Speed changes currently refuse audio layouts beyond mono
+and stereo instead of relabeling or downmixing them. Supporting those layouts
+requires carrying explicit speaker layout through PCM normalization.
+
+A ten-minute 128x96, 1 fps video with continuous 48 kHz audio became exactly
+five minutes at 2x for both tracks. The development app's sampled RSS increased
+from 98.5 MiB to a peak 130.1 MiB, rather than retaining the 109.9 MiB PCM source
+in memory. This is one observation with a warm app, not a general memory bound.
+
+The signed v1.2.0 app retained the v1.1.0 certificate and existing Desktop,
+Documents, Downloads and iCloud permission switches. Nevertheless, initial
+cloud reads blocked inside NSFileCoordinator's protected open. Selecting the
+specific QA folders in NSOpenPanel restored access; after a complete app
+restart their bookmarks resolved and both access checks returned Readable.
+Finder Services then wrote 480x270 on Desktop and in Documents, including
+a collision-numbered output after restart. Downloads' normal Finder Sync
+menu wrote 360x203. No Full Disk Access or TCC reset was used. The OS wait
+is not forcibly interrupted; Settings documents explicit folder selection
+and app restart as recovery.
+
+A folder bookmark followed a renamed QA directory, reported denied after
+permissions were removed, and returned to Readable after they were restored.
+Removing its list entry retained the directory. A read-only mounted DMG was
+registered, detached, shown as Unavailable, and removed from the list without
+remounting it. Welcome's Add Folder and the Files and Folders settings link
+were exercised on the signed app.
+
+An 8 kHz human-speech fixture exposed an unsupported AAC bitrate in the native
+PCM writer path. Reusing the existing nearest supported bitrate selection
+fixes 8, 16 and 22.05 kHz inputs; regression checks preserve the 440 Hz pitch
+within 1% and the two-second duration within 20 ms. Speech material is from
+the [Open Speech Repository](https://www.voiptroubleshooter.com/open_speech/american.html),
+OSR_us_000_0010_8k.wav; it is used for local testing, not bundled with MacEase.

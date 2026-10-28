@@ -7,6 +7,8 @@ import Speech
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
+        case .videoEdit: String(localized: "menu.op.video.edit", defaultValue: "Edit Video…")
+        case .videoSpeed: String(localized: "menu.op.video.speed", defaultValue: "Playback Speed")
         case .imageTraceSVG:
             String(localized: "menu.op.image.traceSVG", defaultValue: "Trace to SVG…")
         case .archiveBrowse:
@@ -33,6 +35,10 @@ enum MenuStrings {
     }
 
     static func preset(_ op: OperationID, _ preset: String) -> String {
+        if op == .videoSpeed {
+            if preset == MenuEntry.customPreset { return String(localized: "Custom Speed…") }
+            return "\(preset)×"
+        }
         if preset == MenuEntry.customPreset {
             return String(localized: "menu.preset.custom-size", defaultValue: "Custom Size…")
         }
