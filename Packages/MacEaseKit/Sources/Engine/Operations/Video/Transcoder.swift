@@ -28,6 +28,7 @@ struct TranscodePlan {
     var matte: BackgroundMatte?
     var toneMapToSDR = false
     var playbackSpeed = 1.0
+    var volume = 1.0
     var metadata: VideoMetadata?
     var copiedDisplayTrack: MediaTrack?
     var copiedDisplayFormat: CMFormatDescription?
@@ -81,7 +82,7 @@ enum Transcoder {
                     stages.append(
                         try AudioEncodeStage(
                             input: input, track: track, number: number, codec: codec, kilobits: kilobits,
-                            start: start, end: end, destination: plan.container))
+                            start: start, end: end, destination: plan.container, volume: plan.volume))
                 } else {
                     let stretched = try await TimeStretchedAudio(
                         input: input, track: track, start: start, end: end, speed: plan.playbackSpeed,
@@ -90,7 +91,7 @@ enum Transcoder {
                         try AudioEncodeStage(
                             input: input, track: track, number: number, codec: codec, kilobits: kilobits,
                             start: start, end: end, sourceOverride: VideoPCMSource(stretched: stretched, start: start),
-                            destination: plan.container))
+                            destination: plan.container, volume: plan.volume))
                 }
             }
         }

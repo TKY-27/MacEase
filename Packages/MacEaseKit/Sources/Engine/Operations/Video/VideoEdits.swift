@@ -7,6 +7,7 @@ enum VideoEdits {
     private static let defaultQuality = 0.75
 
     static func run(_ operation: VideoOperation, url: URL, context: ItemContext) async throws -> ItemResult {
+        if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
         let input = try await MediaInput.open(url)
         try input.requireSingleTracksForReplacement()
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
@@ -23,6 +24,17 @@ enum VideoEdits {
         let output = try context.stagingURL(for: url, name: name)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
         try await VideoProperties.verify(plan, output: output, context: context)
+        if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
+        if plan.derived {
+            let name = url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
+            return .derived(
+                nextTo: url,
+                outputs: [
+                    StagedFile(
+                        url: output, name: name,
+                        check: plan.toneMapToSDR ? .sdrVideo : .media)
+                ])
+        }
         return .replace(original: url, output: StagedFile(url: output, name: name, check: .media))
     }
 
@@ -192,6 +204,11 @@ enum VideoEdits {
         _ edit: VideoEdit, input: MediaInput, source: MediaTrack, settings: VideoSettings,
         audioSettings: AudioSettings
     ) throws -> TranscodePlan {
+        try edit.geometry.validate()
+        try edit.adjustments.validate()
+        guard edit.volume.isFinite, (0...1).contains(edit.volume) else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
         guard edit.start.isFinite, edit.start >= 0,
             edit.end.map({ $0.isFinite && $0 > edit.start }) ?? true
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
@@ -201,22 +218,32 @@ enum VideoEdits {
             throw EngineError.invalidInput(.malformed("empty or out-of-bounds edit range"))
         }
         _ = try VideoTiming(start: start, speed: edit.speed)
-        let size = try edit.resize?.outputSize(input.displaySize)
-        let changesSize = size.map { $0 != input.displaySize } ?? false
+        let cropped = edit.geometry.outputSize(CGSize(width: input.displaySize.width, height: input.displaySize.height))
+        let natural = PixelSize(width: Int(cropped.width), height: Int(cropped.height))
+        let size = try edit.resize?.outputSize(natural)
+        let changesSize = size.map { $0 != natural } ?? false
+        let changesAudio = edit.volume != 1 && input.audio != nil
         let changesRange = start != 0 || end != input.duration
-        guard edit.speed != 1 || changesSize || changesRange else { throw SkipError(.alreadyDone) }
-        if edit.speed == 1, !changesSize {
+        guard edit.speed != 1 || changesSize || changesRange || edit.changesAppearance || changesAudio else {
+            throw SkipError(.alreadyDone)
+        }
+        if edit.speed == 1, !changesSize, !edit.changesAppearance, !changesAudio {
             return try plan(
                 .trim(start: edit.start, end: Double(end) / Double(Nanoseconds.perSecond), mode: edit.trimMode),
                 input: input, source: source, settings: settings, audioSettings: audioSettings)
         }
         var frameEdit = try baked(input)
+        if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
+        if !edit.adjustments.isIdentity { frameEdit.adjustments = edit.adjustments }
         if changesSize { frameEdit.size = size }
         var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
         plan.range = start..<end
         plan.startsAtKeyframe = false
         plan.playbackSpeed = edit.speed
-        if edit.speed != 1, input.audio != nil {
+        plan.volume = edit.volume
+        if edit.volume == 0 {
+            plan.audio = nil
+        } else if edit.speed != 1 || changesAudio, input.audio != nil {
             switch input.container {
             case .webm, .mkv: plan.audio = .encode(.opus, kilobits: audioSettings.opusBitrate)
             case .avi, .flv: plan.audio = .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)

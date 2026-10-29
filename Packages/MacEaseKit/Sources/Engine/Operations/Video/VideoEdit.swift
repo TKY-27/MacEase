@@ -8,6 +8,12 @@ public struct VideoEdit: Codable, Hashable, Sendable {
     public var speed: Double
     public var resize: VideoResize?
     public var trimMode: TrimMode
+    public var geometry = EditGeometry()
+    public var adjustments = MediaAdjustments()
+    public var volume = 1.0
+    public var sourceStamp: MediaSourceStamp?
+
+    public var changesAppearance: Bool { !geometry.isIdentity || !adjustments.isIdentity }
 
     public init(
         start: Double = 0, end: Double? = nil, speed: Double = 1,
@@ -18,6 +24,23 @@ public struct VideoEdit: Codable, Hashable, Sendable {
         self.speed = speed
         self.resize = resize
         self.trimMode = trimMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case start, end, speed, resize, trimMode, geometry, adjustments, volume, sourceStamp
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        start = try values.decode(Double.self, forKey: .start)
+        end = try values.decodeIfPresent(Double.self, forKey: .end)
+        speed = try values.decode(Double.self, forKey: .speed)
+        resize = try values.decodeIfPresent(VideoResize.self, forKey: .resize)
+        trimMode = try values.decode(TrimMode.self, forKey: .trimMode)
+        geometry = try values.decodeIfPresent(EditGeometry.self, forKey: .geometry) ?? EditGeometry()
+        adjustments = try values.decodeIfPresent(MediaAdjustments.self, forKey: .adjustments) ?? MediaAdjustments()
+        volume = try values.decodeIfPresent(Double.self, forKey: .volume) ?? 1
+        sourceStamp = try values.decodeIfPresent(MediaSourceStamp.self, forKey: .sourceStamp)
     }
 }
 

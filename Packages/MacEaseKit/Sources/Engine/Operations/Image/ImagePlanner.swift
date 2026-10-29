@@ -61,6 +61,7 @@ public enum ImagePlanner {
 
     private static func run(_ operation: ImageOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         switch operation {
+        case .edit(let edit): try await PhotoEditing.run(edit, url: url, context: context)
         case .resize(let resize): try await ImageEdits.resize(url, resize, context: context)
         case .compress(let compression): try await ImageCompressor.compress(url, compression, context: context)
         case .convert(let conversion): try await ImageEdits.convert(url, conversion, context: context)

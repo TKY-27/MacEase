@@ -37,11 +37,12 @@ final class PanelCoordinator {
             return
         }
         switch op {
+        case .imageEdit: showMediaEditor(inputs[0], isVideo: false)
         case .imageTraceSVG: showSVGTrace(inputs[0])
         case .archiveBrowse: showArchiveBrowser(inputs[0])
         case .imageResize, .videoResize: showSize(op, inputs)
         case .imageCompress, .videoCompress, .audioCompress: showTargetSize(op, inputs)
-        case .videoEdit: showVideoEdit(inputs[0])
+        case .videoEdit: showMediaEditor(inputs[0], isVideo: true)
         case .videoSpeed: showSpeed(inputs)
         case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
         case .videoThumbnail where entry.preset == "choose-frame": showFramePicker(op, file: inputs[0])
@@ -58,14 +59,16 @@ final class PanelCoordinator {
         }
     }
 
-    private func showVideoEdit(_ url: URL) {
-        host.show(title: MenuStrings.operationName(.videoEdit)) { close in
-            VideoEditPanel(
-                url: url, store: store, trimMode: store.settings.video.trimMode,
-                cancel: close
-            ) { edit in
-                close()
-                self.launch(.videoEdit, .video(.edit(edit)), [url])
+    private func showMediaEditor(_ url: URL, isVideo: Bool) {
+        let model = MediaEditorModel(url: url, isVideo: isVideo, settings: store.planning, staging: jobs.engine.staging)
+        featureHost.show(
+            title: url.lastPathComponent, minimumSize: NSSize(width: 960, height: 540),
+            initialSize: NSSize(width: 1280, height: 720), onClose: { await model.close() }
+        ) { close in
+            MediaEditorView(model: model, close: close) { options, settings in
+                self.jobs.run(
+                    OperationRequest(op: isVideo ? .videoEdit : .imageEdit, options: options, inputs: [url]),
+                    settings: settings)
             }
         }
     }

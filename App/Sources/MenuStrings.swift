@@ -7,6 +7,7 @@ import Speech
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
+        case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
         case .videoEdit: String(localized: "menu.op.video.edit", defaultValue: "Edit Video…")
         case .videoSpeed: String(localized: "menu.op.video.speed", defaultValue: "Playback Speed")
         case .imageTraceSVG:

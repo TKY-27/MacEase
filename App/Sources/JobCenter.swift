@@ -120,8 +120,8 @@ final class JobCenter {
 
     /// Await the task to chain batches.
     @discardableResult
-    func run(_ request: OperationRequest) -> Task<BatchOutcome?, Never> {
-        let snapshot = settings.planning
+    func run(_ request: OperationRequest, settings suppliedSettings: Settings? = nil) -> Task<BatchOutcome?, Never> {
+        let snapshot = suppliedSettings ?? settings.planning
         return run(settings: snapshot, request: request) {
             await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
         }

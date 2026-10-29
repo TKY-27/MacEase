@@ -18,6 +18,7 @@ final class FeatureWindowHost: NSObject, NSWindowDelegate {
     @discardableResult
     func show<Content: View>(
         title: String, minimumSize: NSSize = NSSize(width: 850, height: 560),
+        initialSize: NSSize? = nil,
         onClose: @escaping @MainActor () async -> Void,
         content: (_ close: @escaping () -> Void) -> Content
     ) -> NSWindow {
@@ -33,9 +34,19 @@ final class FeatureWindowHost: NSObject, NSWindowDelegate {
             rootView: content { [weak window] in
                 window?.performClose(nil)
             })
-        window.setContentSize(minimumSize)
+        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
+        let available = screen?.visibleFrame.size ?? initialSize ?? minimumSize
+        let requested = initialSize ?? minimumSize
+        window.setContentSize(
+            NSSize(width: min(requested.width, available.width), height: min(requested.height, available.height - 40)))
         windows[ObjectIdentifier(window)] = OwnedWindow(window: window, cleanup: onClose)
-        window.center()
+        if let screen {
+            let frame = screen.visibleFrame
+            window.setFrameOrigin(
+                NSPoint(x: frame.midX - window.frame.width / 2, y: frame.midY - window.frame.height / 2))
+        } else {
+            window.center()
+        }
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         return window

@@ -8,6 +8,7 @@ enum NewFileNaming: Sendable {
         switch options {
         case .image(let operation):
             switch operation {
+            case .edit: self = .edit("edited")
             case .hdrToSDR: self = .edit("sdr")
             case .convert: self = .conversion
             case .resize: self = .edit("resized")

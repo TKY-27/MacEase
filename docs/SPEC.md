@@ -688,7 +688,7 @@ system behavior. Values are remembered only for retained panels.
 | --- | --- | --- |
 | Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
 | Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint, live byte equivalent. No quality/platform picker or processing toggles. |
-| Video edit | Single video | Existing media preview, start/end, 0.5–4× playback speed, original or preset resolution, output dimensions/duration/save policy. |
+| Photo / video editor | One still image or video | Resizable 1280×720 workspace: large preview, right inspector, top tool categories and Liquid Glass Save; video timeline below. Section 8.1.1. |
 | Speed | One or more videos, Custom Speed… | Numeric playback speed, presets, current save policy. |
 | Trim | Audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
 | Frame picker | Single video Choose Frame… | Preview and timestamp. |
@@ -813,6 +813,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
+| `image.edit` | — (editor) | Transform | One decoded still image: geometry, color, styles, automatic correction, comparison, histogram and session Undo. HDR color edits and RAW outputs always keep the original. Section 8.1.1. |
 | `image.resize` | 25%, 50%, 75%, long edge 360, 480, 720, 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
 | `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Transform | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
 | `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG/PSD inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
@@ -850,14 +851,77 @@ uses existing format/quality settings, and preserves aspect ratio. The new
 360/480/720-pixel image presets and 360p video preset never enlarge; smaller
 inputs skip with a reason. Video p values refer to the short edge.
 
+### 8.1.1 Photo and video editor
+
+The editor opens from Finder and Services for one file. Its initial content
+size is 1280×720, constrained to the active screen, with a 960×540 minimum.
+Window proportions do not change the source or output aspect ratio. A large
+preview sits left of a 290-point inspector; video adds a bottom thumbnail
+timeline. Top categories are Video (video only), Adjust, Styles and Crop.
+Compare Original, session Undo/Redo, Reset All and a standard Liquid Glass Save
+button remain visible. Glass is limited to controls. The footer shows output
+size, video duration and save policy. Unchanged or invalid edits disable Save.
+
+Both media types offer exposure, brightness, contrast, highlights, shadows,
+saturation, vibrance, warmth and tint. Photos also offer black point, sharpness,
+noise reduction and vignette. Styles are Original, Vivid, Warm, Cool, Dramatic
+and Monochrome with adjustable intensity; these are independent presets and
+claim no compatibility with Apple's Photographic Styles. Photo Auto Enhance
+analyzes the original once per source and retains its correction before manual
+adjustments. Photos offer Fit/2×/4× preview zoom. Luminance and RGB histograms
+show the photo or current video frame using bounded samples.
+
+Crop supports corner/edge drags, moving the selection, percentage fields,
+free/original aspect, 1:1, 4:3, 3:2, 4:5, 16:9 and portrait/landscape switching.
+Quarter turns, horizontal/vertical flips and ±45° straightening share the
+geometry model. Straightening fills the canvas without introducing corners.
+Coordinates are normalized, top-left, after source orientation and before
+output resize. Processing order is source orientation, geometry/crop,
+automatic correction, style, manual adjustments and output resize. Preview and
+export use the same Core Image transforms and color processing.
+
+Video has yellow range handles, an independently scrubbed playhead, a draggable
+range, numeric start/end times, actual-frame stepping, timeline zoom and selected
+range playback. It retains 0.5–4× pitch-preserving speed and resolution presets;
+volume is 0–100%, with mute. Combined exports use exact trim. A temporary
+playback copy never becomes the export source. Closing cancels tasks, releases
+players and removes registered temporary files. No persistent edit project is
+created. Each drag becomes one session Undo operation; preview generations
+prevent older work from replacing the latest edit.
+
+`ImageEdit` is a typed `image.edit` operation. `VideoEdit` decodes older records
+with neutral defaults for new geometry, adjustment, style, volume and source
+stamp fields. Static images use existing decoders; animations and multipage
+images are rejected without flattening. RAW edits use the decoded rendering
+and derive a writable output. Source identity is checked at opening, saving and
+after export; changes require closing and reopening the editor.
+
+HDR color edits first tone-map to SDR, display **SDR · Save as new file**, and
+always preserve the original regardless of the normal output mode. Geometry-only
+HDR edits retain section 3.5 protections: preserve supported gain maps, otherwise
+refuse replacement or tone-map a new file with the existing warning. Preview
+uses the corresponding SDR rendition when conversion is required. Unsupported
+preview conversions disable saving and explain the failure. All exports retain
+the shared staging, validation, conflict avoidance, Trash and history Undo path.
+
+This release excludes clip concatenation, subtitle editing, generative repair,
+curves/per-color adjustment, saved custom styles and batch application. Required
+verification includes real-Mac rendering and interactions, output geometry and
+color, JPEG/PNG/HEIC/HDR, combined video timing and volume, cancellation, both
+save modes, source protection, temporary cleanup and large-media performance.
+Run build, lint and `make test-device`, followed by three fresh-context
+GPT-6.1 Sol/high reviews: features/UI/spec, corrected output/safety/concurrency,
+and final release candidate with physical-machine evidence. Fix reproducible
+harmful findings without speculative complexity (ADR 0039).
+
 ### 8.2 Videos
 
 The Edit Video panel defaults to the complete range, 1×, original resolution.
 It previews output dimensions, duration and the current save policy. Pure
 keyframe cuts label the requested range as Selected duration and explain that
 the actual cut can start earlier; Exact retains the displayed duration. Native
-containers use the existing player; other containers use thumbnails and numeric
-times. Playback speed also accepts arbitrary finite values from 0.5 to 4.
+containers play directly through AVPlayer. Other supported containers use a
+cancellable, low-resolution temporary playback copy; export reads the original. Playback speed also accepts arbitrary finite values from 0.5 to 4.
 Speed changes use a common source/output timeline for video and audio. Slower
 video repeats frames, without interpolation. AVAudioUnitTimePitch preserves
 pitch through bounded offline PCM rendering; disk staging avoids retaining a
@@ -1019,7 +1083,7 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `video.resize` | 50%, 2160p, 1080p, 720p, 480p, 360p | Transform | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
-| `video.edit` | — (panel) | Transform | One video: time range, playback speed, and resolution in one export. Unchanged input disables Save. Trim alone keeps keyframe/exact selection; combined edits cut exactly. |
+| `video.edit` | — (editor) | Transform | One video: time range, speed, resolution, geometry, color, style and volume in one export. Unchanged input disables Save. Trim alone keeps keyframe/exact selection; combined edits cut exactly. HDR color edits always derive SDR. Section 8.1.1. |
 | `video.speed` | 0.5, 0.75, 1.25, 1.5, 2, 4×, Custom Speed… | Transform | Multiple videos; finite custom values from 0.5 through 4, including fractional values. Preserve audio pitch. |
 | `video.trim` | Legacy requests and LINE panel | Transform | Retained for history and compatibility. Keyframe mode copies streams; exact mode re-encodes. Hidden-menu preference migrates once to `video.edit`. |
 | `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Transform | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
@@ -1928,7 +1992,7 @@ that bound. Earlier whole-key results remain historical evidence in
   For v1.0.0, macOS 26 VM results supplement the approved macOS 27 physical
   acceptance machine; unavailable physical hardware alone does not block
   publication. Failed checks remain release blockers (ADR 0030).
-- For v1.1.0 and v1.2.0, the owner excludes actual VoiceOver operation and the final
+- For v1.1.0, v1.2.0 and v1.3.0, the owner excludes actual VoiceOver operation and the final
   macOS 26 VM visual smoke test from mandatory acceptance because they are
   unavailable in the owner's environment. Both remain unverified, not passed.
   Existing physical-machine checks and earlier VM results remain evidence;
@@ -1961,7 +2025,7 @@ that bound. Earlier whole-key results remain historical evidence in
   `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
   and checksum, and use the matching CHANGELOG section as release notes. The
   workflow fails when the signing secrets are missing.
-- For v1.1.0 and v1.2.0, GitHub Actions remains disabled by owner instruction. Build the
+- For v1.1.0, v1.2.0 and v1.3.0, GitHub Actions remains disabled by owner instruction. Build the
   signed DMG locally from the tag commit and publish it with its SHA-256 and
   release notes. Verify anonymous downloads and `releases/latest`; do not
   report the local checks as successful GitHub Actions runs (ADRs 0036 and 0037).
@@ -1988,6 +2052,11 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-30: Add the shared photo/video editor, direct manipulation, color and
+  geometry processing, forced derived SDR for HDR color edits and v1.3.0
+  acceptance/release requirements. Extend the explicit VoiceOver and macOS 26
+  VM exclusions; both remain unverified (ADR 0039).
 
 - 2026-10-28: Extend the owner-approved VoiceOver and macOS 26 VM visual
   acceptance exclusions to v1.2.0; retain unverified status (ADR 0038).

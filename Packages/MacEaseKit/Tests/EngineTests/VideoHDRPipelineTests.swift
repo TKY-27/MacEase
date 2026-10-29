@@ -417,6 +417,27 @@ import VideoToolbox
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == originalNames)
     }
 
+    @Test(arguments: Transfer.allCases)
+    func editorColorEditsAlwaysDeriveVerifiedSDR(transfer: Transfer) async throws {
+        let source = try copiedFixture(transfer)
+        let original = try Data(contentsOf: source)
+        let context = context(for: source, outputMode: .replace)
+        defer { context.removeStaging() }
+        var edit = VideoEdit()
+        edit.adjustments[.exposure] = 0.5
+        edit.geometry.crop = EditCrop(width: 0.5)
+        let result = try await VideoEdits.run(.edit(edit), url: source, context: context)
+        guard case .derived(let parent, let outputs) = result else {
+            Issue.record("HDR color editing must preserve the source")
+            return
+        }
+        #expect(parent == source)
+        let output = try #require(outputs.first)
+        #expect(VideoHDRConfiguration(format: try await format(at: output.url)) == nil)
+        #expect(context.warnings.contains(.videoToneMappedToSDR))
+        #expect(try Data(contentsOf: source) == original)
+    }
+
     private func copiedFixture(_ transfer: Transfer) throws -> URL {
         let fixture = try #require(
             Bundle.module.url(

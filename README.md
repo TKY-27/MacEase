@@ -72,6 +72,7 @@ window for input, review, or confirmation.
 
 | Operation | What it does |
 | --- | --- |
+| **Edit Photo…** | Crop, rotate, straighten, adjust color, apply styles or Auto Enhance; compare and undo edits with a histogram |
 | **Resolution & Size** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
 | **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
@@ -94,6 +95,16 @@ It works best for logos and flat shapes. Photos, editable text, and reconstructe
 gradients are outside its scope. Review any metadata, transparency, or HDR warning
 before saving.
 
+The photo and video editors use a resizable landscape workspace, with the
+preview on the left and controls on the right. Drag a crop edge or corner, or
+enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
+Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
+black point, sharpness, noise reduction, vignette and automatic correction.
+Styles are independent presets, not Apple's Photographic Styles.
+HDR color edits display **SDR · Save as new file** and always keep the original.
+Animations and multipage images cannot be opened in Edit Photo; RAW renders
+are saved in a writable format while retaining the RAW source.
+
 ### Videos
 
 <img src="docs/images/video-en.png" width="520" alt="Finder context menu on a video with MacEase open, showing Resize, Trim, Thumbnail, Subtitles, Compress, Rotate, Convert, Extract Audio, Frame Rate, Remove Audio and Background, and the Compress submenu listing Discord, X, Instagram Reels, LINE, Email, size targets from 10 MB to 100 MB, quality levels and Custom Size">
@@ -101,7 +112,7 @@ before saving.
 | Operation | What it does |
 | --- | --- |
 | **Resolution & Size** | Scale by percentage or to a 2160p/1080p/720p/480p/360p short edge; **Custom Size…** fits a box |
-| **Edit Video…** | Combine time range, speed and resolution in one export; preview output duration, dimensions and save policy |
+| **Edit Video…** | Drag timeline handles; combine trim, speed, crop, rotation, color, styles, volume and resolution in one export |
 | **Playback Speed** | 0.5, 0.75, 1.25, 1.5, 2 and 4× presets, plus arbitrary **Custom Speed…** from 0.5–4×; preserve pitch, including batch processing |
 | **Thumbnail** | Save the first, middle, or a chosen frame as an image |
 | **Subtitles** | Transcribe to SRT, WebVTT, or plain text, or export translated SRT |

@@ -4,18 +4,18 @@ import Foundation
 import MenuCatalog
 import os
 
-public struct FileStamp: Codable, Equatable, Sendable {
+public struct FileStamp: Codable, Hashable, Sendable {
     public let size: Int64?
     public let modified: Date
     private let directorySummary: DirectorySummary?
     private let identity: FileIdentity?
 
-    private struct FileIdentity: Codable, Equatable, Sendable {
+    private struct FileIdentity: Codable, Hashable, Sendable {
         let device: UInt64
         let inode: UInt64
     }
 
-    private struct DirectorySummary: Codable, Equatable, Sendable {
+    private struct DirectorySummary: Codable, Hashable, Sendable {
         var descendantCount = 0
         var totalSize: Int64 = 0
         var latestModification = Date.distantPast

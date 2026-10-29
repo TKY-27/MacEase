@@ -60,6 +60,8 @@ struct FrameEdit: Hashable, Sendable {
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
     var aspect: AspectRange?
+    var editorGeometry: EditGeometry?
+    var adjustments: MediaAdjustments?
 }
 
 struct PixelSize: Hashable, Sendable {
@@ -82,6 +84,8 @@ final class FrameProcessor {
     private let scale: CGAffineTransform
     private let viewport: CGRect
     private let background: CIImage?
+    private let editorGeometry: EditGeometry?
+    private let adjustments: MediaAdjustments?
     let size: PixelSize
 
     static func outputSize(
@@ -93,7 +97,9 @@ final class FrameProcessor {
         guard let width = Int(exactly: bounds.width.rounded()),
             let height = Int(exactly: bounds.height.rounded()), width > 0, height > 0
         else { throw EngineError.decodeFailed("video dimensions out of range") }
-        let natural = PixelSize(width: width, height: height)
+        let edited = edit.editorGeometry?.outputSize(CGSize(width: width, height: height))
+        let natural = PixelSize(
+            width: edited.map { Int($0.width) } ?? width, height: edited.map { Int($0.height) } ?? height)
         return (edit.size ?? natural).evened()
     }
 
@@ -101,6 +107,8 @@ final class FrameProcessor {
         source: PixelSize, edit: FrameEdit, hdr: VideoHDRConfiguration? = nil, display: VideoDisplayGeometry? = nil
     ) throws {
         self.hdr = hdr
+        editorGeometry = edit.editorGeometry
+        adjustments = edit.adjustments
         if let hdr {
             guard let working = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020),
                 let output = CGColorSpace(
@@ -108,6 +116,9 @@ final class FrameProcessor {
             else { throw EngineError.encodeFailed("HDR color space unavailable") }
             context = CIContext(options: [.workingColorSpace: working, .workingFormat: CIFormat.RGBAh])
             outputColorSpace = output
+        } else if edit.adjustments?.isIdentity == false {
+            context = CIContext(options: [.cacheIntermediates: false])
+            outputColorSpace = CGColorSpace(name: CGColorSpace.itur_709)
         } else {
             context = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
             outputColorSpace = nil
@@ -129,8 +140,9 @@ final class FrameProcessor {
         let bounds = Self.viewport(source: presentation, edit: edit, geometry: orientation)
         viewport = bounds
         size = try Self.outputSize(source: source, edit: edit, display: display)
+        let editedSize = edit.editorGeometry?.outputSize(bounds.size) ?? bounds.size
         scale = CGAffineTransform(
-            scaleX: CGFloat(size.width) / bounds.width, y: CGFloat(size.height) / bounds.height)
+            scaleX: CGFloat(size.width) / editedSize.width, y: CGFloat(size.height) / editedSize.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
         background =
             !edit.flattensAlpha && (edit.preservesAlpha || rightAngle && edit.aspect?.fit != .letterbox)
@@ -184,7 +196,9 @@ final class FrameProcessor {
             to: viewport
         )
         .transformed(by: CGAffineTransform(translationX: -viewport.minX, y: -viewport.minY))
-        .transformed(by: scale)
+        if let editorGeometry { image = editorGeometry.applying(to: image) }
+        if let adjustments { image = adjustments.applying(to: image) }
+        image = image.transformed(by: scale)
         let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         if let background { image = image.composited(over: background) }
         var output: CVPixelBuffer?

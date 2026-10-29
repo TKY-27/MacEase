@@ -1,4 +1,5 @@
 public enum OperationID: String, Codable, CaseIterable, Sendable {
+    case imageEdit = "image.edit"
     case imageResize = "image.resize"
     case imageCompress = "image.compress"
     case imageConvert = "image.convert"
@@ -183,12 +184,15 @@ extension OperationID {
 
     public var maximumSelection: Int? {
         switch self {
-        case .videoEdit, .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64, .imageTraceSVG, .archiveBrowse: 1
+        case .imageEdit, .videoEdit, .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64, .imageTraceSVG,
+            .archiveBrowse:
+            1
         default: nil
         }
     }
 
     public static let menuOrder: [OperationID] = [
+        .imageEdit,
         .imageResize, .imageCompress, .imageConvert, .imageHDRToSDR, .imageRotate, .imageFlip, .imageBackground,
         .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64,
         .imageAIRename, .imageAICustom,

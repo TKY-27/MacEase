@@ -1,6 +1,36 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Exact": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正確"
+          }
+        }
+      }
+    },
+    "Keyframes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーフレーム"
+          }
+        }
+      }
+    },
+    "Pause": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止"
+          }
+        }
+      }
+    },
     "": {
       "localizations": {
         "ja": {
@@ -12950,6 +12980,743 @@
           "stringUnit": {
             "state": "translated",
             "value": "macOSのアクセス要求が待機したままの場合は、「フォルダを追加」で対象フォルダを選択し、MacEaseを再起動してから再試行してください。"
+          }
+        }
+      }
+    },
+    "16:9": {
+      "shouldTranslate": false
+    },
+    "1:1": {
+      "shouldTranslate": false
+    },
+    "2×": {
+      "shouldTranslate": false
+    },
+    "3:2": {
+      "shouldTranslate": false
+    },
+    "4:3": {
+      "shouldTranslate": false
+    },
+    "4:5": {
+      "shouldTranslate": false
+    },
+    "4×": {
+      "shouldTranslate": false
+    },
+    "Adjust": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整"
+          }
+        }
+      }
+    },
+    "Aspect Ratio": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縦横比"
+          }
+        }
+      }
+    },
+    "Auto Enhance": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動補正"
+          }
+        }
+      }
+    },
+    "Black Point": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラックポイント"
+          }
+        }
+      }
+    },
+    "Brightness": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "明るさ"
+          }
+        }
+      }
+    },
+    "Cancel editing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集をキャンセル"
+          }
+        }
+      }
+    },
+    "Compare Original": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集前と比較"
+          }
+        }
+      }
+    },
+    "Compare with original (M)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集前と比較（M）"
+          }
+        }
+      }
+    },
+    "Contrast": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントラスト"
+          }
+        }
+      }
+    },
+    "Cool": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寒色"
+          }
+        }
+      }
+    },
+    "Crop selection": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り取り範囲"
+          }
+        }
+      }
+    },
+    "Drag to move the selected range": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグして選択範囲を移動"
+          }
+        }
+      }
+    },
+    "Dramatic": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラマチック"
+          }
+        }
+      }
+    },
+    "Edit Photo supports a single still image. Animated and multipage images are not supported.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真編集は1枚の静止画に対応しています。アニメーションや複数ページの画像は編集できません。"
+          }
+        }
+      }
+    },
+    "menu.op.image.edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Photo…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を編集…"
+          }
+        }
+      }
+    },
+    "Editing tool": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集ツール"
+          }
+        }
+      }
+    },
+    "End": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        }
+      }
+    },
+    "Exposure": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "露出"
+          }
+        }
+      }
+    },
+    "Fit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全体を表示"
+          }
+        }
+      }
+    },
+    "Flip Horizontal": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左右反転"
+          }
+        }
+      }
+    },
+    "Flip Vertical": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下反転"
+          }
+        }
+      }
+    },
+    "Freeform": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自由"
+          }
+        }
+      }
+    },
+    "Highlights": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハイライト"
+          }
+        }
+      }
+    },
+    "Histogram": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒストグラム"
+          }
+        }
+      }
+    },
+    "Image histogram": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像のヒストグラム"
+          }
+        }
+      }
+    },
+    "Intensity": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強度"
+          }
+        }
+      }
+    },
+    "Keyframe cuts may start earlier. Choose Exact to keep the selected range.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーフレームでは開始位置が前にずれる場合があります。選択範囲を正確に残すには「正確」を選んでください。"
+          }
+        }
+      }
+    },
+    "Left": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        }
+      }
+    },
+    "Monochrome": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モノクロ"
+          }
+        }
+      }
+    },
+    "More editing actions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の編集操作"
+          }
+        }
+      }
+    },
+    "Mute": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュート"
+          }
+        }
+      }
+    },
+    "Next Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のフレーム"
+          }
+        }
+      }
+    },
+    "Noise Reduction": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノイズ軽減"
+          }
+        }
+      }
+    },
+    "Opening…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いています…"
+          }
+        }
+      }
+    },
+    "Original Ratio": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の比率"
+          }
+        }
+      }
+    },
+    "Play Selection": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲を再生"
+          }
+        }
+      }
+    },
+    "Preparing preview…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを準備中…"
+          }
+        }
+      }
+    },
+    "Previous Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のフレーム"
+          }
+        }
+      }
+    },
+    "RGB": {
+      "shouldTranslate": false
+    },
+    "Redo Edit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集をやり直す"
+          }
+        }
+      }
+    },
+    "Reset All Edits": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての編集をリセット"
+          }
+        }
+      }
+    },
+    "Reset Crop and Rotation": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り取りと回転をリセット"
+          }
+        }
+      }
+    },
+    "Reset adjustment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整をリセット"
+          }
+        }
+      }
+    },
+    "Rotate Right": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右に90度回転"
+          }
+        }
+      }
+    },
+    "SDR · Save as new file": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SDR・新しいファイルとして保存"
+          }
+        }
+      }
+    },
+    "Saturation": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "彩度"
+          }
+        }
+      }
+    },
+    "Save": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "Selection (%)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲（%）"
+          }
+        }
+      }
+    },
+    "Selection End": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲の終了"
+          }
+        }
+      }
+    },
+    "Selection Start": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲の開始"
+          }
+        }
+      }
+    },
+    "Shadows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャドウ"
+          }
+        }
+      }
+    },
+    "Sharpness": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャープネス"
+          }
+        }
+      }
+    },
+    "Start": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始"
+          }
+        }
+      }
+    },
+    "Straighten": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傾き補正"
+          }
+        }
+      }
+    },
+    "Style": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイル"
+          }
+        }
+      }
+    },
+    "Styles": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイル"
+          }
+        }
+      }
+    },
+    "Swap Width and Height": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縦横を入れ替え"
+          }
+        }
+      }
+    },
+    "The original changed while editing. Close the editor and reopen the file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集中に元のファイルが変更されました。エディタを閉じ、ファイルを開き直してください"
+          }
+        }
+      }
+    },
+    "Timeline Zoom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムラインの拡大率"
+          }
+        }
+      }
+    },
+    "Tint": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色合い"
+          }
+        }
+      }
+    },
+    "Top": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上"
+          }
+        }
+      }
+    },
+    "Unable to Open": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開けません"
+          }
+        }
+      }
+    },
+    "Undo Edit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を取り消す"
+          }
+        }
+      }
+    },
+    "Use arrow keys to move the selection.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "矢印キーで選択範囲を移動できます。"
+          }
+        }
+      }
+    },
+    "Vibrance": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自然な彩度"
+          }
+        }
+      }
+    },
+    "Vignette": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビネット"
+          }
+        }
+      }
+    },
+    "Vivid": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鮮やか"
+          }
+        }
+      }
+    },
+    "Volume": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量"
+          }
+        }
+      }
+    },
+    "Warm": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暖色"
+          }
+        }
+      }
+    },
+    "Warmth": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色温度"
+          }
+        }
+      }
+    },
+    "°": {
+      "shouldTranslate": false
+    },
+    "×": {
+      "shouldTranslate": false
+    },
+    "Enter a valid number within the allowed range.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "範囲内の有効な数値を入力してください。"
           }
         }
       }

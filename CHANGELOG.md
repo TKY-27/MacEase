@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-30
+
+### Added
+
+- Shared photo/video editor with a resizable landscape workspace and Liquid Glass Save.
+- Direct timeline range handles, range movement, scrubbing, frame stepping and zoom.
+- Shared crop, aspect presets, rotation, flips, straightening, color adjustments and styles.
+- Photo automatic correction, black point, sharpness, noise reduction, vignette and zoom.
+- Video volume/mute, original comparison, session Undo/Redo and luminance/RGB histograms.
+- Cancellable temporary playback for supported non-native video formats.
+
+### Safety
+
+- HDR color editing always previews SDR and saves a new SDR file, preserving the original.
+- Recheck source identity before saving and exporting; reject animated/multipage photo editing.
+- Preserve existing staging, verification, collision handling, Trash and history Undo.
+
 ## [1.2.0] - 2026-10-28
 
 ### Added

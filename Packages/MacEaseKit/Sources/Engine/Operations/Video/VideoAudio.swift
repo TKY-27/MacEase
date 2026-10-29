@@ -230,6 +230,7 @@ final class VideoPCMSource {
 }
 
 final class AudioEncodeStage: StreamStage {
+    private let volume: Float
     private static let flvPCMSampleRate = 44_100
     private let source: VideoPCMSource
     private let encoder: AudioPacketEncoder?
@@ -254,12 +255,16 @@ final class AudioEncodeStage: StreamStage {
 
     init(
         input: MediaInput, track: MediaTrack, number: Int, codec: MediaCodec, kilobits: Int, start: Int64, end: Int64,
-        sourceOverride: VideoPCMSource? = nil, destination: OutputContainer = .mov
+        sourceOverride: VideoPCMSource? = nil, destination: OutputContainer = .mov, volume: Double = 1
     )
         throws
     {
+        guard volume.isFinite, (0...1).contains(volume) else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        self.volume = Float(volume)
         source = try sourceOverride ?? VideoPCMSource(input: input, track: track, start: start, end: end)
-        nativeAAC = sourceOverride != nil && codec == .aac && destination.fileType != nil
+        nativeAAC = (sourceOverride != nil || volume != 1) && codec == .aac && destination.fileType != nil
         self.start = start
         self.number = number
         position = start
@@ -277,7 +282,7 @@ final class AudioEncodeStage: StreamStage {
         maximumSilenceFrames = Int64(
             (Double(maximumSynthesizedSilence) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded(.down))
         channels = format.outputChannels(source.channels)
-        if sourceOverride != nil, channels != source.channels || (destination == .flv && channels > 2) {
+        if sourceOverride != nil || volume != 1, channels != source.channels || (destination == .flv && channels > 2) {
             throw EngineError.audioChannelLayoutUnsupported
         }
         converter =
@@ -380,6 +385,7 @@ final class AudioEncodeStage: StreamStage {
     private func encoded(_ samples: [Float]) throws -> [MediaPacket] {
         guard !samples.isEmpty else { return [] }
         guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
+        let samples = volume == 1 ? samples : samples.map { $0 * volume }
         let (following, overflow) = inputFrames.addingReportingOverflow(Int64(samples.count / channels))
         guard !overflow else { throw EngineError.encodeFailed("audio frame count out of range") }
         inputFrames = following

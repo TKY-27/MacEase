@@ -15,8 +15,15 @@ enum VideoProperties {
     ) async throws -> TranscodePlan {
         guard input.video?.hasContainerHDR != true else { throw EngineError.hdrConversionUnsupported }
         var prepared = plan
-        let keepsOriginal = plan.derived || context.settings.outputMode == .newFile
         let hdr = plan.video == nil ? nil : try await hdrConfiguration(input)
+        let adjustsHDR: Bool
+        if case .encode(_, let edit) = plan.video {
+            adjustsHDR = edit.adjustments?.isIdentity == false && hdr != nil
+        } else {
+            adjustsHDR = false
+        }
+        if adjustsHDR { prepared.derived = true }
+        let keepsOriginal = prepared.derived || context.settings.outputMode == .newFile
         if hdr?.dolbyVision == true {
             guard keepsOriginal else { throw EngineError.videoDolbyVisionUnsupported }
             warn(.dolbyVisionRemoved, context: context)
@@ -41,10 +48,17 @@ enum VideoProperties {
                 }
             }
             if let hdr {
-                if allowsCodecChange, prepared.container.holds(.hevc), !encoding.alpha {
+                if adjustsHDR {
+                    try await validateToneMapping(input)
+                    prepared.toneMapToSDR = true
+                    encoding.hdr = nil
+                    warn(.videoToneMappedToSDR, context: context)
+                } else if allowsCodecChange, prepared.container.holds(.hevc), !encoding.alpha {
                     encoding.codec = .hevc
                 }
-                if encoding.codec == .hevc, !encoding.alpha, !edit.flattensAlpha, prepared.matte == nil {
+                if adjustsHDR {
+                    encoding.hdr = nil
+                } else if encoding.codec == .hevc, !encoding.alpha, !edit.flattensAlpha, prepared.matte == nil {
                     encoding.hdr = hdr.configuration
                 } else {
                     guard keepsOriginal else { throw EngineError.videoHDRUnsupported }

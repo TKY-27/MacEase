@@ -192,6 +192,69 @@ import Testing
         #expect(abs(frequency / 440 - 1) <= 0.01, "frequency \(frequency), speed \(speed)")
     }
 
+    @Test(arguments: [false, true])
+    func editorStepsSourceFramesAcrossVariableTiming(container: Bool) async throws {
+        var source = try await fixture(channels: 0, variableFrameRate: true)
+        if container {
+            let input = try await MediaInput.open(source)
+            let video = try #require(input.video)
+            let plan = try VideoEdits.plan(.convert(.mkv), input: input, source: video, settings: VideoSettings())
+            let output = source.deletingLastPathComponent().appending(path: "variable.mkv")
+            try await Transcoder.run(input, plan: plan, to: output) { _ in }
+            source = output
+        }
+        let editor = try await VideoEditorSource.open(
+            source, staging: StagingArea(supportDirectory: source.deletingLastPathComponent()))
+        let first = try await editor.adjacentFrameTime(to: 0, forward: true)
+        let second = try await editor.adjacentFrameTime(to: first, forward: true)
+        let third = try await editor.adjacentFrameTime(to: second, forward: true)
+        let previous = try await editor.adjacentFrameTime(to: third, forward: false)
+        #expect(abs(first - 2.0 / 60) < 0.001)
+        #expect(abs(second - 3.0 / 60) < 0.001)
+        #expect(abs(third - 5.0 / 60) < 0.001)
+        #expect(previous == second)
+        let last = try await editor.adjacentFrameTime(to: 4, forward: false)
+        let frames = try await editor.frames(at: [0.5, last], width: 128, exactFrame: true)
+        #expect(frames.count == 2)
+        #expect(try PixelBuffer(cgImage: frames[0]).rgba[0] > 180)
+        await editor.close()
+    }
+
+    @Test func combinedEditorKeepsAudioVideoMarkersAndVolume() async throws {
+        let source = try await fixture(variableFrameRate: true)
+        var edit = VideoEdit(start: 0.25, end: 3.5, speed: 1.5)
+        edit.geometry.quarterTurns = 1
+        edit.geometry.crop = EditCrop(x: 0.25, y: 0.25, width: 0.5, height: 0.5)
+        edit.adjustments.style = .monochrome
+        edit.adjustments[.exposure] = 0.1
+        edit.volume = 0.25
+        let output = try await edited(source, edit: edit)
+        let asset = AVURLAsset(url: output)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let size = try await track.load(.naturalSize)
+        #expect(size.width == 48 && size.height == 64)
+        #expect(abs(try await asset.load(.duration).seconds - 3.25 / 1.5) < 0.04)
+        let samples = try await audioSamples(output)
+        let markers = try await videoMarkerTimes(output)
+        try #require(markers.count == Self.markers.count)
+        for (index, marker) in Self.markers.enumerated() {
+            let expected = (marker - 0.25) / 1.5
+            let window = 48
+            let lower = max(0, Int((expected - 0.1) * Self.sampleRate))
+            let upper = min(samples.count - window, Int((expected + 0.15) * Self.sampleRate))
+            let onset = stride(from: lower, to: upper, by: window).first { offset in
+                let energy = samples[offset..<(offset + window)].reduce(0.0) { $0 + Double($1 * $1) } / Double(window)
+                return energy.squareRoot() > 0.08
+            }
+            let measured = Double(try #require(onset)) / Self.sampleRate
+            #expect(abs(markers[index] - expected) < 0.04)
+            #expect(abs(measured - markers[index]) < 0.04)
+            let center = Int((expected + 0.06) * Self.sampleRate)
+            let energy = samples[center..<(center + 480)].reduce(0.0) { $0 + Double($1 * $1) } / 480
+            #expect((0.11...0.17).contains(energy.squareRoot()))
+        }
+    }
+
     @Test(arguments: [8_000.0, 16_000.0, 22_050.0])
     func nativeAACUsesSupportedBitrateAtLowSampleRates(sampleRate: Double) async throws {
         let source = try await fixture(sampleRate: sampleRate)

@@ -175,6 +175,7 @@ public enum IconSetKind: String, Codable, CaseIterable, Sendable {
 }
 
 public enum ImageOperation: Codable, Hashable, Sendable {
+    case edit(ImageEdit)
     case resize(ImageResize)
     case compress(ImageCompression)
     case convert(ImageConversion)
