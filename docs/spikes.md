@@ -667,3 +667,17 @@ fixes 8, 16 and 22.05 kHz inputs; regression checks preserve the 440 Hz pitch
 within 1% and the two-second duration within 20 ms. Speech material is from
 the [Open Speech Repository](https://www.voiptroubleshooter.com/open_speech/american.html),
 OSR_us_000_0010_8k.wav; it is used for local testing, not bundled with MacEase.
+
+## Photo and video editor acceptance (2026-10-30)
+
+On macOS 27.0.1, AVPlayer applies the shared Core Image geometry/color
+composition during native playback. Unsupported containers use a cancellable
+720p H.264/AAC preview; closing the editor removes its registered staging file.
+Export continues to decode the original. Source packet presentation timestamps
+are required for VFR frame stepping because a constant-rate playback copy
+cannot identify every original frame.
+
+A 24-megapixel JPEG and 4K video remained interactive on Apple M5. A fifteen
+minute signed-app RSS sample peaked at 355.94 MiB and ended at 201.89 MiB;
+closed-editor samples did not increase monotonically. This observation is not
+a general upper bound. See `v1.3.0-validation.md` for output and UI evidence.
