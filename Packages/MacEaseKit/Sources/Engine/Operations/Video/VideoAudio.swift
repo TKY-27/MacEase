@@ -57,6 +57,7 @@ final class VideoPCMSource {
     private enum Source {
         case asset(AssetTrackReader)
         case stretched(TimeStretchedAudio)
+        case timeline(TimelinePCMSource)
         case container(any MediaDemuxer, track: Int)
     }
 
@@ -110,8 +111,20 @@ final class VideoPCMSource {
         channels = stretched.channels
     }
 
+    init(timeline: TimelinePCMSource) {
+        source = .timeline(timeline)
+        decoder = nil
+        start = 0
+        end = .max
+        codecDelay = 0
+        sampleRate = timeline.sampleRate
+        channels = timeline.channels
+    }
+
     func next() async throws -> Chunk? {
         switch source {
+        case .timeline(let timeline):
+            return try await timeline.next()
         case .stretched(let stretched):
             let offset = try Nanoseconds.from(seconds: Double(stretched.position) / sampleRate)
             guard let samples = try stretched.next() else { return nil }

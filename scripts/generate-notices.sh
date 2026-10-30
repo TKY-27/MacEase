@@ -80,6 +80,7 @@ notice() {
 
 {
     echo "MacEase includes the following third-party software."
+    cat "$root/Vendor/build/hatchzip-third-party.txt"
     echo
     while read -r name version license _ url files; do
         [[ -z "$name" || "$name" == \#* || "$name" == "swift-corelibs-foundation" \

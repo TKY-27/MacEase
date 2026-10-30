@@ -37,6 +37,7 @@ app="$archive/Products/Applications/$app_name.app"
 appex="$app/Contents/PlugIns/MacEaseFinderSync.appex"
 
 # Preserve Xcode's expanded entitlements.
+codesign "${sign_args[@]}" "$app/Contents/Resources/macease-hatchzip"
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$appex"
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$app"
 

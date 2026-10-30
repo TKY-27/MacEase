@@ -205,6 +205,9 @@ enum VideoEdits {
         audioSettings: AudioSettings
     ) throws -> TranscodePlan {
         try edit.geometry.validate()
+        if edit.segments != nil {
+            return try segmented(edit, input: input, source: source, settings: settings, audioSettings: audioSettings)
+        }
         try edit.adjustments.validate()
         guard edit.volume.isFinite, (0...1).contains(edit.volume) else {
             throw EngineError.invalidInput(.invalidNumericParameter)
@@ -244,6 +247,34 @@ enum VideoEdits {
         if edit.volume == 0 {
             plan.audio = nil
         } else if edit.speed != 1 || changesAudio, input.audio != nil {
+            switch input.container {
+            case .webm, .mkv: plan.audio = .encode(.opus, kilobits: audioSettings.opusBitrate)
+            case .avi, .flv: plan.audio = .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)
+            default: plan.audio = .encode(.aac, kilobits: audioSettings.aacBitrate)
+            }
+        }
+        return plan
+    }
+
+    private static func segmented(
+        _ edit: VideoEdit, input: MediaInput, source: MediaTrack, settings: VideoSettings,
+        audioSettings: AudioSettings
+    ) throws -> TranscodePlan {
+        let timeline = try VideoTimeline(
+            edit: edit, sourceDuration: Double(input.duration) / Double(Nanoseconds.perSecond))
+        let cropped = edit.geometry.outputSize(CGSize(width: input.displaySize.width, height: input.displaySize.height))
+        let natural = PixelSize(width: Int(cropped.width), height: Int(cropped.height))
+        let size = try edit.resize?.outputSize(natural)
+        let changesSize = size.map { $0 != natural } ?? false
+        var frameEdit = try baked(input)
+        if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
+        if changesSize { frameEdit.size = size }
+        var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
+        plan.timeline = timeline
+        plan.startsAtKeyframe = false
+        if input.audio == nil || timeline.segments.allSatisfy({ $0.volume == 0 }) {
+            plan.audio = nil
+        } else {
             switch input.container {
             case .webm, .mkv: plan.audio = .encode(.opus, kilobits: audioSettings.opusBitrate)
             case .avi, .flv: plan.audio = .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)

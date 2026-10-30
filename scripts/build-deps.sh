@@ -10,7 +10,8 @@ prefix="$out/prefix"
 deployment_target="26.0"
 stamp_file="$out/.stamp"
 
-stamp_inputs=("$lock" "$0" "$root/scripts/generate-notices.sh")
+stamp_inputs=("$lock" "$0" "$root/scripts/generate-notices.sh" "$root/scripts/build-hatchzip.sh")
+stamp_inputs+=("$root/Native/HatchZip/Cargo.toml" "$root/Native/HatchZip/Cargo.lock" "$root/Native/HatchZip/src/main.rs")
 stamp_inputs+=("$root"/Vendor/JSONCompare/*.mm "$root"/Vendor/JSONCompare/*.hpp)
 stamp_inputs+=("$root"/Vendor/JSONCompare/*.py "$root"/Vendor/JSONCompare/include/*.h)
 stamp_inputs+=("$root/Vendor/JSONCompare/NOTICE" "$root/Vendor/licenses/swift-corelibs-foundation/LICENSE")
@@ -19,12 +20,12 @@ if [[ -d "$root/Vendor/patches" ]]; then
 fi
 stamp="$(cat "${stamp_inputs[@]}" | shasum -a 256 | cut -d' ' -f1)"
 if [[ "${1:-}" != "--force" && -f "$stamp_file" && "$(cat "$stamp_file")" == "$stamp" \
-    && -d "$out/CNative.xcframework" && -f "$out/THIRD_PARTY_NOTICES.txt" ]]; then
+    && -d "$out/CNative.xcframework" && -f "$out/THIRD_PARTY_NOTICES.txt" && -x "$out/macease-hatchzip" ]]; then
     echo "Native dependencies are up to date."
     exit 0
 fi
 
-for tool in cmake meson ninja pkg-config make python3; do
+for tool in cmake meson ninja pkg-config make python3 cargo; do
     command -v "$tool" >/dev/null || { echo "error: $tool is missing; run make bootstrap" >&2; exit 1; }
 done
 
@@ -375,6 +376,7 @@ MAP
 xcodebuild -create-xcframework -library "$staging/libCNative.a" -headers "$staging/include" \
     -output "$out/CNative.xcframework" >/dev/null
 
+"$root/scripts/build-hatchzip.sh"
 "$root/scripts/generate-notices.sh"
 rm -rf "$work" "$prefix"
 echo "$stamp" >"$stamp_file"

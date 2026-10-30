@@ -10,11 +10,13 @@ public final class StagingArea: Sendable {
         var registryLoaded = false
     }
 
+    let supportDirectory: URL
     private let registry: URL
     private let paths = Mutex(Paths())
     private let logger = Logger(category: "staging")
 
     public init(supportDirectory: URL) {
+        self.supportDirectory = supportDirectory
         registry = supportDirectory.appending(path: "staging.json")
     }
 

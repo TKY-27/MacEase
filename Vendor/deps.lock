@@ -25,3 +25,4 @@ icu-apple 2a6dc3a0f0ebc3fed1c9c0a96825e985f8db2f51 Unicode-3.0 3583167dbd799d4e9
 swift-corelibs-foundation 28249ced079d8e7ec03b821c039bf9868738c3fc Apache-2.0-with-Swift-exception 0ca84095d1de77cad1a866ebbad28f8db98a0826c6055d92b0608c5baa1643e2 https://raw.githubusercontent.com/swiftlang/swift-corelibs-foundation/28249ced079d8e7ec03b821c039bf9868738c3fc/LICENSE LICENSE
 cfr 0.152 MIT f686e8f3ded377d7bc87d216a90e9e9512df4156e75b06c655a16648ae8765b2 https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar -
 cfr-license 0.152 MIT d0b36fd265410a15e634220fdc6101976582799a09c69764f44bc21c21611527 https://raw.githubusercontent.com/leibnitz27/cfr/0.152/LICENSE -
+hatchzip-core ba72db848178a97183c2225a3fb617f5ba7f9a2f MIT-or-Apache-2.0 4477c5ede1a1c108d6a73f53acfff83df8ac959888501e9cc1297377177031fa https://codeload.github.com/xevrion/hatchzip/tar.gz/ba72db848178a97183c2225a3fb617f5ba7f9a2f LICENSE-MIT,LICENSE-APACHE

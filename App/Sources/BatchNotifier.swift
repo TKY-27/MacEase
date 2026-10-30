@@ -8,8 +8,10 @@ import os
 final class BatchNotifier: NSObject {
     private enum Identifier {
         static let category = "batch"
+        static let showCategory = "batch-show"
         static let permissionCategory = "permission"
         static let batchPermissionCategory = "batch-permission"
+        static let permissionShowCategory = "batch-permission-show"
         static let permissions = "permissions"
         static let permissionLocation = "permissionLocation"
         static let undo = "undo"
@@ -43,11 +45,14 @@ final class BatchNotifier: NSObject {
         )
         center.setNotificationCategories([
             UNNotificationCategory(identifier: Identifier.category, actions: [undo, show], intentIdentifiers: []),
+            UNNotificationCategory(identifier: Identifier.showCategory, actions: [show], intentIdentifiers: []),
             UNNotificationCategory(
                 identifier: Identifier.permissionCategory, actions: [permissions], intentIdentifiers: []),
             UNNotificationCategory(
                 identifier: Identifier.batchPermissionCategory, actions: [permissions, undo, show],
                 intentIdentifiers: []),
+            UNNotificationCategory(
+                identifier: Identifier.permissionShowCategory, actions: [permissions, show], intentIdentifiers: []),
         ])
     }
 
@@ -69,7 +74,7 @@ final class BatchNotifier: NSObject {
         content.title = summary.title
         content.body = summary.body
         if outcome.record != nil {
-            content.categoryIdentifier = Identifier.category
+            content.categoryIdentifier = outcome.record?.canUndo == true ? Identifier.category : Identifier.showCategory
             content.userInfo = [Identifier.batchID: outcome.batchID.uuidString]
         }
         if let location = outcome.outcomes.lazy.compactMap({ result -> PermissionLocation? in
@@ -77,7 +82,10 @@ final class BatchNotifier: NSObject {
             return location
         }).first {
             content.categoryIdentifier =
-                outcome.record == nil ? Identifier.permissionCategory : Identifier.batchPermissionCategory
+                outcome.record == nil
+                ? Identifier.permissionCategory
+                : outcome.record?.canUndo == true
+                    ? Identifier.batchPermissionCategory : Identifier.permissionShowCategory
             content.userInfo[Identifier.permissionLocation] = location.rawValue
         }
         post(content, id: outcome.batchID.uuidString)

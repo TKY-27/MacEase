@@ -6,6 +6,7 @@ import MenuCatalog
 public enum ArchiveOperation: Codable, Hashable, Sendable {
     /// `nil` until the Password panel supplies one.
     case extract(password: String?)
+    case hatchExtract(password: String?, sessionID: UUID? = nil)
 }
 
 enum ArchivePlanner {
@@ -13,11 +14,27 @@ enum ArchivePlanner {
     private static let quarantineAttribute = "com.apple.quarantine"
 
     static func options(for op: OperationID, preset: String?) -> ArchiveOperation? {
-        op == .archiveExtract && preset == nil ? .extract(password: nil) : nil
+        guard preset == nil else { return nil }
+        switch op {
+        case .archiveExtract: return .extract(password: nil)
+        case .archiveHatchExtract: return .hatchExtract(password: nil)
+        default: return nil
+        }
     }
 
     static func batch(_ operation: ArchiveOperation, op: OperationID, archives: [URL]) -> Batch {
         switch operation {
+        case .hatchExtract(let password, let sessionID):
+            return Batch(
+                operation: op,
+                items: primaryArchives(archives).map { archive in
+                    WorkItem(inputs: [archive], durableArchive: true) { context in
+                        .hatchExtraction(
+                            try await context.hatchExtractions.extract(
+                                input: sessionID == nil ? archive : nil, resuming: sessionID, password: password,
+                                progress: context.progress))
+                    }
+                })
         case .extract(let password):
             let items = archives.map { archive in
                 OperationPlanner.validated(archive, kind: .archive) { context in
@@ -25,6 +42,20 @@ enum ArchivePlanner {
                 }
             }
             return Batch(operation: op, items: items)
+        }
+    }
+
+    private static func primaryArchives(_ archives: [URL]) -> [URL] {
+        var seen: Set<URL> = []
+        return archives.compactMap { archive in
+            let primary: URL
+            if FileKind.canonicalFormat(for: archive).hasSuffix(".split") {
+                let first = String(repeating: "0", count: archive.pathExtension.count - 1) + "1"
+                primary = archive.deletingPathExtension().appendingPathExtension(first).standardizedFileURL
+            } else {
+                primary = archive.standardizedFileURL
+            }
+            return seen.insert(primary).inserted ? primary : nil
         }
     }
 

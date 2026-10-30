@@ -395,9 +395,9 @@ struct BatchSummary {
         var firstReason: String?
         var firstWarning: String?
         var reasons: [String] = []
-        for (outcome, inputs) in zip(outcome.outcomes, outcome.inputs) {
+        for (result, inputs) in zip(outcome.outcomes, outcome.inputs) {
             let file = inputs.first?.lastPathComponent ?? ""
-            switch outcome {
+            switch result {
             case .succeeded(_, let warnings):
                 succeeded += 1
                 if firstWarning == nil, let warning = warnings.first { firstWarning = UserMessages.describe(warning) }
@@ -408,6 +408,10 @@ struct BatchSummary {
             case .skipped(let reason):
                 skipped += 1
                 let message = UserMessages.describe(reason, file: file)
+                if firstReason == nil { firstReason = message }
+                reasons.append(message)
+            case .failed(let error) where error == .cancelled && outcome.operation == .archiveHatchExtract:
+                let message = String(localized: "Paused.")
                 if firstReason == nil { firstReason = message }
                 reasons.append(message)
             case .failed(let error):

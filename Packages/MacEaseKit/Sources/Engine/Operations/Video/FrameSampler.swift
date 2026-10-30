@@ -69,24 +69,31 @@ final class FrameSampler {
 
     /// `nil` once the range is exhausted.
     func next() async throws -> DecodedFrame? {
+        try Task.checkCancellation()
+        let (outputCenter, centerOverflow) = nextOutput.addingReportingOverflow(frameDuration / 2)
+        guard !centerOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        let sourceStart = try timing.sourceTime(nextOutput)
+        let center = try timing.sourceTime(outputCenter)
+        let firstShortFrame = timing.speed != 1 && nextOutput == timing.start && sourceStart < end
+        guard center < end || firstShortFrame else {
+            decoded.removeAll()
+            sourceQueue.removeAll()
+            return nil
+        }
+        guard let frame = try await next(sourceTime: min(center, end - 1), timestamp: nextOutput) else {
+            return nil
+        }
+        let (following, followingOverflow) = nextOutput.addingReportingOverflow(frameDuration)
+        guard !followingOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        nextOutput = following
+        return frame
+    }
+
+    func next(sourceTime: Int64, timestamp: Int64) async throws -> DecodedFrame? {
         while true {
             try Task.checkCancellation()
-            let (outputCenter, centerOverflow) = nextOutput.addingReportingOverflow(frameDuration / 2)
-            guard !centerOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-            let sourceStart = try timing.sourceTime(nextOutput)
-            let center = try timing.sourceTime(outputCenter)
-            let firstShortFrame = timing.speed != 1 && nextOutput == timing.start && sourceStart < end
-            guard center < end || firstShortFrame else {
-                decoded.removeAll()
-                sourceQueue.removeAll()
-                return nil
-            }
-            if let chosen = try ready(center: min(center, end - 1)) {
+            if let chosen = try ready(center: sourceTime) {
                 let image = try processor(for: chosen.image).process(chosen.image)
-                let timestamp = nextOutput
-                let (following, followingOverflow) = nextOutput.addingReportingOverflow(frameDuration)
-                guard !followingOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                nextOutput = following
                 return DecodedFrame(image: image, timestamp: timestamp)
             }
             if sourceEnded { return nil }

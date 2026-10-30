@@ -52,31 +52,67 @@ public actor VideoEditorSource {
 
     public func frames(
         at seconds: [Double], width: Int, edit: VideoEdit = VideoEdit(), cropPreview: Bool = false,
-        exactFrame: Bool = false
+        exactFrame: Bool = false, segmentID: UUID? = nil
     )
         async throws -> [CGImage]
     {
         guard !closed else { throw CancellationError() }
         var geometry = edit.geometry
         if cropPreview { geometry.crop = EditCrop() }
-        return try await preview.frames(
-            at: seconds, width: width, geometry: geometry, adjustments: edit.adjustments,
-            toneMapToSDR: details.containsHDR && !edit.adjustments.isIdentity, exactFrame: exactFrame)
+        let timeline = try VideoTimeline(edit: edit, sourceDuration: details.duration)
+        var images: [CGImage] = []
+        for second in seconds {
+            let segment =
+                segmentID.flatMap { id in timeline.segments.first { $0.id == id } }
+                ?? timeline.segments.first { second >= $0.start && second < $0.end }
+                ?? timeline.segments[0]
+            images += try await preview.frames(
+                at: [second], width: width, geometry: geometry, adjustments: segment.adjustments,
+                toneMapToSDR: details.containsHDR && edit.changesColor, exactFrame: exactFrame)
+        }
+        return images
     }
 
     public func adjacentFrameTime(to seconds: Double, forward: Bool) async throws -> Double {
+        let timestamps = try await indexedFrameTimes()
+        let current = try Nanoseconds.from(seconds: seconds)
+        guard let first = timestamps.first, let last = timestamps.last else {
+            throw EngineError.decodeFailed("no video frames")
+        }
+        let timestamp =
+            forward
+            ? timestamps.first { $0 > current + 1 } ?? last
+            : timestamps.last { $0 < current - 1 } ?? first
+        return Double(timestamp) / Double(Nanoseconds.perSecond)
+    }
+
+    public func nearestFrameTime(to seconds: Double, within range: Range<Double>) async throws -> Double? {
+        guard seconds.isFinite, range.lowerBound.isFinite, range.upperBound.isFinite,
+            range.lowerBound >= 0, range.upperBound <= details.duration
+        else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        let timestamps = try await indexedFrameTimes()
+        let requested = try Nanoseconds.from(seconds: min(max(seconds, range.lowerBound), range.upperBound))
+        var lower = 0
+        var upper = timestamps.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if timestamps[middle] < requested { lower = middle + 1 } else { upper = middle }
+        }
+        let candidates = [lower - 1, lower].filter { timestamps.indices.contains($0) }
+            .map { Double(timestamps[$0]) / Double(Nanoseconds.perSecond) }
+            .filter { range.contains($0) }
+        return candidates.min { abs($0 - seconds) < abs($1 - seconds) }
+    }
+
+    private func indexedFrameTimes() async throws -> [Int64] {
         guard !closed else { throw CancellationError() }
         if frameTimes == nil { frameTimes = try await Self.readFrameTimes(url) }
         try Task.checkCancellation()
-        guard !closed, let frameTimes, let first = frameTimes.first, let last = frameTimes.last else {
-            throw EngineError.decodeFailed("no video frames")
-        }
-        let current = try Nanoseconds.from(seconds: seconds)
-        let timestamp =
-            forward
-            ? frameTimes.first { $0 > current + 1 } ?? last
-            : frameTimes.last { $0 < current - 1 } ?? first
-        return Double(timestamp) / Double(Nanoseconds.perSecond)
+        guard !closed, let frameTimes else { throw CancellationError() }
+        guard !frameTimes.isEmpty else { throw EngineError.decodeFailed("no video frames") }
+        return frameTimes
     }
 
     private nonisolated static func readFrameTimes(_ url: URL) async throws -> [Int64] {
@@ -130,6 +166,19 @@ public actor VideoEditorSource {
             directories.removeAll { $0 == directory }
             throw error
         }
+    }
+
+    public func playback(edit: VideoEdit) async throws -> VideoEditorPlayback {
+        guard !closed else { throw CancellationError() }
+        try edit.geometry.validate()
+        let timeline = try VideoTimeline(edit: edit, sourceDuration: details.duration)
+        let playback = try await playbackURL(sdr: edit.changesColor)
+        let payload = try await VideoEditorPlayback.make(
+            url: playback, timeline: timeline, edit: edit, sourceSize: details.size)
+        try Task.checkCancellation()
+        guard !closed else { throw CancellationError() }
+        try details.stamp.validate(url)
+        return payload
     }
 
     private nonisolated static func canPlay(_ url: URL) async throws -> Bool {

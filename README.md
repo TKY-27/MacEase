@@ -11,8 +11,6 @@
 Convert, compress, and edit files and folders straight from Finder's
 right-click menu, without opening another app.
 
-<img src="docs/images/hero-en.png" width="670" alt="Finder context menu on an image with MacEase open, showing Resize, Compress, Convert, Rotate, Background and other operations, and the Convert submenu listing PNG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, PDF and SDR">
-
 </div>
 
 ---
@@ -52,30 +50,35 @@ restart MacEase, and retry. This does not require Full Disk Access.
 
 ## Features
 
-**Your originals stay safe.**
+**Conversions and edits keep originals by default. HatchZip extraction consumes its archive.**
 
 By default, every conversion and edit saves a new file next to its source,
-with a numbered name when needed to avoid overwrites. Exports and extracts
-always keep their sources. If you prefer, **Settings > General** can replace
+with a numbered name when needed to avoid overwrites. Exports and ordinary
+extracts keep their sources. If you prefer, **Settings > General** can replace
 originals instead: MacEase verifies the output before moving the original to
 the Trash. Undo moves created outputs to the Trash or restores replaced
 originals. It can skip files that changed since, or originals no longer in the
-Trash. Permanent deletion is off by default, requires confirmation, and cannot
-be undone.
+Trash. Other permanent deletion is off by default, requires confirmation, and
+cannot be undone.
+
+**Extract with HatchZip is the exception:** it starts without confirmation,
+progressively releases source archive bytes as verified output becomes durable,
+and does not retain the original archive or offer Undo.
 
 Select as many files as you like. A selection of one file kind shows its
 operations directly; mixed selections group operations by kind and count.
 Choosing a preset or format runs it immediately. Items ending in **…** open a
-window for input, review, or confirmation.
+window for input, review, or confirmation. Image and video menus start with
+**Edit**, **Convert**, **Compress**, then **Resolution**.
 
 ### Images
 
 | Operation | What it does |
 | --- | --- |
-| **Edit Photo…** | Crop, rotate, straighten, adjust color, apply styles or Auto Enhance; compare and undo edits with a histogram |
-| **Resolution & Size** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
-| **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
+| **Edit Photo…** | Crop, rotate, straighten, adjust color, apply styles or Auto Enhance; compare and undo edits |
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
+| **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
+| **Resolution** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
 | **Trace to SVG…** | Compare a static PNG with editable SVG paths; choose 1–8 colors and three detail levels, then save a new file |
 | **Rotate** | Right-angle turns and an extra editable angle; **Flip** horizontally or vertically |
 | **Background** | Remove it, or replace it with a green, blue, or custom color, or a blur |
@@ -101,28 +104,38 @@ enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
 Styles are independent presets, not Apple's Photographic Styles.
+Photo adjustments use an interactive preview followed by a refined render.
+The video player surface stays in place while frames are prepared. Histograms,
+keyframe-mode controls and slider tick rows are absent.
 HDR color edits display **SDR · Save as new file** and always keep the original.
 Animations and multipage images cannot be opened in Edit Photo; RAW renders
 are saved in a writable format while retaining the RAW source.
 
 ### Videos
 
-<img src="docs/images/video-en.png" width="520" alt="Finder context menu on a video with MacEase open, showing Resize, Trim, Thumbnail, Subtitles, Compress, Rotate, Convert, Extract Audio, Frame Rate, Remove Audio and Background, and the Compress submenu listing Discord, X, Instagram Reels, LINE, Email, size targets from 10 MB to 100 MB, quality levels and Custom Size">
-
 | Operation | What it does |
 | --- | --- |
-| **Resolution & Size** | Scale by percentage or to a 2160p/1080p/720p/480p/360p short edge; **Custom Size…** fits a box |
-| **Edit Video…** | Drag timeline handles; combine trim, speed, crop, rotation, color, styles, volume and resolution in one export |
+| **Edit Video…** | Split, delete, duplicate and reorder segments from one video; adjust segment speed, volume, color and styles, with global crop, rotation and resolution |
+| **Convert** | MP4, MOV, M4V, MKV, WebM, AVI, or FLV; GIF, animated WebP, or APNG; **SDR** for supported HDR video |
+| **Compress** | Discord, X, Instagram Reels, LINE, and Email presets, fixed size targets, quality levels, or a **Custom Size…** |
+| **Resolution** | Scale by percentage or to a 2160p/1080p/720p/480p/360p short edge; **Custom Size…** fits a box |
 | **Playback Speed** | 0.5, 0.75, 1.25, 1.5, 2 and 4× presets, plus arbitrary **Custom Speed…** from 0.5–4×; preserve pitch, including batch processing |
 | **Thumbnail** | Save the first, middle, or a chosen frame as an image |
 | **Subtitles** | Transcribe to SRT, WebVTT, or plain text, or export translated SRT |
-| **Compress** | Discord, X, Instagram Reels, LINE, and Email presets, fixed size targets, quality levels, or a **Custom Size…** |
 | **Rotate** | Right-angle turns and an extra editable angle; **Flip** horizontally or vertically |
-| **Convert** | MP4, MOV, M4V, MKV, WebM, AVI, or FLV; GIF, animated WebP, or APNG; **SDR** for supported HDR video |
 | **Extract Audio** | Save the soundtrack as M4A (AAC or ALAC), MP3, AAC, WAV, AIFF, FLAC, Ogg Vorbis, or Opus |
 | **Frame Rate** | Change the frame rate |
 | **Remove Audio** | Drop the audio tracks |
 | **Background** | Export with a transparent, colored, or blurred background |
+
+Edit one source video as an ordered sequence of segments. Split at the playhead
+with **Command-B**, delete a selected segment with **Backspace** to close the gap,
+duplicate it, or drag to reorder. Visible controls and the timeline context menu
+provide these actions too. Each action or drag supports session Undo/Redo;
+editing shortcuts leave focused text fields available for typing. Speed, volume
+and color/style settings apply to the selected segment; crop, rotation and
+resolution apply to the whole output. Additional source videos, multiple tracks
+and transitions are outside this editor's scope.
 
 ### Audio
 
@@ -181,10 +194,27 @@ individual features.
 
 | Operation | What it does |
 | --- | --- |
-| **Extract** | Unpack ZIP, 7z, TAR, gz, bz2, xz, or RAR into a new folder |
+| **Extract with HatchZip** | Extract supported local ZIP, 7z, TAR, tar.gz/tgz and recognized numeric split volumes in place, consuming the archive without confirmation or Undo |
+| **Extract** | Unpack RAR into a new folder, retaining the archive |
 | **Browse Contents…** | Search a ZIP hierarchy, preview selected files, and save selected files or folders without unpacking the whole archive |
 | **Decompile** | Turn a JAR into Java source with bundled CFR and an installed Java runtime |
 | **Checksum** | Calculate SHA-256, MD5, SHA-1, or SHA-512 for any file |
+
+**HatchZip does not keep an original archive.** Keep a separate backup yourself
+if you need one. Supported split names are `.zip.NNN`, `.7z.NNN` and
+`.tar.gz.NNN`; a bare numeric extension is not enough. Preflight checks the
+complete archive, volumes, paths, expansion limits and free space before
+mutation. Unsupported cloud/File Provider and network locations, hard-linked
+inputs and untrusted recovery records fail before destructive work. Existing
+outputs are never overwritten. There is no fallback to ordinary extraction.
+
+Pause preserves extracted files and recovery state; use **Resume** in Activity,
+including after relaunch. Clearing ordinary history does not remove incomplete
+HatchZip recovery sessions. Completed HatchZip jobs have no Undo. Source and
+output share a volume; filesystem snapshots and hole-punching support can limit
+space reclaimed. Ordinary extraction is RAR-only; macOS-supported gzip, bzip2
+and xz files have no extraction action here. ZIP browsing remains separate and
+keeps the archive.
 
 ZIP browsing supports up to 100,000 entries, 32 MiB of name and extra metadata,
 and 256 path components. A preview can expand up to 256 MiB. Images, PDFs, audio,
@@ -207,8 +237,8 @@ defaults, not a guarantee of a service's current upload limits.
 
 ### Panels, progress, and Undo
 
-**Custom Size…** appears only under **Resize** and **Compress**. **Flip** is
-under **Rotate**, animation exports are under video **Convert**, and HDR
+**Custom Size…** appears only under **Resolution** and **Compress**.
+**Flip** is under **Rotate**, animation exports are under video **Convert**, and HDR
 conversion is **Convert > SDR**. Other windows collect required input, confirm
 removals, or show results. PDF merge and Make PDF from multiple images open a
 page-order window.
@@ -216,8 +246,8 @@ page-order window.
 <img src="docs/images/compress-en.png" width="420" alt="The Custom Size panel for Compress with a 10 MB target, the largest selected file size, and the equivalent in bytes">
 
 Batches still running after 0.8 seconds appear in **Activity**, without taking
-focus from Finder. Use **Stop** to cancel a batch. Closing the window leaves
-jobs running. Folder scans also show progress there.
+focus from Finder. Use **Stop** to cancel an ordinary batch or pause HatchZip.
+Closing the window leaves jobs running. Folder scans also show progress there.
 
 <img src="docs/images/activity-run-en.png" width="420" alt="The MacEase Activity window compressing Long Trip.mov, with a progress bar and a stop button"><br>
 <img src="docs/images/activity-done-en.png" width="420" alt="The MacEase Activity window after compressing, reading Done, with Undo and Show in Finder buttons">
@@ -226,7 +256,8 @@ With default settings, clean successes close automatically. Warnings, skipped
 files, and failures remain when Activity is visible. A completion banner
 appears when the result is not already retained there, if notifications are
 enabled. Use **Show in Finder** or **Undo** where available. Recent batches
-also appear in the menu bar, each with **Undo** and **Show in Finder**.
+also appear in the menu bar with available actions such as **Undo** and
+**Show in Finder**. HatchZip extraction has no Undo.
 
 <img src="docs/images/menubar-en.png" width="318" alt="The MacEase menu bar menu with Results, a Recent list of batches where one is expanded to Undo and Show in Finder, then Settings, Check for Updates, and Quit MacEase">
 
@@ -261,7 +292,8 @@ also appear in the menu bar, each with **Undo** and **Show in Finder**.
 | **SRT, WebVTT** | Source TXT, the other subtitle format |
 | **Other recognized text files** | TXT, except files already classified as TXT |
 | **Folder** | ZIP, 7z, TAR, tar.gz |
-| **ZIP, 7z, TAR, gz, bz2, xz, RAR** | An extracted folder |
+| **Local ZIP, 7z, TAR, tar.gz/tgz and recognized numeric split volumes** | HatchZip extraction; consumes the archive, no Undo |
+| **RAR** | An extracted folder, retaining the archive |
 | **JAR** | A folder of decompiled Java source |
 | Text encodings | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS |
 | Line endings | LF, CRLF |
@@ -355,7 +387,8 @@ matching selections, and some formats and utilities are hidden by default;
 
 Next to their sources, in the same folder. If a name is taken, MacEase adds a
 number instead of overwriting. With **Replace original**, MacEase verifies the
-result before moving the original to the Trash.
+result before moving the original to the Trash. **Extract with HatchZip** instead
+consumes the archive in place without confirmation; it does not keep an original.
 
 </details>
 
@@ -365,7 +398,9 @@ result before moving the original to the Trash.
 Yes. Use **Undo** in Activity, in the completion banner, or under **Recent** in
 the menu bar. Undo moves created outputs to the Trash or restores replaced
 originals. Removals go to the Trash unless you allow and confirm permanent
-deletion, which cannot be undone.
+deletion, which cannot be undone. **HatchZip extraction also has no Undo**, and
+starts without confirmation. Paused HatchZip sessions support Resume, not
+restoration of the original archive.
 
 </details>
 
@@ -390,8 +425,11 @@ features require.
 
 ## Build from source
 
-Requirements: Apple Silicon Mac, macOS 26 or later, Xcode 26 or later, and
-Homebrew. Xcode 27 is required to build macOS 27-specific features.
+Requirements: Apple Silicon Mac, macOS 26 or later, Xcode 26 or later,
+Homebrew, and Rust 1.93 or later (including Cargo). `make bootstrap` installs
+XcodeGen, CMake, Meson, Ninja and pkg-config, and installs Rust if Cargo is
+missing. Update an older Rust toolchain before building. Xcode 27 is required
+to build macOS 27-specific features.
 
 ```sh
 git clone https://github.com/TKY-27/MacEase.git
@@ -422,7 +460,9 @@ for Markdown and **Yams**, including libyaml, for YAML. Vendored **toml++** runs
 behind an owned C bridge for TOML. Other format support uses permissively
 licensed libraries, including libwebp, libavif, libjxl, libvpx, libopus, and
 libarchive, plus independent implementations such as the MP3 and GIF encoders,
-Matroska and WebM containers, and SVG tracing.
+Matroska and WebM containers, and SVG tracing. A pinned Rust helper uses
+**hatchzip-core 0.1.8** under its MIT license for in-place extraction, with
+UnRAR disabled; ordinary RAR extraction uses libarchive.
 
 Details: [docs/SPEC.md](docs/SPEC.md) and [docs/adr/](docs/adr/).
 
@@ -445,6 +485,6 @@ that design for macOS without reusing Flect code or assets.
 
 [MIT](LICENSE). Bundled dependencies retain their own licenses, including
 swift-cmark's BSD and MIT notices, Yams and libyaml's MIT licenses, and
-toml++'s MIT license. Their license texts are in `Vendor/licenses/` and are
-included with the native library notices in the app's `THIRD_PARTY_NOTICES.txt`.
+toml++'s MIT license and the MIT license used for hatchzip-core. Their license
+texts are included with the native library notices in the app's `THIRD_PARTY_NOTICES.txt`.
 Open **Settings > About > Third-Party Notices** to read them.

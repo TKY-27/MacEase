@@ -158,8 +158,8 @@ final class PanelCoordinator {
     /// Engine answers that need the user first.
     func askAgain(_ request: OperationRequest, files: [URL], reason: InvalidInput) -> Bool {
         switch (request.options, reason) {
-        case (.archive, .passwordRequired), (.archive, .wrongPassword):
-            showPassword(request.op, files, wasWrong: reason == .wrongPassword)
+        case (.archive(let operation), .passwordRequired), (.archive(let operation), .wrongPassword):
+            showPassword(request.op, files, operation: operation, wasWrong: reason == .wrongPassword)
         case (.text(.encoding(let target, _)), .textEncodingUndetected):
             files.forEach { file in
                 showEncoding(request.op, file: file) { .encoding(target, source: $0) }
@@ -506,14 +506,22 @@ final class PanelCoordinator {
         }
     }
 
-    private func showPassword(_ op: OperationID, _ archives: [URL], wasWrong: Bool) {
+    private func showPassword(
+        _ op: OperationID, _ archives: [URL], operation: ArchiveOperation, wasWrong: Bool
+    ) {
         host.show(title: MenuStrings.operationName(op)) { close in
             PasswordPanel(archives: archives, wasWrong: wasWrong, cancel: close) { password, forAll in
                 close()
                 let now = forAll ? archives : [archives[0]]
-                self.launch(op, .archive(.extract(password: password)), now)
+                let unlocked: ArchiveOperation
+                if case .hatchExtract(_, let sessionID) = operation {
+                    unlocked = .hatchExtract(password: password, sessionID: sessionID)
+                } else {
+                    unlocked = .extract(password: password)
+                }
+                self.launch(op, .archive(unlocked), now)
                 let later = Array(archives.dropFirst(now.count))
-                if !later.isEmpty { self.showPassword(op, later, wasWrong: false) }
+                if !later.isEmpty { self.showPassword(op, later, operation: operation, wasWrong: false) }
             }
         }
     }

@@ -33,6 +33,7 @@ struct MediaEditorView: View {
         .frame(minWidth: 960, minHeight: 540)
         .background(.background)
         .task { model.load() }
+        .background(EditorKeyboardShortcuts(model: model).frame(width: 0, height: 0))
         .onChange(of: model.category) { _, _ in
             model.pause(); model.refresh()
         }
@@ -58,7 +59,7 @@ struct MediaEditorView: View {
             } label: {
                 Label("Compare Original", systemImage: "square.on.square")
             }
-            .labelStyle(.iconOnly).help("Compare with original (M)").keyboardShortcut("m", modifiers: [])
+            .labelStyle(.iconOnly).help("Compare with original (M)")
             .tint(model.original ? .accentColor : nil).disabled(!model.ready)
             HStack(spacing: 6) {
                 Button {
@@ -107,17 +108,25 @@ struct MediaEditorView: View {
         GeometryReader { proxy in
             ZStack {
                 Color(nsColor: .underPageBackgroundColor)
-                if let image = model.image {
-                    let imageSize = CGSize(width: image.width, height: image.height)
+                if model.isVideo || model.image != nil {
+                    let imageSize =
+                        model.isVideo
+                        ? model.previewSize
+                        : CGSize(
+                            width: model.image?.width ?? 1, height: model.image?.height ?? 1)
                     let scale = min(
                         (proxy.size.width - 40) / imageSize.width, (proxy.size.height - 32) / imageSize.height)
                     let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
                         ZStack {
-                            if model.playing, let player = model.player {
-                                EditorPlayer(player: player)
-                            } else {
+                            if model.isVideo {
+                                EditorPlayer(player: model.player, ready: $model.playerReady).opacity(
+                                    model.playerReady ? 1 : 0)
+                                if model.values.segments.isEmpty {
+                                    ContentUnavailableView("No Segments", systemImage: "film")
+                                }
+                            } else if let image = model.image {
                                 Image(decorative: image, scale: 1).resizable().interpolation(.high)
                             }
                             if model.category == .crop && !model.original {
@@ -134,7 +143,9 @@ struct MediaEditorView: View {
                     HStack {
                         if model.original { Text("Original").padding(8).background(.regularMaterial, in: Capsule()) }
                         Spacer()
-                        if model.preparingPlayback {
+                        if model.preparingPlayback || model.splitting
+                            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
+                        {
                             ProgressView("Preparing preview…").padding(8).background(.regularMaterial, in: Capsule())
                         }
                     }
@@ -146,7 +157,6 @@ struct MediaEditorView: View {
 
     private var inspector: some View {
         VStack(spacing: 0) {
-            EditorHistogramView(histogram: model.histogram).frame(height: 82).padding(16)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     switch model.category {
@@ -155,7 +165,10 @@ struct MediaEditorView: View {
                     case .styles: styleControls
                     case .crop: cropControls
                     }
-                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .id(model.isVideo ? model.values.selectedID : nil)
+                .disabled(model.isVideo && !model.hasSelection && model.category != .crop)
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -173,15 +186,15 @@ struct MediaEditorView: View {
 
     private var styleControls: some View {
         Group {
-            Picker("Style", selection: model.binding(\.photo.adjustments.style)) {
+            Picker("Style", selection: model.adjustmentBinding(\.style)) {
                 ForEach(MediaStyle.allCases, id: \.self) { Text($0.editorTitle).tag($0) }
             }.pickerStyle(.radioGroup)
-            Slider(value: model.binding(\.photo.adjustments.styleIntensity), in: 0...1) {
+            Slider(value: model.adjustmentBinding(\.styleIntensity), in: 0...1) {
                 Text("Intensity")
             } onEditingChanged: { active in
                 active ? model.beginInteraction() : model.endInteraction()
             }
-            .disabled(model.values.photo.adjustments.style == .original)
+            .disabled(model.adjustments.style == .original)
         }
     }
 
@@ -210,7 +223,9 @@ struct MediaEditorView: View {
                 } label: {
                     Label("Flip Vertical", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
                 }
-            }.labelStyle(.iconOnly)
+            }
+            .labelStyle(.iconOnly)
+            .help("Rotate and flip the entire image")
             Picker("Aspect Ratio", selection: $model.cropAspect) {
                 Text("Freeform").tag(0.0)
                 Text("Original Ratio").tag(-1.0)
@@ -236,7 +251,7 @@ struct MediaEditorView: View {
                     Text(model.values.photo.geometry.straighten, format: .number.precision(.fractionLength(1)))
                     Text("°").accessibilityHidden(true)
                 }
-                Slider(value: model.binding(\.photo.geometry.straighten), in: -45...45, step: 0.1) {
+                Slider(value: model.binding(\.photo.geometry.straighten), in: -45...45) {
                     Text("Straighten")
                 } onEditingChanged: { active in
                     active ? model.beginInteraction() : model.endInteraction()
@@ -269,6 +284,7 @@ struct MediaEditorView: View {
 
     private var videoControls: some View {
         Group {
+            Text("Selected Segment").font(.headline)
             LabeledContent("Start") {
                 EditorNumberField(
                     model: model, title: Text("Start (seconds)"), id: "start",
@@ -292,12 +308,13 @@ struct MediaEditorView: View {
                 ).frame(width: 70)
                 Text("×").accessibilityHidden(true)
             }
-            Slider(value: model.binding(\.speed), in: 0.5...4, step: 0.05) {
+            Slider(value: model.binding(\.speed), in: 0.5...4) {
                 Text("Playback speed")
             } onEditingChanged: { active in
                 active ? model.beginInteraction() : model.endInteraction()
             }
             .labelsHidden()
+            Divider()
             Picker("Resolution", selection: model.binding(\.resolution)) {
                 Text("Original resolution").tag(0)
                 ForEach([2160, 1080, 720, 480, 360], id: \.self) { Text(verbatim: "\($0)p").tag($0) }
@@ -319,18 +336,6 @@ struct MediaEditorView: View {
                 }
                 .labelsHidden()
             }.disabled(!model.hasAudio)
-            if !model.values.video.changesAppearance && model.values.speed == 1 && model.values.resolution == 0
-                && model.values.volume == 1
-            {
-                Picker("Cut", selection: model.binding(\.trimMode)) {
-                    Text("Keyframes").tag(TrimMode.keyframe)
-                    Text("Exact").tag(TrimMode.exact)
-                }
-                if model.values.trimMode == .keyframe {
-                    Text("Keyframe cuts may start earlier. Choose Exact to keep the selected range.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
         }
     }
 
@@ -345,7 +350,7 @@ struct MediaEditorView: View {
                     .monospacedDigit().foregroundStyle(.secondary)
                 if model.isVideo {
                     Text(
-                        "\((model.values.end - model.values.start) / max(0.5, model.values.speed), format: .number.precision(.fractionLength(2))) seconds"
+                        "\(model.outputDuration, format: .number.precision(.fractionLength(2))) seconds"
                     )
                     .monospacedDigit().foregroundStyle(.secondary)
                 } else {
@@ -407,26 +412,52 @@ private struct EditorNumberField: View {
         ) { title }.labelsHidden().textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.trailing).focused($focused)
             .onAppear { synchronize() }
-            .onDisappear { model.invalidFields.remove(id) }
+            .onDisappear {
+                model.invalidFields.remove(id); if focused { model.endInteraction() }
+            }
             .onChange(of: value) { _, _ in
                 if parsed != value { synchronize() }
             }
             .onChange(of: focused) { _, focused in
-                if !focused { synchronize() }
+                if focused { model.beginInteraction() } else { synchronize(); model.endInteraction() }
             }
     }
 }
 
 private struct EditorPlayer: NSViewRepresentable {
-    let player: AVPlayer
+    let player: AVPlayer?
+    @Binding var ready: Bool
+
+    func makeCoordinator() -> Coordinator { Coordinator(ready: $ready) }
+
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .none
         view.player = player
+        let coordinator = context.coordinator
+        coordinator.observation = view.observe(\.isReadyForDisplay, options: [.initial, .new]) {
+            [weak coordinator] _, change in
+            let ready = change.newValue ?? false
+            Task { @MainActor in coordinator?.ready.wrappedValue = ready }
+        }
         return view
     }
-    func updateNSView(_ view: AVPlayerView, context: Context) { view.player = player }
-    static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) { view.player = nil }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        context.coordinator.ready = $ready
+        if view.player !== player { view.player = player }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
+        coordinator.observation = nil
+        view.player = nil
+    }
+
+    @MainActor final class Coordinator {
+        var observation: NSKeyValueObservation?
+        var ready: Binding<Bool>
+        init(ready: Binding<Bool>) { self.ready = ready }
+    }
 }
 
 private struct EditorAdjustmentRow: View {
@@ -435,12 +466,16 @@ private struct EditorAdjustmentRow: View {
 
     private var value: Binding<Double> {
         Binding(
-            get: { model.values.photo.adjustments[adjustment] },
+            get: { model.adjustments[adjustment] },
             set: { amount in
                 guard amount.isFinite else { return }
                 model.change {
-                    $0.photo.adjustments[adjustment] = min(
-                        max(adjustment.range.lowerBound, amount), adjustment.range.upperBound)
+                    let bounded = min(max(adjustment.range.lowerBound, amount), adjustment.range.upperBound)
+                    if model.isVideo {
+                        $0.videoAdjustments[adjustment] = bounded
+                    } else {
+                        $0.photo.adjustments[adjustment] = bounded
+                    }
                 }
             })
     }
@@ -462,7 +497,7 @@ private struct EditorAdjustmentRow: View {
                 .buttonStyle(.borderless).help("Reset adjustment").disabled(value.wrappedValue == 0)
                 .accessibilityLabel(Text("Reset \(adjustment.editorTitle)"))
             }
-            Slider(value: value, in: adjustment.range, step: 0.01) {
+            Slider(value: value, in: adjustment.range) {
                 Text(adjustment.editorTitle)
             } onEditingChanged: { active in
                 active ? model.beginInteraction() : model.endInteraction()
@@ -501,42 +536,6 @@ extension MediaAdjustment {
         case .sharpness: String(localized: "Sharpness")
         case .noiseReduction: String(localized: "Noise Reduction")
         case .vignette: String(localized: "Vignette")
-        }
-    }
-}
-
-private struct EditorHistogramView: View {
-    let histogram: EditorHistogram?
-    @State private var rgb = false
-
-    var body: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text("Histogram").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Toggle("RGB", isOn: $rgb).toggleStyle(.button).controlSize(.mini)
-            }
-            Canvas { context, size in
-                guard let histogram else { return }
-                let channels: [([Double], Color)] =
-                    rgb
-                    ? [(histogram.red, .red), (histogram.green, .green), (histogram.blue, .blue)]
-                    : [(histogram.luminance, .secondary)]
-                for (values, color) in channels {
-                    let maximum = max(1, values.max() ?? 1)
-                    var path = Path()
-                    path.move(to: CGPoint(x: 0, y: size.height))
-                    for index in values.indices {
-                        path.addLine(
-                            to: CGPoint(
-                                x: Double(index) / 255 * size.width,
-                                y: size.height * (1 - values[index] / maximum)))
-                    }
-                    path.addLine(to: CGPoint(x: size.width, y: size.height))
-                    path.closeSubpath()
-                    context.fill(path, with: .color(color.opacity(rgb ? 0.35 : 0.5)))
-                }
-            }.accessibilityLabel("Image histogram")
         }
     }
 }

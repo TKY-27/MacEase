@@ -13,6 +13,51 @@ import Testing
                 speechAvailable: speechAvailable), hiddenEntries: hidden)
     }
 
+    @Test(arguments: ["image", "video"])
+    func editingMenusPrioritizeEditConvertCompressAndResolution(kind: String) {
+        let suffix = kind == "image" ? "png" : "mov"
+        let nodes = MenuLayout.nodes(for: catalog(), selection: [URL(filePath: "/source.\(suffix)")])
+        let titles = nodes.compactMap { node -> String? in
+            switch node {
+            case .action(let title, _), .submenu(let title, _): title
+            case .separator: nil
+            }
+        }
+        #expect(Array(titles.prefix(4)) == ["\(kind).edit", "\(kind).convert", "\(kind).compress", "\(kind).resize"])
+        #expect(titles.filter { $0 == "\(kind).convert" }.count == 1)
+        #expect(titles.filter { $0 == "\(kind).rotate" }.count == 1)
+    }
+
+    @Test(arguments: ["zip", "7z", "tar", "tar.gz", "tgz", "zip.001", "7z.002", "tar.gz.010"])
+    func hatchExtractionReplacesOrdinaryExtractionForSupportedNames(suffix: String) throws {
+        let source = URL(filePath: "/absent/source.\(suffix.uppercased())")
+        #expect(FileKind(fileURL: source) == .archive)
+        let entries = catalog().entries.filter { MenuLayout.isApplicable($0, selection: [source]) }
+        #expect(entries.contains { $0.op == .archiveHatchExtract })
+        #expect(!entries.contains { $0.op == .archiveExtract })
+        #expect(entries.contains { $0.op == .archiveBrowse } == (suffix == "zip"))
+    }
+
+    @Test(arguments: ["rar", "gz", "bz2", "xz", "tar.xz", "tar.bz2", "001", "zip.000", "zip.abc", "txt.001"])
+    func unsupportedHatchNamesNeverEnableDestructiveExtraction(suffix: String) {
+        let source = URL(filePath: "/absent/source.\(suffix)")
+        let entries = catalog().entries.filter { MenuLayout.isApplicable($0, selection: [source]) }
+        #expect(!entries.contains { $0.op == .archiveHatchExtract })
+        #expect(entries.contains { $0.op == .archiveExtract } == (suffix == "rar"))
+    }
+
+    @Test func mixedArchiveSelectionCannotBypassFormatRestrictions() throws {
+        let file = catalog()
+        let hatch = try #require(file.entries.first { $0.op == .archiveHatchExtract })
+        let rar = try #require(file.entries.first { $0.op == .archiveExtract })
+        let selection = [URL(filePath: "/first.zip"), URL(filePath: "/second.rar")]
+        #expect(!MenuLayout.isApplicable(hatch, selection: selection))
+        #expect(!MenuLayout.isApplicable(rar, selection: selection))
+        #expect(MenuLayout.isApplicable(hatch, selection: [URL(filePath: "/first.zip"), URL(filePath: "/set.7z.002")]))
+        #expect(!catalog(hidden: ["archive.hatchExtract/"]).entries.contains { $0.op == .archiveHatchExtract })
+        #expect(file.catalogVersion != catalog(hidden: ["archive.hatchExtract/"]).catalogVersion)
+    }
+
     @Test(arguments: [(OperationID.imageTraceSVG, "png"), (.archiveBrowse, "zip")])
     func previewMenusRequireOneMatchingInputAndRespectVisibility(op: OperationID, suffix: String) throws {
         let file = catalog()

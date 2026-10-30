@@ -86,7 +86,7 @@ private struct SelectionSummary {
     init(_ selection: [URL]) {
         for url in selection {
             let kind = FileKind(fileURL: url)
-            let format = FileKind.canonicalFormat(url.pathExtension)
+            let format = FileKind.canonicalFormat(for: url)
             if let kind {
                 counts[kind, default: 0] += 1
                 formats[kind, default: []].insert(format)

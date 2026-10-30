@@ -10,6 +10,7 @@ XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'pla
 
 bootstrap:
 	brew list xcodegen cmake meson ninja pkg-config >/dev/null 2>&1 || brew install xcodegen cmake meson ninja pkg-config
+	command -v cargo >/dev/null 2>&1 || brew install rust
 	scripts/build-deps.sh
 	xcodegen generate
 

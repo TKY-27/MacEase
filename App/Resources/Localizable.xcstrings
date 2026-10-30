@@ -21,6 +21,17 @@
         }
       }
     },
+    "Pause %@": {
+      "comment": "Activity pause button for VoiceOver",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を一時停止"
+          }
+        }
+      }
+    },
     "Pause": {
       "localizations": {
         "ja": {
@@ -6977,13 +6988,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Extract"
+            "value": "Extract RAR"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "展開"
+            "value": "RARを展開"
           }
         }
       }
@@ -7402,13 +7413,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resolution & Size"
+            "value": "Resolution"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "解像度・サイズ変更"
+            "value": "解像度"
           }
         }
       }
@@ -7911,13 +7922,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resolution & Size"
+            "value": "Resolution"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "解像度・サイズ変更"
+            "value": "解像度"
           }
         }
       }
@@ -13717,6 +13728,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "範囲内の有効な数値を入力してください。"
+          }
+        }
+      }
+    },
+    "menu.op.archive.hatchExtract": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extract with HatchZip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hatchzipで展開"
+          }
+        }
+      }
+    },
+    "Paused.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中。"
+          }
+        }
+      }
+    },
+    "Resume": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開"
+          }
+        }
+      }
+    },
+    "Play": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生"
+          }
+        }
+      }
+    },
+    "No Segments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間がありません"
+          }
+        }
+      }
+    },
+    "Selected Segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中の区間"
+          }
+        }
+      }
+    },
+    "Mute Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを消音"
+          }
+        }
+      }
+    },
+    "Split": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割"
+          }
+        }
+      }
+    },
+    "Delete": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "Split at playhead (⌘B)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドの位置で分割（⌘B）"
+          }
+        }
+      }
+    },
+    "Delete selected segment (Delete)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した区間を削除（Delete）"
+          }
+        }
+      }
+    },
+    "Segment Actions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間の編集"
+          }
+        }
+      }
+    },
+    "Split at Playhead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドの位置で分割"
+          }
+        }
+      }
+    },
+    "Duplicate Segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間を複製"
+          }
+        }
+      }
+    },
+    "Move Segment Left": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間を左へ移動"
+          }
+        }
+      }
+    },
+    "Move Segment Right": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間を右へ移動"
+          }
+        }
+      }
+    },
+    "Delete Segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間を削除"
+          }
+        }
+      }
+    },
+    "Select Segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間を選択"
+          }
+        }
+      }
+    },
+    "Playhead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッド"
+          }
+        }
+      }
+    },
+    "Segment %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間%lld"
+          }
+        }
+      }
+    },
+    "Drag to trim the segment start": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグして区間の開始を調整"
+          }
+        }
+      }
+    },
+    "Drag to trim the segment end": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグして区間の終了を調整"
+          }
+        }
+      }
+    },
+    "Rotate and flip the entire image": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全体を回転・反転"
           }
         }
       }

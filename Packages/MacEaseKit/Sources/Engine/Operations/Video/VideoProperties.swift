@@ -18,7 +18,10 @@ enum VideoProperties {
         let hdr = plan.video == nil ? nil : try await hdrConfiguration(input)
         let adjustsHDR: Bool
         if case .encode(_, let edit) = plan.video {
-            adjustsHDR = edit.adjustments?.isIdentity == false && hdr != nil
+            adjustsHDR =
+                hdr != nil
+                && (edit.adjustments?.isIdentity == false
+                    || plan.timeline?.segments.contains { !$0.adjustments.isIdentity } == true)
         } else {
             adjustsHDR = false
         }

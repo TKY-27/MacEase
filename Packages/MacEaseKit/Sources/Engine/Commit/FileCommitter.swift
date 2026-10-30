@@ -263,6 +263,8 @@ struct FileCommitter: Sendable {
         do {
             return try Self.namingLock.withLock { _ in
                 switch record {
+                case .extractedInPlace(let output):
+                    return .skipped(.undoOutputChanged, path: output)
                 case .replaced(let original, let trashed, let output, let stamp, let trashStamp):
                     return try coordinateUndo(paths: [original, trashed, output], cancellation: cancellation) {
                         urls, checkCancellation in
@@ -335,7 +337,7 @@ struct FileCommitter: Sendable {
             let path: String
             switch record {
             case .replaced(_, let trashed, _, _, _), .removed(_, let trashed, _): path = trashed
-            case .derived(let output, _): path = output
+            case .derived(let output, _), .extractedInPlace(let output): path = output
             case .renamed(_, let to, _): path = to
             }
             return .failed(EngineError.wrapping(error, path: path, otherwise: EngineError.commitFailed), path: path)

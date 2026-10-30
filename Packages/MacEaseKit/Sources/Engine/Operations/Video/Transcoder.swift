@@ -29,6 +29,7 @@ struct TranscodePlan {
     var toneMapToSDR = false
     var playbackSpeed = 1.0
     var volume = 1.0
+    var timeline: VideoTimeline?
     var metadata: VideoMetadata?
     var copiedDisplayTrack: MediaTrack?
     var copiedDisplayFormat: CMFormatDescription?
@@ -61,13 +62,16 @@ enum Transcoder {
         // Streams may outlast the container's stated duration.
         let end = plan.range?.upperBound ?? .max
         let timing = try VideoTiming(start: start, speed: plan.playbackSpeed)
-        let progressEnd = try timing.outputTime(plan.range?.upperBound ?? input.duration)
+        let progressEnd =
+            try plan.timeline.map { try Nanoseconds.from(seconds: $0.duration) }
+            ?? timing.outputTime(plan.range?.upperBound ?? input.duration)
         var stages: [any StreamStage] = []
         if let video = plan.video, let track = input.video {
             stages.append(
                 try await videoStage(
                     video, track: track, input: input, matte: plan.matte, start: start, end: end,
-                    toneMapToSDR: plan.toneMapToSDR, destination: plan.container, speed: plan.playbackSpeed))
+                    toneMapToSDR: plan.toneMapToSDR, destination: plan.container, speed: plan.playbackSpeed,
+                    timeline: plan.timeline))
         }
         if let audio = plan.audio, let track = input.audio {
             let number = stages.count + 1
@@ -78,7 +82,16 @@ enum Transcoder {
                         input: input, track: track, number: number, start: start, end: end,
                         destination: plan.container))
             case .encode(let codec, let kilobits):
-                if plan.playbackSpeed == 1 {
+                if let timeline = plan.timeline {
+                    let source = try TimelinePCMSource(
+                        input: input, track: track, timeline: timeline,
+                        stagingDirectory: url.deletingLastPathComponent())
+                    stages.append(
+                        try AudioEncodeStage(
+                            input: input, track: track, number: number, codec: codec, kilobits: kilobits,
+                            start: 0, end: progressEnd, sourceOverride: VideoPCMSource(timeline: source),
+                            destination: plan.container))
+                } else if plan.playbackSpeed == 1 {
                     stages.append(
                         try AudioEncodeStage(
                             input: input, track: track, number: number, codec: codec, kilobits: kilobits,
@@ -190,18 +203,22 @@ enum Transcoder {
 
     private static func videoStage(
         _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
-        end: Int64, toneMapToSDR: Bool, destination: OutputContainer, speed: Double
+        end: Int64, toneMapToSDR: Bool, destination: OutputContainer, speed: Double, timeline: VideoTimeline?
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
-            try await PacketCopyStage(
+            return try await PacketCopyStage(
                 input: input, track: track, number: 1, start: start, end: end, destination: destination)
         case .encode(let encoding, let edit):
-            try await FrameEncodeStage(
+            if let timeline {
+                return try TimelineFrameEncodeStage(
+                    input: input, encoding: encoding, edit: edit, timeline: timeline, toneMapToSDR: toneMapToSDR)
+            }
+            return try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
                 toneMapToSDR: toneMapToSDR, speed: speed)
         case .toneMapToSDR(let encoding):
-            try await SDRFrameEncodeStage(input: input, encoding: encoding)
+            return try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }
     }
 

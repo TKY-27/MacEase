@@ -18,6 +18,9 @@ public actor PhotoEditorSource {
     private var sdr: ImageDocument?
     private var automaticFilters: [CIFilter]?
     private let context = CIContext(options: [.cacheIntermediates: false])
+    private var previewSource: (dimension: Int, sdr: Bool, image: CGImage)?
+    private var interactiveSource: (dimension: Int, sdr: Bool, image: CGImage)?
+    private var renderedPreview: (edit: ImageEdit, dimension: Int, crop: Bool, allowsSDR: Bool, image: CGImage)?
 
     public static func open(_ url: URL) async throws -> PhotoEditorSource {
         let stamp = try MediaSourceStamp(url: url)
@@ -44,8 +47,15 @@ public actor PhotoEditorSource {
         guard maximumDimension > 0, maximumDimension <= 8192 else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
+        if let renderedPreview, renderedPreview.edit == edit, renderedPreview.dimension == maximumDimension,
+            renderedPreview.crop == cropPreview, renderedPreview.allowsSDR == allowsSDR
+        {
+            return renderedPreview.image
+        }
         let reference: ImageDocument
-        if document.containsHDR && (edit.changesColor || document.containsHDRPixels || edit.geometry.straighten != 0) {
+        let usesSDR =
+            document.containsHDR && (edit.changesColor || document.containsHDRPixels || edit.geometry.straighten != 0)
+        if usesSDR {
             guard edit.changesColor || allowsSDR else { throw EngineError.imageHDRUnsupported }
             if sdr == nil { sdr = try document.toneMappedToSDR() }
             guard let sdr else { throw EngineError.hdrConversionUnsupported }
@@ -56,8 +66,14 @@ public actor PhotoEditorSource {
         if edit.autoEnhance, automaticFilters == nil {
             automaticFilters = PhotoEditing.automaticFilters(for: reference.first)
         }
+        let dimensions = CGSize(width: reference.first.width, height: reference.first.height)
+        let output = cropPreview ? edit.geometry.canvasSize(dimensions) : edit.geometry.outputSize(dimensions)
+        let sourceScale = min(1, Double(maximumDimension) / max(output.width, output.height))
+        let sourceDimension = min(8192, max(1, Int(ceil(max(dimensions.width, dimensions.height) * sourceScale))))
+        let source = try previewImage(
+            reference.first, maximumDimension: sourceDimension, isSDR: usesSDR, interactive: maximumDimension <= 960)
         var image = try PhotoEditing.image(
-            reference.first, edit: edit,
+            source, edit: edit,
             automaticFilters: edit.autoEnhance ? automaticFilters ?? [] : [], includingCrop: !cropPreview)
         let scale = min(1, Double(maximumDimension) / max(image.extent.width, image.extent.height))
         image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
@@ -69,7 +85,34 @@ public actor PhotoEditorSource {
             throw EngineError.encodeFailed("editor preview")
         }
         try Task.checkCancellation()
+        renderedPreview = (edit, maximumDimension, cropPreview, allowsSDR, rendered)
         return rendered
+    }
+
+    private func previewImage(_ source: CGImage, maximumDimension: Int, isSDR: Bool, interactive: Bool) throws
+        -> CGImage
+    {
+        if interactive, let interactiveSource, interactiveSource.dimension == maximumDimension,
+            interactiveSource.sdr == isSDR
+        {
+            return interactiveSource.image
+        }
+        if let previewSource, previewSource.dimension == maximumDimension, previewSource.sdr == isSDR {
+            return previewSource.image
+        }
+        let scale = min(1, Double(maximumDimension) / Double(max(source.width, source.height)))
+        let preview =
+            scale == 1
+            ? source
+            : try ImagePixels.scaled(
+                source, width: max(1, Int(Double(source.width) * scale)),
+                height: max(1, Int(Double(source.height) * scale)))
+        if interactive {
+            interactiveSource = (maximumDimension, isSDR, preview)
+        } else {
+            previewSource = (maximumDimension, isSDR, preview)
+        }
+        return preview
     }
 }
 
@@ -137,37 +180,6 @@ enum PhotoEditing {
             let name =
                 url.deletingPathExtension().lastPathComponent + "_edited." + prepared.writableFormat.fileExtension
             return .derived(nextTo: url, outputs: [StagedFile(url: staged.url, name: name, check: .sdrImage)])
-        }
-        return result
-    }
-}
-
-public struct EditorHistogram: Sendable {
-    public var red: [Double]
-    public var green: [Double]
-    public var blue: [Double]
-    public var luminance: [Double]
-
-    public static func read(_ image: CGImage) throws -> EditorHistogram {
-        let edge = 256
-        let scale = min(1, Double(edge) / Double(max(image.width, image.height)))
-        let small = try ImagePixels.scaled(
-            image, width: max(1, Int(Double(image.width) * scale)),
-            height: max(1, Int(Double(image.height) * scale)))
-        let pixels = try PixelBuffer(cgImage: small)
-        var result = EditorHistogram(
-            red: Array(repeating: 0, count: edge), green: Array(repeating: 0, count: edge),
-            blue: Array(repeating: 0, count: edge), luminance: Array(repeating: 0, count: edge))
-        for offset in stride(from: 0, to: pixels.rgba.count, by: 4) {
-            guard pixels.rgba[offset + 3] > 0 else { continue }
-            let red = Int(pixels.rgba[offset])
-            let green = Int(pixels.rgba[offset + 1])
-            let blue = Int(pixels.rgba[offset + 2])
-            result.red[red] += 1
-            result.green[green] += 1
-            result.blue[blue] += 1
-            let luminance = 0.2126 * Double(red) + 0.7152 * Double(green) + 0.0722 * Double(blue)
-            result.luminance[Int(luminance.rounded())] += 1
         }
         return result
     }

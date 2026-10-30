@@ -33,15 +33,17 @@ public struct BatchProgress: Sendable {
 public final class JobEngine: Sendable {
     public let history: HistoryStore
     public let staging: StagingArea
+    public let hatchExtractions: HatchExtractionStore
     private let cpuGate: LaneGate
     private let hardwareVideoGate = LaneGate(width: 1)
     private let committer = FileCommitter()
     private let logger = Logger(category: "jobs")
 
-    public init(supportDirectory: URL, concurrency: Int) throws {
+    public init(supportDirectory: URL, concurrency: Int, hatchExtractions: HatchExtractionStore? = nil) throws {
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         history = HistoryStore(supportDirectory: supportDirectory)
         staging = StagingArea(supportDirectory: supportDirectory)
+        self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: supportDirectory)
         cpuGate = LaneGate(width: concurrency)
     }
 
@@ -95,7 +97,9 @@ public final class JobEngine: Sendable {
         let summaries = await withTaskGroup(of: ItemResultSummary.self) { group in
             for (index, workItem) in batch.items.enumerated() {
                 group.addTask {
-                    let context = ItemContext(settings: settings, staging: self.staging) { fraction in
+                    let context = ItemContext(
+                        settings: settings, staging: self.staging, hatchExtractions: self.hatchExtractions
+                    ) { fraction in
                         tracker.update(index, fraction: fraction, report: progress)
                     }
                     let (outcome, text) = await self.perform(workItem, of: batch, context: context, tracker: tracker)
@@ -147,8 +151,8 @@ public final class JobEngine: Sendable {
         do {
             try await gate.acquire()
             do {
-                try Self.downloadIfNeeded(workItem.inputs)
-                for input in workItem.inputs {
+                if !workItem.durableArchive { try Self.downloadIfNeeded(workItem.inputs) }
+                for input in workItem.inputs where !workItem.durableArchive {
                     var metadata = stat()
                     guard lstat(input.path, &metadata) == 0 else {
                         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -161,9 +165,14 @@ public final class JobEngine: Sendable {
                 await gate.release()
                 throw error
             }
-            try Task.checkCancellation()
+            if !workItem.durableArchive { try Task.checkCancellation() }
         } catch {
             return (.failed(logged(EngineError.wrapping(error, path: path), batch: batch, workItem: workItem)), nil)
+        }
+        if workItem.durableArchive {
+            return await Task.detached {
+                await self.commitDurable(result, batch: batch, context: context, tracker: tracker)
+            }.value
         }
         do {
             try await history.commitGate.acquire()
@@ -186,6 +195,24 @@ public final class JobEngine: Sendable {
         await recordCommits(&records, batch: batch, tracker: tracker)
         await history.commitGate.release()
         return outcome
+    }
+
+    private func commitDurable(
+        _ result: ItemResult, batch: Batch, context: ItemContext, tracker: BatchTracker
+    ) async -> (ItemOutcome, (String, TextDestination)?) {
+        guard case .hatchExtraction(let extraction) = result else {
+            return (.failed(.unexpected("Invalid durable extraction result")), nil)
+        }
+        if extraction.paused { return (.failed(.cancelled), nil) }
+        do {
+            try await history.commitGate.acquire()
+        } catch {
+            return (.failed(EngineError.wrapping(error, path: extraction.output.path)), nil)
+        }
+        var records: [CommitRecord] = [.extractedInPlace(output: extraction.output.path)]
+        await recordCommits(&records, batch: batch, tracker: tracker)
+        await history.commitGate.release()
+        return (.succeeded(outputs: [extraction.output], warnings: context.warnings), nil)
     }
 
     private func recordCommits(_ records: inout [CommitRecord], batch: Batch, tracker: BatchTracker) async {
@@ -227,6 +254,8 @@ public final class JobEngine: Sendable {
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
         var outputs: [URL] = []
         switch result {
+        case .hatchExtraction:
+            throw EngineError.unexpected("Durable extraction requires durable work")
         case .replace(let original, let output):
             try await history.checkAcceptingCommits()
             guard let expectedStamp = inputStamps[original] else {

@@ -39,6 +39,7 @@ final class JobCenter {
 
     private(set) var active: [ActiveBatch] = []
     private(set) var recent: [BatchRecord] = []
+    private(set) var hatchSessions: [HatchExtractionSession] = []
     private(set) var completed: [CompletedBatch] = []
     private var terminating = false
     private var undoTasks: [UUID: Task<Void, Never>] = [:]
@@ -65,6 +66,26 @@ final class JobCenter {
     }
 
     var isBusy: Bool { !active.isEmpty }
+
+    var pausedExtractions: [HatchExtractionSession] {
+        hatchSessions.filter { session in
+            session.state != "finished"
+                && !active.contains {
+                    $0.operation == .archiveHatchExtract && $0.fileNames.contains(session.input.lastPathComponent)
+                }
+        }
+    }
+
+    func resume(_ session: HatchExtractionSession) {
+        run(
+            OperationRequest(
+                op: .archiveHatchExtract, options: .archive(.hatchExtract(password: nil, sessionID: session.id)),
+                inputs: [session.input]))
+    }
+
+    func revealExtraction(_ session: HatchExtractionSession) {
+        NSWorkspace.shared.activateFileViewerSelecting([session.output])
+    }
 
     func start(entry: MenuEntry, inputs: [URL]) {
         guard !terminating else { return }
@@ -194,6 +215,7 @@ final class JobCenter {
 
     func canUndo(_ id: UUID) -> Bool {
         !terminating && !active.contains { $0.batchID == id } && undoTasks[id] == nil
+            && recent.first(where: { $0.id == id })?.canUndo != false
     }
 
     func prepareForTermination() async throws {
@@ -293,6 +315,15 @@ final class JobCenter {
 
     func refreshRecent() async {
         recent = Array(await engine.history.records.suffix(Self.recentCount).reversed())
+        refreshExtractions()
+    }
+
+    private func refreshExtractions() {
+        do {
+            hatchSessions = try engine.hatchExtractions.sessions()
+        } catch {
+            logger.error("Extraction recovery could not be read: \(error.localizedDescription, privacy: .private)")
+        }
     }
 
     private func update(_ id: UUID, progress: BatchProgress) {
@@ -313,6 +344,7 @@ final class JobCenter {
         let batch = active.first { $0.id == activeID }
         forget(activeID)
         guard !terminating else { return }
+        if outcome.operation == .archiveHatchExtract { refreshExtractions() }
         completed.insert(
             CompletedBatch(
                 date: Date(), operation: outcome.operation, summary: BatchSummary(outcome),

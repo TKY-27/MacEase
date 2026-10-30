@@ -10,6 +10,8 @@ enum MenuStrings {
         case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
         case .videoEdit: String(localized: "menu.op.video.edit", defaultValue: "Edit Video…")
         case .videoSpeed: String(localized: "menu.op.video.speed", defaultValue: "Playback Speed")
+        case .archiveHatchExtract:
+            String(localized: "menu.op.archive.hatchExtract", defaultValue: "Extract with HatchZip")
         case .imageTraceSVG:
             String(localized: "menu.op.image.traceSVG", defaultValue: "Trace to SVG…")
         case .archiveBrowse:

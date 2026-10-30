@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Single-source video segments with split, gap-closing deletion, duplication,
+  drag reordering, visible controls and a timeline context menu.
+- Command-B and Backspace editing with text-field focus protection and session
+  Undo/Redo; per-segment speed, volume, color and styles, with global geometry
+  and resolution.
+- Immediate in-place HatchZip extraction for supported local ZIP, 7z, TAR,
+  tar.gz/tgz and recognized numeric split volumes, using a pinned Rust helper
+  with hatchzip-core 0.1.8 and UnRAR disabled.
+- Durable HatchZip pause/resume and recovery after relaunch, independent of
+  ordinary history retention.
+
+### Changed
+
+- Order image and video menus as Edit, Convert, Compress, Resolution.
+- Retain the video player surface and prepare frames before presentation;
+  coalesce preview work and refine interactive photo previews.
+- Remove editor histograms, keyframe-mode controls and slider tick rows.
+- Keep ordinary Finder extraction for RAR only; ZIP browsing and selective
+  export remain available and retain the archive.
+- Require Rust 1.93 or later, including Cargo, when building from source.
+
+### Safety
+
+- HatchZip is an explicit exception to original retention and destructive-action
+  confirmation: it starts without confirmation, consumes archive bytes as
+  verified output becomes durable, keeps no original archive and has no Undo.
+- Verify archives, split volumes, paths, expansion limits and free space before
+  destructive extraction; refuse unsupported cloud/network locations,
+  hard-linked inputs and untrusted recovery records before mutation.
+- Preserve incomplete HatchZip sessions and outputs when paused or when ordinary
+  history is cleared; never overwrite existing outputs.
+
 ## [1.3.0] - 2026-10-30
 
 ### Added

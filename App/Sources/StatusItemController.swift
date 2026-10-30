@@ -118,7 +118,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 })
             menu.addItem(.separator())
         }
-        if !jobs.active.isEmpty {
+        if !jobs.active.isEmpty || !jobs.pausedExtractions.isEmpty {
             menu.addItem(
                 ClosureMenuItem(title: String(localized: "Show Progress", comment: "Menu bar item")) {
                     [showProgress] in
@@ -238,8 +238,11 @@ private struct ActiveBatchRow: View {
                         .progressViewStyle(.linear)
                         .frame(width: 180)
                 }
-                Button(String(localized: "Cancel", comment: "Cancel a running batch")) { jobs.cancel(batchID) }
-                    .controlSize(.small)
+                Button(
+                    batch.operation == .archiveHatchExtract
+                        ? String(localized: "Pause") : String(localized: "Cancel", comment: "Cancel a running batch")
+                ) { jobs.cancel(batchID) }
+                .controlSize(.small)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 6)

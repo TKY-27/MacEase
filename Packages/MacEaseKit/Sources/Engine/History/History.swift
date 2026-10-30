@@ -112,6 +112,7 @@ public struct FileStamp: Codable, Hashable, Sendable {
 }
 
 public enum CommitRecord: Codable, Equatable, Sendable {
+    case extractedInPlace(output: String)
     case replaced(original: String, trashed: String, output: String, stamp: FileStamp?, trashStamp: FileStamp? = nil)
     case derived(output: String, stamp: FileStamp?)
     case renamed(from: String, to: String, stamp: FileStamp? = nil)
@@ -126,10 +127,12 @@ public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
     public internal(set) var items: [CommitRecord]
     public internal(set) var undone: Bool
 
+    public var canUndo: Bool { !items.contains { if case .extractedInPlace = $0 { true } else { false } } }
+
     public var outputPaths: [String] {
         items.compactMap { record in
             switch record {
-            case .replaced(_, _, let output, _, _), .derived(let output, _): output
+            case .replaced(_, _, let output, _, _), .derived(let output, _), .extractedInPlace(let output): output
             case .renamed(_, let to, _): to
             case .removed: nil
             }
@@ -215,7 +218,7 @@ public actor HistoryStore {
         let needsDurableBackup = newItems.contains { record in
             switch record {
             case .replaced, .removed: true
-            case .derived, .renamed: false
+            case .derived, .renamed, .extractedInPlace: false
             }
         }
         do {
@@ -301,6 +304,7 @@ public actor HistoryStore {
     private func undoRecordedBatch(_ id: UUID) async throws -> [UndoOutcome] {
         guard let index = records.firstIndex(where: { $0.id == id }), !records[index].undone else { return [] }
         let batch = records[index]
+        guard batch.canUndo else { return [] }
         var outcomes: [UndoOutcome] = []
         var failed: [CommitRecord] = []
         for entry in batch.items.reversed() {

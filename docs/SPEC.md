@@ -20,7 +20,8 @@ Principles:
   limited to Resize, Compress and Playback Speed. Other windows collect essential input,
   confirm destructive work, or present results.
 - **Never lose a file.** An original is never modified or removed until the
-  output is fully written and verified. Replaced originals go to the Trash and
+  output is fully written and verified. HatchZip is the explicit exception:
+  verified, durable output replaces archive bytes progressively (section 8.5). Replaced originals go to the Trash and
   every batch can be undone.
 - **Local only.** All processing is on-device. No telemetry. The network is
   used only for the update check and for OS-managed model and asset downloads.
@@ -165,8 +166,9 @@ macease://run?v=<catalogVersion>&e=<entryIndex>&t=<token>&path=<path>&path=<path
 
 **Threat model.** The token stops web pages and documents from triggering
 operations through the URL scheme. Local processes running as the same user can
-already modify the user's files and are out of scope. Permanent deletion is
-never triggered directly by a URL; it always requires a confirmation alert.
+already modify the user's files and are out of scope. Permanent deletion normally requires a confirmation alert. The authenticated
+`archive.hatchExtract` action is the sole exception: it immediately consumes
+the selected archive through its durable extraction protocol without an alert.
 Automatic duplicate retention can move verified redundant copies to the Trash
 under the saved keep policy. It never authorizes permanent deletion.
 
@@ -180,7 +182,8 @@ under the saved keep policy. It never authorizes permanent deletion.
   ProRes engine) count as CPU-bound.
 - Each item reports progress in [0, 1]. Batches can be cancelled from Activity
   or the menu bar; cancellation stops running items, removes their staging files and leaves
-  originals untouched.
+  originals untouched. HatchZip uses a separate durable path: cancellation pauses
+  extraction, preserving extracted files and recovery state.
 - Each item ends as `succeeded`, `skipped(reason)` or `failed(error)`. One item
   failing never stops the rest of the batch.
 
@@ -204,7 +207,8 @@ frame-rate changes, remove audio, and container conversion; audio conversion,
 compression, normalization, and trim; PDF compression and rotation; text encoding,
 line endings, and JSON formatting or sorting. AI plans use each step's policy.
 
-Exports, extracts, and reports always keep their inputs regardless of the switch.
+Exports, extracts, and reports keep their inputs regardless of the switch,
+except explicitly requested HatchZip in-place extraction (section 8.5).
 These include RAW/DNG conversion, image-to-PDF, icon sets, video animations,
 thumbnails, extracted audio, subtitles from audio or video, video background
 exports, OCR files, structural text conversion and derive-to-TXT, PDF merge,
@@ -361,6 +365,14 @@ rule, and the host tells the user the final name when it changed.
 default. Permanent deletion is an opt-in setting and always asks for
 confirmation in an alert.
 
+**HatchZip exception.** `archive.hatchExtract` does not use Replace, Trash, or
+ordinary temporary staging. It reserves a collision-safe permanent folder on the
+source volume, validates the archive, and durably publishes each extracted unit
+before releasing its source bytes. Its private session records and upstream
+checkpoints survive pause, failure, app exit and ordinary staging/history cleanup.
+Completed extraction records are not undoable. RAR extraction and ZIP member
+exports retain the ordinary Derived behavior. See section 8.5 and ADR 0040.
+
 ### 3.6 History and undo
 
 - History keeps the last 100 batches in
@@ -509,6 +521,11 @@ mark modifications, and include NOTICE and attribution in
 `THIRD_PARTY_NOTICES.txt` as required by the license and project policy.
 See `adr/0013-flect-style-menu-first-direction.md`.
 
+The bundled HatchZip helper uses `hatchzip-core` 0.1.8 at commit
+`ba72db848178a97183c2225a3fb617f5ba7f9a2f` (MIT OR Apache-2.0), with UnRAR
+disabled. Its source archive is pinned in `Vendor/deps.lock`; its Rust
+dependencies are locked and their notices accompany the helper.
+
 ### 3.8 In-house formats
 
 Each component lives in `Formats` and has its own tests. SSIM is computed on
@@ -632,14 +649,14 @@ menus.
 
 | Kind | Operation order and grouped choices |
 | --- | --- |
-| Images | Resize; Compress; Convert; Rotate; Background; Remove Metadata; Recognize Text; separator; Make PDF; Make Icon; Trim Borders; Copy as Base64 (hidden); separator; Rename with Apple Intelligence…; Ask Apple Intelligence… |
-| Videos | Resize; Trim…; Thumbnail; Subtitles; Compress; Rotate; Convert; Extract Audio; Frame Rate; Remove Audio; Background; separator; Ask Apple Intelligence… |
-| Audio | Convert; Subtitles; Compress; Normalize Loudness; Trim…; separator; Ask Apple Intelligence… |
+| Images | Edit Photo…; Convert; Compress; Resolution; Rotate; Background; Recognize Text; separator; Make PDF; Make Icon; Trace to SVG…; Trim Borders; Copy as Base64 (hidden); Remove Metadata; separator; Rename with Apple Intelligence…; Ask Apple Intelligence… |
+| Videos | Edit Video…; Convert; Compress; Resolution; Rotate; Playback Speed; Remove Audio; Frame Rate; Background; Thumbnail; Extract Audio; Subtitles; separator; Ask Apple Intelligence… |
+| Audio | Trim…; Convert; Compress; Normalize Loudness; Subtitles; separator; Ask Apple Intelligence… |
 | PDFs | Merge…; Export as Images; Export as Text; Compress; Rotate; Extract Pages…; Split into Pages; separator; Rename with Apple Intelligence… |
 | Documents / Property Lists | Convert |
 | Text | Convert; Encoding; Line Endings; separator when JSON commands survive; Pretty Print; Minify; Sort Keys |
 | Folders | Compress; Rename…; Folder Tree; Analyze…; separator; Remove Duplicates… or Remove Duplicates under an automatic keep policy; Remove Empty Folders…; separator; Rename Contents with Apple Intelligence… |
-| Archives / JAR | Extract / Decompile |
+| Archives / JAR | Extract with HatchZip; Extract RAR; Browse Contents… / Decompile |
 
 | Submenu | Groups in display order |
 | --- | --- |
@@ -813,7 +830,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `image.edit` | — (editor) | Transform | One decoded still image: geometry, color, styles, automatic correction, comparison, histogram and session Undo. HDR color edits and RAW outputs always keep the original. Section 8.1.1. |
+| `image.edit` | — (editor) | Transform | One decoded still image: geometry, color, styles, automatic correction, comparison and session Undo. HDR color edits and RAW outputs always keep the original. Section 8.1.1. |
 | `image.resize` | 25%, 50%, 75%, long edge 360, 480, 720, 1080, 1920, 2560, 3840 | Transform | Lanczos via Core Image; keeps format, metadata and every animation frame; never upscales unless Allow enlarging is enabled in the Size panel or saved resize settings |
 | `image.compress` | Discord, X, Instagram, Email, Web, High, Medium, Low quality | Transform | Size targets per section 8.10; quality presets map to per-format quality values; PNG uses lossy quantization; keeps format unless the preset requires another (Instagram requires JPEG) |
 | `image.convert` | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, PDF | Transform (always Derived for RAW/DNG/PSD inputs and PDF output) | Animated inputs retain all frames and timing in GIF, APNG, or animated WebP; incompatible targets fail before writing. Multi-page TIFF to PDF keeps all pages; other targets must preserve all pages or fail; SVG uses Trace or Embedded PNG per Settings; embedded output retains raster appearance and never claims vector tracing |
@@ -868,8 +885,8 @@ noise reduction and vignette. Styles are Original, Vivid, Warm, Cool, Dramatic
 and Monochrome with adjustable intensity; these are independent presets and
 claim no compatibility with Apple's Photographic Styles. Photo Auto Enhance
 analyzes the original once per source and retains its correction before manual
-adjustments. Photos offer Fit/2×/4× preview zoom. Luminance and RGB histograms
-show the photo or current video frame using bounded samples.
+adjustments. Photos offer Fit/2×/4× preview zoom. Histograms and slider tick
+rows are not displayed or computed.
 
 Crop supports corner/edge drags, moving the selection, percentage fields,
 free/original aspect, 1:1, 4:3, 3:2, 4:5, 16:9 and portrait/landscape switching.
@@ -880,18 +897,29 @@ output resize. Processing order is source orientation, geometry/crop,
 automatic correction, style, manual adjustments and output resize. Preview and
 export use the same Core Image transforms and color processing.
 
-Video has yellow range handles, an independently scrubbed playhead, a draggable
-range, numeric start/end times, actual-frame stepping, timeline zoom and selected
-range playback. It retains 0.5–4× pitch-preserving speed and resolution presets;
-volume is 0–100%, with mute. Combined exports use exact trim. A temporary
+Video has a single-source segment timeline with independently scrubbed output
+playhead, selected-segment trim handles, numeric source start/end, actual-frame
+stepping and timeline zoom. Command-B splits the selected segment at the playhead;
+Backspace deletes it and closes the gap. Visible buttons and the context menu
+provide split, delete, duplicate, and move left/right; drag-and-drop reorders
+segments. A duplicate receives a new identity. Split children inherit adjustments.
+Each mutation or completed drag is one session Undo operation. Text editors keep
+their normal editing keys. Empty timelines disable playback and Save, retaining Undo.
+
+Speed (0.5–4×, pitch preserving), volume (0–100%), color and styles belong to the
+selected segment. Geometry, crop, orientation and resolution belong to the entire
+output. Segments may repeat or reorder source ranges. Preview and export share
+the output-time mapping, and export encodes a continuous video/audio stream with
+exact frame cuts. There is no keyframe/exact mode control in this editor. A temporary
 playback copy never becomes the export source. Closing cancels tasks, releases
 players and removes registered temporary files. No persistent edit project is
 created. Each drag becomes one session Undo operation; preview generations
 prevent older work from replacing the latest edit.
 
-`ImageEdit` is a typed `image.edit` operation. `VideoEdit` decodes older records
-with neutral defaults for new geometry, adjustment, style, volume and source
-stamp fields. Static images use existing decoders; animations and multipage
+`ImageEdit` is a typed `image.edit` operation. `VideoEdit` accepts an ordered
+segment array with source ranges and per-segment settings. Older records without
+segments retain their single-range behavior and neutral defaults for geometry,
+adjustment, style, volume and source stamp fields. Static images use existing decoders; animations and multipage
 images are rejected without flattening. RAW edits use the decoded rendering
 and derive a writable output. Source identity is checked at opening, saving and
 after export; changes require closing and reopening the editor.
@@ -904,7 +932,7 @@ uses the corresponding SDR rendition when conversion is required. Unsupported
 preview conversions disable saving and explain the failure. All exports retain
 the shared staging, validation, conflict avoidance, Trash and history Undo path.
 
-This release excludes clip concatenation, subtitle editing, generative repair,
+This release excludes importing additional videos, multitrack editing, subtitle editing, generative repair,
 curves/per-color adjustment, saved custom styles and batch application. Required
 verification includes real-Mac rendering and interactions, output geometry and
 color, JPEG/PNG/HEIC/HDR, combined video timing and volume, cancellation, both
@@ -1083,7 +1111,7 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
 | `video.resize` | 50%, 2160p, 1080p, 720p, 480p, 360p | Transform | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
-| `video.edit` | — (editor) | Transform | One video: time range, speed, resolution, geometry, color, style and volume in one export. Unchanged input disables Save. Trim alone keeps keyframe/exact selection; combined edits cut exactly. HDR color edits always derive SDR. Section 8.1.1. |
+| `video.edit` | — (editor) | Transform | One video: time range, speed, resolution, geometry, color, style and volume in one export. Unchanged input disables Save. Segments support split, delete, duplicate, reorder and individual speed, volume and color; cuts are exact. HDR color edits always derive SDR. Section 8.1.1. |
 | `video.speed` | 0.5, 0.75, 1.25, 1.5, 2, 4×, Custom Speed… | Transform | Multiple videos; finite custom values from 0.5 through 4, including fractional values. Preserve audio pitch. |
 | `video.trim` | Legacy requests and LINE panel | Transform | Retained for history and compatibility. Keyframe mode copies streams; exact mode re-encodes. Hidden-menu preference migrates once to `video.edit`. |
 | `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Transform | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
@@ -1194,8 +1222,34 @@ the save panel offers replacement, and remain undoable.
 
 | ID | Presets | Mode | Behavior and acceptance |
 | --- | --- | --- | --- |
-| `archive.extract` | — | Derived | ZIP, 7z, TAR, gz, bz2, xz, tar.gz, RAR (read only) through libarchive into a fresh collision-safe folder named after the archive stem, including when the archive has a single top-level folder; extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
+| `archive.extract` | — | Derived | The Finder menu is RAR-only; legacy internal requests retain their existing decoder coverage. RAR (read only) uses libarchive into a fresh collision-safe folder named after the archive stem, including when the archive has a single top-level folder; extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
 | `archive.browse` | — | Report / Derived export | One ZIP; hierarchical listing, name/path search, selected-file preview and explicit selective save; section 8.14 |
+
+**HatchZip extraction.** `archive.hatchExtract` appears as **Extract with HatchZip**
+for ZIP, 7z, TAR, tar.gz/tgz and recognized
+`.zip.NNN`, `.7z.NNN`, `.tar.gz.NNN` volumes. Bare numeric extensions are not
+classified as archives. The host normalizes and deduplicates selected volumes;
+the helper checks each complete set and
+its contents before mutation; non-first volumes need not contain a format header.
+The ordinary extraction menu is absent for these and standard gzip/bzip2/xz files.
+ZIP Browse Contents remains independent and non-destructive.
+
+The app bundles a pinned Rust helper using `hatchzip-core`, with UnRAR disabled.
+Requests and events use structured local pipes; archive passwords are not stored
+or placed in arguments/logs. Extraction starts immediately without confirmation
+or an original-preserving option. Preflight verifies the complete archive, free
+space, archive paths, expansion limits and all volumes before destructive work.
+Hard-linked inputs, unsupported File Provider/network locations and untrusted
+recovery records fail before mutation. Existing outputs are never replaced.
+
+Private durable sessions preserve archive/output identities, captured quarantine,
+and checkpoints. Quarantine must reach each output before its source bytes are
+released. Pausing or crashing preserves the sole remaining copies; Activity and
+app relaunch expose Resume. Resume only trusts MacEase-owned session records.
+History cleanup does not remove incomplete sessions, and completed extractions
+have no Undo action. Upstream restore is not presented as original-file recovery.
+The source and output stay on the same volume; snapshot-held blocks and
+unsupported hole punching may limit actual reclaimed space.
 
 ### 8.6 PDFs
 
@@ -2000,7 +2054,7 @@ that bound. Earlier whole-key results remain historical evidence in
 
 ## 18. Build, CI, signing and release
 
-- `make bootstrap` installs XcodeGen, CMake, Meson, Ninja and pkg-config with
+- `make bootstrap` installs XcodeGen, CMake, Meson, Ninja, pkg-config and Rust/Cargo with
   Homebrew, runs `scripts/build-deps.sh`, and generates the Xcode project.
 - **CI (`.github/workflows/ci.yml`)** on pushes and pull requests to `main`:
   - `lint` on `macos-26`: `swift format lint --strict --recursive`.
@@ -2019,7 +2073,7 @@ that bound. Earlier whole-key results remain historical evidence in
   ad-hoc signed.
 - **Release (`.github/workflows/release.yml`)** on tags `v*` on the `xcode-27`
   image: build native dependencies, regenerate third-party notices, archive
-  Release, sign the app and the
+  Release, sign the helper, app and
   extension (extension with its sandbox entitlements) with the release identity,
   build `MacEase-<version>.dmg` with an Applications symlink via
   `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
@@ -2052,6 +2106,12 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-30: Add immediate in-place HatchZip extraction with durable pause/resume
+  and RAR-only ordinary extraction; reorder media menus. Add single-source segment
+  splitting, deletion, duplication, reordering and per-segment settings, remove
+  editor histograms/keyframe mode/ticks, and retain a prepared video surface
+  (ADRs 0040 and 0041).
 
 - 2026-10-30: Add the shared photo/video editor, direct manipulation, color and
   geometry processing, forced derived SDR for HDR color edits and v1.3.0

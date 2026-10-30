@@ -53,6 +53,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case folderCompress = "folder.compress"
 
     case archiveExtract = "archive.extract"
+    case archiveHatchExtract = "archive.hatchExtract"
     case archiveBrowse = "archive.browse"
 
     case pdfMerge = "pdf.merge"
@@ -192,18 +193,19 @@ extension OperationID {
     }
 
     public static let menuOrder: [OperationID] = [
-        .imageEdit,
-        .imageResize, .imageCompress, .imageConvert, .imageHDRToSDR, .imageRotate, .imageFlip, .imageBackground,
-        .imageStripMetadata, .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64,
+        .imageEdit, .imageConvert, .imageHDRToSDR, .imageCompress, .imageResize,
+        .imageRotate, .imageFlip, .imageBackground,
+        .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64, .imageStripMetadata,
         .imageAIRename, .imageAICustom,
-        .videoResize, .videoEdit, .videoSpeed, .videoThumbnail, .videoSubtitles, .videoCompress, .videoRotate,
-        .videoFlip, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR, .videoExtractAudio,
-        .videoFPS, .videoRemoveAudio, .videoBackground, .videoAICustom,
-        .audioConvert, .audioSubtitles, .audioCompress, .audioNormalize, .audioTrim, .audioAICustom,
+        .videoEdit, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR,
+        .videoCompress, .videoResize, .videoRotate, .videoFlip, .videoSpeed, .videoRemoveAudio,
+        .videoFPS, .videoBackground, .videoThumbnail, .videoExtractAudio, .videoSubtitles, .videoAICustom,
+        .audioTrim, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles, .audioAICustom,
         .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit, .pdfAIRename,
         .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
         .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
-        .folderRemoveEmpty, .folderAIRename, .archiveBrowse, .archiveExtract, .jarDecompile, .anyChecksum,
+        .folderRemoveEmpty, .folderAIRename, .archiveHatchExtract, .archiveExtract, .archiveBrowse,
+        .jarDecompile, .anyChecksum,
     ]
 
     public var requirement: OperationRequirement? {

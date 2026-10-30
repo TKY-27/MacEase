@@ -34,3 +34,6 @@ dist/
 
 # Signing material (scripts/create-signing-identity.sh writes to build/signing/)
 *.p12
+
+# Native Rust build output
+Native/HatchZip/target/

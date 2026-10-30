@@ -1,0 +1,82 @@
+--- a/crates/core/src/engine.rs
++++ b/crates/core/src/engine.rs
+@@ -848,7 +848,11 @@
+     Ok(window)
+ }
+
++pub type OutputCheckpoint = dyn Fn(&Path) -> Result<()> + Sync;
++
+ pub struct Progress {
++    pub before_checkpoint: Box<OutputCheckpoint>,
++    pub before_finish: Box<OutputCheckpoint>,
+     pub on_bytes: Box<dyn Fn(u64) + Sync>,
+     pub on_commit: Box<dyn Fn(u64) + Sync>,
+ }
+@@ -945,6 +949,7 @@
+                 fsutil::sync_dir(d)?;
+             }
+         }
++        (self.progress.before_checkpoint)(out)?;
+         crash_point("after-extract");
+
+         // Other programs on the computer, antivirus software above all, can
+@@ -1163,6 +1168,7 @@
+             }
+             dir = d.parent();
+         }
++        (self.progress.before_checkpoint)(out)?;
+         crash_point("stream-after-sync");
+
+         self.journal.resume = Some(point.clone());
+@@ -1384,6 +1390,7 @@
+             }
+         }
+         dirs.clear();
++        (self.progress.before_checkpoint)(out)?;
+         crash_point("stream-after-sync");
+
+         let byte = point.bit / 8;
+@@ -1540,6 +1547,8 @@
+
+     fn finish(self, out: &Path) -> Result<()> {
+         make_final_links(&self.journal.links, out)?;
++        (self.progress.before_checkpoint)(out)?;
++        (self.progress.before_finish)(out)?;
+         // Before the journal goes, so a crash in between deletes the rest
+         // on resume rather than leaving it.
+         if let Some(r) = &self.journal.replace {
+--- a/crates/core/src/archive/mod.rs
++++ b/crates/core/src/archive/mod.rs
+@@ -350,7 +350,7 @@
+ /// output folder. Leading slashes are dropped, as tar does; `..`, drive
+ /// letters and NUL bytes are refused.
+ pub fn safe_path(name: &str) -> Option<PathBuf> {
+-    if name.contains('\0') {
++    if name.starts_with(['/', '\\']) || name.contains('\0') {
+         return None;
+     }
+     let mut out = PathBuf::new();
+--- a/crates/core/src/archive/tar.rs
++++ b/crates/core/src/archive/tar.rs
+@@ -111,7 +111,8 @@
+     };
+     let Some(path) = safe_path(&name) else {
+         // "./" at the top of many tarballs names the output folder itself.
+-        if kind == Kind::Dir {
++        if kind == Kind::Dir && !name.starts_with(['/', '\\'])
++            && name.split(['/', '\\']).all(|part| part.is_empty() || part == ".") {
+             return Ok(None);
+         }
+         bail!("'{name}' would be written outside the destination folder; extraction refused");
+--- a/crates/core/src/archive/zip.rs
++++ b/crates/core/src/archive/zip.rs
+@@ -92,8 +92,7 @@
+         let name = e.name().map(|n| n.into_owned()).unwrap_or_default();
+         // A name such as `dir/..` resolves to the destination folder itself,
+         // where no file or link can be made.
+-        let path = e
+-            .enclosed_name()
++        let path = super::safe_path(&name)
+             .filter(|p| e.is_dir() || !p.as_os_str().is_empty())
+             .ok_or_else(|| {
+                 anyhow!(

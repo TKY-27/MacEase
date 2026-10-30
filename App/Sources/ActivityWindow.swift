@@ -32,6 +32,11 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     /// `true` when the result stays visible here.
     func finished(_ batch: JobCenter.ActiveBatch, outcome: BatchOutcome) -> Bool {
         guard let index = log.rows.firstIndex(where: { $0.id == batch.id }) else { return false }
+        if outcome.operation == .archiveHatchExtract, outcome.wasCancelled, !jobs.pausedExtractions.isEmpty {
+            log.rows.remove(at: index)
+            AccessibilityNotification.Announcement(String(localized: "Paused.")).post()
+            return panel?.isVisible == true
+        }
         let result = ActivityResult(outcome)
         // Hidden rows defer to the banner.
         guard panel?.isVisible == true else {
@@ -57,7 +62,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     }
 
     func show() {
-        guard !log.rows.isEmpty else { return }
+        guard !log.rows.isEmpty || !jobs.pausedExtractions.isEmpty else { return }
         for index in log.rows.indices { log.rows[index].dismissed = false }
         let panel = self.panel ?? makePanel()
         self.panel = panel
@@ -88,7 +93,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     }
 
     private func hideIfEmpty() {
-        if log.rows.isEmpty { panel?.orderOut(nil) }
+        if log.rows.isEmpty && jobs.pausedExtractions.isEmpty { panel?.orderOut(nil) }
     }
 
     private func makePanel() -> NSPanel {
@@ -265,6 +270,20 @@ private struct ActivityView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Self.rowSpacing) {
+                ForEach(jobs.pausedExtractions) { session in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(MenuStrings.operationName(.archiveHatchExtract)).font(.headline)
+                        Text(session.input.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                        Text(String(localized: "Paused.")).foregroundStyle(.secondary)
+                        HStack {
+                            Button(String(localized: "Resume")) { jobs.resume(session) }
+                            Spacer()
+                            Button(String(localized: "Show in Finder")) { jobs.revealExtraction(session) }
+                        }
+                        .controlSize(.small)
+                    }
+                    Divider()
+                }
                 ForEach(Array(log.rows.enumerated()), id: \.element.id) { position, row in
                     if position > 0 { Divider() }
                     ActivityRowView(row: row, running: jobs.active.first { $0.id == row.id }, jobs: jobs)
@@ -313,7 +332,9 @@ private struct ActivityRowView: View {
     }
 
     private func progress(_ batch: JobCenter.ActiveBatch) -> some View {
-        HStack(spacing: Self.lineSpacing * 2) {
+        let pausesExtraction = batch.operation == .archiveHatchExtract
+        let stopTitle = pausesExtraction ? String(localized: "Pause") : String(localized: "Stop")
+        return HStack(spacing: Self.lineSpacing * 2) {
             VStack(alignment: .leading, spacing: Self.lineSpacing) {
                 title
                 if batch.isScan, batch.progress == 0 {
@@ -333,14 +354,17 @@ private struct ActivityRowView: View {
             Button {
                 jobs.cancel(batch.id)
             } label: {
-                Label(String(localized: "Stop", comment: "Activity button"), systemImage: "xmark.circle.fill")
+                Label(stopTitle, systemImage: pausesExtraction ? "pause.circle.fill" : "xmark.circle.fill")
                     .labelStyle(.iconOnly)
                     .imageScale(.large)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
-            .help(String(localized: "Stop", comment: "Activity button"))
-            .accessibilityLabel(Text("Stop \(operationName)", comment: "Activity stop button for VoiceOver"))
+            .help(stopTitle)
+            .accessibilityLabel(
+                pausesExtraction
+                    ? Text("Pause \(operationName)", comment: "Activity pause button for VoiceOver")
+                    : Text("Stop \(operationName)", comment: "Activity stop button for VoiceOver"))
         }
     }
 

@@ -9,6 +9,8 @@ final class TimeStretchedAudio {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let pitch = AVAudioUnitTimePitch()
+    let sourceURL: URL
+    private let speed: Double
     private let sourceFile: AVAudioFile
     private let buffer: AVAudioPCMBuffer
     private let frameCount: Int64
@@ -21,8 +23,10 @@ final class TimeStretchedAudio {
     ) async throws {
         _ = try VideoTiming(start: start, speed: speed)
         let source = try VideoPCMSource(input: input, track: track, start: start, end: end)
-        guard source.channels <= 2 else { throw EngineError.audioChannelLayoutUnsupported }
+        guard speed == 1 || source.channels <= 2 else { throw EngineError.audioChannelLayoutUnsupported }
+        self.speed = speed
         let url = stagingDirectory.appending(path: "audio-\(UUID().uuidString).caf")
+        sourceURL = url
         try await Self.writeContinuous(source, track: track, start: start, end: end, to: url)
         sourceFile = try AVAudioFile(forReading: url)
         let format = sourceFile.processingFormat
@@ -33,7 +37,7 @@ final class TimeStretchedAudio {
         else { throw EngineError.decodeFailed("empty or oversized audio timeline") }
         self.frameCount = frameCount
         self.buffer = buffer
-        try startPlayback(format: format, speed: speed)
+        if speed != 1 { try startPlayback(format: format, speed: speed) }
     }
 
     private func startPlayback(format: AVAudioFormat, speed: Double) throws {
@@ -57,28 +61,37 @@ final class TimeStretchedAudio {
     func next() throws -> [Float]? {
         guard position < frameCount else { return nil }
         let requested = AVAudioFrameCount(min(Int64(Self.chunkFrames), frameCount - position))
+        if speed == 1 {
+            try sourceFile.read(into: buffer, frameCount: requested)
+            guard buffer.frameLength > 0 else { throw EngineError.decodeFailed("audio timeline ended early") }
+            return try samples()
+        }
         for _ in 0..<Self.maximumRenderRetries {
             try Task.checkCancellation()
             let status = try engine.renderOffline(requested, to: buffer)
             guard status != .error else { throw EngineError.encodeFailed("audio time stretching failed") }
             if buffer.frameLength > 0 {
-                guard let planes = buffer.floatChannelData else {
-                    throw EngineError.encodeFailed("missing time-stretched audio samples")
-                }
-                let count = Int(buffer.frameLength)
-                var samples = [Float](repeating: 0, count: count * channels)
-                for frame in 0..<count {
-                    for channel in 0..<channels { samples[frame * channels + channel] = planes[channel][frame] }
-                }
-                guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
-                position += Int64(count)
-                return samples
+                return try samples()
             }
             if status == .insufficientDataFromInputNode {
                 throw EngineError.decodeFailed("audio time stretching ended early")
             }
         }
         throw EngineError.encodeFailed("audio time stretching made no progress")
+    }
+
+    private func samples() throws -> [Float] {
+        guard let planes = buffer.floatChannelData else {
+            throw EngineError.encodeFailed("missing time-stretched audio samples")
+        }
+        let count = Int(buffer.frameLength)
+        var samples = [Float](repeating: 0, count: count * channels)
+        for frame in 0..<count {
+            for channel in 0..<channels { samples[frame * channels + channel] = planes[channel][frame] }
+        }
+        guard samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
+        position += Int64(count)
+        return samples
     }
 
     private static func writeContinuous(

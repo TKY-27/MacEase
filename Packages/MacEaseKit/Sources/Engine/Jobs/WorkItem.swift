@@ -10,12 +10,20 @@ public enum Lane: Sendable {
 public struct WorkItem: Sendable {
     public let inputs: [URL]
     public let lane: Lane
+    let durableArchive: Bool
     var newFileNaming: NewFileNaming?
     let body: @Sendable (ItemContext) async throws -> ItemResult
 
     public init(inputs: [URL], lane: Lane = .cpu, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {
+        durableArchive = false
         self.inputs = inputs
         self.lane = lane
+        self.body = body
+    }
+    init(inputs: [URL], durableArchive: Bool, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {
+        self.inputs = inputs
+        lane = .cpu
+        self.durableArchive = durableArchive
         self.body = body
     }
 }
@@ -85,6 +93,7 @@ public enum RemovalCondition: Sendable {
 }
 
 public enum ItemResult: Sendable {
+    case hatchExtraction(HatchExtractionResult)
     case replace(original: URL, output: StagedFile)
     case derived(nextTo: URL, outputs: [StagedFile])
     case exported(
@@ -122,6 +131,7 @@ public enum ItemWarning: Equatable, Sendable {
 public final class ItemContext: Sendable {
     public let settings: Settings
     let staging: StagingArea
+    let hatchExtractions: HatchExtractionStore
     private let state = Mutex(State())
     private let progressHandler: @Sendable (Double) -> Void
 
@@ -130,9 +140,13 @@ public final class ItemContext: Sendable {
         var warnings: [ItemWarning] = []
     }
 
-    init(settings: Settings, staging: StagingArea, progress: @escaping @Sendable (Double) -> Void) {
+    init(
+        settings: Settings, staging: StagingArea, hatchExtractions: HatchExtractionStore? = nil,
+        progress: @escaping @Sendable (Double) -> Void
+    ) {
         self.settings = settings
         self.staging = staging
+        self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: staging.supportDirectory)
         self.progressHandler = progress
     }
 

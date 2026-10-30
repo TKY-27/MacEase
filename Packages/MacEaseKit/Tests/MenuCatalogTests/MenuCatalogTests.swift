@@ -78,7 +78,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
             Issue.record("expected submenu")
             return
         }
-        #expect(title == "image.resize")
+        #expect(title == "image.convert")
         #expect(children.suffix(2).first == .separator)
         #expect(nodes.contains(.separator))
         #expect(nodes.last.map { if case .submenu(let title, _) = $0 { title } else { "" } } == "any.checksum")

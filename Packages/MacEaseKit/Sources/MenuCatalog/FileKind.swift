@@ -64,7 +64,24 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
     public init?(fileURL: URL) {
         let pathExtension = fileURL.pathExtension.lowercased()
         let isPackage = fileURL.hasDirectoryPath && Self.packageExtensions.contains(pathExtension)
+        if !fileURL.hasDirectoryPath, Self.canonicalFormat(for: fileURL).hasSuffix(".split") {
+            self = .archive
+            return
+        }
         self.init(pathExtension: pathExtension, isFolder: fileURL.hasDirectoryPath && !isPackage)
+    }
+
+    public static func canonicalFormat(for url: URL) -> String {
+        let name = url.lastPathComponent.lowercased()
+        let suffix = url.pathExtension
+        if suffix.count >= 3, suffix.utf8.allSatisfy({ (48...57).contains($0) }), Int(suffix).map({ $0 > 0 }) == true {
+            let base = url.deletingPathExtension().lastPathComponent.lowercased()
+            for format in ["tar.gz", "zip", "7z"] where base.hasSuffix(".\(format)") {
+                return "\(format).split"
+            }
+        }
+        if name.hasSuffix(".tar.gz") || name.hasSuffix(".tgz") { return "tar.gz" }
+        return canonicalFormat(suffix)
     }
 
     public static func canonicalFormat(_ pathExtension: String) -> String {

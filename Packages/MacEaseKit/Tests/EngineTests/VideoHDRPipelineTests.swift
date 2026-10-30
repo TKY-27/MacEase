@@ -417,14 +417,22 @@ import VideoToolbox
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == originalNames)
     }
 
-    @Test(arguments: Transfer.allCases)
-    func editorColorEditsAlwaysDeriveVerifiedSDR(transfer: Transfer) async throws {
+    @Test(arguments: Transfer.allCases, [false, true])
+    func editorColorEditsAlwaysDeriveVerifiedSDR(transfer: Transfer, segmented: Bool) async throws {
         let source = try copiedFixture(transfer)
         let original = try Data(contentsOf: source)
         let context = context(for: source, outputMode: .replace)
         defer { context.removeStaging() }
         var edit = VideoEdit()
         edit.adjustments[.exposure] = 0.5
+        if segmented {
+            let duration = Double(try await MediaInput.open(source).duration) / Double(Nanoseconds.perSecond)
+            edit.segments = [
+                VideoSegment(start: 0, end: duration / 2),
+                VideoSegment(start: duration / 2, end: duration, adjustments: edit.adjustments),
+            ]
+            edit.adjustments = MediaAdjustments()
+        }
         edit.geometry.crop = EditCrop(width: 0.5)
         let result = try await VideoEdits.run(.edit(edit), url: source, context: context)
         guard case .derived(let parent, let outputs) = result else {
