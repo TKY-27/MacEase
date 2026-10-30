@@ -681,3 +681,50 @@ A 24-megapixel JPEG and 4K video remained interactive on Apple M5. A fifteen
 minute signed-app RSS sample peaked at 355.94 MiB and ended at 201.89 MiB;
 closed-editor samples did not increase monotonically. This observation is not
 a general upper bound. See `v1.3.0-validation.md` for output and UI evidence.
+
+
+## Segment editing and low-space extraction (2026-10-30)
+
+The v1.3 editor mounted its AVPlayerView only when playback started and issued
+an exact seek before every play. The revised editor keeps its player surface
+mounted, awaits a prepared first frame, and reuses unchanged composition and
+position. Physical 1080p/4K play and resume checks showed content in the first
+captured frames. The brief original blackout was not captured with temporal
+instrumentation, so its precise duration and complete elimination are not
+established by these sampled screenshots.
+
+An optimized Engine comparison used identical 24MP, 1080p and 4K fixtures,
+five alternating fresh processes per side per fixture, against v1.3.0 source
+`b204f82`. Warm varying 960px photo edits fell from median 19.99 ms to 2.27 ms;
+1600px edits fell from 22.50 ms to 5.18 ms. Cached prepared images remove
+repeated full-source preparation. Cold open plus first photo increased from
+70.95 ms to 101.36 ms and process peak RSS from 73.23 MiB to 113.36 MiB.
+These are Engine measurements with complete output pixel reads, not app/UI
+latency or whole-app memory measurements. Preview resampling is not pixel
+identical: the cropped interactive sample was 960x639 instead of 960x640;
+the settled 1600x1067 dimensions matched and mean RGB difference was 0.93/255.
+Full-resolution export remains independent of these bounded previews.
+
+Exact video seek medians were 34.98/33.06 ms at 1080p and 208.31/208.74 ms
+at 4K, with overlapping ranges. No video seek speedup is established. Initial
+open, playback preparation and first frame increased from 144.77 to 167.37 ms
+at 1080p and 176.37 to 187.11 ms at 4K. The permanent player surface addresses
+presentation churn; it does not make initial native composition free.
+
+On a disposable 512 MiB APFS volume, HatchZip refused an extraction with
+60 MiB free before changing the archive. With 167,780,352 bytes free it
+successfully extracted 268,435,456 bytes, and independent output hashes matched.
+Checkpoint/crash tests cover both ZIP truncation and tar.gz stream hole punching.
+Output quarantine is present before those destructive checkpoints.
+
+APFS treats some Unicode-normalized paths as aliases even on case-sensitive
+volumes. ZIP members beyond one 512-entry batch can otherwise collide after
+source bytes have been released. Probing the complete member tree with exclusive
+creation on the actual destination filesystem rejects such aliases before any
+source mutation. Case and directory aliases receive the same check.
+
+Upstream HatchZip reports an orphaned session whenever its primary input is
+missing. Missing input does not imply completed extraction. MacEase permits
+orphan completion only after its durable finishing state; moving a partially
+consumed archive then restoring it preserves recovery and all expected outputs.
+See `v1.4.0-validation.md` for acceptance evidence and remaining limits.
