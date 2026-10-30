@@ -2046,11 +2046,11 @@ that bound. Earlier whole-key results remain historical evidence in
   For v1.0.0, macOS 26 VM results supplement the approved macOS 27 physical
   acceptance machine; unavailable physical hardware alone does not block
   publication. Failed checks remain release blockers (ADR 0030).
-- For v1.1.0, v1.2.0 and v1.3.0, the owner excludes actual VoiceOver operation and the final
+- For v1.1.0 through v1.4.0, the owner excludes actual VoiceOver operation and the final
   macOS 26 VM visual smoke test from mandatory acceptance because they are
   unavailable in the owner's environment. Both remain unverified, not passed.
   Existing physical-machine checks and earlier VM results remain evidence;
-  all other required checks remain publication gates (ADRs 0036 and 0038).
+  all other required checks remain publication gates (ADRs 0036, 0038 and 0042).
 
 ## 18. Build, CI, signing and release
 
@@ -2079,7 +2079,7 @@ that bound. Earlier whole-key results remain historical evidence in
   `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
   and checksum, and use the matching CHANGELOG section as release notes. The
   workflow fails when the signing secrets are missing.
-- For v1.1.0, v1.2.0 and v1.3.0, GitHub Actions remains disabled by owner instruction. Build the
+- For v1.1.0 through v1.4.0, GitHub Actions remains disabled by owner instruction. Build the
   signed DMG locally from the tag commit and publish it with its SHA-256 and
   release notes. Verify anonymous downloads and `releases/latest`; do not
   report the local checks as successful GitHub Actions runs (ADRs 0036 and 0037).
@@ -2106,6 +2106,10 @@ that bound. Earlier whole-key results remain historical evidence in
 - Windows and Linux.
 
 ## Changelog
+
+- 2026-10-30: Extend the owner-approved VoiceOver and macOS 26 VM visual
+  acceptance exclusions to v1.4.0. Both remain unverified; all other checks
+  and tagged-source packaging remain required before publication (ADR 0042).
 
 - 2026-10-30: Add immediate in-place HatchZip extraction with durable pause/resume
   and RAR-only ordinary extraction; reorder media menus. Add single-source segment
