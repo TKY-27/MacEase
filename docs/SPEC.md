@@ -2211,8 +2211,16 @@ Version 2.0.0 uses build 6, the existing signing identity and disabled Actions.
 Publish a tagged-source signed DMG, checksum and verified GitHub release.
 Earlier VoiceOver and macOS 26 VM exclusions do not extend automatically; if
 these checks remain unavailable, seek a specific decision after other work.
+For v2.0.0 only, the owner explicitly excludes actual VoiceOver reading and
+navigation from mandatory acceptance on 2026-11-01. They remain unverified,
+not passed. The macOS 26.6.2 VM smoke check was completed and is not excluded.
+All other release requirements remain in force (ADR 0044).
 
 ## Changelog
+
+- 2026-11-01: Record the owner's v2.0.0-only VoiceOver acceptance exclusion;
+  actual reading/navigation remains unverified. The macOS 26 VM smoke check
+  passed and is not excluded. Retain all other release gates (ADR 0044).
 
 - 2026-11-01: Approve v2 automatic organization, batch photo editing,
   multi-source video editing, PDF page editing and finishing recipes, with
