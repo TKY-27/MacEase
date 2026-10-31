@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import SwiftUI
 
 @MainActor
@@ -9,6 +10,8 @@ enum SettingsWindow {
 
     static func make(
         store: SettingsStore, folders: FolderAccessStore, notifier: BatchNotifier, jobs: JobCenter,
+        organization: OrganizationController?,
+        recipes: RecipeStore,
         supportDirectory: URL,
         showWelcome: @escaping () -> Void, rotateToken: @escaping () throws -> Void
     ) -> NSWindow {
@@ -16,7 +19,7 @@ enum SettingsWindow {
         var controller: NSHostingController<SettingsView>?
         let view = SettingsView(
             store: store, folders: folders, notifier: notifier, jobs: jobs, supportDirectory: supportDirectory,
-            showWelcome: showWelcome, rotateToken: rotateToken
+            organization: organization, recipes: recipes, showWelcome: showWelcome, rotateToken: rotateToken
         ) { controller?.title = $0 }
         let hosting = NSHostingController(rootView: view)
         hosting.sceneBridgingOptions = [.toolbars]
@@ -35,6 +38,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case general
     case finderMenu
     case folderAccess
+    case organization
+    case recipes
     case images
     case video
     case audio
@@ -50,6 +55,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: String(localized: "General", comment: "Settings page")
         case .folderAccess: String(localized: "Folder Access", comment: "Settings page")
+        case .organization: String(localized: "Organization", comment: "Settings page")
+        case .recipes: String(localized: "Finishing Recipes", comment: "Settings page")
         case .finderMenu: String(localized: "Finder Menu", comment: "Settings page")
         case .images: String(localized: "Images", comment: "Settings page")
         case .video: String(localized: "Video", comment: "Settings page")
@@ -67,6 +74,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .finderMenu: "contextualmenu.and.cursorarrow"
         case .folderAccess: "folder.badge.gearshape"
+        case .organization: "tray.and.arrow.down"
+        case .recipes: "square.stack.3d.up"
         case .images: "photo"
         case .video: "film"
         case .audio: "waveform"
@@ -85,6 +94,8 @@ struct SettingsView: View {
     let notifier: BatchNotifier
     let jobs: JobCenter
     let supportDirectory: URL
+    let organization: OrganizationController?
+    let recipes: RecipeStore
     let showWelcome: () -> Void
     let rotateToken: () throws -> Void
     let showTitle: (String) -> Void
@@ -112,6 +123,9 @@ struct SettingsView: View {
         switch page {
         case .general: GeneralSettingsView(store: store, notifier: notifier, showWelcome: showWelcome)
         case .folderAccess: FolderAccessSettingsView(folders: folders)
+        case .organization:
+            if let organization { OrganizationSettingsView(controller: organization) }
+        case .recipes: RecipeLibraryView(recipeStore: recipes)
         case .finderMenu: FinderMenuSettingsView(store: store, supportDirectory: supportDirectory)
         case .images: ImageSettingsView(store: store)
         case .video: VideoSettingsView(store: store)

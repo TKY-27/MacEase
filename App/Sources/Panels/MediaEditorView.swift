@@ -5,13 +5,17 @@ import SwiftUI
 struct MediaEditorView: View {
     @Bindable var model: MediaEditorModel
     let close: () -> Void
-    let save: (OperationOptions, Engine.Settings) -> Void
+    let save: (Batch, Engine.Settings) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             if model.ready {
                 HStack(spacing: 0) {
+                    if !model.isVideo, model.photoURLs.count > 1 {
+                        photoList.frame(width: 190)
+                        Divider()
+                    }
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
                     inspector.frame(width: 290)
@@ -87,10 +91,8 @@ struct MediaEditorView: View {
                         do {
                             try model.validateForSave()
                             var settings = model.settings
-                            if model.savesNewFile { settings.outputMode = .newFile }
-                            save(
-                                model.isVideo ? .video(.edit(model.values.video)) : .image(.edit(model.values.photo)),
-                                settings)
+                            if model.isVideo, model.savesNewFile { settings.outputMode = .newFile }
+                            save(try model.makeBatch(), settings)
                             close()
                         } catch { model.report(error) }
                     } label: {
@@ -102,6 +104,27 @@ struct MediaEditorView: View {
             }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
+    }
+
+    private var photoList: some View {
+        VStack(spacing: 8) {
+            List(model.photoURLs, id: \.self, selection: $model.selectedPhotos) { url in
+                HStack {
+                    Text(url.lastPathComponent).lineLimit(2)
+                    Spacer()
+                    if model.values.photoEdits[url]?.isIdentity == false {
+                        Image(systemName: "slider.horizontal.3").foregroundStyle(.secondary)
+                    }
+                }
+                .tag(url)
+                .contentShape(Rectangle())
+            }
+            .onChange(of: model.selectedPhotos) { _, selected in
+                if let url = selected.first, !selected.contains(model.url) { model.selectPhoto(url) }
+            }
+            Button("Apply to Selected") { model.applyPhotoEdits(toAll: false) }.disabled(model.selectedPhotos.isEmpty)
+            Button("Apply to All Photos") { model.applyPhotoEdits(toAll: true) }
+        }.padding(.vertical, 10)
     }
 
     private var preview: some View {
@@ -143,7 +166,7 @@ struct MediaEditorView: View {
                     HStack {
                         if model.original { Text("Original").padding(8).background(.regularMaterial, in: Capsule()) }
                         Spacer()
-                        if model.preparingPlayback || model.splitting
+                        if model.preparingPlayback || model.splitting || model.loadingPhoto
                             || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
                         {
                             ProgressView("Preparing preview…").padding(8).background(.regularMaterial, in: Capsule())
@@ -167,7 +190,8 @@ struct MediaEditorView: View {
                     }
                 }
                 .id(model.isVideo ? model.values.selectedID : nil)
-                .disabled(model.isVideo && !model.hasSelection && model.category != .crop)
+                .disabled(model.isVideo && !model.hasSelection && model.category != .crop && model.category != .video)
+                .disabled(model.loadingPhoto)
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -284,11 +308,29 @@ struct MediaEditorView: View {
 
     private var videoControls: some View {
         Group {
+            Button("Add Videos…") {
+                let panel = NSOpenPanel()
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = false
+                panel.allowedContentTypes = [.movie, .video]
+                if panel.runModal() == .OK { model.importVideos(panel.urls) }
+            }.disabled(model.importing)
+            if model.values.sources.count > 1 {
+                DisclosureGroup("Source Videos") {
+                    ForEach(Array(model.values.sources.enumerated()), id: \.offset) { index, source in
+                        Text("\(index + 1). \(source.url.lastPathComponent)").font(.caption)
+                    }
+                }
+                Text(
+                    "Joined videos use the first video's canvas and frame rate. Other sizes fit with black borders. HDR becomes SDR; transparency is flattened. Originals are kept. Metadata may be removed."
+                )
+                .font(.caption).foregroundStyle(.secondary)
+            }
             Text("Selected Segment").font(.headline)
             LabeledContent("Start") {
                 EditorNumberField(
                     model: model, title: Text("Start (seconds)"), id: "start",
-                    value: model.binding(\.start), range: 0...max(0, model.values.end - model.frameDuration),
+                    value: model.binding(\.start), range: 0...max(0, model.values.end - model.sourceFrameDuration),
                     precision: 3
                 )
                 .frame(width: 90)
@@ -297,7 +339,8 @@ struct MediaEditorView: View {
                 EditorNumberField(
                     model: model, title: Text("End (seconds)"), id: "end",
                     value: model.binding(\.end),
-                    range: min(model.duration, model.values.start + model.frameDuration)...model.duration,
+                    range: min(
+                        model.sourceDuration, model.values.start + model.sourceFrameDuration)...model.sourceDuration,
                     precision: 3
                 ).frame(width: 90)
             }
@@ -335,12 +378,15 @@ struct MediaEditorView: View {
                     active ? model.beginInteraction() : model.endInteraction()
                 }
                 .labelsHidden()
-            }.disabled(!model.hasAudio)
+            }.disabled(!model.selectedHasAudio)
         }
     }
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !model.isVideo, model.photoURLs.count > 1 {
+                Text("Save policy is applied separately to every photo.").font(.caption).foregroundStyle(.secondary)
+            }
             if let failure = model.failure { ProblemLabel(text: failure) }
             if !model.invalidFields.isEmpty {
                 ProblemLabel(text: String(localized: "Enter a valid number within the allowed range."))

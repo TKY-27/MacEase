@@ -4,6 +4,7 @@ import Foundation
 
 public struct MediaSourceStamp: Codable, Hashable, Sendable {
     private let stamp: FileStamp
+    var fileStamp: FileStamp { stamp }
 
     public init(url: URL) throws {
         try OperationPlanner.validateInput(url)
@@ -251,5 +252,40 @@ public struct ImageEdit: Codable, Hashable, Sendable {
     public func validate() throws {
         try geometry.validate()
         try adjustments.validate()
+    }
+}
+
+public struct PhotoEditInput: Sendable {
+    public let url: URL
+    public let edit: ImageEdit
+
+    public init(url: URL, edit: ImageEdit) {
+        self.url = url
+        self.edit = edit
+    }
+}
+
+public enum MediaEditing {
+    public static func photos(_ photos: [PhotoEditInput], settings: Settings) -> Batch {
+        let work = photos.flatMap { photo in
+            OperationPlanner.batch(
+                for: OperationRequest(op: .imageEdit, options: .image(.edit(photo.edit)), inputs: [photo.url]),
+                settings: settings
+            ).items
+        }
+        return Batch(operation: .imageEdit, items: work)
+    }
+
+    public static func video(url: URL, edit: VideoEdit, settings: Settings) -> Batch {
+        if (edit.sources?.count ?? 0) <= 1 {
+            return OperationPlanner.batch(
+                for: OperationRequest(op: .videoEdit, options: .video(.edit(edit)), inputs: [url]), settings: settings)
+        }
+        let inputs = edit.sources?.map(\.url) ?? [url]
+        let work = WorkItem(inputs: inputs, lane: .hardwareVideo) { context in
+            for input in inputs { try OperationPlanner.validateInput(input) }
+            return try await VideoEdits.run(.edit(edit), url: url, context: context)
+        }
+        return Batch(operation: .videoEdit, items: [work])
     }
 }

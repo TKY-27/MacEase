@@ -18,6 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var notifier = BatchNotifier(settings: settings)
     private var jobs: JobCenter?
     private var panels: PanelCoordinator?
+    private var organization: OrganizationController?
+    private lazy var recipeStore = RecipeStore(supportDirectory: configuration.supportDirectory)
+    private var recipes: [Recipe] = Recipe.builtIns
+    private var recipeObserver: NSObjectProtocol?
     private var activity: ActivityWindow?
     private var router: RequestRouter?
     private var finderService: FinderService?
@@ -54,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.staging.removeStale()
         let jobs = JobCenter(engine: engine, settings: settings, notifier: notifier)
         self.jobs = jobs
-        let panels = PanelCoordinator(jobs: jobs, store: settings)
+        let organization = OrganizationController(
+            jobs: jobs, store: settings, supportDirectory: configuration.supportDirectory)
+        self.organization = organization
+        let panels = PanelCoordinator(jobs: jobs, store: settings, organization: organization, recipes: recipeStore)
         self.panels = panels
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
@@ -77,6 +84,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] in self?.showSettings() }
         NSApp.mainMenu = MainMenu.make { [weak self] in self?.showSettings() }
         settings.onChange = { [weak self] in self?.settingsChanged() }
+        recipeObserver = NotificationCenter.default.addObserver(
+            forName: RecipeStore.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.refreshRecipes() }
+        }
         folders.onChange = { [weak self] in self?.refreshMenuFile() }
         for name in [
             NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
@@ -128,7 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeWindows(jobs: JobCenter) {
         settingsWindow = SingleWindowPresenter { [unowned self] in
             SettingsWindow.make(
-                store: settings, folders: folders, notifier: notifier, jobs: jobs,
+                store: settings, folders: folders, notifier: notifier, jobs: jobs, organization: organization,
+                recipes: recipeStore,
                 supportDirectory: configuration.supportDirectory,
                 showWelcome: { [weak self] in self?.welcomeWindow?.show() },
                 rotateToken: { [weak self] in try self?.rotateToken() }
@@ -169,6 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         await jobs.refreshRecent()
+        await refreshRecipes()
+        await organization?.start()
         await updates.check()
         updateTimer = Timer.scheduledTimer(withTimeInterval: Self.updateCheckInterval, repeats: true) { [updates] _ in
             Task { await updates.check() }
@@ -176,7 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.refreshCapabilities() }
+            Task { @MainActor in
+                await self?.refreshCapabilities()
+                await self?.organization?.reconcileAvailableRoots()
+            }
         }
     }
 
@@ -191,11 +209,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         terminationPending = true
         Task {
             do {
+                organization?.stop()
                 await panels?.closeFeatureWindows()
                 try await jobs.prepareForTermination()
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 terminationPending = false
+                await organization?.start()
                 logger.error("Termination history flush failed: \(error.localizedDescription, privacy: .private)")
                 sender.reply(toApplicationShouldTerminate: false)
                 let alert = NSAlert()
@@ -212,6 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        if let recipeObserver { NotificationCenter.default.removeObserver(recipeObserver) }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -233,6 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let width = settings.settings.effectiveConcurrency
         if let engine = jobs?.engine { Task { await engine.setConcurrency(width) } }
+        Task { await organization?.reconcileAvailableRoots() }
     }
 
     private func refreshCapabilities() async {
@@ -272,13 +294,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
             visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
-            monitoredPaths: folders.monitoredPaths
+            monitoredPaths: folders.monitoredPaths, recipes: recipes
         )
         menuInputs = inputs
     }
 
+    private func refreshRecipes() async {
+        do {
+            recipes = try await recipeStore.recipes()
+            refreshMenuFile()
+        } catch {
+            recipes = []
+            refreshMenuFile()
+            logger.error("Recipe library unavailable: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
     @objc private func folderVolumesChanged(_ notification: Notification) {
         folders.refreshLocations()
+        Task { await organization?.reconcileAvailableRoots() }
     }
 
     private var currentMenuInputs: [OperationID] {

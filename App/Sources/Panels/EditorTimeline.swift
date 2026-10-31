@@ -116,7 +116,9 @@ struct EditorTimeline: View {
             .frame(width: segmentWidth, height: 52)
             .background(.quaternary)
             .overlay(alignment: .bottomLeading) {
-                Text("\(index + 1)").font(.caption2).monospacedDigit()
+                Text(
+                    "\(index + 1) · \(model.values.sources.indices.contains(segment.sourceIndex) ? model.values.sources[segment.sourceIndex].url.lastPathComponent : model.url.lastPathComponent)"
+                ).font(.caption2).monospacedDigit()
                     .padding(.horizontal, 5).padding(.vertical, 2).background(.regularMaterial)
                     .padding(4)
             }
@@ -168,11 +170,13 @@ struct EditorTimeline: View {
     }
 
     private func frames(for segment: VideoSegment) -> [CGImage] {
-        guard !model.thumbnails.isEmpty, model.duration > 0 else { return [] }
-        let count = model.thumbnails.count
-        let first = min(count - 1, Int(segment.start / model.duration * Double(count)))
-        let last = max(first, min(count - 1, Int(segment.end / model.duration * Double(count))))
-        return Array(model.thumbnails[first...last])
+        let frames = model.thumbnails(for: segment)
+        guard !frames.isEmpty, model.values.sources.indices.contains(segment.sourceIndex) else { return [] }
+        let duration = model.values.sources[segment.sourceIndex].duration
+        let count = frames.count
+        let first = min(count - 1, Int(segment.start / duration * Double(count)))
+        let last = max(first, min(count - 1, Int(segment.end / duration * Double(count))))
+        return Array(frames[first...last])
     }
 
     private func trimHandle(_ segment: VideoSegment, start: Bool, width: Double, duration: Double) -> some View {
@@ -188,10 +192,11 @@ struct EditorTimeline: View {
                         guard let index = $0.segments.firstIndex(where: { $0.id == segment.id }) else { return }
                         if start {
                             $0.segments[index].start = min(
-                                max(0, original.start + delta), original.end - model.frameDuration)
+                                max(0, original.start + delta), original.end - model.sourceFrameDuration)
                         } else {
                             $0.segments[index].end = max(
-                                min(model.duration, original.end + delta), original.start + model.frameDuration)
+                                min(model.sourceDuration, original.end + delta),
+                                original.start + model.sourceFrameDuration)
                         }
                     }
                 }.onEnded { _ in

@@ -7,6 +7,8 @@ struct HistorySnapshot: Codable {
     var version = formatVersion
     var batches: [BatchRecord] = []
     var sequence: UInt64?
+    var organizationSuppressions: [OrganizationSuppression]?
+    var organizationIntents: [OrganizationMoveIntent]?
 
     mutating func append(_ batch: BatchRecord) {
         if let index = batches.lastIndex(where: { $0.id == batch.id }) {
@@ -29,11 +31,13 @@ struct HistoryJournal {
 
     let snapshotURL: URL
     let journalURL: URL
+    let organizationIntentURL: URL
     private(set) var offset: UInt64 = 0
     private let logger = Logger(category: "history")
     private static let newline = UInt8(ascii: "\n")
 
     init(supportDirectory: URL) {
+        organizationIntentURL = supportDirectory.appending(path: "organization-intent.json")
         snapshotURL = supportDirectory.appending(path: "history.json")
         journalURL = supportDirectory.appending(path: "history.journal")
     }
@@ -70,6 +74,26 @@ struct HistoryJournal {
         }
         offset = UInt64(start)
         return snapshot
+    }
+
+    func loadOrganizationIntent() throws -> OrganizationMoveIntent? {
+        guard FileManager.default.fileExists(atPath: organizationIntentURL.path) else { return nil }
+        return try JSONDecoder().decode(OrganizationMoveIntent.self, from: Data(contentsOf: organizationIntentURL))
+    }
+
+    func publishOrganizationIntent(_ intent: OrganizationMoveIntent) throws {
+        try PrivateFile.write(JSONEncoder().encode(intent), to: organizationIntentURL)
+        let stream = try FileHandle(forWritingTo: organizationIntentURL)
+        defer { close(stream) }
+        try synchronize(stream)
+        try synchronizeDirectory()
+    }
+
+    func clearOrganizationIntent() throws {
+        if unlink(organizationIntentURL.path) != 0, errno != ENOENT {
+            throw POSIXError(.init(rawValue: errno) ?? .EIO)
+        }
+        try synchronizeDirectory()
     }
 
     static func encoded(_ entry: Entry) throws -> Data {

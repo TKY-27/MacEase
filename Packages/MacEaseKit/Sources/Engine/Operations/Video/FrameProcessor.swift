@@ -60,6 +60,7 @@ struct FrameEdit: Hashable, Sendable {
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
     var aspect: AspectRange?
+    var fitCanvas: PixelSize?
     var editorGeometry: EditGeometry?
     var adjustments: MediaAdjustments?
 }
@@ -84,6 +85,7 @@ final class FrameProcessor {
     private let scale: CGAffineTransform
     private let viewport: CGRect
     private let background: CIImage?
+    private let fitCanvas: PixelSize?
     private let editorGeometry: EditGeometry?
     private let adjustments: MediaAdjustments?
     let size: PixelSize
@@ -97,9 +99,12 @@ final class FrameProcessor {
         guard let width = Int(exactly: bounds.width.rounded()),
             let height = Int(exactly: bounds.height.rounded()), width > 0, height > 0
         else { throw EngineError.decodeFailed("video dimensions out of range") }
-        let edited = edit.editorGeometry?.outputSize(CGSize(width: width, height: height))
+        let canvas =
+            edit.fitCanvas.map { CGSize(width: $0.width, height: $0.height) }
+            ?? CGSize(width: width, height: height)
+        let edited = edit.editorGeometry?.outputSize(canvas)
         let natural = PixelSize(
-            width: edited.map { Int($0.width) } ?? width, height: edited.map { Int($0.height) } ?? height)
+            width: Int(edited?.width ?? canvas.width), height: Int(edited?.height ?? canvas.height))
         return (edit.size ?? natural).evened()
     }
 
@@ -107,6 +112,7 @@ final class FrameProcessor {
         source: PixelSize, edit: FrameEdit, hdr: VideoHDRConfiguration? = nil, display: VideoDisplayGeometry? = nil
     ) throws {
         self.hdr = hdr
+        fitCanvas = edit.fitCanvas
         editorGeometry = edit.editorGeometry
         adjustments = edit.adjustments
         if let hdr {
@@ -140,7 +146,8 @@ final class FrameProcessor {
         let bounds = Self.viewport(source: presentation, edit: edit, geometry: orientation)
         viewport = bounds
         size = try Self.outputSize(source: source, edit: edit, display: display)
-        let editedSize = edit.editorGeometry?.outputSize(bounds.size) ?? bounds.size
+        let canvasSize = edit.fitCanvas.map { CGSize(width: $0.width, height: $0.height) } ?? bounds.size
+        let editedSize = edit.editorGeometry?.outputSize(canvasSize) ?? canvasSize
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / editedSize.width, y: CGFloat(size.height) / editedSize.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
@@ -196,6 +203,16 @@ final class FrameProcessor {
             to: viewport
         )
         .transformed(by: CGAffineTransform(translationX: -viewport.minX, y: -viewport.minY))
+        if let fitCanvas {
+            let canvas = CGRect(x: 0, y: 0, width: fitCanvas.width, height: fitCanvas.height)
+            let factor = min(canvas.width / image.extent.width, canvas.height / image.extent.height)
+            image = image.transformed(by: CGAffineTransform(scaleX: factor, y: factor))
+            image = image.transformed(
+                by: CGAffineTransform(
+                    translationX: (canvas.width - image.extent.width) / 2,
+                    y: (canvas.height - image.extent.height) / 2))
+            image = image.composited(over: CIImage(color: .black).cropped(to: canvas)).cropped(to: canvas)
+        }
         if let editorGeometry { image = editorGeometry.applying(to: image) }
         if let adjustments { image = adjustments.applying(to: image) }
         image = image.transformed(by: scale)

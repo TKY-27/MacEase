@@ -573,4 +573,119 @@ import Testing
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted() == names)
     }
 
+    @Test func joinedSourcesKeepLaterAudioAndStableCanvasThroughUndo() async throws {
+        let first = try await fixture(channels: 0, colored: true)
+        let second = try await fixture(sampleRate: 44_100, colored: true)
+        let firstBytes = try Data(contentsOf: first)
+        let secondBytes = try Data(contentsOf: second)
+        var edit = VideoEdit()
+        edit.sources = [
+            VideoEditSource(url: first, duration: 4, stamp: try MediaSourceStamp(url: first)),
+            VideoEditSource(url: second, duration: 4, stamp: try MediaSourceStamp(url: second)),
+        ]
+        edit.segments = [
+            VideoSegment(start: 0, end: 1),
+            VideoSegment(start: 2.5, end: 3.5, speed: 0.5, volume: 0.5, sourceIndex: 1),
+            VideoSegment(start: 2, end: 3),
+        ]
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let result = await engine.run(
+            MediaEditing.video(url: first, edit: edit, settings: settings), settings: settings
+        ) { _ in }
+        let record = try #require(result.record)
+        let output = try ImageFixtures.output(of: result)
+        #expect(output != first && output != second)
+        let input = try await MediaInput.open(output)
+        #expect(abs(Double(input.duration) / Double(Nanoseconds.perSecond) - 4) < 0.03)
+        #expect(input.displaySize == PixelSize(width: 128, height: 96))
+        #expect(input.frameDuration == (try await MediaInput.open(first)).frameDuration)
+        let track = try #require(input.audio)
+        let source = try VideoPCMSource(input: input, track: track, start: 0, end: input.duration)
+        var samples: [Float] = []
+        while let chunk = try await source.next() { samples += chunk.samples }
+        let rate = source.sampleRate
+        let channels = source.channels
+        let quiet = samples[Int(0.1 * rate) * channels..<Int(0.9 * rate) * channels]
+        #expect(quiet.allSatisfy { abs($0) < 0.001 })
+        let audible = samples[Int(1.9 * rate) * channels..<Int(2.3 * rate) * channels]
+        #expect(audible.contains { abs($0) > 0.1 })
+        let silentEnd = samples[Int(3.1 * rate) * channels..<Int(3.9 * rate) * channels]
+        #expect(silentEnd.allSatisfy { abs($0) < 0.001 })
+        #expect(try Data(contentsOf: first) == firstBytes)
+        #expect(try Data(contentsOf: second) == secondBytes)
+        #expect(try await engine.history.undo(record.id) == [.restored])
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+        #expect(try Data(contentsOf: first) == firstBytes)
+        #expect(try Data(contentsOf: second) == secondBytes)
+    }
+
+    @Test func joinedPreviewAndExportFitDifferentSourceSizes() async throws {
+        let first = try await fixture(channels: 0, colored: true)
+        let originalSecond = try await fixture(channels: 0, colored: true)
+        let second = originalSecond.deletingLastPathComponent().appending(path: "portrait.mp4")
+        let input = try await MediaInput.open(originalSecond)
+        let encoding = VideoEncoding(
+            codec: .h264, width: 64, height: 128,
+            frameDuration: input.frameDuration, bitrate: nil)
+        let plan = TranscodePlan(
+            container: .mp4,
+            video: .encode(
+                encoding,
+                FrameEdit(size: PixelSize(width: 64, height: 128))), audio: nil)
+        try await Transcoder.run(input, plan: plan, to: second) { _ in }
+        var edit = VideoEdit()
+        edit.sources = [
+            VideoEditSource(url: first, duration: 4, stamp: try MediaSourceStamp(url: first)),
+            VideoEditSource(url: second, duration: 4, stamp: try MediaSourceStamp(url: second)),
+        ]
+        edit.segments = [VideoSegment(start: 0, end: 1), VideoSegment(start: 2, end: 3, sourceIndex: 1)]
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let result = await engine.run(
+            MediaEditing.video(url: first, edit: edit, settings: Settings()), settings: Settings()
+        ) { _ in }
+        let output = try ImageFixtures.output(of: result)
+        let playback = try await VideoEditorPlayback.joined(
+            urls: [first, second], edit: edit,
+            sourceSize: CGSize(width: 128, height: 96))
+        let saved = AVAssetImageGenerator(asset: AVURLAsset(url: output))
+        let preview = AVAssetImageGenerator(asset: playback.asset)
+        preview.videoComposition = playback.videoComposition
+        for generator in [saved, preview] {
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+        }
+        let time = CMTime(seconds: 1.5, preferredTimescale: 60_000)
+        let (exported, _) = try await saved.image(at: time)
+        let (shown, _) = try await preview.image(at: time)
+        #expect(exported.width == 128 && exported.height == 96)
+        #expect(shown.width == 128 && shown.height == 96)
+        for image in [exported, shown] {
+            let border = try ImageFixtures.pixel(image, x: 4, y: 48)
+            #expect(border.prefix(3).allSatisfy { $0 < 10 })
+            let center = try ImageFixtures.pixel(image, x: 64, y: 48)
+            #expect(center[2] > 220 && center[0] < 30)
+        }
+    }
+
+    @Test func changedJoinedSourceIsRejectedBeforeStaging() async throws {
+        let first = try await fixture(channels: 0)
+        let second = try await fixture(channels: 0)
+        var edit = VideoEdit()
+        edit.sources = [
+            VideoEditSource(url: first, duration: 4, stamp: try MediaSourceStamp(url: first)),
+            VideoEditSource(url: second, duration: 4, stamp: try MediaSourceStamp(url: second)),
+        ]
+        edit.segments = [VideoSegment(start: 0, end: 1), VideoSegment(start: 0, end: 1, sourceIndex: 1)]
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: 10)],
+            ofItemAtPath: second.path)
+        let context = ItemContext(
+            settings: Settings(),
+            staging: StagingArea(supportDirectory: try AudioSignals.temporaryFolder()), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.self) { try await VideoEdits.run(.edit(edit), url: first, context: context) }
+    }
+
 }

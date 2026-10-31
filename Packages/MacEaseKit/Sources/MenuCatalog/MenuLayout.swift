@@ -82,8 +82,10 @@ public enum MenuLayout {
 private struct SelectionSummary {
     private var counts: [FileKind: Int] = [:]
     private var formats: [FileKind: Set<String>] = [:]
+    private let totalCount: Int
 
     init(_ selection: [URL]) {
+        totalCount = selection.count
         for url in selection {
             let kind = FileKind(fileURL: url)
             let format = FileKind.canonicalFormat(for: url)
@@ -104,6 +106,10 @@ private struct SelectionSummary {
         let count = count(for: entry.kind)
         guard count >= entry.minimumSelection, entry.maximumSelection.map({ count <= $0 }) ?? true else {
             return false
+        }
+        if let accepted = entry.acceptedKinds {
+            let supportedCount = accepted.reduce(0) { $0 + self.count(for: $1) }
+            guard supportedCount == totalCount else { return false }
         }
         let sources = formats[entry.kind] ?? []
         if entry.requiresSingleSourceFormat, sources.count != 1 { return false }

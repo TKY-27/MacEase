@@ -188,4 +188,57 @@ import Testing
         #expect(try Data(contentsOf: collision) == original)
         if mode == .newFile { #expect(!FileManager.default.fileExists(atPath: output.path)) }
     }
+    @Test func photoBatchKeepsIndependentEditsAndRejectsAnimationPerFile() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = try ImageFixtures.write(
+            [try ImageFixtures.photo(width: 100, height: 80)], as: .png,
+            to: folder.appending(path: "first.png"))
+        let second = try ImageFixtures.write(
+            [try ImageFixtures.photo(width: 60, height: 40)], as: .png,
+            to: folder.appending(path: "second.png"))
+        let animated = try ImageFixtures.write(
+            [try ImageFixtures.photo(), try ImageFixtures.photo()], as: .gif,
+            to: folder.appending(path: "animated.gif"))
+        let originals = try [first, second, animated].map { try Data(contentsOf: $0) }
+        var crop = ImageEdit()
+        crop.geometry.crop.width = 0.5
+        crop.sourceStamp = try MediaSourceStamp(url: first)
+        var automatic = ImageEdit()
+        automatic.autoEnhance = true
+        automatic.adjustments.style = .monochrome
+        automatic.sourceStamp = try MediaSourceStamp(url: second)
+        var refused = crop
+        refused.sourceStamp = try MediaSourceStamp(url: animated)
+        let photos = [
+            PhotoEditInput(url: first, edit: crop), PhotoEditInput(url: second, edit: automatic),
+            PhotoEditInput(url: animated, edit: refused),
+        ]
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .newFile
+        let result = await engine.run(MediaEditing.photos(photos, settings: settings), settings: settings) { _ in }
+        try #require(result.outcomes.count == 3)
+        guard case .succeeded(let firstOutputs, _) = result.outcomes[0],
+            case .succeeded(let secondOutputs, _) = result.outcomes[1],
+            case .failed = result.outcomes[2]
+        else {
+            Issue.record("expected two edits and one rejected animation")
+            return
+        }
+        let firstOutput = try #require(firstOutputs.first)
+        let secondOutput = try #require(secondOutputs.first)
+        #expect(try ImageFixtures.image(firstOutput).width == 50)
+        let secondImage = try ImageFixtures.image(secondOutput)
+        #expect(secondImage.width == 60 && secondImage.height == 40)
+        let pixel = try ImageFixtures.pixel(secondImage, x: 30, y: 20)
+        #expect(abs(Int(pixel[0]) - Int(pixel[2])) <= 2)
+        for (url, original) in zip([first, second, animated], originals) {
+            #expect(try Data(contentsOf: url) == original)
+        }
+        let record = try #require(result.record)
+        #expect(try await engine.history.undo(record.id) == [.restored, .restored])
+        #expect(!FileManager.default.fileExists(atPath: firstOutput.path))
+        #expect(!FileManager.default.fileExists(atPath: secondOutput.path))
+    }
+
 }

@@ -24,6 +24,7 @@ public enum PDFOperation: Codable, Hashable, Sendable {
     /// Zero-based indices from the Page select panel.
     case extractPages(IndexSet)
     case split
+    case editPages(order: [Int], sourceStamp: FileStamp)
 
     public static let defaultDPI = 144
 }
@@ -66,6 +67,8 @@ enum PDFPlanner {
             perFile = { try PDFEditing.rotate($0, degrees: degrees, context: $1) }
         case .extractPages(let pages):
             perFile = { try PDFEditing.extract(pages, from: $0, context: $1) }
+        case .editPages(let order, let stamp):
+            perFile = { try PDFEditing.editPages(order, sourceStamp: stamp, url: $0, context: $1) }
         case .split:
             perFile = { try PDFEditing.split($0, context: $1) }
         }

@@ -1,7 +1,8 @@
-# MacEase v1 Specification
+# MacEase Specification
 
-This document is the single source of truth for MacEase v1. It describes the
-finished product. When code and this document disagree, this document wins;
+This document is the single source of truth for MacEase. It describes the
+finished product, including the v2 additions in section 20. When code and this
+document disagree, this document wins;
 when a decision changes, update this document, its Changelog, and add an ADR
 under `docs/adr/`.
 
@@ -105,7 +106,7 @@ Menu file content:
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "catalogVersion": "sha256 of the entries array",
   "token": "64 hex characters",
   "hostAvailable": true,
@@ -121,7 +122,7 @@ Menu file content:
   Apple Intelligence availability, Java availability).
 - `path` gives the localized submenu titles from the kind level down to the leaf.
   Different operation IDs can share a submenu, such as Rotate and Convert.
-- Schema 2 adds `separatorBefore` to each leaf. It marks a preset-group boundary
+- Schema 3 retains `separatorBefore` to each leaf. It marks a preset-group boundary
   at that leaf's parent level. After filtering, the renderer keeps group
   boundaries between surviving groups without leading, trailing, or repeated
   separators. Separators have no action or entry index. Section headers are
@@ -133,11 +134,14 @@ Menu file content:
   and target formats. The host validates the parameters again before execution.
   `resizeValue` carries the resolved integer percentage or pixel edge for its
   stable resize slot; `targetBytes` carries decimal compression bytes.
+- Schema 3 adds optional stable recipe IDs, revisions and accepted-kind sets.
+  The catalog hash includes these fields. Recipe inputs must all match the
+  accepted kinds; the host never silently drops unsupported files.
 - `token` is generated once from 32 random bytes on first launch, persisted by
   the host, and rotatable in Settings > Advanced.
 
 If the menu file is missing, unreadable, or uses an unsupported schema
-(including schema 1), the extension shows a single item,
+(including schemas 1 and 2), the extension shows a single item,
 "Open MacEase", which opens `macease://open`. The host shows Welcome if
 onboarding is incomplete, otherwise Settings. This route never runs an operation.
 
@@ -594,7 +598,7 @@ operations.
 
 Only image/video Resize and image/video/audio Compress have **Custom Size…**.
 Flip leaves share Rotate. Video animation leaves share Convert. JSON commands
-are flat operation-level leaves. Separators divide preset groups under schema 2.
+are flat operation-level leaves. Separators divide preset groups under schema 3.
 There are no category headers inside homogeneous menus, redundant option forms,
 or fifth-level submenus. Format leaves use plain names such as **PNG**.
 Ellipses indicate input, review, or confirmation, not immediate processing.
@@ -807,7 +811,7 @@ operation choices during migration. Default-hidden leaves in section 4.4 apply
 only to new installs. Existing installs retain their menu visibility, including
 when they never customized it. New visibility defaults never overwrite a user's
 choices. Unsupported capabilities remain unavailable regardless of visibility.
-Saved changes rewrite menu schema 2 and its catalog hash.
+Saved changes rewrite menu schema 3 and its catalog hash.
 
 No removed panel retains an exclusive value. Image/video fill, masks, background
 colors and format, animation options, subtitle languages, extracted-audio bitrate,
@@ -2026,7 +2030,7 @@ that bound. Earlier whole-key results remain historical evidence in
   models) check the capability first and call `XCTSkip` (or Swift Testing
   `.enabled(if:)`) when it is missing. `make test-device` runs the full suite
   locally on a real Mac.
-- Target-direction acceptance covers schema-2 grouping after pruning, per-leaf
+- Target-direction acceptance covers schema-3 grouping after pruning, per-leaf
   visibility and migration, stale catalogs after value edits, mixed-kind counts,
   single-input limits, every scheduled conversion pair, and explicit deferred
   capabilities. Menu presence alone does not prove a conversion works.
@@ -2105,7 +2109,115 @@ that bound. Earlier whole-key results remain historical evidence in
 - PDF preview (Quick Look covers it).
 - Windows and Linux.
 
+## 20. Version 2.0
+
+The owner approved this complete scope on 2026-11-01. These requirements
+supersede conflicting v1 restrictions above. They describe acceptance targets,
+not evidence that a feature has passed verification. See ADR 0043.
+
+### 20.1 Organization
+
+Finder's Organize action processes loose regular files directly inside selected
+roots. An initial policy and proposed changes require confirmation. Subsequent
+runs may create categories and move files under that approved policy, using
+existing subfolders without restructuring them. Moves stay inside the same
+root and volume; symlinks, packages and special entries are not traversed.
+Only opaque generated filenames are renamed; descriptive names remain.
+
+Classification uses bounded image, PDF, text and supported document content,
+representative video frames and metadata, and audio tags. Analysis stays local.
+An unavailable model or uncertain classification leaves the file unchanged with
+a visible reason. Model responses are proposals, never filesystem authority.
+Category identifiers and name components are validated before mutation.
+Explicit classification corrections are retained for later runs, without
+claiming model fine-tuning or inferring rules from unrelated Finder moves.
+
+Watching is a separate opt-in from Finder folder access. Event-driven watchers
+wait two minutes for new files and confirm stable writes before processing.
+They reconcile on startup, serialize each root, suppress self-generated work,
+and do not immediately reorganize files restored by Undo. Each root can pause.
+Recent organization results show old and new paths, support old-name search,
+classification correction and batch Undo.
+
+Moves use the existing commit gate, naming serialization and file coordination.
+They verify source and destination identity immediately before committing and
+record durable intent before moving, followed by completion. Startup reconciles
+unfinished intents without overwriting or guessing ambiguous identities.
+Undo removes only directories created by that batch, still having the recorded
+identity and now empty. Existing history remains readable.
+
+### 20.2 Batch and document editing
+
+Photo editing accepts multiple still images with a file list and per-file edits.
+Applying adjustments to selected images is one session Undo step; subsequent
+edits remain independent. Source stamps and save policies are never copied
+between images. Automatic enhancement analyzes each source separately. Only
+the selected source and bounded previews remain decoded. Existing RAW, HDR,
+animation and multipage protections continue to apply individually.
+
+The video editor accepts multiple sources and source-referenced segments.
+Import, split, delete, duplicate, reorder and segment adjustments use the same
+source/time mapping in preview and export. Initial output canvas and frame rate
+come from the first source; other dimensions fit with letterboxing. Silent
+segments contribute silence even when only later sources have audio. All source
+identities are checked before final commit. Joined output is always Derived,
+and HDR, alpha or metadata changes are disclosed before saving. Existing
+single-source payloads remain readable. Multitrack editing, transitions and
+subtitle editing remain outside this release.
+
+PDF Edit Pages accepts one PDF, ordered page selection, deletion, and session
+Undo/Redo. Empty or unchanged plans cannot save. It follows the existing output
+mode, with `_edited.pdf` for Derived names. Source identity and document
+permissions are checked; surviving annotations, form values, outlines and
+internal destinations require output verification. This adds no PDF text editor.
+
+### 20.3 Finishing recipes
+
+Versioned local recipes support editing, duplication, deletion and bundled Web
+Publishing and Submission examples. Image, video and PDF rules define final
+formats, dimensions, compression, naming and multiple variants. Video
+thumbnails and PDF image/text exports reuse existing operations. Each run
+snapshots its complete recipe and settings. Every variant starts from its
+original; published intermediate files never feed lossy conversions.
+
+A run produces one named folder or ZIP, always retaining every source. Mixed
+source parents require a destination picker. Unsupported selections are
+reported before execution, never silently omitted. All required outputs are
+generated and individually verified in destination-volume staging before one
+Derived commit. Final commit rechecks every source stamp. Cancellation and
+failure publish no incomplete package. One history batch supports Undo.
+
+Optional total limits count output file bytes for folders and actual archive
+bytes for ZIP. Bounded retries may redistribute budgets using existing
+compressors. An unattainable limit fails visibly; arbitrary PDF compression
+ratios and unlimited quality degradation are not promised. The complete recipe and applicable settings are fixed at run start; later
+settings changes cannot affect an in-progress run.
+Recipe menu leaves carry stable identifiers and revisions covered by the
+catalog hash; authenticated URL transport remains unchanged.
+
+### 20.4 Verification and release
+
+Implement independent output and recovery checks, actual Finder/Services flows,
+English/Japanese, light/dark, keyboard and accessibility behavior. Measure
+photo preparation/interaction/memory, video preparation/seeking/export, and
+watcher idle load against the same baseline fixtures on the available Mac.
+Do not claim speedups that measurements do not establish.
+
+Run build, strict lint and device tests. After integration, three fresh
+GPT-6.1 Sol/high reviews cover features/UI/specification, output/safety/concurrency,
+then the corrected complete diff and physical evidence. Fix reproducible,
+material defects; do not add speculative machinery for low-impact hypotheticals.
+Version 2.0.0 uses build 6, the existing signing identity and disabled Actions.
+Publish a tagged-source signed DMG, checksum and verified GitHub release.
+Earlier VoiceOver and macOS 26 VM exclusions do not extend automatically; if
+these checks remain unavailable, seek a specific decision after other work.
+
 ## Changelog
+
+- 2026-11-01: Approve v2 automatic organization, batch photo editing,
+  multi-source video editing, PDF page editing and finishing recipes, with
+  durable move recovery, local classification, existing-data compatibility,
+  measured optimization and three independent review rounds (ADR 0043).
 
 - 2026-10-30: Extend the owner-approved VoiceOver and macOS 26 VM visual
   acceptance exclusions to v1.4.0. Both remain unverified; all other checks

@@ -175,6 +175,143 @@ struct FileCommitter: Sendable {
         }
     }
 
+    func deriveGroup(_ output: StagedFile, destination: URL, sources: [URL: FileStamp], attributeSource: URL?)
+        async throws -> Committed
+    {
+        let cancellation = OSAllocatedUnfairLock(initialState: false)
+        return try await withTaskCancellationHandler {
+            try await OutputVerifier.verify(output)
+            guard destination.isFileURL, AvailableName.checkedName(destination.lastPathComponent), !sources.isEmpty
+            else {
+                throw EngineError.invalidInput(.malformed("Invalid grouped output destination"))
+            }
+            return try Self.namingLock.withLock { _ in
+                var nextCandidate = 1
+                while true {
+                    try Task.checkCancellation()
+                    let final = try AvailableName.url(
+                        for: destination.lastPathComponent,
+                        in: destination.deletingLastPathComponent(), nextCandidate: &nextCandidate)
+                    let reads = sources.keys.sorted { $0.path < $1.path }.map {
+                        NSFileAccessIntent.readingIntent(with: $0, options: .withoutChanges)
+                    }
+                    let write = NSFileAccessIntent.writingIntent(with: final, options: .forReplacing)
+                    let completed = DispatchSemaphore(value: 0)
+                    let result = Mutex<Result<Committed, any Error>?>(nil)
+                    NSFileCoordinator(filePresenter: nil).coordinate(with: reads + [write], queue: OperationQueue()) {
+                        error in
+                        result.withLock { outcome in
+                            outcome = Result {
+                                if let error { throw error }
+                                for read in reads {
+                                    guard let stamp = sources[read.url], stamp.matchesIdentity(read.url.path) else {
+                                        throw Failure.changedSinceScan
+                                    }
+                                }
+                                try Task.checkCancellation()
+                                if let attributeSource {
+                                    guard sources[attributeSource] != nil else { throw Failure.changedSinceScan }
+                                    try FinderAttributes(of: attributeSource).apply(to: output.url)
+                                }
+                                if cancellation.withLock({ $0 }) { throw CancellationError() }
+                                if renamex_np(output.url.path, write.url.path, UInt32(RENAME_EXCL)) != 0 {
+                                    if errno == EEXIST { throw Failure.destinationOccupied }
+                                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                                }
+                                return Committed(output: write.url, stamp: outputStamp(of: write.url))
+                            }
+                        }
+                        completed.signal()
+                    }
+                    completed.wait()
+                    do {
+                        return try result.withLock {
+                            guard let outcome = $0 else { throw EngineError.commitFailed("Coordination did not run") }
+                            return try outcome.get()
+                        }
+                    } catch Failure.destinationOccupied {
+                        continue
+                    }
+                }
+            }
+        } onCancel: {
+            cancellation.withLock { $0 = true }
+        }
+    }
+
+    func organize(
+        _ plan: OrganizationMovePlan,
+        createdFolder: (OrganizationFolderRecord) throws -> Void,
+        beforeMove: (OrganizationMoveRecord) throws -> Void
+    ) throws -> OrganizationMoveRecord {
+        try Self.namingLock.withLock { _ in
+            try OrganizationSafety.validate(plan)
+            var directory = plan.root
+            for component in plan.category.split(separator: "/") {
+                let child = directory.appending(path: String(component), directoryHint: .isDirectory)
+                try coordinate(writing: child, options: .forReplacing) { location in
+                    try Task.checkCancellation()
+                    try OrganizationSafety.validateDirectories(
+                        to: directory, root: plan.root, identity: plan.rootIdentity)
+                    if mkdir(location.path, 0o755) == 0 {
+                        let record = OrganizationFolderRecord(
+                            root: plan.root, rootIdentity: plan.rootIdentity,
+                            url: location, identity: try OrganizationIdentity(of: location, directory: true))
+                        try synchronizeOrganizationDirectory(directory)
+                        try createdFolder(record)
+                    } else if errno == EEXIST {
+                        _ = try OrganizationIdentity(of: location, directory: true)
+                    } else {
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    try OrganizationSafety.validateDirectories(
+                        to: location, root: plan.root, identity: plan.rootIdentity)
+                }
+                directory = child
+            }
+            var nextCandidate = 1
+            while true {
+                let destination = try AvailableName.url(
+                    for: plan.proposedName, in: directory, nextCandidate: &nextCandidate)
+                do {
+                    return try coordinate(replacing: plan.source, destination: destination, sourceOptions: .forMoving) {
+                        source, target in
+                        try Task.checkCancellation()
+                        try OrganizationSafety.validate(plan)
+                        try OrganizationSafety.validateDirectories(
+                            to: directory, root: plan.root, identity: plan.rootIdentity)
+                        guard source == plan.source, target == destination,
+                            plan.sourceStamp.matchesIdentity(source.path)
+                        else { throw Failure.changedSinceScan }
+                        let record = OrganizationMoveRecord(
+                            root: plan.root, rootIdentity: plan.rootIdentity,
+                            from: source, to: target, stamp: plan.sourceStamp, category: plan.category)
+                        try beforeMove(record)
+                        try OrganizationSafety.validate(plan)
+                        try OrganizationSafety.validateDirectories(
+                            to: directory, root: plan.root, identity: plan.rootIdentity)
+                        if renamex_np(source.path, target.path, UInt32(RENAME_EXCL)) != 0 {
+                            if errno == EEXIST { throw Failure.destinationOccupied }
+                            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                        }
+                        try synchronizeOrganizationDirectory(directory)
+                        try synchronizeOrganizationDirectory(source.deletingLastPathComponent())
+                        return record
+                    }
+                } catch Failure.destinationOccupied {
+                    continue
+                }
+            }
+        }
+    }
+
+    private func synchronizeOrganizationDirectory(_ url: URL) throws {
+        let descriptor = open(url.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        guard fsync(descriptor) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    }
+
     func rename(_ url: URL, to newName: String, requiresExactName: Bool = false) throws -> Committed {
         try Self.namingLock.withLock { _ in
             try Task.checkCancellation()
@@ -263,6 +400,46 @@ struct FileCommitter: Sendable {
         do {
             return try Self.namingLock.withLock { _ in
                 switch record {
+                case .organized(let move):
+                    return try coordinateUndo(paths: [move.from.path, move.to.path], cancellation: cancellation) {
+                        urls, checkCancellation in
+                        guard move.rootIdentity.matches(move.root, directory: true),
+                            move.stamp.matchesIdentity(urls[1].path)
+                        else {
+                            return .skipped(.undoOutputChanged, path: move.to.path)
+                        }
+                        try OrganizationSafety.validateDirectories(
+                            to: urls[0].deletingLastPathComponent(),
+                            root: move.root, identity: move.rootIdentity)
+                        try OrganizationSafety.validateDirectories(
+                            to: urls[1].deletingLastPathComponent(),
+                            root: move.root, identity: move.rootIdentity)
+                        try checkCancellation()
+                        guard renamex_np(urls[1].path, urls[0].path, UInt32(RENAME_EXCL)) == 0 else {
+                            if errno == EEXIST { return .skipped(.undoOriginalOccupied, path: move.from.path) }
+                            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                        }
+                        try synchronizeOrganizationDirectory(urls[0].deletingLastPathComponent())
+                        try synchronizeOrganizationDirectory(urls[1].deletingLastPathComponent())
+                        return .restored
+                    }
+                case .organizationFolder(let folder):
+                    return try coordinateUndo(paths: [folder.url.path], cancellation: cancellation) {
+                        urls, checkCancellation in
+                        guard folder.rootIdentity.matches(folder.root, directory: true),
+                            folder.identity.matches(urls[0], directory: true)
+                        else {
+                            return .skipped(.undoOutputChanged, path: folder.url.path)
+                        }
+                        try OrganizationSafety.validateDirectories(
+                            to: urls[0], root: folder.root, identity: folder.rootIdentity)
+                        try checkCancellation()
+                        guard rmdir(urls[0].path) == 0 else {
+                            if errno == ENOTEMPTY { return .skipped(.undoOutputChanged, path: folder.url.path) }
+                            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                        }
+                        return .restored
+                    }
                 case .extractedInPlace(let output):
                     return .skipped(.undoOutputChanged, path: output)
                 case .replaced(let original, let trashed, let output, let stamp, let trashStamp):
@@ -339,6 +516,8 @@ struct FileCommitter: Sendable {
             case .replaced(_, let trashed, _, _, _), .removed(_, let trashed, _): path = trashed
             case .derived(let output, _), .extractedInPlace(let output): path = output
             case .renamed(_, let to, _): path = to
+            case .organized(let move): path = move.to.path
+            case .organizationFolder(let folder): path = folder.url.path
             }
             return .failed(EngineError.wrapping(error, path: path, otherwise: EngineError.commitFailed), path: path)
         }
@@ -427,7 +606,8 @@ struct FileCommitter: Sendable {
     }
 
     private func coordinate<Value>(
-        replacing original: URL, destination: URL, _ body: (URL, URL) throws -> Value
+        replacing original: URL, destination: URL, sourceOptions: NSFileCoordinator.WritingOptions = .forReplacing,
+        _ body: (URL, URL) throws -> Value
     ) throws -> Value {
         if original == destination {
             return try coordinate(writing: original, options: .forReplacing) { try body($0, $0) }
@@ -435,7 +615,7 @@ struct FileCommitter: Sendable {
         var coordinationError: NSError?
         var result: Result<Value, any Error>?
         NSFileCoordinator(filePresenter: nil).coordinate(
-            writingItemAt: original, options: .forReplacing,
+            writingItemAt: original, options: sourceOptions,
             writingItemAt: destination, options: .forReplacing, error: &coordinationError
         ) { target, final in
             result = Result { try body(target, final) }

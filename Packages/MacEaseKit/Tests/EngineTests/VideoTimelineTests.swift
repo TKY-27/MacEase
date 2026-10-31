@@ -63,4 +63,32 @@ import Testing
         edit.segments?.removeLast()
         #expect(!edit.changesColor)
     }
+    @Test func legacySegmentRecordsUseInitialSource() throws {
+        let encoded = Data(
+            #"{"id":"F776754A-28B9-45D4-9001-6659A97C6786","start":1,"end":2,"speed":1,"volume":1,"adjustments":{"style":"original","styleIntensity":1,"values":{}}}"#
+                .utf8)
+        let segment = try JSONDecoder().decode(VideoSegment.self, from: encoded)
+        #expect(segment.sourceIndex == 0)
+        #expect(segment.start == 1 && segment.end == 2)
+    }
+
+    @Test func segmentsValidateAgainstTheirOwnSourceDuration() throws {
+        let folder = try AudioSignals.temporaryFolder()
+        let first = folder.appending(path: "first.mp4")
+        let second = folder.appending(path: "second.mp4")
+        try Data([1]).write(to: first)
+        try Data([2]).write(to: second)
+        var edit = VideoEdit()
+        edit.sources = [
+            VideoEditSource(url: first, duration: 1, stamp: try MediaSourceStamp(url: first)),
+            VideoEditSource(url: second, duration: 5, stamp: try MediaSourceStamp(url: second)),
+        ]
+        edit.segments = [VideoSegment(start: 0, end: 1), VideoSegment(start: 3, end: 5, sourceIndex: 1)]
+        #expect(try VideoTimeline(edit: edit, sourceDuration: 1).duration == 3)
+        edit.segments?[1].sourceIndex = 0
+        #expect(throws: EngineError.self) { try VideoTimeline(edit: edit, sourceDuration: 1) }
+        edit.segments?[1].sourceIndex = 2
+        #expect(throws: EngineError.self) { try VideoTimeline(edit: edit, sourceDuration: 1) }
+    }
+
 }

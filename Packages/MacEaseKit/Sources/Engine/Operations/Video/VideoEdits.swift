@@ -8,6 +8,9 @@ enum VideoEdits {
 
     static func run(_ operation: VideoOperation, url: URL, context: ItemContext) async throws -> ItemResult {
         if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
+        if case .edit(let edit) = operation, let sources = edit.sources, sources.count > 1 {
+            return try await joined(edit, sources: sources, url: url, context: context)
+        }
         let input = try await MediaInput.open(url)
         try input.requireSingleTracksForReplacement()
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
@@ -102,6 +105,70 @@ enum VideoEdits {
         case .still, .gif, .apng, .webP, .gifX, .extractAudio, .compress, .subtitles, .background, .hdrToSDR:
             throw EngineError.unexpected("not an in-place edit")
         }
+    }
+
+    private static func joined(
+        _ edit: VideoEdit, sources: [VideoEditSource], url: URL, context: ItemContext
+    ) async throws -> ItemResult {
+        try edit.geometry.validate()
+        var inputs: [MediaInput] = []
+        for source in sources {
+            try source.stamp.validate(source.url)
+            let input = try await MediaInput.open(source.url)
+            try input.requireSingleTracksForReplacement()
+            guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
+            inputs.append(input)
+        }
+        guard let first = inputs.first, let video = first.video else {
+            throw EngineError.invalidInput(.emptyInput)
+        }
+        var validated = edit
+        validated.sources = zip(sources, inputs).map { source, input in
+            VideoEditSource(
+                url: source.url, duration: Double(input.duration) / Double(Nanoseconds.perSecond), stamp: source.stamp)
+        }
+        let timeline = try VideoTimeline(edit: validated, sourceDuration: sources[0].duration)
+        var frame = FrameEdit(displayOrientation: try first.displayOrientation)
+        frame.fitCanvas = first.displaySize
+        frame.editorGeometry = edit.geometry
+        let natural = edit.geometry.outputSize(CGSize(width: first.displaySize.width, height: first.displaySize.height))
+        let size =
+            try edit.resize?.outputSize(PixelSize(width: Int(natural.width), height: Int(natural.height)))
+            ?? PixelSize(width: Int(natural.width), height: Int(natural.height)).evened()
+        frame.size = size
+        frame.flattensAlpha = true
+        frame.fill = context.settings.video.rotationFill
+        var encoding = encoding(first, source: video, settings: context.settings.video)
+        encoding.codec = .h264
+        encoding.width = size.width
+        encoding.height = size.height
+        var plan = TranscodePlan(container: .mp4, video: .encode(encoding, frame), audio: nil)
+        plan.derived = true
+        plan.timeline = timeline
+        plan.sourceInputs = inputs
+        if inputs.contains(where: { $0.audio != nil }), timeline.segments.contains(where: { $0.volume > 0 }) {
+            plan.audio = .encode(.aac, kilobits: context.settings.audio.aacBitrate)
+        }
+        var metadataPlans: [TranscodePlan] = []
+        for input in inputs {
+            if try await VideoProperties.toneMapsExport(input, context: context) { plan.toneMapToSDR = true }
+            if input.video?.hasAlpha == true { context.warn(.videoTransparencyFlattened) }
+            metadataPlans.append(try await VideoProperties.prepareMetadata(plan, input: input, context: context))
+        }
+        let name = url.deletingPathExtension().lastPathComponent + "_edited.mp4"
+        let output = try context.stagingURL(for: url, name: name)
+        try await Transcoder.run(first, plan: plan, to: output) { context.progress($0) }
+        for metadataPlan in metadataPlans {
+            try await VideoProperties.verify(metadataPlan, output: output, context: context)
+        }
+        var stamps: [URL: FileStamp] = [:]
+        for source in sources {
+            try source.stamp.validate(source.url)
+            stamps[source.url] = source.stamp.fileStamp
+        }
+        return .groupedDerived(
+            destination: url.deletingLastPathComponent().appending(path: name), sources: stamps,
+            output: StagedFile(url: output, name: name, check: plan.toneMapToSDR ? .sdrVideo : .media))
     }
 
     private static func baked(_ input: MediaInput) throws -> FrameEdit {

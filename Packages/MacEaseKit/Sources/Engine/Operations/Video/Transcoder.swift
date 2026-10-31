@@ -30,6 +30,7 @@ struct TranscodePlan {
     var playbackSpeed = 1.0
     var volume = 1.0
     var timeline: VideoTimeline?
+    var sourceInputs: [MediaInput]?
     var metadata: VideoMetadata?
     var copiedDisplayTrack: MediaTrack?
     var copiedDisplayFormat: CMFormatDescription?
@@ -71,9 +72,10 @@ enum Transcoder {
                 try await videoStage(
                     video, track: track, input: input, matte: plan.matte, start: start, end: end,
                     toneMapToSDR: plan.toneMapToSDR, destination: plan.container, speed: plan.playbackSpeed,
-                    timeline: plan.timeline))
+                    timeline: plan.timeline, sourceInputs: plan.sourceInputs))
         }
-        if let audio = plan.audio, let track = input.audio {
+        let audioInput = plan.sourceInputs?.first(where: { $0.audio != nil }) ?? input
+        if let audio = plan.audio, let track = audioInput.audio {
             let number = stages.count + 1
             switch audio {
             case .copy:
@@ -84,7 +86,7 @@ enum Transcoder {
             case .encode(let codec, let kilobits):
                 if let timeline = plan.timeline {
                     let source = try TimelinePCMSource(
-                        input: input, track: track, timeline: timeline,
+                        input: audioInput, track: track, timeline: timeline, inputs: plan.sourceInputs,
                         stagingDirectory: url.deletingLastPathComponent())
                     stages.append(
                         try AudioEncodeStage(
@@ -203,7 +205,8 @@ enum Transcoder {
 
     private static func videoStage(
         _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
-        end: Int64, toneMapToSDR: Bool, destination: OutputContainer, speed: Double, timeline: VideoTimeline?
+        end: Int64, toneMapToSDR: Bool, destination: OutputContainer, speed: Double, timeline: VideoTimeline?,
+        sourceInputs: [MediaInput]?
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
@@ -212,7 +215,8 @@ enum Transcoder {
         case .encode(let encoding, let edit):
             if let timeline {
                 return try TimelineFrameEncodeStage(
-                    input: input, encoding: encoding, edit: edit, timeline: timeline, toneMapToSDR: toneMapToSDR)
+                    input: input, encoding: encoding, edit: edit, timeline: timeline, toneMapToSDR: toneMapToSDR,
+                    inputs: sourceInputs)
             }
             return try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,

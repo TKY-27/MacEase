@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Content-based folder organization with editable policy previews, explicit
+  per-folder automation, stable-write delays and local Apple Intelligence.
+- Recent organization results with old-name search, saved category corrections,
+  batch Undo and durable move recovery after interruption.
+- Batch photo editing with shared adjustments, independent overrides,
+  per-photo automatic correction and bounded preview caching.
+- Multi-source video timelines with segment editing, continuous audio and
+  letterboxed, source-preserving MP4 export.
+- PDF page reordering and deletion with session Undo/Redo and verified
+  annotations, form values and internal navigation.
+- Saved finishing recipes for mixed images, videos and PDFs, multiple variants,
+  folder or ZIP delivery, optional total size limits and one package Undo.
+
+### Safety
+
+- Publish recipe packages only after every required output passes verification;
+  keep original inputs and reject changes during processing.
+- Journal organization move intent before mutation, avoid overwrites, and remove
+  only unchanged, empty folders owned by an undone organization batch.
+- Preserve existing history, settings and single-source timeline decoding.
+- Disclose SDR/opaque joined-video output before saving; keep all sources.
+
 ## [1.4.0] - 2026-10-30
 
 ### Added

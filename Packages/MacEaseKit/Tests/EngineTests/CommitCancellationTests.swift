@@ -106,6 +106,37 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "derived.txt").path))
     }
 
+    @Test func cancellationDuringGroupedCoordinationKeepsStagedOutput() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseGroupedCancel-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: root) } }
+        let original = root.appending(path: "original.txt")
+        let staged = root.appending(path: "staged.txt")
+        let destination = root.appending(path: "combined.txt")
+        try Data("original".utf8).write(to: original)
+        try Data("combined".utf8).write(to: staged)
+        let stamp = try FileStamp(of: original, includingIdentity: true)
+        let pending = Mutex<Task<FileCommitter.Committed, any Error>?>(nil)
+        let presenter = CommitCancellationPresenter(url: original) { pending.withLock { $0?.cancel() } }
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+        let ready = AsyncStream<Void>.makeStream()
+        let deriving = Task.detached {
+            for await _ in ready.stream { break }
+            return try await FileCommitter().deriveGroup(
+                StagedFile(url: staged, name: "combined.txt", check: .text(.utf8)), destination: destination,
+                sources: [original: stamp], attributeSource: original)
+        }
+        pending.withLock { $0 = deriving }
+        ready.continuation.yield(())
+        ready.continuation.finish()
+        await #expect(throws: CancellationError.self) { try await deriving.value }
+        #expect(presenter.relinquished.withLock { $0 })
+        #expect(try String(contentsOf: original, encoding: .utf8) == "original")
+        #expect(try String(contentsOf: staged, encoding: .utf8) == "combined")
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
     @Test func cancellationDuringUndoCoordinationPreservesDerivedOutput() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseUndo-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

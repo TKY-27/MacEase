@@ -1,8 +1,21 @@
 import Formats
 import Foundation
 
+public struct VideoEditSource: Codable, Hashable, Sendable {
+    public let url: URL
+    public let duration: Double
+    public let stamp: MediaSourceStamp
+
+    public init(url: URL, duration: Double, stamp: MediaSourceStamp) {
+        self.url = url
+        self.duration = duration
+        self.stamp = stamp
+    }
+}
+
 public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     public var id: UUID
+    public var sourceIndex: Int
     public var start: Double
     public var end: Double
     public var speed: Double
@@ -11,14 +24,29 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
 
     public init(
         id: UUID = UUID(), start: Double, end: Double, speed: Double = 1,
-        volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments()
+        volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments(), sourceIndex: Int = 0
     ) {
         self.id = id
+        self.sourceIndex = sourceIndex
         self.start = start
         self.end = end
         self.speed = speed
         self.volume = volume
         self.adjustments = adjustments
+    }
+    private enum CodingKeys: String, CodingKey {
+        case id, sourceIndex, start, end, speed, volume, adjustments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        sourceIndex = try values.decodeIfPresent(Int.self, forKey: .sourceIndex) ?? 0
+        start = try values.decode(Double.self, forKey: .start)
+        end = try values.decode(Double.self, forKey: .end)
+        speed = try values.decode(Double.self, forKey: .speed)
+        volume = try values.decode(Double.self, forKey: .volume)
+        adjustments = try values.decode(MediaAdjustments.self, forKey: .adjustments)
     }
 }
 
@@ -41,9 +69,16 @@ public struct VideoTimeline: Hashable, Sendable {
         var duration = 0.0
         var starts: [Double] = []
         var identifiers = Set<UUID>()
+        let durations = edit.sources?.map(\.duration) ?? [sourceDuration]
+        guard !durations.isEmpty, durations.allSatisfy({ $0.isFinite && $0 > 0 }) else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
         for segment in segments {
+            guard durations.indices.contains(segment.sourceIndex) else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
             guard segment.start.isFinite, segment.end.isFinite, segment.start >= 0,
-                segment.end > segment.start, segment.end <= sourceDuration,
+                segment.end > segment.start, segment.end <= durations[segment.sourceIndex],
                 segment.speed.isFinite, VideoEdit.speedRange.contains(segment.speed),
                 segment.volume.isFinite, (0...1).contains(segment.volume),
                 identifiers.insert(segment.id).inserted

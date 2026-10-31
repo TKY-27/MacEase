@@ -9,6 +9,9 @@ enum MenuStrings {
         switch op {
         case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
         case .videoEdit: String(localized: "menu.op.video.edit", defaultValue: "Edit Video…")
+        case .folderOrganize: String(localized: "menu.op.folder.organize", defaultValue: "Organize…")
+        case .pdfEditPages: String(localized: "menu.op.pdf.editPages", defaultValue: "Edit Pages…")
+        case .filesFinish: String(localized: "menu.op.files.finish", defaultValue: "Finish With Recipe…")
         case .videoSpeed: String(localized: "menu.op.video.speed", defaultValue: "Playback Speed")
         case .archiveHatchExtract:
             String(localized: "menu.op.archive.hatchExtract", defaultValue: "Extract with HatchZip")

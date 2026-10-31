@@ -340,7 +340,7 @@ private enum GainMapExif: UInt32, CaseIterable {
     }
 
     static func fixture(_ url: URL, variant: GainMapVariant, heic: Bool) throws {
-        let base = CIImage(cgImage: try ImageFixtures.photo(width: width, height: height))
+        var base = CIImage(cgImage: try ImageFixtures.photo(width: width, height: height))
         let gray: [CGFloat] = [0.35, 0.55, 0.75, 0.95]
         let map = tiles(gray.map { CIColor(red: $0, green: $0, blue: $0) })
         let hdr = tiles([
@@ -352,7 +352,22 @@ private enum GainMapExif: UInt32, CaseIterable {
         let options: [CIImageRepresentationOption: Any]
         switch variant {
         case .apple:
-            options = [.hdrGainMapImage: map.transformed(by: CGAffineTransform(scaleX: 0.25, y: 0.25))]
+            let metadata = CGImageMetadataCreateMutable()
+            try #require(
+                CGImageMetadataRegisterNamespaceForPrefix(
+                    metadata, "http://ns.apple.com/HDRGainMap/1.0/" as CFString, "HDRGainMap" as CFString, nil))
+            try #require(
+                CGImageMetadataSetValueWithPath(
+                    metadata, nil, "HDRGainMap:HDRGainMapVersion" as CFString, "65536" as CFString))
+            try #require(
+                CGImageMetadataSetValueWithPath(
+                    metadata, nil, "HDRGainMap:HDRGainMapHeadroom" as CFString, "4.0" as CFString))
+            base = base.settingProperties([
+                kCGImagePropertyMakerAppleDictionary as String: ["33": Float(1), "48": Float(1)]
+            ])
+            let calibrated = map.transformed(by: CGAffineTransform(scaleX: 0.25, y: 0.25))
+                .settingProperties([kCGImageAuxiliaryDataInfoMetadata as String: metadata])
+            options = [.hdrGainMapImage: calibrated]
         case .isoMono: options = [.hdrImage: hdr]
         case .isoRGB: options = [.hdrImage: hdr, .hdrGainMapAsRGB: true]
         }
@@ -364,6 +379,10 @@ private enum GainMapExif: UInt32, CaseIterable {
         try encoded.write(to: url)
         let source = try ImageFixtures.source(url)
         #expect(CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, variant.type) != nil)
+        if variant == .apple {
+            let expanded = try #require(CIImage(contentsOf: url, options: [.expandToHDR: true]))
+            #expect(expanded.contentHeadroom > 1)
+        }
     }
 
     private static func dimensions(_ payload: CFDictionary) throws -> (Int, Int) {
@@ -444,6 +463,14 @@ private enum GainMapExif: UInt32, CaseIterable {
         #expect(CFGetTypeID(value as CFTypeRef) == CGImageMetadataGetTypeID())
         guard case let metadata as CGImageMetadata = value else { throw EngineError.imageGainMapUnsupported }
         return try #require(CGImageMetadataCreateXMPData(metadata, nil) as Data?)
+    }
+
+    private static func calibrationProperties(_ payload: CFDictionary) throws -> [String] {
+        let document = try XMLDocument(data: calibration(payload))
+        let properties = try document.nodes(
+            forXPath: "/*[local-name()='xmpmeta']/*[local-name()='RDF']/*[local-name()='Description']/*")
+        try #require(!properties.isEmpty)
+        return properties.map { $0.canonicalXMLStringPreservingComments(false) }.sorted()
     }
 
     private static func squarePreset() -> PlatformPreset {
@@ -553,7 +580,7 @@ private enum GainMapExif: UInt32, CaseIterable {
         let (expectedWidth, expectedHeight) = edit.outputSize
         #expect(width == sourceWidth * expectedWidth / Self.width)
         #expect(height == sourceHeight * expectedHeight / Self.height)
-        #expect(try Self.calibration(originalMap) == Self.calibration(actual))
+        #expect(try Self.calibrationProperties(originalMap) == Self.calibrationProperties(actual))
         #expect(try ImageFixtures.properties(output.url)[kCGImagePropertyOrientation] as? Int ?? 1 == 1)
         let originalRaster = try Self.AuxiliaryRaster(source, type: variant.type)
         let writtenRaster = try Self.AuxiliaryRaster(written, type: variant.type)
@@ -604,7 +631,7 @@ private enum GainMapExif: UInt32, CaseIterable {
         let (width, height) = try Self.dimensions(actual)
         #expect(width == (orientation.swapsAxes ? sourceHeight : sourceWidth) / 2)
         #expect(height == (orientation.swapsAxes ? sourceWidth : sourceHeight) / 2)
-        #expect(try Self.calibration(sourceMap) == Self.calibration(actual))
+        #expect(try Self.calibrationProperties(sourceMap) == Self.calibrationProperties(actual))
         #expect(try ImageFixtures.properties(output.url)[kCGImagePropertyOrientation] as? Int ?? 1 == 1)
         let originalRaster = try Self.AuxiliaryRaster(source, type: variant.type)
         let writtenRaster = try Self.AuxiliaryRaster(written, type: variant.type)
@@ -638,6 +665,27 @@ private enum GainMapExif: UInt32, CaseIterable {
         contents = try #require(map.payload as? [CFString: Any])
         let pixels = try #require(contents[kCGImageAuxiliaryDataInfoData] as? Data)
         contents[kCGImageAuxiliaryDataInfoData] = Data(repeating: 255, count: pixels.count)
+        #expect(throws: EngineError.imageGainMapUnsupported) {
+            try ImageGainMap.verify([ImageGainMap(type: map.type, payload: contents as CFDictionary)], in: source)
+        }
+    }
+
+    @Test func verificationRefusesChangedAppleHeadroom() throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "apple.jpg")
+        try Self.fixture(input, variant: .apple, heic: false)
+        let source = try ImageFixtures.source(input)
+        let map = try #require(ImageGainMap.read(source, at: 0).first)
+        var contents = try #require(map.payload as? [CFString: Any])
+        let xmp = try Self.calibration(map.payload)
+        let metadata = try #require(CGImageMetadataCreateFromXMPData(xmp as CFData))
+        let changed = try #require(CGImageMetadataCreateMutableCopy(metadata))
+        try #require(
+            CGImageMetadataSetValueWithPath(
+                changed, nil, "HDRGainMap:HDRGainMapHeadroom" as CFString, "8.0" as CFString))
+        contents[kCGImageAuxiliaryDataInfoMetadata] = changed
+        #expect(try Self.calibrationProperties(map.payload) != Self.calibrationProperties(contents as CFDictionary))
         #expect(throws: EngineError.imageGainMapUnsupported) {
             try ImageGainMap.verify([ImageGainMap(type: map.type, payload: contents as CFDictionary)], in: source)
         }

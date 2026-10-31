@@ -33,11 +33,16 @@ public struct Batch: Sendable {
     public let operation: OperationID
     public let items: [WorkItem]
     public let reportsMultipleTexts: Bool
+    public let recipeExecution: RecipeExecution?
 
-    public init(operation: OperationID, items: [WorkItem], reportsMultipleTexts: Bool = false) {
+    public init(
+        operation: OperationID, items: [WorkItem], reportsMultipleTexts: Bool = false,
+        recipeExecution: RecipeExecution? = nil
+    ) {
         self.operation = operation
         self.items = items
         self.reportsMultipleTexts = reportsMultipleTexts
+        self.recipeExecution = recipeExecution
     }
 }
 
@@ -93,6 +98,8 @@ public enum RemovalCondition: Sendable {
 }
 
 public enum ItemResult: Sendable {
+    case organize(OrganizationMovePlan)
+    case groupedDerived(destination: URL, sources: [URL: FileStamp], output: StagedFile)
     case hatchExtraction(HatchExtractionResult)
     case replace(original: URL, output: StagedFile)
     case derived(nextTo: URL, outputs: [StagedFile])

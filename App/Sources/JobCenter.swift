@@ -89,6 +89,15 @@ final class JobCenter {
 
     func start(entry: MenuEntry, inputs: [URL]) {
         guard !terminating else { return }
+        if entry.op == .filesFinish {
+            guard MenuLayout.isApplicable(entry, selection: inputs) else {
+                presentFailure?(
+                    entry.op, String(localized: "This recipe does not support every selected file."))
+                return
+            }
+            presentPanel?(entry, inputs)
+            return
+        }
         let inputs = inputs.filter { input in
             let kind = FileKind(fileURL: input)
             return entry.kind == .any ? kind != .folder : kind == entry.kind
@@ -149,8 +158,8 @@ final class JobCenter {
     }
 
     @discardableResult
-    func run(batch: Batch) -> Task<BatchOutcome?, Never> {
-        run(settings: settings.planning, request: nil) { batch }
+    func run(batch: Batch, settings suppliedSettings: Settings? = nil) -> Task<BatchOutcome?, Never> {
+        run(settings: suppliedSettings ?? settings.planning, request: nil) { batch }
     }
 
     private func run(

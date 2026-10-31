@@ -61,7 +61,7 @@ enum PageThumbnail {
     }
 }
 
-private struct Thumbnail: View {
+struct Thumbnail: View {
     let entry: PageEntry
     var edge = PanelLayout.thumbnailEdge
     @State private var image: CGImage?

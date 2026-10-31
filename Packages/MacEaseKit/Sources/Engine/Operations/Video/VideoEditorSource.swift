@@ -9,6 +9,7 @@ public struct VideoEditorDetails: Sendable {
     public let frameDuration: Double
     public let hasAudio: Bool
     public let containsHDR: Bool
+    public let hasAlpha: Bool
     public let stamp: MediaSourceStamp
 }
 
@@ -17,7 +18,7 @@ public actor VideoEditorSource {
     private let url: URL
     private let preview: MediaPreview
     private let staging: StagingArea
-    private var proxies: [Bool: URL] = [:]
+    private var proxies: [String: URL] = [:]
     private var directories: [URL] = []
     private var closed = false
     private var frameTimes: [Int64]?
@@ -47,7 +48,8 @@ public actor VideoEditorSource {
             size: CGSize(width: input.displaySize.width, height: input.displaySize.height),
             duration: preview.durationSeconds,
             frameDuration: Double(input.frameDuration) / Double(Nanoseconds.perSecond),
-            hasAudio: input.audio != nil, containsHDR: containsHDR, stamp: stamp)
+            hasAudio: input.audio != nil, containsHDR: containsHDR, hasAlpha: input.video?.hasAlpha == true,
+            stamp: stamp)
     }
 
     public func frames(
@@ -145,21 +147,22 @@ public actor VideoEditorSource {
         return timestamps.filter { $0 >= 0 && $0 < input.duration }.sorted()
     }
 
-    public func playbackURL(sdr: Bool) async throws -> URL {
+    public func playbackURL(sdr: Bool, normalized: Bool = false) async throws -> URL {
         guard !closed else { throw CancellationError() }
         try details.stamp.validate(url)
         let toneMap = sdr && details.containsHDR
-        if !toneMap, try await Self.canPlay(url) { return url }
-        if let cached = proxies[toneMap] { return cached }
+        if !toneMap, !normalized, try await Self.canPlay(url) { return url }
+        let key = "\(toneMap)-\(normalized)"
+        if let cached = proxies[key] { return cached }
         let directory = try staging.makeDirectory(for: url)
         directories.append(directory)
         let output = directory.appending(path: "preview.mp4")
         do {
-            try await Self.makePreview(url: url, output: output, toneMap: toneMap)
+            try await Self.makePreview(url: url, output: output, toneMap: toneMap, normalized: normalized)
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
             try details.stamp.validate(url)
-            proxies[toneMap] = output
+            proxies[key] = output
             return output
         } catch {
             staging.remove(directory)
@@ -186,7 +189,7 @@ public actor VideoEditorSource {
         return try await AVURLAsset(url: url).load(.isPlayable)
     }
 
-    private nonisolated static func makePreview(url: URL, output: URL, toneMap: Bool) async throws {
+    private nonisolated static func makePreview(url: URL, output: URL, toneMap: Bool, normalized: Bool) async throws {
         let input = try await MediaInput.open(url)
         guard let source = input.video else { throw EngineError.decodeFailed("no video track") }
         if toneMap, case .asset(_, let track?, _) = input.backend {
@@ -197,13 +200,14 @@ public actor VideoEditorSource {
             codec: .h264, width: size.width, height: size.height,
             frameDuration: input.frameDuration, bitrate: nil)
         encoding.quality = 0.85
-        let edit = FrameEdit(displayOrientation: try input.displayOrientation, size: size)
+        var edit = FrameEdit(displayOrientation: try input.displayOrientation, size: size)
+        edit.flattensAlpha = normalized
         var plan = TranscodePlan(
             container: .mp4, video: .encode(encoding, edit),
             audio: input.audio.map { _ in .encode(.aac, kilobits: 192) })
         plan.toneMapToSDR = toneMap
         plan.range = 0..<input.duration
-        if source.hasAlpha { throw EngineError.videoAlphaUnsupported }
+        if source.hasAlpha, !normalized { throw EngineError.videoAlphaUnsupported }
         try await Transcoder.run(input, plan: plan, to: output) { _ in }
     }
 

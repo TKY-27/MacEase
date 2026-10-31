@@ -406,3 +406,163 @@ extension OutputModeTests {
         #expect(try Data(contentsOf: url) == lockedBytes)
     }
 }
+
+@Suite(.serialized) struct PDFPageEditTests {
+    private func request(_ source: URL, order: [Int], stamp: FileStamp) -> OperationRequest {
+        OperationRequest(
+            op: .pdfEditPages, options: .pdf(.editPages(order: order, sourceStamp: stamp)), inputs: [source])
+    }
+
+    private func navigationFixture() throws -> URL {
+        let source = try TestVolume.makeFolder().appending(path: "editable.pdf")
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R /Outlines 12 0 R /AcroForm 15 0 R >>",
+            "<< /Type /Pages /Count 3 /Kids [3 0 R 5 0 R 7 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>",
+            "<< /Length 36 >>\nstream\nBT /F1 24 Tf 20 40 Td (Alpha) Tj ET\nendstream",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>",
+            "<< /Length 38 >>\nstream\nBT /F1 24 Tf 20 40 Td (Deleted) Tj ET\nendstream",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R /Annots [10 0 R 11 0 R 13 0 R] >>",
+            "<< /Length 36 >>\nstream\nBT /F1 24 Tf 20 40 Td (Gamma) Tj ET\nendstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            "<< /Type /Annot /Subtype /Text /Rect [10 10 30 30] /Contents (Keep this note) /P 7 0 R >>",
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (Customer) /V (Ada) /Rect [30 10 110 30] /P 7 0 R /DA (/F1 12 Tf 0 g) >>",
+            "<< /Type /Outlines /First 14 0 R /Last 14 0 R /Count 1 >>",
+            "<< /Type /Annot /Subtype /Link /Rect [10 40 90 60] /A << /S /GoTo /D [3 0 R /XYZ 20 40 0] >> >>",
+            "<< /Title (Alpha chapter) /Parent 12 0 R /Dest [3 0 R /XYZ 20 40 0] >>",
+            "<< /Fields [11 0 R] /DR << /Font << /F1 9 0 R >> >> /DA (/F1 12 Tf 0 g) >>",
+        ]
+        var bytes = Data("%PDF-1.7\n".utf8)
+        var offsets = [0]
+        for (index, object) in objects.enumerated() {
+            offsets.append(bytes.count)
+            bytes.append(Data("\(index + 1) 0 obj\n\(object)\nendobj\n".utf8))
+        }
+        let xrefOffset = bytes.count
+        bytes.append(Data("xref\n0 \(offsets.count)\n0000000000 65535 f \n".utf8))
+        for offset in offsets.dropFirst() {
+            bytes.append(Data(String(format: "%010d 00000 n \n", offset).utf8))
+        }
+        bytes.append(Data("trailer\n<< /Size \(offsets.count) /Root 1 0 R >>\nstartxref\n\(xrefOffset)\n%%EOF\n".utf8))
+        try bytes.write(to: source)
+        return source
+    }
+
+    @Test(arguments: [Settings.OutputMode.newFile, .replace])
+    func preservesPageContentAnnotationsFormsAndNavigation(mode: Settings.OutputMode) async throws {
+        let source = try navigationFixture()
+        let savedFixture = try #require(PDFDocument(url: source))
+        #expect(savedFixture.outlineRoot?.child(at: 0)?.label == "Alpha chapter")
+        #expect(savedFixture.page(at: 2)?.annotations.count == 3)
+        #expect(
+            savedFixture.page(at: 2)?.annotations.first(where: { $0.fieldName == "Customer" })?.widgetStringValue
+                == "Ada")
+        let original = try Data(contentsOf: source)
+        let session = try PDFPageEditSession.open(source)
+        let engine = try ImageFixtures.engine()
+        var settings = Settings()
+        settings.outputMode = mode
+        let outcome = await engine.run(
+            OperationPlanner.batch(
+                for: request(source, order: [2, 0], stamp: session.sourceStamp), settings: settings),
+            settings: settings
+        ) { _ in }
+        let output = try ImageFixtures.output(of: outcome)
+        #expect(
+            output
+                == (mode == .replace
+                    ? source : source.deletingLastPathComponent().appending(path: "editable_edited.pdf")))
+        #expect(try texts(of: output) == ["Gamma", "Alpha"])
+        let exported = try #require(PDFDocument(url: output))
+        let editedFirst = try #require(exported.page(at: 0))
+        #expect(editedFirst.annotations.first(where: { $0.type == "Text" })?.contents == "Keep this note")
+        #expect(editedFirst.annotations.first(where: { $0.fieldName == "Customer" })?.widgetStringValue == "Ada")
+        let target = try #require(
+            (editedFirst.annotations.first(where: { $0.type == "Link" })?.action as? PDFActionGoTo)?.destination.page)
+        #expect(exported.index(for: target) == 1)
+        let outlineTarget = try #require(exported.outlineRoot?.child(at: 0)?.destination?.page)
+        #expect(exported.index(for: outlineTarget) == 1)
+        #expect(exported.outlineRoot?.child(at: 0)?.label == "Alpha chapter")
+        if mode == .newFile { #expect(try Data(contentsOf: source) == original) }
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
+        #expect(try Data(contentsOf: source) == original)
+        if mode == .newFile { #expect(!FileManager.default.fileExists(atPath: output.path)) }
+    }
+
+    @Test func removingNavigationTargetKeepsSurvivingPageAndOutlineLabel() async throws {
+        let source = try navigationFixture()
+        let session = try PDFPageEditSession.open(source)
+        let engine = try ImageFixtures.engine()
+        let settings = Settings()
+        let outcome = await engine.run(
+            OperationPlanner.batch(for: request(source, order: [2], stamp: session.sourceStamp), settings: settings),
+            settings: settings
+        ) { _ in }
+        let output = try ImageFixtures.output(of: outcome)
+        let document = try #require(PDFDocument(url: output))
+        #expect(try texts(of: output) == ["Gamma"])
+        #expect(document.outlineRoot?.child(at: 0)?.label == "Alpha chapter")
+        #expect(document.outlineRoot?.child(at: 0)?.destination == nil)
+        let link = try #require(document.page(at: 0)?.annotations.first(where: { $0.type == "Link" }))
+        #expect(link.destination == nil)
+        #expect(link.action == nil)
+    }
+
+    @Test func refusesReplacedSourceWithMatchingSizeAndModificationTime() async throws {
+        let source = try makePDF("identity.pdf", pages: [.text("One"), .text("Two")])
+        let session = try PDFPageEditSession.open(source)
+        let original = try Data(contentsOf: source)
+        let modified = try source.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        let replacement = source.deletingLastPathComponent().appending(path: "replacement.pdf")
+        try original.write(to: replacement)
+        try FileManager.default.setAttributes(
+            [.modificationDate: try #require(modified)], ofItemAtPath: replacement.path)
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.moveItem(at: replacement, to: source)
+        let engine = try ImageFixtures.engine()
+        let settings = Settings()
+        let outcome = await engine.run(
+            OperationPlanner.batch(
+                for: request(source, order: [1, 0], stamp: session.sourceStamp), settings: settings),
+            settings: settings
+        ) { _ in }
+        #expect(outcome.outcomes == [.failed(.invalidInput(.malformed("The PDF changed. Reopen the page editor.")))])
+        #expect(try Data(contentsOf: source) == original)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: source.deletingLastPathComponent().appending(path: "identity_edited.pdf").path))
+    }
+
+    @Test(arguments: [[], [0, 0], [5]])
+    func refusesInvalidOrders(order: [Int]) async throws {
+        let source = try makePDF("invalid.pdf", pages: [.text("One"), .text("Two")])
+        let session = try PDFPageEditSession.open(source)
+        let original = try Data(contentsOf: source)
+        let outcome = try await runPDF(
+            .editPages(order: order, sourceStamp: session.sourceStamp), op: .pdfEditPages, on: [source])
+        let expected: EngineError =
+            order.isEmpty ? .invalidInput(.noPages) : .invalidInput(.malformed("Invalid PDF page order."))
+        #expect(outcome.outcomes == [.failed(expected)])
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func unchangedOrderDoesNotWrite() async throws {
+        let source = try makePDF("unchanged.pdf", pages: [.text("One"), .text("Two")])
+        let session = try PDFPageEditSession.open(source)
+        let original = try Data(contentsOf: source)
+        let outcome = try await runPDF(
+            .editPages(order: [0, 1], sourceStamp: session.sourceStamp), op: .pdfEditPages, on: [source])
+        #expect(outcome.outcomes == [.skipped(.alreadyDone)])
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func refusesProtectedPDFsAtEditorOpening() throws {
+        let source = try makePDF("protected.pdf", pages: [.text("One"), .text("Two")])
+        let document = try #require(PDFDocument(url: source))
+        #expect(document.write(to: source, withOptions: [.ownerPasswordOption: "owner"]))
+        #expect(throws: EngineError.invalidInput(.encrypted)) { try PDFPageEditSession.open(source) }
+        #expect(
+            document.write(to: source, withOptions: [.ownerPasswordOption: "owner", .userPasswordOption: "reader"]))
+        #expect(throws: EngineError.invalidInput(.encrypted)) { try PDFPageEditSession.open(source) }
+    }
+}

@@ -34,7 +34,7 @@ public struct FileStamp: Codable, Hashable, Sendable {
         }
     }
 
-    init(of url: URL, includingIdentity: Bool = false) throws {
+    public init(of url: URL, includingIdentity: Bool = false) throws {
         let metadata = try Self.metadata(of: url)
         let isDirectory = metadata.st_mode & S_IFMT == S_IFDIR
         size = isDirectory ? nil : metadata.st_size
@@ -112,6 +112,8 @@ public struct FileStamp: Codable, Hashable, Sendable {
 }
 
 public enum CommitRecord: Codable, Equatable, Sendable {
+    case organized(OrganizationMoveRecord)
+    case organizationFolder(OrganizationFolderRecord)
     case extractedInPlace(output: String)
     case replaced(original: String, trashed: String, output: String, stamp: FileStamp?, trashStamp: FileStamp? = nil)
     case derived(output: String, stamp: FileStamp?)
@@ -123,6 +125,7 @@ public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let operation: OperationID
     public let date: Date
+    public internal(set) var recipeExecution: RecipeExecution? = nil
     /// Only failed items after a partial undo.
     public internal(set) var items: [CommitRecord]
     public internal(set) var undone: Bool
@@ -134,6 +137,8 @@ public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
             switch record {
             case .replaced(_, _, let output, _, _), .derived(let output, _), .extractedInPlace(let output): output
             case .renamed(_, let to, _): to
+            case .organized(let move): move.to.path
+            case .organizationFolder: nil
             case .removed: nil
             }
         }
@@ -165,11 +170,13 @@ public actor HistoryStore {
     private var snapshot = HistorySnapshot()
     private var pending: [HistoryJournal.Entry] = []
     private var loadFailure: Error?
+    private var organizationIntent: OrganizationMoveIntent?
     private let committer = FileCommitter()
     private let logger = Logger(category: "history")
     private var lastSave = Date.distantPast
     private var persistenceState = PersistenceState.clean
     public var records: [BatchRecord] { snapshot.batches }
+    public var organizationSuppressions: [OrganizationSuppression] { snapshot.organizationSuppressions ?? [] }
     /// Where an unreadable history file was moved.
     public private(set) var setAsideFile: URL?
 
@@ -201,15 +208,29 @@ public actor HistoryStore {
             }
         }
         journal = persistence
+        if loadFailure == nil {
+            do {
+                if let intent = try journal.loadOrganizationIntent() {
+                    snapshot.organizationIntents = (snapshot.organizationIntents ?? []) + [intent]
+                }
+                try Self.recoverOrganizationIntents(snapshot: &snapshot, journal: &journal)
+            } catch {
+                loadFailure = error
+                logger.error("Organization recovery failed: \(error.localizedDescription, privacy: .private)")
+            }
+        }
     }
 
-    func record(_ newItems: [CommitRecord], batch id: UUID, operation: OperationID) throws {
+    func record(
+        _ newItems: [CommitRecord], batch id: UUID, operation: OperationID, recipeExecution: RecipeExecution? = nil
+    ) throws {
         try checkAcceptingWork()
         guard !newItems.isEmpty else { return }
         let previousSequence = snapshot.sequence ?? 0
         guard previousSequence < UInt64.max else { throw CocoaError(.fileWriteOutOfSpace) }
         let date = records.last(where: { $0.id == id })?.date ?? Date()
-        let batch = BatchRecord(id: id, operation: operation, date: date, items: newItems, undone: false)
+        let batch = BatchRecord(
+            id: id, operation: operation, date: date, recipeExecution: recipeExecution, items: newItems, undone: false)
         snapshot.append(batch)
         let sequence = previousSequence + 1
         snapshot.sequence = sequence
@@ -217,7 +238,7 @@ public actor HistoryStore {
         if persistenceState != .retryRequired { persistenceState = .appended }
         let needsDurableBackup = newItems.contains { record in
             switch record {
-            case .replaced, .removed: true
+            case .replaced, .removed, .organized, .organizationFolder: true
             case .derived, .renamed, .extractedInPlace: false
             }
         }
@@ -237,6 +258,58 @@ public actor HistoryStore {
             persistenceState = .retryRequired
             throw error
         }
+    }
+
+    func organize(_ plan: OrganizationMovePlan, batch: Batch) throws -> URL {
+        try checkAcceptingCommits()
+        let completed = try committer.organize(plan) { folder in
+            try record([.organizationFolder(folder)], batch: batch.id, operation: batch.operation)
+            try flush()
+        } beforeMove: { move in
+            let intent = OrganizationMoveIntent(
+                id: UUID(), batchID: batch.id, operation: batch.operation, date: Date(), move: move)
+            organizationIntent = intent
+            try journal.publishOrganizationIntent(intent)
+        }
+        try record([.organized(completed)], batch: batch.id, operation: batch.operation)
+        try journal.clearOrganizationIntent()
+        organizationIntent = nil
+        return completed.to
+    }
+
+    private static func recoverOrganizationIntents(snapshot: inout HistorySnapshot, journal: inout HistoryJournal)
+        throws
+    {
+        guard let intents = snapshot.organizationIntents, !intents.isEmpty else { return }
+        for intent in intents {
+            let move = intent.move
+            guard move.rootIdentity.matches(move.root, directory: true),
+                OrganizationSafety.contains(move.from, in: move.root),
+                OrganizationSafety.contains(move.to, in: move.root)
+            else { throw EngineError.commitFailed("Organization recovery needs its original root") }
+            let sourceMatches = move.stamp.matchesIdentity(move.from.path)
+            let destinationMatches = move.stamp.matchesIdentity(move.to.path)
+            guard !sourceMatches || !destinationMatches else {
+                throw EngineError.commitFailed("Organization recovery has matching files at both paths")
+            }
+            if destinationMatches {
+                try OrganizationSafety.validateDirectories(
+                    to: move.to.deletingLastPathComponent(), root: move.root, identity: move.rootIdentity)
+                let commit = CommitRecord.organized(move)
+                if !snapshot.batches.contains(where: { $0.id == intent.batchID && $0.items.contains(commit) }) {
+                    snapshot.append(
+                        BatchRecord(
+                            id: intent.batchID, operation: intent.operation, date: intent.date,
+                            items: [commit], undone: false))
+                }
+            } else if !sourceMatches {
+                throw EngineError.commitFailed("Organization recovery needs review; neither path matches")
+            }
+        }
+        snapshot.organizationIntents = []
+        try journal.publish(snapshot)
+        try journal.reset()
+        try journal.clearOrganizationIntent()
     }
 
     func flush() throws {
@@ -259,6 +332,13 @@ public actor HistoryStore {
 
     func checkAcceptingCommits() throws {
         try checkAcceptingWork()
+        if let organizationIntent {
+            snapshot.organizationIntents = [organizationIntent]
+            try Self.recoverOrganizationIntents(snapshot: &snapshot, journal: &journal)
+            self.organizationIntent = nil
+            pending.removeAll(keepingCapacity: true)
+            persistenceState = .clean
+        }
         if persistenceState == .retryRequired {
             do {
                 try save()
@@ -305,6 +385,14 @@ public actor HistoryStore {
         guard let index = records.firstIndex(where: { $0.id == id }), !records[index].undone else { return [] }
         let batch = records[index]
         guard batch.canUndo else { return [] }
+        let suppressions = batch.items.compactMap { record -> OrganizationSuppression? in
+            guard case .organized(let move) = record else { return nil }
+            return OrganizationSuppression(path: move.from.path, stamp: move.stamp)
+        }
+        if !suppressions.isEmpty {
+            snapshot.organizationSuppressions = (snapshot.organizationSuppressions ?? []) + suppressions
+            try save()
+        }
         var outcomes: [UndoOutcome] = []
         var failed: [CommitRecord] = []
         for entry in batch.items.reversed() {

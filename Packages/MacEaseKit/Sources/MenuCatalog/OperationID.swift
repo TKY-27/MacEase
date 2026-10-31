@@ -51,12 +51,14 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case folderAIRename = "folder.aiRename"
     case folderAnalyze = "folder.analyze"
     case folderCompress = "folder.compress"
+    case folderOrganize = "folder.organize"
 
     case archiveExtract = "archive.extract"
     case archiveHatchExtract = "archive.hatchExtract"
     case archiveBrowse = "archive.browse"
 
     case pdfMerge = "pdf.merge"
+    case pdfEditPages = "pdf.editPages"
     case pdfToImages = "pdf.toImages"
     case pdfToText = "pdf.toText"
     case pdfCompress = "pdf.compress"
@@ -76,6 +78,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case jarDecompile = "jar.decompile"
 
     case anyChecksum = "any.checksum"
+    case filesFinish = "files.finish"
 
     public var kind: FileKind {
         switch rawValue.prefix(while: { $0 != "." }) {
@@ -185,7 +188,7 @@ extension OperationID {
 
     public var maximumSelection: Int? {
         switch self {
-        case .imageEdit, .videoEdit, .videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64, .imageTraceSVG,
+        case .videoTrim, .audioTrim, .pdfExtractPages, .pdfEditPages, .imageCopyBase64, .imageTraceSVG,
             .archiveBrowse:
             1
         default: nil
@@ -201,11 +204,12 @@ extension OperationID {
         .videoCompress, .videoResize, .videoRotate, .videoFlip, .videoSpeed, .videoRemoveAudio,
         .videoFPS, .videoBackground, .videoThumbnail, .videoExtractAudio, .videoSubtitles, .videoAICustom,
         .audioTrim, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles, .audioAICustom,
-        .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit, .pdfAIRename,
+        .pdfEditPages, .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit,
+        .pdfAIRename,
         .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
-        .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
+        .folderOrganize, .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
         .folderRemoveEmpty, .folderAIRename, .archiveHatchExtract, .archiveExtract, .archiveBrowse,
-        .jarDecompile, .anyChecksum,
+        .jarDecompile, .filesFinish, .anyChecksum,
     ]
 
     public var requirement: OperationRequirement? {

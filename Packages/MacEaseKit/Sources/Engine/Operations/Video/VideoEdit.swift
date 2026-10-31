@@ -13,6 +13,7 @@ public struct VideoEdit: Codable, Hashable, Sendable {
     public var volume = 1.0
     public var sourceStamp: MediaSourceStamp?
     public var segments: [VideoSegment]?
+    public var sources: [VideoEditSource]?
 
     public var changesColor: Bool {
         segments.map { $0.contains { !$0.adjustments.isIdentity } } ?? !adjustments.isIdentity
@@ -32,7 +33,7 @@ public struct VideoEdit: Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case start, end, speed, resize, trimMode, geometry, adjustments, volume, sourceStamp, segments
+        case start, end, speed, resize, trimMode, geometry, adjustments, volume, sourceStamp, segments, sources
     }
 
     public init(from decoder: Decoder) throws {
@@ -47,6 +48,7 @@ public struct VideoEdit: Codable, Hashable, Sendable {
         volume = try values.decodeIfPresent(Double.self, forKey: .volume) ?? 1
         sourceStamp = try values.decodeIfPresent(MediaSourceStamp.self, forKey: .sourceStamp)
         segments = try values.decodeIfPresent([VideoSegment].self, forKey: .segments)
+        sources = try values.decodeIfPresent([VideoEditSource].self, forKey: .sources)
     }
 }
 

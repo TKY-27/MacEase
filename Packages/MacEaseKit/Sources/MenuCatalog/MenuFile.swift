@@ -21,12 +21,16 @@ public struct MenuEntry: Codable, Hashable, Sendable {
     public let rotationDegrees: Double?
     public let frameRate: Int?
     public let targetLoudness: Double?
+    public let recipeID: UUID?
+    public let recipeRevision: String?
+    public let acceptedKinds: Set<FileKind>?
 
     public init(
         op: OperationID, preset: String?, path: [String], separatorBefore: Bool = false,
         operationSeparatorBefore: Bool = false, targetBytes: Int64? = nil, resizeValue: Int? = nil,
         parameterVersion: String? = nil,
-        rotationDegrees: Double? = nil, frameRate: Int? = nil, targetLoudness: Double? = nil
+        rotationDegrees: Double? = nil, frameRate: Int? = nil, targetLoudness: Double? = nil,
+        recipeID: UUID? = nil, recipeRevision: String? = nil, acceptedKinds: Set<FileKind>? = nil
     ) {
         self.op = op
         self.preset = preset
@@ -43,6 +47,9 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         self.rotationDegrees = rotationDegrees
         self.frameRate = frameRate
         self.targetLoudness = targetLoudness
+        self.recipeID = recipeID
+        self.recipeRevision = recipeRevision
+        self.acceptedKinds = acceptedKinds ?? (op == .filesFinish ? [.image, .video, .pdf] : nil)
         switch op {
         case .imageTraceSVG: self.sourceFormats = ["png"]
         case .archiveBrowse: self.sourceFormats = ["zip"]
@@ -85,7 +92,7 @@ public struct KindTitle: Codable, Hashable, Sendable {
 }
 
 public struct MenuFile: Codable, Equatable, Sendable {
-    public static let currentSchema = 2
+    public static let currentSchema = 3
 
     public let schema: Int
     public let catalogVersion: String
@@ -117,6 +124,8 @@ public struct MenuFile: Codable, Equatable, Sendable {
                 entry.targetFormat ?? "", String(entry.requiresSingleSourceFormat),
                 entry.rotationDegrees.map { String($0) } ?? "",
                 entry.frameRate.map { String($0) } ?? "", entry.targetLoudness.map { String($0) } ?? "",
+                entry.recipeID?.uuidString ?? "", entry.recipeRevision ?? "",
+                entry.acceptedKinds.map { $0.map(\.rawValue).sorted().joined(separator: ",") } ?? "",
             ]
             return ([entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue] + constraints + entry.path)
                 .joined(separator: unitSeparator)

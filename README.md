@@ -75,7 +75,7 @@ window for input, review, or confirmation. Image and video menus start with
 
 | Operation | What it does |
 | --- | --- |
-| **Edit Photo…** | Crop, rotate, straighten, adjust color, apply styles or Auto Enhance; compare and undo edits |
+| **Edit Photo…** | Edit one or several photos; apply adjustments to selected photos or all, then refine each separately |
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
 | **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
 | **Resolution** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
@@ -104,6 +104,9 @@ enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
 Styles are independent presets, not Apple's Photographic Styles.
+For several photos, use the file list to switch sources. Apply adjustments to selected
+photos or all photos, then change each independently. Auto Enhance analyzes every
+photo separately. Each source retains its own preservation policy.
 Photo adjustments use an interactive preview followed by a refined render.
 The video player surface stays in place while frames are prepared. Histograms,
 keyframe-mode controls and slider tick rows are absent.
@@ -115,7 +118,7 @@ are saved in a writable format while retaining the RAW source.
 
 | Operation | What it does |
 | --- | --- |
-| **Edit Video…** | Split, delete, duplicate and reorder segments from one video; adjust segment speed, volume, color and styles, with global crop, rotation and resolution |
+| **Edit Video…** | Join several videos; split, delete, duplicate and reorder segments, with segment adjustments and global geometry |
 | **Convert** | MP4, MOV, M4V, MKV, WebM, AVI, or FLV; GIF, animated WebP, or APNG; **SDR** for supported HDR video |
 | **Compress** | Discord, X, Instagram Reels, LINE, and Email presets, fixed size targets, quality levels, or a **Custom Size…** |
 | **Resolution** | Scale by percentage or to a 2160p/1080p/720p/480p/360p short edge; **Custom Size…** fits a box |
@@ -128,13 +131,17 @@ are saved in a writable format while retaining the RAW source.
 | **Remove Audio** | Drop the audio tracks |
 | **Background** | Export with a transparent, colored, or blurred background |
 
-Edit one source video as an ordered sequence of segments. Split at the playhead
+Edit one or several source videos as an ordered sequence of segments. Use
+**Add Videos…** to append sources. Split at the playhead
 with **Command-B**, delete a selected segment with **Backspace** to close the gap,
 duplicate it, or drag to reorder. Visible controls and the timeline context menu
 provide these actions too. Each action or drag supports session Undo/Redo;
 editing shortcuts leave focused text fields available for typing. Speed, volume
 and color/style settings apply to the selected segment; crop, rotation and
-resolution apply to the whole output. Additional source videos, multiple tracks
+resolution apply to the whole output. Joined videos always save a new MP4
+(H.264, SDR, opaque). The first source sets the initial canvas and frame rate;
+other sizes fit with black borders. Silent sources contribute silence. Review
+the HDR, transparency and metadata disclosure before saving. Multiple tracks
 and transitions are outside this editor's scope.
 
 ### Audio
@@ -153,6 +160,7 @@ Subtitles use Apple's on-device Speech and Translation frameworks.
 
 | Operation | What it does |
 | --- | --- |
+| **Edit Pages…** | Reorder or delete pages in one PDF, with selection, preview and Undo/Redo |
 | **Merge** | Combine two or more PDFs in the order you choose |
 | **Export as Images** | PNG or JPEG pages in a folder or next to the PDF, or one multipage TIFF |
 | **Export as Text** | Save the text, using OCR for scanned PDFs |
@@ -160,6 +168,10 @@ Subtitles use Apple's on-device Speech and Translation frameworks.
 | **Rotate** | Turn every page |
 | **Extract Pages…** | Save the pages you pick as a new PDF |
 | **Split into Pages** | Save one PDF per page |
+
+PDF page editing follows the saved output mode. It verifies surviving annotations,
+form values, outlines and internal links before publishing. Destinations on deleted
+pages are removed; encrypted or permission-restricted documents may refuse editing.
 
 ### Documents and text
 
@@ -176,6 +188,7 @@ Subtitles use Apple's on-device Speech and Translation frameworks.
 
 | Operation | What it does |
 | --- | --- |
+| **Organize…** | Review content-based categories, move loose files, and optionally enable automatic organization |
 | **Compress** | Pack the folder into ZIP, 7z, TAR, or tar.gz |
 | **Rename…** | Rename the contents with a live preview |
 | **Folder Tree** | Copy the folder structure or save it as a file |
@@ -189,6 +202,37 @@ Trash automatically. Filters cover size, empty files, names, and modification
 times. Copies are compared byte by byte, and at least one copy is retained.
 Folder, filename, and extension exclusions apply to all folder scans or to
 individual features.
+
+### Automatic organization
+
+Start from Finder or **Settings > Organization**. Review the category folders,
+instructions and proposed changes before approving a policy. Existing folders
+stay in place; files move only within the selected root and volume. Meaningful
+filenames stay unchanged; camera, scan and other generated names may be renamed.
+Apple Intelligence runs locally. Unreadable, uncertain or unavailable classification
+stays in place with a reason. No content is sent to an external AI service.
+
+Automation is an explicit per-folder choice, separate from Folder Access. It waits
+two minutes by default and checks that writing has stopped. Pause each folder
+individually. **Recent Organization** shows old/new paths, old-name search, category
+correction and batch Undo. Saved corrections guide later classification. Undo
+preserves changed or conflicting files and removes only empty folders created by
+that batch. Restored files are not immediately organized again.
+
+### Finishing recipes
+
+Select images, videos or PDFs and choose **Finish With Recipe**. The bundled
+**Web Publishing** and **Submission** recipes can be edited, duplicated or deleted
+in **Settings > Finishing Recipes**. Set format, dimensions, quality, filename
+suffixes and multiple outputs for each supported kind. Video thumbnails and PDF
+page images or text can be included. Unsupported inputs are reported before a run.
+
+A run freezes its settings and generates every variant from its original. It
+publishes one named folder or ZIP only after every required output is verified.
+Originals stay in place, and one Undo removes the completed package. Select an
+output folder when inputs come from several folders. Optional total limits count
+all output file bytes for folders and the actual completed ZIP size. Retries are
+limited; an unattainable limit fails without publishing an incomplete package.
 
 ### Archives and other files
 

@@ -446,6 +446,44 @@ import VideoToolbox
         #expect(try Data(contentsOf: source) == original)
     }
 
+    @Test(arguments: [false, true])
+    func joinedMixedHDRAlwaysDerivesSDRRegardlessOfOrder(hdrFirst: Bool) async throws {
+        let hdr = try copiedFixture(.pq)
+        let fixture = try #require(
+            Bundle.module.url(
+                forResource: "ffmpeg-h264-aac.mp4", withExtension: nil,
+                subdirectory: "Resources"))
+        let sdr = hdr.deletingLastPathComponent().appending(path: "sdr.mp4")
+        try FileManager.default.copyItem(at: fixture, to: sdr)
+        let urls = hdrFirst ? [hdr, sdr] : [sdr, hdr]
+        let originals = try urls.map { try Data(contentsOf: $0) }
+        let first = try await MediaInput.open(urls[0])
+        var edit = VideoEdit()
+        var sources: [VideoEditSource] = []
+        for url in urls {
+            let input = try await MediaInput.open(url)
+            sources.append(
+                VideoEditSource(
+                    url: url, duration: Double(input.duration) / Double(Nanoseconds.perSecond),
+                    stamp: try MediaSourceStamp(url: url)))
+        }
+        edit.sources = sources
+        edit.segments = [VideoSegment(start: 0, end: 0.5), VideoSegment(start: 0, end: 0.5, sourceIndex: 1)]
+        let context = context(for: urls[0], outputMode: .replace)
+        defer { context.removeStaging() }
+        let result = try await VideoEdits.run(.edit(edit), url: urls[0], context: context)
+        guard case .groupedDerived(_, let stamps, let output) = result else {
+            Issue.record("joined HDR must preserve every original")
+            return
+        }
+        #expect(stamps.count == 2)
+        let written = try await MediaInput.open(output.url)
+        #expect(try await VideoProperties.hdrConfiguration(written) == nil)
+        #expect(written.displaySize == first.displaySize.evened())
+        #expect(context.warnings.contains(.videoToneMappedToSDR))
+        for (url, original) in zip(urls, originals) { #expect(try Data(contentsOf: url) == original) }
+    }
+
     private func copiedFixture(_ transfer: Transfer) throws -> URL {
         let fixture = try #require(
             Bundle.module.url(

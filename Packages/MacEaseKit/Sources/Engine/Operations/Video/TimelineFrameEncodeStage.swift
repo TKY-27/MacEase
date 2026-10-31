@@ -2,7 +2,7 @@ import Formats
 import Foundation
 
 final class TimelineFrameEncodeStage: StreamStage {
-    private let input: MediaInput
+    private let inputs: [MediaInput]
     private let encoding: VideoEncoding
     private let edit: FrameEdit
     private let timeline: VideoTimeline
@@ -14,10 +14,10 @@ final class TimelineFrameEncodeStage: StreamStage {
 
     init(
         input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, timeline: VideoTimeline,
-        toneMapToSDR: Bool
+        toneMapToSDR: Bool, inputs: [MediaInput]? = nil
     ) throws {
         encoder = try VideoEncoders.make(encoding, track: 1)
-        self.input = input
+        self.inputs = inputs ?? [input]
         self.encoding = encoding
         self.edit = edit
         self.timeline = timeline
@@ -47,12 +47,16 @@ final class TimelineFrameEncodeStage: StreamStage {
         let index = timeline.index(at: seconds)
         if segmentIndex != index {
             let segment = timeline.segments[index]
+            let input = inputs[segment.sourceIndex]
             var frameEdit = edit
+            frameEdit.displayOrientation = try input.displayOrientation
+            if inputs.count > 1 { frameEdit.fitCanvas = self.inputs[0].displaySize }
             frameEdit.adjustments = segment.adjustments.isIdentity ? nil : segment.adjustments
+            let sourceHDR = try await VideoProperties.hdrConfiguration(input)
             sampler = try await FrameSampler(
                 input: input, frameDuration: encoding.frameDuration, edit: frameEdit,
                 start: Nanoseconds.from(seconds: segment.start), end: Nanoseconds.from(seconds: segment.end),
-                hdr: encoding.hdr, toneMapToSDR: toneMapToSDR)
+                hdr: encoding.hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil)
             segmentIndex = index
         }
         let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)

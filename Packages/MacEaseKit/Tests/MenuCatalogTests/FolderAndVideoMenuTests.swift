@@ -33,13 +33,13 @@ import Testing
         #expect(updated.catalogVersion == original.catalogVersion)
     }
 
-    @Test func editIsSingleSelectionAndSpeedSupportsBatchesAndCustomInput() {
+    @Test func editingAndSpeedSupportMultipleVideos() {
         let one = [URL(filePath: "/clip.mov")]
         let several = one + [URL(filePath: "/second.mp4")]
         let edit = MenuEntry(op: .videoEdit, preset: nil, path: ["Edit Video"])
         let speed = MenuEntry(op: .videoSpeed, preset: MenuEntry.customPreset, path: ["Playback Speed", "Custom"])
         #expect(MenuLayout.isApplicable(edit, selection: one))
-        #expect(!MenuLayout.isApplicable(edit, selection: several))
+        #expect(MenuLayout.isApplicable(edit, selection: several))
         #expect(MenuLayout.isApplicable(speed, selection: several))
         #expect(OperationID.videoSpeed.presets == ["0.5", "0.75", "1.25", "1.5", "2", "4"])
         #expect(OperationID(rawValue: "video.trim") == .videoTrim)

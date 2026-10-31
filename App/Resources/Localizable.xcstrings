@@ -13967,6 +13967,1276 @@
           }
         }
       }
+    },
+    "This recipe does not support every selected file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレシピは選択したすべてのファイルに対応していません。"
+          }
+        }
+      }
+    },
+    "PDF: Pages (PNG)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF：ページ（PNG）"
+          }
+        }
+      }
+    },
+    "Save policy is applied separately to every photo.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存設定は写真ごとに適用されます。"
+          }
+        }
+      }
+    },
+    "Edit Recipe": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピを編集"
+          }
+        }
+      }
+    },
+    "Add Videos…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオを追加…"
+          }
+        }
+      }
+    },
+    "Stability delay": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定待ち時間"
+          }
+        }
+      }
+    },
+    "Category folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カテゴリ別フォルダ"
+          }
+        }
+      }
+    },
+    "Package": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パッケージ"
+          }
+        }
+      }
+    },
+    "Reason": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "理由"
+          }
+        }
+      }
+    },
+    "PDF compression has no guaranteed target size.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF圧縮では目標サイズを保証できません。"
+          }
+        }
+      }
+    },
+    "Current path": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のパス"
+          }
+        }
+      }
+    },
+    "Organization history could not be saved": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理の履歴を保存できませんでした"
+          }
+        }
+      }
+    },
+    "Maximum bytes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大バイト数"
+          }
+        }
+      }
+    },
+    "Proposed name": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更後の名前"
+          }
+        }
+      }
+    },
+    "The source changed while finishing: %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕上げ処理中に元ファイルが変更されました：%@"
+          }
+        }
+      }
+    },
+    "Automatic Organization": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理"
+          }
+        }
+      }
+    },
+    "Image: HEIC": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像：HEIC"
+          }
+        }
+      }
+    },
+    "Some files could not be restored; review Activity": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のファイルを復元できませんでした。「アクティビティ」を確認してください"
+          }
+        }
+      }
+    },
+    "Organization Could Not Finish": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理を完了できませんでした"
+          }
+        }
+      }
+    },
+    "Choose an output folder for files from different folders.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "異なるフォルダのファイルを処理するには、出力フォルダを選択してください。"
+          }
+        }
+      }
+    },
+    "New Recipe": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規レシピ"
+          }
+        }
+      }
+    },
+    "Search old or new path": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更前または変更後のパスを検索"
+          }
+        }
+      }
+    },
+    "Folder limits count every output file. ZIP limits count the completed archive. If the limit cannot be met, nothing is published.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダでは各出力ファイル、ZIPでは完成したアーカイブのサイズを制限します。上限を満たせない場合は何も出力しません。"
+          }
+        }
+      }
+    },
+    "Choose an output folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力フォルダを選択"
+          }
+        }
+      }
+    },
+    "Organization": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理"
+          }
+        }
+      }
+    },
+    "Preview only": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューのみ"
+          }
+        }
+      }
+    },
+    "Saved organization policies could not be read: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みの自動整理ルールを読み込めませんでした：%@"
+          }
+        }
+      }
+    },
+    "Category folders, one relative path per line": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カテゴリ別フォルダ（相対パスを1行に1つ入力）"
+          }
+        }
+      }
+    },
+    "Quality: %lld%%": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "品質：%lld%%"
+          }
+        }
+      }
+    },
+    "Batch": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一括"
+          }
+        }
+      }
+    },
+    "Category": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カテゴリ"
+          }
+        }
+      }
+    },
+    "Image: AVIF": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像：AVIF"
+          }
+        }
+      }
+    },
+    "Organization settings could not be saved: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理の設定を保存できませんでした：%@"
+          }
+        }
+      }
+    },
+    "Outputs": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力"
+          }
+        }
+      }
+    },
+    "Image: TIFF": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像：TIFF"
+          }
+        }
+      }
+    },
+    "Create final files together. Every recipe keeps the originals and publishes one folder or ZIP.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕上げ用ファイルをまとめて作成します。元ファイルを保持し、1つのフォルダまたはZIPに出力します。"
+          }
+        }
+      }
+    },
+    "Maximum package size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パッケージの最大サイズ"
+          }
+        }
+      }
+    },
+    "Joined videos use the first video's canvas and frame rate. Other sizes fit with black borders. HDR becomes SDR; transparency is flattened. Originals are kept. Metadata may be removed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結合後の映像は、最初のビデオの画面サイズとフレームレートを使います。異なるサイズは黒帯で調整します。HDRはSDRに変換し、透明部分は平坦化します。元ファイルは保持されます。メタデータが削除される場合があります。"
+          }
+        }
+      }
+    },
+    "Files are held for review in %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルは%@で確認待ちです"
+          }
+        }
+      }
+    },
+    "The PDF changed. Reopen the page editor.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFが変更されています。ページ編集を開き直してください。"
+          }
+        }
+      }
+    },
+    "%lld selected files. Originals are always kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のファイルを選択中。元のファイルは常に保持されます。"
+          }
+        }
+      }
+    },
+    "Only loose files in this folder are organized. Existing folders stay in place.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダ直下のファイルだけを整理します。既存のフォルダはそのまま残ります。"
+          }
+        }
+      }
+    },
+    "Invalid PDF page order.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDFのページ順序が正しくありません。"
+          }
+        }
+      }
+    },
+    "Each selected file must match an output rule. Multiple matching rules create multiple variants directly from the original.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した各ファイルに出力ルールが一致する必要があります。複数のルールが一致すると、元ファイルから複数の形式を作成します。"
+          }
+        }
+      }
+    },
+    "Hold in Place": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その場に保持"
+          }
+        }
+      }
+    },
+    "Limit total package size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パッケージ全体のサイズ上限"
+          }
+        }
+      }
+    },
+    "Image: JPEG": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像：JPEG"
+          }
+        }
+      }
+    },
+    "Open Organization…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理を開く…"
+          }
+        }
+      }
+    },
+    "Video: MP4 (H.264)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ：MP4（H.264）"
+          }
+        }
+      }
+    },
+    "menu.op.pdf.editPages": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページを編集…"
+          }
+        }
+      }
+    },
+    "%lld. %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld. %@"
+          }
+        }
+      }
+    },
+    "Review a policy and a move preview before enabling automatic organization.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールと移動プレビューを確認してから、自動整理を有効にします。"
+          }
+        }
+      }
+    },
+    "%lld × %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld × %lld"
+          }
+        }
+      }
+    },
+    "Reading %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り中：%lld / %lld"
+          }
+        }
+      }
+    },
+    "PDF: Document": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF：文書"
+          }
+        }
+      }
+    },
+    "ZIP": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP"
+          }
+        }
+      }
+    },
+    "Apply to All Photos": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての写真に適用"
+          }
+        }
+      }
+    },
+    "Apply to Selected": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択項目に適用"
+          }
+        }
+      }
+    },
+    "Rename opaque camera, scan and random filenames": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "判別しにくいカメラ名・スキャン名・ランダムなファイル名を変更"
+          }
+        }
+      }
+    },
+    "The recipe has no supported output for %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピに%@用の対応出力がありません。"
+          }
+        }
+      }
+    },
+    "Choose Output Folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力フォルダを選択"
+          }
+        }
+      }
+    },
+    "%lld ready; %lld held for review": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件準備完了、%lld 件は確認待ち"
+          }
+        }
+      }
+    },
+    "Source Videos": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のビデオ"
+          }
+        }
+      }
+    },
+    "Organize Files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを整理"
+          }
+        }
+      }
+    },
+    "menu.op.files.finish": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピで仕上げる…"
+          }
+        }
+      }
+    },
+    "Original path": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のパス"
+          }
+        }
+      }
+    },
+    "Video: WebM (VP9)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ：WebM（VP9）"
+          }
+        }
+      }
+    },
+    "Organize & Enable Automation": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理して自動化を有効にする"
+          }
+        }
+      }
+    },
+    "Duplicate": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製"
+          }
+        }
+      }
+    },
+    "Automatic organization is held: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動整理は保留中です：%@"
+          }
+        }
+      }
+    },
+    "Choose a Folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを選択"
+          }
+        }
+      }
+    },
+    "Add Output": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力を追加"
+          }
+        }
+      }
+    },
+    "Organize Once": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度だけ整理"
+          }
+        }
+      }
+    },
+    "Recipe": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピ"
+          }
+        }
+      }
+    },
+    "The folder cannot be watched: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダを監視できません：%@"
+          }
+        }
+      }
+    },
+    "This recipe library uses an unsupported version: %lld.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレシピライブラリのバージョンはサポートされていません：%lld"
+          }
+        }
+      }
+    },
+    "Compress PDF images": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF画像を圧縮"
+          }
+        }
+      }
+    },
+    "PDF: Pages (JPEG)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF：ページ（JPEG）"
+          }
+        }
+      }
+    },
+    "Pause Automation": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化を一時停止"
+          }
+        }
+      }
+    },
+    "A watched folder is unavailable: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視対象のフォルダを利用できません：%@"
+          }
+        }
+      }
+    },
+    "Video: Thumbnail (PNG)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ：サムネイル（PNG）"
+          }
+        }
+      }
+    },
+    "Remove Output": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力を削除"
+          }
+        }
+      }
+    },
+    "Resume Automation": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動化を再開"
+          }
+        }
+      }
+    },
+    "Recent Organization": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近の自動整理"
+          }
+        }
+      }
+    },
+    "This recipe changed. Reopen Finish Files from Finder to use the latest revision.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピが変更されました。最新の内容を使うには、Finderから「ファイルを仕上げる」を開き直してください。"
+          }
+        }
+      }
+    },
+    "Classification instructions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分類の指示"
+          }
+        }
+      }
+    },
+    "Undo Batch": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一括操作を取り消す"
+          }
+        }
+      }
+    },
+    "Resolution (DPI)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解像度（DPI）"
+          }
+        }
+      }
+    },
+    "Resize within a maximum edge": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大辺に合わせてサイズ変更"
+          }
+        }
+      }
+    },
+    "Stopped": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止しました"
+          }
+        }
+      }
+    },
+    "Finishing recipes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕上げレシピ"
+          }
+        }
+      }
+    },
+    "The recipe produced no required outputs.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピから必要な出力が作成されませんでした。"
+          }
+        }
+      }
+    },
+    "Collisions receive a numbered suffix. Every move can be undone.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前が重複する場合は番号を付けます。移動はすべて取り消せます。"
+          }
+        }
+      }
+    },
+    "%lld ready · %lld held": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件準備完了・%lld 件確認待ち"
+          }
+        }
+      }
+    },
+    "The recipe contains invalid output settings.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピの出力設定が無効です。"
+          }
+        }
+      }
+    },
+    "Remove Folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを削除"
+          }
+        }
+      }
+    },
+    "Output folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力フォルダ"
+          }
+        }
+      }
+    },
+    "Paused": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中"
+          }
+        }
+      }
+    },
+    "Folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ"
+          }
+        }
+      }
+    },
+    "The output destination must be a writable folder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力先には書き込み可能なフォルダを指定してください。"
+          }
+        }
+      }
+    },
+    "menu.op.folder.organize": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理…"
+          }
+        }
+      }
+    },
+    "Finish Files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを仕上げる"
+          }
+        }
+      }
+    },
+    "Video: MOV (HEVC)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ：MOV（HEVC）"
+          }
+        }
+      }
+    },
+    "PDF: Text (UTF-8)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF：テキスト（UTF-8）"
+          }
+        }
+      }
+    },
+    "Finishing Recipes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仕上げレシピ"
+          }
+        }
+      }
+    },
+    "Image: WebP": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像：WebP"
+          }
+        }
+      }
+    },
+    "Filename suffix": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名の末尾"
+          }
+        }
+      }
+    },
+    "Image: PNG": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像：PNG"
+          }
+        }
+      }
+    },
+    "Current file": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のファイル"
+          }
+        }
+      }
+    },
+    "Seconds": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒"
+          }
+        }
+      }
+    },
+    "Automation is enabled separately for each folder after reviewing its policy and move preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各フォルダのルールと移動プレビューを確認してから、自動化を有効にします。"
+          }
+        }
+      }
+    },
+    "Limit each output size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各出力のサイズ上限"
+          }
+        }
+      }
+    },
+    "Maximum edge (pixels)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大辺（ピクセル）"
+          }
+        }
+      }
+    },
+    "Preview Organization": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理をプレビュー"
+          }
+        }
+      }
+    },
+    "Automatic organization is paused while Apple Intelligence is disabled": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligenceが無効のため、自動整理を一時停止しています"
+          }
+        }
+      }
+    },
+    "Wait for this folder's current organization to finish": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダの現在の整理が終わるまでお待ちください"
+          }
+        }
+      }
+    },
+    "Review the suggested categories, then preview the file moves": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提案されたカテゴリを確認し、ファイルの移動をプレビューしてください"
+          }
+        }
+      }
+    },
+    "Category suggestions are unavailable; edit the policy before previewing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カテゴリを提案できません。プレビューする前にルールを編集してください"
+          }
+        }
+      }
+    },
+    "Allow new subcategories within these category folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのカテゴリフォルダ内に新しいサブカテゴリを作成できるようにする"
+          }
+        }
+      }
+    },
+    "Suggest Categories": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カテゴリを提案"
+          }
+        }
+      }
+    },
+    "Saved category correction": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カテゴリの修正を保存しました"
+          }
+        }
+      }
+    },
+    "Apple Intelligence is unavailable; choose a category": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Intelligenceを利用できません。カテゴリを選択してください"
+          }
+        }
+      }
+    },
+    "Content is unknown; choose a category": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容を判別できません。カテゴリを選択してください"
+          }
+        }
+      }
+    },
+    "Content could not be read: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツを読み取れませんでした：%@"
+          }
+        }
+      }
+    },
+    "Classification is unavailable: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分類できません：%@"
+          }
+        }
+      }
+    },
+    "Web Publishing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web掲載用"
+          }
+        }
+      }
+    },
+    "Submission": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提出用"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -728,3 +728,25 @@ missing. Missing input does not imply completed extraction. MacEase permits
 orphan completion only after its durable finishing state; moving a partially
 consumed archive then restoring it preserves recovery and all expected outputs.
 See `v1.4.0-validation.md` for acceptance evidence and remaining limits.
+
+
+## v2 editing, organization and current SDK (2026-11-01)
+
+On Apple M5/macOS 27.2/Xcode 27.2, synthetic Apple HDR gain-map fixtures need
+calibration metadata for ImageIO to recognize their headroom. Tests now verify
+native headroom greater than one before conversion assertions. Comparing XMP
+by namespace and value avoids failures from unordered RDF-property serialization;
+ordered arrays and actual HDR headroom mutations remain significant. This
+fixture repair required no production HDR-decoder fallback.
+
+The default 120-second production watcher delay moved an isolated new file
+124.766 seconds after creation following app restart. Three files restored by
+batch Undo remained suppressed. A separate overlapping-model probe took about
+296 seconds, so the stability delay is not a completion-time guarantee.
+
+Paired optimized measurements against `541804b` retain equivalent source-preview
+pixels and similar RSS. Warm photo updates, video frame retrieval and native
+export measurements do not establish a general speedup. API timings are not
+whole-app memory or native-player UI seek measurements. The standalone idle
+watcher CPU sample is below useful measurement resolution. See
+`v2.0.0-validation.md` for samples, output verification and limits.

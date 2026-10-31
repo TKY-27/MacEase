@@ -42,6 +42,47 @@ import Testing
         #expect(flattenedPixels.rgba[(flattenedPixels.width + 1) * 4 + 3] == 255)
     }
 
+    @Test func joinedTransparencyFlattensWithAnExplicitWarning() async throws {
+        let directory = try folder()
+        let transparent = try await transparentClip(in: directory, container: .mov)
+        let fixture = try #require(
+            Bundle.module.url(
+                forResource: "ffmpeg-h264-aac.mp4", withExtension: nil,
+                subdirectory: "Resources"))
+        let opaque = directory.appending(path: "opaque.mp4")
+        try FileManager.default.copyItem(at: fixture, to: opaque)
+        let originals = try [opaque, transparent].map { try Data(contentsOf: $0) }
+        var edit = VideoEdit()
+        var sources: [VideoEditSource] = []
+        for url in [opaque, transparent] {
+            let input = try await MediaInput.open(url)
+            sources.append(
+                VideoEditSource(
+                    url: url, duration: Double(input.duration) / Double(Nanoseconds.perSecond),
+                    stamp: try MediaSourceStamp(url: url)))
+        }
+        edit.sources = sources
+        edit.segments = [VideoSegment(start: 0, end: 0.5), VideoSegment(start: 0, end: 0.5, sourceIndex: 1)]
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: directory), progress: { _ in })
+        defer { context.removeStaging() }
+        let result = try await VideoEdits.run(.edit(edit), url: opaque, context: context)
+        guard case .groupedDerived(_, let stamps, let output) = result else {
+            Issue.record("joined alpha must preserve every original")
+            return
+        }
+        #expect(stamps.count == 2)
+        let input = try await MediaInput.open(output.url)
+        #expect(input.video?.hasAlpha == false)
+        #expect(context.warnings.contains(.videoTransparencyFlattened))
+        let preview = AVAssetImageGenerator(asset: AVURLAsset(url: output.url))
+        let (image, _) = try await preview.image(at: CMTime(seconds: 0.75, preferredTimescale: 600))
+        #expect(try ImageFixtures.pixel(image, x: 0, y: 0)[3] == 255)
+        for (url, original) in zip([opaque, transparent], originals) { #expect(try Data(contentsOf: url) == original) }
+    }
+
     private func folder() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "VideoAlpha-\(UUID().uuidString)")
         TestTemporaryFolders.register(directory)

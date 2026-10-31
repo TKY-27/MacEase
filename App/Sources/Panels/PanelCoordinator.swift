@@ -12,15 +12,23 @@ final class PanelCoordinator {
     private let featureHost = FeatureWindowHost()
     private let jobs: JobCenter
     private let store: SettingsStore
+    private let organization: OrganizationController
+    private let recipes: RecipeStore
     private let logger = Logger(category: "panels")
 
-    init(jobs: JobCenter, store: SettingsStore) {
+    init(jobs: JobCenter, store: SettingsStore, organization: OrganizationController, recipes: RecipeStore) {
         self.jobs = jobs
         self.store = store
+        self.organization = organization
+        self.recipes = recipes
     }
 
     func present(_ entry: MenuEntry, inputs: [URL]) {
         let op = entry.op
+        if op == .filesFinish {
+            showRecipe(entry, inputs)
+            return
+        }
         let inputs = inputs.filter { url in
             let kind = FileKind(fileURL: url)
             return op.kind == .any ? kind != .folder : kind == op.kind
@@ -37,18 +45,20 @@ final class PanelCoordinator {
             return
         }
         switch op {
-        case .imageEdit: showMediaEditor(inputs[0], isVideo: false)
+        case .imageEdit: showMediaEditor(inputs, isVideo: false)
         case .imageTraceSVG: showSVGTrace(inputs[0])
         case .archiveBrowse: showArchiveBrowser(inputs[0])
         case .imageResize, .videoResize: showSize(op, inputs)
         case .imageCompress, .videoCompress, .audioCompress: showTargetSize(op, inputs)
-        case .videoEdit: showMediaEditor(inputs[0], isVideo: true)
+        case .videoEdit: showMediaEditor(inputs, isVideo: true)
         case .videoSpeed: showSpeed(inputs)
         case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
         case .videoThumbnail where entry.preset == "choose-frame": showFramePicker(op, file: inputs[0])
         case .imageToPDF, .pdfMerge: showPageOrder(op, inputs)
         case .pdfExtractPages: showPageSelect(op, file: inputs[0])
+        case .pdfEditPages: showPDFEditor(inputs[0])
         case .folderRename: showRename(op, inputs)
+        case .folderOrganize: organization.open(roots: inputs)
         case .imageAIRename, .pdfAIRename, .folderAIRename: showAIRename(op, inputs)
         case .folderRemoveDuplicates: showDuplicates(op, inputs)
         case .folderRemoveEmpty: showEmptyFolders(op, inputs)
@@ -59,17 +69,50 @@ final class PanelCoordinator {
         }
     }
 
-    private func showMediaEditor(_ url: URL, isVideo: Bool) {
-        let model = MediaEditorModel(url: url, isVideo: isVideo, settings: store.planning, staging: jobs.engine.staging)
+    private func showMediaEditor(_ inputs: [URL], isVideo: Bool) {
+        let ordered = inputs.sorted {
+            let comparison = $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
+            return comparison == .orderedSame ? $0.path < $1.path : comparison == .orderedAscending
+        }
+        let model = MediaEditorModel(
+            urls: ordered, isVideo: isVideo, settings: store.planning, staging: jobs.engine.staging)
         featureHost.show(
-            title: url.lastPathComponent, minimumSize: NSSize(width: 960, height: 540),
+            title: MenuStrings.operationName(isVideo ? .videoEdit : .imageEdit),
+            minimumSize: NSSize(width: 960, height: 540),
             initialSize: NSSize(width: 1280, height: 720), onClose: { await model.close() }
         ) { close in
-            MediaEditorView(model: model, close: close) { options, settings in
-                self.jobs.run(
-                    OperationRequest(op: isVideo ? .videoEdit : .imageEdit, options: options, inputs: [url]),
-                    settings: settings)
+            MediaEditorView(model: model, close: close) { batch, settings in
+                self.jobs.run(batch: batch, settings: settings)
             }
+        }
+    }
+
+    private func showPDFEditor(_ source: URL) {
+        Task {
+            do {
+                let session = try await offMain { try PDFPageEditSession.open(source) }
+                featureHost.show(title: source.lastPathComponent, onClose: {}) { close in
+                    PDFPageEditor(source: source, session: session, cancel: close) { order, stamp in
+                        self.launch(.pdfEditPages, .pdf(.editPages(order: order, sourceStamp: stamp)), [source])
+                        close()
+                    }
+                }
+            } catch {
+                showFailure(.pdfEditPages, error, file: source)
+            }
+        }
+    }
+
+    private func showRecipe(_ entry: MenuEntry, _ inputs: [URL]) {
+        let snapshot = store.planning
+        featureHost.show(title: MenuStrings.operationName(.filesFinish), onClose: {}) { close in
+            RecipeRunView(
+                inputs: inputs, settings: snapshot, recipeStore: recipes,
+                preselectedRecipeID: entry.recipeID, expectedRevision: entry.recipeRevision,
+                onRun: { batch in
+                    self.jobs.run(batch: batch, settings: snapshot)
+                    close()
+                }, onCancel: close)
         }
     }
 
@@ -275,7 +318,7 @@ final class PanelCoordinator {
                     let references = pages.compactMap { page in
                         page.pageIndex.map { PDFPageReference(file: page.file, pageIndex: $0) }
                     }
-                    self.launch(op, .pdf(.merge(pages: references)), files)
+                    self.launch(op, .pdf(.merge(pages: references)), sorted)
                 }
             }
         }

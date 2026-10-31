@@ -47,6 +47,7 @@ enum NewFileNaming: Sendable {
             }
         case .pdf(let operation):
             switch operation {
+            case .editPages: self = .edit("edited")
             case .compress: self = .edit("compressed")
             case .rotate: self = .edit("rotated")
             case .merge, .toImages, .toTIFF, .toText, .extractPages, .split: return nil

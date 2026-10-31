@@ -8,7 +8,8 @@ struct MenuFileWriter {
     let configuration: HostConfiguration
 
     func write(
-        visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings, monitoredPaths: [String] = []
+        visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings, monitoredPaths: [String] = [],
+        recipes: [Recipe] = []
     ) throws -> MenuFile {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -43,6 +44,26 @@ struct MenuFileWriter {
             frameRates: MenuStrings.frameRates(settings), loudnessTargets: MenuStrings.loudnessTargets(settings),
             sizeTargets: sizeTargets, resizeTargets: resizeTargets, parameterVersion: parameterVersion
         )
+        if file.entries.contains(where: { $0.op == .filesFinish }), !recipes.isEmpty {
+            let title = MenuStrings.operationName(.filesFinish)
+            var entries: [MenuEntry] = []
+            for entry in file.entries {
+                guard entry.op == .filesFinish else {
+                    entries.append(entry)
+                    continue
+                }
+                entries.append(
+                    MenuEntry(op: .filesFinish, preset: nil, path: [title, String(localized: "Choose Recipe…")]))
+                entries += recipes.map {
+                    MenuEntry(
+                        op: .filesFinish, preset: nil, path: [title, $0.name],
+                        recipeID: $0.id, recipeRevision: String($0.revision), acceptedKinds: $0.supportedKinds)
+                }
+            }
+            file = MenuFile(
+                token: file.token, hostAvailable: file.hostAvailable, entries: entries,
+                kinds: Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, file.kindTitle($0)) }))
+        }
         file.monitoredDirectoryPaths = monitoredPaths
         try FileManager.default.createDirectory(at: configuration.supportDirectory, withIntermediateDirectories: true)
         try PrivateFile.write(file.encoded(), to: configuration.menuFile)

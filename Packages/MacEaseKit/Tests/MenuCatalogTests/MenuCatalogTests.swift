@@ -74,7 +74,12 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     @Test func singleKindListsOperationsThenAllFiles() throws {
         let file = menuFile()
         let nodes = MenuLayout.nodes(for: file, selection: [url("a.png"), url("b.jpg")])
-        guard case .submenu(let title, let children) = try #require(nodes.first) else {
+        guard case .action(_, let editIndex) = try #require(nodes.first) else {
+            Issue.record("expected photo editing first")
+            return
+        }
+        #expect(file.entries[editIndex].op == .imageEdit)
+        guard case .submenu(let title, let children) = try #require(nodes.dropFirst().first) else {
             Issue.record("expected submenu")
             return
         }
@@ -216,7 +221,9 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     @Test func schemaOneIsRejectedBeforeEntriesDecode() throws {
         let legacy = Data(#"{"schema":1,"entries":[]}"#.utf8)
         #expect(throws: MenuFileError.unsupportedSchema(1)) { try MenuFile(json: legacy) }
-        #expect(MenuFile.currentSchema == 2)
+        #expect(MenuFile.currentSchema == 3)
+        let previous = Data(#"{"schema":2,"entries":[]}"#.utf8)
+        #expect(throws: MenuFileError.unsupportedSchema(2)) { try MenuFile(json: previous) }
     }
 
     @Test func separatorsAndConstraintsAreSerializedAndHashed() throws {
@@ -324,7 +331,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test(arguments: [
-        (OperationID.videoEdit, "mov"), (.audioTrim, "wav"), (.pdfExtractPages, "pdf"), (.imageCopyBase64, "png"),
+        (OperationID.pdfEditPages, "pdf"), (.audioTrim, "wav"), (.pdfExtractPages, "pdf"), (.imageCopyBase64, "png"),
     ])
     func singleOnlyOperationsUsePerKindCounts(op: OperationID, suffix: String) {
         let file = menuFile([op])

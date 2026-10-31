@@ -219,7 +219,8 @@ public final class JobEngine: Sendable {
         guard !records.isEmpty else { return }
         defer { records.removeAll(keepingCapacity: true) }
         do {
-            try await history.record(records, batch: batch.id, operation: batch.operation)
+            try await history.record(
+                records, batch: batch.id, operation: batch.operation, recipeExecution: batch.recipeExecution)
         } catch {
             tracker.markHistoryFailed()
             logger.error(
@@ -254,6 +255,15 @@ public final class JobEngine: Sendable {
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
         var outputs: [URL] = []
         switch result {
+        case .organize(let plan):
+            let output = try await history.organize(plan, batch: batch)
+            outputs.append(output)
+        case .groupedDerived(let destination, let sources, let output):
+            try await history.checkAcceptingCommits()
+            let committed = try await committer.deriveGroup(
+                output, destination: destination, sources: sources, attributeSource: inputs.first)
+            records.append(.derived(output: committed.output.path, stamp: committed.stamp))
+            outputs.append(committed.output)
         case .hatchExtraction:
             throw EngineError.unexpected("Durable extraction requires durable work")
         case .replace(let original, let output):
