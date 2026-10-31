@@ -15237,6 +15237,16 @@
           }
         }
       }
+    },
+    "Choose Recipe…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピを選択…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
