@@ -51,30 +51,102 @@ private func expectTargetHit(for format: ImageFormat, minimumShare: Double = acc
         try await expectTargetHit(for: .heic, minimumShare: 0)
     }
 
-    @Test func pngQuantizesUnderTheTarget() async throws {
+    @Test(arguments: [false, true])
+    func pngQuantizesUnderTheTarget(translucent: Bool) async throws {
         let folder = try TestVolume.makeFolder()
-        let input = try Fixture.write(
-            [try Fixture.photo(width: 400, height: 300)], as: .png, to: folder.appending(path: "shot.png"))
-        let target = try Fixture.fileSize(input) / 2
-        let outcome = try await Fixture.run(.imageCompress, compression(.bytes(target)), inputs: [input])
+        let original = try PixelBuffer(cgImage: Fixture.photo(width: 400, height: 300))
+        var rgba = original.rgba
+        if translucent {
+            for y in 0..<original.height {
+                for x in 0..<original.width { rgba[(y * original.width + x) * 4 + 3] = UInt8(x * 255 / 399) }
+            }
+        }
+        let profile = try #require(CGColorSpace(name: translucent ? CGColorSpace.displayP3 : CGColorSpace.sRGB))
+        let image = try PixelBuffer(width: 400, height: 300, rgba: rgba, colorSpace: profile).makeCGImage()
+        let input = try Fixture.write([image], as: .png, to: folder.appending(path: "shot.png"))
+        let saved = try Data(contentsOf: input)
+        let target = Int64(saved.count / 2)
+        let outcome = try await Fixture.run(
+            .imageCompress, compression(.bytes(target)), inputs: [input], outputMode: .newFile)
         let output = try Fixture.output(of: outcome)
+        let decoded = try Fixture.image(output)
         #expect(try Fixture.fileSize(output) <= target)
-        #expect(try Fixture.properties(output)[kCGImagePropertyColorModel] as? String == "RGB")
-        #expect(try Fixture.image(output).width == 400)
+        #expect(try Data(contentsOf: input) == saved)
+        #expect(decoded.width > 0 && decoded.width <= 400)
+        #expect(decoded.height > 0 && decoded.height <= 300)
+        let decodedProfile = decoded.colorSpace?.baseColorSpace ?? decoded.colorSpace
+        #expect((decodedProfile?.copyICCData() as Data?) == (image.colorSpace?.copyICCData() as Data?))
         let details = try #require(outcome.details.first?.image)
-        #expect(details.originalWidth == 400 && details.outputWidth == 400)
-        #expect(!details.reducedDimensions)
-        #expect(details.quantized)
+        #expect(details.originalWidth == 400 && details.outputWidth == decoded.width)
+        #expect(details.originalHeight == 300 && details.outputHeight == decoded.height)
+        #expect(details.reducedDimensions == (decoded.width < 400 || decoded.height < 300))
+        let outputBytes = try Data(contentsOf: output)
+        let colorTypeOffset = 25
+        let paletteOutput = outputBytes[colorTypeOffset] == 3
+        #expect(details.quantized == paletteOutput)
+        if translucent { #expect(!paletteOutput) }
+        #expect(details.paletteColors == (paletteOutput ? 256 : nil))
         guard case .succeeded(_, let warnings) = try #require(outcome.outcomes.first) else {
             Issue.record("Expected PNG success")
             return
         }
-        #expect(
-            warnings.contains { warning in
-                if case .imagePaletteReduced = warning { return true }
-                return false
-            })
-        #expect(!warnings.contains(.imageDimensionsReduced))
+        #expect(warnings.contains(.imagePaletteReduced(colors: 256)) == paletteOutput)
+        #expect(warnings.contains(.imageDimensionsReduced) == details.reducedDimensions)
+        let referenceContext = try #require(
+            CGContext(
+                data: nil, width: decoded.width, height: decoded.height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: profile, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        referenceContext.interpolationQuality = .high
+        referenceContext.draw(image, in: CGRect(x: 0, y: 0, width: decoded.width, height: decoded.height))
+        let reference = try PixelBuffer(cgImage: #require(referenceContext.makeImage()))
+        let actual = try PixelBuffer(cgImage: decoded)
+        var colorError = 0.0
+        var alphaError = 0.0
+        for pixel in 0..<actual.pixelCount {
+            let base = pixel * 4
+            let sourceAlpha = Double(reference.rgba[base + 3]) / 255
+            let outputAlpha = Double(actual.rgba[base + 3]) / 255
+            alphaError += abs(sourceAlpha - outputAlpha)
+            for channel in 0..<3 {
+                let source = Double(reference.rgba[base + channel]) / 255 * sourceAlpha + 1 - sourceAlpha
+                let coded = Double(actual.rgba[base + channel]) / 255 * outputAlpha + 1 - outputAlpha
+                colorError += abs(source - coded)
+            }
+        }
+        #expect(colorError / Double(actual.pixelCount * 3) <= 0.05)
+        #expect(alphaError / Double(actual.pixelCount) <= 0.02)
+    }
+
+    @Test func unsuitablePaletteFallsBackToExactRGBAWithItsProfile() throws {
+        let width = 600
+        let height = 400
+        var rgba = [UInt8](repeating: 255, count: width * height * 4)
+        var seed: UInt64 = 42
+        for y in 0..<height {
+            for x in 0..<width {
+                seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+                let base = (y * width + x) * 4
+                let noise = Int(seed >> 60)
+                rgba[base] = UInt8(clamping: x * 220 / width + noise)
+                rgba[base + 1] = UInt8(clamping: y * 220 / height + noise)
+                rgba[base + 2] = UInt8(clamping: (x + y) * 200 / (width + height) + noise * 2)
+                rgba[base + 3] = UInt8(x * 255 / width)
+            }
+        }
+        let profile = try #require(CGColorSpace(name: CGColorSpace.displayP3))
+        let original = PixelBuffer(width: width, height: height, rgba: rgba, colorSpace: profile)
+        let image = try original.makeCGImage()
+        var options = EncodeOptions(quality: ImageEncoder.maximumQuality)
+        options.dithering = .none
+        let candidate = try ImageEncoder.balancedPNG(
+            [ImageFrame(image: image, duration: 0)], colors: 256, options: options, retaining: [])
+        #expect(!candidate.usesPalette && !candidate.reducedColors)
+        #expect(candidate.encoded[25] == 6)
+        let source = try #require(CGImageSourceCreateWithData(candidate.encoded as CFData, nil))
+        let decoded = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(decoded.width == width && decoded.height == height)
+        #expect(try PixelBuffer(cgImage: decoded).rgba == original.rgba)
+        #expect((decoded.colorSpace?.copyICCData() as Data?) == (profile.copyICCData() as Data?))
     }
 
     @Test func pngTargetFailuresKeepPixelsAndNeverLowerResolutionWithoutPermission() async throws {
@@ -126,6 +198,9 @@ private func expectTargetHit(for format: ImageFormat, minimumShare: Double = acc
         #expect(decoded.width == width && decoded.height == height)
         #expect(try PixelBuffer(cgImage: decoded).rgba == PixelBuffer(cgImage: expected).rgba)
         #expect((decoded.colorSpace?.copyICCData() as Data?) == (expected.colorSpace?.copyICCData() as Data?))
+        let sourceProfile = image.colorSpace?.baseColorSpace ?? image.colorSpace
+        let decodedProfile = decoded.colorSpace?.baseColorSpace ?? decoded.colorSpace
+        #expect((decodedProfile?.copyICCData() as Data?) == (sourceProfile?.copyICCData() as Data?))
         let properties = try #require(CGImageSourceCopyPropertiesAtIndex(decoder, 0, nil) as? [CFString: Any])
         let exif = try #require(properties[kCGImagePropertyExifDictionary] as? [CFString: Any])
         #expect(exif[kCGImagePropertyExifUserComment] as? String == "Concurrent palette metadata")

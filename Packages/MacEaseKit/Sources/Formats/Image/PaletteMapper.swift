@@ -76,28 +76,42 @@ struct PaletteMapper {
     mutating func map(_ pixels: [UInt8], width: Int, height: Int, dithering: Dithering, cancelled: (() -> Bool)? = nil)
         -> [UInt8]
     {
+        var indices = [UInt8](repeating: 0, count: pixels.count / 4)
+        let completed = indices.withUnsafeMutableBytes { destination in
+            map(pixels, width: width, height: height, dithering: dithering, into: destination, cancelled: cancelled)
+        }
+        return completed ? indices : []
+    }
+
+    mutating func map(
+        _ pixels: [UInt8], width: Int, height: Int, dithering: Dithering,
+        into indices: UnsafeMutableRawBufferPointer, cancelled: (() -> Bool)? = nil
+    ) -> Bool {
         switch dithering {
-        case .none: mapDirect(pixels, cancelled: cancelled)
-        case .ordered: mapOrdered(pixels, width: width, cancelled: cancelled)
-        case .floydSteinberg: mapDiffused(pixels, width: width, height: height, cancelled: cancelled)
+        case .none: mapDirect(pixels, into: indices, cancelled: cancelled)
+        case .ordered: mapOrdered(pixels, width: width, into: indices, cancelled: cancelled)
+        case .floydSteinberg:
+            mapDiffused(pixels, width: width, height: height, into: indices, cancelled: cancelled)
         }
     }
 
-    private mutating func mapDirect(_ pixels: [UInt8], cancelled: (() -> Bool)?) -> [UInt8] {
-        var indices = [UInt8](repeating: 0, count: pixels.count / 4)
+    private mutating func mapDirect(
+        _ pixels: [UInt8], into indices: UnsafeMutableRawBufferPointer, cancelled: (() -> Bool)?
+    ) -> Bool {
         for base in stride(from: 0, to: pixels.count, by: 4) {
-            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return [] }
+            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return false }
             indices[base / 4] = UInt8(
                 index(red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: pixels[base + 3]))
         }
-        return indices
+        return true
     }
 
-    private mutating func mapOrdered(_ pixels: [UInt8], width: Int, cancelled: (() -> Bool)?) -> [UInt8] {
+    private mutating func mapOrdered(
+        _ pixels: [UInt8], width: Int, into indices: UnsafeMutableRawBufferPointer, cancelled: (() -> Bool)?
+    ) -> Bool {
         let amplitude = Self.orderedAmplitude
-        var indices = [UInt8](repeating: 0, count: pixels.count / 4)
         for base in stride(from: 0, to: pixels.count, by: 4) {
-            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return [] }
+            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return false }
             let pixel = base / 4
             let threshold = Self.bayer[(pixel / width % 8) * 8 + pixel % width % 8] * amplitude
             let channel = { (value: UInt8) in UInt8(min(max(Float(value) + threshold, 0), 255)) }
@@ -108,15 +122,17 @@ struct PaletteMapper {
                 )
             )
         }
-        return indices
+        return true
     }
 
-    private mutating func mapDiffused(_ pixels: [UInt8], width: Int, height: Int, cancelled: (() -> Bool)?) -> [UInt8] {
-        var indices = [UInt8](repeating: 0, count: width * height)
+    private mutating func mapDiffused(
+        _ pixels: [UInt8], width: Int, height: Int, into indices: UnsafeMutableRawBufferPointer,
+        cancelled: (() -> Bool)?
+    ) -> Bool {
         var current = [SIMD4<Float>](repeating: .zero, count: width + 2)
         var next = [SIMD4<Float>](repeating: .zero, count: width + 2)
         for y in 0..<height {
-            if cancelled?() == true { return [] }
+            if cancelled?() == true { return false }
             let leftToRight = y % 2 == 0
             for step in 0..<width {
                 let x = leftToRight ? step : width - 1 - step
@@ -143,7 +159,7 @@ struct PaletteMapper {
             swap(&current, &next)
             next = [SIMD4<Float>](repeating: .zero, count: width + 2)
         }
-        return indices
+        return true
     }
 }
 

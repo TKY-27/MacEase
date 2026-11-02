@@ -20,6 +20,8 @@ enum ImageCompressor {
     static let midpoint = 0.5
     static let downscaleStep = 0.9
     static let maximumDownscaleSteps = 20
+    private static let pngTargetHeadroom = 0.95
+    private static let maximumPNGScaleCorrections = 3
     static let letterboxFill = RGBColor.black
     static let shapeTolerance = 0.01
 
@@ -124,9 +126,100 @@ enum ImageCompressor {
             return try await keptSize(document.url, stripsGPS: compression.stripsGPS, reason: .alreadyDone, context)
         }
         context.phase(.searching)
-        let data = try await fit(plan, under: target, compression: compression, context: context)
+        let balancedPNG =
+            format == .png && !document.isAnimated && !document.isMultiPage && document.frameCount == 1
+            && plan.frames.count == 1
+            && plan.frames.allSatisfy {
+                $0.image.bitsPerComponent == 8 && $0.image.colorSpace?.model == .rgb
+                    && $0.duration == 0 && !ImageSDR.hasHDRPixels($0.image)
+            }
+        let data: Data
+        if balancedPNG {
+            data = try await fitBalancedPNG(plan, under: target, compression: compression, context: context)
+        } else {
+            data = try await fit(plan, under: target, compression: compression, context: context)
+        }
         context.phase(.verifying)
         return try ImageOutput.stage(data, for: document, as: format, context: context)
+    }
+
+    private static func fitBalancedPNG(
+        _ plan: Plan, under target: Int64, compression: ImageCompression, context: ItemContext
+    ) async throws -> Data {
+        var options = plan.options
+        options.optimizesPNG = true
+        options.maximumPNGBytes = target
+        options.pngMaximumCompression = false
+        var pixels: PixelBuffer?
+        do {
+            context.phase(.optimizing)
+            pixels = try ImageEncoder.preparePNGTargetPixels(plan.frames, options: options, retaining: plan.retained)
+            let encoded = try autoreleasepool {
+                try ImageEncoder.encode(
+                    plan.frames, as: .png, options: options, retaining: plan.retained, preparedPNGPixels: pixels)
+            }
+            if Int64(encoded.count) <= target {
+                try report(plan, context: context)
+                return encoded
+            }
+        } catch PNGOutputError.sizeLimitExceeded {
+            context.phase(.searching)
+        } catch EngineError.invalidInput(.frameMemoryExceeded) {
+            if !context.warnings.contains(.pngOptimizationSkipped) { context.warn(.pngOptimizationSkipped) }
+        }
+        context.phase(.encoding)
+        if !compression.allowsDownscale {
+            if let strongest = try await ImageEncoder.quantizedCandidates(
+                plan.frames, colors: pngTargetColors, under: target, options: options, retaining: plan.retained,
+                preparedPixels: pixels, checkingQuality: true)
+            {
+                try report(plan, colors: strongest.colors, pngQuantized: strongest.reducedColors, context: context)
+                return strongest.encoded
+            }
+            throw EngineError.pngTargetNotReached
+        }
+        var usesPalette = true
+        var candidate = try balancedPNG(
+            plan, colors: pngTargetColors[0], under: target, pixels: pixels, usesPalette: &usesPalette,
+            context: context)
+        if let encoded = candidate.encoded { return encoded }
+        pixels = nil
+        var scale = 1.0
+        var previousDimensions = plan.frames.map { [$0.image.width, $0.image.height] }
+        for correction in 1...maximumPNGScaleCorrections {
+            try Task.checkCancellation()
+            context.phase(.searching)
+            context.progress(Double(correction) / Double(maximumPNGScaleCorrections + 1))
+            let available = pngTargetHeadroom * Double(target) - Double(candidate.fixedBytes)
+            let compressed = Double(candidate.bytes - candidate.fixedBytes)
+            guard available > 0, compressed > 0 else { throw EngineError.pngTargetNotReached }
+            scale *= min(1.0.nextDown, sqrt(available / compressed))
+            let resized = try scaled(plan, by: scale)
+            let dimensions = resized.frames.map { [$0.image.width, $0.image.height] }
+            guard dimensions != previousDimensions else { break }
+            previousDimensions = dimensions
+            context.phase(.encoding)
+            candidate = try balancedPNG(
+                resized, colors: pngTargetColors[0], under: target, usesPalette: &usesPalette, context: context)
+            if let encoded = candidate.encoded { return encoded }
+        }
+        throw EngineError.pngTargetNotReached
+    }
+
+    private static func balancedPNG(
+        _ plan: Plan, colors: Int, under target: Int64, pixels: PixelBuffer? = nil, usesPalette: inout Bool,
+        context: ItemContext
+    ) throws -> (encoded: Data?, bytes: Int64, fixedBytes: Int64) {
+        try Task.checkCancellation()
+        let candidate = try ImageEncoder.balancedPNG(
+            plan.frames, colors: colors, options: plan.options, retaining: plan.retained,
+            preparedPixels: pixels, usesPalette: usesPalette)
+        usesPalette = candidate.usesPalette
+        let bytes = Int64(candidate.encoded.count)
+        guard bytes <= target else { return (nil, bytes, Int64(candidate.fixedBytes)) }
+        try report(
+            plan, colors: usesPalette ? colors : nil, pngQuantized: candidate.reducedColors, context: context)
+        return (candidate.encoded, bytes, Int64(candidate.fixedBytes))
     }
 
     private static func report(

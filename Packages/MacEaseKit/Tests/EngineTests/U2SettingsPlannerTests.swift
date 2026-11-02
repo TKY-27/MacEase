@@ -1,3 +1,4 @@
+import Formats
 import Foundation
 import MenuCatalog
 import Testing
@@ -5,6 +6,32 @@ import Testing
 @testable import Engine
 
 @Suite struct U2SettingsPlannerTests {
+    @Test func gifDitheringDoesNotChangePNGCompression() async throws {
+        let folder = try TestVolume.makeFolder()
+        let input = try ImageFixtures.write(
+            [try ImageFixtures.photo(width: 320, height: 240)], as: .png,
+            to: folder.appending(path: "source.png"))
+        let original = try Data(contentsOf: input)
+        var pngPixels: [[UInt8]] = []
+        var gifPixels: [[UInt8]] = []
+        for dithering in [Dithering.none, .floydSteinberg] {
+            var settings = Settings()
+            settings.image.gifDithering = dithering
+            let compressed = try await ImageFixtures.run(
+                .imageCompress, preset: "quality-high", inputs: [input], settings: settings, outputMode: .newFile)
+            let png = try ImageFixtures.image(ImageFixtures.output(of: compressed))
+            #expect(png.width == 320 && png.height == 240)
+            pngPixels.append(try PixelBuffer(cgImage: png).rgba)
+            let converted = try await ImageFixtures.run(
+                .imageConvert, preset: "gif", inputs: [input], settings: settings, outputMode: .newFile)
+            let gif = try ImageFixtures.image(ImageFixtures.output(of: converted))
+            gifPixels.append(try PixelBuffer(cgImage: gif).rgba)
+        }
+        #expect(pngPixels[0] == pngPixels[1])
+        #expect(gifPixels[0] != gifPixels[1])
+        #expect(try Data(contentsOf: input) == original)
+    }
+
     @Test func metadataSelectionsEncodeInCanonicalOrder() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

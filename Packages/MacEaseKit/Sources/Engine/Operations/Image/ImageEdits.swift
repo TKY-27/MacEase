@@ -25,7 +25,7 @@ enum ImageOutput {
         options.loopCount = document.loopCount
         options.metadata = document.metadata
         options.gainMaps = [.jpeg, .heic].contains(format) ? document.gainMaps : []
-        options.dithering = settings.gifDithering
+        options.dithering = format == .gif ? settings.gifDithering : .none
         options.svgMode = settings.svgMode
         options.pixelsPerInch = document.pixelsPerInch
         options.opaqueBackground = settings.customBackground

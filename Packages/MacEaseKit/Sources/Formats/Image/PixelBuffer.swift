@@ -47,6 +47,53 @@ public struct PixelBuffer: Sendable {
         self.init(width: image.width, height: image.height, rgba: exact, colorSpace: Self.workingSpace(of: image))
     }
 
+    public init?(opaquePremultiplied image: CGImage, cancelled: (() -> Bool)? = nil) throws {
+        if cancelled?() == true { throw CancellationError() }
+        guard image.bitsPerComponent == 8, image.bitsPerPixel == 32,
+            image.colorSpace?.model == .rgb, !image.bitmapInfo.contains(.floatComponents), image.decode == nil
+        else { return nil }
+        let order = image.bitmapInfo.intersection(.byteOrderMask)
+        guard order == [] || order == .byteOrder32Big || order == .byteOrderDefault else { return nil }
+        let alphaOffset: Int
+        let redOffset: Int
+        switch image.alphaInfo {
+        case .premultipliedLast: (alphaOffset, redOffset) = (3, 0)
+        case .premultipliedFirst: (alphaOffset, redOffset) = (0, 1)
+        default: return nil
+        }
+        let (pixelRowBytes, rowOverflow) = image.width.multipliedReportingOverflow(by: 4)
+        let (providerBytes, providerOverflow) = image.bytesPerRow.multipliedReportingOverflow(by: image.height)
+        guard !rowOverflow, !providerOverflow, image.bytesPerRow >= pixelRowBytes,
+            let provider = image.dataProvider?.data, CFDataGetLength(provider) >= providerBytes,
+            let bytes = CFDataGetBytePtr(provider)
+        else { return nil }
+        let copied: [UInt8]? = try withExtendedLifetime(provider) {
+            let cancellationMask = 4_095
+            for y in 0..<image.height {
+                let row = bytes + y * image.bytesPerRow
+                for x in 0..<image.width {
+                    if x & cancellationMask == 0, cancelled?() == true { throw CancellationError() }
+                    guard row[x * 4 + alphaOffset] == 255 else { return nil }
+                }
+            }
+            var pixels = [UInt8](repeating: 255, count: image.width * image.height * 4)
+            for y in 0..<image.height {
+                let row = bytes + y * image.bytesPerRow
+                for x in 0..<image.width {
+                    if x & cancellationMask == 0, cancelled?() == true { throw CancellationError() }
+                    let source = x * 4 + redOffset
+                    let target = (y * image.width + x) * 4
+                    pixels[target] = row[source]
+                    pixels[target + 1] = row[source + 1]
+                    pixels[target + 2] = row[source + 2]
+                }
+            }
+            return pixels
+        }
+        guard let pixels = copied else { return nil }
+        self.init(width: image.width, height: image.height, rgba: pixels, colorSpace: Self.workingSpace(of: image))
+    }
+
     private static func workingSpace(of image: CGImage) -> CGColorSpace {
         image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? sRGB
     }

@@ -46,19 +46,22 @@ public enum PNGOptimizer {
             }
         }
         guard let best else { throw FormatError.encoderFailure("no PNG candidate") }
+        let prepared = try PNGFile.prepare(
+            best.raster, transparency: best.transparency, ancillary: ancillary, strategy: best.strategy,
+            cancelled: cancelled)
         if maximumBytes != nil || !maximumCompression {
             do {
+                if cancelled?() == true { throw CancellationError() }
                 let balanced = try PNGFile.encode(
-                    best.raster, transparency: best.transparency, ancillary: ancillary, strategy: best.strategy,
-                    level: PNGFile.trialLevel, maximumCompressedBytes: maximumBytes, cancelled: cancelled)
+                    prepared, level: PNGFile.trialLevel, maximumCompressedBytes: maximumBytes)
                 if !maximumCompression || maximumBytes.map({ Int64(balanced.count) <= $0 }) == true { return balanced }
             } catch PNGOutputError.sizeLimitExceeded {
                 if !maximumCompression { throw PNGOutputError.sizeLimitExceeded }
             }
         }
+        if cancelled?() == true { throw CancellationError() }
         return try PNGFile.encode(
-            best.raster, transparency: best.transparency, ancillary: ancillary, strategy: best.strategy,
-            level: PNGFile.maximumLevel, maximumCompressedBytes: maximumBytes, cancelled: cancelled)
+            prepared, level: PNGFile.maximumLevel, maximumCompressedBytes: maximumBytes)
     }
 
     static func sampled(_ raster: PNGRaster) -> PNGRaster {
@@ -66,13 +69,16 @@ public enum PNGOptimizer {
         guard raster.height > maximumRows else { return raster }
         var sample = raster
         sample.height = maximumRows
-        sample.samples = []
-        sample.samples.reserveCapacity(raster.rowBytes * maximumRows)
-        for row in 0..<maximumRows {
-            let sourceRow = row * (raster.height - 1) / (maximumRows - 1)
-            let offset = sourceRow * raster.rowBytes
-            sample.samples.append(contentsOf: raster.samples[offset..<(offset + raster.rowBytes)])
+        var samples = [UInt8]()
+        samples.reserveCapacity(raster.sourceRowBytes * maximumRows)
+        raster.samples.withUnsafeBytes { bytes in
+            for row in 0..<maximumRows {
+                let sourceRow = row * (raster.height - 1) / (maximumRows - 1)
+                let offset = sourceRow * raster.sourceRowBytes
+                samples.append(contentsOf: bytes[offset..<(offset + raster.sourceRowBytes)])
+            }
         }
+        sample.samples = samples
         return sample
     }
 
@@ -122,23 +128,16 @@ public enum PNGOptimizer {
             )
             candidates.append((raster, nil))
         } else {
-            var samples = pixels.rgba
+            let raster: PNGRaster
             if opaque {
-                samples = [UInt8](repeating: 0, count: pixels.pixelCount * 3)
-                for pixel in 0..<pixels.pixelCount {
-                    if pixel & Self.cancellationCheckMask == 0, cancelled?() == true { throw CancellationError() }
-                    samples[pixel * 3] = pixels.rgba[pixel * 4]
-                    samples[pixel * 3 + 1] = pixels.rgba[pixel * 4 + 1]
-                    samples[pixel * 3 + 2] = pixels.rgba[pixel * 4 + 2]
-                }
+                raster = PNGRaster(
+                    width: pixels.width, height: pixels.height, colorType: .rgb, bitDepth: 8,
+                    samples: pixels.rgba, omitsOpaqueAlpha: true)
+            } else {
+                raster = PNGRaster(
+                    width: pixels.width, height: pixels.height, colorType: .rgba, bitDepth: 8, samples: pixels.rgba)
             }
-            candidates.append(
-                (
-                    PNGRaster(
-                        width: pixels.width, height: pixels.height, colorType: opaque ? .rgb : .rgba, bitDepth: 8,
-                        samples: samples),
-                    nil
-                ))
+            candidates.append((raster, nil))
         }
         return candidates
     }
@@ -189,16 +188,21 @@ public enum PNGOptimizer {
             indices: indices, palette: palette, width: pixels.width, height: pixels.height, cancelled: cancelled)
     }
 
-    static func paletteRaster(
-        indices: [UInt8], palette: [PaletteColor], width: Int, height: Int, cancelled: (() -> Bool)? = nil
+    static func paletteRaster<Indices: ContiguousBytes & Collection & Sendable>(
+        indices: Indices, palette: [PaletteColor], width: Int, height: Int, cancelled: (() -> Bool)? = nil
     ) throws -> (
         PNGRaster, [UInt8]?
-    ) {
+    ) where Indices.Element == UInt8 {
         let depth = palette.count <= 2 ? 1 : palette.count <= 4 ? 2 : palette.count <= 16 ? 4 : 8
-        let raster = PNGRaster(
-            width: width, height: height, colorType: .palette, bitDepth: depth,
-            samples: try pack(indices, depth: depth, width: width, cancelled: cancelled), palette: palette
-        )
+        let raster: PNGRaster
+        if depth == 8 {
+            raster = PNGRaster(
+                width: width, height: height, colorType: .palette, bitDepth: depth, samples: indices, palette: palette)
+        } else {
+            raster = PNGRaster(
+                width: width, height: height, colorType: .palette, bitDepth: depth,
+                samples: try pack(indices, depth: depth, width: width, cancelled: cancelled), palette: palette)
+        }
         let transparency = palette.prefix { $0.alpha < 255 }.map(\.alpha)
         return (raster, transparency.isEmpty ? nil : transparency)
     }
@@ -207,20 +211,22 @@ public enum PNGOptimizer {
         UInt32(rgba[base]) << 24 | UInt32(rgba[base + 1]) << 16 | UInt32(rgba[base + 2]) << 8 | UInt32(rgba[base + 3])
     }
 
-    static func pack(
-        _ values: [UInt8], depth: Int, width: Int, cancelled: (() -> Bool)? = nil
-    ) throws -> [UInt8] {
-        guard depth < 8 else { return values }
+    static func pack<Values: ContiguousBytes & Collection>(
+        _ values: Values, depth: Int, width: Int, cancelled: (() -> Bool)? = nil
+    ) throws -> [UInt8] where Values.Element == UInt8 {
+        guard depth < 8 else { return Array(values) }
         let perByte = 8 / depth
         let rowBytes = (width * depth + 7) / 8
         let height = values.count / width
         var output = [UInt8](repeating: 0, count: rowBytes * height)
-        for y in 0..<height {
-            if cancelled?() == true { throw CancellationError() }
-            for x in 0..<width {
-                let value = values[y * width + x]
-                let shift = 8 - depth * (x % perByte + 1)
-                output[y * rowBytes + x / perByte] |= value << shift
+        try values.withUnsafeBytes { bytes in
+            for y in 0..<height {
+                if cancelled?() == true { throw CancellationError() }
+                for x in 0..<width {
+                    let value = bytes[y * width + x]
+                    let shift = 8 - depth * (x % perByte + 1)
+                    output[y * rowBytes + x / perByte] |= value << shift
+                }
             }
         }
         return output

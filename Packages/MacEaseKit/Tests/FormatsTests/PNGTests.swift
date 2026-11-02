@@ -122,6 +122,195 @@ import UniformTypeIdentifiers
 }
 
 @Suite struct PNGQuantizerTests {
+    @Test func paletteQualityRejectsLocalHueChangesHiddenByGlobalLuma() throws {
+        let width = 64
+        let rgba: [UInt8] = Array(repeating: [128, 128, 128, 255], count: width * width).flatMap { $0 }
+        let original = PixelBuffer(width: width, height: width, rgba: rgba)
+        let palette = [
+            PaletteColor(red: 160, green: 112, blue: 130, alpha: 255),
+            PaletteColor(red: 128, green: 128, blue: 128, alpha: 255),
+        ]
+        let indices: [UInt8] = (0..<(width * width)).map { pixel in
+            pixel % width < 16 && pixel / width < 16 ? 0 : 1
+        }
+        let raster = PNGRaster(
+            width: width, height: width, colorType: .palette, bitDepth: 1,
+            samples: try PNGOptimizer.pack(indices, depth: 1, width: width), palette: palette)
+        let encoded = try PNGFile.encode(raster, strategy: .none, level: PNGFile.trialLevel)
+        let decoded = try Fixtures.decode(encoded)
+        #expect(SSIM.compare(original, decoded) >= 0.99)
+        let neutral = Oklab(red: 128, green: 128, blue: 128)
+        var globalChroma = 0.0
+        for pixel in 0..<decoded.pixelCount {
+            let base = pixel * 4
+            let color = Oklab(
+                red: decoded.rgba[base], green: decoded.rgba[base + 1], blue: decoded.rgba[base + 2])
+            globalChroma += Double(hypot(color.a - neutral.a, color.b - neutral.b))
+        }
+        #expect(globalChroma / Double(decoded.pixelCount) < 0.02)
+        #expect(try !PNGPaletteQuality.accepts(raster, original: original, cancelled: nil))
+    }
+
+    @Test func balancedPaletteAcceptsSmallColorErrorsAcrossMoreThan256Colors() throws {
+        let width = 64
+        let rgba = (0..<(width * width)).flatMap { pixel -> [UInt8] in
+            let color = pixel % 512
+            return [UInt8(120 + color % 8), UInt8(120 + color / 8 % 8), UInt8(120 + color / 64), 255]
+        }
+        let original = PixelBuffer(width: width, height: width, rgba: rgba)
+        #expect(try PNGQuantizer.reducesColors(original, to: 256))
+        let candidate = try PNGQuantizer.encodeBalanced(
+            original, colors: 256, dithering: .none, maximumBytes: 1_000_000)
+        let decoded = try Fixtures.decode(candidate.encoded)
+        #expect(candidate.encoded[25] == 3)
+        #expect(decoded.width == width && decoded.height == width)
+        #expect(SSIM.compare(original, decoded) >= 0.97)
+        var chroma = 0.0
+        for pixel in 0..<original.pixelCount {
+            let base = pixel * 4
+            let source = Oklab(red: rgba[base], green: rgba[base + 1], blue: rgba[base + 2])
+            let output = Oklab(
+                red: decoded.rgba[base], green: decoded.rgba[base + 1], blue: decoded.rgba[base + 2])
+            chroma += Double(hypot(source.a - output.a, source.b - output.b))
+            #expect(decoded.rgba[base + 3] == 255)
+        }
+        #expect(chroma / Double(original.pixelCount) <= 0.02)
+        #expect(decoded.rgba != rgba)
+    }
+
+    @Test(arguments: [16, 128, 256])
+    func balancedEffortKeepsTheSelectedPalettePixels(colors: Int) throws {
+        let original = Fixtures.photo(width: 160, height: 120)
+        let reference = try PNGQuantizer.encode(original, colors: colors, dithering: .none)
+        let candidate = try PNGQuantizer.encodeBalanced(
+            original, colors: colors, dithering: .none, maximumBytes: 1_000_000, checkingQuality: false)
+        let decoded = try Fixtures.decode(candidate.encoded)
+        #expect(decoded.width == original.width && decoded.height == original.height)
+        #expect(try decoded.rgba == Fixtures.decode(reference).rgba)
+    }
+
+    @Test func balancedEncodingKeepsPixelsAndHonorsTheWholeFileLimit() throws {
+        let pixels = PixelBuffer(
+            width: 4, height: 1,
+            rgba: [100, 100, 100, 255, 101, 101, 101, 255, 102, 102, 102, 255, 103, 103, 103, 255])
+        let comment = PNGChunk(type: "tEXt", payload: Data("Comment\u{0}kept".utf8))
+        let candidate = try PNGQuantizer.encodeBalanced(
+            pixels, colors: 256, dithering: .ordered, ancillary: [comment], maximumBytes: 1_000_000)
+        #expect(candidate.fixedBytes == 105)
+        #expect(try PNGFile.fixedBytes(in: candidate.encoded) == 105)
+        #expect(try Fixtures.decode(candidate.encoded).rgba == pixels.rgba)
+        #expect(try PNGFile.chunks(in: candidate.encoded).contains(comment))
+        let exact = try PNGQuantizer.encodeBalanced(
+            pixels, colors: 256, dithering: .ordered, ancillary: [comment],
+            maximumBytes: Int64(candidate.encoded.count))
+        #expect(exact.encoded == candidate.encoded)
+        #expect(throws: PNGOutputError.sizeLimitExceeded) {
+            try PNGQuantizer.encodeBalanced(
+                pixels, colors: 256, dithering: .ordered, ancillary: [comment],
+                maximumBytes: Int64(candidate.encoded.count - 1))
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func maximumEffortTargetKeepsPixelsMetadataAndFilterPriority(firstFilterFits: Bool) async throws {
+        let width = 256
+        let height = 256
+        let palette: [PaletteColor] = (0..<64).map { index in
+            let value = UInt8(index * 4)
+            return PaletteColor(red: value, green: value, blue: value, alpha: 255)
+        }
+        var seed: UInt64 = 42
+        let indices = (0..<(width * height)).map { pixel -> UInt8 in
+            guard firstFilterFits else { return UInt8(pixel % width / 4) }
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let noise = Int(seed >> 60)
+            return UInt8((pixel % width / 8 + pixel / width / 8 + noise) * 53 % 64)
+        }
+        #expect(Set(indices).count == 64)
+        let pixels = PixelBuffer(
+            width: width, height: height,
+            rgba: indices.flatMap { index -> [UInt8] in
+                let value = UInt8(Int(index) * 4)
+                return [value, value, value, 255]
+            })
+        let comment = PNGChunk(type: "tEXt", payload: Data("Comment\u{0}kept".utf8))
+        let target: Int64 = firstFilterFits ? 47_000 : 620
+        let raster = PNGRaster(
+            width: width, height: height, colorType: .palette, bitDepth: 8, samples: indices, palette: palette)
+        for strategy in [PNGFilterStrategy.none, .adaptive] {
+            let balanced = try PNGFile.encode(
+                raster, ancillary: [comment], strategy: strategy, level: PNGFile.trialLevel)
+            #expect(Int64(balanced.count) > target)
+        }
+        let maximumNone = try PNGFile.encode(
+            raster, ancillary: [comment], strategy: .none, level: PNGFile.maximumLevel)
+        #expect((Int64(maximumNone.count) <= target) == firstFilterFits)
+        let reference = try PNGQuantizer.encode(
+            pixels, colors: 64, dithering: .ordered, ancillary: [comment], maximumBytes: target)
+        for parallel in [false, true] {
+            let encoded = try await PNGQuantizer.encodeTarget(
+                pixels, colors: 64, dithering: .ordered, ancillary: [comment], maximumBytes: target,
+                parallelMaximumFilters: parallel)
+            #expect(encoded == reference)
+            #expect(Int64(encoded.count) <= target)
+            #expect(try Fixtures.decode(encoded).rgba == pixels.rgba)
+            #expect(try PNGFile.chunks(in: encoded).contains(comment))
+            do {
+                _ = try await PNGQuantizer.encodeTarget(
+                    pixels, colors: 64, dithering: .ordered, maximumBytes: 100,
+                    parallelMaximumFilters: parallel)
+                Issue.record("An impossible PNG target succeeded")
+            } catch PNGOutputError.sizeLimitExceeded {}
+        }
+    }
+
+    @Test func cancelledTargetStopsWithoutReturningAnOutput() async throws {
+        let pixels = Fixtures.photo(width: 320, height: 240)
+        let encoding = Task {
+            try await PNGQuantizer.encodeTarget(
+                pixels, colors: 64, dithering: .ordered, maximumBytes: 100, parallelMaximumFilters: true)
+        }
+        encoding.cancel()
+        do {
+            _ = try await encoding.value
+            Issue.record("A cancelled PNG target completed")
+        } catch is CancellationError {}
+    }
+
+    @Test(arguments: [Dithering.none, .ordered, .floydSteinberg])
+    func mappedIndicesKeepPixelOrderBoundsAndCancellation(dithering: Dithering) throws {
+        let palette = [
+            PaletteColor(red: 0, green: 0, blue: 0, alpha: 0),
+            PaletteColor(red: 255, green: 0, blue: 0, alpha: 255),
+            PaletteColor(red: 0, green: 0, blue: 255, alpha: 128),
+        ]
+        let expected: [UInt8] = [1, 2, 0, 1, 0, 2, 2, 1, 0, 2]
+        let rgba = expected.flatMap { index -> [UInt8] in
+            let color = palette[Int(index)]
+            return [color.red, color.green, color.blue, color.alpha]
+        }
+        var mapper = PaletteMapper(palette: palette, includesAlpha: true, dithering: dithering)
+        var mapped = try PNGFile.mappedBytes(count: expected.count + 2)
+        let completed = mapped.withUnsafeMutableBytes { destination in
+            destination[0] = 0xA5
+            destination[destination.count - 1] = 0xA5
+            return mapper.map(
+                rgba, width: 5, height: 2, dithering: dithering,
+                into: UnsafeMutableRawBufferPointer(rebasing: destination[1..<(expected.count + 1)]))
+        }
+        #expect(completed)
+        #expect(Array(mapped) == [0xA5] + expected + [0xA5])
+        #expect(mapper.map(rgba, width: 5, height: 2, dithering: dithering) == expected)
+        let cancelled = mapped.withUnsafeMutableBytes { destination in
+            mapper.map(
+                rgba, width: 5, height: 2, dithering: dithering,
+                into: UnsafeMutableRawBufferPointer(rebasing: destination[1..<(expected.count + 1)]),
+                cancelled: { true })
+        }
+        #expect(!cancelled)
+        #expect(Array(mapped) == [0xA5] + expected + [0xA5])
+    }
+
     @Test func translucentGradientKeepsColorAndOpacityWithinTwoPercent() throws {
         let width = 600
         let height = 400
@@ -139,6 +328,12 @@ import UniformTypeIdentifiers
             }
         }
         let original = PixelBuffer(width: width, height: height, rgba: rgba)
+        let undithered = try PNGQuantizer.encode(original, colors: 256, dithering: .none)
+        #expect(try SSIM.compare(original, Fixtures.decode(undithered)) < 0.97)
+        #expect(throws: PNGQuantizer.QualityError.unsuitablePalette) {
+            try PNGQuantizer.encodeBalanced(
+                original, colors: 256, dithering: .none, maximumBytes: 1_000_000)
+        }
         let output = try PNGQuantizer.encode(original, colors: 256, dithering: .ordered)
         let decoded = try Fixtures.decode(output)
         var colorError = 0.0

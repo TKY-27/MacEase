@@ -138,20 +138,24 @@ struct ColorQuantizer {
     }
 
     /// One Lloyd step on full-resolution pixels.
-    func refined(_ palette: [PaletteColor], pixels: [UInt8], indices: [UInt8], cancelled: (() -> Bool)? = nil)
-        -> [PaletteColor]
-    {
+    func refined<Indices: ContiguousBytes & Collection>(
+        _ palette: [PaletteColor], pixels: [UInt8], indices: Indices, cancelled: (() -> Bool)? = nil
+    ) -> [PaletteColor] where Indices.Element == UInt8 {
         var sums = [SIMD4<Double>](repeating: .zero, count: palette.count)
         var counts = [Double](repeating: 0, count: palette.count)
-        for (pixel, index) in indices.enumerated() {
-            if pixel & Self.cancellationCheckMask == 0, cancelled?() == true { return palette }
-            let base = pixel * 4
-            let color = PaletteColor(
-                red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: pixels[base + 3]
-            )
-            sums[Int(index)] += SIMD4<Double>(point(color))
-            counts[Int(index)] += 1
+        let completed = indices.withUnsafeBytes { bytes in
+            for pixel in bytes.indices {
+                if pixel & Self.cancellationCheckMask == 0, cancelled?() == true { return false }
+                let base = pixel * 4
+                let color = PaletteColor(
+                    red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: pixels[base + 3]
+                )
+                sums[Int(bytes[pixel])] += SIMD4<Double>(point(color))
+                counts[Int(bytes[pixel])] += 1
+            }
+            return true
         }
+        guard completed else { return palette }
         return palette.indices.map { index in
             counts[index] > 0 ? color(of: SIMD4<Float>(sums[index] / counts[index])) : palette[index]
         }
