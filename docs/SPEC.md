@@ -540,7 +540,7 @@ the luma channel against the source.
 | MP3 encoder | MPEG-1 Layer III, 44.1 and 48 kHz, mono and stereo with M/S, CBR 128/192/256/320 kbps and VBR quality 0–9 | Written from ISO/IEC 11172-3: polyphase filterbank, MDCT with window switching, psychoacoustic model with masking thresholds, bit reservoir, Huffman coding | AudioToolbox decodes every frame without error; on the music fixture at 192 kbps the segmental SNR is at least 20 dB and bandwidth is at least 16 kHz; encoding runs at least 20× real time on M1 |
 | GIF encoder | Single and animated | Color quantization in Oklab (Wu initial palette refined by k-means), global or per-frame palettes, Floyd–Steinberg or ordered dithering (setting), transparent-pixel frame differencing, LZW | ImageIO decodes it; SSIM ≥ 0.93 on the gradient video fixture at 256 colors with dithering; output is smaller than ImageIO's GIF output for the same frames |
 | PNG lossy quantizer | RGBA to ≤ 256-color palette with alpha (tRNS) | k-means in premultiplied Oklab with alpha, optional dithering, libdeflate compression with per-row filter selection | SSIM ≥ 0.97 and size ≤ 45% of lossless libdeflate PNG on the photo fixture |
-| PNG lossless optimizer | Re-encode PNG without changing pixels | Bit depth and color type reduction, filter selection, libdeflate level 12 | Decoded pixels identical; never larger than the input (otherwise keep input bytes) |
+| PNG lossless optimizer | Re-encode PNG without changing pixels | Bit depth and color type reduction, sampled filter selection and libdeflate; balanced effort for conversion, maximum effort only when a size target requires it | Decoded pixels identical; standalone optimization is never larger than the input (otherwise keep input bytes) |
 | Matroska and WebM | Demux and mux; video H.264, HEVC, VP8, VP9, AV1; audio AAC, Opus, Vorbis, FLAC, MP3, AC-3, PCM; BlockAdditions for VP9 alpha; Cues and SeekHead | Per the Matroska specification (RFC 9559) and the WebM container guidelines | Round-trip mux and demux preserves packets and timestamps; Chrome-compatible WebM (VP9 + Opus) plays in WKWebView; AVFoundation-independent tests pass |
 | AVI | Demux (OpenDML included); mux MJPEG + PCM | Microsoft AVI RIFF specification | Files from common encoders open; MJPEG + PCM output opens in QuickTime-compatible players |
 | FLV | Demux; mux H.264 + AAC or 44.1 kHz mono/stereo PCM16 | Adobe FLV specification v10.1 | Round-trip preserves packets and timestamps |
@@ -708,7 +708,7 @@ system behavior. Values are remembered only for retained panels.
 | Panel | Used by | Contents |
 | --- | --- | --- |
 | Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
-| Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint, live byte equivalent. No quality/platform picker or processing toggles. |
+| Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint and live byte equivalent. Image requests expose Allow downscaling; other processing options remain in Settings. No quality/platform picker. |
 | Photo / video editor | One still image or video | Resizable 1280×720 workspace: large preview, right inspector, top tool categories and Liquid Glass Save; video timeline below. Section 8.1.1. |
 | Speed | One or more videos, Custom Speed… | Numeric playback speed, presets, current save policy. |
 | Trim | Audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
@@ -792,7 +792,7 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 | General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
 | Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
 | Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
-| Images | Per-format quality, PNG optimization, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
+| Images | Per-format quality, PNG optimization, independent target-size downscale and frame-rate reduction, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
 | Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, trim accuracy, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
 | Audio | Per-format bitrate, MP3 CBR/VBR, loudness defaults and editable loudness menu values, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode), extract default format for AI plans only. |
 | Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), excluded folder names plus an Exclusion Rules sheet for folder, file, and extension patterns per scope (all folder scans, Remove Duplicates, Remove Empty Folders, Folder Tree, Analyze, Rename), folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
@@ -1460,9 +1460,25 @@ a visible reason. Audio/video subtitle outputs use `stem.srt`, `.vtt`, or `.txt`
   minimum and maximum (at most 8 encodes). If the minimum quality is still too
   large and downscale is allowed, reduce dimensions by 10% steps and repeat.
 - **PNG.** Lossless optimize, then lossy quantization with 256, 128 and 64
-  colors, then downscale in 10% steps.
+  colors, then downscale in 10% steps. At each pixel/palette candidate, try
+  balanced DEFLATE effort first. Accept it when it fits; otherwise try maximum
+  effort before reducing palette size or resolution. DEFLATE effort never
+  changes decoded pixels. Conversion uses balanced lossless effort without
+  palette reduction; the standalone optimizer retains its never-larger contract.
+  Targeted encodes cap compressed buffers and accept the first fitting filter
+  for the same pixels. If every bounded static-PNG candidate fails, report
+  target failure without a minimum-size estimate. Do not repeat the search
+  solely to calculate that estimate. Palette work may run concurrently within
+  the existing memory budget, sharing decoded pixels and retaining the same
+  selection priority. For directly readable 8-bit RGB frames, reuse the same
+  exact pixels for lossless and palette attempts and derive reduction reports
+  from those pixels. Keep PNG filter and compression workspaces in scoped
+  anonymous mappings; copy only the written compressed output before releasing
+  the full workspace. Release temporary render/encode buffers between scales.
 - **GIF.** Reduce fps, then width, then colors.
-- **Video.** Plan in order and stop at the first output under target:
+- **Video.** A generic byte target already met by the source skips without
+  encoding. Platform presets still enforce their format and geometry limits.
+  Otherwise plan in order and stop at the first output under target:
   1. Remux (container change only).
   2. Re-encode audio only (AAC 128 kbps, then 96, then 64).
   3. Re-encode video at the bitrate `(target × 8 / duration) − audio bitrate − 2% container overhead`.
@@ -1475,8 +1491,10 @@ a visible reason. Audio/video subtitle outputs use `stem.srt`, `.vtt`, or `.txt`
      then plan again (ADR 0010).
 - **Audio.** Choose the bitrate from target and duration among the format's
   supported bitrates.
-- An item that cannot reach the target fails with the smallest achievable size
-  in the message, and the original is kept.
+- An item that cannot reach the target fails and keeps the original. Report
+  the smallest measured candidate when available; exhausted bounded static-PNG
+  searches instead explain that the current settings did not reach the target
+  and suggest increasing it, without claiming an unmeasured minimum.
 - Accepted output: at most the target and at least 92% of the target on the
   fixtures, except when step 1 or 2 already lands below, and for AVIF and HEIC,
   whose quality steps are coarser than that band (ADR 0010).
@@ -2216,7 +2234,93 @@ navigation from mandatory acceptance on 2026-11-01. They remain unverified,
 not passed. The macOS 26.6.2 VM smoke check was completed and is not excluded.
 All other release requirements remain in force (ADR 0044).
 
+## 21. Version 2.1 stabilization
+
+Version 2.1.0, build 7, prioritizes target-size compression, conversion and
+complete UI verification. Custom 10 MB means at most 10,000,000 bytes.
+Compression keeps the source format and dimensions first, then uses permitted
+palette reduction and downscaling. An unmet limit is a failure, never success.
+Conversion success does not promise a smaller file. Already-satisfied inputs
+and outputs that cannot shrink remain distinct skipped outcomes.
+
+### 21.1 Compression and feedback
+
+Remove redundant PNG encoding, decoding and full-frame candidate retention.
+Keep explicit working memory within its existing budget; do not trade away
+16-bit precision, HDR, profiles, metadata or alpha for speed. Optional lossless
+optimization and target-size success are separate facts. Explain any skipped
+optional step without implying that a verified compressed output was not
+created. Show the actual processing phase and elapsed time, and check
+cancellation within expensive pixel work. Image compression owns its downscale
+and animation frame-rate preferences. Migrate absent image preferences from
+the previously shared video preferences without changing saved behavior.
+
+Before and after measurements use identical Release builds, machine and
+12/24/48 MP photograph-like, text, transparency and gradient fixtures, with
+three runs per side. The 24 MP 10 MB compression median must be at most ten
+seconds and the 48 MP median at most thirty seconds. Single-item full-app
+resident memory remains at most 1.5 GB. Measure real completed outputs and
+verify quality; skipped work and failed attempts are not speedups.
+
+### 21.2 Activity comparison and retry
+
+Activity retains bounded, session-only request/settings snapshots and per-item
+source identity, actual sizes, dimensions and applied image changes. This does
+not change persistent history or authenticated Finder request URLs.
+
+Static image conversion and compression results offer side-by-side source and
+output comparison, synchronized zoom/pan, Fit and 100% views, actual sizes,
+reduction, formats, dimensions and quantization/downscale disclosures. Never
+recompress for comparison. Replace mode reads the original from its recorded
+Trash location without restoring it. Revalidate source and output identities;
+missing or changed files report why comparison is unavailable. Animated and
+multipage output cannot be represented as a single-frame comparison. PDF
+conversion creates a document and does not offer static-image comparison.
+
+Retry applies to failed image/video/audio compression and conversion, and PDF
+compression. Exclude successful, skipped and explicitly cancelled items.
+Snapshot the original options and settings, allow target-size changes for
+size-limited compression, and create a new batch. Check input identity and
+prevent duplicate concurrent retries. A changed or missing input requires a
+new selection; no implicit use of a different file at the same path.
+
+### 21.3 UI and release acceptance
+
+Inspect every panel and settings page, Activity, Welcome, editors, ZIP/SVG,
+organization, recipes and Finder/Services entry points. Verify English and
+Japanese, light/dark, minimum/normal sizes, long names, empty/loading/error and
+disabled states, keyboard focus and VoiceOver. The editor action row uses
+consistent native controls without duplicate menu indicators or glass layers.
+
+Run build, strict lint, device tests, signed Finder/Services operations and a
+macOS 26 VM smoke check. Three fresh GPT-6.1 Sol/high reviews cover compression
+and performance, UI and the new result actions, then the corrected complete
+diff and evidence. Fix material reproducible defects before publication.
+Version-specific earlier VoiceOver exclusions do not apply to this release.
+
+Retain the existing signing identity and disabled Actions. Publish a DMG built
+from the final tag with its SHA-256 and release notes, verify installation and
+settings/history compatibility, then anonymous downloads and latest-release
+resolution. No unperformed check is recorded as passed.
+
 ## Changelog
+
+- 2026-11-02: Approve v2.1 compression and UI stabilization, session-only image
+  result comparison and failure-only retry, matched performance gates and
+  three independent review rounds before publication (ADR 0045).
+- 2026-11-02: Bound concurrent PNG palette candidates by the existing memory
+  budget, release temporary buffers between scales, and correct premature
+  palette truncation without changing resolution or selection priorities
+  (ADR 0045).
+- 2026-11-02: Reuse exact PNG pixels across lossless and palette attempts,
+  avoid result-only raster copies and remove duplicate filter-zero row copies
+  without changing decoded pixels or compression priorities (ADR 0045).
+- 2026-11-02: Release PNG filter and compressed-output workspaces through
+  scoped anonymous mappings, retaining only actual encoded bytes and keeping
+  the existing memory budget (ADR 0045).
+- 2026-11-02: Remove repeated static-PNG failure searches used only for a
+  minimum-size estimate; retain verified target failure, original protection
+  and editable retry without an invented minimum (ADR 0045).
 
 - 2026-11-01: Record the owner's v2.0.0-only VoiceOver acceptance exclusion;
   actual reading/navigation remains unverified. The macOS 26 VM smoke check

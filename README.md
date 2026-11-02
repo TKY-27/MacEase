@@ -293,6 +293,27 @@ Batches still running after 0.8 seconds appear in **Activity**, without taking
 focus from Finder. Use **Stop** to cancel an ordinary batch or pause HatchZip.
 Closing the window leaves jobs running. Folder scans also show progress there.
 
+Activity shows the current processing stage, elapsed time and per-file results.
+**Compare…** opens successful still-image compression or conversion results
+beside their originals, with synchronized zoom and position, **Fit**, **100%**,
+file sizes, dimensions and disclosed palette or resolution reductions.
+Replacement originals are read from their recorded Trash locations. Changed
+or missing files cannot be compared.
+
+**Retry Failed…** retries only failed image, video and audio compression or
+conversion and PDF compression, using the original settings. Target-size
+compression lets you change the limit before retrying. Successful, unchanged
+and cancelled files are excluded; changed inputs require a new Finder operation.
+Reopen Activity to access the latest 20 results from the current app session.
+Comparison and retry information is not retained after quitting.
+
+Custom size limits use decimal bytes: **10 MB means at most 10,000,000 bytes**.
+Image compression preserves format and resolution first, then reduces the
+palette or, when allowed, resolution. **Allow lower resolution** is visible in
+the custom-size panel and has an independent image setting. Already-small
+inputs stay unchanged. Skipping optional lossless PNG optimization does not
+mean compression failed; the verified output size determines whether it fits.
+
 <img src="docs/images/activity-run-en.png" width="420" alt="The MacEase Activity window compressing Long Trip.mov, with a progress bar and a stop button"><br>
 <img src="docs/images/activity-done-en.png" width="420" alt="The MacEase Activity window after compressing, reading Done, with Undo and Show in Finder buttons">
 

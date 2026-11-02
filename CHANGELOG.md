@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Activity comparisons for original and processed still images, with synchronized
+  zoom and position, actual-pixel inspection, dimensions and file sizes.
+- Retry failed image, video and audio compression/conversion or PDF compression
+  using the original settings, with an editable target size.
+- Processing stages, elapsed time and individual file results in Activity.
+
+### Fixed
+
+- Avoid redundant PNG encoding, repeated palette searches and oversized lossless
+  optimization workspaces; propagate cancellation through pixel processing.
+- Continue palette generation when one color region cannot split further,
+  avoiding premature color loss and severe tinting in translucent images.
+- Stop unsuccessful PNG target searches without repeating every candidate just
+  to calculate a minimum-size estimate; keep the failure explicit and retryable.
+- Separate image target-size downscaling settings from video settings while
+  preserving existing preferences during migration.
+- Keep videos already within a custom byte limit unchanged instead of
+  re-encoding them into larger files; reject larger quality-compression outputs.
+- Copy compatible video and audio streams independently during conversion,
+  while retaining required PCM timing correction for AVI.
+- Preserve older recipe execution histories when decoding new image settings.
+- Use consistent editor toolbar controls and improve narrow organization and
+  recipe layouts; double-click the intended recipe row. Keep editable menu values
+  and expanded rename options within their available space.
+- Keep Activity reachable after fast jobs finish or its window closes.
+- Restore Command-Q from application windows through the normal shutdown path.
+- Keep folder-analysis chart labels separate and show an explicit empty state
+  when AI Rename has no files.
+- Report encoded ICO/ICNS dimensions and accepted GIF palette changes accurately;
+  allow static GIF result comparisons.
+- Distinguish optional lossless PNG optimization notices from compression
+  outcomes and report palette or resolution reductions.
+
+### Safety
+
+- Recheck retry inputs and comparison files against their recorded identities;
+  read replacement originals from the recorded Trash location without restoring
+  or modifying them.
+- Keep comparison and retry information in the current Activity session, with
+  the existing persistent history and Finder request formats unchanged.
+
 ## [2.0.0] - 2026-11-01
 
 ### Added

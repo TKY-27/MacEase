@@ -750,3 +750,31 @@ export measurements do not establish a general speedup. API timings are not
 whole-app memory or native-player UI seek measurements. The standalone idle
 watcher CPU sample is below useful measurement resolution. See
 `v2.0.0-validation.md` for samples, output verification and limits.
+
+
+## PNG work-buffer reclamation (2026-11-02)
+
+On Apple M5/macOS 27.2, a 48 MP photograph compressed to 10,000,000 bytes
+reproduced a 1,697,923,072-byte actual-app resident peak. A standalone run
+reproduced the same class of peak. Process region summaries showed about
+500 MiB resident in empty large-allocation regions. Allocator pressure relief
+reported zero reclaimed bytes, and immediate Core Image rendering with cache
+clearing did not resolve the peak. Neither diagnostic change was adopted.
+
+Apple documents [deferred reclamation in xzone malloc](https://github.com/apple-oss-distributions/libmalloc/blob/main/doc/xzone_malloc.md):
+freed pages can await a kernel decision before decommit. That behavior is
+consistent with these region observations; ordinary live-allocation statistics
+alone do not account for the observed resident high-water mark.
+
+Scoped anonymous mappings for PNG filter and compression workspaces reduced
+a prototype peak to 1,380,696,064 bytes, with identical encoded and rendered
+output. Foundation's [Data deallocator](https://developer.apple.com/documentation/foundation/data/deallocator)
+supports unmapping owned storage. The compressed result copies only written
+bytes; the workspace keeps its full allocation length until release. No
+process-wide allocator setting or memory budget changed. Production and
+actual-app acceptance are recorded separately in `v2.1.0-validation.md`.
+
+A direct successful `munmap` was followed by `mincore` returning success with
+an unknown/nonresident state on this host. That return code is not a valid
+release oracle. A self Mach region query instead verified the absence of a
+readable mapping after success, cancellation, partial output and failure.
