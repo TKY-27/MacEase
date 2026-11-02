@@ -40,8 +40,8 @@ public enum ImagePlanner {
     /// For presets edited in Settings.
     public static func compression(for preset: PlatformPreset, settings: Settings) -> ImageCompression {
         ImageCompression(
-            goal: .platform(preset), allowsDownscale: settings.video.allowDownscale,
-            allowsFrameRateReduction: settings.video.allowFrameRateReduction,
+            goal: .platform(preset), allowsDownscale: settings.image.allowDownscale,
+            allowsFrameRateReduction: settings.image.allowFrameRateReduction,
             stripsGPS: !settings.image.keepGPSOnPlatformPresets)
     }
 

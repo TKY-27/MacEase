@@ -1,6 +1,7 @@
 import CoreGraphics
 import Formats
 import Foundation
+import ImageIO
 
 extension ImageSettings {
     func quality(for format: ImageFormat) -> Double {
@@ -289,6 +290,8 @@ enum ImageEdits {
         options.svgColors = conversion.svgColors
         options.svgMode = context.settings.image.svgMode
         options.optimizesPNG = context.settings.image.optimizePNGOnConvert
+        var quantized = false
+        if conversion.format == .gif { options.reportGIFReduction = { quantized = quantized || $0 } }
         if document.isAnimated, count > 1 {
             let staged = try context.stagingURL(
                 for: document.url, name: ImageOutput.outputName(for: document, format: conversion.format))
@@ -299,6 +302,16 @@ enum ImageEdits {
                 context.progress(Double(index + 1) / Double(count + 1))
                 return frame
             }
+            guard let encoded = CGImageSourceCreateWithURL(staged as CFURL, nil) else {
+                throw EngineError.encodeFailed("conversion result properties")
+            }
+            let dimensions = try encodedDimensions(encoded)
+            context.reportImageResult(
+                originalWidth: document.first.width, originalHeight: document.first.height,
+                outputWidth: dimensions.width, outputHeight: dimensions.height,
+                reducedDimensions: dimensions.width < document.first.width || dimensions.height < document.first.height,
+                quantized: quantized, paletteColors: quantized ? options.gifColors : nil,
+                frameCount: document.frameCount, isMultiPage: false)
             return ImageOutput.staged(staged, for: document, as: conversion.format, derived: document.isRaw)
         }
         var frames = Array(document.frames.prefix(count))
@@ -313,9 +326,44 @@ enum ImageEdits {
                 context.warn(.pngOptimizationSkipped)
             }
         }
+        context.phase(options.optimizesPNG && conversion.format == .png ? .optimizing : .encoding)
         let data = try ImageEncoder.encode(frames, as: conversion.format, options: options, retaining: retained)
+        let dimensions: (width: Int, height: Int)
+        switch conversion.format {
+        case .ico: dimensions = try ICOFile.largestDimensions(data)
+        case .icns: dimensions = try ICNSFile.largestDimensions(data)
+        case .svg, .pdf: dimensions = (document.first.width, document.first.height)
+        default:
+            guard let encoded = CGImageSourceCreateWithData(data as CFData, nil) else {
+                throw EngineError.encodeFailed("conversion result properties")
+            }
+            dimensions = try encodedDimensions(encoded)
+        }
+        context.reportImageResult(
+            originalWidth: document.first.width, originalHeight: document.first.height,
+            outputWidth: dimensions.width, outputHeight: dimensions.height,
+            reducedDimensions: dimensions.width < document.first.width || dimensions.height < document.first.height,
+            quantized: quantized, paletteColors: quantized ? options.gifColors : nil,
+            frameCount: document.frameCount, isMultiPage: document.isMultiPage)
+        context.phase(.verifying)
         return try ImageOutput.stage(
             data, for: document, as: conversion.format, derived: document.isRaw, context: context)
+    }
+
+    private static func encodedDimensions(_ source: CGImageSource) throws -> (width: Int, height: Int) {
+        guard
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, CGImageSourceGetPrimaryImageIndex(source), nil)
+                as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0
+        else { throw EngineError.encodeFailed("conversion result dimensions") }
+        let orientation =
+            (properties[kCGImagePropertyOrientation] as? UInt32)
+            .flatMap(CGImagePropertyOrientation.init(rawValue:)) ?? .up
+        switch orientation {
+        case .left, .leftMirrored, .right, .rightMirrored: return (height, width)
+        default: return (width, height)
+        }
     }
 
     static func rotate(_ url: URL, degrees: Double, fill: RGBColor?, context: ItemContext) async throws -> ItemResult {

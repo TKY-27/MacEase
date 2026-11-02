@@ -210,31 +210,36 @@ private struct MenuValueRow: View {
     private static let spacing: CGFloat = 6
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
-            LabeledContent {
-                HStack(spacing: Self.spacing) {
-                    ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
-                        TextField(text: text(of: slot)) {
-                            Text(verbatim: "\(unitName) \(index + 1)")
-                        }
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: Self.fieldWidth)
-                    }
-                    Text(verbatim: unitSymbol)
+        VStack(alignment: .leading, spacing: Self.spacing) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading) {
+                    Text(title)
+                    Text(unitName)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
                 }
-            } label: {
-                Text(title)
-                Text(unitName)
+                Spacer()
+                ResetButton(name: title, isDisabled: isDefault) {
+                    for slot in slots { store.settings.menuValues.reset(slot.id) }
+                    drafts = [:]
+                }
             }
-            ResetButton(name: title, isDisabled: isDefault) {
-                for slot in slots { store.settings.menuValues.reset(slot.id) }
-                drafts = [:]
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: Self.fieldWidth), spacing: Self.spacing)],
+                alignment: .leading, spacing: Self.spacing
+            ) {
+                ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
+                    TextField(text: text(of: slot)) {
+                        Text(verbatim: "\(unitName) \(index + 1)")
+                    }
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         if slots.contains(where: { !isValid(drafts[$0.id], for: $0) }) {
             Text(
                 String(
@@ -261,14 +266,6 @@ private struct MenuValueRow: View {
         case .pixels where op == .imageResize: String(localized: "Long edge in pixels", comment: "Menu value unit")
         case .pixels: String(localized: "Height in pixels", comment: "Menu value unit")
         case .megabytes: String(localized: "Target sizes in MB", comment: "Menu value unit")
-        }
-    }
-
-    private var unitSymbol: String {
-        switch slots[0].unit {
-        case .percent: "%"
-        case .pixels: "px"
-        case .megabytes: "MB"
         }
     }
 

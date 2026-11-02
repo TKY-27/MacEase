@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 /// Nearest-color lookup, memoized per color.
 struct PaletteMapper {
@@ -17,12 +18,17 @@ struct PaletteMapper {
     static let diffusion: Float = 0.75
     let palette: [PaletteColor]
     private let quantizer: ColorQuantizer
-    private let points: [SIMD4<Float>]
+    private let exactPalette: [PaletteColor: Int]
     private let transparentIndex: Int?
     /// Dithered colors share 6-bit cells.
     private let coarse: Bool
     private var cells: [UInt16]
-    private var exact: [UInt32: UInt16] = [:]
+    private static let cacheCount = 1 << 18
+    private static let cacheMultiplier: UInt32 = 2_654_435_761
+    private static let cancellationCheckMask = 4_095
+    private var exactKeys: [UInt32]
+    private var exactValues: [UInt16]
+    private let search: PaletteSearch
 
     /// `transparentIndex` receives pixels below the opacity cutoff.
     init(palette: [PaletteColor], includesAlpha: Bool, dithering: Dithering, transparentIndex: Int? = nil) {
@@ -30,10 +36,16 @@ struct PaletteMapper {
         let quantizer = ColorQuantizer(includesAlpha: includesAlpha)
         self.quantizer = quantizer
         self.transparentIndex = transparentIndex
-        points = palette.enumerated().map { index, color in
+        exactPalette = palette.enumerated().reduce(into: [:]) { lookup, entry in
+            if entry.offset != transparentIndex, lookup[entry.element] == nil { lookup[entry.element] = entry.offset }
+        }
+        let points = palette.enumerated().map { index, color in
             index == transparentIndex ? SIMD4(repeating: .greatestFiniteMagnitude) : quantizer.point(color)
         }
+        search = PaletteSearch(points: points)
         coarse = dithering != .none
+        exactKeys = dithering == .none ? [UInt32](repeating: 0, count: Self.cacheCount) : []
+        exactValues = dithering == .none ? [UInt16](repeating: .max, count: Self.cacheCount) : []
         cells = coarse ? [UInt16](repeating: .max, count: 1 << (includesAlpha ? 22 : 18)) : []
     }
 
@@ -49,51 +61,62 @@ struct PaletteMapper {
             return nearest
         }
         let key = UInt32(red) << 24 | UInt32(green) << 16 | UInt32(blue) << 8 | UInt32(opacity)
-        if let known = exact[key] { return Int(known) }
+        let slot = Int((key &* Self.cacheMultiplier) >> 14)
+        if exactValues[slot] != .max, exactKeys[slot] == key { return Int(exactValues[slot]) }
         let nearest = nearestIndex(PaletteColor(red: red, green: green, blue: blue, alpha: opacity))
-        exact[key] = UInt16(nearest)
+        exactKeys[slot] = key
+        exactValues[slot] = UInt16(nearest)
         return nearest
     }
 
     private func nearestIndex(_ color: PaletteColor) -> Int {
-        if let match = palette.firstIndex(of: color), match != transparentIndex { return match }
-        return ColorQuantizer.nearest(quantizer.point(color), in: points)
+        exactPalette[color] ?? search.nearest(quantizer.point(color))
     }
 
-    mutating func map(_ pixels: [UInt8], width: Int, height: Int, dithering: Dithering) -> [UInt8] {
+    mutating func map(_ pixels: [UInt8], width: Int, height: Int, dithering: Dithering, cancelled: (() -> Bool)? = nil)
+        -> [UInt8]
+    {
         switch dithering {
-        case .none: mapDirect(pixels)
-        case .ordered: mapOrdered(pixels, width: width)
-        case .floydSteinberg: mapDiffused(pixels, width: width, height: height)
+        case .none: mapDirect(pixels, cancelled: cancelled)
+        case .ordered: mapOrdered(pixels, width: width, cancelled: cancelled)
+        case .floydSteinberg: mapDiffused(pixels, width: width, height: height, cancelled: cancelled)
         }
     }
 
-    private mutating func mapDirect(_ pixels: [UInt8]) -> [UInt8] {
-        stride(from: 0, to: pixels.count, by: 4).map { base in
-            UInt8(index(red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: pixels[base + 3]))
+    private mutating func mapDirect(_ pixels: [UInt8], cancelled: (() -> Bool)?) -> [UInt8] {
+        var indices = [UInt8](repeating: 0, count: pixels.count / 4)
+        for base in stride(from: 0, to: pixels.count, by: 4) {
+            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return [] }
+            indices[base / 4] = UInt8(
+                index(red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: pixels[base + 3]))
         }
+        return indices
     }
 
-    private mutating func mapOrdered(_ pixels: [UInt8], width: Int) -> [UInt8] {
+    private mutating func mapOrdered(_ pixels: [UInt8], width: Int, cancelled: (() -> Bool)?) -> [UInt8] {
         let amplitude = Self.orderedAmplitude
-        return stride(from: 0, to: pixels.count, by: 4).map { base in
+        var indices = [UInt8](repeating: 0, count: pixels.count / 4)
+        for base in stride(from: 0, to: pixels.count, by: 4) {
+            if base & (Self.cancellationCheckMask << 2) == 0, cancelled?() == true { return [] }
             let pixel = base / 4
             let threshold = Self.bayer[(pixel / width % 8) * 8 + pixel % width % 8] * amplitude
             let channel = { (value: UInt8) in UInt8(min(max(Float(value) + threshold, 0), 255)) }
-            return UInt8(
+            indices[pixel] = UInt8(
                 index(
                     red: channel(pixels[base]), green: channel(pixels[base + 1]), blue: channel(pixels[base + 2]),
                     alpha: pixels[base + 3]
                 )
             )
         }
+        return indices
     }
 
-    private mutating func mapDiffused(_ pixels: [UInt8], width: Int, height: Int) -> [UInt8] {
+    private mutating func mapDiffused(_ pixels: [UInt8], width: Int, height: Int, cancelled: (() -> Bool)?) -> [UInt8] {
         var indices = [UInt8](repeating: 0, count: width * height)
         var current = [SIMD4<Float>](repeating: .zero, count: width + 2)
         var next = [SIMD4<Float>](repeating: .zero, count: width + 2)
         for y in 0..<height {
+            if cancelled?() == true { return [] }
             let leftToRight = y % 2 == 0
             for step in 0..<width {
                 let x = leftToRight ? step : width - 1 - step
@@ -121,5 +144,62 @@ struct PaletteMapper {
             next = [SIMD4<Float>](repeating: .zero, count: width + 2)
         }
         return indices
+    }
+}
+
+private struct PaletteSearch {
+    private struct Node {
+        let index: Int
+        let axis: Int
+        let left: Int
+        let right: Int
+    }
+    private let points: [SIMD4<Float>]
+    private var nodes: [Node] = []
+    private var root = -1
+
+    init(points: [SIMD4<Float>]) {
+        self.points = points
+        root = build(Array(points.indices))
+    }
+
+    private mutating func build(_ indices: [Int]) -> Int {
+        guard !indices.isEmpty else { return -1 }
+        var minimum = SIMD4<Float>(repeating: .greatestFiniteMagnitude)
+        var maximum = SIMD4<Float>(repeating: -.greatestFiniteMagnitude)
+        for index in indices {
+            minimum = pointwiseMin(minimum, points[index])
+            maximum = pointwiseMax(maximum, points[index])
+        }
+        let spans = maximum - minimum
+        let axis = (0..<4).max { spans[$0] < spans[$1] } ?? 0
+        let ordered = indices.sorted { points[$0][axis] < points[$1][axis] }
+        let middle = ordered.count / 2
+        let left = build(Array(ordered[..<middle]))
+        let right = build(Array(ordered[(middle + 1)...]))
+        nodes.append(Node(index: ordered[middle], axis: axis, left: left, right: right))
+        return nodes.count - 1
+    }
+
+    func nearest(_ point: SIMD4<Float>) -> Int {
+        var best = 0
+        var distance = Float.greatestFiniteMagnitude
+        visit(root, point, best: &best, distance: &distance)
+        return best
+    }
+
+    private func visit(_ branch: Int, _ point: SIMD4<Float>, best: inout Int, distance: inout Float) {
+        guard branch >= 0 else { return }
+        let node = nodes[branch]
+        let candidate = simd_distance_squared(point, points[node.index])
+        if candidate < distance || candidate == distance && node.index < best {
+            best = node.index
+            distance = candidate
+        }
+        let delta = point[node.axis] - points[node.index][node.axis]
+        let near = delta < 0 ? node.left : node.right
+        let far = delta < 0 ? node.right : node.left
+        visit(near, point, best: &best, distance: &distance)
+        if delta * delta <= distance { visit(far, point, best: &best, distance: &distance) }
     }
 }

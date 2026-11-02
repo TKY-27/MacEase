@@ -5,6 +5,7 @@ import os
 
 struct TargetSizeChoice: Codable, Equatable {
     var megabytes: Double? = 10
+    var allowsDownscale: Bool?
 }
 
 struct TargetSizePanel: View {
@@ -49,6 +50,15 @@ struct TargetSizePanel: View {
                         Text("Largest selected file: \(largestFile.fileSize)", comment: "Target size panel hint")
                     }
                 }
+                if op == .imageCompress {
+                    Toggle(
+                        "Allow lower resolution",
+                        isOn: Binding {
+                            choice.allowsDownscale ?? settings.image.allowDownscale
+                        } set: {
+                            choice.allowsDownscale = $0
+                        })
+                }
             } footer: {
                 if let bytes {
                     Text("\(bytes, format: .number) bytes", comment: "Target size panel byte echo")
@@ -79,8 +89,8 @@ struct TargetSizePanel: View {
             return .image(
                 .compress(
                     ImageCompression(
-                        goal: .bytes(bytes), allowsDownscale: video.allowDownscale,
-                        allowsFrameRateReduction: video.allowFrameRateReduction,
+                        goal: .bytes(bytes), allowsDownscale: choice.allowsDownscale ?? settings.image.allowDownscale,
+                        allowsFrameRateReduction: settings.image.allowFrameRateReduction,
                         stripsGPS: !settings.image.keepGPSOnPlatformPresets)))
         case .videoCompress:
             return .video(

@@ -29,6 +29,8 @@ import Testing
         image.avifQuality = 44
         image.jxlQuality = 45
         image.optimizePNGOnConvert = false
+        image.allowDownscale = false
+        image.allowFrameRateReduction = false
         image.gifDithering = .none
         image.strippedMetadata = [.xmp, .gps]
         image.keepGPSOnPlatformPresets = true
@@ -77,6 +79,29 @@ import Testing
         settings.audio.extractedAudioBitrate = 160
         settings.text.pdfImageDPI = 300
         #expect(try Settings.decode(JSONEncoder().encode(settings)) == settings)
+    }
+
+    @Test func imageCompressionMigratesVideoPoliciesAndThenStaysIndependent() throws {
+        let legacy = Data(#"{"video":{"allowDownscale":false,"allowFrameRateReduction":false}}"#.utf8)
+        var settings = try Settings.decode(legacy)
+        #expect(!settings.image.allowDownscale)
+        #expect(!settings.image.allowFrameRateReduction)
+        settings.image.allowDownscale = true
+        settings.image.allowFrameRateReduction = true
+        let decoded = try Settings.decode(JSONEncoder().encode(settings))
+        #expect(decoded.image.allowDownscale)
+        #expect(decoded.image.allowFrameRateReduction)
+        #expect(!decoded.video.allowDownscale)
+        #expect(!decoded.video.allowFrameRateReduction)
+        guard
+            case .compress(let compression) = ImagePlanner.operation(
+                for: .imageCompress, preset: "discord", settings: decoded)
+        else {
+            Issue.record("Expected image compression")
+            return
+        }
+        #expect(compression.allowsDownscale)
+        #expect(compression.allowsFrameRateReduction)
     }
 
     @Test func imageLeavesUseSavedFillMaskAndSVGColors() throws {

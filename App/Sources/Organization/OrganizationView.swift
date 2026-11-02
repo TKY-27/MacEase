@@ -89,7 +89,8 @@ struct OrganizationView: View {
 
     private func editor(_ registration: OrganizationRegistration) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(registration.path).font(.headline).textSelection(.enabled)
+            Text(registration.path).font(.headline).lineLimit(2).truncationMode(.middle)
+                .textSelection(.enabled).help(registration.path)
             Text("Only loose files in this folder are organized. Existing folders stay in place.")
                 .font(.callout).foregroundStyle(.secondary)
             Form {
@@ -113,20 +114,12 @@ struct OrganizationView: View {
                 }
             }
             .disabled(controller.isScanning || controller.isApplying)
-            HStack {
-                Button("Suggest Categories") { controller.suggestCategories() }
-                    .disabled(controller.isScanning || controller.isApplying)
-                Button("Preview Organization") { controller.preview() }
-                    .disabled(controller.isScanning || controller.isApplying || !controller.canSave)
-                if registration.automatic {
-                    Button(
-                        registration.paused
-                            ? String(localized: "Resume Automation") : String(localized: "Pause Automation")
-                    ) {
-                        controller.togglePause(registration.id)
-                    }
+            .frame(minHeight: 140, idealHeight: 180, maxHeight: 240)
+            VStack(alignment: .leading, spacing: 6) {
+                ViewThatFits(in: .horizontal) {
+                    previewActions(registration, layout: AnyLayout(HStackLayout()))
+                    previewActions(registration, layout: AnyLayout(VStackLayout(alignment: .leading)))
                 }
-                Spacer()
                 Text("\(controller.readyCount) ready · \(controller.proposals.count - controller.readyCount) held")
                     .foregroundStyle(.secondary)
             }
@@ -146,7 +139,8 @@ struct OrganizationView: View {
                             Text(category).tag(category)
                         }
                         ForEach(registration.policy.categories, id: \.self) { Text($0).tag($0) }
-                    }.labelsHidden()
+                    }
+                    .labelsHidden()
                 }
                 TableColumn("Proposed name") { proposal in
                     TextField(
@@ -158,17 +152,46 @@ struct OrganizationView: View {
                 TableColumn("Reason") { proposal in Text(proposal.reason).font(.caption).help(proposal.reason) }
             }
             .disabled(controller.isScanning || controller.isApplying)
-            HStack {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Collisions receive a numbered suffix. Every move can be undone.")
                     .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Button("Organize Once") { controller.apply(enableAutomatic: false) }
-                Button("Organize & Enable Automation") { controller.apply(enableAutomatic: true) }
-                    .buttonStyle(.borderedProminent)
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        Spacer()
+                        organizeActions(layout: AnyLayout(HStackLayout()))
+                    }
+                    organizeActions(layout: AnyLayout(VStackLayout(alignment: .trailing)))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
             .disabled(
                 controller.isScanning || controller.isApplying || !controller.hasPreview || !controller.canSave)
         }.padding()
+    }
+
+    private func previewActions(_ registration: OrganizationRegistration, layout: AnyLayout) -> some View {
+        layout {
+            Button("Suggest Categories") { controller.suggestCategories() }
+                .disabled(controller.isScanning || controller.isApplying)
+            Button("Preview Organization") { controller.preview() }
+                .disabled(controller.isScanning || controller.isApplying || !controller.canSave)
+            if registration.automatic {
+                Button(
+                    registration.paused
+                        ? String(localized: "Resume Automation") : String(localized: "Pause Automation")
+                ) {
+                    controller.togglePause(registration.id)
+                }
+            }
+        }
+    }
+
+    private func organizeActions(layout: AnyLayout) -> some View {
+        layout {
+            Button("Organize Once") { controller.apply(enableAutomatic: false) }
+            Button("Organize & Enable Automation") { controller.apply(enableAutomatic: true) }
+                .buttonStyle(.borderedProminent)
+        }
     }
 
     private var recent: some View {

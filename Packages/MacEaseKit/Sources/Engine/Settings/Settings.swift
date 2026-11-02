@@ -113,6 +113,8 @@ public struct ImageSettings: Codable, Equatable, Sendable {
     public var avifQuality = 70
     public var jxlQuality = 85
     public var optimizePNGOnConvert = true
+    public var allowDownscale = true
+    public var allowFrameRateReduction = true
     public var gifDithering = Dithering.ordered
     public var strippedMetadata = Set(MetadataField.allCases)
     public var keepGPSOnPlatformPresets = false
@@ -130,6 +132,39 @@ public struct ImageSettings: Codable, Equatable, Sendable {
 
     public init() {}
 
+    fileprivate enum CodingKeys: String, CodingKey {
+        case jpegQuality, heicQuality, webpQuality, avifQuality, jxlQuality, optimizePNGOnConvert, allowDownscale,
+            allowFrameRateReduction, gifDithering, strippedMetadata, keepGPSOnPlatformPresets, colorKey,
+            colorKeyTolerance, greenBackground, blueBackground, customBackground, backgroundMask, backgroundBlurRadius,
+            rotationFillsWithColor, rotationFill, svgColors, svgMode
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        jpegQuality = try container.decode(Int.self, forKey: .jpegQuality)
+        heicQuality = try container.decode(Int.self, forKey: .heicQuality)
+        webpQuality = try container.decode(Int.self, forKey: .webpQuality)
+        avifQuality = try container.decode(Int.self, forKey: .avifQuality)
+        jxlQuality = try container.decode(Int.self, forKey: .jxlQuality)
+        optimizePNGOnConvert = try container.decode(Bool.self, forKey: .optimizePNGOnConvert)
+        allowDownscale = try container.decodeIfPresent(Bool.self, forKey: .allowDownscale) ?? true
+        allowFrameRateReduction = try container.decodeIfPresent(Bool.self, forKey: .allowFrameRateReduction) ?? true
+        gifDithering = try container.decode(Dithering.self, forKey: .gifDithering)
+        strippedMetadata = try container.decode(Set<MetadataField>.self, forKey: .strippedMetadata)
+        keepGPSOnPlatformPresets = try container.decode(Bool.self, forKey: .keepGPSOnPlatformPresets)
+        colorKey = try container.decode(RGBColor.self, forKey: .colorKey)
+        colorKeyTolerance = try container.decode(Double.self, forKey: .colorKeyTolerance)
+        greenBackground = try container.decode(RGBColor.self, forKey: .greenBackground)
+        blueBackground = try container.decode(RGBColor.self, forKey: .blueBackground)
+        customBackground = try container.decode(RGBColor.self, forKey: .customBackground)
+        backgroundMask = try container.decode(ForegroundMask.self, forKey: .backgroundMask)
+        backgroundBlurRadius = try container.decode(Int.self, forKey: .backgroundBlurRadius)
+        rotationFillsWithColor = try container.decode(Bool.self, forKey: .rotationFillsWithColor)
+        rotationFill = try container.decode(RGBColor.self, forKey: .rotationFill)
+        svgColors = try container.decode(Int.self, forKey: .svgColors)
+        svgMode = try container.decode(SVGMode.self, forKey: .svgMode)
+    }
+
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(jpegQuality, forKey: .jpegQuality)
@@ -138,6 +173,8 @@ public struct ImageSettings: Codable, Equatable, Sendable {
         try container.encode(avifQuality, forKey: .avifQuality)
         try container.encode(jxlQuality, forKey: .jxlQuality)
         try container.encode(optimizePNGOnConvert, forKey: .optimizePNGOnConvert)
+        try container.encode(allowDownscale, forKey: .allowDownscale)
+        try container.encode(allowFrameRateReduction, forKey: .allowFrameRateReduction)
         try container.encode(gifDithering, forKey: .gifDithering)
         try container.encode(strippedMetadata.sorted { $0.rawValue < $1.rawValue }, forKey: .strippedMetadata)
         try container.encode(keepGPSOnPlatformPresets, forKey: .keepGPSOnPlatformPresets)
@@ -315,6 +352,27 @@ public struct Settings: Codable, Equatable, Sendable {
 
     public init() {}
 
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        outputMode = try container.decode(OutputMode.self, forKey: .outputMode)
+        permanentDelete = try container.decode(Bool.self, forKey: .permanentDelete)
+        concurrencyLimit = try container.decode(Int.self, forKey: .concurrencyLimit)
+        extraRotationEnabled = try container.decode(Bool.self, forKey: .extraRotationEnabled)
+        extraRotationDegrees = try container.decode(Double.self, forKey: .extraRotationDegrees)
+        menuValues = try container.decode(MenuValues.self, forKey: .menuValues)
+        image = try container.decode(ImageSettings.self, forKey: .image)
+        video = try container.decode(VideoSettings.self, forKey: .video)
+        audio = try container.decode(AudioSettings.self, forKey: .audio)
+        folder = try container.decode(FolderSettings.self, forKey: .folder)
+        text = try container.decode(TextSettings.self, forKey: .text)
+        intelligence = try container.decode(IntelligenceSettings.self, forKey: .intelligence)
+        let imageKeys = try container.nestedContainer(keyedBy: ImageSettings.CodingKeys.self, forKey: .image)
+        if !imageKeys.contains(.allowDownscale) { image.allowDownscale = video.allowDownscale }
+        if !imageKeys.contains(.allowFrameRateReduction) {
+            image.allowFrameRateReduction = video.allowFrameRateReduction
+        }
+    }
+
     public var effectiveConcurrency: Int {
         concurrencyLimit > 0 ? concurrencyLimit : max(1, ProcessInfo.processInfo.activeProcessorCount / 2)
     }
@@ -324,7 +382,17 @@ extension Settings {
     /// Keys added later keep their defaults.
     public static func decode(_ stored: Data) throws -> Settings {
         let defaults = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Settings()))
-        let saved = try JSONSerialization.jsonObject(with: stored)
+        var saved = try JSONSerialization.jsonObject(with: stored)
+        if var savedSettings = saved as? [String: Any], let video = savedSettings["video"] as? [String: Any],
+            savedSettings["image"] == nil || savedSettings["image"] is [String: Any]
+        {
+            var image = savedSettings["image"] as? [String: Any] ?? [:]
+            for key in ["allowDownscale", "allowFrameRateReduction"] where image[key] == nil {
+                image[key] = video[key]
+            }
+            savedSettings["image"] = image
+            saved = savedSettings
+        }
         let merged = try JSONSerialization.data(withJSONObject: merge(saved, over: defaults))
         return try JSONDecoder().decode(Settings.self, from: merged)
     }

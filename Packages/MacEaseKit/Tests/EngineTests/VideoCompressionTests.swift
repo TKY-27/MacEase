@@ -90,6 +90,63 @@ import VideoToolbox
         #expect(count == Self.clipFrames)
     }
 
+    @Test(.enabled(if: Self.canEncodeHEVC)) func qualityCompressionKeepsOriginalWhenOutputWouldGrow() async throws {
+        let folder = try TestVolume.makeFolder()
+        let textured = try await texturedClip(in: folder)
+        let originalInput = try await MediaInput.open(textured)
+        let source = folder.appending(path: "efficient.mp4")
+        let lowRate = VideoEncoding(
+            codec: .hevc, width: Self.clipWidth, height: Self.clipHeight,
+            frameDuration: originalInput.frameDuration, bitrate: 20_000)
+        try await Transcoder.run(
+            originalInput,
+            plan: TranscodePlan(container: .mp4, video: .encode(lowRate, FrameEdit()), audio: nil), to: source
+        ) { _ in }
+        let original = try Data(contentsOf: source)
+        let efficient = try await MediaInput.open(source)
+        var highQuality = lowRate
+        highQuality.bitrate = nil
+        highQuality.quality = 1
+        let candidate = folder.appending(path: "candidate.mp4")
+        try await Transcoder.run(
+            efficient,
+            plan: TranscodePlan(container: .mp4, video: .encode(highQuality, FrameEdit()), audio: nil), to: candidate
+        ) { _ in }
+        #expect(try Data(contentsOf: candidate).count > original.count)
+        let opened = try await MediaInput.open(candidate)
+        guard case .asset(let asset, let video?, _) = opened.backend else {
+            Issue.record("Expected a playable compression candidate")
+            return
+        }
+        let reader = try AssetTrackReader(asset: asset, track: video, number: 1, mode: .frames)
+        var frames = 0
+        while try await reader.nextFrame() != nil { frames += 1 }
+        #expect(frames == Self.clipFrames)
+        let outcome = try await run(VideoCompression(goal: .quality(1)), on: source)
+        #expect(outcome == .skipped(.outputNotSmaller))
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func targetAboveOriginalKeepsBytesWithoutEncoding() async throws {
+        let url = try fixture()
+        let original = try Data(contentsOf: url)
+        let result = try await run(VideoCompression(goal: .bytes(10_000_000)), on: url)
+        #expect(result == .skipped(.alreadyDone))
+        #expect(try Data(contentsOf: url) == original)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path) == [
+                url.lastPathComponent
+            ])
+    }
+
+    @Test func targetEqualToOriginalKeepsBytesWithoutEncoding() async throws {
+        let url = try fixture()
+        let original = try Data(contentsOf: url)
+        let result = try await run(VideoCompression(goal: .bytes(Int64(original.count))), on: url)
+        #expect(result == .skipped(.alreadyDone))
+        #expect(try Data(contentsOf: url) == original)
+    }
+
     @Test func stagedCompressionMeetsByteBoundsBeforeCommit() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "VideoStaging-\(UUID().uuidString)")
         TestTemporaryFolders.register(folder)

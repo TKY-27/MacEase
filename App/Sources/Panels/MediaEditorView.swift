@@ -48,7 +48,7 @@ struct MediaEditorView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Button(action: close) { Label("Cancel", systemImage: "xmark") }.labelStyle(.iconOnly)
                 .help("Cancel editing").keyboardShortcut(.cancelAction)
             Picker("Editing tool", selection: $model.category) {
@@ -58,50 +58,59 @@ struct MediaEditorView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: model.isVideo ? 320 : 250).disabled(!model.ready)
             Spacer()
-            Button {
-                model.original.toggle()
-            } label: {
-                Label("Compare Original", systemImage: "square.on.square")
-            }
-            .labelStyle(.iconOnly).help("Compare with original (M)")
-            .tint(model.original ? .accentColor : nil).disabled(!model.ready)
             HStack(spacing: 6) {
+                Button {
+                    model.original.toggle()
+                } label: {
+                    Label("Compare Original", systemImage: "square.on.square")
+                }
+                .help("Compare with original (M)")
+                .accessibilityValue(model.original ? Text("Original") : Text("Edited"))
+                .tint(model.original ? .accentColor : nil)
+                .disabled(!model.ready)
                 Button {
                     model.undo()
                 } label: {
                     Label("Undo Edit", systemImage: "arrow.uturn.backward")
                 }
+                .help("Undo Edit (⌘Z)")
                 .disabled(!model.canUndo).keyboardShortcut("z", modifiers: .command)
                 Button {
                     model.redo()
                 } label: {
                     Label("Redo Edit", systemImage: "arrow.uturn.forward")
                 }
+                .help("Redo Edit (⇧⌘Z)")
                 .disabled(!model.canRedo).keyboardShortcut("z", modifiers: [.command, .shift])
-            }.labelStyle(.iconOnly)
-            GlassEffectContainer {
-                HStack(spacing: 10) {
-                    Menu {
-                        Button("Reset All Edits") { model.reset() }.disabled(!model.ready)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }.menuStyle(.borderlessButton)
-                        .frame(width: 32, height: 32).glassEffect().help("More editing actions")
-                    Button {
-                        do {
-                            try model.validateForSave()
-                            var settings = model.settings
-                            if model.isVideo, model.savesNewFile { settings.outputMode = .newFile }
-                            save(try model.makeBatch(), settings)
-                            close()
-                        } catch { model.report(error) }
-                    } label: {
-                        Label("Save", systemImage: "checkmark")
-                    }
-                    .buttonStyle(.glassProminent).controlSize(.large)
-                    .disabled(!model.canSave).keyboardShortcut(.defaultAction)
-                }
             }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            Menu {
+                Button("Reset All Edits") { model.reset() }.disabled(!model.canUndo)
+            } label: {
+                Label("More Editing Actions", systemImage: "ellipsis")
+            }
+            .labelStyle(.iconOnly)
+            .menuStyle(.borderedButton)
+            .menuIndicator(.visible)
+            .controlSize(.regular)
+            .help("More editing actions")
+            Button {
+                do {
+                    try model.validateForSave()
+                    var settings = model.settings
+                    if model.isVideo, model.savesNewFile { settings.outputMode = .newFile }
+                    save(try model.makeBatch(), settings)
+                    close()
+                } catch { model.report(error) }
+            } label: {
+                Text("Save")
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.regular)
+            .disabled(!model.canSave)
+            .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
     }

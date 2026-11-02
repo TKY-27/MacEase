@@ -77,17 +77,26 @@ public struct PixelBuffer: Sendable {
         self.init(width: width, height: height, rgba: pixels, colorSpace: colorSpace)
     }
 
+    public static func canReadExactly(_ image: CGImage) -> Bool {
+        guard image.bitsPerComponent == 8, image.dataProvider != nil else { return false }
+        let order = image.bitmapInfo.intersection(.byteOrderMask)
+        guard order == [] || order == .byteOrder32Big || order == .byteOrderDefault else { return false }
+        return switch (image.colorSpace?.model, image.bitsPerPixel / 8, image.alphaInfo) {
+        case (.rgb, 4, .last), (.rgb, 4, .noneSkipLast), (.rgb, 4, .first), (.rgb, 4, .noneSkipFirst),
+            (.rgb, 3, .none), (.monochrome, 1, .none), (.monochrome, 2, .last):
+            true
+        default: false
+        }
+    }
+
     private static func exactPixels(of image: CGImage) -> [UInt8]? {
-        guard image.bitsPerComponent == 8, let data = image.dataProvider?.data,
+        guard canReadExactly(image), let data = image.dataProvider?.data,
             let bytes = CFDataGetBytePtr(data)
         else { return nil }
-        let order = image.bitmapInfo.intersection(.byteOrderMask)
-        guard order == [] || order == .byteOrder32Big || order == .byteOrderDefault else { return nil }
         let alpha = image.alphaInfo
         let model = image.colorSpace?.model
         let components = image.bitsPerPixel / 8
         let stride = image.bytesPerRow
-        var pixels = [UInt8](repeating: 255, count: image.width * image.height * 4)
         let layout: (r: Int, g: Int, b: Int, a: Int?)
         switch (model, components, alpha) {
         case (.rgb, 4, .last), (.rgb, 4, .noneSkipLast): layout = (0, 1, 2, alpha == .last ? 3 : nil)
@@ -97,6 +106,7 @@ public struct PixelBuffer: Sendable {
         case (.monochrome, 2, .last): layout = (0, 0, 0, 1)
         default: return nil
         }
+        var pixels = [UInt8](repeating: 255, count: image.width * image.height * 4)
         for y in 0..<image.height {
             let row = bytes + y * stride
             for x in 0..<image.width {

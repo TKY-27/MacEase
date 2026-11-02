@@ -4,7 +4,7 @@ import MenuCatalog
 import Observation
 import SwiftUI
 
-/// Never activates MacEase, so Finder keeps focus.
+/// Automatic progress preserves Finder focus.
 @MainActor
 final class ActivityWindow: NSObject, NSWindowDelegate {
     private static let appearanceDelay: TimeInterval = 0.8
@@ -38,22 +38,24 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
             return panel?.isVisible == true
         }
         let result = ActivityResult(outcome)
-        // Hidden rows defer to the banner.
-        guard panel?.isVisible == true else {
-            log.rows.remove(at: index)
-            return false
-        }
-        let operation = MenuStrings.operationName(batch.operation)
-        AccessibilityNotification.Announcement(
-            String(localized: "\(operation): \(result.statusText)", comment: "VoiceOver batch completion")
-        ).post()
-        guard !closesAutomatically(result) else {
-            log.rows.remove(at: index)
-            hideIfEmpty()
-            return false
+        let wasVisible = panel?.isVisible == true
+        if wasVisible {
+            let operation = MenuStrings.operationName(batch.operation)
+            AccessibilityNotification.Announcement(
+                String(localized: "\(operation): \(result.statusText)", comment: "VoiceOver batch completion")
+            ).post()
         }
         log.rows[index].result = result
-        return true
+        if closesAutomatically(result) {
+            log.rows[index].dismissed = true
+            hideIfEmpty()
+        }
+        let finished = log.rows.filter { $0.result != nil }
+        for old in finished.dropLast(20) {
+            log.rows.removeAll { $0.id == old.id }
+            jobs.dismissSession(old.batchID)
+        }
+        return wasVisible && !log.rows.contains(where: { $0.id == batch.id && $0.dismissed })
     }
 
     func scanEnded(_ id: UUID) {
@@ -64,13 +66,18 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     func show() {
         guard !log.rows.isEmpty || !jobs.pausedExtractions.isEmpty else { return }
         for index in log.rows.indices { log.rows[index].dismissed = false }
+        present()
+        NSApp.activate()
+        panel?.makeKeyAndOrderFront(nil)
+    }
+
+    private func present() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         panel.orderFrontRegardless()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        log.rows.removeAll { $0.result != nil }
         for index in log.rows.indices { log.rows[index].dismissed = true }
         sender.orderOut(nil)
         return false
@@ -80,7 +87,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         guard settings.showsActivity, jobs.active.contains(where: { $0.id == id }),
             log.rows.contains(where: { $0.id == id && !$0.dismissed })
         else { return }
-        show()
+        present()
     }
 
     private func closesAutomatically(_ result: ActivityResult) -> Bool {
@@ -93,7 +100,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     }
 
     private func hideIfEmpty() {
-        if log.rows.isEmpty && jobs.pausedExtractions.isEmpty { panel?.orderOut(nil) }
+        if log.rows.allSatisfy(\.dismissed) && jobs.pausedExtractions.isEmpty { panel?.orderOut(nil) }
     }
 
     private func makePanel() -> NSPanel {
@@ -284,7 +291,7 @@ private struct ActivityView: View {
                     }
                     Divider()
                 }
-                ForEach(Array(log.rows.enumerated()), id: \.element.id) { position, row in
+                ForEach(Array(log.rows.filter { !$0.dismissed }.enumerated()), id: \.element.id) { position, row in
                     if position > 0 { Divider() }
                     ActivityRowView(row: row, running: jobs.active.first { $0.id == row.id }, jobs: jobs)
                 }
@@ -343,12 +350,14 @@ private struct ActivityRowView: View {
                 } else {
                     ProgressView(value: batch.progress)
                 }
-                Text(runningStatus(batch))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .monospacedDigit()
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(runningStatus(batch))
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .monospacedDigit()
             }
             .accessibilityElement(children: .combine)
             Button {
@@ -375,10 +384,70 @@ private struct ActivityRowView: View {
                 comment: "Activity status while scanning folders")
         }
         let file = batch.currentFileName ?? batch.fileNames.first ?? ""
-        guard batch.itemCount > 1 else { return file }
+        let index = batch.currentItem ?? 0
+        let phase = batch.itemPhases.indices.contains(index) ? UserMessages.describe(batch.itemPhases[index]) : ""
+        let elapsed = Date().timeIntervalSince(batch.startedAt)
+        let status = "\(file) · \(phase) · \(Int(elapsed)) s"
+        guard batch.itemCount > 1 else { return status }
         return String(
-            localized: "\(batch.completedItems) of \(batch.itemCount) — \(file)",
+            localized: "\(batch.completedItems) of \(batch.itemCount) — \(status)",
             comment: "Activity progress: done, total, current file")
+    }
+
+    @ViewBuilder private func fileStatus(_ outcome: ItemOutcome, file: String) -> some View {
+        switch outcome {
+        case .succeeded:
+            if [OperationID.imageCompress, .videoCompress, .audioCompress, .pdfCompress].contains(row.operation) {
+                Text("Compression complete.").foregroundStyle(.secondary)
+            } else if [OperationID.imageConvert, .videoConvert, .audioConvert].contains(row.operation) {
+                Text("Conversion complete.").foregroundStyle(.secondary)
+            } else {
+                Text("Done.").foregroundStyle(.secondary)
+            }
+        case .skipped(let reason): Text(UserMessages.describe(reason, file: file)).foregroundStyle(.secondary)
+        case .failed(let error):
+            Text(UserMessages.describe(error, file: file))
+                .foregroundStyle(error == .cancelled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
+        }
+    }
+
+    private func fileResult(_ session: ActivitySession, index: Int) -> some View {
+        let outcome = session.outcome
+        let details = outcome.details[index]
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: outcome.inputs[index].first?.lastPathComponent ?? "")
+                .lineLimit(1).truncationMode(.middle)
+            fileStatus(outcome.outcomes[index], file: outcome.inputs[index].first?.lastPathComponent ?? "")
+            Text(verbatim: String(format: "%.1f s", details.elapsedSeconds))
+                .monospacedDigit().foregroundStyle(.secondary)
+            if details.outputBytes > 0 {
+                Text(verbatim: "\(details.originalBytes.fileSize) → \(details.outputBytes.fileSize)")
+                    .monospacedDigit()
+                if details.originalBytes > 0 {
+                    Text(UserMessages.sizeChange(original: details.originalBytes, output: details.outputBytes))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if let image = details.image {
+                if image.reducedDimensions { Text("Dimensions reduced").foregroundStyle(.secondary) }
+                if image.quantized {
+                    if let colors = image.paletteColors {
+                        Text("Palette: up to \(colors) colors").foregroundStyle(.secondary)
+                    } else {
+                        Text("Colors reduced").foregroundStyle(.secondary)
+                    }
+                }
+                if image.frameCount > 1 || image.isMultiPage {
+                    Text("Animated and multipage images cannot be compared.").foregroundStyle(.secondary)
+                }
+                Text(
+                    verbatim:
+                        "\(image.originalWidth) × \(image.originalHeight) → \(image.outputWidth) × \(image.outputHeight)"
+                )
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder private func finished(_ result: ActivityResult) -> some View {
@@ -399,7 +468,33 @@ private struct ActivityRowView: View {
             }
             .font(.callout)
         }
+        if let session = jobs.sessions[row.batchID] {
+            DisclosureGroup(String(localized: "File Results")) {
+                ForEach(session.outcome.outcomes.indices, id: \.self) { index in
+                    fileResult(session, index: index)
+                }
+            }
+            .font(.callout)
+        }
         HStack {
+            if let session = jobs.sessions[row.batchID] {
+                if session.supportsComparison,
+                    session.outcome.outcomes.contains(where: {
+                        if case .succeeded = $0 { return true }; return false
+                    })
+                {
+                    Button(String(localized: "Compare…")) { jobs.compare(row.batchID) }
+                        .disabled(session.comparisonIndices.isEmpty)
+                        .help(
+                            session.comparisonIndices.isEmpty
+                                ? String(localized: "Animated and multipage images cannot be compared.")
+                                : String(localized: "Compare original and output images."))
+                }
+                if !session.failedIndices.isEmpty {
+                    Button(String(localized: "Retry Failed…")) { jobs.retry(row.batchID) }
+                        .disabled(!jobs.canRetry(row.batchID))
+                }
+            }
             if result.notices.count > Self.visibleNotices || result.hasCondensedWarnings {
                 Button(String(localized: "Show All…", comment: "Activity button listing every result detail")) {
                     jobs.presentReport?(result.details, row.operation)

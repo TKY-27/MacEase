@@ -11,6 +11,7 @@ enum VideoEdits {
         if case .edit(let edit) = operation, let sources = edit.sources, sources.count > 1 {
             return try await joined(edit, sources: sources, url: url, context: context)
         }
+        context.phase(.decoding)
         let input = try await MediaInput.open(url)
         try input.requireSingleTracksForReplacement()
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
@@ -25,7 +26,9 @@ enum VideoEdits {
         plan = try await VideoProperties.prepare(plan, input: input, context: context)
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
+        context.phase(.encoding)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        context.phase(.verifying)
         try await VideoProperties.verify(plan, output: output, context: context)
         if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
         if plan.derived {
@@ -244,15 +247,17 @@ enum VideoEdits {
             !source.hasAlpha
             || (target == .mov && hasAssetFormat && (source.codec == .hevc || source.codec == .prores))
             || ((target == .webm || target == .mkv) && source.codec == .vp9)
-        if videoFits && audioFits && alphaCopyFits {
-            return TranscodePlan(container: target, video: .copy, audio: input.audio == nil ? nil : .copy)
-        }
         let audio: TranscodePlan.Audio? = input.audio.map { _ in
+            // AVI requires sample-accurate PCM timing.
+            if audioFits, target != .avi { return .copy }
             switch target {
             case .webm: return .encode(.opus, kilobits: audioSettings.opusBitrate)
             case .avi: return .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)
             default: return .encode(.aac, kilobits: audioSettings.aacBitrate)
             }
+        }
+        if videoFits && alphaCopyFits {
+            return TranscodePlan(container: target, video: .copy, audio: audio)
         }
         var encoding = try alphaEncoding(input, source: source, settings: settings, container: target)
         if !encoding.alpha {

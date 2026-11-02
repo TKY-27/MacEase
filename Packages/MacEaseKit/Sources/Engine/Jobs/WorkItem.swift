@@ -11,6 +11,7 @@ public struct WorkItem: Sendable {
     public let inputs: [URL]
     public let lane: Lane
     let durableArchive: Bool
+    var requiredInputStamps: [URL: FileStamp]?
     var newFileNaming: NewFileNaming?
     let body: @Sendable (ItemContext) async throws -> ItemResult
 
@@ -121,6 +122,8 @@ public enum ItemWarning: Equatable, Sendable {
     case videoToneMappedToSDR
     case videoMetadataDropped([VideoMetadataProperty])
     case pngOptimizationSkipped
+    case imagePaletteReduced(colors: Int)
+    case imageDimensionsReduced
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
     case originalKept
@@ -140,25 +143,53 @@ public final class ItemContext: Sendable {
     let staging: StagingArea
     let hatchExtractions: HatchExtractionStore
     private let state = Mutex(State())
+    private let phaseHandler: @Sendable (ItemPhase) -> Void
     private let progressHandler: @Sendable (Double) -> Void
 
     private struct State {
         var directories: [URL] = []
         var warnings: [ItemWarning] = []
+        var details = ItemDetails()
     }
 
     init(
         settings: Settings, staging: StagingArea, hatchExtractions: HatchExtractionStore? = nil,
+        phase: @escaping @Sendable (ItemPhase) -> Void = { _ in },
         progress: @escaping @Sendable (Double) -> Void
     ) {
         self.settings = settings
         self.staging = staging
         self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: staging.supportDirectory)
         self.progressHandler = progress
+        self.phaseHandler = phase
     }
 
     public func progress(_ fraction: Double) {
         progressHandler(min(max(fraction, 0), 1))
+    }
+
+    public func phase(_ phase: ItemPhase) { phaseHandler(phase) }
+
+    public func reportImageResult(
+        originalWidth: Int, originalHeight: Int, outputWidth: Int, outputHeight: Int,
+        reducedDimensions: Bool, quantized: Bool, paletteColors: Int? = nil,
+        frameCount: Int = 1, isMultiPage: Bool = false
+    ) {
+        state.withLock {
+            $0.details.image = ImageResultDetails(
+                originalWidth: originalWidth, originalHeight: originalHeight,
+                outputWidth: outputWidth, outputHeight: outputHeight,
+                reducedDimensions: reducedDimensions, quantized: quantized, paletteColors: paletteColors,
+                frameCount: frameCount, isMultiPage: isMultiPage)
+        }
+    }
+
+    var details: ItemDetails { state.withLock { $0.details } }
+
+    func recordInputs(_ stamps: [URL: FileStamp]) { state.withLock { $0.details.inputStamps = stamps } }
+
+    func recordOutput(_ url: URL, stamp: FileStamp) {
+        state.withLock { $0.details.outputStamps[url] = stamp }
     }
 
     public func warn(_ warning: ItemWarning) {

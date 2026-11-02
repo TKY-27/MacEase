@@ -82,7 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = StatusItemController(
             jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() }
         ) { [weak self] in self?.showSettings() }
-        NSApp.mainMenu = MainMenu.make { [weak self] in self?.showSettings() }
+        NSApp.mainMenu = MainMenu.make(
+            openSettings: { [weak self] in self?.showSettings() },
+            openActivity: { [weak activity] in activity?.show() })
         settings.onChange = { [weak self] in self?.settingsChanged() }
         recipeObserver = NotificationCenter.default.addObserver(
             forName: RecipeStore.didChangeNotification, object: nil, queue: .main

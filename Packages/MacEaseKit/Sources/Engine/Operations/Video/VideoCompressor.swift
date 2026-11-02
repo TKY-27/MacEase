@@ -30,6 +30,12 @@ enum VideoCompressor {
         guard input.video != nil, input.duration > 0 else {
             throw EngineError.invalidInput(.malformed("video must have a positive duration"))
         }
+        if case .bytes(let target) = compression.goal, target > 0 {
+            guard let originalBytes = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+                throw EngineError.decodeFailed("video size unavailable")
+            }
+            if Int64(originalBytes) <= target { return .skipped(.alreadyDone) }
+        }
         let destination = try destination(compression.goal, input: input)
         if let maximum = destination.limits.maxDurationSeconds,
             Double(input.duration) / Double(Nanoseconds.perSecond) > maximum
@@ -48,6 +54,12 @@ enum VideoCompressor {
                 container: destination.container, video: .encode(encoding, edit),
                 audio: input.audio == nil ? nil : .encode(destination.audioCodec, kilobits: audioKilobits[0]))
             let output = try await attempt(input, plan: plan, name: name, context: context)
+            if case .quality = compression.goal {
+                guard let originalBytes = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+                    throw EngineError.decodeFailed("video size unavailable")
+                }
+                guard output.bytes < Int64(originalBytes) else { return .skipped(.outputNotSmaller) }
+            }
             return result(output.url, name: name, original: url)
         }
         guard target > 0 else { throw EngineError.invalidInput(.malformed("target bytes must be positive")) }
@@ -267,7 +279,9 @@ enum VideoCompressor {
         try Task.checkCancellation()
         let plan = try await VideoProperties.prepare(plan, input: input, context: context, allowsCodecChange: false)
         let output = try context.stagingURL(for: input.url, name: name)
+        context.phase(.encoding)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        context.phase(.verifying)
         try await VideoProperties.verify(plan, output: output, context: context)
         let attributes = try output.resourceValues(forKeys: [.fileSizeKey])
         guard let bytes = attributes.fileSize, bytes > 0 else {

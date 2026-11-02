@@ -43,8 +43,9 @@ struct RecipeLibraryView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .tag(recipe.id)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { editing = recipe }
             }
-            .onTapGesture(count: 2) { editing = selected }
             HStack {
                 Button("New Recipe", systemImage: "plus") {
                     editing = Recipe(
@@ -188,7 +189,7 @@ struct RecipeEditorView: View {
                 }.keyboardShortcut(.defaultAction).disabled(saving)
             }.padding()
         }
-        .frame(width: 600, height: 620)
+        .frame(width: 600, height: 520)
     }
 }
 
@@ -241,9 +242,12 @@ struct RecipeRunView: View {
                             value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
                     }
                 }
-                LabeledContent("Output folder") {
-                    Text(destination?.path ?? defaultDestination).lineLimit(2).truncationMode(.middle)
+                HStack {
+                    LabeledContent("Output folder") {
+                        Text(destination?.path ?? defaultDestination).lineLimit(2).truncationMode(.middle)
+                    }
                     Button("Choose…") { chooseDestination() }
+                        .accessibilityLabel("Choose an output folder")
                 }
             }
             if let failure { Text(failure).foregroundStyle(.red).textSelection(.enabled) }

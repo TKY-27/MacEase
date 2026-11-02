@@ -57,21 +57,21 @@ import UniformTypeIdentifiers
         return frames + (try decoder.finish().count)
     }
 
-    private func assetPackets(_ url: URL) async throws -> [Data] {
+    private func assetPackets(_ url: URL, type: AVMediaType = .audio) async throws -> [Data] {
         let asset = AVURLAsset(url: url)
-        let track = try #require(try await asset.loadTracks(withMediaType: .audio).first)
+        let track = try #require(try await asset.loadTracks(withMediaType: type).first)
         let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .packets)
         var payloads: [Data] = []
         while let packets = try await reader.nextPackets() { payloads += packets.map(\.payload) }
         return payloads
     }
 
-    private func containerPackets(_ url: URL) throws -> [Data] {
+    private func containerPackets(_ url: URL, video: Bool = false) throws -> [Data] {
         var demuxer = try MatroskaDemuxer(url: url)
-        let audio = try #require(demuxer.tracks.first { !$0.isVideo })
+        let selected = try #require(demuxer.tracks.first { $0.isVideo == video })
         var payloads: [Data] = []
         while let packet = try demuxer.nextPacket() {
-            if packet.track == audio.number { payloads.append(packet.payload) }
+            if packet.track == selected.number { payloads.append(packet.payload) }
         }
         return payloads
     }
@@ -81,6 +81,46 @@ import UniformTypeIdentifiers
         var payloads: [Data] = []
         while let packet = try reader.next() { payloads.append(packet.data) }
         return Array(payloads.dropFirst(headers))
+    }
+
+    @Test func conversionCopiesCompatibleVideoWhileReencodingAudio() async throws {
+        let fixture = try fixture()
+        let input = try await MediaInput.open(fixture)
+        let source = fixture.deletingLastPathComponent().appending(path: "h264-opus.mkv")
+        let plan = TranscodePlan(container: .mkv, video: .copy, audio: .encode(.opus, kilobits: 96))
+        try await Transcoder.run(input, plan: plan, to: source) { _ in }
+        let expectedVideo = try containerPackets(source, video: true)
+        #expect(!expectedVideo.isEmpty)
+        let output = try await run(.videoConvert, preset: "mp4", on: source)
+        #expect(try await assetPackets(output, type: .video) == expectedVideo)
+        let converted = try await MediaInput.open(output)
+        #expect(converted.video?.codec == .h264)
+        #expect(converted.audio?.codec == .aac)
+        #expect(try await assetPackets(output).count > 0)
+    }
+
+    @Test func conversionCopiesCompatibleAudioWhileReencodingVideo() async throws {
+        let fixture = try fixture()
+        let input = try await MediaInput.open(fixture)
+        let source = fixture.deletingLastPathComponent().appending(path: "vp9-aac.mkv")
+        let encoding = VideoEncoding(
+            codec: .vp9, width: input.codedSize.width, height: input.codedSize.height,
+            frameDuration: input.frameDuration, bitrate: nil)
+        let plan = TranscodePlan(container: .mkv, video: .encode(encoding, FrameEdit()), audio: .copy)
+        try await Transcoder.run(input, plan: plan, to: source) { _ in }
+        let expectedAudio = try containerPackets(source)
+        #expect(!expectedAudio.isEmpty)
+        let output = try await run(.videoConvert, preset: "mp4", on: source)
+        #expect(try await assetPackets(output) == expectedAudio)
+        let converted = try await MediaInput.open(output)
+        #expect(converted.video?.codec == .h264)
+        #expect(converted.audio?.codec == .aac)
+        let asset = AVURLAsset(url: output)
+        let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AssetTrackReader(asset: asset, track: video, number: 1, mode: .frames)
+        var frames = 0
+        while try await reader.nextFrame() != nil { frames += 1 }
+        #expect(frames == 48)
     }
 
     @Test func convertWebMEncodesVP9AndOpus() async throws {

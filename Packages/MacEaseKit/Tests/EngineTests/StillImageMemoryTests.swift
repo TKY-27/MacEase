@@ -25,6 +25,9 @@ import UniformTypeIdentifiers
         }
         let encodedSize = try #require(try source.resourceValues(forKeys: [.fileSizeKey]).fileSize)
         #expect(encodedSize < 1_000_000)
+        let referencePixel = try autoreleasepool {
+            try ImageFixtures.pixel(ImageFixtures.image(source), x: width / 2, y: height / 2)
+        }
         let resize = preset == "percent-50"
         let outcome: BatchOutcome
         if preset == "compress" {
@@ -41,8 +44,12 @@ import UniformTypeIdentifiers
         #expect(properties[kCGImagePropertyPixelWidth] as? Int == (resize ? 4_032 : width))
         #expect(properties[kCGImagePropertyPixelHeight] as? Int == (resize ? 3_024 : height))
         #expect(output.pathExtension == (preset == "jpeg" ? "jpg" : "png"))
-        let warnings: [ItemWarning] = ["png", "compress"].contains(preset) ? [.pngOptimizationSkipped] : []
-        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: warnings)])
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        if ["png", "compress"].contains(preset) {
+            #expect(outcome.details.first?.image?.quantized == false)
+            #expect(outcome.details.first?.image?.reducedDimensions == false)
+            #expect(try ImageFixtures.pixel(ImageFixtures.image(output), x: width / 2, y: height / 2) == referencePixel)
+        }
         if preset == "compress" { #expect(try ImageFixtures.fileSize(output) <= Int64(encodedSize / 2)) }
     }
 

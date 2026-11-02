@@ -13,10 +13,13 @@ final class JobCenter {
         let batchID: UUID
         let operation: OperationID
         let fileNames: [String]
+        let startedAt = Date()
         var isScan = false
         var progress = 0.0
         var completedItems = 0
         var currentItem: Int?
+        var itemPhases: [ItemPhase] = []
+        var elapsedSeconds: [Double] = []
 
         var itemCount: Int { fileNames.count }
         var currentFileName: String? { currentItem.map { fileNames[$0] } }
@@ -35,12 +38,18 @@ final class JobCenter {
     }
 
     private static let recentCount = 10
+    private static let sessionCount = 20
     private static let terminationCleanupTimeout: TimeInterval = 5
 
     private(set) var active: [ActiveBatch] = []
     private(set) var recent: [BatchRecord] = []
     private(set) var hatchSessions: [HatchExtractionSession] = []
     private(set) var completed: [CompletedBatch] = []
+    private(set) var sessions: [UUID: ActivitySession] = [:]
+    private var validatingRetries: Set<UUID> = []
+    private var sessionOrder: [UUID] = []
+    @ObservationIgnored private let comparisonHost = FeatureWindowHost()
+    @ObservationIgnored private let retryHost = PanelHost()
     private var terminating = false
     private var undoTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -180,11 +189,20 @@ final class JobCenter {
                 fileNames: batch.items.map { $0.inputs.first?.lastPathComponent ?? "" })
             self.active.append(started)
             self.onStart?(started)
-            let reporter = ProgressReporter(fraction: \.fraction, milestone: \.completedItems) {
+            let reporter = ProgressReporter(
+                fraction: \.fraction,
+                milestone: { progress in
+                    let completed = progress.completedItems * 100
+                    guard let current = progress.currentItem, progress.itemPhases.indices.contains(current) else {
+                        return completed
+                    }
+                    return completed + progress.itemPhases[current].rawValue
+                }
+            ) {
                 self.update(id, progress: $0)
             }
             let outcome = await engine.run(batch, settings: snapshot) { reporter.report($0) }
-            self.finish(outcome, request: request, activeID: id)
+            self.finish(outcome, request: request, settings: snapshot, activeID: id)
             return outcome
         }
         runningJobs[id] = RunningJob(cancel: task.cancel, waitForCompletion: { _ = await task.value })
@@ -318,6 +336,84 @@ final class JobCenter {
         }
     }
 
+    func dismissSession(_ id: UUID) {
+        sessions.removeValue(forKey: id)
+        sessionOrder.removeAll { $0 == id }
+    }
+
+    func compare(_ id: UUID) {
+        guard let session = sessions[id] else { return }
+        comparisonHost.show(title: String(localized: "Compare Results"), onClose: {}) { _ in
+            ActivityComparisonPanel(session: session)
+        }
+    }
+
+    func canRetry(_ id: UUID) -> Bool {
+        sessions[id]?.canRetry == true && !validatingRetries.contains(id)
+    }
+
+    func retry(_ id: UUID) {
+        guard !terminating, let session = sessions[id], canRetry(id) else { return }
+        validatingRetries.insert(id)
+        Task {
+            defer { validatingRetries.remove(id) }
+            do {
+                let validated = try await Task.detached {
+                    var snapshot = session
+                    let request = try snapshot.beginRetry()
+                    return (snapshot, request)
+                }.value
+                guard !terminating, sessions[id] != nil else { return }
+                sessions[id] = validated.0
+                presentRetry(id, request: validated.1, settings: validated.0.settings)
+            } catch {
+                presentFailure?(session.request.op, UserMessages.describeActivity(error))
+            }
+        }
+    }
+
+    private func presentRetry(_ id: UUID, request: OperationRequest, settings: Settings) {
+        if let bytes = Self.targetBytes(request.options) {
+            retryHost.show(title: String(localized: "Retry Failed Files")) { close in
+                RetryTargetPanel(
+                    request: request, settings: settings, bytes: bytes,
+                    cancel: {
+                        self.sessions[id]?.endRetry(); close()
+                    }
+                ) { options in
+                    self.launchRetry(
+                        id, request: OperationRequest(op: request.op, options: options, inputs: request.inputs))
+                    close()
+                }
+            }
+        } else {
+            launchRetry(id, request: request)
+        }
+    }
+
+    private func launchRetry(_ id: UUID, request: OperationRequest) {
+        guard let session = sessions[id] else { return }
+        let task = run(settings: session.settings, request: request) {
+            session.retryBatch(for: request)
+        }
+        Task {
+            _ = await task.value
+            self.sessions[id]?.endRetry()
+        }
+    }
+
+    private static func targetBytes(_ options: OperationOptions) -> Int64? {
+        switch options {
+        case .image(.compress(let compression)):
+            if case .bytes(let bytes) = compression.goal { return bytes }
+        case .video(.compress(let compression)):
+            if case .bytes(let bytes) = compression.goal { return bytes }
+        case .audio(.compress(.targetBytes(let bytes))): return bytes
+        default: break
+        }
+        return nil
+    }
+
     func showResult(_ batch: CompletedBatch) {
         presentReport?(batch.summary.details, batch.operation)
     }
@@ -342,6 +438,8 @@ final class JobCenter {
         active[index].progress = max(active[index].progress, progress.fraction)
         active[index].completedItems = progress.completedItems
         active[index].currentItem = progress.currentItem
+        active[index].itemPhases = progress.itemPhases
+        active[index].elapsedSeconds = progress.elapsedSeconds
     }
 
     private func forget(_ id: UUID) {
@@ -349,7 +447,14 @@ final class JobCenter {
         active.removeAll { $0.id == id }
     }
 
-    private func finish(_ outcome: BatchOutcome, request: OperationRequest?, activeID: UUID) {
+    private func finish(_ outcome: BatchOutcome, request: OperationRequest?, settings: Settings, activeID: UUID) {
+        if let request {
+            sessions[outcome.batchID] = ActivitySession(request: request, settings: settings, outcome: outcome)
+            sessionOrder.append(outcome.batchID)
+            while sessionOrder.count > Self.sessionCount {
+                sessions.removeValue(forKey: sessionOrder.removeFirst())
+            }
+        }
         let batch = active.first { $0.id == activeID }
         forget(activeID)
         guard !terminating else { return }

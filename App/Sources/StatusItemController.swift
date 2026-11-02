@@ -118,13 +118,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 })
             menu.addItem(.separator())
         }
-        if !jobs.active.isEmpty || !jobs.pausedExtractions.isEmpty {
+        if !jobs.active.isEmpty || !jobs.pausedExtractions.isEmpty || !jobs.sessions.isEmpty {
             menu.addItem(
-                ClosureMenuItem(title: String(localized: "Show Progress", comment: "Menu bar item")) {
-                    [showProgress] in
-                    showProgress()
+                ClosureMenuItem(title: String(localized: "Show Activity", comment: "Menu bar item")) {
+                    [showProgress] in showProgress()
                 })
             menu.addItem(.separator())
+        }
+        if !jobs.active.isEmpty || !jobs.pausedExtractions.isEmpty {
             menu.addItem(
                 NSMenuItem.sectionHeader(title: String(localized: "In Progress", comment: "Menu bar section title")))
             for batch in jobs.active {

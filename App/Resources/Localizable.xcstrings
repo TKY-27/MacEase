@@ -3750,6 +3750,16 @@
         }
       }
     },
+    "No files to rename.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更するファイルがありません。"
+          }
+        }
+      }
+    },
     "No limit": {
       "localizations": {
         "ja": {
@@ -15244,6 +15254,493 @@
           "stringUnit": {
             "state": "translated",
             "value": "レシピを選択…"
+          }
+        }
+      }
+    },
+    "%@ image preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@の画像プレビュー"
+          }
+        }
+      }
+    },
+    "Animated and multipage images cannot be compared.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アニメーションと複数ページの画像は比較できません。"
+          }
+        }
+      }
+    },
+    "Colors reduced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "減色済み"
+          }
+        }
+      }
+    },
+    "Compare Results": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "処理結果の比較"
+          }
+        }
+      }
+    },
+    "Compare original and output images.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の画像と処理後の画像を比較します。"
+          }
+        }
+      }
+    },
+    "Compare…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較…"
+          }
+        }
+      }
+    },
+    "Comparison Unavailable": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較できません"
+          }
+        }
+      }
+    },
+    "Comparison supports successful still-image compression and conversion only.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比較できるのは、圧縮・変換に成功した静止画像です。"
+          }
+        }
+      }
+    },
+    "Compression complete.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圧縮完了"
+          }
+        }
+      }
+    },
+    "Conversion complete.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換完了"
+          }
+        }
+      }
+    },
+    "Decoding": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中"
+          }
+        }
+      }
+    },
+    "Dimensions reduced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解像度を縮小済み"
+          }
+        }
+      }
+    },
+    "Edited": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集後"
+          }
+        }
+      }
+    },
+    "File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル"
+          }
+        }
+      }
+    },
+    "File Results": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルごとの結果"
+          }
+        }
+      }
+    },
+    "Finding target size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指定容量を調整中"
+          }
+        }
+      }
+    },
+    "Finished": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "Fit Both Images": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の画像を全体表示"
+          }
+        }
+      }
+    },
+    "More Editing Actions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の編集操作"
+          }
+        }
+      }
+    },
+    "Optimizing PNG": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PNGを最適化中"
+          }
+        }
+      }
+    },
+    "Optional lossless PNG optimization was skipped to stay within the memory budget. The output was saved successfully.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ使用量を抑えるため、追加の可逆PNG最適化を省略しました。処理結果は正常に保存されました。"
+          }
+        }
+      }
+    },
+    "Pan Both Images": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の画像を移動"
+          }
+        }
+      }
+    },
+    "Pan Down": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下へ移動"
+          }
+        }
+      }
+    },
+    "Pan Left": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左へ移動"
+          }
+        }
+      }
+    },
+    "Pan Right": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右へ移動"
+          }
+        }
+      }
+    },
+    "Pan Up": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上へ移動"
+          }
+        }
+      }
+    },
+    "Preparing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備中"
+          }
+        }
+      }
+    },
+    "Queued": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
+    "Redo Edit (⇧⌘Z)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集をやり直す（⇧⌘Z）"
+          }
+        }
+      }
+    },
+    "Retry Failed Files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗したファイルを再実行"
+          }
+        }
+      }
+    },
+    "Retry Failed…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗した項目を再実行…"
+          }
+        }
+      }
+    },
+    "Saving output": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存中"
+          }
+        }
+      }
+    },
+    "Show Activity": {
+      "comment": "Opens retained processing results",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業状況を表示"
+          }
+        }
+      }
+    },
+    "Size increased by %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量が %@ 増加"
+          }
+        }
+      }
+    },
+    "Size reduced by %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量を %@ 削減"
+          }
+        }
+      }
+    },
+    "This result is no longer available in this Activity session.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアクティビティセッションでは、結果を参照できなくなりました。"
+          }
+        }
+      }
+    },
+    "Undo Edit (⌘Z)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集を取り消す（⌘Z）"
+          }
+        }
+      }
+    },
+    "Verifying": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検証中"
+          }
+        }
+      }
+    },
+    "View Both Images at Actual Pixels": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の画像を等倍表示"
+          }
+        }
+      }
+    },
+    "Zoom In": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大"
+          }
+        }
+      }
+    },
+    "Zoom Out": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小"
+          }
+        }
+      }
+    },
+    "“%@” changed since this operation. Run a new operation from Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” は処理後に変更されています。Finderから新しく操作を実行してください。"
+          }
+        }
+      }
+    },
+    "“%@” is missing. MacEase will not restore or replace it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” が見つかりません。復元や置き換えは行いません。"
+          }
+        }
+      }
+    },
+    "“%@” is missing. Select an existing file in Finder and run a new operation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is missing. Select an existing file in Finder and run a new operation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」が見つかりません。Finderで存在するファイルを選択し、新しい操作を実行してください。"
+          }
+        }
+      }
+    },
+    "Image dimensions were reduced.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像の解像度を下げました。"
+          }
+        }
+      }
+    },
+    "Palette: up to %lld colors": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット：最大%lld色"
+          }
+        }
+      }
+    },
+    "Saved with a palette of up to %lld colors.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大%lld色のパレット形式で保存しました。"
+          }
+        }
+      }
+    },
+    "“%@” could not reach the target size with these settings. Try a larger target size.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の設定では「%@」を目標サイズ以下にできませんでした。目標サイズを大きくして再実行してください。"
           }
         }
       }

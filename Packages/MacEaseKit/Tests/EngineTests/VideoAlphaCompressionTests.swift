@@ -90,27 +90,46 @@ import Testing
         return directory
     }
 
-    private func transparentClip(in directory: URL, container: OutputContainer) async throws -> URL {
+    private func transparentClip(in directory: URL, container: OutputContainer, textured: Bool = false) async throws
+        -> URL
+    {
         let url = directory.appending(path: "transparent.\(container.fileExtension)")
         var encoding = VideoEncoding(
             codec: container == .mov ? .prores4444 : .vp9, width: Self.width, height: Self.height,
             frameDuration: Self.frameDuration, bitrate: nil)
         encoding.alpha = true
+        if textured { encoding.quality = 1 }
         var encoder = try VideoEncoders.make(encoding, track: 1)
         let bounds = CGRect(x: 0, y: 0, width: Self.width, height: Self.height)
         let right = CGRect(x: Self.width / 2, y: 0, width: Self.width / 2, height: Self.height)
         let image = CIImage(color: .red).cropped(to: right)
             .composited(over: CIImage(color: .clear).cropped(to: bounds))
         let renderer = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
-        var created: CVPixelBuffer?
-        try #require(
-            CVPixelBufferCreate(
-                nil, Self.width, Self.height, kCVPixelFormatType_32BGRA,
-                [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &created) == kCVReturnSuccess)
-        let frame = try #require(created)
-        renderer.render(image, to: frame)
         var packets: [MediaPacket] = []
+        var random: UInt64 = 1
         for index in 0..<Self.frameCount {
+            var created: CVPixelBuffer?
+            try #require(
+                CVPixelBufferCreate(
+                    nil, Self.width, Self.height, kCVPixelFormatType_32BGRA,
+                    [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &created) == kCVReturnSuccess)
+            let frame = try #require(created)
+            renderer.render(image, to: frame)
+            if textured {
+                try #require(CVPixelBufferLockBaseAddress(frame, []) == kCVReturnSuccess)
+                let pixels = try #require(CVPixelBufferGetBaseAddress(frame)).assumingMemoryBound(to: UInt8.self)
+                let rowBytes = CVPixelBufferGetBytesPerRow(frame)
+                for y in 0..<Self.height {
+                    for x in (Self.width / 2)..<Self.width {
+                        let offset = y * rowBytes + x * 4
+                        for component in 0..<3 {
+                            random = random &* 6_364_136_223_846_793_005 &+ 1
+                            pixels[offset + component] = UInt8(truncatingIfNeeded: random >> 32)
+                        }
+                    }
+                }
+                CVPixelBufferUnlockBaseAddress(frame, [])
+            }
             packets += try encoder.encode(frame, timestamp: Int64(index) * Self.frameDuration)
         }
         packets += try encoder.finish()
@@ -136,10 +155,12 @@ import Testing
     func compressionRetainsTransparentAndOpaquePixels(container: OutputContainer) async throws {
         let directory = try folder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
-        let source = try await transparentClip(in: directory, container: container)
+        let source = try await transparentClip(in: directory, container: container, textured: true)
         let original = try Data(contentsOf: source)
         let preset = try platform(container: container, codec: container == .mov ? "hevc" : "vp9")
-        let goals: [VideoCompression.Goal] = [.quality(0.65), .bytes(Self.targetBytes), .platform(preset)]
+        let target = min(Self.targetBytes, Int64(original.count) * 3 / 4)
+        #expect(Int64(original.count) > target)
+        let goals: [VideoCompression.Goal] = [.quality(0.65), .bytes(target), .platform(preset)]
         for goal in goals {
             var settings = Settings()
             settings.outputMode = .replace

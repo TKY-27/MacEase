@@ -138,10 +138,13 @@ struct ColorQuantizer {
     }
 
     /// One Lloyd step on full-resolution pixels.
-    func refined(_ palette: [PaletteColor], pixels: [UInt8], indices: [UInt8]) -> [PaletteColor] {
+    func refined(_ palette: [PaletteColor], pixels: [UInt8], indices: [UInt8], cancelled: (() -> Bool)? = nil)
+        -> [PaletteColor]
+    {
         var sums = [SIMD4<Double>](repeating: .zero, count: palette.count)
         var counts = [Double](repeating: 0, count: palette.count)
         for (pixel, index) in indices.enumerated() {
+            if pixel & Self.cancellationCheckMask == 0, cancelled?() == true { return palette }
             let base = pixel * 4
             let color = PaletteColor(
                 red: pixels[base], green: pixels[base + 1], blue: pixels[base + 2], alpha: pixels[base + 3]
@@ -316,9 +319,12 @@ private struct WuSplitter {
         var boxes = [Box(lower: SIMD3(repeating: 0), upper: SIMD3(repeating: 32))]
         var variances = [variance(boxes[0])]
         while boxes.count < count {
-            guard let target = variances.indices.max(by: { variances[$0] < variances[$1] }), variances[target] > 0,
-                let (first, second) = split(boxes[target])
+            guard let target = variances.indices.max(by: { variances[$0] < variances[$1] }), variances[target] > 0
             else { break }
+            guard let (first, second) = split(boxes[target]) else {
+                variances[target] = 0
+                continue
+            }
             boxes[target] = first
             variances[target] = variance(first)
             boxes.append(second)

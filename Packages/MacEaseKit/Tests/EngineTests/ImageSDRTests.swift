@@ -147,7 +147,10 @@ import UniformTypeIdentifiers
         else { Issue.record("Expected a staged image"); return }
         try await OutputVerifier.verify(output)
         let written = try ImageFixtures.source(output.url)
-        if context.warnings == [.imageToneMappedToSDR] {
+        let expectedDimensionWarnings: [ItemWarning] = operation == .compress ? [.imageDimensionsReduced] : []
+        #expect(context.warnings.filter { $0 == .imageDimensionsReduced } == expectedDimensionWarnings)
+        let preservationWarnings = context.warnings.filter { $0 != .imageDimensionsReduced }
+        if preservationWarnings == [.imageToneMappedToSDR] {
             guard case .sdrImage = output.check else { Issue.record("Expected SDR verification"); return }
             #expect(try ImageSDR.classification(output.url) == .sdr)
             #expect(CGImageSourceCopyAuxiliaryDataInfoAtIndex(written, 0, kCGImageAuxiliaryDataTypeISOGainMap) == nil)
@@ -168,7 +171,7 @@ import UniformTypeIdentifiers
             }
             #expect(replacement.warnings.isEmpty)
         } else {
-            #expect(context.warnings.isEmpty)
+            #expect(preservationWarnings.isEmpty)
             guard case .image = output.check else { Issue.record("Expected HDR image verification"); return }
             let writtenMap = try #require(
                 CGImageSourceCopyAuxiliaryDataInfoAtIndex(written, 0, kCGImageAuxiliaryDataTypeISOGainMap))

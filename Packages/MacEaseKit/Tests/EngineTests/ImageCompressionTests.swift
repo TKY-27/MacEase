@@ -1,4 +1,5 @@
 import CoreGraphics
+import Formats
 import Foundation
 import ImageIO
 import MenuCatalog
@@ -60,6 +61,156 @@ private func expectTargetHit(for format: ImageFormat, minimumShare: Double = acc
         #expect(try Fixture.fileSize(output) <= target)
         #expect(try Fixture.properties(output)[kCGImagePropertyColorModel] as? String == "RGB")
         #expect(try Fixture.image(output).width == 400)
+        let details = try #require(outcome.details.first?.image)
+        #expect(details.originalWidth == 400 && details.outputWidth == 400)
+        #expect(!details.reducedDimensions)
+        #expect(details.quantized)
+        guard case .succeeded(_, let warnings) = try #require(outcome.outcomes.first) else {
+            Issue.record("Expected PNG success")
+            return
+        }
+        #expect(
+            warnings.contains { warning in
+                if case .imagePaletteReduced = warning { return true }
+                return false
+            })
+        #expect(!warnings.contains(.imageDimensionsReduced))
+    }
+
+    @Test func pngTargetFailuresKeepPixelsAndNeverLowerResolutionWithoutPermission() async throws {
+        let folder = try TestVolume.makeFolder()
+        let input = try Fixture.write(
+            [try Fixture.photo(width: 160, height: 120)], as: .png, to: folder.appending(path: "original.png"))
+        let original = try Data(contentsOf: input)
+        let roomy = try await Fixture.run(
+            .imageCompress, compression(.bytes(10_000_000), downscale: false), inputs: [input])
+        #expect(roomy.outcomes == [.skipped(.alreadyDone)])
+        #expect(try Data(contentsOf: input) == original)
+        let failure = try await Fixture.run(.imageCompress, compression(.bytes(1), downscale: false), inputs: [input])
+        #expect(failure.outcomes == [.failed(.pngTargetNotReached)])
+        #expect(failure.record == nil)
+        let contents = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        #expect(contents.map(\.lastPathComponent) == [input.lastPathComponent])
+        #expect(try Data(contentsOf: input) == original)
+        #expect(try Fixture.image(input).width == 160)
+        #expect(try Fixture.image(input).height == 120)
+    }
+
+    @Test(arguments: [false, true])
+    func paletteCandidatesKeepPriorityPixelsProfileAndMetadata(fewColors: Bool) async throws {
+        let width = fewColors ? 2 : 192
+        let height = fewColors ? 2 : 128
+        let image = try Fixture.photo(width: width, height: height)
+        let metadata = CGImageMetadataCreateMutable()
+        #expect(
+            CGImageMetadataSetValueMatchingImageProperty(
+                metadata, kCGImagePropertyExifDictionary, kCGImagePropertyExifUserComment,
+                "Concurrent palette metadata" as CFString))
+        var options = EncodeOptions(quality: ImageEncoder.maximumQuality)
+        options.metadata = metadata
+        options.pngColors = 256
+        options.maximumPNGBytes = 1_000_000
+        let frames = [ImageFrame(image: image, duration: 0)]
+        let sequential = try ImageEncoder.encode(frames, as: .png, options: options)
+        let prepared = try #require(try ImageEncoder.preparePNGTargetPixels(frames, options: options, retaining: []))
+        let candidate = try #require(
+            await ImageEncoder.quantizedCandidates(
+                frames, colors: [256, 128, 64], under: 1_000_000, options: options, preparedPixels: prepared))
+        #expect(candidate.colors == 256)
+        #expect(candidate.reducedColors == !fewColors)
+        #expect(candidate.encoded.count <= 1_000_000)
+        let decoder = try #require(CGImageSourceCreateWithData(candidate.encoded as CFData, nil))
+        let decoded = try #require(CGImageSourceCreateImageAtIndex(decoder, 0, nil))
+        let reference = try #require(CGImageSourceCreateWithData(sequential as CFData, nil))
+        let expected = try #require(CGImageSourceCreateImageAtIndex(reference, 0, nil))
+        #expect(decoded.width == width && decoded.height == height)
+        #expect(try PixelBuffer(cgImage: decoded).rgba == PixelBuffer(cgImage: expected).rgba)
+        #expect((decoded.colorSpace?.copyICCData() as Data?) == (expected.colorSpace?.copyICCData() as Data?))
+        let properties = try #require(CGImageSourceCopyPropertiesAtIndex(decoder, 0, nil) as? [CFString: Any])
+        let exif = try #require(properties[kCGImagePropertyExifDictionary] as? [CFString: Any])
+        #expect(exif[kCGImagePropertyExifUserComment] as? String == "Concurrent palette metadata")
+    }
+
+    @Test func cancellationStopsConcurrentPaletteCandidates() async throws {
+        let image = try Fixture.photo(width: 1024, height: 768)
+        let encoding = Task {
+            try await ImageEncoder.quantizedCandidates(
+                [ImageFrame(image: image, duration: 0)], colors: [256, 128, 64], under: 1_000_000,
+                options: EncodeOptions(quality: ImageEncoder.maximumQuality))
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        encoding.cancel()
+        do {
+            _ = try await encoding.value
+            Issue.record("Cancelled palette encoding completed")
+        } catch is CancellationError {}
+    }
+
+    @Test func pngTargetDownscaleRunsOnlyWhenAllowed() async throws {
+        let folder = try TestVolume.makeFolder()
+        let input = try Fixture.write(
+            [try Fixture.photo(width: 160, height: 120)], as: .png, to: folder.appending(path: "permission.png"))
+        let original = try Data(contentsOf: input)
+        let target: Int64 = 1_500
+        let blocked = try await Fixture.run(
+            .imageCompress, compression(.bytes(target), downscale: false), inputs: [input], outputMode: .newFile)
+        #expect(blocked.outcomes == [.failed(.pngTargetNotReached)])
+        #expect(try Data(contentsOf: input) == original)
+        let allowed = try await Fixture.run(
+            .imageCompress, compression(.bytes(target), downscale: true), inputs: [input], outputMode: .newFile)
+        let output = try Fixture.output(of: allowed)
+        let decoded = try Fixture.image(output)
+        #expect(try Fixture.fileSize(output) <= target)
+        #expect(decoded.width < 160 && decoded.height < 120)
+        #expect(allowed.details.first?.image?.reducedDimensions == true)
+        #expect(try Data(contentsOf: input) == original)
+    }
+
+    @Test func optimizedPNGConversionKeepsPixelsProfileAndDescriptiveMetadata() async throws {
+        let folder = try TestVolume.makeFolder()
+        let fields: [CFString: Any] = [
+            kCGImagePropertyExifDictionary: [kCGImagePropertyExifUserComment: "Preserved PNG comment"],
+            kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 35.0, kCGImagePropertyGPSLatitudeRef: "N"],
+        ]
+        let input = try Fixture.write(
+            [try Fixture.photo(width: 97, height: 63)], as: .tiff,
+            to: folder.appending(path: "tagged.tiff"), frameProperties: fields)
+        let original = try Fixture.image(input)
+        let originalPixels = try PixelBuffer(cgImage: original)
+        let outcome = try await Fixture.run(.imageConvert, preset: "png", inputs: [input])
+        let output = try Fixture.output(of: outcome)
+        let decoded = try Fixture.image(output)
+        #expect(try PixelBuffer(cgImage: decoded).rgba == originalPixels.rgba)
+        #expect((decoded.colorSpace?.copyICCData() as Data?) == (original.colorSpace?.copyICCData() as Data?))
+        let properties = try Fixture.properties(output)
+        let exif = try #require(properties[kCGImagePropertyExifDictionary] as? [CFString: Any])
+        #expect(exif[kCGImagePropertyExifUserComment] as? String == "Preserved PNG comment")
+        let gps = try #require(properties[kCGImagePropertyGPSDictionary] as? [CFString: Any])
+        #expect(gps[kCGImagePropertyGPSLatitude] as? Double == 35.0)
+        #expect(outcome.details.first?.image?.quantized == false)
+    }
+
+    @Test func optimizedPNGConversionKeepsGrayscaleICCProfile() async throws {
+        let folder = try TestVolume.makeFolder()
+        let profile = try #require(CGColorSpace(name: CGColorSpace.genericGrayGamma2_2))
+        let provider = try #require(CGDataProvider(data: Data([32, 192]) as CFData))
+        let gray = try #require(
+            CGImage(
+                width: 2, height: 1, bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: 2,
+                space: profile, bitmapInfo: [], provider: provider, decode: nil, shouldInterpolate: false,
+                intent: .defaultIntent))
+        let input = try Fixture.write([gray], as: .tiff, to: folder.appending(path: "gray.tiff"))
+        let original = try Fixture.image(input)
+        let expectedPixels = try (0..<2).map { try Fixture.pixel(original, x: $0, y: 0) }
+        let outcome = try await Fixture.run(.imageConvert, preset: "png", inputs: [input])
+        let decoded = try Fixture.image(try Fixture.output(of: outcome))
+        #expect(decoded.colorSpace?.model == .monochrome)
+        #expect((decoded.colorSpace?.copyICCData() as Data?) == (original.colorSpace?.copyICCData() as Data?))
+        #expect(decoded.bitsPerComponent == original.bitsPerComponent)
+        for x in 0..<2 {
+            let actual = try Fixture.pixel(decoded, x: x, y: 0)
+            #expect(actual == expectedPixels[x])
+        }
     }
 
     @Test func animatedGIFsShrinkUnderTheTarget() async throws {

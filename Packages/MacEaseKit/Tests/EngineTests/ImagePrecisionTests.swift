@@ -77,6 +77,33 @@ struct ImagePrecisionTests {
         #expect(try Data(contentsOf: input) == original)
     }
 
+    @Test func paletteCompressionDisclosesSixteenBitPrecisionReduction() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let input = folder.appending(path: "precision.png")
+        try ImageFixtures.write([Self.sourceImage()], as: .png, to: input)
+        try Self.expectPrecision(ImageFixtures.image(input))
+        let original = try Data(contentsOf: input)
+        var limits = MediaLimits()
+        limits.maxWidth = Self.width / 2
+        limits.quality = 85
+        limits.formats = ["png"]
+        let preset = PlatformPreset(
+            id: "precision", name: LocalizedName(en: "Precision", ja: "Precision"),
+            image: limits, gif: nil, video: nil, audio: nil)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        let compression = ImageCompression(
+            goal: .platform(preset), allowsDownscale: false, allowsFrameRateReduction: false, stripsGPS: false)
+        guard case .replace(_, let output) = try await ImageCompressor.compress(input, compression, context: context)
+        else { Issue.record("Expected staged PNG compression"); return }
+        #expect(try ImageFixtures.image(output.url).bitsPerComponent == 8)
+        #expect(context.details.image?.quantized == true)
+        #expect(context.warnings.contains(.imagePaletteReduced(colors: 256)))
+        #expect(try Data(contentsOf: input) == original)
+    }
+
     private static func applying(_ edit: Edit, to source: CGImage) throws -> CGImage {
         switch edit {
         case .resize:

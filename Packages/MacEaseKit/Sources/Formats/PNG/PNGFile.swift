@@ -1,4 +1,5 @@
 import CDeflate
+import Darwin
 import Foundation
 
 public struct PNGChunk: Equatable, Sendable {
@@ -47,6 +48,10 @@ enum PNGFilterStrategy: CaseIterable {
     case paeth
 }
 
+public enum PNGOutputError: Error, Equatable {
+    case sizeLimitExceeded
+}
+
 public enum PNGFile {
     static let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
     static let maximumLevel: Int32 = 12
@@ -83,7 +88,9 @@ public enum PNGFile {
         transparency: [UInt8]? = nil,
         ancillary: [PNGChunk] = [],
         strategy: PNGFilterStrategy,
-        level: Int32
+        level: Int32,
+        maximumCompressedBytes: Int64? = nil,
+        cancelled: (() -> Bool)? = nil
     ) throws -> Data {
         guard raster.width > 0, raster.height > 0,
             UInt32(exactly: raster.width) != nil, UInt32(exactly: raster.height) != nil,
@@ -108,7 +115,12 @@ public enum PNGFile {
         if let transparency, !transparency.isEmpty {
             chunks.append(PNGChunk(type: "tRNS", payload: Data(transparency)))
         }
-        chunks.append(PNGChunk(type: "IDAT", payload: try compress(filtered(raster, strategy: strategy), level: level)))
+        chunks.append(
+            PNGChunk(
+                type: "IDAT",
+                payload: try compress(
+                    filtered(raster, strategy: strategy, cancelled: cancelled), level: level,
+                    maximumBytes: maximumCompressedBytes)))
         chunks.append(PNGChunk(type: "IEND", payload: Data()))
         var output = Data(signature)
         for chunk in chunks {
@@ -116,22 +128,30 @@ public enum PNGFile {
                 throw FormatError.corrupt(
                     String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
             }
-            output.append(serialized(chunk))
+            append(chunk, to: &output)
         }
         return output
     }
 
     static func serialized(_ chunk: PNGChunk) -> Data {
         var output = Data()
-        output.appendBigEndian(UInt32(chunk.payload.count))
-        let typeAndPayload = Data(chunk.type.utf8) + chunk.payload
-        output.append(typeAndPayload)
-        let crc = typeAndPayload.withUnsafeBytes { libdeflate_crc32(0, $0.baseAddress, $0.count) }
-        output.appendBigEndian(crc)
+        append(chunk, to: &output)
         return output
     }
 
-    static func compress(_ input: [UInt8], level: Int32) throws -> Data {
+    private static func append(_ chunk: PNGChunk, to output: inout Data) {
+        output.appendBigEndian(UInt32(chunk.payload.count))
+        let typeBytes = Array(chunk.type.utf8)
+        output.append(contentsOf: typeBytes)
+        output.append(chunk.payload)
+        let initial = typeBytes.withUnsafeBytes { libdeflate_crc32(0, $0.baseAddress, $0.count) }
+        let crc = chunk.payload.withUnsafeBytes { libdeflate_crc32(initial, $0.baseAddress, $0.count) }
+        output.appendBigEndian(crc)
+    }
+
+    static func compress(
+        _ input: Data, level: Int32, maximumBytes: Int64? = nil
+    ) throws -> Data {
         guard let compressor = libdeflate_alloc_compressor(level) else {
             throw FormatError.encoderFailure("libdeflate allocation")
         }
@@ -140,14 +160,36 @@ public enum PNGFile {
         guard bound <= Int(UInt32.max) else {
             throw FormatError.corrupt(String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
         }
-        var output = [UInt8](repeating: 0, count: bound)
+        let capacity: Int
+        if let maximumBytes {
+            guard maximumBytes > 0, let limit = Int(exactly: maximumBytes) else {
+                throw PNGOutputError.sizeLimitExceeded
+            }
+            capacity = min(bound, limit)
+        } else {
+            capacity = bound
+        }
+        var output = try mappedBytes(count: capacity)
         let written = input.withUnsafeBytes { source in
             output.withUnsafeMutableBytes { target in
                 libdeflate_zlib_compress(compressor, source.baseAddress, source.count, target.baseAddress, target.count)
             }
         }
-        guard written > 0 else { throw FormatError.encoderFailure("deflate output did not fit") }
-        return Data(output.prefix(written))
+        guard written > 0 else {
+            if capacity < bound { throw PNGOutputError.sizeLimitExceeded }
+            throw FormatError.encoderFailure("deflate output did not fit")
+        }
+        return try output.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { throw FormatError.encoderFailure("PNG compression buffer") }
+            return Data(bytes: base, count: written)
+        }
+    }
+
+    private static func mappedBytes(count: Int) throws -> Data {
+        guard let mapping = mmap(nil, count, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
+            mapping != MAP_FAILED
+        else { throw FormatError.encoderFailure("PNG work allocation") }
+        return Data(bytesNoCopy: mapping, count: count, deallocator: .unmap)
     }
 
     /// For sources that were not PNG.
@@ -156,7 +198,7 @@ public enum PNGFile {
         if let iccProfile {
             var payload = Data("ICC Profile".utf8)
             payload.append(contentsOf: [0, 0])
-            let compressed = try compress([UInt8](iccProfile), level: maximumLevel)
+            let compressed = try compress(iccProfile, level: maximumLevel)
             guard compressed.count <= Int(UInt32.max) - payload.count else {
                 throw FormatError.corrupt(
                     String(localized: "PNG chunk too large", comment: "Unrepresentable image chunk"))
@@ -177,38 +219,56 @@ public enum PNGFile {
         return chunks
     }
 
-    private static func filtered(_ raster: PNGRaster, strategy: PNGFilterStrategy) -> [UInt8] {
+    private static func filtered(
+        _ raster: PNGRaster, strategy: PNGFilterStrategy, cancelled: (() -> Bool)?
+    ) throws
+        -> Data
+    {
         let rowBytes = raster.rowBytes
         let bpp = raster.bytesPerPixel
-        var output = [UInt8]()
-        output.reserveCapacity((rowBytes + 1) * raster.height)
-        var candidates = [[UInt8]](repeating: [UInt8](repeating: 0, count: rowBytes), count: 5)
-        let zeroRow = [UInt8](repeating: 0, count: rowBytes)
-        let samples = raster.samples
-        for y in 0..<raster.height {
-            let row = samples[(y * rowBytes)..<((y + 1) * rowBytes)]
-            let previous = y == 0 ? zeroRow[0..<rowBytes] : samples[((y - 1) * rowBytes)..<(y * rowBytes)]
-            let filters: [Int]
-            switch strategy {
-            case .none: filters = [0]
-            case .paeth: filters = [4]
-            case .adaptive: filters = raster.bitDepth < 8 ? [0] : [0, 1, 2, 3, 4]
-            }
-            var best = filters[0]
-            var bestScore = Int.max
-            for filter in filters {
-                apply(filter, row: row, previous: previous, bpp: bpp, into: &candidates[filter])
-                guard filters.count > 1 else { break }
-                let score = candidates[filter].reduce(0) { $0 + Int(Int8(bitPattern: $1).magnitude) }
-                if score < bestScore {
-                    bestScore = score
-                    best = filter
+        let count = (rowBytes + 1) * raster.height
+        var filtered = try mappedBytes(count: count)
+        try filtered.withUnsafeMutableBytes { (output: UnsafeMutableRawBufferPointer) in
+            var offset = 0
+            var candidates = [[UInt8]](repeating: [UInt8](repeating: 0, count: rowBytes), count: 5)
+            let zeroRow = [UInt8](repeating: 0, count: rowBytes)
+            let samples = raster.samples
+            for y in 0..<raster.height {
+                if cancelled?() == true { throw CancellationError() }
+                let row = samples[(y * rowBytes)..<((y + 1) * rowBytes)]
+                if strategy == .none || strategy == .adaptive && raster.bitDepth < 8 {
+                    output[offset] = 0
+                    offset += 1
+                    UnsafeMutableRawBufferPointer(rebasing: output[offset..<(offset + rowBytes)]).copyBytes(from: row)
+                    offset += rowBytes
+                    continue
                 }
+                let previous = y == 0 ? zeroRow[0..<rowBytes] : samples[((y - 1) * rowBytes)..<(y * rowBytes)]
+                let filters: [Int]
+                switch strategy {
+                case .none: filters = [0]
+                case .paeth: filters = [4]
+                case .adaptive: filters = raster.bitDepth < 8 ? [0] : [0, 1, 2, 3, 4]
+                }
+                var best = filters[0]
+                var bestScore = Int.max
+                for filter in filters {
+                    apply(filter, row: row, previous: previous, bpp: bpp, into: &candidates[filter])
+                    guard filters.count > 1 else { break }
+                    let score = candidates[filter].reduce(0) { $0 + Int(Int8(bitPattern: $1).magnitude) }
+                    if score < bestScore {
+                        bestScore = score
+                        best = filter
+                    }
+                }
+                output[offset] = UInt8(best)
+                offset += 1
+                UnsafeMutableRawBufferPointer(rebasing: output[offset..<(offset + rowBytes)]).copyBytes(
+                    from: candidates[best])
+                offset += rowBytes
             }
-            output.append(UInt8(best))
-            output.append(contentsOf: candidates[best])
         }
-        return output
+        return filtered
     }
 
     private static func apply(

@@ -50,7 +50,14 @@ import UniformTypeIdentifiers
         #expect(properties[kCGImagePropertyPixelWidth] as? Int == (resized ? width / 2 : width))
         #expect(properties[kCGImagePropertyPixelHeight] as? Int == (resized ? height / 2 : height))
         if preset == "compress" { #expect(try ImageFixtures.fileSize(output.url) <= Int64(original.count / 2)) }
-        #expect(context.warnings == (["png", "compress"].contains(preset) ? [.pngOptimizationSkipped] : []))
+        #expect(context.warnings.isEmpty)
+        if ["png", "compress"].contains(preset) {
+            #expect(context.details.image?.quantized == false)
+            #expect(context.details.image?.reducedDimensions == false)
+            let originalPixel = try ImageFixtures.pixel(ImageFixtures.image(input), x: width / 2, y: height / 2)
+            let outputPixel = try ImageFixtures.pixel(ImageFixtures.image(output.url), x: width / 2, y: height / 2)
+            #expect(outputPixel == originalPixel)
+        }
         #expect(try Data(contentsOf: input) == original)
     }
 }

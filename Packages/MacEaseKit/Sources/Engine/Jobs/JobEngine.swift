@@ -19,6 +19,7 @@ public struct BatchOutcome: Sendable {
     public let reportText: String?
     public let record: BatchRecord?
     public let historyFailed: Bool
+    public let details: [ItemDetails]
 
     public var wasCancelled: Bool { outcomes.contains(.failed(.cancelled)) }
 }
@@ -28,6 +29,8 @@ public struct BatchProgress: Sendable {
     public let completedItems: Int
     /// An unfinished item, preferring one already started.
     public let currentItem: Int?
+    public let itemPhases: [ItemPhase]
+    public let elapsedSeconds: [Double]
 }
 
 public final class JobEngine: Sendable {
@@ -84,6 +87,7 @@ public final class JobEngine: Sendable {
         let index: Int
         let outcome: ItemOutcome
         let text: (String, TextDestination)?
+        let details: ItemDetails
     }
 
     /// Cancel the calling task to stop.
@@ -98,13 +102,18 @@ public final class JobEngine: Sendable {
             for (index, workItem) in batch.items.enumerated() {
                 group.addTask {
                     let context = ItemContext(
-                        settings: settings, staging: self.staging, hatchExtractions: self.hatchExtractions
+                        settings: settings, staging: self.staging, hatchExtractions: self.hatchExtractions,
+                        phase: { tracker.phase(index, phase: $0, report: progress) }
                     ) { fraction in
                         tracker.update(index, fraction: fraction, report: progress)
                     }
+                    let started = Date()
                     let (outcome, text) = await self.perform(workItem, of: batch, context: context, tracker: tracker)
+                    context.phase(.finished)
                     context.progress(1)
-                    return ItemResultSummary(index: index, outcome: outcome, text: text)
+                    var details = context.details
+                    details.elapsedSeconds = Date().timeIntervalSince(started)
+                    return ItemResultSummary(index: index, outcome: outcome, text: text, details: details)
                 }
             }
             var collected: [ItemResultSummary] = []
@@ -133,7 +142,8 @@ public final class JobEngine: Sendable {
             clipboardText: clipboard.isEmpty ? nil : clipboard.joined(separator: "\n"),
             reportText: showsReport ? (reports.isEmpty ? clipboard : reports).joined(separator: "\n") : nil,
             record: await history.records.last { $0.id == batch.id },
-            historyFailed: tracker.historyFailed
+            historyFailed: tracker.historyFailed,
+            details: summaries.map(\.details)
         )
     }
 
@@ -151,6 +161,14 @@ public final class JobEngine: Sendable {
         do {
             try await gate.acquire()
             do {
+                context.phase(.preparing)
+                if let expected = workItem.requiredInputStamps {
+                    context.recordInputs(expected)
+                    for input in workItem.inputs {
+                        guard let stamp = expected[input] else { throw ActivityAvailability.unavailable }
+                        try ActivitySession.validate(input, stamp: stamp)
+                    }
+                }
                 if !workItem.durableArchive { try Self.downloadIfNeeded(workItem.inputs) }
                 for input in workItem.inputs where !workItem.durableArchive {
                     var metadata = stat()
@@ -159,6 +177,9 @@ public final class JobEngine: Sendable {
                     }
                     if metadata.st_mode & S_IFMT != S_IFDIR { inputStamps[input] = try FileStamp(of: input) }
                 }
+                var identities: [URL: FileStamp] = [:]
+                for input in inputStamps.keys { identities[input] = try FileStamp(of: input, includingIdentity: true) }
+                if workItem.requiredInputStamps == nil { context.recordInputs(identities) }
                 result = try await workItem.body(context)
                 await gate.release()
             } catch {
@@ -183,6 +204,7 @@ public final class JobEngine: Sendable {
         let outcome: (ItemOutcome, (String, TextDestination)?)
         do {
             try await history.checkAcceptingWork()
+            context.phase(.saving)
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs, inputStamps: inputStamps,
                 context: context, batch: batch, tracker: tracker, records: &records)
@@ -229,6 +251,13 @@ public final class JobEngine: Sendable {
         }
     }
 
+    private func recordOutput(_ url: URL, stamp: FileStamp?, context: ItemContext) {
+        guard let stamp, stamp.size != nil, stamp.matches(url.path) else { return }
+        do { context.recordOutput(url, stamp: try FileStamp(of: url, includingIdentity: true)) } catch {
+            logger.error("Result identity unavailable: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
     private func logged(_ error: EngineError, batch: Batch, workItem: WorkItem) -> EngineError {
         switch error {
         case .unexpected(let detail), .commitFailed(let detail):
@@ -264,6 +293,7 @@ public final class JobEngine: Sendable {
                 output, destination: destination, sources: sources, attributeSource: inputs.first)
             records.append(.derived(output: committed.output.path, stamp: committed.stamp))
             outputs.append(committed.output)
+            recordOutput(committed.output, stamp: committed.stamp, context: context)
         case .hatchExtraction:
             throw EngineError.unexpected("Durable extraction requires durable work")
         case .replace(let original, let output):
@@ -278,6 +308,7 @@ public final class JobEngine: Sendable {
                 let committed = try await committer.derive(named, nextTo: original, expectedStamp: expectedStamp)
                 records.append(.derived(output: committed.output.path, stamp: committed.stamp))
                 outputs.append(committed.output)
+                recordOutput(committed.output, stamp: committed.stamp, context: context)
                 break
             }
             let cloneDirectory = try context.stagingDirectory(for: original)
@@ -295,6 +326,7 @@ public final class JobEngine: Sendable {
             }
             if let warning = replaced.warning { context.warn(warning) }
             outputs.append(replaced.output)
+            recordOutput(replaced.output, stamp: replaced.stamp, context: context)
         case .derived(let original, let staged):
             for file in staged {
                 try await history.checkAcceptingCommits()
@@ -303,6 +335,7 @@ public final class JobEngine: Sendable {
                     attributeSource: inputs.contains(original) ? original : nil)
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
+                recordOutput(output.output, stamp: output.stamp, context: context)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .exported(let source, let stamp, let destination, let staged, let preservingAttributes):
@@ -313,6 +346,7 @@ public final class JobEngine: Sendable {
                     preservingAttributes: preservingAttributes)
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
+                recordOutput(output.output, stamp: output.stamp, context: context)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .rename(let plans):
@@ -330,6 +364,7 @@ public final class JobEngine: Sendable {
                         from: plan.url.path, to: renamed.output.path,
                         stamp: renamed.stamp))
                 outputs.append(renamed.output)
+                recordOutput(renamed.output, stamp: renamed.stamp, context: context)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .trash(let urls, let permanently, let condition):
@@ -385,21 +420,34 @@ public final class JobEngine: Sendable {
 
 private final class BatchTracker: Sendable {
     private let fractions: Mutex<[Double]>
+    private let phases: Mutex<[ItemPhase]>
+    private let started = Date()
     private let failedHistory = Mutex(false)
 
     init(itemCount: Int) {
         fractions = Mutex([Double](repeating: 0, count: itemCount))
+        phases = Mutex([ItemPhase](repeating: .queued, count: itemCount))
+    }
+
+    func phase(_ index: Int, phase: ItemPhase, report: (BatchProgress) -> Void) {
+        phases.withLock { $0[index] = phase }
+        update(index, fraction: nil, report: report)
     }
 
     /// Reporting under the lock keeps order.
-    func update(_ index: Int, fraction: Double, report: (BatchProgress) -> Void) {
+    func update(_ index: Int, fraction: Double?, report: (BatchProgress) -> Void) {
         fractions.withLock { values in
-            values[index] = fraction
+            let itemPhases = phases.withLock { $0 }
+            if let fraction { values[index] = itemPhases[index] == .finished ? fraction : min(fraction, 0.99) }
             report(
                 BatchProgress(
                     fraction: values.reduce(0, +) / Double(values.count),
                     completedItems: values.count { $0 >= 1 },
-                    currentItem: values.firstIndex { $0 > 0 && $0 < 1 } ?? values.firstIndex { $0 < 1 }))
+                    currentItem: itemPhases.indices.first {
+                        itemPhases[$0] != .queued && itemPhases[$0] != .finished && values[$0] < 1
+                    } ?? values.firstIndex { $0 < 1 },
+                    itemPhases: itemPhases,
+                    elapsedSeconds: values.map { _ in Date().timeIntervalSince(started) }))
         }
     }
 

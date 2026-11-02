@@ -112,7 +112,10 @@ enum OutputVerifier {
     private static func verifyPackets(_ demuxer: any MediaDemuxer) throws {
         var demuxer = demuxer
         var seen = Set<Int>()
-        while let packet = try demuxer.nextPacket() { seen.insert(packet.track) }
+        while let packet = try demuxer.nextPacket() {
+            try Task.checkCancellation()
+            seen.insert(packet.track)
+        }
         guard Set(demuxer.tracks.map(\.number)).isSubset(of: seen) else {
             throw EngineError.encodeFailed("output has a track without packets")
         }

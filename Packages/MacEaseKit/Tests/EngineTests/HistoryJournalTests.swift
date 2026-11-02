@@ -6,6 +6,52 @@ import Testing
 @testable import Engine
 
 @Suite struct HistoryJournalTests {
+    @Test func legacyRecipeSettingsSurviveHistoryCompaction() async throws {
+        let folder = try Self.makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let earlier = BatchRecord(
+            id: UUID(), operation: .imageCompress, date: Date(timeIntervalSinceReferenceDate: 1),
+            items: [.derived(output: "/earlier", stamp: nil)], undone: false)
+        var settings = Settings()
+        settings.image.jpegQuality = 71
+        settings.video.allowDownscale = false
+        settings.video.allowFrameRateReduction = false
+        let recipe = Recipe(name: "Legacy", variants: [OutputVariant(output: .imageJPEG)])
+        let finished = BatchRecord(
+            id: UUID(), operation: .filesFinish, date: Date(timeIntervalSinceReferenceDate: 2),
+            recipeExecution: RecipeExecution(recipe: recipe, settings: settings),
+            items: [.derived(output: "/finished", stamp: nil)], undone: false)
+        var snapshot = HistorySnapshot()
+        snapshot.batches = [earlier, finished]
+        snapshot.sequence = 37
+        var saved = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        var batches = try #require(saved["batches"] as? [[String: Any]])
+        var execution = try #require(batches[1]["recipeExecution"] as? [String: Any])
+        var storedSettings = try #require(execution["settings"] as? [String: Any])
+        var image = try #require(storedSettings["image"] as? [String: Any])
+        image.removeValue(forKey: "allowDownscale")
+        image.removeValue(forKey: "allowFrameRateReduction")
+        storedSettings["image"] = image
+        execution["settings"] = storedSettings
+        batches[1]["recipeExecution"] = execution
+        saved["batches"] = batches
+        try JSONSerialization.data(withJSONObject: saved).write(to: folder.appending(path: "history.json"))
+        try Data().write(to: folder.appending(path: "history.journal"))
+
+        let loaded = HistoryStore(supportDirectory: folder)
+        let records = await loaded.records
+        #expect(records.map(\.id) == [earlier.id, finished.id])
+        #expect(records.map(\.items) == [earlier.items, finished.items])
+        let restored = try #require(records.last?.recipeExecution?.settings)
+        #expect(restored.image.jpegQuality == 71)
+        #expect(restored.image.allowDownscale == false)
+        #expect(restored.image.allowFrameRateReduction == false)
+        try await loaded.flush()
+        let reopened = HistoryStore(supportDirectory: folder)
+        #expect(await reopened.records.map(\.id) == [earlier.id, finished.id])
+        #expect(await reopened.records.last?.recipeExecution?.settings.image.allowDownscale == false)
+    }
+
     @Test func legacySnapshotAndJournalPreserveBatchMetadataAndStamps() async throws {
         let folder = try Self.makeFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }

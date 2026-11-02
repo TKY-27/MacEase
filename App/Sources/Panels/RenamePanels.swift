@@ -42,6 +42,7 @@ struct RenamePanel: View {
     private static let startRange = 0...999_999
     private static let stepRange = 1...1_000
     private static let digitRange = 1...9
+    private static let controlsHeight: CGFloat = 260
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,8 +71,7 @@ struct RenamePanel: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollDisabled(true)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(height: Self.controlsHeight)
             preview
             PanelBar(
                 actionTitle: String(localized: "Rename", comment: "Rename panel action"),
@@ -176,6 +176,12 @@ struct AIRenamePanel: View {
                 }
             }
             .frame(height: PanelLayout.listHeight)
+            .overlay {
+                if files.isEmpty {
+                    Text("No files to rename.")
+                        .foregroundStyle(.secondary)
+                }
+            }
             PanelBar(
                 actionTitle: String(localized: "Rename Selected", comment: "AI rename action"),
                 canRun: !isSuggesting && !selectedPlans.isEmpty, cancel: cancel

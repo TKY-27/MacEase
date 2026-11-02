@@ -29,6 +29,9 @@ public enum EngineError: Error, Equatable, Sendable {
     case permissionDenied(PermissionLocation)
     case cancelled
     case targetUnreachable(smallestBytes: Int64)
+    case pngTargetNotReached
+    case retryInputMissing
+    case retryInputChanged
     case invalidInput(InvalidInput)
     case missingCapability(Capability)
     case unexpected(String)
@@ -137,6 +140,13 @@ extension EngineError {
         otherwise: (String) -> EngineError = EngineError.unexpected
     ) -> EngineError {
         if let engineError = error as? EngineError { return engineError }
+        if let availability = error as? ActivityAvailability {
+            switch availability {
+            case .missing: return .retryInputMissing
+            case .changed: return .retryInputChanged
+            default: break
+            }
+        }
         if let oggError = error as? OggReadError {
             switch oggError {
             case .chainedStream: return .invalidInput(.chainedStream)

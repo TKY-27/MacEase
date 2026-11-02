@@ -110,7 +110,9 @@ struct AnalyzePanel: View {
     let export: (AnalysisExportFormat) -> Void
 
     private static let chartedTypes = 8
-    private static let chartHeight: CGFloat = 120
+    private static let chartRowHeight: CGFloat = 26
+    private static let chartAxisHeight: CGFloat = 32
+    private static let formHeight: CGFloat = 320
 
     var body: some View {
         VStack(spacing: 0) {
@@ -142,12 +144,13 @@ struct AnalyzePanel: View {
                             AxisValueLabel { Text(value.as(Int64.self)?.fileSize ?? "") }
                         }
                     }
-                    .frame(height: Self.chartHeight)
+                    .frame(
+                        height: CGFloat(min(analysis.sizeByType.count, Self.chartedTypes)) * Self.chartRowHeight
+                            + Self.chartAxisHeight)
                 }
             }
             .formStyle(.grouped)
-            .scrollDisabled(true)
-            .fixedSize(horizontal: false, vertical: true)
+            .frame(height: Self.formHeight)
             Table(analysis.largestFiles) {
                 TableColumn("Largest Files") { Text(relativePath($0.url, roots: analysis.roots.map(\.canonical))) }
                 TableColumn("Size") { Text($0.bytes.fileSize).monospacedDigit() }

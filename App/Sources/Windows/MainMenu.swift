@@ -3,7 +3,9 @@ import AppKit
 /// Routes key equivalents; agents hide the bar.
 enum MainMenu {
     @MainActor
-    static func make(openSettings: @escaping @MainActor () -> Void) -> NSMenu {
+    static func make(
+        openSettings: @escaping @MainActor () -> Void, openActivity: @escaping @MainActor () -> Void
+    ) -> NSMenu {
         let main = NSMenu()
         main.addItem(
             submenu(
@@ -11,7 +13,11 @@ enum MainMenu {
                 [
                     ClosureMenuItem(
                         title: String(localized: "Settings…", comment: "Menu bar item"), keyEquivalent: ",",
-                        handler: openSettings)
+                        handler: openSettings),
+                    .separator(),
+                    menuItem(
+                        String(localized: "Quit MacEase", comment: "Menu bar item"),
+                        #selector(NSApplication.terminate(_:)), "q"),
                 ]))
         main.addItem(
             submenu(
@@ -31,9 +37,12 @@ enum MainMenu {
             submenu(
                 String(localized: "Window", comment: "Main menu title"),
                 [
+                    ClosureMenuItem(
+                        title: String(localized: "Show Activity", comment: "Window menu item"), handler: openActivity),
+                    .separator(),
                     menuItem(
                         String(localized: "Close", comment: "Window menu item"), #selector(NSWindow.performClose(_:)),
-                        "w")
+                        "w"),
                 ]))
         return main
     }

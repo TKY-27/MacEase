@@ -4,6 +4,46 @@ import MenuCatalog
 
 /// Localized, actionable text for engine outcomes.
 enum UserMessages {
+    static func sizeChange(original: Int64, output: Int64) -> String {
+        let fraction = Double(output - original) / Double(original)
+        if fraction > 0 {
+            return String(localized: "Size increased by \(fraction.formatted(.percent.precision(.fractionLength(1))))")
+        }
+        return String(localized: "Size reduced by \((-fraction).formatted(.percent.precision(.fractionLength(1))))")
+    }
+
+    static func describeActivity(_ error: Error) -> String {
+        guard let reason = error as? ActivityAvailability else {
+            return describe(EngineError.wrapping(error, path: ""), file: "")
+        }
+        switch reason {
+        case .unsupported:
+            return String(localized: "Comparison supports successful still-image compression and conversion only.")
+        case .unavailable:
+            return String(localized: "This result is no longer available in this Activity session.")
+        case .missing(let file):
+            return String(localized: "“\(file)” is missing. Select an existing file in Finder and run a new operation.")
+        case .changed(let file):
+            return String(localized: "“\(file)” changed since this operation. Run a new operation from Finder.")
+        case .animatedOrMultipage:
+            return String(localized: "Animated and multipage images cannot be compared.")
+        }
+    }
+
+    static func describe(_ phase: ItemPhase) -> String {
+        switch phase {
+        case .queued: String(localized: "Queued")
+        case .preparing: String(localized: "Preparing")
+        case .decoding: String(localized: "Decoding")
+        case .searching: String(localized: "Finding target size")
+        case .encoding: String(localized: "Encoding")
+        case .optimizing: String(localized: "Optimizing PNG")
+        case .verifying: String(localized: "Verifying")
+        case .saving: String(localized: "Saving output")
+        case .finished: String(localized: "Finished")
+        }
+    }
+
     private static func videoMetadataProperties(_ properties: [VideoMetadataProperty]) -> String {
         properties.map { property in
             switch property {
@@ -29,6 +69,10 @@ enum UserMessages {
 
     static func describe(_ error: EngineError, file: String) -> String {
         switch error {
+        case .retryInputMissing:
+            String(localized: "“\(file)” is missing. Select an existing file in Finder and run a new operation.")
+        case .retryInputChanged:
+            String(localized: "“\(file)” changed since this operation. Run a new operation from Finder.")
         case .decodeFailed:
             String(localized: "“\(file)” could not be read.")
         case .nonFiniteAudioSample:
@@ -132,6 +176,11 @@ enum UserMessages {
             String(
                 localized: "“\(file)” cannot get under the target size. The smallest result was \(byteCount(smallest))."
             )
+        case .pngTargetNotReached:
+            String(
+                localized:
+                    "“\(file)” could not reach the target size with these settings. Try a larger target size."
+            )
         case .invalidInput(let reason):
             describe(reason, file: file)
         case .missingCapability(let capability):
@@ -223,7 +272,14 @@ enum UserMessages {
         case .markdownUnsafeContentOmitted:
             String(localized: "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.")
         case .pngOptimizationSkipped:
-            String(localized: "PNG optimization was skipped to stay within the memory budget.")
+            String(
+                localized:
+                    "Optional lossless PNG optimization was skipped to stay within the memory budget. The output was saved successfully."
+            )
+        case .imagePaletteReduced(let colors):
+            String(localized: "Saved with a palette of up to \(colors) colors.")
+        case .imageDimensionsReduced:
+            String(localized: "Image dimensions were reduced.")
         case .unmappableCharactersReplaced:
             String(localized: "Characters that Shift_JIS cannot represent were replaced using the saved policy.")
         case .loudnessLimitedByPeak(let reached):

@@ -36,13 +36,18 @@ enum PDFEditing {
     }
 
     static func compress(_ url: URL, context: ItemContext) throws -> ItemResult {
+        try Task.checkCancellation()
+        context.phase(.decoding)
         let document = try openForReplacement(url)
         // PDFKit otherwise copies untouched documents verbatim.
         let first = try page(0, in: document)
         document.removePage(at: 0)
         document.insert(first, at: 0)
         let staged = try context.stagingURL(for: url, name: url.lastPathComponent)
+        try Task.checkCancellation()
+        context.phase(.encoding)
         try write(document, to: staged, options: [.saveImagesAsJPEGOption: true, .optimizeImagesForScreenOption: true])
+        try Task.checkCancellation()
         guard let originalSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
             let outputSize = try staged.resourceValues(forKeys: [.fileSizeKey]).fileSize
         else { throw EngineError.unexpected("PDF size unreadable") }

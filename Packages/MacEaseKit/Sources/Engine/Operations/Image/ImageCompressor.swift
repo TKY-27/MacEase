@@ -1,6 +1,7 @@
 import CoreGraphics
 import Formats
 import Foundation
+import ImageIO
 
 /// Quality presets, platform limits, target sizes.
 enum ImageCompressor {
@@ -27,11 +28,16 @@ enum ImageCompressor {
         var frames: [ImageFrame]
         var options: EncodeOptions
         var retained: [CGImage] = []
+        var originalWidth = 0
+        var originalHeight = 0
+        var originalFrameCount = 1
+        var isMultiPage = false
     }
 
     static func compress(_ url: URL, _ compression: ImageCompression, context: ItemContext) async throws
         -> ItemResult
     {
+        context.phase(.decoding)
         var document = try await ImageDocument.load(url)
         let limits = try limits(for: compression.goal, document: document)
         let format = outputFormat(for: document, limits: limits)
@@ -80,6 +86,10 @@ enum ImageCompressor {
         var plan = Plan(
             format: format, frames: frames,
             options: ImageOutput.defaultOptions(for: document, format: format, settings: context.settings.image))
+        plan.originalWidth = document.frames.first?.image.width ?? 0
+        plan.originalHeight = document.frames.first?.image.height ?? 0
+        plan.originalFrameCount = document.frameCount
+        plan.isMultiPage = document.isMultiPage
         plan.options.gainMaps = gainMaps
         plan.retained = document.frames.map(\.image)
         if compression.stripsGPS {
@@ -96,19 +106,66 @@ enum ImageCompressor {
 
         guard let target = targetBytes(for: compression.goal, limits: limits) else {
             apply(qualityFor: compression.goal, limits: limits, to: &plan)
+            context.phase(.encoding)
+            var gifQuantized = false
+            if plan.format == .gif { plan.options.reportGIFReduction = { gifQuantized = gifQuantized || $0 } }
             let data = try ImageEncoder.encode(
                 plan.frames, as: plan.format, options: plan.options, retaining: plan.retained)
             if unchanged, Int64(data.count) >= originalBytes {
                 return try await keptSize(
                     document.url, stripsGPS: compression.stripsGPS, reason: .outputNotSmaller, context)
             }
+            try report(plan, encoded: data, gifQuantized: gifQuantized, context: context)
+            context.phase(.verifying)
             return try ImageOutput.stage(data, for: document, as: format, context: context)
         }
         if unchanged, originalBytes <= target {
+            try report(plan, context: context)
             return try await keptSize(document.url, stripsGPS: compression.stripsGPS, reason: .alreadyDone, context)
         }
-        let data = try fit(plan, under: target, compression: compression, context: context)
+        context.phase(.searching)
+        let data = try await fit(plan, under: target, compression: compression, context: context)
+        context.phase(.verifying)
         return try ImageOutput.stage(data, for: document, as: format, context: context)
+    }
+
+    private static func report(
+        _ plan: Plan, encoded: Data? = nil, colors: Int? = nil, gifQuantized: Bool = false,
+        pngQuantized: Bool? = nil, context: ItemContext
+    ) throws {
+        guard let image = plan.frames.first?.image else { return }
+        let dimensions: (width: Int, height: Int)
+        if let encoded, plan.format == .ico {
+            dimensions = try ICOFile.largestDimensions(encoded)
+        } else if let encoded, plan.format == .icns {
+            dimensions = try ICNSFile.largestDimensions(encoded)
+        } else {
+            dimensions = (image.width, image.height)
+        }
+        let reduced = dimensions.width < plan.originalWidth || dimensions.height < plan.originalHeight
+        let paletteColors = colors ?? (plan.format == .gif ? plan.options.gifColors : plan.options.pngColors)
+        let quantized: Bool
+        if plan.format == .png, image.bitsPerComponent > 8, paletteColors != nil {
+            quantized = true
+        } else if plan.format == .png, let paletteColors {
+            quantized =
+                try pngQuantized
+                ?? autoreleasepool {
+                    try PNGQuantizer.reducesColors(
+                        PixelBuffer(cgImage: image), to: paletteColors, cancelled: { Task.isCancelled })
+                }
+        } else if plan.format == .gif {
+            quantized = gifQuantized
+        } else {
+            quantized = false
+        }
+        context.reportImageResult(
+            originalWidth: plan.originalWidth, originalHeight: plan.originalHeight,
+            outputWidth: dimensions.width, outputHeight: dimensions.height,
+            reducedDimensions: reduced, quantized: quantized, paletteColors: quantized ? paletteColors : nil,
+            frameCount: plan.originalFrameCount, isMultiPage: plan.isMultiPage)
+        if reduced { context.warn(.imageDimensionsReduced) }
+        if quantized, let paletteColors { context.warn(.imagePaletteReduced(colors: paletteColors)) }
     }
 
     /// Re-encoding cannot help; only GPS goes.
@@ -174,7 +231,7 @@ enum ImageCompressor {
     }
 
     private static func fit(_ plan: Plan, under target: Int64, compression: ImageCompression, context: ItemContext)
-        throws -> Data
+        async throws -> Data
     {
         var smallest = Int64.max
         let steps = compression.allowsDownscale ? maximumDownscaleSteps : 0
@@ -185,37 +242,65 @@ enum ImageCompressor {
             try Task.checkCancellation()
             context.progress(Double(step) / Double(steps + 1))
             let scaled = try scaled(plan, by: pow(downscaleStep, Double(step)))
-            let candidates = try fitting(scaled, under: target, smallest: &smallest, context: context)
-            if let data = candidates { return data }
+            if let candidate = try await fitting(scaled, under: target, smallest: &smallest, context: context) {
+                return candidate
+            }
         }
+        if plan.format == .png { throw EngineError.pngTargetNotReached }
         throw EngineError.targetUnreachable(smallestBytes: smallest)
     }
 
     /// `nil` when nothing fits at this scale.
     private static func fitting(
         _ plan: Plan, under target: Int64, smallest: inout Int64, context: ItemContext
-    ) throws -> Data? {
+    ) async throws -> Data? {
+        var pngPixels: PixelBuffer?
         func encode(_ options: EncodeOptions) throws -> Data {
-            let data = try ImageEncoder.encode(plan.frames, as: plan.format, options: options, retaining: plan.retained)
+            try Task.checkCancellation()
+            context.phase(options.optimizesPNG && options.pngColors == nil ? .optimizing : .encoding)
+            let data = try autoreleasepool {
+                try ImageEncoder.encode(
+                    plan.frames, as: plan.format, options: options, retaining: plan.retained,
+                    preparedPNGPixels: pngPixels)
+            }
             smallest = min(smallest, Int64(data.count))
             return data
         }
         let underTarget = { (data: Data) in Int64(data.count) <= target ? data : nil }
         if plan.format.usesQuality {
-            return try searchQuality(plan.options, under: target, encode: encode)
+            let candidate = try searchQuality(plan.options, under: target, encode: encode)
+            if candidate != nil { try report(plan, context: context) }
+            return candidate
         }
         var options = plan.options
-        guard plan.format == .png else { return underTarget(try encode(options)) }
+        guard plan.format == .png else {
+            let candidate = underTarget(try encode(options))
+            if let candidate { try report(plan, encoded: candidate, context: context) }
+            return candidate
+        }
         options.optimizesPNG = true
+        options.maximumPNGBytes = target
         do {
-            if let lossless = underTarget(try encode(options)) { return lossless }
+            pngPixels = try ImageEncoder.preparePNGTargetPixels(
+                plan.frames, options: options, retaining: plan.retained)
+            if let lossless = underTarget(try encode(options)) {
+                try report(plan, context: context)
+                return lossless
+            }
+        } catch PNGOutputError.sizeLimitExceeded {
+            context.phase(.searching)
         } catch EngineError.invalidInput(.frameMemoryExceeded) {
             if !context.warnings.contains(.pngOptimizationSkipped) { context.warn(.pngOptimizationSkipped) }
         }
-        for colors in pngTargetColors {
-            options.pngColors = colors
-            if let quantized = underTarget(try encode(options)) { return quantized }
+        context.phase(.encoding)
+        if let candidate = try await ImageEncoder.quantizedCandidates(
+            plan.frames, colors: pngTargetColors, under: target, options: options, retaining: plan.retained,
+            preparedPixels: pngPixels)
+        {
+            try report(plan, colors: candidate.colors, pngQuantized: candidate.reducedColors, context: context)
+            return candidate.encoded
         }
+        context.phase(.searching)
         return nil
     }
 
@@ -256,10 +341,15 @@ enum ImageCompressor {
                 try ImageOutput.validateTransparency(
                     frame.image, as: .gif, keepsOriginal: context.settings.outputMode == .newFile, context: context)
             }
+            var options = candidate.options
+            var quantized = false
+            options.reportGIFReduction = { quantized = quantized || $0 }
             let data = try ImageEncoder.encode(
-                candidate.frames, as: .gif, options: candidate.options, retaining: candidate.retained)
+                candidate.frames, as: .gif, options: options, retaining: candidate.retained)
             smallest = min(smallest, Int64(data.count))
-            return Int64(data.count) <= target ? data : nil
+            guard Int64(data.count) <= target else { return nil }
+            try report(candidate, encoded: data, gifQuantized: quantized, context: context)
+            return data
         }
         var current = plan
         if let data = try attempt(current) { return data }
@@ -293,20 +383,24 @@ enum ImageCompressor {
     }
 
     private static func scaled(_ plan: Plan, by factor: Double) throws -> Plan {
-        guard factor < 1 else { return plan }
-        var scaled = plan
-        scaled.retained += plan.frames.map(\.image)
-        for index in scaled.frames.indices {
-            let image = scaled.frames[index].image
-            let width = max(1, Int((Double(image.width) * factor).rounded()))
-            let height = max(1, Int((Double(image.height) * factor).rounded()))
-            let resized = try ImagePixels.scaled(image, width: width, height: height)
-            if index == 0 {
-                scaled.options.gainMaps = try plan.options.gainMaps.map { try $0.applying(.resize(image, to: resized)) }
+        try autoreleasepool {
+            guard factor < 1 else { return plan }
+            var scaled = plan
+            scaled.retained += plan.frames.map(\.image)
+            for index in scaled.frames.indices {
+                let image = scaled.frames[index].image
+                let width = max(1, Int((Double(image.width) * factor).rounded()))
+                let height = max(1, Int((Double(image.height) * factor).rounded()))
+                let resized = try ImagePixels.scaled(image, width: width, height: height)
+                if index == 0 {
+                    scaled.options.gainMaps = try plan.options.gainMaps.map {
+                        try $0.applying(.resize(image, to: resized))
+                    }
+                }
+                scaled.frames[index].image = resized
             }
-            scaled.frames[index].image = resized
+            return scaled
         }
-        return scaled
     }
 
     /// Applies aspect, maximum dimensions and maximum frames.
@@ -413,6 +507,11 @@ enum ImageCompressor {
         guard limits?.maxFrames.map({ $0 > 0 }) ?? true else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
+        context.reportImageResult(
+            originalWidth: document.first.width, originalHeight: document.first.height,
+            outputWidth: document.first.width, outputHeight: document.first.height,
+            reducedDimensions: false, quantized: false,
+            frameCount: document.frameCount, isMultiPage: false)
         let count = try ImageOutput.keptFrameCount(of: document, for: format)
         let stride = limits?.maxFrames.map { 1 + (count - 1) / $0 } ?? 1
         var durations: [Double] = []
@@ -451,18 +550,23 @@ enum ImageCompressor {
         let best = trials.appending(path: "best.\(format.fileExtension)")
         guard let target else {
             apply(qualityFor: compression.goal, limits: limits, format: format, options: &plan.options)
+            var quantized = false
+            if format == .gif { plan.options.reportGIFReduction = { quantized = quantized || $0 } }
             let size = try await encodeAnimated(plan, to: output, context: context)
             if unchanged, size >= originalBytes {
                 return try await keptSize(
                     document.url, stripsGPS: compression.stripsGPS, reason: .outputNotSmaller, context)
             }
+            try reportAnimated(plan, output: output, gifQuantized: quantized, context: context)
             return ImageOutput.staged(output, for: document, as: format)
         }
         var smallest = Int64.max
         if format == .gif {
-            try await fitAnimatedGIF(
+            let accepted = try await fitAnimatedGIF(
                 plan, under: target, candidate: candidate, output: output,
                 smallest: &smallest, compression: compression, context: context)
+            try reportAnimated(accepted.plan, output: output, gifQuantized: accepted.quantized, context: context)
+            return ImageOutput.staged(output, for: document, as: format)
         } else {
             let steps = compression.allowsDownscale ? maximumDownscaleSteps : 0
             var fitted = false
@@ -480,7 +584,28 @@ enum ImageCompressor {
             }
             if !fitted { throw EngineError.targetUnreachable(smallestBytes: smallest) }
         }
+        try reportAnimated(plan, output: output, context: context)
         return ImageOutput.staged(output, for: document, as: format)
+    }
+
+    private static func reportAnimated(
+        _ plan: AnimatedPlan, output: URL, gifQuantized: Bool = false, context: ItemContext
+    ) throws {
+        guard let source = CGImageSourceCreateWithURL(output as CFURL, nil),
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { throw EngineError.decodeFailed(output.lastPathComponent) }
+        let original = plan.document.first
+        let reduced = width < original.width || height < original.height
+        context.reportImageResult(
+            originalWidth: original.width, originalHeight: original.height,
+            outputWidth: width, outputHeight: height,
+            reducedDimensions: reduced, quantized: gifQuantized,
+            paletteColors: gifQuantized ? plan.options.gifColors : nil,
+            frameCount: plan.document.frameCount, isMultiPage: false)
+        if reduced { context.warn(.imageDimensionsReduced) }
+        if gifQuantized { context.warn(.imagePaletteReduced(colors: plan.options.gifColors)) }
     }
 
     private static func encodeAnimated(_ plan: AnimatedPlan, to output: URL, context: ItemContext) async throws
@@ -596,22 +721,26 @@ enum ImageCompressor {
     private static func fitAnimatedGIF(
         _ plan: AnimatedPlan, under target: Int64, candidate: URL, output: URL,
         smallest: inout Int64, compression: ImageCompression, context: ItemContext
-    ) async throws {
+    ) async throws -> (plan: AnimatedPlan, quantized: Bool) {
+        var quantized = false
         func attempt(_ trial: AnimatedPlan) async throws -> Bool {
             try Task.checkCancellation()
-            let size = try await encodeAnimated(trial, to: candidate, context: context)
+            var candidatePlan = trial
+            quantized = false
+            candidatePlan.options.reportGIFReduction = { quantized = quantized || $0 }
+            let size = try await encodeAnimated(candidatePlan, to: candidate, context: context)
             smallest = min(smallest, size)
             guard size <= target else { return false }
             try accept(candidate, as: output)
             return true
         }
         var current = plan
-        if try await attempt(current) { return }
+        if try await attempt(current) { return (current, quantized) }
         if compression.allowsFrameRateReduction, plan.frameCount > 1 {
             for stride in gifFrameStrides {
                 current = plan
                 current.frameStride = plan.baseStride * stride
-                if try await attempt(current) { return }
+                if try await attempt(current) { return (current, quantized) }
             }
         }
         if compression.allowsDownscale {
@@ -619,12 +748,12 @@ enum ImageCompressor {
             for step in 1...maximumDownscaleSteps {
                 current = reduced
                 current.scale = pow(downscaleStep, Double(step))
-                if try await attempt(current) { return }
+                if try await attempt(current) { return (current, quantized) }
             }
         }
         for colors in gifTargetColors {
             current.options.gifColors = colors
-            if try await attempt(current) { return }
+            if try await attempt(current) { return (current, quantized) }
         }
         throw EngineError.targetUnreachable(smallestBytes: smallest)
     }

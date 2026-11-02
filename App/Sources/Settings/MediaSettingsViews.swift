@@ -30,6 +30,10 @@ struct ImageSettingsView: View {
                     ForEach(Dithering.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
             }
+            Section("Target-Size Compression") {
+                Toggle("Allow lower resolution", isOn: $store.settings.image.allowDownscale)
+                Toggle("Allow lower frame rate", isOn: $store.settings.image.allowFrameRateReduction)
+            }
             Section("Strip Metadata") {
                 ForEach(MetadataField.allCases, id: \.self) { field in
                     Toggle(field.title, isOn: stripping(field))
@@ -158,9 +162,6 @@ struct VideoSettingsView: View {
                 Toggle("Allow lower frame rate", isOn: $store.settings.video.allowFrameRateReduction)
             } header: {
                 Text("Target-Size Compression")
-            } footer: {
-                Text("Also applies to images and GIFs compressed to a size.")
-                    .foregroundStyle(.secondary)
             }
             Section(String(localized: "Frame Rate Menu", comment: "Editable frame rate presets")) {
                 TextField(

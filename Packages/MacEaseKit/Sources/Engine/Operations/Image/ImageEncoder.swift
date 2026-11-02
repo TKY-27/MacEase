@@ -12,7 +12,9 @@ struct EncodeOptions {
     var optimizesPNG = false
     /// `nil` keeps PNG lossless.
     var pngColors: Int?
+    var maximumPNGBytes: Int64?
     var gifColors = 256
+    var reportGIFReduction: ((Bool) -> Void)?
     var dithering = Dithering.ordered
     var svgColors = SVGColors.default
     var svgMode = SVGMode.trace
@@ -25,6 +27,13 @@ enum ImageEncoder {
     static let maximumICOEdge = 256
     private static let maximumTracingBytes: Int64 = 100_000_000
     private static let pointsPerInch = 72.0
+    private static let maximumPaletteWorkers = 3
+    private static let paletteWorkerAuxiliaryBytes = 32_000_000
+
+    private struct PaletteCandidate: Sendable {
+        var colors: Int
+        var result: Result<Data, Error>
+    }
 
     static func trace(_ image: CGImage, options: SVGTraceOptions, encoding: EncodeOptions) throws -> Data {
         var encoding = encoding
@@ -37,7 +46,7 @@ enum ImageEncoder {
 
     static func encode(
         _ frames: [ImageFrame], as format: ImageFormat, options: EncodeOptions,
-        retaining retained: [CGImage] = []
+        retaining retained: [CGImage] = [], preparedPNGPixels: PixelBuffer? = nil
     ) throws -> Data {
         guard let first = frames.first else { throw EngineError.encodeFailed("no frames") }
         try validateWorkspace(frames, format: format, options: options, retaining: retained)
@@ -45,7 +54,7 @@ enum ImageEncoder {
         switch format {
         case .gif:
             let gifFrames = try frames.map {
-                GIFFrame(pixels: try binaryAlphaPixels($0.image, options: options), duration: $0.duration)
+                try gifFrame($0, options: options, animated: frames.count > 1)
             }
             let gifOptions = GIFOptions(
                 colors: options.gifColors, dithering: options.dithering, loopCount: try gifRepeatCount(options))
@@ -68,8 +77,21 @@ enum ImageEncoder {
                 PixelBuffer(cgImage: first.image), quality: options.quality, xmp: xmp(options.metadata))
         case .png where frames.count == 1:
             if let colors = options.pngColors { return try quantized(first.image, colors: colors, options: options) }
-            let data = try imageIO(frames, as: format, options: options)
-            return options.optimizesPNG ? try PNGOptimizer.optimize(data) : data
+            if options.optimizesPNG, first.image.colorSpace?.model == .rgb,
+                let pixels = preparedPNGPixels ?? PixelBuffer(exactly: first.image)
+            {
+                let profile = pixels.colorSpace.copyICCData() as Data?
+                let chunks = try PNGFile.metadataChunks(iccProfile: profile, xmp: xmp(options.metadata))
+                return try PNGOptimizer.encodeLossless(
+                    pixels, ancillary: chunks, allowsGray: profile == nil,
+                    maximumBytes: options.maximumPNGBytes, maximumCompression: options.maximumPNGBytes != nil,
+                    cancelled: { Task.isCancelled })
+            }
+            let encoded = try imageIO(frames, as: format, options: options)
+            return options.optimizesPNG
+                ? try PNGOptimizer.optimize(
+                    encoded, maximumBytes: options.maximumPNGBytes,
+                    maximumCompression: options.maximumPNGBytes != nil, cancelled: { Task.isCancelled }) : encoded
         case .ico:
             return try ico(first.image)
         case .icns:
@@ -117,14 +139,14 @@ enum ImageEncoder {
             let encoder = try GIFEncoder.Stream(
                 width: first.image.width, height: first.image.height, options: gifOptions, to: url)
             try encoder.add(
-                GIFFrame(pixels: binaryAlphaPixels(first.image, options: options), duration: first.duration))
+                gifFrame(first, options: options, animated: true))
             for index in 1..<frameCount {
                 try Task.checkCancellation()
                 try await autoreleasepoolFrame(index, frameAt: frameAt) { frame in
                     try validateWorkspace(
                         [frame], format: format, options: options, retaining: [first.image], streaming: true)
                     try encoder.add(
-                        GIFFrame(pixels: binaryAlphaPixels(frame.image, options: options), duration: frame.duration))
+                        gifFrame(frame, options: options, animated: true))
                 }
             }
             try encoder.finish()
@@ -226,7 +248,8 @@ enum ImageEncoder {
         var pixelCopies: Int64
         switch format {
         case .png where options.optimizesPNG && options.pngColors == nil:
-            pixelCopies = 6
+            pixelCopies =
+                frames.allSatisfy { $0.image.colorSpace?.model == .rgb && PixelBuffer.canReadExactly($0.image) } ? 4 : 6
         case .avif: pixelCopies = 4
         case .svg where options.svgMode == .embeddedPNG: pixelCopies = 7
         case .webp, .jxl, .svg: pixelCopies = 3
@@ -282,11 +305,122 @@ enum ImageEncoder {
         upright(metadata).flatMap { CGImageMetadataCreateXMPData($0, nil) as Data? }
     }
 
+    static func preparePNGTargetPixels(
+        _ frames: [ImageFrame], options: EncodeOptions, retaining retained: [CGImage]
+    ) throws -> PixelBuffer? {
+        guard frames.count == 1, let first = frames.first,
+            first.image.colorSpace?.model == .rgb, PixelBuffer.canReadExactly(first.image)
+        else { return nil }
+        var lossless = options
+        lossless.optimizesPNG = true
+        lossless.pngColors = nil
+        try validateWorkspace(frames, format: .png, options: lossless, retaining: retained)
+        return autoreleasepool { PixelBuffer(exactly: first.image) }
+    }
+
+    static func quantizedCandidates(
+        _ frames: [ImageFrame], colors: [Int], under target: Int64, options: EncodeOptions,
+        retaining retained: [CGImage] = [], preparedPixels: PixelBuffer? = nil
+    ) async throws -> (encoded: Data, colors: Int, reducedColors: Bool)? {
+        try Task.checkCancellation()
+        guard let first = frames.first, let firstColors = colors.first else {
+            throw EngineError.encodeFailed("no palette candidates")
+        }
+        var validationOptions = options
+        validationOptions.pngColors = firstColors
+        try validateWorkspace(frames, format: .png, options: validationOptions, retaining: retained)
+        let pixels = try preparedPixels ?? autoreleasepool { try PixelBuffer(cgImage: first.image) }
+        let profile = pixels.colorSpace.name == PixelBuffer.sRGB.name ? nil : pixels.colorSpace.copyICCData() as Data?
+        let chunks = try PNGFile.metadataChunks(iccProfile: profile, xmp: xmp(options.metadata))
+        let metadataBytes = chunks.reduce(0) { $0 + $1.payload.count + 12 }
+        let workers = try paletteWorkers(first.image, under: target, metadataBytes: metadataBytes, retaining: retained)
+        let dithering = options.dithering
+        for start in stride(from: 0, to: colors.count, by: workers) {
+            try Task.checkCancellation()
+            let batch = Array(colors[start..<min(start + workers, colors.count)])
+            let candidates = await withTaskGroup(of: PaletteCandidate.self) { group in
+                for colors in batch {
+                    group.addTask {
+                        PaletteCandidate(
+                            colors: colors,
+                            result: Result {
+                                try autoreleasepool {
+                                    try PNGQuantizer.encode(
+                                        pixels, colors: colors, dithering: dithering, ancillary: chunks,
+                                        maximumBytes: target, cancelled: { Task.isCancelled })
+                                }
+                            })
+                    }
+                }
+                var candidates: [PaletteCandidate] = []
+                for await candidate in group {
+                    candidates.append(candidate)
+                    for colors in batch {
+                        guard let completed = candidates.first(where: { $0.colors == colors }) else { break }
+                        switch completed.result {
+                        case .success(let encoded) where Int64(encoded.count) <= target:
+                            group.cancelAll()
+                            return candidates.sorted { $0.colors > $1.colors }
+                        case .failure(let error) where (error as? PNGOutputError) != .sizeLimitExceeded:
+                            group.cancelAll()
+                            return candidates.sorted { $0.colors > $1.colors }
+                        default:
+                            continue
+                        }
+                    }
+                }
+                return candidates.sorted { $0.colors > $1.colors }
+            }
+            try Task.checkCancellation()
+            for candidate in candidates {
+                do {
+                    let encoded = try candidate.result.get()
+                    if Int64(encoded.count) <= target {
+                        let reduced = try PNGQuantizer.reducesColors(
+                            pixels, to: candidate.colors, cancelled: { Task.isCancelled })
+                        return (encoded, candidate.colors, reduced)
+                    }
+                } catch PNGOutputError.sizeLimitExceeded {
+                    continue
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func paletteWorkers(
+        _ image: CGImage, under target: Int64, metadataBytes: Int, retaining retained: [CGImage]
+    ) throws -> Int {
+        for workers in stride(from: maximumPaletteWorkers, through: 1, by: -1) {
+            do {
+                var budget = FrameMemoryBudget()
+                var seen = Set<ObjectIdentifier>()
+                for retainedImage in retained + [image] where seen.insert(ObjectIdentifier(retainedImage)).inserted {
+                    try budget.reserve(retainedImage)
+                }
+                try budget.reserve(width: image.width, height: image.height)
+                if metadataBytes > 0 { try budget.reserve(width: metadataBytes, height: 1, bytesPerPixel: 1) }
+                try budget.reserve(
+                    width: image.width, height: image.height, bytesPerPixel: 3, frameCount: Int64(workers))
+                let outputBound = min(target, Int64(image.width) * Int64(image.height) * 2) + Int64(metadataBytes)
+                try budget.reserve(width: Int(outputBound), height: 1, bytesPerPixel: 1, frameCount: Int64(workers * 2))
+                try budget.reserve(
+                    width: paletteWorkerAuxiliaryBytes, height: 1, bytesPerPixel: 1, frameCount: Int64(workers))
+                return workers
+            } catch EngineError.invalidInput(.frameMemoryExceeded) {
+                if workers == 1 { throw FrameMemoryBudget.exceeded }
+            }
+        }
+        throw FrameMemoryBudget.exceeded
+    }
+
     private static func quantized(_ image: CGImage, colors: Int, options: EncodeOptions) throws -> Data {
         let pixels = try PixelBuffer(cgImage: image)
         let profile = pixels.colorSpace.name == PixelBuffer.sRGB.name ? nil : pixels.colorSpace.copyICCData() as Data?
         let chunks = try PNGFile.metadataChunks(iccProfile: profile, xmp: xmp(options.metadata))
-        return try PNGQuantizer.encode(pixels, colors: colors, dithering: options.dithering, ancillary: chunks)
+        return try PNGQuantizer.encode(
+            pixels, colors: colors, dithering: options.dithering, ancillary: chunks,
+            maximumBytes: options.maximumPNGBytes, cancelled: { Task.isCancelled })
     }
 
     static func hasTransparency(_ image: CGImage, partialOnly: Bool = false) throws -> Bool {
@@ -321,6 +455,21 @@ enum ImageEncoder {
             if samples[offset] < 1, !partialOnly || samples[offset] > 0 { return true }
         }
         return false
+    }
+
+    private static func gifFrame(_ frame: ImageFrame, options: EncodeOptions, animated: Bool) throws -> GIFFrame {
+        let pixels = try binaryAlphaPixels(frame.image, options: options)
+        if let report = options.reportGIFReduction {
+            let colors = options.gifColors - (animated || !pixels.isOpaque ? 1 : 0)
+            let reduced: Bool
+            if frame.image.bitsPerComponent > 8 {
+                reduced = true
+            } else {
+                reduced = try PNGQuantizer.reducesColors(pixels, to: colors, cancelled: { Task.isCancelled })
+            }
+            report(reduced)
+        }
+        return GIFFrame(pixels: pixels, duration: frame.duration)
     }
 
     private static func binaryAlphaPixels(_ image: CGImage, options: EncodeOptions) throws -> PixelBuffer {

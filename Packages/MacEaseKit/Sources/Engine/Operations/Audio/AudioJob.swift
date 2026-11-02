@@ -63,6 +63,8 @@ enum AudioJob {
     private static let measureShare = 0.5
 
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
+        try Task.checkCancellation()
+        context.phase(.decoding)
         let input = try AudioInput(url: url)
         switch operation {
         case .subtitles(let request):
@@ -417,6 +419,8 @@ enum AudioJob {
         _ input: AudioInput, to target: AudioTarget, at staged: URL, tags: AudioTags, frames: Range<Int64>? = nil,
         gain: Float = 1, progressStart: Double = 0, context: ItemContext
     ) async throws {
+        try Task.checkCancellation()
+        context.phase(.encoding)
         let source = try input.open()
         let encoder = try AudioFileEncoder(
             url: staged, target: target, sampleRate: input.sampleRate, channels: input.channels,
@@ -442,6 +446,7 @@ enum AudioJob {
             written += upper - lower
             context.progress(progressStart + (1 - progressStart) * fraction(written, of: total))
         }
+        try Task.checkCancellation()
         try await encoder.finish()
     }
 
