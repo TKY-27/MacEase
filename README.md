@@ -289,8 +289,10 @@ page-order window.
 
 <img src="docs/images/compress-en.png" width="420" alt="The Custom Size panel for Compress with a 10 MB target, the largest selected file size, and the equivalent in bytes">
 
-Batches still running after 0.8 seconds appear in **Activity**, without taking
-focus from Finder. Use **Stop** to cancel an ordinary batch or pause HatchZip.
+**Activity** stays hidden by default. Open it from the menu bar to inspect
+progress and results. If **Show progress window** is enabled in Settings,
+batches still running after 0.8 seconds appear without taking Finder focus.
+Use **Stop** to cancel an ordinary batch or pause HatchZip.
 Closing the window leaves jobs running. Folder scans also show progress there.
 
 Activity shows the current processing stage, elapsed time and per-file results.
@@ -308,8 +310,11 @@ Reopen Activity to access the latest 20 results from the current app session.
 Comparison and retry information is not retained after quitting.
 
 Custom size limits use decimal bytes: **10 MB means at most 10,000,000 bytes**.
-Image compression preserves format and resolution first, then reduces the
-palette or, when allowed, resolution. **Allow lower resolution** is visible in
+Image compression preserves the format and tries the original resolution first.
+For large PNG reductions, it balances color detail, resolution and processing
+time, resizing when allowed instead of repeatedly forcing fewer colors.
+It checks reduced-color candidates and uses full-color resizing when needed.
+**Allow lower resolution** is visible in
 the custom-size panel and has an independent image setting. Already-small
 inputs stay unchanged. Skipping optional lossless PNG optimization does not
 mean compression failed; the verified output size determines whether it fits.
@@ -431,6 +436,8 @@ Open **Settings** from the menu bar icon. Changes apply immediately.
 
 Processing runs on your Mac. The app checks GitHub for updates. Some Apple
 features require installed language assets or models.
+
+VoiceOver is not a supported interaction mode.
 
 ---
 

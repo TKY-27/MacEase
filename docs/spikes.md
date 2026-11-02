@@ -778,3 +778,16 @@ A direct successful `munmap` was followed by `mincore` returning success with
 an unknown/nonresident state on this host. That return code is not a valid
 release oracle. A self Mach region query instead verified the absence of a
 readable mapping after success, cancellation, partial output and failure.
+
+Later stage-triggered sampling localized a 1,577,287,680-byte diagnostic peak
+to the final 5,832-pixel-wide lossless attempt, closely matching the separate
+1,578,893,312-byte uninstrumented run. The captured regions included 529.2 MiB
+resident in empty large allocations, 142.6 MiB in live large allocations and
+183.1 MiB in IOSurfaces. The commit and the harness's extra verification decode
+were below that peak. A previous instrumented run reclaimed more pages and
+peaked at 1,390,329,856 bytes; instrumentation cannot replace acceptance runs.
+
+This supports reducing large allocation churn and removing full-frame RGB
+intermediates rather than increasing the budget or purging the process
+allocator. ADR 0046 records the row-based and mapped-index implementation.
+The evidence lives under `build/v2.1.0/png-perf/mapped-stage-diagnostic-20261102-154549/`.

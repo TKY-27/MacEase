@@ -88,7 +88,7 @@ final class SettingsStore {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: [
-            Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
+            Key.notificationsEnabled: true, Key.showsActivity: false, Key.activityClosesAfterSuccess: true,
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
         ])
         settings = Self.decodeSettings(from: defaults)
@@ -112,7 +112,7 @@ final class SettingsStore {
         settings = Settings()
         hiddenEntries = Self.newInstallHiddenEntries
         notificationsEnabled = true
-        showsActivity = true
+        showsActivity = false
         activityClosesAfterSuccess = true
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false

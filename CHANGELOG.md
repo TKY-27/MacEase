@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-02
+
+### Support
+
+- VoiceOver is outside the supported interaction modes from this release onward.
+
 ### Added
 
 - Activity comparisons for original and processed still images, with synchronized
@@ -17,14 +23,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep Activity hidden by default; open progress and results from the menu bar
+  when needed, or enable automatic display in Settings.
 - Avoid redundant PNG encoding, repeated palette searches and oversized lossless
   optimization workspaces; propagate cancellation through pixel processing.
+- Reuse lossless PNG filter work, remove full-frame RGB copies and release
+  palette workspaces promptly.
+- Balance PNG target compression with measured resizing and checked 256-color
+  candidates. Use full-color resizing when palette reduction loses too much
+  fidelity. Keep the full-resolution search when downscaling is disabled and
+  reject candidates that fail its quality checks.
+- Declare standard sRGB explicitly in balanced palette PNG output while
+  preserving custom color profiles.
 - Continue palette generation when one color region cannot split further,
   avoiding premature color loss and severe tinting in translucent images.
 - Stop unsuccessful PNG target searches without repeating every candidate just
   to calculate a minimum-size estimate; keep the failure explicit and retryable.
 - Separate image target-size downscaling settings from video settings while
   preserving existing preferences during migration.
+- Keep GIF dithering settings from altering PNG compression output.
+- Speed up PNG quality presets without changing their decoded pixels.
+- Sign and verify the DMG container before generating its download checksum.
 - Keep videos already within a custom byte limit unchanged instead of
   re-encoding them into larger files; reject larger quality-compression outputs.
 - Copy compatible video and audio streams independently during conversion,

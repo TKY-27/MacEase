@@ -540,7 +540,7 @@ the luma channel against the source.
 | MP3 encoder | MPEG-1 Layer III, 44.1 and 48 kHz, mono and stereo with M/S, CBR 128/192/256/320 kbps and VBR quality 0–9 | Written from ISO/IEC 11172-3: polyphase filterbank, MDCT with window switching, psychoacoustic model with masking thresholds, bit reservoir, Huffman coding | AudioToolbox decodes every frame without error; on the music fixture at 192 kbps the segmental SNR is at least 20 dB and bandwidth is at least 16 kHz; encoding runs at least 20× real time on M1 |
 | GIF encoder | Single and animated | Color quantization in Oklab (Wu initial palette refined by k-means), global or per-frame palettes, Floyd–Steinberg or ordered dithering (setting), transparent-pixel frame differencing, LZW | ImageIO decodes it; SSIM ≥ 0.93 on the gradient video fixture at 256 colors with dithering; output is smaller than ImageIO's GIF output for the same frames |
 | PNG lossy quantizer | RGBA to ≤ 256-color palette with alpha (tRNS) | k-means in premultiplied Oklab with alpha, optional dithering, libdeflate compression with per-row filter selection | SSIM ≥ 0.97 and size ≤ 45% of lossless libdeflate PNG on the photo fixture |
-| PNG lossless optimizer | Re-encode PNG without changing pixels | Bit depth and color type reduction, sampled filter selection and libdeflate; balanced effort for conversion, maximum effort only when a size target requires it | Decoded pixels identical; standalone optimization is never larger than the input (otherwise keep input bytes) |
+| PNG lossless optimizer | Re-encode PNG without changing pixels | Bit depth and color type reduction, sampled filter selection and libdeflate; balanced effort for conversion and static RGB8 target compression, bounded stronger fallback on the remaining target paths | Decoded pixels identical; standalone optimization is never larger than the input (otherwise keep input bytes) |
 | Matroska and WebM | Demux and mux; video H.264, HEVC, VP8, VP9, AV1; audio AAC, Opus, Vorbis, FLAC, MP3, AC-3, PCM; BlockAdditions for VP9 alpha; Cues and SeekHead | Per the Matroska specification (RFC 9559) and the WebM container guidelines | Round-trip mux and demux preserves packets and timestamps; Chrome-compatible WebM (VP9 + Opus) plays in WKWebView; AVFoundation-independent tests pass |
 | AVI | Demux (OpenDML included); mux MJPEG + PCM | Microsoft AVI RIFF specification | Files from common encoders open; MJPEG + PCM output opens in QuickTime-compatible players |
 | FLV | Demux; mux H.264 + AAC or 44.1 kHz mono/stereo PCM16 | Adobe FLV specification v10.1 | Round-trip preserves packets and timestamps |
@@ -701,7 +701,7 @@ and repeated explanatory labels are excluded, consistent with the
 Input panels center on the active screen, accept Return for the action and Esc
 for Cancel, and focus the first field. They validate inline and disable invalid
 actions. Forms are about 420 pt wide, media panels 600 pt, with content-driven
-heights that support larger text. Keyboard and VoiceOver provide alternatives
+heights that support larger text. Keyboard controls provide alternatives
 to dragging. Reduce Motion, Reduce Transparency, and Increase Contrast use
 system behavior. Values are remembered only for retained panels.
 
@@ -709,7 +709,7 @@ system behavior. Values are remembered only for retained panels.
 | --- | --- | --- |
 | Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
 | Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint and live byte equivalent. Image requests expose Allow downscaling; other processing options remain in Settings. No quality/platform picker. |
-| Photo / video editor | One still image or video | Resizable 1280×720 workspace: large preview, right inspector, top tool categories and Liquid Glass Save; video timeline below. Section 8.1.1. |
+| Photo / video editor | One still image or video | Resizable 1280×720 workspace: large preview, right inspector, top tool categories and consistent native action controls; video timeline below. Section 8.1.1. |
 | Speed | One or more videos, Custom Speed… | Numeric playback speed, presets, current save policy. |
 | Trim | Audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
 | Frame picker | Single video Choose Frame… | Preview and timestamp. |
@@ -732,8 +732,10 @@ Cancel. No excluded or unreadable descendant can make a parent deletable.
 
 ## 6. Progress and feedback
 
-One shared **Activity** window shows all running batches. It is enabled by
-default and appears only if a batch is still running after 0.8 seconds. It is a
+One shared **Activity** window shows all running batches. Automatic display is
+off by default, including after Reset All Settings. Users open it explicitly
+from the menu bar or Window menu. An existing saved preference is preserved.
+If enabled, it appears only if a batch is still running after 0.8 seconds. It is a
 nonactivating, closable NSPanel at normal level, about 420 pt wide, with an
 autosaved frame on the active space. It never takes focus from Finder. Scans
 for duplicates, empty folders, and Analyze use the same window.
@@ -748,8 +750,8 @@ warnings appear once with the affected file count; Show All reveals individual
 file warnings. Problems and skips expand inline with filenames and actionable
 reasons. Only failures use the error color.
 Scan rows read **Scanning {folders}…** with an indeterminate bar until the
-scan reports progress; Stop cancels the scan and opens nothing. Finished rows offer Show in Finder and Undo when applicable. VoiceOver
-reads progress and announces completion.
+scan reports progress; Stop cancels the scan and opens nothing. Finished rows
+offer Show in Finder and Undo when applicable.
 
 General settings default to close after success on, after cancel on, after
 failure off. Success with warnings reports Done and stays visible; skips also
@@ -765,8 +767,8 @@ highlighted row steps through three frames every 0.4 s; with Reduce Motion on,
 a static busy frame shows instead. An attention badge appears when the latest
 batch has failures other than cancellation, or when Finder Sync is disabled
 after onboarding. Opening the menu or a later successful batch clears it.
-VoiceOver reads **MacEase**, **MacEase, processing**, or **MacEase, needs
-attention**.
+The status item retains the native labels **MacEase**, **MacEase, processing**,
+and **MacEase, needs attention**.
 
 `UserNotifications` sends at most one completion banner per batch, with counts,
 the first problem, Undo, and Show in Finder. A completed row retained and visible
@@ -789,7 +791,7 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 
 | Page | Settings and defaults |
 | --- | --- |
-| General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
+| General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (off), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
 | Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
 | Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
 | Images | Per-format quality, PNG optimization, independent target-size downscale and frame-rate reduction, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
@@ -1459,22 +1461,41 @@ a visible reason. Audio/video subtitle outputs use `stem.srt`, `.vtt`, or `.txt`
 - **Images (quality formats).** Binary search on quality between the format's
   minimum and maximum (at most 8 encodes). If the minimum quality is still too
   large and downscale is allowed, reduce dimensions by 10% steps and repeat.
-- **PNG.** Lossless optimize, then lossy quantization with 256, 128 and 64
-  colors, then downscale in 10% steps. At each pixel/palette candidate, try
-  balanced DEFLATE effort first. Accept it when it fits; otherwise try maximum
-  effort before reducing palette size or resolution. DEFLATE effort never
-  changes decoded pixels. Conversion uses balanced lossless effort without
-  palette reduction; the standalone optimizer retains its never-larger contract.
-  Targeted encodes cap compressed buffers and accept the first fitting filter
-  for the same pixels. If every bounded static-PNG candidate fails, report
-  target failure without a minimum-size estimate. Do not repeat the search
-  solely to calculate that estimate. Palette work may run concurrently within
-  the existing memory budget, sharing decoded pixels and retaining the same
-  selection priority. For directly readable 8-bit RGB frames, reuse the same
-  exact pixels for lossless and palette attempts and derive reduction reports
-  from those pixels. Keep PNG filter and compression workspaces in scoped
-  anonymous mappings; copy only the written compressed output before releasing
-  the full workspace. Release temporary render/encode buffers between scales.
+- **PNG.** For a static 8-bit RGB image, first try bounded balanced lossless
+  compression, then a balanced 256-color candidate at the original dimensions.
+  If it exceeds the target and downscaling is allowed, retain 256 colors and
+  estimate a smaller area from the measured payload size after subtracting
+  fixed PNG overhead, with 5% headroom in the target.
+  Correct from each measured result for at most three scaled attempts. Balance
+  natural colors, useful resolution and latency rather than exhausting maximum
+  compression and severe palette reductions at every resolution (ADR 0049).
+  Check candidate fidelity in uniformly spaced native-resolution windows before
+  accepting palette reduction: mean luma SSIM must reach 0.97 on both black
+  and white composites, and each window's mean Oklab chroma error must not
+  exceed 0.02. Inspect at most 8 × 8 Gaussian 11 × 11 windows without another
+  full-frame decode. An inadequate palette switches that item to balanced
+  lossless RGB/RGBA at the current and subsequent scales, using the same
+  measured-size rule and correction bound. Preserve color and alpha rather
+  than accepting visible hue patches; report the actual palette/dimension
+  changes. Existing independent full-image quality tests remain unchanged.
+  When downscaling is forbidden, keep the original dimensions and retain the
+  existing bounded 256-, 128- and 64-color search, including strong compression
+  fallback and the same palette quality checks. A target whose palette fails
+  those checks fails explicitly. Do not duplicate that search with oversized
+  planning probes. Non-target PNG presets use balanced native effort with
+  unchanged selected palettes and decoded pixels; encoded size can increase
+  slightly, subject to the existing output-not-smaller check.
+  Greater precision, HDR,
+  non-RGB color spaces and animation retain their existing preservation paths.
+  Conversion remains balanced lossless, without palette reduction; standalone
+  optimization retains its never-larger contract. Measure oversized planning
+  candidates within the existing working and encoded-output limits, release
+  each before the next scale, and accept only verified outputs within the exact
+  requested byte limit. Bounded exhaustion reports target failure without
+  repeating the search solely for a minimum-size estimate. Share exact pixels
+  where supported and derive factual reduction reports from accepted results.
+  PNG filter, palette and compressed workspaces use scoped mappings; output
+  views retain their complete owners until release.
 - **GIF.** Reduce fps, then width, then colors.
 - **Video.** A generic byte target already met by the source skips without
   encoding. Platform presets still enforce their format and geometry limits.
@@ -1714,7 +1735,7 @@ and cloud workflows are not parity requirements.
 These Finder actions open ordinary resizable windows at normal level. They
 are result and essential-input windows, not a main document workflow. Each
 window owns its tasks and temporary content independently. English and Japanese,
-keyboard navigation, VoiceOver and system appearance settings are supported.
+keyboard navigation and system appearance settings are supported.
 
 **Trace to SVG.** The menu requires one PNG by extension; the host verifies
 actual static PNG content and refuses animation. Existing Convert > SVG and
@@ -1866,7 +1887,7 @@ the app activates. Done permits incomplete permission rows.
 If translocated or outside `/Applications` and `~/Applications`, the checklist
 is replaced by Move MacEase to Applications guidance and Quit MacEase. Done is
 disabled until relocation. The regular window has no pages, dots, or step
-animation. It supports keyboard navigation, VoiceOver states, larger text, and
+animation. It supports keyboard navigation, native state labels, larger text, and
 Reduce Motion.
 
 After Done, if Finder Sync remains disabled, the menu bar shows Turn On Finder
@@ -2054,7 +2075,7 @@ that bound. Earlier whole-key results remain historical evidence in
   capabilities. Menu presence alone does not prove a conversion works.
 - Real-Mac acceptance exercises Finder invocation, retained panels, Activity's
   0.8-second delay and focus behavior, notification deduplication, Settings,
-  Welcome/reopen/open routing, VoiceOver, larger text, light/dark appearance,
+  Welcome/reopen/open routing, larger text, light/dark appearance,
   Reduce Motion, Reduce Transparency, and Increase Contrast.
 - Both output modes require device checks of actual final names and formats,
   original retention or Trash identity, collision races, cancellation, partial
@@ -2098,7 +2119,8 @@ that bound. Earlier whole-key results remain historical evidence in
   Release, sign the helper, app and
   extension (extension with its sandbox entitlements) with the release identity,
   build `MacEase-<version>.dmg` with an Applications symlink via
-  `scripts/make-dmg.sh`, compute SHA-256, create the GitHub Release with the DMG
+  `scripts/make-dmg.sh`, sign and verify the DMG container with the same identity,
+  compute SHA-256, create the GitHub Release with the DMG
   and checksum, and use the matching CHANGELOG section as release notes. The
   workflow fails when the signing secrets are missing.
 - For v1.1.0 through v1.4.0, GitHub Actions remains disabled by owner instruction. Build the
@@ -2257,10 +2279,18 @@ the previously shared video preferences without changing saved behavior.
 
 Before and after measurements use identical Release builds, machine and
 12/24/48 MP photograph-like, text, transparency and gradient fixtures, with
-three runs per side. The 24 MP 10 MB compression median must be at most ten
-seconds and the 48 MP median at most thirty seconds. Single-item full-app
-resident memory remains at most 1.5 GB. Measure real completed outputs and
-verify quality; skipped work and failed attempts are not speedups.
+three runs per side. The initial latency thresholds were ten seconds for 24 MP
+and thirty seconds for 48 MP. The owner subsequently requested completion in
+a few seconds; reaching the initial thresholds alone no longer establishes
+the requested speed. The owner accepts resident memory around 1.56 GB,
+including the observed candidate-6 peak of 1,567,784,960 bytes (ADR 0048).
+This does not authorize an unlimited increase or a larger working budget.
+The owner subsequently authorized quality and resolution reductions when
+substantial size savings require them, and requested a balanced result rather
+than exhaustive quality-first search (ADR 0049). Avoid unnatural colors,
+damaged text/edges or transparency artifacts. Keep source protection, profiles,
+metadata and higher-precision/HDR contracts. Measure completed outputs;
+skipped work and failed attempts are not speedups.
 
 ### 21.2 Activity comparison and retry
 
@@ -2289,14 +2319,18 @@ new selection; no implicit use of a different file at the same path.
 Inspect every panel and settings page, Activity, Welcome, editors, ZIP/SVG,
 organization, recipes and Finder/Services entry points. Verify English and
 Japanese, light/dark, minimum/normal sizes, long names, empty/loading/error and
-disabled states, keyboard focus and VoiceOver. The editor action row uses
+disabled states and keyboard focus. The editor action row uses
 consistent native controls without duplicate menu indicators or glass layers.
 
 Run build, strict lint, device tests, signed Finder/Services operations and a
 macOS 26 VM smoke check. Three fresh GPT-6.1 Sol/high reviews cover compression
 and performance, UI and the new result actions, then the corrected complete
 diff and evidence. Fix material reproducible defects before publication.
-Version-specific earlier VoiceOver exclusions do not apply to this release.
+The owner explicitly removed VoiceOver support and verification from v2.1
+onward on 2026-11-02 (ADRs 0047 and 0048). This supersedes earlier VoiceOver
+requirements; support is not claimed and speech checks are not release gates.
+Preserve existing native semantics and labels, and distinguish unverified
+speech checks from successful tests.
 
 Retain the existing signing identity and disabled Actions. Publish a DMG built
 from the final tag with its SHA-256 and release notes, verify installation and
@@ -2305,6 +2339,24 @@ resolution. No unperformed check is recorded as passed.
 
 ## Changelog
 
+- 2026-11-02: Disable automatic Activity display by default and after reset,
+  retaining manual access and existing saved choices (ADR 0051).
+- 2026-11-02: Sign and verify the DMG container before computing its checksum,
+  retaining the existing identity and unnotarized distribution (ADR 0050).
+- 2026-11-02: Adopt owner-authorized balanced PNG target compression, using
+  measured sizes for earlier downscaling, checking palette fidelity and falling
+  back to full-color resizing instead of exhaustive maximum-effort searches
+  (ADR 0049). Keep GIF dithering settings out of PNG processing.
+- 2026-11-02: Accept observed resident memory around 1.56 GB, prioritize the
+  requested few-second compression experience, and extend the VoiceOver scope
+  exclusion to future work (ADR 0048).
+- 2026-11-02: Remove VoiceOver support and verification from v2.1 scope at the
+  owner's explicit request; preserve native labels and all other acceptance
+  requirements (ADR 0047).
+- 2026-11-02: Reuse lossless PNG filtering, preserve ordered results with
+  bounded concurrent maximum-filter attempts, remove full-frame RGB copies
+  and release mapped palette workspaces without changing quality or acceptance limits
+  (ADR 0046).
 - 2026-11-02: Approve v2.1 compression and UI stabilization, session-only image
   result comparison and failure-only retry, matched performance gates and
   three independent review rounds before publication (ADR 0045).

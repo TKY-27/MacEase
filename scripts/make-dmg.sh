@@ -58,5 +58,7 @@ ditto "$app" "$staging/$app_name.app"
 ln -s /Applications "$staging/Applications"
 # LZMA: about 26% smaller than UDZO.
 hdiutil create -volname "$app_name" -srcfolder "$staging" -format ULMO -ov "$dist/$dmg_name"
+codesign "${sign_args[@]}" "$dist/$dmg_name"
+codesign --verify --strict --verbose=2 "$dist/$dmg_name"
 (cd "$dist" && shasum -a 256 "$dmg_name" >"$dmg_name.sha256")
 echo "Wrote $dist/$dmg_name"
