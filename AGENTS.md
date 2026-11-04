@@ -79,7 +79,8 @@ Tests
 - GPL-family sources: you may read GPL, LGPL and AGPL projects (FFmpeg, LAME,
   gifski, pngquant, libimagequant, Clop and others) to study architecture and
   algorithms. Never copy, translate, adapt or incorporate their code into
-  MacEase; implement independently (ADR 0013).
+  MacEase; implement independently (ADR 0013). ADR 0052 permits isolated
+  LGPL download executables and required dependencies with source and notices.
 - Flect (Apache-2.0) is the design reference for interaction and features.
   Reuse its code only with the Apache-2.0 notices that require; see ADR 0013.
 - Never write to, move or delete a user's original file except through the
@@ -90,7 +91,8 @@ Tests
 - Capability-gated tests skip only when the capability probe says it is
   missing. Skipping for any other reason counts as weakening a test.
 - New native dependencies must be permissively licensed, pinned in
-  `Vendor/deps.lock` and recorded in SPEC.md section 3.7.
+  `Vendor/deps.lock` and recorded in SPEC.md section 3.7. Download-only
+  executables use the narrow license exception in SPEC.md section 22.
 
 ## 4. Git
 

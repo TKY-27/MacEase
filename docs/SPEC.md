@@ -25,7 +25,8 @@ Principles:
   verified, durable output replaces archive bytes progressively (section 8.5). Replaced originals go to the Trash and
   every batch can be undone.
 - **Local only.** All processing is on-device. No telemetry. The network is
-  used only for the update check and for OS-managed model and asset downloads.
+  used for update checks, explicitly requested media downloads, and OS-managed
+  model and asset downloads. Local file operations remain offline.
 - **Native.** Apple frameworks first, permissive C libraries where Apple has no
   encoder, and in-house Swift implementations where no permissive library
   exists.
@@ -464,7 +465,8 @@ exports retain the ordinary Derived behavior. See section 8.5 and ADR 0040.
 
 ### 3.7 Native dependencies
 
-All are permissively licensed and compatible with MIT distribution. Versions are
+Libraries linked into MacEase are permissively licensed and compatible with MIT
+distribution. Section 22 permits separately licensed download executables. Versions are
 the latest stable release at implementation time, pinned by version, source URL
 and SHA-256 in `Vendor/deps.lock`. `scripts/build-deps.sh` downloads, verifies,
 builds arm64 static libraries with deployment target 26.0 and packages them as
@@ -513,7 +515,10 @@ The app shows the generated notices in Settings > About.
 **Source policy.** GPL, LGPL, and AGPL sources, including FFmpeg, LAME, gifski,
 pngquant, libimagequant, and Clop, may be read to study architecture and
 algorithms. Their code must never be copied, translated, adapted, or incorporated
-into MacEase. Implement independently using platform APIs, specifications, and
+into MacEase source or linked libraries. Section 22 explicitly permits isolated
+LGPL FFmpeg download executables and their required LGPL dependencies, with
+corresponding source and license notices. Existing local media operations remain
+independent. Implement those operations using platform APIs, specifications, and
 papers. This supersedes ADR 0004's prohibition on reading those sources.
 
 Flect is Apache-2.0 and is the interaction reference. Its developer's permission
@@ -733,9 +738,10 @@ Cancel. No excluded or unreadable descendant can make a parent deletable.
 ## 6. Progress and feedback
 
 One shared **Activity** window shows all running batches. Automatic display is
-off by default, including after Reset All Settings. Users open it explicitly
-from the menu bar or Window menu. An existing saved preference is preserved.
-If enabled, it appears only if a batch is still running after 0.8 seconds. It is a
+on by default, including after Reset All Settings. The v2.2 migration enables
+it once for existing users; subsequent explicit preferences are preserved.
+Users can also open it from the menu bar or Window menu. If enabled, it appears
+only if a batch is still running after 2 seconds. It is a
 nonactivating, closable NSPanel at normal level, about 420 pt wide, with an
 autosaved frame on the active space. It never takes focus from Finder. Scans
 for duplicates, empty folders, and Analyze use the same window.
@@ -791,7 +797,7 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 
 | Page | Settings and defaults |
 | --- | --- |
-| General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (off), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
+| General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
 | Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
 | Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
 | Images | Per-format quality, PNG optimization, independent target-size downscale and frame-rate reduction, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
@@ -1907,8 +1913,11 @@ Open MacEase fallback follows the same open route.
 At launch and at most once every 24 hours, the host requests
 `https://api.github.com/repos/TKY-27/MacEase/releases/latest`. When the tag is
 newer than the running version (semantic versioning), it shows a notification
-and a menu bar item linking to the release page. Nothing is downloaded or
-installed automatically. Network errors are logged and ignored until the next
+and a menu bar item linking to the official website download section. Japanese
+UI opens `https://macease-site.pages.dev/ja/#download`; other UI languages open
+`https://macease-site.pages.dev/#download`. Stored release-page URLs are migrated
+to this destination. Update notifications open the same destination. No app
+update is downloaded or installed automatically. Network errors are logged and ignored until the next
 check.
 
 ## 13. Error handling
@@ -2337,7 +2346,98 @@ from the final tag with its SHA-256 and release notes, verify installation and
 settings/history compatibility, then anonymous downloads and latest-release
 resolution. No unperformed check is recorded as passed.
 
+## 22. Version 2.2 media downloads
+
+Version 2.2.0, build 8, retains MIT for MacEase source, Apple Silicon and macOS
+26 or later. Existing compression and conversion engines remain unchanged.
+Intel support, older macOS, browser cookies, login integration, DRM removal,
+and recording currently live streams are outside this release. Public live
+archives use the ordinary download path. Website changes can prevent extraction;
+never promise every site works.
+
+### 22.1 Finder and download window
+
+A top-level **yt-dlp…** action appears for folder backgrounds and exactly one
+selected folder. The background target or selected folder is the destination.
+Mixed selections and multiple folders do not expose the action. The authenticated
+run request and host validation remain mandatory; the extension performs no
+network work. Finder Services provides the same operation where applicable.
+
+A native window accepts newline-separated HTTP(S) URLs and shows its destination,
+output format, resolution and subtitle options. Analyze obtains titles, durations
+and available formats. Playlist entries require explicit selection before download.
+Independent invocations retain their own destination and draft. Native controls,
+lightweight tables and standard title bars follow Finder and Safari conventions.
+
+Default to best available video in its source format, without unnecessary
+re-encoding. Also offer MP4, MKV, WebM, original audio, M4A, MP3, WAV and FLAC.
+Resolutions come from available source formats. Disclose required re-encoding;
+never silently change requested quality or format. Subtitles default off; select
+language, authored or automatic captions, and SRT or VTT sidecars.
+
+Queue at most two downloads concurrently. Cancel stops child processes and
+removes uncommitted staging. Retry only failed selections, never successful or
+explicitly cancelled ones; resolve fresh media URLs from the original page.
+Completed downloads support Show in Finder and Undo through normal history.
+
+### 22.2 Runtime and file safety
+
+Bundle source-distributed Unlicense yt-dlp, a private Python runtime, EJS and a
+supported JavaScript runtime. Never depend on the user's Python or Homebrew.
+Bundle FFmpeg and ffprobe as independent processes, built without GPL or nonfree
+features, exclusively for downloading, merging, converting and repairing newly
+downloaded media. Their required LGPL dependencies share this narrow exception.
+MacEase source remains MIT; third-party executables retain their own licenses.
+Pin source versions and hashes, provide notices and corresponding source/build
+instructions, sign nested executable code, and update tools with app releases.
+No runtime self-update, arbitrary user arguments, plugins or user configuration.
+
+Use executable URLs and argument arrays, never a shell. Validate untrusted URL,
+metadata and output-name boundaries. Keep resolved URLs and download requests
+session-only and omit credentials or query strings from logs. Downloads are
+explicit network requests, not telemetry.
+
+Stage on the destination volume outside the user's folder. Verify media and
+subtitle outputs before a coordinated no-overwrite commit. Collision numbering,
+crash cleanup, cancellation and durable history apply. Newly downloaded files
+must never replace existing user files, regardless of the transform output mode.
+
+### 22.3 Measured progress and updates
+
+Activity auto-appears after two seconds without taking Finder focus. Closing it
+hides progress without cancelling. Show completed batch count separately from
+current-file stage progress. Use actual bytes, frames/media time, pages or known
+work units. Unknown totals and compression searches show an indeterminate bar
+and the actual phase; elapsed time and maximum attempt counts are not completion
+fractions. Phase changes reset stage measurements and ordered snapshots reject
+stale delivery. Only verification and final commit establish batch completion.
+HatchZip retains its existing pause/recovery semantics.
+
+The update API remains GitHub; menu and notification actions open the localized
+official download page. Migrate persisted release links. Existing native media
+processing is not replaced by FFmpeg.
+
+### 22.4 Acceptance and publication
+
+Verify real Finder/background/Services entry points, per-window destinations,
+URL analysis, playlist choices, formats, subtitles, retry, cancellation, Undo,
+name collisions, invalid inputs, permissions, disk-full and interrupted transfers.
+Use fixed HTTP fixtures for MP4, separate streams, DASH and HLS, plus public
+YouTube, TikTok and another extractor. Record site-specific restrictions honestly.
+Verify two-second timing, determinate/indeterminate stages, parallel events,
+preference migration and official-site update actions.
+
+Run build, strict lint and device tests, English/Japanese and light/dark window
+checks, keyboard operation, macOS 26 VM checks, and independent fresh review.
+Preserve the existing signing identity, settings/history and disabled Actions.
+Publish from the final v2.2.0 tag with signed DMG, SHA-256, release notes and
+required third-party source. Check final-DMG installation, anonymous downloads,
+latest-release resolution and the website's matching download information.
+
 ## Changelog
+
+- 2026-11-05: Add isolated media downloads, measured two-second Activity and
+  official-site update actions while retaining MIT and Apple Silicon (ADR 0052).
 
 - 2026-11-02: Disable automatic Activity display by default and after reset,
   retaining manual access and existing saved choices (ADR 0051).
