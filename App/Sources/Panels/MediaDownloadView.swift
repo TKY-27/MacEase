@@ -250,9 +250,13 @@ struct MediaDownloadView: View {
             .frame(minHeight: 140)
             .overlay {
                 if model.sources.isEmpty {
-                    Text(model.isAnalyzing ? "Analyzing…" : "Analyze URLs to choose media and available options.")
-                        .foregroundStyle(.secondary)
-                        .allowsHitTesting(false)
+                    Text(
+                        model.isAnalyzing
+                            ? String(localized: "Analyzing…")
+                            : String(localized: "Analyze URLs to choose media and available options.")
+                    )
+                    .foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
                 }
             }
             if model.sources.contains(where: \.isPlaylistEntry) {
@@ -310,8 +314,8 @@ struct MediaDownloadView: View {
             }
             Text(
                 model.format.requiresReencoding
-                    ? "This format requires re-encoding and may reduce quality."
-                    : "Keeps source quality without re-encoding. Container merging may be required."
+                    ? String(localized: "This format may require re-encoding when the source codec is incompatible.")
+                    : String(localized: "Keeps source quality without re-encoding. Container merging may be required.")
             )
             .font(.callout)
             .foregroundStyle(.secondary)
