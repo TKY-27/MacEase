@@ -25,6 +25,11 @@ final class PanelCoordinator {
 
     func present(_ entry: MenuEntry, inputs: [URL]) {
         let op = entry.op
+        if op == .folderDownloadMedia {
+            guard MenuLayout.isApplicable(entry, selection: inputs), let destination = inputs.first else { return }
+            showMediaDownload(destination)
+            return
+        }
         if op == .filesFinish {
             showRecipe(entry, inputs)
             return
@@ -66,6 +71,18 @@ final class PanelCoordinator {
         case .imageAICustom, .videoAICustom, .audioAICustom: showCustomAI(op, inputs)
         default:
             logger.error("No panel for \(op.rawValue, privacy: .public)")
+        }
+    }
+
+    private func showMediaDownload(_ destination: URL) {
+        let model = MediaDownloadModel(destination: destination)
+        featureHost.show(
+            title: "yt-dlp", minimumSize: NSSize(width: 700, height: 620),
+            initialSize: NSSize(width: 820, height: 720), onClose: { await model.close() }
+        ) { close in
+            MediaDownloadView(model: model, close: close) { request in
+                try self.jobs.runDownloads(request)
+            }
         }
     }
 

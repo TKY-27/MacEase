@@ -32,6 +32,21 @@ final class JobCenter {
         let hasFailures: Bool
     }
 
+    struct DownloadSession {
+        let request: MediaDownloadRequest
+        let outcome: BatchOutcome
+        var retryStarted = false
+
+        var failedIndices: [Int] {
+            outcome.outcomes.indices.filter {
+                if case .failed(let error) = outcome.outcomes[$0] { return error != .cancelled }
+                return false
+            }
+        }
+
+        var canRetry: Bool { !retryStarted && !failedIndices.isEmpty }
+    }
+
     private struct RunningJob {
         let cancel: @MainActor () -> Void
         let waitForCompletion: @MainActor () async -> Void
@@ -46,6 +61,7 @@ final class JobCenter {
     private(set) var hatchSessions: [HatchExtractionSession] = []
     private(set) var completed: [CompletedBatch] = []
     private(set) var sessions: [UUID: ActivitySession] = [:]
+    private(set) var downloadSessions: [UUID: DownloadSession] = [:]
     private var validatingRetries: Set<UUID> = []
     private var sessionOrder: [UUID] = []
     @ObservationIgnored private let comparisonHost = FeatureWindowHost()
@@ -98,6 +114,24 @@ final class JobCenter {
 
     func start(entry: MenuEntry, inputs: [URL]) {
         guard !terminating else { return }
+        if entry.op == .folderDownloadMedia {
+            guard MenuLayout.isApplicable(entry, selection: inputs), inputs.count == 1 else { return }
+            do {
+                try OperationPlanner.validateInput(inputs[0])
+                let attributes = try inputs[0].resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+                guard attributes.isDirectory == true, attributes.isPackage != true else {
+                    presentFailure?(entry.op, String(localized: "Choose one destination folder."))
+                    return
+                }
+                presentPanel?(entry, inputs)
+            } catch {
+                presentFailure?(
+                    entry.op,
+                    UserMessages.describe(
+                        EngineError.wrapping(error, path: inputs[0].path), file: inputs[0].lastPathComponent))
+            }
+            return
+        }
         if entry.op == .filesFinish {
             guard MenuLayout.isApplicable(entry, selection: inputs) else {
                 presentFailure?(
@@ -171,8 +205,17 @@ final class JobCenter {
         run(settings: suppliedSettings ?? settings.planning, request: nil) { batch }
     }
 
+    @discardableResult
+    func runDownloads(_ request: MediaDownloadRequest) throws -> Task<BatchOutcome?, Never> {
+        let downloader = try MediaDownloader()
+        let batch = try downloader.makeBatch(request)
+        return run(
+            settings: settings.planning, request: nil, downloadRequest: request,
+            preparing: { batch })
+    }
+
     private func run(
-        settings snapshot: Settings, request: OperationRequest?,
+        settings snapshot: Settings, request: OperationRequest?, downloadRequest: MediaDownloadRequest? = nil,
         preparing makeBatch: @escaping @Sendable () async -> Batch
     ) -> Task<BatchOutcome?, Never> {
         guard !terminating else { return Task { nil } }
@@ -186,7 +229,8 @@ final class JobCenter {
             }
             let started = ActiveBatch(
                 id: id, batchID: batch.id, operation: batch.operation,
-                fileNames: batch.items.map { $0.inputs.first?.lastPathComponent ?? "" })
+                fileNames: downloadRequest?.selections.map { $0.source.title }
+                    ?? batch.items.map { $0.inputs.first?.lastPathComponent ?? "" })
             self.active.append(started)
             self.onStart?(started)
             let reporter = ProgressReporter(
@@ -202,6 +246,10 @@ final class JobCenter {
                 self.update(id, progress: $0)
             }
             let outcome = await engine.run(batch, settings: snapshot) { reporter.report($0) }
+            if let downloadRequest {
+                self.downloadSessions[outcome.batchID] = DownloadSession(request: downloadRequest, outcome: outcome)
+                self.rememberSession(outcome.batchID)
+            }
             self.finish(outcome, request: request, settings: snapshot, activeID: id)
             return outcome
         }
@@ -338,6 +386,7 @@ final class JobCenter {
 
     func dismissSession(_ id: UUID) {
         sessions.removeValue(forKey: id)
+        downloadSessions.removeValue(forKey: id)
         sessionOrder.removeAll { $0 == id }
     }
 
@@ -349,10 +398,23 @@ final class JobCenter {
     }
 
     func canRetry(_ id: UUID) -> Bool {
-        sessions[id]?.canRetry == true && !validatingRetries.contains(id)
+        (sessions[id]?.canRetry == true || downloadSessions[id]?.canRetry == true)
+            && !validatingRetries.contains(id)
     }
 
     func retry(_ id: UUID) {
+        if let session = downloadSessions[id] {
+            guard !terminating, session.canRetry,
+                let request = session.request.retryingFailed(session.outcome)
+            else { return }
+            do {
+                try runDownloads(request)
+                downloadSessions[id]?.retryStarted = true
+            } catch {
+                presentFailure?(.folderDownloadMedia, UserMessages.describeActivity(error))
+            }
+            return
+        }
         guard !terminating, let session = sessions[id], canRetry(id) else { return }
         validatingRetries.insert(id)
         Task {
@@ -450,10 +512,7 @@ final class JobCenter {
     private func finish(_ outcome: BatchOutcome, request: OperationRequest?, settings: Settings, activeID: UUID) {
         if let request {
             sessions[outcome.batchID] = ActivitySession(request: request, settings: settings, outcome: outcome)
-            sessionOrder.append(outcome.batchID)
-            while sessionOrder.count > Self.sessionCount {
-                sessions.removeValue(forKey: sessionOrder.removeFirst())
-            }
+            rememberSession(outcome.batchID)
         }
         let batch = active.first { $0.id == activeID }
         forget(activeID)
@@ -484,6 +543,15 @@ final class JobCenter {
         let needsBanner = !shownInActivity || Self.deniedPermission(outcome)
         if needsBanner, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
+    }
+
+    private func rememberSession(_ id: UUID) {
+        sessionOrder.append(id)
+        while sessionOrder.count > Self.sessionCount {
+            let expired = sessionOrder.removeFirst()
+            sessions.removeValue(forKey: expired)
+            downloadSessions.removeValue(forKey: expired)
+        }
     }
 
     // User cancellation is not a failure.

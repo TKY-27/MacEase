@@ -76,10 +76,15 @@ final class FinderSyncExtension: FIFinderSync {
         let file = currentMenuFile()
         let selection = selection(for: menuKind)
         cache.withLock { $0.lastMenuKind = menuKind }
+        let menu = NSMenu(title: "")
         let submenu = NSMenu(title: "MacEase")
         if let file, file.hostAvailable {
             let nodes = MenuLayout.nodes(for: file, selection: selection)
-            guard !nodes.isEmpty else { return nil }
+            if let index = file.entries.firstIndex(where: {
+                $0.op == .folderDownloadMedia && MenuLayout.isApplicable($0, selection: selection)
+            }) {
+                add([.action(title: "yt-dlp…", entryIndex: index)], to: menu)
+            }
             add(nodes, to: submenu)
         } else {
             let open = NSMenuItem(title: openTitle, action: #selector(openHost(_:)), keyEquivalent: "")
@@ -89,9 +94,8 @@ final class FinderSyncExtension: FIFinderSync {
         let root = NSMenuItem(title: "MacEase", action: nil, keyEquivalent: "")
         root.image = NSImage(named: Self.rootImageName)
         root.submenu = submenu
-        let menu = NSMenu(title: "")
-        menu.addItem(root)
-        return menu
+        if !submenu.items.isEmpty { menu.addItem(root) }
+        return menu.items.isEmpty ? nil : menu
     }
 
     private func add(_ nodes: [MenuNode], to menu: NSMenu) {
