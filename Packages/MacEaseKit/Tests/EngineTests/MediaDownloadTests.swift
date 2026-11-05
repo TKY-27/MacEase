@@ -154,6 +154,41 @@ import Testing
         #expect(!arguments.contains("h264_videotoolbox"))
     }
 
+    @Test(arguments: [false, true])
+    func sharedPagePlaylistResolvesOnlyTheSelectedEntry(reordered: Bool) async throws {
+        let fixture = try DownloadFixture(root: TestVolume.makeFolder())
+        defer { fixture.remove() }
+        let first =
+            #"{"id":"first","title":"First","webpage_url":"https://example.com/playlist","formats":[{"height":720,"ext":"mp4"}]}"#
+        let second =
+            #"{"id":"second","title":"Second","webpage_url":"https://example.com/playlist","formats":[{"height":720,"ext":"mp4"}]}"#
+        let initial = "{\"entries\":[" + first + "," + second + "]}"
+        try Data(initial.utf8).write(to: fixture.root.appending(path: "metadata"))
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let page = try #require(URL(string: "https://example.com/playlist"))
+        let analysis = try await downloader.analyze(urls: [page])
+        #expect(analysis.sources.count == 2)
+        let selected = try #require(analysis.sources.last)
+        #expect(selected.playlistIndex == 2)
+        if reordered {
+            let changed = "{\"entries\":[" + second + "," + first + "]}"
+            try Data(changed.utf8).write(to: fixture.root.appending(path: "metadata"))
+        }
+        let request = MediaDownloadRequest(
+            destination: fixture.destination, selections: [MediaDownloadSelection(source: selected)])
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
+        guard case .succeeded(let outputs, _) = outcome.outcomes.first else {
+            Issue.record("Playlist selection failed: \(outcome.outcomes)")
+            return
+        }
+        #expect(outputs.map(\.lastPathComponent) == ["Second.mp4"])
+        let arguments = try String(contentsOf: fixture.root.appending(path: "arguments"), encoding: .utf8)
+        #expect(arguments.contains("--yes-playlist\n--playlist-items\n" + (reordered ? "1" : "2")))
+        #expect(arguments.contains("!is_live & id ~= '^second$'"))
+        #expect(!arguments.contains("--no-playlist"))
+    }
+
     @Test func retriesOnlyFailuresAndResolvesMetadataAgain() async throws {
         let fixture = try DownloadFixture()
         defer { fixture.remove() }

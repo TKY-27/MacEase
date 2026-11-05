@@ -19,10 +19,11 @@ public struct MediaSource: Identifiable, Hashable, Sendable {
     public let availableFormats: [String]
     public let subtitles: [MediaSubtitle]
     public let isPlaylistEntry: Bool
+    public let playlistIndex: Int?
 
     public init(
         id: String, webpageURL: URL, title: String, duration: Double?, resolutions: [Int],
-        subtitles: [MediaSubtitle], isPlaylistEntry: Bool, availableFormats: [String] = []
+        subtitles: [MediaSubtitle], isPlaylistEntry: Bool, availableFormats: [String] = [], playlistIndex: Int? = nil
     ) {
         self.id = id
         self.webpageURL = webpageURL
@@ -32,6 +33,7 @@ public struct MediaSource: Identifiable, Hashable, Sendable {
         self.availableFormats = availableFormats
         self.subtitles = subtitles
         self.isPlaylistEntry = isPlaylistEntry
+        self.playlistIndex = playlistIndex
     }
 }
 

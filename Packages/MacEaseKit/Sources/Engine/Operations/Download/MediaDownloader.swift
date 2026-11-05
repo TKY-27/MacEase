@@ -98,10 +98,13 @@ public struct MediaDownloader: Sendable {
             directory: directory)
         let decoded = try JSONDecoder().decode(Metadata.self, from: result.stdout)
         let sources = try decoded.sources(fallback: page)
-        guard Set(sources.map(\.webpageURL)).count == sources.count else {
-            throw EngineError.decodeFailed("This playlist does not expose independent media URLs")
+        return sources.map { source in
+            let sharedPage = source.webpageURL == page || sources.count { $0.webpageURL == source.webpageURL } > 1
+            return MediaSource(
+                id: source.id, webpageURL: source.webpageURL, title: source.title, duration: source.duration,
+                resolutions: source.resolutions, subtitles: source.subtitles, isPlaylistEntry: source.isPlaylistEntry,
+                availableFormats: source.availableFormats, playlistIndex: sharedPage ? source.playlistIndex : nil)
         }
-        return sources
     }
 
     private func download(_ selection: MediaDownloadSelection, destination: URL, context: ItemContext) async throws
@@ -119,8 +122,14 @@ public struct MediaDownloader: Sendable {
         }
         let directory = try context.stagingDirectory(for: destination)
         context.phase(.downloading)
-        var arguments = [
-            "--no-playlist", "--match-filters", "!is_live", "--no-simulate", "--no-overwrites", "--no-continue",
+        let identifier = String(source.id.dropFirst(source.webpageURL.absoluteString.count + 1))
+        let escapedID = NSRegularExpression.escapedPattern(for: identifier)
+            .replacingOccurrences(of: "'", with: "\\'")
+        var arguments =
+            source.playlistIndex.map { ["--yes-playlist", "--playlist-items", String($0)] } ?? ["--no-playlist"]
+        arguments += [
+            "--match-filters", "!is_live & id ~= '^" + escapedID + "$'", "--no-simulate", "--no-overwrites",
+            "--no-continue",
             "--newline", "--progress",
             "--progress-template",
             "download:MACEASE:%(info.format_id)s:%(progress.downloaded_bytes)s:%(progress.total_bytes)s",
@@ -385,22 +394,21 @@ public struct MediaDownloader: Sendable {
             enum CodingKeys: String, CodingKey { case height, ext, hasDRM = "has_drm" }
         }
 
-        func sources(fallback: URL, playlist: Bool = false, depth: Int = 0) throws -> [MediaSource] {
+        func sources(fallback: URL, playlist: Bool = false, index: Int? = nil, depth: Int = 0) throws -> [MediaSource] {
             guard depth < Limits.playlistDepth else { throw EngineError.decodeFailed("Playlist nesting exceeds limit") }
             if let entries {
                 guard entries.count <= Limits.selections, (playlistCount ?? entries.count) <= Limits.selections else {
                     throw EngineError.decodeFailed("Playlist exceeds 512 entries")
                 }
-                return try entries.compactMap { $0 }.flatMap {
-                    try $0.sources(fallback: fallback, playlist: true, depth: depth + 1)
+                let parent = try MediaDownloader.validateURL(webpageURL ?? fallback.absoluteString)
+                return try entries.enumerated().flatMap { offset, entry in
+                    try entry?.sources(fallback: parent, playlist: true, index: offset + 1, depth: depth + 1) ?? []
                 }
             }
             guard isLive != true, liveStatus != "is_live", liveStatus != "is_upcoming", hasDRM != true else {
                 throw EngineError.decodeFailed("Live, upcoming and DRM-protected media are unsupported")
             }
-            guard let pageText = webpageURL ?? (playlist ? nil : fallback.absoluteString) else {
-                throw EngineError.decodeFailed("A playlist entry has no independent webpage URL")
-            }
+            let pageText = webpageURL ?? fallback.absoluteString
             let page = try MediaDownloader.validateURL(pageText)
             guard let id, !id.isEmpty, id.utf8.count <= Limits.sourceIDBytes, let title, !title.isEmpty,
                 title.utf8.count <= Limits.titleBytes
@@ -432,7 +440,7 @@ public struct MediaDownloader: Sendable {
                     resolutions: heights.sorted(by: >),
                     subtitles: (authored + automatic).sorted {
                         ($0.language, $0.automatic ? 1 : 0) < ($1.language, $1.automatic ? 1 : 0)
-                    }, isPlaylistEntry: playlist, availableFormats: extensions.sorted())
+                    }, isPlaylistEntry: playlist, availableFormats: extensions.sorted(), playlistIndex: index)
             ]
         }
     }
