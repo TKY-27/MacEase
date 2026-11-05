@@ -33,7 +33,8 @@ passes explicit Node and FFmpeg paths, and never self-updates these tools.
 
 FFmpeg uses native VideoToolbox H.264 and AAC encoders, VP9 through libvpx,
 AV1 decoding through dav1d, Opus through libopus, MP3 through libmp3lame, and
-native PCM/FLAC encoders.
+native PCM/FLAC encoders. HTTPS and encrypted HLS use the macOS Secure Transport
+TLS backend, without linking FFmpeg to OpenSSL.
 FFmpeg and LAME are shared libraries with relative install names. Users can
 replace these independent tools with compatible modified builds. Signing
 replacement executables ad hoc can be necessary under macOS code validation.

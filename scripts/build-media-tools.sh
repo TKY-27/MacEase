@@ -159,7 +159,7 @@ unpack ffmpeg
     run ffmpeg-configure ./configure --prefix="$prefix" --arch=arm64 --target-os=darwin \
         --cc=clang --disable-gpl --disable-nonfree --disable-version3 \
         --disable-autodetect --disable-static --enable-shared --disable-doc --disable-debug \
-        --disable-ffplay --enable-videotoolbox --enable-audiotoolbox --enable-zlib --enable-bzlib \
+        --disable-ffplay --enable-videotoolbox --enable-audiotoolbox --enable-securetransport --enable-zlib --enable-bzlib \
         --enable-libvpx --enable-libopus --enable-libmp3lame --enable-libdav1d \
         --extra-cflags="$CFLAGS -I$prefix/include" \
         --extra-ldflags="$LDFLAGS -L$prefix/lib" \
@@ -215,6 +215,9 @@ env -i HOME="$work" PATH=/usr/bin:/bin "$runtime/bin/ffmpeg" -version
 [[ "$("$runtime/bin/python3" -I -B -c 'import platform; print(platform.python_version())')" == "$(field cpython 2)" ]]
 [[ "$("$runtime/bin/python3" -I -B -m yt_dlp --ignore-config --version)" == "$(field yt-dlp 2)" ]]
 "$runtime/bin/ffprobe" -version >/dev/null
+for protocol in https tls; do
+    "$runtime/bin/ffmpeg" -hide_banner -protocols 2>/dev/null | grep -E "^[[:space:]]+$protocol$" >/dev/null
+done
 for encoder in h264_videotoolbox aac libvpx-vp9 libopus libmp3lame pcm_s24le flac; do
     "$runtime/bin/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -E "[[:space:]]$encoder[[:space:]]" >/dev/null
 done
