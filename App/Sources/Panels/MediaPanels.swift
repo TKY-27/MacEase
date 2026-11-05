@@ -91,24 +91,31 @@ struct TrimPanel: View {
     /// Seconds to preselect, such as LINE's limit.
     let prefill: ClosedRange<Double>?
     @State var mode: TrimMode
+    let staging: StagingArea
     let close: () -> Void
     let run: (_ start: Double, _ end: Double, TrimMode) -> Void
 
     var body: some View {
-        MediaLoader(url: url, isVideo: isVideo, close: close) { media in
-            switch media {
-            case .player(let player, let duration):
-                VStack(spacing: 0) {
-                    if isVideo { modePicker.padding() }
-                    TrimmingPlayer(player: player, prefill: prefill) { range in
-                        guard let range else { return close() }
-                        run(range.lowerBound, min(range.upperBound, duration), mode)
+        if !isVideo {
+            AudioTrimPanel(url: url, staging: staging, prefill: prefill, cancel: close) { start, end in
+                run(start, end, mode)
+            }
+        } else {
+            MediaLoader(url: url, isVideo: isVideo, close: close) { media in
+                switch media {
+                case .player(let player, let duration):
+                    VStack(spacing: 0) {
+                        if isVideo { modePicker.padding() }
+                        TrimmingPlayer(player: player, prefill: prefill) { range in
+                            guard let range else { return close() }
+                            run(range.lowerBound, min(range.upperBound, duration), mode)
+                        }
+                        .frame(height: isVideo ? MediaLayout.videoHeight : MediaLayout.audioHeight)
                     }
-                    .frame(height: isVideo ? MediaLayout.videoHeight : MediaLayout.audioHeight)
+                    .frame(width: PanelLayout.wideWidth)
+                default:
+                    NumericTrim(media: media, prefill: prefill, isVideo: isVideo, mode: $mode, cancel: close, run: run)
                 }
-                .frame(width: PanelLayout.wideWidth)
-            default:
-                NumericTrim(media: media, prefill: prefill, isVideo: isVideo, mode: $mode, cancel: close, run: run)
             }
         }
     }

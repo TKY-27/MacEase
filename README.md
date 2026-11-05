@@ -126,7 +126,7 @@ are saved in a writable format while retaining the RAW source.
 | **Thumbnail** | Save the first, middle, or a chosen frame as an image |
 | **Subtitles** | Transcribe to SRT, WebVTT, or plain text, or export translated SRT |
 | **Rotate** | Right-angle turns and an extra editable angle; **Flip** horizontally or vertically |
-| **Extract Audio** | Save the soundtrack as M4A (AAC or ALAC), MP3, AAC, WAV, AIFF, FLAC, Ogg Vorbis, or Opus |
+| **Extract Audio** | Copy the original soundtrack without re-encoding, or explicitly convert to M4A (AAC or ALAC), MP3, AAC, WAV, AIFF, FLAC, Ogg Vorbis, or Opus |
 | **Frame Rate** | Change the frame rate |
 | **Remove Audio** | Drop the audio tracks |
 | **Background** | Export with a transparent, colored, or blurred background |
@@ -143,6 +143,19 @@ resolution apply to the whole output. Joined videos always save a new MP4
 other sizes fit with black borders. Silent sources contribute silence. Review
 the HDR, transparency and metadata disclosure before saving. Multiple tracks
 and transitions are outside this editor's scope.
+
+Video and audio trimming share a yellow selection with draggable ends. Zoom with
+Command-scroll, a trackpad pinch, the zoom slider or Command-plus/minus; use
+**Fit** to see the whole timeline. The red hover line previews silently; clicking
+sets the white playhead. Trim ends snap within eight screen points of the playhead
+and segment boundaries; hold Option to disable snapping. **Set In** and **Set Out**
+place a boundary at the playhead. One drag is one Undo operation.
+
+**Extract Original Audio** ignores bitrate settings and copies compatible audio
+without normalization, volume changes or re-encoding. Unsupported formats or
+unrepresentable timing fail explicitly. **MP3 (Lossy Conversion)** and other MP3
+outputs use the bundled LAME encoder; converting to MP3 is lossy. Unsupported
+audio tags block replacement; New File retains the source and reports the loss.
 
 ### Audio
 
@@ -273,7 +286,7 @@ line and choose **Analyze** to inspect titles, durations and available formats.
 Playlist entries start unselected; choose the entries you want before downloading.
 
 Best-quality video in its original format is the default. Choose MP4, MKV or WebM,
-or original audio, M4A, MP3, WAV or FLAC. Available resolutions come from the source.
+or original audio, M4A, MP3, WAV or FLAC. Available resolutions come from actual video streams and show pixel dimensions, including portrait video. With multiple selections, only common resolutions are listed. A source offering one resolution cannot supply other native resolutions.
 Compatible streams are copied; a format with incompatible codecs requires
 re-encoding. Optional authored or automatic subtitles are saved alongside the media
 as SRT or VTT in the selected language.
@@ -281,7 +294,7 @@ as SRT or VTT in the selected language.
 Two downloads run concurrently. Activity supports cancellation, retrying only failed
 downloads, Show in Finder and Undo. Successful or cancelled downloads are excluded
 from retries. Downloads always create new files, number duplicate names and remove
-uncommitted partial files after failure or cancellation.
+uncommitted partial files after failure or cancellation. Missing media fragments fail the download. A narrowly verified repair removes empty H.264 tail packets only when every valid video/audio packet and its timing remain unchanged; other corruption still fails.
 
 Supported public sites are those handled by the bundled yt-dlp, including YouTube
 and TikTok; provider changes can break support. Cookies, sign-in, DRM removal and
@@ -543,6 +556,7 @@ cd MacEase
 make bootstrap
 make build
 make test
+make test-app
 ```
 
 Before first launch, copy `build/DerivedData/Build/Products/Debug/MacEase Dev.app`
@@ -565,13 +579,15 @@ translation support. Bundled Swift package dependencies include **swift-cmark**
 for Markdown and **Yams**, including libyaml, for YAML. Vendored **toml++** runs
 behind an owned C bridge for TOML. Other format support uses permissively
 licensed libraries, including libwebp, libavif, libjxl, libvpx, libopus, and
-libarchive, plus independent implementations such as the MP3 and GIF encoders,
+libarchive, plus independent implementations such as the GIF encoder,
 Matroska and WebM containers, and SVG tracing. A pinned Rust helper uses
 **hatchzip-core 0.1.8** under its MIT license for in-place extraction, with
 UnRAR disabled; ordinary RAR extraction uses libarchive. Media downloading uses
 private Python, source-distributed yt-dlp, EJS and a JavaScript runtime. Separate
-FFmpeg and ffprobe executables assist only downloaded media; existing local-file
-engines remain unchanged.
+FFmpeg and ffprobe executables assist downloaded media. Local MP3 outputs also
+stream PCM into FFmpeg/libmp3lame without an intermediate audio file. These
+independent tools retain their licenses and corresponding sources; MacEase code
+remains MIT licensed. See [media tools](docs/media-tools.md).
 
 Details: [docs/SPEC.md](docs/SPEC.md) and [docs/adr/](docs/adr/).
 

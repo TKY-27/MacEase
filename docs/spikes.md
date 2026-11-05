@@ -791,3 +791,42 @@ This supports reducing large allocation churn and removing full-frame RGB
 intermediates rather than increasing the budget or purging the process
 allocator. ADR 0046 records the row-based and mapped-index implementation.
 The evidence lives under `build/v2.1.0/png-perf/mapped-stage-diagnostic-20261102-154549/`.
+
+
+## Audio copy and MP3 gapless output (2026-11-05)
+
+The pinned FFmpeg/libmp3lame output uses a Lavc encoder identifier in the Xing
+frame. On this host, AudioToolbox includes encoder delay and padding for that
+identifier. Setting the stream encoder identifier to the actual `LAME3.100`
+implementation makes AudioToolbox honor the gapless fields. Independent FFmpeg
+decoding also verifies the resulting frame counts.
+
+For short inputs spanning a frame boundary, the pinned FFmpeg path can report
+insufficient final padding: 1,153 input frames decode as 1,199 frames, with
+1,681 rather than 1,727 padding frames. The output adapter now derives padding
+from successfully streamed input frames and the Xing coded-frame count, retains
+the existing delay, and updates the standard CRC-16/ARC field. Both independent
+decoders return exact lengths for CBR/VBR boundary fixtures.
+
+The pinned FFmpeg `-n` invocation can return success when an output already
+exists. The MP3 adapter explicitly refuses an occupied output before launching.
+Commit-boundary collision protection remains authoritative for user files.
+
+An Opus track shorter than its surrounding video exposed a copied Ogg duration
+error. Granule positions must follow decoded audio packet frames and final
+discard padding, rather than the overall video duration or rounded container
+timestamps. Exact decoded sample comparisons cover the longer-video case.
+
+## Incomplete downloaded media (2026-11-05)
+
+The supplied TikTok short link resolves to a 1080 × 1400 source with only one
+actual video resolution. Its MP4 contains 590 valid video packets, 460 audio
+packets and 3,343 trailing eight-byte H.264 type-zero samples. Strict decoding
+fails on those samples. An isolated remux removing only that verified empty tail
+preserves valid payload hashes, PTS/DTS, durations and audio skip/discard fields,
+and strict decoding succeeds. This observation does not justify accepting other
+corrupt input or inventing unavailable source resolutions.
+
+yt-dlp normally skips unavailable HLS fragments. A local HTTP fixture with a
+missing middle fragment confirms that `--abort-on-unavailable-fragments` is
+needed to reject an incomplete download before commit.

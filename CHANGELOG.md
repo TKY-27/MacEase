@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Original-audio extraction that ignores bitrate settings and refuses implicit conversion.
+- Shared yellow video/audio trim ranges, silent skimming, committed playheads,
+  zoom gestures and keyboard controls, snapping and session Undo/Redo.
+- Progressive audio waveforms and app-hosted trim regression tests.
+
+### Changed
+
+- Stream all local MP3 output through isolated FFmpeg/libmp3lame, retaining
+  CBR/VBR controls and independent decoding and quality tests.
+- Align download controls and show actual source video dimensions, excluding storyboards.
+
+### Fixed
+
+- Swift exclusive-access crashes while changing video trim boundaries.
+- Silent loss of unsupported audio tags during replacement; refuse replacement
+  or disclose the loss when retaining the original with New File.
+- Incomplete downloads caused by silently skipped media fragments.
+- A verified empty H.264 tail found in a TikTok download; preserve every valid
+  packet and timestamp, and continue rejecting other corruption.
+- Duplicate CSV headers losing fields during JSON/XML conversion, and missing
+  UTF-8 BOM in JSON-to-CSV output.
+
 ## [2.2.0] - 2026-11-05
 
 ### Added

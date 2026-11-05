@@ -77,7 +77,7 @@ final class PanelCoordinator {
     private func showMediaDownload(_ destination: URL) {
         let model = MediaDownloadModel(destination: destination)
         featureHost.show(
-            title: "yt-dlp", minimumSize: NSSize(width: 700, height: 620),
+            title: "yt-dlp", minimumSize: NSSize(width: 700, height: 650),
             initialSize: NSSize(width: 820, height: 720), onClose: { await model.close() }
         ) { close in
             MediaDownloadView(model: model, close: close) { request in
@@ -250,7 +250,10 @@ final class PanelCoordinator {
         let isVideo = op == .videoTrim
         let mode = PanelMemory.value(for: op, default: store.settings.video.trimMode)
         host.show(title: MenuStrings.operationName(op)) { close in
-            TrimPanel(url: file, isVideo: isVideo, prefill: prefill, mode: mode, close: close) { start, end, mode in
+            TrimPanel(
+                url: file, isVideo: isVideo, prefill: prefill, mode: mode, staging: self.jobs.engine.staging,
+                close: close
+            ) { start, end, mode in
                 PanelMemory.remember(mode, for: op)
                 close()
                 let options: OperationOptions =

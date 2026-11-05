@@ -95,6 +95,25 @@ targets:
         CODE_SIGN_ENTITLEMENTS: FinderSync/FinderSync.entitlements
         ENABLE_APP_SANDBOX: YES
 
+  MacEaseAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: AppTests
+      - path: Packages/MacEaseKit/Tests/EngineTests/Resources/ffmpeg-h264-aac.mp4
+        buildPhase: resources
+    dependencies:
+      - target: MacEase
+      - package: MacEaseKit
+        product: Engine
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MACEASE_BUNDLE_ID).AppTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(MACEASE_DISPLAY_NAME).app/Contents/MacOS/$(MACEASE_DISPLAY_NAME)
+        BUNDLE_LOADER: $(TEST_HOST)
+        ENABLE_APP_SANDBOX: NO
+
 schemes:
   MacEase:
     build:
@@ -102,5 +121,9 @@ schemes:
         MacEase: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - MacEaseAppTests
     archive:
       config: Release

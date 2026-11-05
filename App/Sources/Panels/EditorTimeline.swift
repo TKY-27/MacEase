@@ -3,7 +3,6 @@ import SwiftUI
 
 struct EditorTimeline: View {
     @Bindable var model: MediaEditorModel
-    @State private var trimStart: VideoSegment?
 
     var body: some View {
         VStack(spacing: 6) {
@@ -53,35 +52,36 @@ struct EditorTimeline: View {
                 }
                 .labelStyle(.iconOnly).disabled(!model.hasSelection)
                 Spacer(minLength: 8)
-                Image(systemName: "minus.magnifyingglass").accessibilityHidden(true)
-                Slider(value: $model.timelineZoom, in: 1...12) { Text("Timeline Zoom") }
-                    .labelsHidden().frame(width: 100)
-                Image(systemName: "plus.magnifyingglass").accessibilityHidden(true)
+                TimelineZoomControls(zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom)
             }.buttonStyle(.borderless)
-            GeometryReader { proxy in
-                ScrollView(.horizontal) {
-                    let width = max(1, proxy.size.width - 24) * model.timelineZoom
-                    let duration = max(model.outputDuration, model.frameDuration)
-                    VStack(spacing: 2) {
-                        ruler(width: width, duration: duration)
-                        ZStack(alignment: .topLeading) {
-                            HStack(spacing: 0) {
-                                ForEach(Array(model.values.segments.enumerated()), id: \.element.id) { index, segment in
-                                    segmentView(segment, index: index, width: width, duration: duration)
-                                }
-                            }
-                            Rectangle().fill(.primary).frame(width: 2, height: 58)
-                                .offset(x: width * model.position / duration - 1)
-                                .allowsHitTesting(false)
-                        }.frame(width: width, height: 58, alignment: .leading)
-                    }.padding(.horizontal, 12)
-                }
-            }.frame(height: 86)
+            MediaTimeline(
+                duration: max(model.timelineDuration, model.frameDuration), position: model.position,
+                clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
+                seek: model.seek, hover: model.skim, select: model.selectSegment,
+                beginTrim: model.beginTimelineTrim, trim: model.updateTimelineTrim,
+                endTrim: { Task { await model.endTimelineTrim() } }, move: model.moveSegment,
+                action: { id, action in
+                    model.selectSegment(id)
+                    switch action {
+                    case .setIn: model.setTrimBoundaryAtPlayhead(start: true)
+                    case .setOut: model.setTrimBoundaryAtPlayhead(start: false)
+                    case .split: model.split()
+                    case .duplicate: model.duplicateSelection()
+                    case .left: model.moveSelection(-1)
+                    case .right: model.moveSelection(1)
+                    case .delete: model.deleteSelection()
+                    }
+                }, viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } }
+            ).frame(height: 106)
+
         }
     }
 
     private var segmentActions: some View {
         Group {
+            Button("Set In Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: true) }
+            Button("Set Out Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: false) }
+            Divider()
             Button("Split at Playhead") { model.split() }.disabled(!model.canSplit)
             Button("Duplicate Segment") { model.duplicateSelection() }
             Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
@@ -92,81 +92,17 @@ struct EditorTimeline: View {
         }
     }
 
-    private func ruler(width: Double, duration: Double) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color.clear.contentShape(Rectangle())
-            ForEach(0..<6) { index in
-                Text(duration * Double(index) / 5, format: .number.precision(.fractionLength(1)))
-                    .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
-                    .offset(x: max(0, min(width - 35, width * Double(index) / 5)))
-            }
+    private var clips: [TimelineClip] {
+        model.values.segments.enumerated().map { index, segment in
+            let range = model.timelineRange(for: segment)
+            let name =
+                model.values.sources.indices.contains(segment.sourceIndex)
+                ? model.values.sources[segment.sourceIndex].url.lastPathComponent : model.url.lastPathComponent
+            return TimelineClip(
+                id: segment.id, range: range,
+                selection: model.values.selectedID == segment.id ? range : nil,
+                label: "\(index + 1) · \(name)", frames: frames(for: segment))
         }
-        .frame(width: width, height: 18)
-        .gesture(DragGesture(minimumDistance: 0).onChanged { model.seek($0.location.x / width * duration) })
-        .accessibilityLabel("Playhead")
-        .accessibilityValue(Text(model.position, format: .number.precision(.fractionLength(3))))
-        .accessibilityAdjustableAction { direction in model.stepFrame(direction == .increment ? 1 : -1) }
-    }
-
-    private func segmentView(_ segment: VideoSegment, index: Int, width: Double, duration: Double) -> some View {
-        let segmentDuration = (segment.end - segment.start) / segment.speed
-        let segmentWidth = width * segmentDuration / duration
-        let selected = model.values.selectedID == segment.id
-        return FrameStrip(frames: frames(for: segment), duration: segmentDuration)
-            .frame(width: segmentWidth, height: 52)
-            .background(.quaternary)
-            .overlay(alignment: .bottomLeading) {
-                Text(
-                    "\(index + 1) · \(model.values.sources.indices.contains(segment.sourceIndex) ? model.values.sources[segment.sourceIndex].url.lastPathComponent : model.url.lastPathComponent)"
-                ).font(.caption2).monospacedDigit()
-                    .padding(.horizontal, 5).padding(.vertical, 2).background(.regularMaterial)
-                    .padding(4)
-            }
-            .overlay {
-                Rectangle().strokeBorder(
-                    selected ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: selected ? 3 : 1)
-            }
-            .overlay(alignment: .leading) {
-                if selected { trimHandle(segment, start: true, width: width, duration: duration) }
-            }
-            .overlay(alignment: .trailing) {
-                if selected { trimHandle(segment, start: false, width: width, duration: duration) }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { model.selectSegment(segment.id) }
-            .draggable(segment.id.uuidString)
-            .dropDestination(for: String.self) { identifiers, _ in
-                guard let identifier = identifiers.first, let id = UUID(uuidString: identifier),
-                    model.values.segments.contains(where: { $0.id == id })
-                else { return false }
-                model.moveSegment(id, to: index)
-                return true
-            }
-            .contextMenu {
-                Button("Select Segment") { model.selectSegment(segment.id) }
-                Button("Split at Playhead") {
-                    model.selectSegment(segment.id); model.split()
-                }.disabled(!model.canSplitSegment(segment.id))
-                Button("Duplicate Segment") {
-                    model.selectSegment(segment.id); model.duplicateSelection()
-                }
-                Button("Move Segment Left") {
-                    model.selectSegment(segment.id); model.moveSelection(-1)
-                }.disabled(index == 0)
-                Button("Move Segment Right") {
-                    model.selectSegment(segment.id); model.moveSelection(1)
-                }
-                .disabled(index == model.values.segments.count - 1)
-                Divider()
-                Button("Delete Segment", role: .destructive) {
-                    model.selectSegment(segment.id); model.deleteSelection()
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Segment \(index + 1)"))
-            .accessibilityValue(Text("\(segmentDuration, format: .number.precision(.fractionLength(2))) seconds"))
-            .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityAction { model.selectSegment(segment.id) }
     }
 
     private func frames(for segment: VideoSegment) -> [CGImage] {
@@ -179,30 +115,4 @@ struct EditorTimeline: View {
         return Array(frames[first...last])
     }
 
-    private func trimHandle(_ segment: VideoSegment, start: Bool, width: Double, duration: Double) -> some View {
-        RoundedRectangle(cornerRadius: 2).fill(Color.accentColor)
-            .frame(width: 8, height: 52)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0).onChanged { gesture in
-                    if trimStart == nil { trimStart = segment; model.beginInteraction() }
-                    guard let original = trimStart else { return }
-                    let delta = gesture.translation.width / width * duration * original.speed
-                    model.change {
-                        guard let index = $0.segments.firstIndex(where: { $0.id == segment.id }) else { return }
-                        if start {
-                            $0.segments[index].start = min(
-                                max(0, original.start + delta), original.end - model.sourceFrameDuration)
-                        } else {
-                            $0.segments[index].end = max(
-                                min(model.sourceDuration, original.end + delta),
-                                original.start + model.sourceFrameDuration)
-                        }
-                    }
-                }.onEnded { _ in
-                    trimStart = nil; model.endInteraction()
-                }
-            )
-            .help(start ? "Drag to trim the segment start" : "Drag to trim the segment end")
-    }
 }

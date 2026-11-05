@@ -516,10 +516,10 @@ The app shows the generated notices in Settings > About.
 pngquant, libimagequant, and Clop, may be read to study architecture and
 algorithms. Their code must never be copied, translated, adapted, or incorporated
 into MacEase source or linked libraries. Section 22 explicitly permits isolated
-LGPL FFmpeg download executables and their required LGPL dependencies, with
-corresponding source and license notices. Existing local media operations remain
-independent. Implement those operations using platform APIs, specifications, and
-papers. This supersedes ADR 0004's prohibition on reading those sources.
+LGPL FFmpeg executables and their required LGPL dependencies for downloads
+and, under section 23, local MP3 encoding. Keep them separate processes with
+corresponding source and license notices. All other local operations use platform
+APIs, specifications, and papers. This supersedes ADR 0004's prohibition on reading those sources.
 
 Flect is Apache-2.0 and is the interaction reference. Its developer's permission
 to study or reuse it does not replace license terms. MacEase independently
@@ -535,14 +535,15 @@ The bundled HatchZip helper uses `hatchzip-core` 0.1.8 at commit
 disabled. Its source archive is pinned in `Vendor/deps.lock`; its Rust
 dependencies are locked and their notices accompany the helper.
 
-### 3.8 In-house formats
+### 3.8 Format implementations
 
-Each component lives in `Formats` and has its own tests. SSIM is computed on
-the luma channel against the source.
+Independent codecs and containers live in `Formats`; isolated MP3 output lives
+in `Engine`. Each has independent output tests. SSIM is computed on the luma
+channel against the source.
 
 | Component | Scope | Algorithm | Done when |
 | --- | --- | --- | --- |
-| MP3 encoder | MPEG-1 Layer III, 44.1 and 48 kHz, mono and stereo with M/S, CBR 128/192/256/320 kbps and VBR quality 0–9 | Written from ISO/IEC 11172-3: polyphase filterbank, MDCT with window switching, psychoacoustic model with masking thresholds, bit reservoir, Huffman coding | AudioToolbox decodes every frame without error; on the music fixture at 192 kbps the segmental SNR is at least 20 dB and bandwidth is at least 16 kHz; encoding runs at least 20× real time on M1 |
+| MP3 output | MPEG-1 Layer III, 44.1 and 48 kHz, mono and stereo, CBR 128/192/256/320 kbps and VBR quality 0–9 | Independent bundled FFmpeg/libmp3lame process; section 23 supersedes the former in-house encoder | AudioToolbox decodes every frame without error; on the music fixture at 192 kbps the segmental SNR is at least 20 dB and bandwidth is at least 16 kHz; encoding runs at least 20× real time on M1 |
 | GIF encoder | Single and animated | Color quantization in Oklab (Wu initial palette refined by k-means), global or per-frame palettes, Floyd–Steinberg or ordered dithering (setting), transparent-pixel frame differencing, LZW | ImageIO decodes it; SSIM ≥ 0.93 on the gradient video fixture at 256 colors with dithering; output is smaller than ImageIO's GIF output for the same frames |
 | PNG lossy quantizer | RGBA to ≤ 256-color palette with alpha (tRNS) | k-means in premultiplied Oklab with alpha, optional dithering, libdeflate compression with per-row filter selection | SSIM ≥ 0.97 and size ≤ 45% of lossless libdeflate PNG on the photo fixture |
 | PNG lossless optimizer | Re-encode PNG without changing pixels | Bit depth and color type reduction, sampled filter selection and libdeflate; balanced effort for conversion and static RGB8 target compression, bounded stronger fallback on the remaining target paths | Decoded pixels identical; standalone optimization is never larger than the input (otherwise keep input bytes) |
@@ -681,7 +682,7 @@ menus.
 | Audio and video Subtitles | SRT, WebVTT, Plain Text; Translated SRT |
 | Video Compress | Discord (20 MB), X, Instagram Reels, LINE, Email (18 MB); 10 MB, 25 MB, 50 MB, 100 MB (hidden); High Quality, Medium Quality, Low Quality; Custom Size… |
 | Video Convert | MP4, MOV, M4V (hidden), MKV, WebM, AVI (hidden), FLV (hidden); GIF, GIF for X (15 MB), Animated WebP, APNG (hidden); SDR when applicable |
-| Extract Audio | M4A (AAC), M4A (ALAC), MP3, AAC, WAV, AIFF (hidden), FLAC, OGG (Vorbis) (hidden), Opus (hidden) |
+| Extract Audio | Original (first), M4A (AAC), M4A (ALAC), MP3, AAC, WAV, AIFF (hidden), FLAC, OGG (Vorbis) (hidden), Opus (hidden) |
 | Audio Convert | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG (Vorbis), Opus, CAF (PCM), CAF (ALAC) |
 | Audio Compress | 192 kbps, 128 kbps, 96 kbps, 64 kbps; Custom Size… |
 | Normalize Loudness / Frame Rate | −14 LUFS, −16 LUFS, −23 LUFS / 24 fps, 30 fps, 60 fps |
@@ -1136,7 +1137,7 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | `video.toAnimatedWebP` | Animated WebP, under Convert | Derived | libwebp animation encoder using saved animation defaults |
 | `video.toAPNG` | APNG, under Convert | Derived | ImageIO APNG writer using saved animation defaults |
 | `video.thumbnail` | First Frame, Middle Frame, Choose Frame… | Derived | PNG or JPEG per Settings, with saved quality and optional width limit |
-| `video.extractAudio` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; Automatic bitrate copies when possible; an explicit bitrate in Settings always encodes |
+| `video.extractAudio` | Original, MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; Original ignores bitrate preferences and refuses unsupported timing; explicit formats copy with Automatic bitrate when possible, otherwise encode |
 | `video.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Speech framework `SpeechAnalyzer` with `SpeechTranscriber` and audio time ranges; language from settings or the system locale; cues split at sentence boundaries, at most 42 characters per line and 2 lines; translation with the Translation framework |
 | `video.background` | Remove, Green Screen, Blue Screen, Custom Color, Blur | Derived | Section 8.11 |
 | `video.aiCustom` | — | Depends on plan | Section 10 |
@@ -2385,8 +2386,9 @@ Completed downloads support Show in Finder and Undo through normal history.
 Bundle source-distributed Unlicense yt-dlp, a private Python runtime, EJS and a
 supported JavaScript runtime. Never depend on the user's Python or Homebrew.
 Bundle FFmpeg and ffprobe as independent processes, built without GPL or nonfree
-features, exclusively for downloading, merging, converting and repairing newly
-downloaded media. Their required LGPL dependencies share this narrow exception.
+features, for downloading, merging, converting and repairing newly downloaded
+media, plus local MP3 encoding under section 23. Their required LGPL dependencies
+share this narrow exception.
 MacEase source remains MIT; third-party executables retain their own licenses.
 Pin source versions and hashes, provide notices and corresponding source/build
 instructions, sign nested executable code, and update tools with app releases.
@@ -2414,8 +2416,7 @@ stale delivery. Only verification and final commit establish batch completion.
 HatchZip retains its existing pause/recovery semantics.
 
 The update API remains GitHub; menu and notification actions open the localized
-official download page. Migrate persisted release links. Existing native media
-processing is not replaced by FFmpeg.
+official download page. Migrate persisted release links. Other native media processing is not replaced by FFmpeg.
 
 ### 22.4 Acceptance and publication
 
@@ -2434,7 +2435,80 @@ Publish from the final v2.2.0 tag with signed DMG, SHA-256, release notes and
 required third-party source. Check final-DMG installation, anonymous downloads,
 latest-release resolution and the website's matching download information.
 
+## 23. Audio preservation and timeline stabilization
+
+### 23.1 Audio extraction and MP3 output
+
+Extract Audio starts with **Extract Original Audio**. It selects a compatible
+copy target (AAC/ALAC in M4A, MP3, FLAC, Vorbis, Opus, WAV or AIFF), ignores
+encoding bitrate preferences, and never falls back to encoding. Unsupported
+codec/timing combinations fail explicitly. Source files are always retained.
+Existing explicit format choices and recorded operations remain readable.
+
+All local MP3 encoding uses the existing pinned FFmpeg/libmp3lame executable
+through a bounded PCM pipe. The original application code stays MIT; no LGPL
+implementation is copied or linked into it. Keep separate notices, matching
+sources and build instructions. Do not add gain, normalization, pitch, channel
+mixing or repair to extraction. Explicit Normalize retains its requested gain.
+CBR/VBR preferences and supported bitrates remain unchanged. Preserve tags and
+encoder delay/padding. Unsupported descriptive tags refuse replacement; New File
+warns while preserving supported tags and the source. Cancellation terminates the encoder and discards staging.
+Missing tools fail explicitly; there is no old-encoder fallback. Native app
+builds resolve their bundled tools. Command-line package clients may select a
+runtime directory with `MACEASE_MEDIA_TOOLS`; make test and benchmarks supply
+the pinned repository runtime.
+
+### 23.2 Shared timeline interactions
+
+Video and audio use yellow retained ranges with draggable end handles, an
+independent fixed playhead and a hover skimmer. Video skimming previews silently;
+leaving restores the committed playhead and playback takes precedence. Audio
+shows a progressively decoded waveform. Click commits the playhead. Command
+plus wheel, pinch, the zoom slider and Command plus/minus zoom around the pointer;
+Fit restores the whole timeline. Ordinary scrolling pans. Only visible content
+is drawn, including waveform refinement at higher zoom.
+
+Handles snap within eight screen points of the committed playhead or segment
+boundaries; Option bypasses snapping. Set Start/End at Playhead is also available.
+Video endpoints resolve against actual source frame times; audio endpoints
+resolve to samples. A drag snapshots its original range and time scale and is
+one Undo action. Preserve split, delete, duplicate, reorder, multi-source editing,
+speed mapping and numeric inputs. Mutation closures edit a local value before
+publishing it, avoiding nested exclusive access to observable state. Closing
+cancels waveform, trim and seek work, stops playback and removes preview staging.
+
+### 23.3 Download feedback and verification
+
+Show offered video dimensions, excluding storyboard and audio-only streams from
+resolution choices. A single offered resolution must be understandable without
+inventing smaller source formats. Settings remain usable at the minimum size
+in both languages and appearances. Missing HLS/DASH fragments fail instead of
+publishing a shortened result. Strict decoding remains mandatory. A narrowly
+recognized trailing empty H.264 type-zero filler may be removed by packet copy
+only after a strict failure, with identical retained packet hashes and times
+and a successful complete decode afterward. Other corruption remains an error.
+
+### 23.4 Verification and delivery
+
+Audit every operation group for unintended transforms, source protection,
+preview/export consistency, configuration isolation, cancellation and Undo.
+Record existing proof, new findings, actual checks and unverified behavior.
+Keep independent MP3 quality/bandwidth/duration/channel/tag tests while replacing
+the obsolete encoder, and test trim through the real app model. Build, strict
+lint, device/package tests, app tests, physical interaction checks, English and
+Japanese layouts, light/dark and macOS 26 smoke checks remain required. Fix
+material review findings without weakening acceptance.
+
+The owner changed delivery to **commit and push only** on 2026-11-05. Do not
+create a release tag, GitHub Release or public package, change the production
+website, bump the installed release version, or claim release verification.
+Preserve the existing signing identity and disabled Actions.
+
 ## Changelog
+
+- 2026-11-05: Preserve extracted audio, replace local MP3 encoding with an isolated
+  LGPL executable, unify timeline interactions and harden downloads. Delivery is
+  commit/push only, with no release publication (ADR 0053).
 
 - 2026-11-05: Add isolated media downloads, measured two-second Activity and
   official-site update actions while retaining MIT and Apple Silicon (ADR 0052).

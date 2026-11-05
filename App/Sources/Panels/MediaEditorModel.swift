@@ -76,6 +76,8 @@ final class MediaEditorModel {
     var original = false
     var zoom = 1.0
     var timelineZoom = 1.0
+    var timelineViewportWidth = 600.0
+    var hoverPosition: Double?
     var cropAspect = 0.0
     var cropPortrait = false
     var position = 0.0
@@ -115,6 +117,7 @@ final class MediaEditorModel {
     private var interactionStart: EditorValues?
     private var closed = false
     private var timeObserver: Any?
+    private var playbackEndObserver: (any NSObjectProtocol)?
     private var loadTask: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private var playbackTask: Task<Void, Never>?
@@ -122,6 +125,14 @@ final class MediaEditorModel {
     private var thumbnailTask: Task<Void, Never>?
     private var seekTask: Task<Void, Never>?
     private var desiredSeek: Double?
+    private var trimBaseline: VideoTimeline?
+    private var trimSegment: VideoSegment?
+    private var trimStartBoundary = false
+    private var requestedTrim: Double?
+    private var trimTask: Task<Void, Never>?
+    private var trimRevision = 0
+    private var boundaryInputTask: Task<Void, Never>?
+    private var boundaryInputGeneration = 0
     private var revision = 0
     private var preparedEdit: VideoEdit?
     private var renderedRevision = -1
@@ -171,6 +182,30 @@ final class MediaEditorModel {
     }
     var timeline: VideoTimeline? { try? VideoTimeline(edit: values.video, sourceDuration: duration) }
     var outputDuration: Double { timeline?.duration ?? 0 }
+    var timelineDuration: Double { trimBaseline?.duration ?? outputDuration }
+    var maximumTimelineZoom: Double {
+        let speed = values.selectedIndex.map { values.segments[$0].speed } ?? 1
+        return max(
+            timelineZoom,
+            MediaTimeline.maximumZoom(
+                duration: timelineDuration, viewport: timelineViewportWidth, interval: sourceFrameDuration / speed))
+    }
+    var trimming: Bool { trimSegment != nil }
+
+    func timelineRange(for segment: VideoSegment) -> ClosedRange<Double> {
+        let reference = trimBaseline ?? timeline
+        guard let reference,
+            let original = reference.segments.first(where: { $0.id == segment.id }),
+            let start = reference.outputTime(for: original.start, segmentID: segment.id)
+        else { return 0...0 }
+        let left = start + (segment.start - original.start) / segment.speed
+        let right = start + (segment.end - original.start) / segment.speed
+        return left...max(left, right)
+    }
+
+    func zoomTimeline(by factor: Double) {
+        timelineZoom = min(maximumTimelineZoom, max(1, timelineZoom * factor))
+    }
     private var lastPlayablePosition: Double {
         let end = CMTime(seconds: outputDuration, preferredTimescale: Self.previewTimescale)
         let tick = CMTime(value: 1, timescale: Self.previewTimescale)
@@ -220,7 +255,7 @@ final class MediaEditorModel {
 
     var canSave: Bool {
         guard ready, !closed, failure == nil, invalidFields.isEmpty, !preparingPlayback, !splitting, !importing,
-            !loadingPhoto,
+            !loadingPhoto, boundaryInputTask == nil,
             renderedRevision == revision,
             (try? values.photo.validate()) != nil
         else { return false }
@@ -294,8 +329,11 @@ final class MediaEditorModel {
 
     func change(_ mutation: (inout EditorValues) -> Void) {
         let previous = values
-        mutation(&values)
-        guard previous != values else { return }
+        var edited = previous
+        mutation(&edited)
+        guard previous != edited else { return }
+        values = edited
+        hoverPosition = nil
         if interactionStart == nil { remember(previous) }
         position = min(position, lastPlayablePosition)
         pause()
@@ -308,6 +346,107 @@ final class MediaEditorModel {
         values.selectedID = id
         invalidFields.removeAll()
         if let segment = values.segments.first(where: { $0.id == id }), thumbnails(for: segment).isEmpty { refresh() }
+    }
+
+    func beginTimelineTrim(_ id: UUID, start: Bool) {
+        guard !trimming, let timeline, let segment = values.segments.first(where: { $0.id == id }) else { return }
+        selectSegment(id)
+        beginInteraction()
+        trimBaseline = timeline
+        trimSegment = segment
+        trimStartBoundary = start
+        hoverPosition = nil
+    }
+
+    func updateTimelineTrim(to seconds: Double) {
+        guard let original = trimSegment, let baseline = trimBaseline,
+            let offset = baseline.outputTime(for: original.start, segmentID: original.id)
+        else { return }
+        requestedTrim = original.start + (seconds - offset) * original.speed
+        trimRevision += 1
+        guard trimTask == nil else { return }
+        trimTask = Task {
+            defer { trimTask = nil }
+            while let request = requestedTrim, !closed, !Task.isCancelled {
+                requestedTrim = nil
+                let generation = trimRevision
+                do {
+                    let boundary = try await snappedVideoBoundary(request, segment: original, start: trimStartBoundary)
+                    try Task.checkCancellation()
+                    guard !closed, generation == trimRevision, let boundary,
+                        let index = values.segments.firstIndex(where: { $0.id == original.id })
+                    else { continue }
+                    let starts = trimStartBoundary
+                    change { values in
+                        if starts {
+                            values.segments[index].start = boundary
+                        } else {
+                            values.segments[index].end = boundary
+                        }
+                    }
+                } catch is CancellationError { return } catch { report(error); return }
+            }
+        }
+    }
+
+    private func snappedVideoBoundary(_ requested: Double, segment: VideoSegment, start: Bool) async throws -> Double? {
+        guard let actor = source(for: segment) else { return nil }
+        let sourceDuration =
+            values.sources.indices.contains(segment.sourceIndex)
+            ? values.sources[segment.sourceIndex].duration : duration
+        let lower = start ? 0 : segment.start.nextUp
+        let upper = start ? segment.end : sourceDuration
+        let target = min(upper, max(lower, requested))
+        if !start, target == sourceDuration { return sourceDuration }
+        if !start, target == lower {
+            return try await actor.adjacentFrameTime(to: segment.start, forward: true)
+        }
+        return try await actor.nearestFrameTime(to: target, within: lower..<upper)
+    }
+
+    func videoBoundaryBinding(start: Bool) -> Binding<Double> {
+        Binding(get: { start ? self.values.start : self.values.end }, set: { self.setVideoBoundary($0, start: start) })
+    }
+
+    func setVideoBoundary(_ seconds: Double, start: Bool) {
+        guard seconds.isFinite, let index = values.selectedIndex else { return }
+        let segment = values.segments[index]
+        boundaryInputTask?.cancel()
+        boundaryInputGeneration += 1
+        let generation = boundaryInputGeneration
+        boundaryInputTask = Task {
+            defer { if generation == boundaryInputGeneration { boundaryInputTask = nil } }
+            do {
+                let boundary = try await snappedVideoBoundary(seconds, segment: segment, start: start)
+                try Task.checkCancellation()
+                guard !closed, generation == boundaryInputGeneration, values.selectedID == segment.id,
+                    let boundary, let current = values.segments.firstIndex(where: { $0.id == segment.id })
+                else { return }
+                change {
+                    if start { $0.segments[current].start = boundary } else { $0.segments[current].end = boundary }
+                }
+            } catch is CancellationError { return } catch { report(error) }
+        }
+    }
+
+    func finishBoundaryInput() async { await boundaryInputTask?.value }
+
+    func endTimelineTrim() async {
+        await trimTask?.value
+        trimSegment = nil
+        trimBaseline = nil
+        requestedTrim = nil
+        endInteraction()
+        position = min(position, lastPlayablePosition)
+        refresh()
+    }
+
+    func setTrimBoundaryAtPlayhead(start: Bool) {
+        guard !trimming, let id = values.selectedID else { return }
+        let boundary = position
+        beginTimelineTrim(id, start: start)
+        updateTimelineTrim(to: boundary)
+        Task { await endTimelineTrim() }
     }
 
     func split() {
@@ -395,6 +534,13 @@ final class MediaEditorModel {
     }
 
     func endInteraction() {
+        if boundaryInputTask != nil {
+            Task {
+                await finishBoundaryInput()
+                if !closed { endInteraction() }
+            }
+            return
+        }
         if let previous = interactionStart, previous != values { remember(previous) }
         interactionStart = nil
         if !isVideo { refresh() }
@@ -446,12 +592,21 @@ final class MediaEditorModel {
 
     func seek(_ seconds: Double) {
         pause()
+        hoverPosition = nil
+        player?.isMuted = muted
         position = min(max(0, seconds), lastPlayablePosition)
         requestSeek()
     }
 
-    private func requestSeek() {
-        desiredSeek = position
+    func skim(_ seconds: Double?) {
+        guard !playing, !trimming else { return }
+        hoverPosition = seconds.map { min(max(0, $0), lastPlayablePosition) }
+        player?.isMuted = hoverPosition != nil || muted
+        requestSeek(to: hoverPosition ?? position)
+    }
+
+    private func requestSeek(to seconds: Double? = nil) {
+        desiredSeek = seconds ?? position
         guard seekTask == nil, let player, !preparingPlayback else { return }
         seekTask = Task {
             defer { seekTask = nil }
@@ -518,11 +673,14 @@ final class MediaEditorModel {
     func play() {
         guard canPlay, let player else { return }
         if playing { pause(); return }
+        hoverPosition = nil
+        player.isMuted = muted
+        requestSeek()
         if position >= lastPlayablePosition { position = 0; requestSeek() }
+        playing = true
         playbackTask = Task {
             await seekTask?.value
             guard !Task.isCancelled, !closed else { return }
-            playing = true
             player.playImmediately(atRate: 1)
         }
     }
@@ -608,6 +766,18 @@ final class MediaEditorModel {
                 }
             }
             playerReady = false
+            if let playbackEndObserver { NotificationCenter.default.removeObserver(playbackEndObserver) }
+            let identifier = ObjectIdentifier(playerItem)
+            playbackEndObserver = NotificationCenter.default.addObserver(
+                forName: AVPlayerItem.didPlayToEndTimeNotification, object: playerItem, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let current = self.player?.currentItem, ObjectIdentifier(current) == identifier
+                    else { return }
+                    self.position = self.outputDuration
+                    self.pause()
+                }
+            }
             player?.replaceCurrentItem(with: playerItem)
             player?.isMuted = muted
             preparedEdit = edit
@@ -657,7 +827,7 @@ final class MediaEditorModel {
     }
 
     private func playbackAdvanced(_ time: CMTime) {
-        guard playing, time.seconds.isFinite else { return }
+        guard playing, player?.rate != 0, time.seconds.isFinite else { return }
         position = min(time.seconds, outputDuration)
         if position >= lastPlayablePosition { pause() }
     }
@@ -786,9 +956,13 @@ final class MediaEditorModel {
         splitTask?.cancel()
         thumbnailTask?.cancel()
         seekTask?.cancel()
+        trimTask?.cancel()
+        boundaryInputTask?.cancel()
         player?.pause()
         player?.currentItem?.cancelPendingSeeks()
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
+        if let playbackEndObserver { NotificationCenter.default.removeObserver(playbackEndObserver) }
+        playbackEndObserver = nil
         self.timeObserver = nil
         player?.replaceCurrentItem(with: nil)
         player = nil
@@ -798,6 +972,8 @@ final class MediaEditorModel {
         await splitTask?.value
         await thumbnailTask?.value
         await seekTask?.value
+        await trimTask?.value
+        await boundaryInputTask?.value
         selectionTask?.cancel()
         await selectionTask?.value
         for source in videoSources.values { await source.close() }

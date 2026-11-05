@@ -3,11 +3,11 @@ SCHEME := MacEase
 DERIVED_DATA := build/DerivedData
 PACKAGE := Packages/MacEaseKit
 MEDIA_TOOLS := $(CURDIR)/Vendor/build/media-tools/bin
-SOURCES := App FinderSync Packages
+SOURCES := App AppTests FinderSync Packages
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'platform=macOS,arch=arm64' \
 	-derivedDataPath $(DERIVED_DATA)
 
-.PHONY: bootstrap deps media-tools project build test test-device lint format dmg
+.PHONY: bootstrap deps media-tools project build test test-app test-device lint format dmg
 
 bootstrap:
 	brew list xcodegen cmake meson ninja pkg-config >/dev/null 2>&1 || brew install xcodegen cmake meson ninja pkg-config
@@ -32,9 +32,13 @@ build: project
 test:
 	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --package-path $(PACKAGE)
 
+test-app: project
+	$(XCODEBUILD) -configuration Debug test
+
 # Missing capabilities fail here instead of skipping.
 test-device: build
 	MACEASE_DEVICE_TESTS=1 MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --package-path $(PACKAGE)
+	$(MAKE) test-app
 
 lint:
 	swift format lint --strict --recursive $(SOURCES)

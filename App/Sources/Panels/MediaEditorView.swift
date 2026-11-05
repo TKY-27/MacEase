@@ -339,7 +339,8 @@ struct MediaEditorView: View {
             LabeledContent("Start") {
                 EditorNumberField(
                     model: model, title: Text("Start (seconds)"), id: "start",
-                    value: model.binding(\.start), range: 0...max(0, model.values.end - model.sourceFrameDuration),
+                    value: model.videoBoundaryBinding(start: true),
+                    range: 0...max(0, model.values.end - model.sourceFrameDuration),
                     precision: 3
                 )
                 .frame(width: 90)
@@ -347,7 +348,7 @@ struct MediaEditorView: View {
             LabeledContent("End") {
                 EditorNumberField(
                     model: model, title: Text("End (seconds)"), id: "end",
-                    value: model.binding(\.end),
+                    value: model.videoBoundaryBinding(start: false),
                     range: min(
                         model.sourceDuration, model.values.start + model.sourceFrameDuration)...model.sourceDuration,
                     precision: 3
@@ -471,11 +472,21 @@ private struct EditorNumberField: View {
                 model.invalidFields.remove(id); if focused { model.endInteraction() }
             }
             .onChange(of: value) { _, _ in
-                if parsed != value { synchronize() }
+                if !focused, parsed != value { synchronize() }
             }
             .onChange(of: focused) { _, focused in
-                if focused { model.beginInteraction() } else { synchronize(); model.endInteraction() }
+                if focused {
+                    model.beginInteraction()
+                } else {
+                    Task { @MainActor in
+                        await model.finishBoundaryInput()
+                        guard !self.focused else { return }
+                        synchronize()
+                        model.endInteraction()
+                    }
+                }
             }
+            .onSubmit { focused = false }
     }
 }
 
