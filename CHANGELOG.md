@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-05
+
+### Added
+
+- A top-level Finder yt-dlp action for folder backgrounds and single folders,
+  with multiple URLs, explicit playlist selection, output formats, source
+  resolutions and optional authored or automatic subtitle sidecars.
+- Two concurrent media downloads, cancellation, failure-only retry, numbered
+  collision-safe output names, Show in Finder and Undo.
+- Bundled isolated download tools with pinned versions, third-party notices,
+  corresponding sources and reproducible build instructions.
+
+### Changed
+
+- Show Activity after two seconds of ongoing work without taking Finder focus;
+  enable this once on upgrade and preserve later preferences.
+- Separate completed-file counts from measured stage progress; show unknown
+  totals and compression searches without fabricated percentages.
+- Open the localized official download page from update menus and notifications,
+  including previously saved update information.
+
+
 ## [2.1.0] - 2026-11-02
 
 ### Support

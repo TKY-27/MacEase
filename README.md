@@ -18,8 +18,8 @@ right-click menu, without opening another app.
 ## Installation
 
 1. Download `MacEase-<version>.dmg` from
-   [Releases](https://github.com/TKY-27/MacEase/releases) and check its
-   SHA-256 against the checksum on the release page.
+   [the official download page](https://macease-site.pages.dev/#download) and
+   check its SHA-256 against the published checksum.
 2. Open the DMG and drag **MacEase** to **Applications**.
 3. Open MacEase. macOS blocks it the first time because it is not notarized.
 4. Open **System Settings > Privacy & Security**, scroll down, and click
@@ -265,6 +265,35 @@ and 256 path components. A preview can expand up to 256 MiB. Images, PDFs, audio
 video, and read-only text appear in the window; HTML and scripts are never run.
 Closing removes temporary previews. Files you explicitly save remain and support Undo.
 
+### Media downloads
+
+Right-click an empty area in a Finder folder, or one selected folder, and choose
+**yt-dlp…**. The folder becomes the destination. Paste one public HTTP(S) URL per
+line and choose **Analyze** to inspect titles, durations and available formats.
+Playlist entries start unselected; choose the entries you want before downloading.
+
+Best-quality video in its original format is the default. Choose MP4, MKV or WebM,
+or original audio, M4A, MP3, WAV or FLAC. Available resolutions come from the source.
+Compatible streams are copied; a format with incompatible codecs requires
+re-encoding. Optional authored or automatic subtitles are saved alongside the media
+as SRT or VTT in the selected language.
+
+Two downloads run concurrently. Activity supports cancellation, retrying only failed
+downloads, Show in Finder and Undo. Successful or cancelled downloads are excluded
+from retries. Downloads always create new files, number duplicate names and remove
+uncommitted partial files after failure or cancellation.
+
+Supported public sites are those handled by the bundled yt-dlp, including YouTube
+and TikTok; provider changes can break support. Cookies, sign-in, DRM removal and
+recording ongoing live streams are not supported. Published live archives can be
+downloaded as ordinary videos.
+
+Local file processing stays on your Mac. Download analysis and retrieval contact
+the requested sites and their media hosts; update checks contact GitHub. Update
+buttons open the official download page in the selected app language. MacEase does
+not upload local files for these features. Download tools are bundled and updated
+with MacEase; no user-installed Python or Homebrew is required.
+
 ### Apple Intelligence
 
 | Operation | What it does |
@@ -289,13 +318,18 @@ page-order window.
 
 <img src="docs/images/compress-en.png" width="420" alt="The Custom Size panel for Compress with a 10 MB target, the largest selected file size, and the equivalent in bytes">
 
-**Activity** stays hidden by default. Open it from the menu bar to inspect
-progress and results. If **Show progress window** is enabled in Settings,
-batches still running after 0.8 seconds appear without taking Finder focus.
-Use **Stop** to cancel an ordinary batch or pause HatchZip.
-Closing the window leaves jobs running. Folder scans also show progress there.
+**Activity** appears automatically if a batch is still running after two seconds,
+without taking focus from Finder. Short jobs do not open it. This release enables
+automatic display once for existing installations; subsequent changes in Settings
+are preserved. Resetting settings enables it again. **Stop** cancels ordinary jobs;
+HatchZip supports Pause. Closing the window leaves jobs running.
 
-Activity shows the current processing stage, elapsed time and per-file results.
+Completed file counts are separate from the current stage. Measurable stages use
+received bytes, processed media time or PDF pages. Searches and work with unknown
+totals show the stage name and an indeterminate bar. Verification and saving remain
+visible until the output is committed.
+
+Activity also shows elapsed time and per-file results.
 **Compare…** opens successful still-image compression or conversion results
 beside their originals, with synchronized zoom and position, **Fit**, **100%**,
 file sizes, dimensions and disclosed palette or resolution reductions.
@@ -534,7 +568,10 @@ licensed libraries, including libwebp, libavif, libjxl, libvpx, libopus, and
 libarchive, plus independent implementations such as the MP3 and GIF encoders,
 Matroska and WebM containers, and SVG tracing. A pinned Rust helper uses
 **hatchzip-core 0.1.8** under its MIT license for in-place extraction, with
-UnRAR disabled; ordinary RAR extraction uses libarchive.
+UnRAR disabled; ordinary RAR extraction uses libarchive. Media downloading uses
+private Python, source-distributed yt-dlp, EJS and a JavaScript runtime. Separate
+FFmpeg and ffprobe executables assist only downloaded media; existing local-file
+engines remain unchanged.
 
 Details: [docs/SPEC.md](docs/SPEC.md) and [docs/adr/](docs/adr/).
 
@@ -560,3 +597,8 @@ swift-cmark's BSD and MIT notices, Yams and libyaml's MIT licenses, and
 toml++'s MIT license and the MIT license used for hatchzip-core. Their license
 texts are included with the native library notices in the app's `THIRD_PARTY_NOTICES.txt`.
 Open **Settings > About > Third-Party Notices** to read them.
+
+The download tools include LGPL FFmpeg and LAME, built without GPL or nonfree
+features. They remain independent executables under their own licenses. The release
+includes their corresponding source and build instructions; see
+[media tool builds](docs/media-tools.md). MacEase source remains MIT.
