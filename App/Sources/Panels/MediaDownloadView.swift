@@ -2,6 +2,7 @@ import AppKit
 import Engine
 import Observation
 import SwiftUI
+import os
 
 @MainActor
 @Observable
@@ -11,6 +12,8 @@ final class MediaDownloadModel {
         didSet {
             guard urls != oldValue else { return }
             cancelAnalysis()
+            thumbnailTask?.cancel()
+            thumbnails = [:]
             sources = []
             selectedIDs = []
             failures = []
@@ -26,7 +29,12 @@ final class MediaDownloadModel {
     private(set) var failures: [MediaAnalysisFailure] = []
     private(set) var isAnalyzing = false
     private(set) var error: String?
+    private(set) var thumbnails: [String: CGImage] = [:]
+    private(set) var clipboardHasURL = false
     private var analysisTask: Task<Void, Never>?
+    private var thumbnailTask: Task<Void, Never>?
+    private static let thumbnailConcurrency = 4
+    private static let maximumThumbnails = 64
     private var generation = 0
     private var closed = false
 
@@ -97,6 +105,7 @@ final class MediaDownloadModel {
                 selectedIDs = Set(analysis.sources.filter { !$0.isPlaylistEntry }.map(\.id))
                 normalizeOptions()
                 isAnalyzing = false
+                loadThumbnails(analysis.sources)
             } catch is CancellationError {
                 if generation == expected { isAnalyzing = false }
             } catch {
@@ -105,6 +114,67 @@ final class MediaDownloadModel {
                 isAnalyzing = false
             }
         }
+    }
+
+    private func loadThumbnails(_ sources: [MediaSource]) {
+        thumbnailTask?.cancel()
+        let pending = sources.prefix(Self.maximumThumbnails).compactMap { source in
+            source.thumbnailURL.map { (source.id, $0) }
+        }
+        thumbnailTask = Task {
+            await withTaskGroup(of: (String, CGImage?).self) { group in
+                var iterator = pending.makeIterator()
+                func enqueue() {
+                    guard let (id, url) = iterator.next() else { return }
+                    group.addTask {
+                        do {
+                            return (id, try await MediaDownloader.thumbnail(at: url))
+                        } catch {
+                            Logger(category: "downloads").info(
+                                "Thumbnail unavailable: \(error.localizedDescription, privacy: .private)")
+                            return (id, nil)
+                        }
+                    }
+                }
+                for _ in 0..<Self.thumbnailConcurrency { enqueue() }
+                while let (id, image) = await group.next() {
+                    guard !closed, !Task.isCancelled else { group.cancelAll(); return }
+                    if let image { thumbnails[id] = image }
+                    enqueue()
+                }
+            }
+        }
+    }
+
+    /// Detection reveals no clipboard contents.
+    func checkClipboard(_ name: NSPasteboard.Name = .general) async {
+        guard urls.isEmpty else { return }
+        let probableURL = \NSPasteboard.DetectedValues.probableWebURL
+        do {
+            clipboardHasURL = try await NSPasteboard(name: name).detectedPatterns(for: [probableURL])
+                .contains(probableURL)
+        } catch {
+            clipboardHasURL = false
+            Logger(category: "downloads").info(
+                "Clipboard detection failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    func pasteClipboardURLs(_ name: NSPasteboard.Name = .general) {
+        guard urls.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            let text = NSPasteboard(name: name).string(forType: .string)
+        else { return }
+        clipboardHasURL = false
+        urls = text
+        analyze()
+    }
+
+    func addDroppedURLs(_ dropped: [URL]) {
+        let accepted = dropped.filter { ["http", "https"].contains($0.scheme?.lowercased()) }
+        guard !accepted.isEmpty, !isAnalyzing else { return }
+        let existing = urls.trimmingCharacters(in: .whitespacesAndNewlines)
+        urls = ([existing].filter { !$0.isEmpty } + accepted.map(\.absoluteString)).joined(separator: "\n")
+        analyze()
     }
 
     func cancelAnalysis() {
@@ -133,7 +203,9 @@ final class MediaDownloadModel {
     func close() async {
         closed = true
         cancelAnalysis()
+        thumbnailTask?.cancel()
         await analysisTask?.value
+        await thumbnailTask?.value
     }
 }
 
@@ -169,6 +241,10 @@ struct MediaDownloadView: View {
             footer
         }
         .frame(minWidth: 640, minHeight: 520)
+        .dropDestination(for: URL.self) { dropped, _ in
+            model.addDroppedURLs(dropped)
+        }
+        .task { await model.checkClipboard() }
         .onAppear { urlsFocused = true }
         .onChange(of: model.selectedIDs) { model.normalizeOptions() }
     }
@@ -210,9 +286,22 @@ struct MediaDownloadView: View {
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                     Text("Paste a URL and press Return").font(.title3.weight(.semibold))
+                    Text("You can also drop links from a browser here.")
+                        .foregroundStyle(.secondary)
                     Text("Public videos and audio. Live streams and sign-in are not supported.")
+                        .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                    if model.clipboardHasURL, model.urls.isEmpty {
+                        Button {
+                            model.pasteClipboardURLs()
+                        } label: {
+                            Label("Paste Link from Clipboard", systemImage: "doc.on.clipboard")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .padding(.top, 6)
+                    }
                 }
                 failureList
                 if let error = model.error { ProblemLabel(text: error) }
@@ -259,11 +348,17 @@ struct MediaDownloadView: View {
             Toggle(isOn: selected) { Text("Download \(source.title)") }
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-            Image(systemName: "play.rectangle")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 28)
-                .accessibilityHidden(true)
+            Group {
+                if let thumbnail = model.thumbnails[source.id] {
+                    Image(decorative: thumbnail, scale: 1).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "play.rectangle").font(.title2).foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 64, height: 36)
+            .background(.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(source.title).lineLimit(1).truncationMode(.middle).help(source.title)
                 Text(Self.details(source).joined(separator: " · "))

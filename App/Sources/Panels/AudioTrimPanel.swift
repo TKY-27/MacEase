@@ -17,6 +17,10 @@ final class AudioTrimModel {
     var zoom = 1.0
     var viewportWidth = 600.0
     var playing = false
+    var loops = false
+    private(set) var playbackRate: Float = 1
+    var fadeIn = 0.0 { didSet { updatePreviewMix() } }
+    var fadeOut = 0.0 { didSet { updatePreviewMix() } }
     var ready = false
     var failure: String?
     var waveform: AudioWaveformSnapshot?
@@ -24,6 +28,7 @@ final class AudioTrimModel {
     private var source: AudioPreviewSource?
     private var stamp: MediaSourceStamp?
     private var player: AVPlayer?
+    private var audioTrack: AVAssetTrack?
     private var observer: Any?
     private var playbackEndObserver: (any NSObjectProtocol)?
     private var waveformTask: Task<Void, Never>?
@@ -44,7 +49,10 @@ final class AudioTrimModel {
     var maximumZoom: Double {
         max(zoom, MediaTimeline.maximumZoom(duration: duration, viewport: viewportWidth, interval: 0.001))
     }
-    var canSave: Bool { ready && !closed && failure == nil && start >= 0 && end > start && end <= duration }
+    var fadesFit: Bool { fadeIn + fadeOut <= end - start }
+    var canSave: Bool {
+        ready && !closed && failure == nil && start >= 0 && end > start && end <= duration && fadesFit
+    }
 
     init(url: URL, staging: StagingArea, prefill: ClosedRange<Double>?) {
         self.url = url
@@ -81,6 +89,9 @@ final class AudioTrimModel {
             try Task.checkCancellation()
             guard !closed else { await source.close(); return }
             let playerItem = AVPlayerItem(url: address)
+            audioTrack = try await playerItem.asset.loadTracks(withMediaType: .audio).first
+            try Task.checkCancellation()
+            guard !closed else { await source.close(); return }
             let player = AVPlayer(playerItem: playerItem)
             player.automaticallyWaitsToMinimizeStalling = false
             self.player = player
@@ -90,19 +101,25 @@ final class AudioTrimModel {
                 MainActor.assumeIsolated {
                     guard let self, !self.closed else { return }
                     self.position = self.end
-                    self.pause()
+                    self.finishPlayback()
                 }
             }
             observer = player.addPeriodicTimeObserver(
                 forInterval: CMTime(seconds: 1.0 / 30, preferredTimescale: 600), queue: .main
             ) { [weak self] time in
                 MainActor.assumeIsolated {
-                    guard let self, self.playing, self.player?.rate != 0, time.seconds.isFinite else { return }
-                    self.position = min(self.end, time.seconds)
-                    if self.position >= self.end { self.pause() }
+                    guard let self, self.playing, time.seconds.isFinite else { return }
+                    guard self.player?.rate != 0 else {
+                        if self.playbackRate < 0, time.seconds <= self.start { self.seek(self.start) }
+                        return
+                    }
+                    self.position = min(self.end, max(self.start, time.seconds))
+                    if self.playbackRate > 0, self.position >= self.end { self.finishPlayback() }
+                    if self.playbackRate < 0, self.position <= self.start { self.seek(self.start) }
                 }
             }
             ready = true
+            updatePreviewMix()
             seek(start)
         } catch is CancellationError { await source?.close() } catch { report(error) }
     }
@@ -151,6 +168,7 @@ final class AudioTrimModel {
         if dragStart == nil { remember(previous) }
         self.start = left; self.end = right
         pause()
+        updatePreviewMix()
     }
 
     func beginTrim(_ id: UUID, start: Bool) {
@@ -194,6 +212,7 @@ final class AudioTrimModel {
         redoRanges.append(start...end)
         start = previous.lowerBound; end = previous.upperBound
         pause()
+        updatePreviewMix()
     }
 
     func redo() {
@@ -201,6 +220,28 @@ final class AudioTrimModel {
         undoRanges.append(start...end)
         start = next.lowerBound; end = next.upperBound
         pause()
+        updatePreviewMix()
+    }
+
+    /// Previews the saved fades.
+    private func updatePreviewMix() {
+        guard let audioTrack, let playerItem = player?.currentItem else { return }
+        let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
+        let ramp = FadeRamp(duration: end - start, fadeIn: fadeIn, fadeOut: fadeOut)
+        func time(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: Self.mixTimescale) }
+        if ramp.fadeIn > 0 {
+            parameters.setVolumeRamp(
+                fromStartVolume: 0, toEndVolume: 1,
+                timeRange: CMTimeRange(start: time(start), duration: time(ramp.fadeIn)))
+        }
+        if ramp.fadeOut > 0 {
+            parameters.setVolumeRamp(
+                fromStartVolume: 1, toEndVolume: 0,
+                timeRange: CMTimeRange(start: time(end - ramp.fadeOut), duration: time(ramp.fadeOut)))
+        }
+        let mix = AVMutableAudioMix()
+        mix.inputParameters = [parameters]
+        playerItem.audioMix = mix
     }
 
     func seek(_ seconds: Double) {
@@ -220,18 +261,55 @@ final class AudioTrimModel {
     }
 
     func play() {
-        guard let player, ready else { return }
         if playing { pause(); return }
-        if position < start || position >= end { seek(start) }
+        startPlayback(rate: 1)
+    }
+
+    /// J/K/L; repeated presses double the rate.
+    func shuttle(_ direction: Int) {
+        guard direction != 0 else { pause(); return }
+        let continuing = playing && (playbackRate > 0) == (direction > 0)
+        let magnitude = continuing ? min(Self.maximumShuttleRate, abs(playbackRate) * 2) : 1
+        let playerItem = player?.currentItem
+        let fastest =
+            direction > 0
+            ? (playerItem?.canPlayFastForward == true ? Self.maximumShuttleRate : Self.audibleShuttleRate)
+            : (playerItem?.canPlayFastReverse == true ? Self.maximumShuttleRate : 1)
+        let rate = (direction > 0 ? 1 : -1) * min(magnitude, fastest)
+        if rate < 0, playerItem?.canPlayReverse != true {
+            seek(max(start, position - Self.reverseStepSeconds))
+            return
+        }
+        startPlayback(rate: rate)
+    }
+
+    private static let maximumShuttleRate: Float = 8
+    private static let audibleShuttleRate: Float = 2
+    private static let mixTimescale: CMTimeScale = 1_000_000_000
+    private static let reverseStepSeconds = 1.0
+
+    private func startPlayback(rate: Float) {
+        guard let player, ready else { return }
+        if rate > 0, position < start || position >= end { seek(start) }
+        if rate < 0, position <= start || position > end { return }
+        player.isMuted = abs(rate) > Self.audibleShuttleRate
         playing = true
+        playbackRate = rate
+        playbackTask?.cancel()
         playbackTask = Task {
             await seekTask?.value
             guard !closed, !Task.isCancelled else { return }
-            player.play()
+            player.playImmediately(atRate: rate)
         }
     }
 
-    func pause() { playbackTask?.cancel(); player?.pause(); playing = false }
+    private func finishPlayback() {
+        let reverse = playbackRate < 0
+        pause()
+        if loops, !reverse { startPlayback(rate: 1) }
+    }
+
+    func pause() { playbackTask?.cancel(); player?.pause(); playing = false; playbackRate = 1 }
 
     func validate() throws {
         guard canSave else { throw EngineError.invalidInput(.invalidNumericParameter) }
@@ -253,7 +331,7 @@ final class AudioTrimModel {
         if let playbackEndObserver { NotificationCenter.default.removeObserver(playbackEndObserver) }
         playbackEndObserver = nil
         observer = nil
-        player?.replaceCurrentItem(with: nil); player = nil
+        player?.replaceCurrentItem(with: nil); player = nil; audioTrack = nil
         await waveformTask?.value; await detailTask?.value; await seekTask?.value
         await playbackTask?.value
         await source?.close()
@@ -264,7 +342,7 @@ final class AudioTrimModel {
 struct AudioTrimPanel: View {
     @Bindable var model: AudioTrimModel
     let cancel: () -> Void
-    let run: (Double, Double) -> Void
+    let run: (_ start: Double, _ end: Double, _ fadeIn: Double, _ fadeOut: Double) -> Void
     @State private var startDraft = ""
     @State private var endDraft = ""
 
@@ -280,7 +358,9 @@ struct AudioTrimPanel: View {
                     TimelineClip(
                         id: model.clipID, range: 0...max(0, model.duration),
                         selection: model.ready ? model.start...model.end : nil, label: "",
-                        waveform: model.waveform, detailWaveform: model.detailWaveform)
+                        waveform: model.waveform, detailWaveform: model.detailWaveform,
+                        fadeIn: min(model.fadeIn, model.end - model.start),
+                        fadeOut: min(model.fadeOut, max(0, model.end - model.start - model.fadeIn)))
                 ],
                 playing: model.playing, zoom: $model.zoom, maximumZoom: model.maximumZoom,
                 seek: model.seek, hover: { _ in }, select: { _ in },
@@ -336,8 +416,24 @@ struct AudioTrimPanel: View {
             }
             .labelStyle(.iconOnly)
             .disabled(!model.ready)
-            TimelineZoomControls(zoom: $model.zoom, maximumZoom: model.maximumZoom)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            HStack(spacing: 14) {
+                if model.playing, model.playbackRate != 1 {
+                    Text(EditorTransportBar.rateText(model.playbackRate))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                        .accessibilityLabel(Text("Playback Rate"))
+                        .accessibilityValue(EditorTransportBar.spokenRate(model.playbackRate))
+                }
+                Toggle(isOn: $model.loops) {
+                    Label("Loop Selection", systemImage: "repeat")
+                }
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help("Loop Selection")
+                TimelineZoomControls(zoom: $model.zoom, maximumZoom: model.maximumZoom)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 16)
@@ -368,8 +464,20 @@ struct AudioTrimPanel: View {
                     .font(.body.monospacedDigit())
                     .frame(height: 22)
             }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Fade In").font(.caption).foregroundStyle(.secondary)
+                FadePicker(title: Text("Fade In"), value: $model.fadeIn)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Fade Out").font(.caption).foregroundStyle(.secondary)
+                FadePicker(title: Text("Fade Out"), value: $model.fadeOut)
+            }
             Spacer()
-            if let failure = model.failure { ProblemLabel(text: failure) }
+            if let failure = model.failure {
+                ProblemLabel(text: failure)
+            } else if !model.fadesFit {
+                ProblemLabel(text: String(localized: "Fades are longer than the selection."))
+            }
         }
         .disabled(!model.ready)
         .padding(.horizontal, 16)
@@ -423,7 +531,7 @@ struct AudioTrimPanel: View {
                 if let end = TimecodeField.edited(endDraft, from: model.end) {
                     model.changeRange(start: model.start, end: end)
                 }
-                do { try model.validate(); run(model.start, model.end) } catch {
+                do { try model.validate(); run(model.start, model.end, model.fadeIn, model.fadeOut) } catch {
                     model.failure = error.localizedDescription
                 }
             }

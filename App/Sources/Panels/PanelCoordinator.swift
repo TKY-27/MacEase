@@ -263,9 +263,9 @@ final class PanelCoordinator {
                 title: file.displayName, minimumSize: NSSize(width: 720, height: 300),
                 initialSize: NSSize(width: 960, height: 320), onClose: { await model.close() }
             ) { close in
-                AudioTrimPanel(model: model, cancel: close) { start, end in
+                AudioTrimPanel(model: model, cancel: close) { start, end, fadeIn, fadeOut in
                     close()
-                    run(.audio(.trim(start: start, end: end)))
+                    run(.audio(.trim(start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut)))
                 }
             }
             return

@@ -21,6 +21,9 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     public var speed: Double
     public var volume: Double
     public var adjustments: MediaAdjustments
+    /// Output seconds.
+    public var fadeIn = 0.0
+    public var fadeOut = 0.0
 
     public init(
         id: UUID = UUID(), start: Double, end: Double, speed: Double = 1,
@@ -35,7 +38,7 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         self.adjustments = adjustments
     }
     private enum CodingKeys: String, CodingKey {
-        case id, sourceIndex, start, end, speed, volume, adjustments
+        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut
     }
 
     public init(from decoder: Decoder) throws {
@@ -47,6 +50,8 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         speed = try values.decode(Double.self, forKey: .speed)
         volume = try values.decode(Double.self, forKey: .volume)
         adjustments = try values.decode(MediaAdjustments.self, forKey: .adjustments)
+        fadeIn = try values.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
+        fadeOut = try values.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
     }
 }
 
@@ -84,6 +89,7 @@ public struct VideoTimeline: Hashable, Sendable {
                 identifiers.insert(segment.id).inserted
             else { throw EngineError.invalidInput(.invalidNumericParameter) }
             try segment.adjustments.validate()
+            try FadeRamp.validate(fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
             let start = try Nanoseconds.from(seconds: segment.start)
             let end = try Nanoseconds.from(seconds: segment.end)
             guard end > start else { throw EngineError.invalidInput(.invalidNumericParameter) }
@@ -116,6 +122,19 @@ public struct VideoTimeline: Hashable, Sendable {
         let segment = segments[index]
         guard (segment.start...segment.end).contains(sourceSeconds) else { return nil }
         return starts[index] + (sourceSeconds - segment.start) / segment.speed
+    }
+
+    public var hasFades: Bool { segments.contains { $0.fadeIn > 0 || $0.fadeOut > 0 } }
+
+    public func fade(at index: Int) -> FadeRamp {
+        let segment = segments[index]
+        return FadeRamp(
+            duration: outputEnd(at: index) - outputStart(at: index), fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
+    }
+
+    public func fadeGain(at outputSeconds: Double) -> Double {
+        let index = index(at: outputSeconds)
+        return fade(at: index).gain(at: outputSeconds - outputStart(at: index))
     }
 
     func outputStart(at index: Int) -> Double { starts[index] }

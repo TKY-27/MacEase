@@ -16962,6 +16962,126 @@
           }
         }
       }
+    },
+    "Fade": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェード"
+          }
+        }
+      }
+    },
+    "Fade In": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェードイン"
+          }
+        }
+      }
+    },
+    "Fade Out": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェードアウト"
+          }
+        }
+      }
+    },
+    "%@ sec": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 秒"
+          }
+        }
+      }
+    },
+    "Playback Rate": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生速度"
+          }
+        }
+      }
+    },
+    "Loop Playback": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ループ再生"
+          }
+        }
+      }
+    },
+    "Loop Selection": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲をループ再生"
+          }
+        }
+      }
+    },
+    "You can also drop links from a browser here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザからリンクをここへドロップすることもできます。"
+          }
+        }
+      }
+    },
+    "Paste Link from Clipboard": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードのリンクを貼り付け"
+          }
+        }
+      }
+    },
+    "Fades the picture to and from black and the sound to and from silence.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像は黒との間で、音は無音との間で徐々に切り替わります。"
+          }
+        }
+      }
+    },
+    "Reverse %@×": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生 %@×"
+          }
+        }
+      }
+    },
+    "Fades are longer than the selection.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェードが選択範囲より長くなっています。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

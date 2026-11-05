@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import MenuCatalog
 import Synchronization
 
@@ -13,6 +14,7 @@ public struct MediaDownloader: Sendable {
         static let sourceIDBytes = 1_024
         static let titleBytes = 16_384
         static let maximumResolution = 16_384.0
+        static let thumbnailURLBytes = 2_048
     }
     private enum ConversionQuality {
         static let h264 = "65"
@@ -104,8 +106,64 @@ public struct MediaDownloader: Sendable {
                 id: source.id, webpageURL: source.webpageURL, title: source.title, duration: source.duration,
                 resolutions: source.resolutions, subtitles: source.subtitles, isPlaylistEntry: source.isPlaylistEntry,
                 availableFormats: source.availableFormats, playlistIndex: sharedPage ? source.playlistIndex : nil,
-                videoDimensions: source.videoDimensions)
+                videoDimensions: source.videoDimensions, thumbnailURL: source.thumbnailURL)
         }
+    }
+
+    private static let thumbnailBytes = 4_000_000
+    private static let thumbnailPixels = 320
+    private static let thumbnailStallSeconds: TimeInterval = 15
+    private static let thumbnailTotalSeconds: TimeInterval = 30
+
+    /// Refuses redirects that leave HTTPS.
+    private final class ThumbnailRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest
+        ) async -> URLRequest? {
+            request.url.map(MediaDownloader.isThumbnailURL) == true ? request : nil
+        }
+    }
+
+    static func isThumbnailURL(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.host() != nil && url.user == nil && url.password == nil
+    }
+
+    /// Fetched only after an explicit analysis.
+    public static func thumbnail(at url: URL) async throws -> CGImage {
+        guard isThumbnailURL(url) else {
+            throw EngineError.invalidInput(.malformed("Thumbnail URL must use HTTPS"))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = thumbnailStallSeconds
+        configuration.timeoutIntervalForResource = thumbnailTotalSeconds
+        configuration.httpCookieStorage = nil
+        configuration.urlCredentialStorage = nil
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+        let (bytes, response) = try await session.bytes(from: url, delegate: ThumbnailRedirects())
+        guard (response as? HTTPURLResponse)?.statusCode == 200, response.expectedContentLength <= thumbnailBytes,
+            response.url.map(isThumbnailURL) == true
+        else { throw EngineError.decodeFailed("Thumbnail is unavailable") }
+        var encoded = Data()
+        for try await byte in bytes {
+            encoded.append(byte)
+            guard encoded.count <= thumbnailBytes else { throw EngineError.decodeFailed("Thumbnail is too large") }
+        }
+        return try thumbnailImage(from: encoded)
+    }
+
+    static func thumbnailImage(from encoded: Data) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithData(encoded as CFData, nil),
+            let image = CGImageSourceCreateThumbnailAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                ] as CFDictionary)
+        else { throw EngineError.decodeFailed("Thumbnail cannot be decoded") }
+        return image
     }
 
     private func download(_ selection: MediaDownloadSelection, destination: URL, context: ItemContext) async throws
@@ -404,8 +462,9 @@ public struct MediaDownloader: Sendable {
         let isLive: Bool?
         let liveStatus: String?
         let hasDRM: Bool?
+        let thumbnail: String?
         enum CodingKeys: String, CodingKey {
-            case id, title, duration, entries, formats, subtitles, height, width, ext
+            case id, title, duration, entries, formats, subtitles, height, width, ext, thumbnail
             case webpageURL = "webpage_url", automaticCaptions = "automatic_captions"
             case isLive = "is_live", liveStatus = "live_status", hasDRM = "has_drm"
             case playlistCount = "playlist_count"
@@ -421,6 +480,13 @@ public struct MediaDownloader: Sendable {
             enum CodingKeys: String, CodingKey {
                 case height, width, ext, hasDRM = "has_drm", videoCodec = "vcodec", audioCodec = "acodec"
             }
+        }
+
+        private static func thumbnailURL(_ text: String) -> URL? {
+            guard text.utf8.count <= Limits.thumbnailURLBytes, let url = URL(string: text),
+                MediaDownloader.isThumbnailURL(url)
+            else { return nil }
+            return url
         }
 
         func sources(fallback: URL, playlist: Bool = false, index: Int? = nil, depth: Int = 0) throws -> [MediaSource] {
@@ -480,7 +546,8 @@ public struct MediaDownloader: Sendable {
                     subtitles: (authored + automatic).sorted {
                         ($0.language, $0.automatic ? 1 : 0) < ($1.language, $1.automatic ? 1 : 0)
                     }, isPlaylistEntry: playlist, availableFormats: extensions.sorted(), playlistIndex: index,
-                    videoDimensions: dimensions.sorted { ($0.height, $0.width) > ($1.height, $1.width) })
+                    videoDimensions: dimensions.sorted { ($0.height, $0.width) > ($1.height, $1.width) },
+                    thumbnailURL: thumbnail.flatMap(Self.thumbnailURL))
             ]
         }
     }

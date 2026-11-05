@@ -65,6 +65,9 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     case 31 where model.isVideo: model.setTrimBoundaryAtPlayhead(start: false)
                     case 46: model.original.toggle()
                     case 49 where model.isVideo: model.play()
+                    case 38 where model.isVideo: model.shuttle(-1)
+                    case 40 where model.isVideo: model.shuttle(0)
+                    case 37 where model.isVideo: model.shuttle(1)
                     case 123 where model.isVideo && model.category != .crop: model.stepFrame(-1)
                     case 124 where model.isVideo && model.category != .crop: model.stepFrame(1)
                     case 51 where model.isVideo, 117 where model.isVideo:
@@ -99,6 +102,9 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
             guard modifiers.isEmpty else { return false }
             switch event.keyCode {
             case 49: audio.play()
+            case 38: audio.shuttle(-1)
+            case 40: audio.shuttle(0)
+            case 37: audio.shuttle(1)
             case 34: audio.setBoundary(start: true)
             case 31: audio.setBoundary(start: false)
             case 123: audio.seek(audio.position - 1 / audio.sampleRate)

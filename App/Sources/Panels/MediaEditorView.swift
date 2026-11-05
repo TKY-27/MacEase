@@ -103,8 +103,6 @@ struct MediaEditorView: View {
                 Label("More Editing Actions", systemImage: "ellipsis.circle")
             }
             .help("More Editing Actions")
-        }
-        ToolbarItem(placement: .cancellationAction) {
             Button("Cancel", action: close).keyboardShortcut(.cancelAction)
         }
         ToolbarItem(placement: .confirmationAction) {
@@ -521,6 +519,21 @@ struct MediaEditorView: View {
                 }
             }
             .disabled(!model.selectedHasAudio)
+            InspectorSection(String(localized: "Fade")) {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                    GridRow {
+                        Text("Fade In").foregroundStyle(.secondary)
+                        FadePicker(title: Text("Fade In"), value: model.binding(\.fadeIn))
+                    }
+                    GridRow {
+                        Text("Fade Out").foregroundStyle(.secondary)
+                        FadePicker(title: Text("Fade Out"), value: model.binding(\.fadeOut))
+                    }
+                }
+                Text("Fades the picture to and from black and the sound to and from silence.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .disabled(!model.hasSelection)
             InspectorSection(String(localized: "Export")) {
                 Picker("Resolution", selection: model.binding(\.resolution)) {
                     Text("Original resolution").tag(0)
@@ -574,6 +587,32 @@ private enum AdjustmentGroup: CaseIterable {
         case .color: [.saturation, .vibrance, .warmth, .tint]
         case .detail: [.sharpness, .noiseReduction, .vignette]
         }
+    }
+}
+
+/// Common editor fade lengths.
+struct FadePicker: View {
+    static let presets: [Double] = [0, 0.25, 0.5, 1, 2, 3, 5]
+
+    let title: Text
+    @Binding var value: Double
+
+    var body: some View {
+        Picker(selection: $value) {
+            ForEach(Self.presets + (Self.presets.contains(value) ? [] : [value]), id: \.self) { seconds in
+                Text(Self.title(seconds)).tag(seconds)
+            }
+        } label: {
+            title
+        }
+        .labelsHidden()
+        .fixedSize()
+    }
+
+    static func title(_ seconds: Double) -> String {
+        seconds == 0
+            ? String(localized: "None")
+            : String(localized: "\(seconds.formatted(.number.precision(.fractionLength(0...2)))) sec")
     }
 }
 

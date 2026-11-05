@@ -304,6 +304,99 @@ import Testing
         }
     }
 
+    @Test func segmentFadesRampAudioAndVideoFromBlackAndSilence() async throws {
+        let source = try await fixture(colored: true)
+        var segment = VideoSegment(start: 0.25, end: 3.75)
+        segment.fadeIn = 1
+        segment.fadeOut = 0.5
+        var edit = VideoEdit(start: 0, end: Self.duration)
+        edit.segments = [segment]
+        let output = try await edited(source, edit: edit)
+        let samples = try await audioSamples(output)
+        func level(at seconds: Double) -> Double {
+            let window = 960
+            let first = Int(seconds * Self.sampleRate) - window / 2
+            let slice = samples[max(0, first)..<min(samples.count, first + window)]
+            return (slice.reduce(0.0) { $0 + Double($1 * $1) } / Double(slice.count)).squareRoot()
+        }
+        let steadyLevel = level(at: 1)
+        #expect(steadyLevel > 0.05)
+        #expect(level(at: 0.02) < steadyLevel * 0.1)
+        #expect(abs(level(at: 0.5) / steadyLevel - 0.5) < 0.1)
+        #expect(level(at: 3.48) < steadyLevel * 0.1)
+        let asset = AVURLAsset(url: output)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .frames)
+        var brightness: [(time: Double, value: UInt8)] = []
+        while let frame = try await reader.nextFrame() {
+            let pixels = try PixelBuffer(cgImage: CGImage.make(from: frame.image))
+            let seconds = Double(frame.timestamp) / Double(Nanoseconds.perSecond)
+            brightness.append((seconds, pixels.rgba.prefix(3).max() ?? 0))
+        }
+        let first = try #require(brightness.first)
+        let last = try #require(brightness.last)
+        let steady = try #require(brightness.first { $0.time >= 1.5 })
+        let halfway = try #require(brightness.first { $0.time >= 0.5 })
+        #expect(first.value < 40, "first frame \(first.value)")
+        #expect(last.value < 40, "last frame \(last.value)")
+        #expect(steady.value > 200, "steady frame \(steady.value)")
+        #expect((90...160).contains(halfway.value), "halfway frame \(halfway.value)")
+    }
+
+    @Test func previewAppliesTheSameSegmentFades() async throws {
+        let source = try await fixture(colored: true)
+        var segment = VideoSegment(start: 0.25, end: 3.75)
+        segment.fadeIn = 1
+        segment.fadeOut = 0.5
+        var edit = VideoEdit(start: 0, end: Self.duration)
+        edit.segments = [segment]
+        let timeline = try VideoTimeline(edit: edit, sourceDuration: Self.duration)
+        let playback = try await VideoEditorPlayback.make(
+            url: source, timeline: timeline, edit: edit, sourceSize: CGSize(width: 128, height: 96))
+        let generator = AVAssetImageGenerator(asset: playback.asset)
+        generator.videoComposition = playback.videoComposition
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        func brightness(at seconds: Double) async throws -> UInt8 {
+            let (image, _) = try await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600))
+            return try PixelBuffer(cgImage: image).rgba.prefix(3).max() ?? 0
+        }
+        #expect(try await brightness(at: 0.02) < 40)
+        #expect(try await brightness(at: 1.5) > 200)
+        let track = try #require(try await playback.asset.loadTracks(withMediaType: .audio).first)
+        let reader = try AVAssetReader(asset: playback.asset)
+        let output = AVAssetReaderAudioMixOutput(
+            audioTracks: [track],
+            audioSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true,
+                AVLinearPCMIsNonInterleaved: false, AVNumberOfChannelsKey: 1, AVSampleRateKey: Self.sampleRate,
+            ])
+        output.audioMix = playback.audioMix
+        reader.add(output)
+        #expect(reader.startReading())
+        var samples: [Float] = []
+        while let buffer = output.copyNextSampleBuffer(), let block = CMSampleBufferGetDataBuffer(buffer) {
+            let count = CMBlockBufferGetDataLength(block) / MemoryLayout<Float>.size
+            var chunk = [Float](repeating: 0, count: count)
+            let status = chunk.withUnsafeMutableBytes { bytes in
+                guard let destination = bytes.baseAddress else { return OSStatus(kCMBlockBufferBadLengthParameterErr) }
+                return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: bytes.count, destination: destination)
+            }
+            #expect(status == noErr)
+            samples += chunk
+        }
+        func level(at seconds: Double) -> Double {
+            let window = 960
+            let first = Int(seconds * Self.sampleRate) - window / 2
+            let slice = samples[max(0, first)..<min(samples.count, first + window)]
+            return (slice.reduce(0.0) { $0 + Double($1 * $1) } / Double(slice.count)).squareRoot()
+        }
+        let steadyLevel = level(at: 1)
+        #expect(steadyLevel > 0.05)
+        #expect(level(at: 0.02) < steadyLevel * 0.1)
+        #expect(abs(level(at: 0.5) / steadyLevel - 0.5) < 0.1)
+    }
+
     @Test(arguments: [8_000.0, 16_000.0, 22_050.0])
     func nativeAACUsesSupportedBitrateAtLowSampleRates(sampleRate: Double) async throws {
         let source = try await fixture(sampleRate: sampleRate)

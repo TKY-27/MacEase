@@ -83,7 +83,21 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                     }
                 }
                 audio.scaleTimeRange(insertedRange, toDuration: outputDuration)
-                parameters?.setVolume(Float(segment.volume), at: outputStart)
+                let fade = timeline.fade(at: index)
+                let volume = Float(segment.volume)
+                if fade.fadeIn > 0 {
+                    parameters?.setVolumeRamp(
+                        fromStartVolume: 0, toEndVolume: volume,
+                        timeRange: CMTimeRange(start: outputStart, duration: time(fade.fadeIn)))
+                } else {
+                    parameters?.setVolume(volume, at: outputStart)
+                }
+                if fade.fadeOut > 0 {
+                    parameters?.setVolumeRamp(
+                        fromStartVolume: volume, toEndVolume: 0,
+                        timeRange: CMTimeRange(
+                            start: outputStart + outputDuration - time(fade.fadeOut), duration: time(fade.fadeOut)))
+                }
             }
         }
         let mix: AVAudioMix?
@@ -98,7 +112,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             mix = nil
         }
         let videoComposition: AVVideoComposition?
-        if edit.changesAppearance || urls.count > 1 {
+        if edit.changesAppearance || urls.count > 1 || timeline.hasFades {
             videoComposition = try await filtered(composition, timeline: timeline, edit: edit, sourceSize: sourceSize)
         } else {
             videoComposition = nil
@@ -142,6 +156,8 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             var image = geometry.applying(to: canvas)
             let adjustments = timeline.segment(at: request.compositionTime.seconds).adjustments
             image = adjustments.applying(to: image)
+            let fade = timeline.fadeGain(at: request.compositionTime.seconds)
+            if fade < 1 { image = image.fadedToBlack(fade) }
             image = image.transformed(
                 by: CGAffineTransform(
                     scaleX: CGFloat(size.width) / image.extent.width,

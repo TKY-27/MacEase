@@ -10,6 +10,9 @@ struct TimelineClip {
     var frames: [CGImage] = []
     var waveform: AudioWaveformSnapshot?
     var detailWaveform: AudioWaveformSnapshot?
+    /// Timeline seconds, measured inside `selection ?? range`.
+    var fadeIn = 0.0
+    var fadeOut = 0.0
 }
 
 enum TimelineAction: Int, CaseIterable {
@@ -223,6 +226,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private static let selectionLine = 3.0
     private static let playheadWidth = 2.0
     private static let rulerMinorTicks = 4
+    private static let waveformLaneHeight = 18.0
 
     var configuration: MediaTimeline?
     private(set) var pointerInViewport: CGPoint?
@@ -276,14 +280,25 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             shape.addClip()
             NSColor.quaternaryLabelColor.setFill()
             rect.fill()
-            if let waveform = clip.waveform { drawWaveform(waveform, in: rect, context: context) }
+            let lane = !clip.frames.isEmpty && clip.waveform != nil
+            let frameRect = lane ? rect.divided(atDistance: Self.waveformLaneHeight, from: .maxYEdge).remainder : rect
+            let waveRect = lane ? rect.divided(atDistance: Self.waveformLaneHeight, from: .maxYEdge).slice : rect
+            if lane {
+                NSColor.systemTeal.withAlphaComponent(0.22).setFill()
+                waveRect.fill()
+            }
+            let waveColor = lane ? NSColor.systemTeal : NSColor.labelColor.withAlphaComponent(0.85)
+            if let waveform = clip.waveform {
+                drawWaveform(waveform, in: waveRect, color: waveColor, context: context)
+            }
             if let detail = clip.detailWaveform {
                 let detailRect = rectangle(
                     detail.start...(detail.start + detail.duration), duration: configuration.duration)
-                NSColor.quaternaryLabelColor.setFill(); detailRect.fill()
-                drawWaveform(detail, in: rect, context: context)
+                NSColor.quaternaryLabelColor.setFill(); detailRect.intersection(waveRect).fill()
+                drawWaveform(detail, in: waveRect, color: waveColor, context: context)
             }
-            drawFrames(clip.frames, in: rect, context: context)
+            drawFrames(clip.frames, in: frameRect, context: context)
+            drawFades(clip, configuration: configuration)
             if let selection = clip.selection, selection != clip.range {
                 NSColor.black.withAlphaComponent(0.55).setFill()
                 rectangle(clip.range.lowerBound...selection.lowerBound, duration: configuration.duration).fill()
@@ -368,14 +383,38 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         }
     }
 
-    private func drawWaveform(_ waveform: AudioWaveformSnapshot, in rect: CGRect, context: CGContext) {
+    private func drawFades(_ clip: TimelineClip, configuration: MediaTimeline) {
+        let span = rectangle(clip.selection ?? clip.range, duration: configuration.duration)
+        let points = bounds.width / configuration.duration
+        for (width, leading) in [(clip.fadeIn * points, true), (clip.fadeOut * points, false)] where width >= 1 {
+            let ramp = NSBezierPath()
+            let edge = leading ? span.minX : span.maxX
+            let inner = leading ? span.minX + width : span.maxX - width
+            ramp.move(to: CGPoint(x: edge, y: span.maxY))
+            ramp.line(to: CGPoint(x: inner, y: span.minY))
+            ramp.line(to: CGPoint(x: edge, y: span.minY))
+            ramp.close()
+            NSColor.black.withAlphaComponent(0.45).setFill()
+            ramp.fill()
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: edge, y: span.maxY))
+            line.line(to: CGPoint(x: inner, y: span.minY))
+            line.lineWidth = 1.5
+            NSColor.white.withAlphaComponent(0.85).setStroke()
+            line.stroke()
+        }
+    }
+
+    private func drawWaveform(
+        _ waveform: AudioWaveformSnapshot, in rect: CGRect, color: NSColor, context: CGContext
+    ) {
         guard !waveform.peaks.isEmpty, let configuration, waveform.duration > 0 else { return }
         let firstTime = max(waveform.start, visibleRect.minX / bounds.width * configuration.duration)
         let lastTime = min(waveform.start + waveform.duration, visibleRect.maxX / bounds.width * configuration.duration)
         guard firstTime < lastTime else { return }
         let firstX = max(0, Int(point(firstTime, configuration)))
         let lastX = min(Int(bounds.width), Int(ceil(point(lastTime, configuration))))
-        context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.85).cgColor)
+        context.setStrokeColor(color.cgColor)
         context.setLineWidth(1)
         for x in firstX..<lastX {
             let seconds = Double(x) / bounds.width * configuration.duration
@@ -388,7 +427,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
                     Int(ceil((next - waveform.start) / waveform.duration * Double(waveform.peaks.count)))))
             guard lower < upper else { continue }
             let peak = Double(waveform.peaks[lower..<upper].max() ?? 0)
-            let amplitude = max(0.5, min(1, peak) * (rect.height / 2 - 6))
+            let amplitude = max(0.5, min(1, peak) * (rect.height / 2 - min(6, rect.height * 0.1)))
             context.move(to: CGPoint(x: Double(x) + 0.5, y: rect.midY - amplitude))
             context.addLine(to: CGPoint(x: Double(x) + 0.5, y: rect.midY + amplitude))
         }

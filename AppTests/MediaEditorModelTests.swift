@@ -327,6 +327,116 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.start, 0.5, "an inverted range is ignored")
     }
 
+    func testLoopPlaybackRestartsFromTheBeginning() async throws {
+        let model = try await videoModel()
+        model.loops = true
+        model.seek(1.8)
+        model.play()
+        try await eventually { model.playing && model.position < 1 }
+        model.pause()
+    }
+
+    func testShuttleDoublesTheRateAndKStops() async throws {
+        let model = try await videoModel()
+        model.shuttle(1)
+        XCTAssertTrue(model.playing)
+        XCTAssertEqual(model.playbackRate, 1)
+        model.shuttle(1)
+        XCTAssertEqual(model.playbackRate, 2)
+        model.shuttle(0)
+        XCTAssertFalse(model.playing)
+        XCTAssertEqual(model.playbackRate, 1)
+        model.seek(1)
+        model.shuttle(-1)
+        if model.player?.currentItem?.canPlayReverse == true {
+            XCTAssertEqual(model.playbackRate, -1)
+        } else {
+            try await eventually { model.position < 1 }
+            XCTAssertFalse(model.playing)
+        }
+        model.pause()
+    }
+
+    func testFadesEditTheSelectedSegmentAndUndo() async throws {
+        let model = try await videoModel()
+        model.binding(\.fadeIn).wrappedValue = 1
+        XCTAssertEqual(model.values.segments[0].fadeIn, 1)
+        XCTAssertEqual(model.timeline?.fadeGain(at: 0.5), 0.5)
+        model.undo()
+        XCTAssertEqual(model.values.segments[0].fadeIn, 0)
+    }
+
+    func testWaveformSliceCoversTheSegmentInTimelineSeconds() async throws {
+        let model = try await videoModel()
+        let segment = try XCTUnwrap(model.values.segments.first)
+        try await eventually { model.waveform(for: segment, in: 0...2) != nil }
+        let whole = try XCTUnwrap(model.waveform(for: segment, in: 0...2))
+        XCTAssertEqual(whole.start, 0)
+        XCTAssertEqual(whole.duration, 2)
+        XCTAssertTrue(whole.peaks.contains { $0 > 0.05 })
+        var half = segment
+        half.end = 1
+        let slice = try XCTUnwrap(model.waveform(for: half, in: 3...4))
+        XCTAssertEqual(slice.start, 3)
+        XCTAssertEqual(Double(slice.peaks.count), Double(whole.peaks.count) / 2, accuracy: 2)
+        var late = segment
+        late.start = 1
+        let tail = try XCTUnwrap(model.waveform(for: late, in: 0...1))
+        XCTAssertEqual(tail.peaks, Array(whole.peaks.suffix(tail.peaks.count)))
+        XCTAssertEqual(Double(tail.peaks.count), Double(whole.peaks.count) / 2, accuracy: 2)
+    }
+
+    func testAudioTrimFadesMustFitTheRange() async throws {
+        let directory = try workspace()
+        let support = directory.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let model = AudioTrimModel(
+            url: try audioFixture(in: directory), staging: StagingArea(supportDirectory: support), prefill: nil)
+        addTeardownBlock { await model.close() }
+        await model.load()
+        XCTAssertTrue(model.canSave)
+        model.fadeIn = 1.5
+        model.fadeOut = 1
+        XCTAssertFalse(model.canSave)
+        XCTAssertFalse(model.fadesFit)
+        model.fadeOut = 0.5
+        XCTAssertTrue(model.canSave)
+        let ramp = FadeRamp(duration: model.end - model.start, fadeIn: model.fadeIn, fadeOut: model.fadeOut)
+        XCTAssertEqual(ramp.fadeIn, 1.5, "fitting fades are exported as chosen")
+    }
+
+    func testSplittingAFadedSegmentKeepsFadesAtTheOuterEdges() async throws {
+        let model = try await videoModel()
+        model.binding(\.fadeIn).wrappedValue = 0.5
+        model.binding(\.fadeOut).wrappedValue = 0.5
+        model.seek(1)
+        try await eventually { model.canSplit }
+        model.split()
+        try await eventually { model.values.segments.count == 2 }
+        XCTAssertEqual(model.values.segments.map(\.fadeIn), [0.5, 0])
+        XCTAssertEqual(model.values.segments.map(\.fadeOut), [0, 0.5])
+    }
+
+    func testClipboardSuggestionDetectsLinksBeforeReadingThem() async throws {
+        let name = NSPasteboard.Name("MacEaseTests-\(UUID().uuidString)")
+        let pasteboard = NSPasteboard(name: name)
+        addTeardownBlock { pasteboard.releaseGlobally() }
+        let model = MediaDownloadModel(destination: try workspace())
+        addTeardownBlock { await model.close() }
+        pasteboard.clearContents()
+        pasteboard.setString("not a link", forType: .string)
+        await model.checkClipboard(name)
+        XCTAssertFalse(model.clipboardHasURL)
+        pasteboard.clearContents()
+        pasteboard.setString("https://example.invalid/watch?v=1", forType: .string)
+        await model.checkClipboard(name)
+        XCTAssertTrue(model.clipboardHasURL)
+        model.pasteClipboardURLs(name)
+        XCTAssertEqual(model.urls, "https://example.invalid/watch?v=1")
+        XCTAssertFalse(model.clipboardHasURL)
+        model.cancelAnalysis()
+    }
+
     private func workspace() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseAppTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)

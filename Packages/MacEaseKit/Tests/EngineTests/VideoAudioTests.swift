@@ -354,6 +354,13 @@ import UniformTypeIdentifiers
         #expect(try Data(contentsOf: source) == originalBytes)
     }
 
+    @Test func matroskaWaveformUsesTheInHouseDecoders() async throws {
+        let webm = try await run(.videoConvert, preset: "webm", on: try fixture())
+        let summary = try #require(try await AudioWaveform.load(videoURL: webm, bins: 8))
+        #expect(abs(summary.duration - 2) < 0.1)
+        #expect(summary.peaks.allSatisfy { $0 > 0.05 })
+    }
+
     @Test func originalExtractionIgnoresEncodingPreferences() async throws {
         let source = try fixture()
         let originalBytes = try Data(contentsOf: source)

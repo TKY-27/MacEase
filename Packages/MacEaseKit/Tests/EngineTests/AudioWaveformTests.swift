@@ -21,6 +21,18 @@ import Testing
         #expect(detail.peaks == [0, 0.5])
     }
 
+    @Test func videoWaveformFollowsTheSoundtrackAndSkipsSilentVideos() async throws {
+        let video = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+        let summary = try #require(try await AudioWaveform.load(videoURL: video, bins: 8))
+        #expect(summary.peaks.count == 8)
+        #expect(abs(summary.duration - 2) < 0.1)
+        #expect(summary.peaks.allSatisfy { $0 > 0.05 })
+        let silent = try #require(
+            Bundle.module.url(forResource: "x265-hlg.mov", withExtension: nil, subdirectory: "Resources"))
+        #expect(try await AudioWaveform.load(videoURL: silent) == nil)
+    }
+
     @Test func previewSourceRefusesChangedOriginal() async throws {
         let folder = try AudioSignals.temporaryFolder()
         let url = folder.appending(path: "wave.wav")

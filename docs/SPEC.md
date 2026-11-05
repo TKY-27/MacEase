@@ -925,8 +925,15 @@ segments. With one segment, dragging across it scrubs instead. A duplicate recei
 Each mutation or completed drag is one session Undo operation. Text editors keep
 their normal editing keys. Empty timelines disable playback and Save, retaining Undo.
 
-Speed (0.5–4×, pitch preserving), volume (0–100%), color and styles belong to the
-selected segment. Geometry, crop, orientation and resolution belong to the entire
+Speed (0.5–4×, pitch preserving), volume (0–100%), fades, color and styles belong
+to the selected segment. Fade In and Fade Out (presets None, 0.25, 0.5, 1, 2, 3
+and 5 seconds; at most 10) ramp the picture from or to black and the sound from or
+to silence linearly in output time. Fades keep their lengths while they fit the
+segment; when a later trim or speed change makes them overlap, both shrink
+proportionally. Splitting keeps fades only at the outer edges. Older segment
+records decode with no fades. Preview uses audio-mix volume ramps and the same
+Core Image color scaling as export. Audio trim refuses fades longer than the kept
+range and explains why inline. Geometry, crop, orientation and resolution belong to the entire
 output. Segments may repeat or reorder source ranges. Preview and export share
 the output-time mapping, and export encodes a continuous video/audio stream with
 exact frame cuts. There is no keyframe/exact mode control in this editor. A temporary
@@ -1155,7 +1162,7 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | `audio.convert` | MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus, CAF (PCM), CAF (ALAC) | Transform | Bitrates from settings; tags (title, artist, album, artwork) copied where the target supports them |
 | `audio.compress` | 64, 96, 128, 192 kbps | Transform | Re-encodes in the same lossy format, or AAC in M4A for lossless sources and for MP3 below 128 kbps (ADR 0010) |
 | `audio.normalize` | −14 LUFS, −16 LUFS, −23 LUFS | Transform | ITU-R BS.1770-4 integrated loudness; gain only, capped so the 4× oversampled true peak stays at or below −1 dBTP; the notification reports when the cap stopped short of the target |
-| `audio.trim` | — (panel) | Transform | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy |
+| `audio.trim` | — (panel) | Transform | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy; optional linear fade in/out within the kept range |
 | `audio.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Same on-device transcription, translation, settings, and cue rules as video subtitles; no video track required |
 | `audio.aiCustom` | — | Depends on plan | Section 10 |
 
@@ -2386,6 +2393,15 @@ Resolutions come from available source formats. Disclose required re-encoding;
 never silently change requested quality or format. Subtitles default off; select
 language, authored or automatic captions, and SRT or VTT sidecars.
 
+Dropping browser links onto the window appends HTTP(S) URLs and analyzes them.
+On opening with an empty URL field, the window asks the system whether the
+clipboard probably holds a web URL without reading it; only then does it offer
+**Paste Link from Clipboard**, which reads the clipboard when clicked. After an
+analysis, rows show the source's thumbnail: HTTPS-only URLs without credentials,
+fetched with an ephemeral session (no cookies), at most 4 MB each, four at a
+time and 64 per analysis, decoded to 320 pixels. Failed thumbnails keep the
+placeholder.
+
 Queue at most two downloads concurrently. Cancel stops child processes and
 removes uncommitted staging. Retry only failed selections, never successful or
 explicitly cancelled ones; resolve fresh media URLs from the original page.
@@ -2480,7 +2496,17 @@ handles and a resize cursor, a white playhead with a ruler knob and a pink hover
 skimmer that labels its time. Rounded clips sit under an `m:ss` ruler with minor
 ticks; trimmed-away media is dimmed. Video skimming previews silently;
 leaving restores the committed playhead and playback takes precedence. Audio
-shows a progressively decoded waveform. Click commits the playhead. Command
+shows a progressively decoded waveform; video clips add a teal waveform lane
+under their thumbnails, decoded once per source in the background (MP4/MOV and
+the in-house Matroska/AVI decoders alike; silent sources show none). Fades draw
+as shaded ramps at clip or selection edges.
+
+Transport controls offer Loop Playback (the whole output in the video editor, the
+selection in audio trim) and J/K/L shuttle: L plays forward and doubles the rate
+on each press up to 8×, J does the same in reverse, and K pauses. Rates above 2×
+are muted in both windows; rates are limited to what the item supports. When
+AVFoundation cannot play an item in reverse, J steps back one
+frame (video) or one second (audio) instead. The current non-1× rate is shown. Click commits the playhead. Command
 plus wheel, pinch, the zoom slider and Command plus/minus zoom around the pointer;
 Fit restores the whole timeline. Ordinary scrolling pans. Only visible content
 is drawn, including waveform refinement at higher zoom.
@@ -2526,6 +2552,10 @@ website, bump the installed release version, or claim release verification.
 Preserve the existing signing identity and disabled Actions.
 
 ## Changelog
+
+- 2026-11-05: Add segment and audio-trim fades, video waveform lanes, loop and
+  J/K/L shuttle playback, and yt-dlp link dropping, clipboard suggestions and
+  thumbnails (ADR 0055).
 
 - 2026-11-05: Decode HE-AAC tracks at their output layer, and give the photo/video
   editor, audio trim and download windows familiar editing layouts (ADR 0054).

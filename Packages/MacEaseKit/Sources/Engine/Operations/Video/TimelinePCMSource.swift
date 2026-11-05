@@ -81,6 +81,10 @@ final class TimelinePCMSource {
                     samples += [Float](repeating: 0, count: available * channels - samples.count)
                 }
                 if segment.volume != 1 { samples = samples.map { $0 * Float(segment.volume) } }
+                let segmentStart = try continuity.framePosition(
+                    Nanoseconds.from(seconds: timeline.outputStart(at: segmentIndex)))
+                timeline.fade(at: segmentIndex).apply(
+                    to: &samples, channels: channels, firstFrame: position - segmentStart, sampleRate: sampleRate)
             } else {
                 samples = [Float](repeating: 0, count: available * channels)
             }

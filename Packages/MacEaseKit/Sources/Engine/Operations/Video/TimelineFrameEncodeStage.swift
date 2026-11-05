@@ -61,7 +61,8 @@ final class TimelineFrameEncodeStage: StreamStage {
         }
         let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)
         let sourceTime = min(sourceEnd - 1, try Nanoseconds.from(seconds: timeline.sourceTime(at: seconds)))
-        guard let frame = try await sampler?.next(sourceTime: sourceTime, timestamp: timestamp) else {
+        let fade = timeline.fadeGain(at: Double(timestamp) / Double(Nanoseconds.perSecond))
+        guard let frame = try await sampler?.next(sourceTime: sourceTime, timestamp: timestamp, fade: fade) else {
             throw EngineError.decodeFailed("no frame in selected segment")
         }
         let (following, overflow) = timestamp.addingReportingOverflow(encoding.frameDuration)

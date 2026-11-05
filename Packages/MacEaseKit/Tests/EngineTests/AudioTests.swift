@@ -604,6 +604,38 @@ func generatedAACReplacementsKeepCentreChannel(channels: Int) async throws {
         #expect(abs(seconds - 0.75) < (format == .mp3 ? 0.08 : 0.01), "\(format): \(seconds)")
     }
 
+    @Test func fadesRampTheTrimmedRangeLinearly() async throws {
+        let level: Float = 0.5
+        let rate = 44_100.0
+        let input = try await source(
+            "steady.wav", format: .wav, samples: [Float](repeating: level, count: Int(rate) * 2), sampleRate: rate)
+
+        let result = try await run(.audioTrim, .trim(start: 0.1, end: 0.9, fadeIn: 0.2, fadeOut: 0.4), on: input)
+
+        let samples = try AudioSignals.decode(try #require(result.output)).samples
+        let frames = samples.count / 2
+        #expect(frames == Int(0.8 * rate))
+        let tolerance: Float = 0.002
+        func sample(at seconds: Double) -> Float { samples[Int(seconds * rate) * 2] }
+        #expect(abs(sample(at: 0)) < tolerance)
+        #expect(abs(sample(at: 0.1) - level / 2) < tolerance)
+        #expect(abs(sample(at: 0.3) - level) < tolerance)
+        #expect(abs(sample(at: 0.6) - level / 2) < tolerance)
+        #expect(abs(samples[samples.count - 2]) < tolerance)
+    }
+
+    @Test func fadesLongerThanTheRangeFail() async throws {
+        let input = try await source("clip.wav", format: .wav)
+        let result = try await run(.audioTrim, .trim(start: 0, end: 0.5, fadeIn: 0.3, fadeOut: 0.3), on: input)
+        #expect(result.outcome.outcomes == [.failed(.invalidInput(.invalidNumericParameter))])
+    }
+
+    @Test func fullRangeFadeIsNotSkipped() async throws {
+        let input = try await source("clip.wav", format: .wav)
+        let result = try await run(.audioTrim, .trim(start: 0, end: 2, fadeIn: 0.1), on: input)
+        #expect(result.output != nil, "\(result.outcome.outcomes)")
+    }
+
     @Test func emptyRangesFail() async throws {
         let input = try await source("clip.wav", format: .wav)
         let result = try await run(.audioTrim, .trim(start: 3, end: 4), on: input)

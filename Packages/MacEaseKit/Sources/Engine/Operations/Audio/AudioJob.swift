@@ -84,8 +84,9 @@ enum AudioJob {
             return try await compress(url, input: input, toBytes: bytes, context: context)
         case .normalize(let loudness):
             return try await normalize(url, input: input, to: loudness, context: context)
-        case .trim(let start, let end):
-            return try await trim(url, input: input, start: start, end: end, context: context)
+        case .trim(let start, let end, let fadeIn, let fadeOut):
+            return try await trim(
+                url, input: input, start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut, context: context)
         }
     }
 
@@ -362,25 +363,31 @@ enum AudioJob {
             context: context)
     }
 
-    private static func trim(_ url: URL, input: AudioInput, start: Double, end: Double, context: ItemContext)
-        async throws -> ItemResult
-    {
+    private static func trim(
+        _ url: URL, input: AudioInput, start: Double, end: Double, fadeIn: Double, fadeOut: Double,
+        context: ItemContext
+    ) async throws -> ItemResult {
+        try FadeRamp.validate(fadeIn: fadeIn, fadeOut: fadeOut)
         guard start.isFinite, end.isFinite,
             let first = Int64(exactly: (max(start, 0) * input.sampleRate).rounded()),
             var last = Int64(exactly: (end * input.sampleRate).rounded())
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
         if let total = input.frameCount {
-            if first == 0, last >= total { return .skipped(.alreadyDone) }
+            if first == 0, last >= total, fadeIn == 0, fadeOut == 0 { return .skipped(.alreadyDone) }
             last = min(last, total)
         }
         guard last > first else { throw EngineError.invalidInput(.malformed("the trim range is empty")) }
+        let duration = Double(last - first) / input.sampleRate
+        guard fadeIn + fadeOut <= duration else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let target = AudioTarget.defaults(for: input.sameFormat, settings: context.settings.audio)
-        return try await replace(url, with: input, target: target, frames: first..<last, context: context)
+        return try await replace(
+            url, with: input, target: target, frames: first..<last,
+            fade: FadeRamp(duration: duration, fadeIn: fadeIn, fadeOut: fadeOut), context: context)
     }
 
     private static func replace(
         _ url: URL, with input: AudioInput, target: AudioTarget, frames: Range<Int64>? = nil, gain: Float = 1,
-        progressStart: Double = 0, context: ItemContext
+        fade: FadeRamp? = nil, progressStart: Double = 0, context: ItemContext
     ) async throws -> ItemResult {
         try await requirePreservableContent(input)
         try target.format.validateLayout(input)
@@ -398,8 +405,8 @@ enum AudioJob {
         }
         let staged = try context.stagingURL(for: url, name: outputName(for: url, format: target.format))
         try await encode(
-            input, to: target, at: staged, tags: tags, frames: frames, gain: gain, progressStart: progressStart,
-            context: context)
+            input, to: target, at: staged, tags: tags, frames: frames, gain: gain, fade: fade,
+            progressStart: progressStart, context: context)
         return .replace(original: url, output: StagedFile(url: staged, name: staged.lastPathComponent, check: .audio))
     }
 
@@ -431,7 +438,7 @@ enum AudioJob {
 
     private static func encode(
         _ input: AudioInput, to target: AudioTarget, at staged: URL, tags: AudioTags, frames: Range<Int64>? = nil,
-        gain: Float = 1, progressStart: Double = 0, context: ItemContext
+        gain: Float = 1, fade: FadeRamp? = nil, progressStart: Double = 0, context: ItemContext
     ) async throws {
         try Task.checkCancellation()
         context.phase(.encoding)
@@ -456,6 +463,7 @@ enum AudioJob {
             }
             var samples = Array(chunk[Int(lower) * channels..<Int(upper) * channels])
             if gain != 1 { vDSP.multiply(gain, samples, result: &samples) }
+            fade?.apply(to: &samples, channels: channels, firstFrame: written, sampleRate: input.sampleRate)
             try await encoder.write(samples)
             written += upper - lower
             context.progress(fraction(written, of: total))

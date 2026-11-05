@@ -198,7 +198,8 @@ final class FrameProcessor {
         return transform.concatenating(CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
     }
 
-    func process(_ frame: CVPixelBuffer) throws -> CVPixelBuffer {
+    /// `fade` scales colour toward black.
+    func process(_ frame: CVPixelBuffer, fade: Double = 1) throws -> CVPixelBuffer {
         var image = CIImage(cvPixelBuffer: frame).cropped(to: sourceCrop).transformed(by: geometry).cropped(
             to: viewport
         )
@@ -215,6 +216,7 @@ final class FrameProcessor {
         }
         if let editorGeometry { image = editorGeometry.applying(to: image) }
         if let adjustments { image = adjustments.applying(to: image) }
+        if fade < 1 { image = image.fadedToBlack(fade) }
         image = image.transformed(by: scale)
         let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         if let background { image = image.composited(over: background) }

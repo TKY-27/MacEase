@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zoom gestures and keyboard controls, snapping and session Undo/Redo.
 - Progressive audio waveforms and app-hosted trim regression tests.
 - Typed `m:ss.sss` trim boundaries and a resizable dark audio trim window.
+- Fade in/out for audio trims and video editor segments, previewed and exported alike.
+- A waveform lane under video clips in the editor timeline.
+- Loop playback and J/K/L shuttle keys in the video editor and audio trim.
+- yt-dlp link dropping, a privacy-preserving clipboard link suggestion and result thumbnails.
 
 ### Changed
 

@@ -1,4 +1,5 @@
 import AVFoundation
+import Formats
 import Foundation
 
 public struct AudioWaveformSnapshot: Sendable {
@@ -6,6 +7,13 @@ public struct AudioWaveformSnapshot: Sendable {
     public let start: Double
     public let duration: Double
     public let sampleRate: Double
+
+    public init(peaks: [Float], start: Double, duration: Double, sampleRate: Double) {
+        self.peaks = peaks
+        self.start = start
+        self.duration = duration
+        self.sampleRate = sampleRate
+    }
 }
 
 public enum AudioWaveform {
@@ -24,6 +32,43 @@ public enum AudioWaveform {
         } onCancel: {
             task.cancel()
         }
+    }
+
+    /// `nil` for videos without audio.
+    public static func load(videoURL url: URL, bins: Int = 4_096) async throws -> AudioWaveformSnapshot? {
+        let task = Task.detached(priority: .utility) { try await readVideo(url: url, bins: bins) }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private static func readVideo(url: URL, bins: Int) async throws -> AudioWaveformSnapshot? {
+        let stamp = try MediaSourceStamp(url: url)
+        let input = try await MediaInput.open(url)
+        guard let track = input.audio else { return nil }
+        let duration = Double(input.duration) / Double(Nanoseconds.perSecond)
+        guard duration > 0, bins > 0, bins <= maximumBins else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        let source = try VideoPCMSource(input: input, track: track, start: 0, end: .max)
+        var peaks = [Float](repeating: 0, count: bins)
+        while let chunk = try await source.next() {
+            try Task.checkCancellation()
+            let origin = Double(chunk.timestamp) / Double(Nanoseconds.perSecond)
+            for frame in 0..<(chunk.samples.count / source.channels) {
+                let time = origin + Double(frame) / source.sampleRate
+                let index = min(bins - 1, max(0, Int(time / duration * Double(bins))))
+                for channel in 0..<source.channels {
+                    let amplitude = chunk.samples[frame * source.channels + channel]
+                    guard amplitude.isFinite else { throw EngineError.nonFiniteAudioSample }
+                    peaks[index] = max(peaks[index], abs(amplitude))
+                }
+            }
+        }
+        try stamp.validate(url)
+        return AudioWaveformSnapshot(peaks: peaks, start: 0, duration: duration, sampleRate: source.sampleRate)
     }
 
     private static func read(

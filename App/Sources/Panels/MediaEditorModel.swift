@@ -3,6 +3,7 @@ import CoreImage
 import Engine
 import Observation
 import SwiftUI
+import os
 
 enum EditorCategory: String, CaseIterable {
     case video, adjust, styles, crop
@@ -48,6 +49,14 @@ struct EditorValues: Equatable {
     var volume: Double {
         get { selectedIndex.map { segments[$0].volume } ?? 1 }
         set { if let selectedIndex { segments[selectedIndex].volume = newValue } }
+    }
+    var fadeIn: Double {
+        get { selectedIndex.map { segments[$0].fadeIn } ?? 0 }
+        set { if let selectedIndex { segments[selectedIndex].fadeIn = newValue } }
+    }
+    var fadeOut: Double {
+        get { selectedIndex.map { segments[$0].fadeOut } ?? 0 }
+        set { if let selectedIndex { segments[selectedIndex].fadeOut = newValue } }
     }
     var videoAdjustments: MediaAdjustments {
         get { selectedIndex.map { segments[$0].adjustments } ?? MediaAdjustments() }
@@ -99,6 +108,11 @@ final class MediaEditorModel {
     private var thumbnailOrder: [URL] = []
     var player: AVPlayer?
     var playing = false
+    var loops = false
+    private(set) var playbackRate: Float = 1
+    private var sourceWaveforms: [URL: AudioWaveformSnapshot] = [:]
+    private var waveformsUnavailable: Set<URL> = []
+    private var waveformTask: Task<Void, Never>?
     var playerReady = false
     var muted = false
     private var photoSource: PhotoEditorSource?
@@ -473,7 +487,9 @@ final class MediaEditorModel {
                     var right = segment
                     right.id = UUID()
                     right.start = boundary
+                    right.fadeIn = 0
                     $0.segments[index].end = boundary
+                    $0.segments[index].fadeOut = 0
                     $0.segments.insert(right, at: index + 1)
                     $0.selectedID = right.id
                 }
@@ -663,26 +679,61 @@ final class MediaEditorModel {
         playbackTask?.cancel()
         player?.pause()
         playing = false
+        playbackRate = 1
     }
 
     func toggleMute() {
         muted.toggle()
-        player?.isMuted = muted
+        player?.isMuted = muted || playing && abs(playbackRate) > Self.audibleShuttleRate
     }
 
     func play() {
-        guard canPlay, let player else { return }
         if playing { pause(); return }
+        start(rate: 1)
+    }
+
+    /// J/K/L; repeated presses double the rate.
+    func shuttle(_ direction: Int) {
+        guard direction != 0 else { pause(); return }
+        let continuing = playing && (playbackRate > 0) == (direction > 0)
+        let magnitude = continuing ? min(Self.maximumShuttleRate, abs(playbackRate) * 2) : 1
+        let playerItem = player?.currentItem
+        let fastest =
+            direction > 0
+            ? (playerItem?.canPlayFastForward == true ? Self.maximumShuttleRate : Self.audibleShuttleRate)
+            : (playerItem?.canPlayFastReverse == true ? Self.maximumShuttleRate : 1)
+        let rate = (direction > 0 ? 1 : -1) * min(magnitude, fastest)
+        if rate < 0, playerItem?.canPlayReverse != true {
+            stepFrame(-1)
+            return
+        }
+        start(rate: rate)
+    }
+
+    private static let maximumShuttleRate: Float = 8
+    private static let audibleShuttleRate: Float = 2
+
+    private func start(rate: Float) {
+        guard canPlay, let player else { return }
         hoverPosition = nil
-        player.isMuted = muted
-        requestSeek()
-        if position >= lastPlayablePosition { position = 0; requestSeek() }
+        player.isMuted = muted || abs(rate) > Self.audibleShuttleRate
+        if !playing { requestSeek() }
+        if rate > 0, position >= lastPlayablePosition { position = 0; requestSeek() }
+        if rate < 0, position <= 0 { return }
         playing = true
+        playbackRate = rate
+        playbackTask?.cancel()
         playbackTask = Task {
             await seekTask?.value
             guard !Task.isCancelled, !closed else { return }
-            player.playImmediately(atRate: 1)
+            player.playImmediately(atRate: rate)
         }
+    }
+
+    private func finishPlayback() {
+        let reverse = playbackRate < 0
+        pause()
+        if loops, !reverse { start(rate: 1) }
     }
 
     func refresh() {
@@ -732,6 +783,8 @@ final class MediaEditorModel {
             edit.segments = edit.segments?.map { segment in
                 var segment = segment
                 segment.adjustments = MediaAdjustments()
+                segment.fadeIn = 0
+                segment.fadeOut = 0
                 return segment
             }
         } else if category == .crop {
@@ -775,7 +828,7 @@ final class MediaEditorModel {
                     guard let self, let current = self.player?.currentItem, ObjectIdentifier(current) == identifier
                     else { return }
                     self.position = self.outputDuration
-                    self.pause()
+                    self.finishPlayback()
                 }
             }
             player?.replaceCurrentItem(with: playerItem)
@@ -786,6 +839,7 @@ final class MediaEditorModel {
         guard generation == revision, !closed else { return }
         preparingPlayback = false
         requestSeek()
+        loadWaveforms()
         await seekTask?.value
         if thumbnailTask == nil {
             let selectedSource = values.selectedIndex.map { values.segments[$0].sourceIndex } ?? 0
@@ -821,15 +875,62 @@ final class MediaEditorModel {
         }
     }
 
+    /// Segment peaks in timeline seconds.
+    func waveform(for segment: VideoSegment, in range: ClosedRange<Double>) -> AudioWaveformSnapshot? {
+        guard values.sources.indices.contains(segment.sourceIndex),
+            let source = sourceWaveforms[values.sources[segment.sourceIndex].url], source.duration > 0,
+            range.upperBound > range.lowerBound
+        else { return nil }
+        let count = Double(source.peaks.count)
+        let first = max(0, min(source.peaks.count - 1, Int(segment.start / source.duration * count)))
+        let last = max(first + 1, min(source.peaks.count, Int((segment.end / source.duration * count).rounded(.up))))
+        return AudioWaveformSnapshot(
+            peaks: Array(source.peaks[first..<last]), start: range.lowerBound,
+            duration: range.upperBound - range.lowerBound, sampleRate: source.sampleRate)
+    }
+
+    private func loadWaveforms() {
+        guard waveformTask == nil else { return }
+        let missing = values.sources.filter {
+            sourceWaveforms[$0.url] == nil && !waveformsUnavailable.contains($0.url)
+                && videoDetails[$0.url]?.hasAudio != false
+        }
+        guard !missing.isEmpty else { return }
+        waveformTask = Task {
+            defer { waveformTask = nil }
+            for source in missing {
+                do {
+                    let waveform = try await AudioWaveform.load(videoURL: source.url)
+                    try Task.checkCancellation()
+                    guard !closed else { return }
+                    if let waveform {
+                        sourceWaveforms[source.url] = waveform
+                    } else {
+                        waveformsUnavailable.insert(source.url)
+                    }
+                } catch is CancellationError { return } catch {
+                    waveformsUnavailable.insert(source.url)
+                    Logger(category: "editor").error(
+                        "Waveform unavailable: \(error.localizedDescription, privacy: .private)")
+                }
+            }
+        }
+    }
+
     func thumbnails(for segment: VideoSegment) -> [CGImage] {
         guard values.sources.indices.contains(segment.sourceIndex) else { return thumbnails }
         return sourceThumbnails[values.sources[segment.sourceIndex].url] ?? []
     }
 
     private func playbackAdvanced(_ time: CMTime) {
-        guard playing, player?.rate != 0, time.seconds.isFinite else { return }
-        position = min(time.seconds, outputDuration)
-        if position >= lastPlayablePosition { pause() }
+        guard playing, time.seconds.isFinite else { return }
+        guard player?.rate != 0 else {
+            if playbackRate < 0, time.seconds <= frameDuration { position = 0; pause() }
+            return
+        }
+        position = min(max(0, time.seconds), outputDuration)
+        if playbackRate > 0, position >= lastPlayablePosition { finishPlayback() }
+        if playbackRate < 0, position <= 0 { pause() }
     }
 
     func validateForSave() throws {
@@ -955,6 +1056,7 @@ final class MediaEditorModel {
         playbackTask?.cancel()
         splitTask?.cancel()
         thumbnailTask?.cancel()
+        waveformTask?.cancel()
         seekTask?.cancel()
         trimTask?.cancel()
         boundaryInputTask?.cancel()
@@ -971,6 +1073,7 @@ final class MediaEditorModel {
         await playbackTask?.value
         await splitTask?.value
         await thumbnailTask?.value
+        await waveformTask?.value
         await seekTask?.value
         await trimTask?.value
         await boundaryInputTask?.value
@@ -985,5 +1088,6 @@ final class MediaEditorModel {
         thumbnails.removeAll()
         sourceThumbnails.removeAll()
         thumbnailOrder.removeAll()
+        sourceWaveforms.removeAll()
     }
 }

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import ImageIO
 import MenuCatalog
 import Synchronization
 import Testing
@@ -47,6 +48,40 @@ import Testing
         let arguments = try String(contentsOf: fixture.root.appending(path: "arguments"), encoding: .utf8)
         #expect(arguments.contains("bestvideo[height=720]+bestaudio/best[height=720]"))
         #expect(arguments.contains("--abort-on-unavailable-fragments"))
+    }
+
+    @Test(arguments: [
+        ("https://i.example.com/thumb.jpg", true), ("http://i.example.com/thumb.jpg", false),
+        ("file:///etc/passwd", false), ("https://user:secret@i.example.com/t.jpg", false),
+    ])
+    func thumbnailsAcceptOnlyPlainHTTPS(thumbnail: String, accepted: Bool) async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.remove() }
+        let metadata = #"{"id":"t","title":"T","webpage_url":"https://example.com/video","thumbnail":"\#(thumbnail)"}"#
+        try Data(metadata.utf8).write(to: fixture.root.appending(path: "metadata"))
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let analysis = try await downloader.analyze(urls: [try #require(URL(string: "https://example.com/video"))])
+        let source = try #require(analysis.sources.first)
+        #expect((source.thumbnailURL?.absoluteString == thumbnail) == accepted)
+        #expect(accepted || source.thumbnailURL == nil)
+        await #expect(throws: EngineError.self) {
+            _ = try await MediaDownloader.thumbnail(at: try #require(URL(string: "http://127.0.0.1/thumb.jpg")))
+        }
+    }
+
+    @Test func thumbnailDecodingBoundsPixelsAndRejectsGarbage() throws {
+        let image = try #require(
+            CGContext(
+                data: nil, width: 1_280, height: 720, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?
+                .makeImage())
+        let encoded = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let thumbnail = try MediaDownloader.thumbnailImage(from: encoded as Data)
+        #expect(max(thumbnail.width, thumbnail.height) == 320)
+        #expect(throws: EngineError.self) { try MediaDownloader.thumbnailImage(from: Data("not an image".utf8)) }
     }
 
     @Test func analyzesSubprocessMetadataAndSanitizesFailure() async throws {

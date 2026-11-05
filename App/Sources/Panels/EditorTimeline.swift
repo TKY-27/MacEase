@@ -32,7 +32,20 @@ struct EditorTransportBar: View {
                 .help("Next Frame (→)")
             }
             .disabled(!model.canPlay)
-            HStack {
+            HStack(spacing: 14) {
+                if model.playing, model.playbackRate != 1 {
+                    Text(Self.rateText(model.playbackRate))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                        .accessibilityLabel(Text("Playback Rate"))
+                        .accessibilityValue(Self.spokenRate(model.playbackRate))
+                }
+                Toggle(isOn: $model.loops) {
+                    Label("Loop Playback", systemImage: "repeat")
+                }
+                .toggleStyle(.button)
+                .help("Loop Playback")
                 Button {
                     model.toggleMute()
                 } label: {
@@ -48,6 +61,15 @@ struct EditorTransportBar: View {
         .font(.body)
         .padding(.horizontal, 16)
         .frame(height: 44)
+    }
+
+    static func rateText(_ rate: Float) -> String {
+        (rate < 0 ? "◀︎ " : "") + abs(Double(rate)).formatted(.number.precision(.fractionLength(0...1))) + "×"
+    }
+
+    static func spokenRate(_ rate: Float) -> Text {
+        let speed = abs(Double(rate)).formatted(.number.precision(.fractionLength(0...1)))
+        return rate < 0 ? Text("Reverse \(speed)×") : Text("\(speed)×")
     }
 }
 
@@ -152,10 +174,13 @@ struct EditorTimeline: View {
             let name =
                 model.values.sources.indices.contains(segment.sourceIndex)
                 ? model.values.sources[segment.sourceIndex].url.lastPathComponent : model.url.lastPathComponent
+            let fade = FadeRamp(
+                duration: range.upperBound - range.lowerBound, fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
             return TimelineClip(
                 id: segment.id, range: range,
                 selection: model.values.selectedID == segment.id ? range : nil,
-                label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment))
+                label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment),
+                waveform: model.waveform(for: segment, in: range), fadeIn: fade.fadeIn, fadeOut: fade.fadeOut)
         }
     }
 

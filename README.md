@@ -154,6 +154,10 @@ sets the white playhead. Trim ends snap within eight screen points of the playhe
 and segment boundaries; hold Option to disable snapping. Press **I** or **O**, or use
 the segment menu (video) or the buttons beside Start and End (audio), to place a
 boundary at the playhead. Audio trim times can be typed as `1:05.250` or seconds.
+Choose **Fade In** and **Fade Out** for an audio trim or a video segment; video clips
+show their soundtrack as a waveform under the thumbnails. Toggle loop playback in the
+transport bar, and use **J**, **K** and **L** to play backward, pause and play forward
+(press again for 2×, 4× or 8×).
 One drag is one Undo operation.
 
 **Extract Original Audio** ignores bitrate settings and copies compatible audio
@@ -289,7 +293,9 @@ Right-click an empty area in a Finder folder, or one selected folder, and choose
 **yt-dlp…**. The folder becomes the destination. Paste one or more public HTTP(S)
 URLs, one per line, and press Return or **Analyze** to inspect titles, durations and
 sizes. Choose **Video** or **Audio Only**, then a format, and press Return again or
-**Download**.
+**Download**. You can also drop links from a browser onto the window. When the
+clipboard holds a link, **Paste Link from Clipboard** appears; macOS only reports
+that a link exists until you click it. Results show each video's thumbnail.
 Playlist entries start unselected; choose the entries you want before downloading.
 
 Best-quality video in its original format is the default. Choose MP4, MKV or WebM,

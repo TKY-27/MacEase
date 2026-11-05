@@ -63,6 +63,37 @@ import Testing
         edit.segments?.removeLast()
         #expect(!edit.changesColor)
     }
+    @Test func fadesFollowOutputTimeAndShrinkOnlyWhenTheyOverlap() throws {
+        var segment = VideoSegment(start: 0, end: 2, speed: 2)
+        segment.fadeIn = 0.75
+        segment.fadeOut = 0.25
+        var edit = VideoEdit(start: 0, end: 2)
+        edit.segments = [segment, VideoSegment(start: 0, end: 1)]
+        let timeline = try VideoTimeline(edit: edit, sourceDuration: 2)
+        #expect(timeline.hasFades)
+        #expect(timeline.fade(at: 0).fadeIn == 0.75 && timeline.fade(at: 0).fadeOut == 0.25)
+        #expect(timeline.fadeGain(at: 0) == 0)
+        #expect(timeline.fadeGain(at: 0.375) == 0.5)
+        #expect(timeline.fadeGain(at: 0.875) == 0.5)
+        #expect(timeline.fadeGain(at: 1.5) == 1)
+        let overlapping = FadeRamp(duration: 1, fadeIn: 3, fadeOut: 1)
+        #expect(overlapping.fadeIn == 0.75 && overlapping.fadeOut == 0.25)
+        edit.segments?[0].fadeIn = FadeRamp.maximumSeconds + 1
+        #expect(throws: EngineError.self) { try VideoTimeline(edit: edit, sourceDuration: 2) }
+        edit.segments?[0].fadeIn = -.infinity
+        #expect(throws: EngineError.self) { try VideoTimeline(edit: edit, sourceDuration: 2) }
+    }
+
+    @Test func segmentsWithoutFadesDecodeFromOlderRecords() throws {
+        var record = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(VideoSegment(start: 0, end: 1)))
+                as? [String: Any])
+        record.removeValue(forKey: "fadeIn")
+        record.removeValue(forKey: "fadeOut")
+        let segment = try JSONDecoder().decode(VideoSegment.self, from: JSONSerialization.data(withJSONObject: record))
+        #expect(segment.fadeIn == 0 && segment.fadeOut == 0)
+    }
+
     @Test func legacySegmentRecordsUseInitialSource() throws {
         let encoded = Data(
             #"{"id":"F776754A-28B9-45D4-9001-6659A97C6786","start":1,"end":2,"speed":1,"volume":1,"adjustments":{"style":"original","styleIntensity":1,"values":{}}}"#

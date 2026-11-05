@@ -15,7 +15,7 @@ public enum AudioOperation: Codable, Hashable, Sendable {
     /// Target integrated loudness in LUFS.
     case normalize(targetLoudness: Double)
     /// Seconds from the start; `end` is exclusive.
-    case trim(start: Double, end: Double)
+    case trim(start: Double, end: Double, fadeIn: Double = 0, fadeOut: Double = 0)
 }
 
 enum AudioPlanner {
