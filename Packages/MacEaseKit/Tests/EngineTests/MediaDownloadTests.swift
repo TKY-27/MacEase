@@ -189,6 +189,27 @@ import Testing
         #expect(!arguments.contains("--no-playlist"))
     }
 
+    @Test func escapesFilterDelimitersInMediaIdentity() async throws {
+        let fixture = try DownloadFixture(root: TestVolume.makeFolder())
+        defer { fixture.remove() }
+        let metadata = #"{"id":"a&b","title":"Fixture","webpage_url":"https://example.com/video"}"#
+        try Data(metadata.utf8).write(to: fixture.root.appending(path: "metadata"))
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let page = try #require(URL(string: "https://example.com/video"))
+        let analysis = try await downloader.analyze(urls: [page])
+        let source = try #require(analysis.sources.first)
+        let request = MediaDownloadRequest(
+            destination: fixture.destination, selections: [MediaDownloadSelection(source: source)])
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
+        guard case .succeeded = outcome.outcomes.first else {
+            Issue.record("Punctuation identity download failed: \(outcome.outcomes)")
+            return
+        }
+        let arguments = try String(contentsOf: fixture.root.appending(path: "arguments"), encoding: .utf8)
+        #expect(arguments.contains("!is_live & id ~= '^a\\x26b$'"))
+    }
+
     @Test func retriesOnlyFailuresAndResolvesMetadataAgain() async throws {
         let fixture = try DownloadFixture()
         defer { fixture.remove() }

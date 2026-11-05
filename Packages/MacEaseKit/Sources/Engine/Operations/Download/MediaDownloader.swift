@@ -125,6 +125,7 @@ public struct MediaDownloader: Sendable {
         let identifier = String(source.id.dropFirst(source.webpageURL.absoluteString.count + 1))
         let escapedID = NSRegularExpression.escapedPattern(for: identifier)
             .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "&", with: "\\x26")
         var arguments =
             source.playlistIndex.map { ["--yes-playlist", "--playlist-items", String($0)] } ?? ["--no-playlist"]
         arguments += [
