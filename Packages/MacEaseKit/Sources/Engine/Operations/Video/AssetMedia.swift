@@ -37,8 +37,10 @@ enum AssetTracks {
         guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee else {
             throw EngineError.decodeFailed("audio track without a stream description")
         }
+        // HE-AAC descriptions report the core rate.
+        let decoded = CMAudioFormatDescriptionGetRichestDecodableFormat(format)?.pointee.mASBD ?? basic
         var described = MediaTrack(
-            number: number, kind: .audio(sampleRate: basic.mSampleRate, channels: Int(basic.mChannelsPerFrame)),
+            number: number, kind: .audio(sampleRate: decoded.mSampleRate, channels: Int(decoded.mChannelsPerFrame)),
             codec: audioCodec(basic))
         if described.codec == .aac {
             var size = 0

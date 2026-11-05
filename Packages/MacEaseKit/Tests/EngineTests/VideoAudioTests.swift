@@ -9,10 +9,9 @@ import UniformTypeIdentifiers
 @testable import Formats
 
 @Suite(.serialized) struct VideoAudioTests {
-    private func fixture() throws -> URL {
-        let source = try #require(
-            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
-        let copy = try TestVolume.makeFolder().appending(path: "ffmpeg-h264-aac.mp4")
+    private func fixture(_ name: String = "ffmpeg-h264-aac.mp4") throws -> URL {
+        let source = try #require(Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Resources"))
+        let copy = try TestVolume.makeFolder().appending(path: name)
         try FileManager.default.copyItem(at: source, to: copy)
         return copy
     }
@@ -312,6 +311,46 @@ import UniformTypeIdentifiers
         let maximumDifference = zip(waveAudio.samples, sourceAudio.samples).map { abs($0 - $1) }.max() ?? .infinity
         let pcmTolerance: Float = 1.0 / 32_768
         #expect(maximumDifference <= pcmTolerance)
+        #expect(try Data(contentsOf: source) == originalBytes)
+    }
+
+    @Test(arguments: ["wav", "flac", "mp3", "m4a-aac"], ["ffmpeg-h264-heaac.mp4", "ffmpeg-h264-heaac-v2.mp4"])
+    func extractionDecodesHEAACAtItsOutputRate(preset: String, name: String) async throws {
+        let source = try fixture(name)
+        let originalBytes = try Data(contentsOf: source)
+        let sourceAudio = try AudioSignals.decode(source)
+        let outputRate = 44_100.0
+        let channels = 2
+        #expect(sourceAudio.input.sampleRate == outputRate)
+        let extracted = try AudioSignals.decode(try await run(.videoExtractAudio, preset: preset, on: source))
+        #expect(extracted.input.sampleRate == outputRate)
+        #expect(extracted.input.channels == channels)
+        if preset == "wav" || preset == "flac" {
+            #expect(extracted.samples.count == sourceAudio.samples.count)
+            let difference = zip(extracted.samples, sourceAudio.samples).map { abs($0 - $1) }.max() ?? .infinity
+            let pcmTolerance: Float = 1.0 / 32_768
+            #expect(difference <= pcmTolerance)
+        } else {
+            let mp3FrameSamples = 1_152 * channels
+            #expect(abs(extracted.samples.count - sourceAudio.samples.count) <= mp3FrameSamples)
+        }
+        let minimumCorrelation = 0.95
+        let levelToleranceDecibels = 1.0
+        for channel in 0..<channels {
+            let reference = stride(from: channel, to: sourceAudio.samples.count, by: channels).map {
+                Double(sourceAudio.samples[$0])
+            }
+            let decoded = stride(from: channel, to: extracted.samples.count, by: channels).map {
+                Double(extracted.samples[$0])
+            }
+            let referenceEnergy = reference.reduce(0) { $0 + $1 * $1 }
+            let decodedEnergy = decoded.reduce(0) { $0 + $1 * $1 }
+            let dot = zip(reference, decoded).reduce(0) { $0 + $1.0 * $1.1 }
+            #expect(dot / (referenceEnergy * decodedEnergy).squareRoot() >= minimumCorrelation, "channel \(channel)")
+            let levelChange =
+                10 * log10(decodedEnergy / Double(decoded.count) / (referenceEnergy / Double(reference.count)))
+            #expect(abs(levelChange) <= levelToleranceDecibels, "channel \(channel) level \(levelChange) dB")
+        }
         #expect(try Data(contentsOf: source) == originalBytes)
     }
 

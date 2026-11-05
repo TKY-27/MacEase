@@ -830,3 +830,27 @@ corrupt input or inventing unavailable source resolutions.
 yt-dlp normally skips unavailable HLS fragments. A local HTTP fixture with a
 missing middle fragment confirms that `--abort-on-unavailable-fragments` is
 needed to reject an incomplete download before commit.
+
+## HE-AAC track descriptions (2026-11-05)
+
+A TikTok MP4 with HE-AAC audio reports `aac ` at 22,050 Hz in its
+`CMAudioFormatDescription`, while `AVAssetReaderTrackOutput` with unspecified
+PCM rate returns 44,100 Hz buffers. An HE-AAC M4A copy behaves the same even
+though its media timescale is 22,050, so the timescale is not a reliable hint.
+`CMAudioFormatDescriptionGetRichestDecodableFormat` and
+`kAudioFormatProperty_FormatList` both return the `aach` 44,100 Hz layer first;
+AAC-LC files return their declared layer unchanged. `AVAudioFile` already reports
+the HE-AAC layer for audio files. Before the fix, extraction to WAV, FLAC and MP3
+kept 95,570 of 176,400 interleaved samples from a 2-second fixture, and the
+owner's 21.8-second file produced an 11.8-second MP3.
+
+AudioToolbox decodes the corrected LAME MP3 of that file with one extra
+1,152-sample tail frame, while FFmpeg honours the gapless header exactly
+(957,440 frames, zero lag). The header fields are consistent: 833 frames ×
+1,152 − 576 delay − 1,600 padding. The extra frame depends on length, not
+content: across 360 CBR lengths (128/192/320 kbps, 44.1/48 kHz, 19–70 s),
+341 decode exactly, 7 gain 1,152 samples and 12 show the 36–37 sample padding
+case corrected above. AudioToolbox reads long CBR packet counts from the Xing
+byte field when the encoder tag names LAME; without that name it ignores mono
+gapless data. Subtracting the tag frame from the byte field truncates 177 of the
+360 lengths by 1,152 samples, so that correction is rejected.

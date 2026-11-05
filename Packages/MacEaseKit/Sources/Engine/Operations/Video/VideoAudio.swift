@@ -136,6 +136,9 @@ final class VideoPCMSource {
                 guard let block = CMSampleBufferGetDataBuffer(sample) else {
                     throw EngineError.decodeFailed("PCM sample has no data")
                 }
+                guard let format = sample.formatDescription?.audioStreamBasicDescription,
+                    format.mSampleRate == sampleRate, Int(format.mChannelsPerFrame) == channels
+                else { throw EngineError.decodeFailed("decoded audio format differs from the track") }
                 let bytes = CMBlockBufferGetDataLength(block)
                 guard bytes.isMultiple(of: MemoryLayout<Float>.size) else {
                     throw EngineError.decodeFailed("invalid PCM sample length")

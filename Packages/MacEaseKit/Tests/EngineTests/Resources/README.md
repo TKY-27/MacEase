@@ -31,3 +31,19 @@ payload hash and audio priming metadata.
 This models the invalid type-0 tail observed in a public TikTok download.
 
 SHA-256: `a0a7d920fa80c8b091397fef9f479749a2f8d4525f68101f2e07ad19f4bb5d3a`.
+
+## HE-AAC fixture
+
+`ffmpeg-h264-heaac.mp4` keeps the video of `ffmpeg-h264-aac.mp4` and replaces its
+audio with a 2-second HE-AAC stereo track: 440 Hz left, 660 Hz right, 44.1 kHz.
+Its track description reports the 22.05 kHz core rate, reproducing TikTok
+downloads. Generated with FFmpeg 9 and AudioToolbox:
+
+```sh
+ffmpeg -f lavfi -i "sine=frequency=440:sample_rate=44100:duration=2" -f lavfi -i "sine=frequency=660:sample_rate=44100:duration=2" -filter_complex "[0][1]amerge=inputs=2,volume=0.5[a]" -map "[a]" -c:a pcm_s16le tone.wav
+afconvert -f m4af -d aach -b 48000 tone.wav heaac.m4a
+ffmpeg -i ffmpeg-h264-aac.mp4 -i heaac.m4a -map 0:v -map 1:a -c copy -movflags +faststart ffmpeg-h264-heaac.mp4
+```
+
+`ffmpeg-h264-heaac-v2.mp4` muxes the same tone as HE-AAC v2 (`afconvert -d aacp -b 32000`).
+Its description reports 22.05 kHz mono; parametric stereo decodes to 44.1 kHz stereo.
