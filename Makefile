@@ -6,16 +6,21 @@ SOURCES := App FinderSync Packages
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'platform=macOS,arch=arm64' \
 	-derivedDataPath $(DERIVED_DATA)
 
-.PHONY: bootstrap deps project build test test-device lint format dmg
+.PHONY: bootstrap deps media-tools project build test test-device lint format dmg
 
 bootstrap:
 	brew list xcodegen cmake meson ninja pkg-config >/dev/null 2>&1 || brew install xcodegen cmake meson ninja pkg-config
 	command -v cargo >/dev/null 2>&1 || brew install rust
+	scripts/build-media-tools.sh
 	scripts/build-deps.sh
 	xcodegen generate
 
 deps:
+	scripts/build-media-tools.sh
 	scripts/build-deps.sh
+
+media-tools:
+	scripts/build-media-tools.sh
 
 project:
 	xcodegen generate

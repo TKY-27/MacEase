@@ -1,0 +1,13 @@
+# name version license sha256 url license-files
+cpython 3.14.10 PSF-2.0 de414a57119abef52784d8993e341d53aed635fc2b05c2607d9f98a2c5b72032 https://www.python.org/ftp/python/3.14.10/Python-3.14.10.tar.xz LICENSE,Doc/license.rst,Modules/expat/COPYING
+openssl 3.5.9 Apache-2.0 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz LICENSE.txt
+ffmpeg 9.0.2 LGPL-2.1-or-later 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz COPYING.LGPLv2.1,LICENSE.md
+lame 3.100 LGPL-2.0-or-later ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz COPYING
+libvpx 1.17.0 BSD-3-Clause 1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a https://github.com/webmproject/libvpx/archive/refs/tags/v1.17.0.tar.gz LICENSE,PATENTS
+opus 1.6.1 BSD-3-Clause 6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1 https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz COPYING
+yt-dlp 2026.10.26 Unlicense abe5c6b94c3b2f0560500add1c42e0a97641752743a5b65588ac2007a6e23eb6 https://files.pythonhosted.org/packages/83/31/4be3987022a6244550ab6a3afe45ad10ac10b5e5ab8874bd8eecc7f8b937/yt_dlp-2026.10.26.tar.gz LICENSE
+ejs 0.8.0 Unlicense+MIT+ISC d5fa1639f63b5c4af8d932495f60689d5370f1a095782c944f7f62a303eb104e https://files.pythonhosted.org/packages/d3/e6/cceb9530e8f4e5940f6f7822d90e9d94f1b85343329a16baaf47bbbb3de1/yt_dlp_ejs-0.8.0.tar.gz LICENSE
+ejs-wheel 0.8.0 Unlicense+MIT+ISC 79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4 https://files.pythonhosted.org/packages/e3/bd/520769863744b669440a924271a6159ddd82ad5ae26b4ac4d4b69e9f8d44/yt_dlp_ejs-0.8.0-py3-none-any.whl -
+dav1d 1.5.4 BSD-2-Clause 686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5 https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz COPYING
+node 26.13.0 MIT-with-third-party-notices 6f5b3187d9df9fc007e881167905bc7d69ad26450ddc377c83d63256a2495b6e https://nodejs.org/dist/v26.13.0/node-v26.13.0-darwin-arm64.tar.xz LICENSE
+node-source 26.13.0 MIT-with-third-party-notices 263f639ecfa7a17b49438d76cdbf9aff73179e3c7cb789da69b900718427fa2e https://nodejs.org/dist/v26.13.0/node-v26.13.0.tar.xz -

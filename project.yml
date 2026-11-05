@@ -52,6 +52,9 @@ targets:
           - Info.plist
       - path: Vendor/build/macease-hatchzip
         buildPhase: resources
+      - path: Vendor/build/media-tools
+        type: folder
+        buildPhase: resources
       - path: Vendor/build/cfr.jar
         buildPhase: resources
       - path: Vendor/build/THIRD_PARTY_NOTICES.txt

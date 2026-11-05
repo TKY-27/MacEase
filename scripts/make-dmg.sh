@@ -27,6 +27,7 @@ else
 fi
 
 cd "$root"
+scripts/build-media-tools.sh
 scripts/generate-notices.sh
 xcodegen generate
 rm -rf "$archive"
@@ -35,6 +36,12 @@ xcodebuild -project "$app_name.xcodeproj" -scheme "$app_name" -destination 'gene
 
 app="$archive/Products/Applications/$app_name.app"
 appex="$app/Contents/PlugIns/MacEaseFinderSync.appex"
+
+while IFS= read -r -d '' executable; do
+    if file -b "$executable" | grep -q 'Mach-O'; then
+        codesign "${sign_args[@]}" "$executable"
+    fi
+done < <(find "$app/Contents/Resources/media-tools" -type f \( -perm -111 -o -name '*.so' -o -name '*.dylib' \) -print0)
 
 # Preserve Xcode's expanded entitlements.
 codesign "${sign_args[@]}" "$app/Contents/Resources/macease-hatchzip"
@@ -61,4 +68,7 @@ hdiutil create -volname "$app_name" -srcfolder "$staging" -format ULMO -ov "$dis
 codesign "${sign_args[@]}" "$dist/$dmg_name"
 codesign --verify --strict --verbose=2 "$dist/$dmg_name"
 (cd "$dist" && shasum -a 256 "$dmg_name" >"$dmg_name.sha256")
+source_name="$app_name-$version-media-tools-sources.tar.xz"
+cp "$root/Vendor/build/media-tools-sources.tar.xz" "$dist/$source_name"
+(cd "$dist" && shasum -a 256 "$source_name" >"$source_name.sha256")
 echo "Wrote $dist/$dmg_name"

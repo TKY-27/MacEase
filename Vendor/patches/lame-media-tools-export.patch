@@ -1,0 +1,6 @@
+--- a/include/libmp3lame.sym
++++ b/include/libmp3lame.sym
+@@ -1,3 +1,2 @@
+ lame_init
+-lame_init_old
+ lame_set_num_samples

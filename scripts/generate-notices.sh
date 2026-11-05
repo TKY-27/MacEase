@@ -7,6 +7,7 @@ licenses="$root/Vendor/build/licenses"
 output="${1:-$root/Vendor/build/THIRD_PARTY_NOTICES.txt}"
 resolved="$root/Packages/MacEaseKit/Package.resolved"
 package_licenses="$root/Vendor/licenses"
+media_notices="$root/Vendor/build/media-tools/THIRD_PARTY_NOTICES.txt"
 
 # Carrier pins prevent stale bundled notices.
 swift_packages=(
@@ -36,6 +37,11 @@ foundation_notice="$package_licenses/swift-corelibs-foundation/LICENSE"
 }
 [[ "$(shasum -a 256 "$foundation_notice" | cut -d' ' -f1)" == "$foundation_hash" ]] || {
     echo "error: swift-corelibs-foundation license SHA-256 mismatch" >&2
+    exit 1
+}
+
+[[ ! -d "$root/Vendor/build/media-tools" || -f "$media_notices" ]] || {
+    echo "error: run scripts/build-media-tools.sh first" >&2
     exit 1
 }
 
@@ -80,6 +86,7 @@ notice() {
 
 {
     echo "MacEase includes the following third-party software."
+    if [[ -f "$media_notices" ]]; then cat "$media_notices"; fi
     cat "$root/Vendor/build/hatchzip-third-party.txt"
     echo
     while read -r name version license _ url files; do
