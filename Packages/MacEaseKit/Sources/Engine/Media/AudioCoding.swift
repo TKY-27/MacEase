@@ -405,7 +405,7 @@ public final class AudioPacketDecoder {
     private let output: AVAudioFormat
     public let sampleRate: Double
     public let channels: Int
-    /// Opus codec delay left to drop.
+    /// Codec delay left to drop.
     private var leadingFrames: Int
 
     public init(track: MediaTrack) throws {
@@ -414,7 +414,11 @@ public final class AudioPacketDecoder {
         }
         self.sampleRate = track.codec == .opus ? Double(OpusAudioEncoder.sampleRate) : sampleRate
         self.channels = channels
-        leadingFrames = 0
+        let delay = Double(track.codecDelay) * self.sampleRate / Double(Nanoseconds.perSecond)
+        guard let delayFrames = Int(exactly: delay.rounded()) else {
+            throw EngineError.decodeFailed("audio frame count out of range")
+        }
+        leadingFrames = delayFrames
         do {
             output = try PCMFormat.make(sampleRate: self.sampleRate, channels: channels)
             switch track.codec {
@@ -425,9 +429,6 @@ public final class AudioPacketDecoder {
                         String(localized: "Audio channel count out of range", comment: "Rejects unsafe audio metadata"))
                 }
                 backend = .opus(try OpusAudioDecoder(channels: channels), gain: head.gain)
-                leadingFrames = Int(
-                    try Nanoseconds.scale(
-                        track.codecDelay, by: Int64(OpusAudioEncoder.sampleRate), over: Nanoseconds.perSecond))
             case .vorbis:
                 let headers = try VorbisAudioDecoder.headers(codecPrivate: track.codecPrivate ?? Data())
                 backend = .vorbis(try VorbisAudioDecoder(headers: headers))

@@ -79,7 +79,7 @@ final class VideoPCMSource {
         try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
         self.start = start
         self.end = end
-        codecDelay = track.codec == .opus ? track.codecDelay : 0
+        codecDelay = track.codecDelay
         switch input.backend {
         case .asset(let asset, _, let audio):
             guard let audio else { throw EngineError.decodeFailed("missing audio track") }

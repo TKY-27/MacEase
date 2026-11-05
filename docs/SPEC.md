@@ -1121,7 +1121,8 @@ lace durations distribute that trim from the corresponding end. Unresolved
 laces retain group padding through remuxing; decoding applies it to the whole
 decoded group with a 250 MB buffer limit. PCM copies and re-encodes retain the
 same valid sample range and presentation timing.
-AVI/FLV and raw elementary audio copies refuse padding. Ogg copies support
+AVI/FLV and raw elementary audio copies refuse padding, except trailing padding
+of CodecDelay audio, which section 13 leaves unsignalled. Ogg copies support
 only positive padding on the final packet; native packet copies refuse
 negative padding.
 Other padded copies use the existing unsupported-codec error during packet
@@ -1189,7 +1190,10 @@ and rejects a new logical stream after EOS before writing any output. The
 original is kept (ADR 0010).
 
 Opus decoding in Ogg, Matroska and WebM applies the OpusHead output gain.
-Matroska and WebM use CodecDelay alone for pre-skip.
+Matroska and WebM use CodecDelay alone for pre-skip. Decoding other Matroska and
+WebM audio also drops CodecDelay at the stream start (ADR 0056). Matroska
+HE-AAC currently decodes at its SamplingFrequency core rate, and HE-AAC v2
+from Matroska fails to decode.
 
 Audio transforms preserve the source speaker layout whenever the output
 encoder can represent it. Unsupported layouts fail before writing instead of
@@ -1955,11 +1959,18 @@ check.
 - Native audio packet copies into MP4, MOV, M4V, and native audio extraction
   preserve source priming, end padding, and edited presentation times through
   edit lists and trim attachments. Matroska and WebM retain Opus CodecDelay and
-  SeekPreRoll. Other copied audio in Matroska, WebM, AVI, and FLV uses whole
+  SeekPreRoll. Other native audio copied into Matroska or WebM keeps its
+  priming packets: the leading trim becomes CodecDelay and trailing trim becomes
+  DiscardPadding. Later leading trims keep whole packets as below. AAC tracks
+  store the AudioSpecificConfig core rate as SamplingFrequency and a
+  differing SBR rate as OutputSamplingFrequency. Copied audio in AVI and FLV, and
+  Matroska CodecDelay audio copied into AVI, FLV or extracted audio, uses whole
   packets on the edited presentation timeline, starting at or after the trim
-  origin without negative timestamps. Its start may differ by up to one audio
-  frame. Rate-changing audio edits fail with an unsupported-timing error before
-  their packets are appended (ADRs 0023 and 0024).
+  origin without negative timestamps or trailing padding. Its start may differ
+  by up to one audio frame. Native copies of Matroska CodecDelay audio keep every
+  packet and currently play the priming, because AVAssetWriter ignores trims on
+  container packets. Rate-changing audio edits fail with an unsupported-timing
+  error before their packets are appended (ADRs 0023, 0024 and 0056).
 - AVI indexes reject duplicate or overlapping OpenDML chunk references.
   Index reads are capped at the smaller of the file size and 128 MiB;
   records are capped at the smaller of the file size divided by the index
@@ -2552,6 +2563,10 @@ website, bump the installed release version, or claim release verification.
 Preserve the existing signing identity and disabled Actions.
 
 ## Changelog
+
+- 2026-11-05: Copy native AAC and other non-Opus audio into Matroska with
+  CodecDelay, DiscardPadding and the AAC core/SBR rates, and apply CodecDelay
+  when decoding Matroska audio (ADR 0056).
 
 - 2026-11-05: Add segment and audio-trim fades, video waveform lanes, loop and
   J/K/L shuttle playback, and yt-dlp link dropping, clipboard suggestions and

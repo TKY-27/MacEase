@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Choppy, half-length audio when extracting, converting or editing videos with
   HE-AAC audio, such as TikTok downloads; decoding now uses the real output rate.
+- Shortened or misaligned audio after converting MP4 with AAC to MKV by copy;
+  MKV now keeps the encoder priming and end padding, like FFmpeg's remux.
 - Swift exclusive-access crashes while changing video trim boundaries.
 - Silent loss of unsupported audio tags during replacement; refuse replacement
   or disclose the loss when retaining the original with New File.

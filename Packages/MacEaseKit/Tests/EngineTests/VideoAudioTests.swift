@@ -75,6 +75,32 @@ import UniformTypeIdentifiers
         return payloads
     }
 
+    private func resource(_ name: String) throws -> URL {
+        try #require(Bundle.module.url(forResource: name, withExtension: nil, subdirectory: "Resources"))
+    }
+
+    /// Independent reference decoder.
+    private func ffmpegAudio(_ url: URL) async throws -> [Float] {
+        let directory = try #require(ProcessInfo.processInfo.environment["MACEASE_MEDIA_TOOLS"])
+        let tools = try MediaDownloadTools(directory: URL(filePath: directory))
+        let decoded = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: ["-nostdin", "-v", "error", "-i", url.path, "-map", "0:a:0", "-f", "f32le", "pipe:1"],
+            directory: FileManager.default.temporaryDirectory, tools: tools
+        ).stdout
+        var samples = [Float](repeating: 0, count: decoded.count / MemoryLayout<Float>.size)
+        _ = samples.withUnsafeMutableBytes { decoded.copyBytes(to: $0) }
+        return samples
+    }
+
+    private func decodedPCM(_ url: URL) async throws -> (sampleRate: Double, samples: [Float]) {
+        let input = try await MediaInput.open(url)
+        let source = try VideoPCMSource(input: input, track: try #require(input.audio), start: 0, end: .max)
+        var samples: [Float] = []
+        while let chunk = try await source.next() { samples += chunk.samples }
+        return (source.sampleRate, samples)
+    }
+
     private func oggPackets(_ url: URL, headers: Int) throws -> [Data] {
         let reader = try OggPacketReader(url: url)
         var payloads: [Data] = []
@@ -359,6 +385,60 @@ import UniformTypeIdentifiers
         let summary = try #require(try await AudioWaveform.load(videoURL: webm, bins: 8))
         #expect(abs(summary.duration - 2) < 0.1)
         #expect(summary.peaks.allSatisfy { $0 > 0.05 })
+    }
+
+    @Test(arguments: ["ffmpeg-h264-aac.mp4", "ffmpeg-h264-heaac.mp4", "ffmpeg-h264-heaac-v2.mp4"])
+    func matroskaConversionKeepsAACPrimingAndPadding(name: String) async throws {
+        let source = try resource(name)
+        let output = try await run(.videoConvert, preset: "mkv", on: try fixture(name))
+        #expect(try containerPackets(output) == (try await assetPackets(source)))
+        let recopied = output.deletingLastPathComponent().appending(path: "recopied.mkv")
+        try await Transcoder.run(
+            try await MediaInput.open(output), plan: TranscodePlan(container: .mkv, video: .copy, audio: .copy),
+            to: recopied
+        ) { _ in }
+        let expected = try await ffmpegAudio(source)
+        #expect(!expected.isEmpty)
+        for matroska in [output, recopied] {
+            let converted = try await ffmpegAudio(matroska)
+            #expect(converted.count == expected.count, "\(matroska.lastPathComponent)")
+            let difference = zip(converted, expected).map { abs($0 - $1) }.max() ?? .infinity
+            #expect(difference == 0, "\(matroska.lastPathComponent)")
+        }
+    }
+
+    @Test func matroskaAACDecodesLikeItsSource() async throws {
+        let output = try await run(.videoConvert, preset: "mkv", on: try fixture())
+        let expected = try await decodedPCM(try resource("ffmpeg-h264-aac.mp4"))
+        let decoded = try await decodedPCM(output)
+        #expect(decoded.sampleRate == expected.sampleRate)
+        #expect(decoded.samples.count == expected.samples.count)
+        let difference = zip(decoded.samples, expected.samples).map { abs($0 - $1) }.max() ?? .infinity
+        let roundingTolerance: Float = 1e-6
+        #expect(difference <= roundingTolerance)
+    }
+
+    @Test func heAACMatroskaDecodesForItsSourceDuration() async throws {
+        let name = "ffmpeg-h264-heaac.mp4"
+        let output = try await run(.videoConvert, preset: "mkv", on: try fixture(name))
+        let expected = try await decodedPCM(try resource(name))
+        let decoded = try await decodedPCM(output)
+        let expectedSeconds = Double(expected.samples.count) / expected.sampleRate
+        #expect(Double(decoded.samples.count) / decoded.sampleRate == expectedSeconds)
+    }
+
+    @Test func matroskaAACCopiesToFLVOnTheSourceTimeline() async throws {
+        let matroska = try await run(.videoConvert, preset: "mkv", on: try fixture())
+        let output = try await run(.videoConvert, preset: "flv", on: matroska)
+        let expected = try await ffmpegAudio(try resource("ffmpeg-h264-aac.mp4"))
+        let converted = try await ffmpegAudio(output)
+        let frameSamples = 2 * 1_024
+        try #require(converted.count >= expected.count && converted.count - expected.count < frameSamples)
+        // Edge frames decode without priming context.
+        let middle = frameSamples..<(expected.count - frameSamples)
+        let difference = zip(converted[middle], expected[middle]).map { abs($0 - $1) }.max() ?? .infinity
+        let decoderTolerance: Float = 1e-4
+        #expect(difference <= decoderTolerance)
     }
 
     @Test func originalExtractionIgnoresEncodingPreferences() async throws {

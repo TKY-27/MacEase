@@ -54,6 +54,7 @@ enum MatroskaID {
     static let maxFALL: UInt32 = 0x55BD
     static let audio: UInt32 = 0xE1
     static let samplingFrequency: UInt32 = 0xB5
+    static let outputSamplingFrequency: UInt32 = 0x78B5
     static let channels: UInt32 = 0x9F
     static let bitDepth: UInt32 = 0x6264
     static let contentEncodings: UInt32 = 0x6D80

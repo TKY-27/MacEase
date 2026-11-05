@@ -59,28 +59,64 @@ enum FLV {
         return [5512.5, 11025, 22050, 44100][Int(flags >> 2 & 3)]
     }
 
+    private static let aacSBRObjectType = 5
+    private static let aacPSObjectType = 29
+    private static let aacGeneralObjectTypes = 1...4
+    private static let aacCoreCoderDelayBits = 14
+    private static let aacSyncExtension = 0x2B7
+    private static let aacSyncExtensionTypeBits = 11
+    private static let aacSyncExtensionBits = 16
+
     /// Sample rate and channels from an AudioSpecificConfig.
     static func aacFormat(_ config: [UInt8]) throws -> (sampleRate: Double, channels: Int) {
-        let available = min(config.count, 8)
-        let bits = config.prefix(8).reduce(UInt64(0)) { $0 << 8 | UInt64($1) } << UInt64(8 * (8 - available))
-        var position = 0
-        func read(_ count: Int) throws -> Int {
-            guard position + count <= 8 * available else { throw FormatError.corrupt("short AudioSpecificConfig") }
-            defer { position += count }
-            return Int(bits >> UInt64(64 - position - count) & ((1 << UInt64(count)) - 1))
-        }
-        if try read(5) == 31 { _ = try read(6) }
-        let frequencyIndex = try read(4)
-        let sampleRate: Double
-        if frequencyIndex == 15 {
-            sampleRate = Double(try read(24))
-        } else {
-            guard frequencyIndex < aacSampleRates.count else { throw FormatError.corrupt("AAC frequency index") }
-            sampleRate = aacSampleRates[frequencyIndex]
-        }
-        let channelConfiguration = try read(4)
+        let configuration = try audioSpecificConfig(config)
+        let channelConfiguration = configuration.channelConfiguration
         guard (1...7).contains(channelConfiguration) else { throw FormatError.unsupported("AAC channel layout") }
-        return (sampleRate, channelConfiguration == 7 ? 8 : channelConfiguration)
+        return (configuration.sampleRate, channelConfiguration == 7 ? 8 : channelConfiguration)
+    }
+
+    /// Core rate and any signalled SBR rate.
+    static func audioSpecificConfig(_ config: [UInt8]) throws -> (
+        sampleRate: Double, channelConfiguration: Int, sbrSampleRate: Double?
+    ) {
+        var position = 0
+        func take(_ count: Int) -> Int? {
+            guard position + count <= 8 * config.count else { return nil }
+            var value = 0
+            for _ in 0..<count {
+                value = value << 1 | Int(config[position / 8] >> (7 - position % 8) & 1)
+                position += 1
+            }
+            return value
+        }
+        func read(_ count: Int) throws -> Int {
+            guard let value = take(count) else { throw FormatError.corrupt("short AudioSpecificConfig") }
+            return value
+        }
+        func objectType() -> Int? {
+            guard let type = take(5) else { return nil }
+            return type == 31 ? take(6).map { 32 + $0 } : type
+        }
+        func rate(_ frequencyIndex: Int) -> Double? {
+            if frequencyIndex == 15 { return take(24).map(Double.init) }
+            return aacSampleRates.indices.contains(frequencyIndex) ? aacSampleRates[frequencyIndex] : nil
+        }
+        guard let type = objectType() else { throw FormatError.corrupt("short AudioSpecificConfig") }
+        guard let sampleRate = rate(try read(4)) else { throw FormatError.corrupt("AAC frequency index") }
+        let channelConfiguration = try read(4)
+        // Missing or unusual tails mean unsignalled SBR.
+        func signalledSBRRate() -> Double? {
+            if type == aacSBRObjectType || type == aacPSObjectType { return take(4).flatMap(rate) }
+            // GASpecificConfig precedes backward-compatible SBR signalling.
+            guard aacGeneralObjectTypes.contains(type), channelConfiguration != 0, take(1) != nil,
+                let dependsOnCoreCoder = take(1), dependsOnCoreCoder == 0 || take(aacCoreCoderDelayBits) != nil,
+                let extensionFlag = take(1), extensionFlag == 0 || take(1) != nil,
+                8 * config.count - position >= aacSyncExtensionBits,
+                take(aacSyncExtensionTypeBits) == aacSyncExtension, objectType() == aacSBRObjectType, take(1) == 1
+            else { return nil }
+            return take(4).flatMap(rate)
+        }
+        return (sampleRate, channelConfiguration, signalledSBRRate())
     }
 
     /// Coded size from the avcC SPS.

@@ -854,3 +854,35 @@ case corrected above. AudioToolbox reads long CBR packet counts from the Xing
 byte field when the encoder tag names LAME; without that name it ignores mono
 gapless data. Subtracting the tag frame from the byte field truncates 177 of the
 360 lengths by 1,152 samples, so that correction is rejected.
+
+## AAC priming in Matroska (2026-11-05)
+
+The bundled FFmpeg decodes the MP4 fixtures to 96,000 AAC-LC and 88,200
+HE-AAC/HE-AAC v2 stereo frames. Their edit lists skip 1,024 and 4,224 frames;
+the final packets carry 256 and 1,784 frames of padding. `ffmpeg -c copy` to
+MKV keeps all 95 and 46 packets, writes `CodecDelay` 21,333,333 and 95,782,313
+ns, puts `DiscardPadding` on the last block and moves block times by the delay.
+For HE-AAC it writes `SamplingFrequency` 22,050 with `OutputSamplingFrequency`
+44,100, and its MKV decodes to the MP4 length.
+
+MacEase's earlier MKV dropped the priming packets, the 128-frame partial packet
+and the padding metadata. FFmpeg decoded it to 96,256 AAC-LC frames and 88,064
+HE-AAC frames; HE-AAC lost its first 1,920 audible frames and played 43.5 ms
+early. Its `SamplingFrequency` 44,100 HE-AAC header also failed MacEase
+decoding with AudioConverter `bada`. The fixed MKVs decode byte-identically to
+the MP4s.
+
+AudioToolbox decoding every AAC-LC MKV packet and dropping 1,024 frames matches
+AVAssetReader's edit-list decode within 7.5e-8. For HE-AAC packets,
+AVAudioConverter decodes `aac ` at the 22,050 Hz core rate; at 44,100 Hz it
+fails with `bada`. `aach` at 44,100 Hz matches AVFoundation within 5.7e-7 for
+HE-AAC v1, but holds 962 frames until end of stream and rejects HE-AAC v2 stereo
+input. MacEase still decodes Matroska HE-AAC at its core rate.
+
+AVAssetWriter does not apply trims synthesized for Matroska packets. Presented
+timestamps with `TrimDurationAtStart` and output timestamps kept the MP4 length,
+but the priming still played: audio was 1,024 (AAC-LC) and 4,224 (HE-AAC)
+frames late. AVAssetReader-style media timestamps made AAC-LC 2,048 frames late.
+Untrimmed priming before the session start at 0 stalled `finishWriting` after
+every packet was appended. Dropping whole priming packets kept AAC-LC exact and
+HE-AAC 128 frames late, but drops packets a native copy otherwise retains.

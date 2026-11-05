@@ -273,6 +273,8 @@ final class PacketCopyStage: StreamStage {
     /// Deeper than any B-frame pyramid in practice.
     private static let reorderWindow = 16
     private static let reorderingCodecs: Set<MediaCodec> = [.h264, .hevc, .mpeg4Part2]
+    /// Below one sample at supported rates.
+    private static let timestampRounding: Int64 = 1_000
 
     private var source: Source
     private let number: Int
@@ -282,6 +284,7 @@ final class PacketCopyStage: StreamStage {
     private let codec: MediaCodec
     private let preservesLacing: Bool
     private let usesPresentedAudioTime: Bool
+    private let usesCodecDelay: Bool
     private let synthesizesDecodeTimes: Bool
     private var window: [MediaPacket] = []
     private var sourceEnded = false
@@ -290,6 +293,11 @@ final class PacketCopyStage: StreamStage {
     private var reorderShift: Int64?
     private var pendingAsset: [MediaPacket] = []
     private var unresolvedLaceStart: Int64?
+    private var primingStart: Int64?
+    private var codecDelay: Int64?
+    private var containerDelay: Int64 = 0
+    private var pendingPriming: Int64?
+    private var audibleStart: Int64?
     private(set) var output: OutputTrack?
 
     init(
@@ -301,8 +309,10 @@ final class PacketCopyStage: StreamStage {
         self.end = end
         isVideo = track.isVideo
         codec = track.codec
-        preservesLacing = destination == nil || destination == .mkv || destination == .webm
-        usesPresentedAudioTime = (destination.map { $0.fileType == nil } ?? false) && track.codec != .opus
+        let matroska = destination == .mkv || destination == .webm
+        preservesLacing = destination == nil || matroska
+        usesPresentedAudioTime = (destination == .avi || destination == .flv) && track.codec != .opus
+        usesCodecDelay = matroska && track.codec != .opus
         var described = track
         described.number = number
         switch input.backend {
@@ -319,8 +329,14 @@ final class PacketCopyStage: StreamStage {
             synthesizesDecodeTimes = false
         default:
             guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
-            if destination == .mkv || destination == .webm {
+            if matroska {
                 described.defaultDuration = demuxer.tracks.first { $0.number == track.number }?.defaultDuration
+            }
+            // Opus, PCM and native copies keep packets.
+            let trimless = !matroska && destination?.fileType == nil
+            if trimless, !track.isVideo, track.codec != .opus, !track.codec.isPCM, track.codecDelay > 0 {
+                containerDelay = track.codecDelay
+                if start == 0 { pendingPriming = track.codecDelay }
             }
             source = .container(demuxer, sourceTrack: track.number)
             output = OutputTrack(track: described, format: nil)
@@ -334,7 +350,8 @@ final class PacketCopyStage: StreamStage {
     }
 
     func pull() async throws -> [MediaPacket] {
-        while !sourceEnded, window.count < Self.reorderWindow {
+        // Track headers need the whole priming run.
+        while !sourceEnded, window.count < Self.reorderWindow || (primingStart != nil && codecDelay == nil) {
             guard var packet = try await nextRaw() else {
                 sourceEnded = true
                 break
@@ -351,6 +368,10 @@ final class PacketCopyStage: StreamStage {
                 packet.decodeTimestamp = nil
                 packet.trimDurationAtStart = nil
                 packet.discardPadding = nil
+            } else if usesCodecDelay, let presented = packet.outputTimestamp {
+                guard try delayPriming(&packet, presented: presented) else { continue }
+            } else if containerDelay > 0 {
+                guard try placesDelayedPacket(&packet) else { continue }
             } else if !isVideo {
                 guard packet.timestamp >= start || packet.trimDurationAtStart != nil else { continue }
             }
@@ -360,6 +381,7 @@ final class PacketCopyStage: StreamStage {
             }
             window.append(packet)
         }
+        if primingStart != nil, codecDelay == nil { window = [] }
         guard !window.isEmpty else { return [] }
         if reorderShift == nil { reorderShift = synthesizesDecodeTimes ? try shift(for: window) : 0 }
         // Keep late frames that earlier frames reference.
@@ -421,6 +443,54 @@ final class PacketCopyStage: StreamStage {
         guard preservesLacing, timestamp >= start, following <= end else {
             throw EngineError.unsupportedCodec(codec.displayName)
         }
+    }
+
+    /// Matroska has CodecDelay instead of edit lists.
+    private func delayPriming(_ packet: inout MediaPacket, presented: Int64) throws -> Bool {
+        let leading = packet.trimDurationAtStart ?? 0
+        let (packetStart, overflow) = presented.subtractingReportingOverflow(leading)
+        guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        packet.timestamp = packetStart
+        packet.trimDurationAtStart = nil
+        if let codecDelay {
+            // Later edits keep ADR 0024's whole packets.
+            if let duration = packet.duration, leading >= duration { return false }
+            packet.timestamp = try Self.delayed(packetStart, by: codecDelay)
+            return true
+        }
+        if primingStart == nil { output?.track.defaultDuration = packet.duration }
+        let first = primingStart ?? packetStart
+        primingStart = first
+        guard leading < packet.duration ?? .max else { return true }
+        let (delay, delayOverflow) = presented.subtractingReportingOverflow(first)
+        guard !delayOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        codecDelay = delay
+        output?.track.codecDelay = delay
+        for index in window.indices { window[index].timestamp = try Self.delayed(window[index].timestamp, by: delay) }
+        packet.timestamp = try Self.delayed(packetStart, by: delay)
+        return true
+    }
+
+    /// Whole packets on the presented timeline.
+    private func placesDelayedPacket(_ packet: inout MediaPacket) throws -> Bool {
+        let blockTime = packet.timestamp
+        packet.timestamp = try Self.delayed(blockTime, by: -containerDelay)
+        if packet.discardPadding ?? 0 > 0 { packet.discardPadding = nil }
+        guard let remaining = pendingPriming else { return packet.timestamp >= start }
+        // First block time marks the audible start.
+        let audible = audibleStart ?? blockTime
+        audibleStart = audible
+        guard let duration = packet.duration else { throw EngineError.audioCopyTimingUnsupported }
+        pendingPriming = remaining + Self.timestampRounding >= duration ? max(0, remaining - duration) : nil
+        guard pendingPriming == nil else { return false }
+        packet.timestamp = audible
+        return true
+    }
+
+    private static func delayed(_ timestamp: Int64, by delay: Int64) throws -> Int64 {
+        let (result, overflow) = timestamp.addingReportingOverflow(delay)
+        guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        return result
     }
 
     /// Keeps decode times at or before presentation.

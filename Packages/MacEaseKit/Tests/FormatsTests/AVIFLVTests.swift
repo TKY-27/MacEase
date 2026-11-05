@@ -285,6 +285,21 @@ private typealias Fixture = ContainerFixtures
         #expect(packets.filter { $0.track == FLV.audioTrack }.count == 88)
     }
 
+    @Test(arguments: [
+        ([0x11, 0x90] as [UInt8], 48_000.0, nil as Double?),
+        ([0x13, 0x90, 0x56, 0xE5, 0xA0], 22_050, 44_100),
+        ([0x13, 0x88, 0x56, 0xE5, 0xA5, 0x48, 0x80], 22_050, 44_100),
+        ([0x2B, 0x92, 0x08, 0x00], 22_050, 44_100),
+        ([0x29, 0x90], 48_000, nil),
+        ([0x17, 0x80, 0x56, 0x22, 0x10], 44_100, nil),
+        ([0x11, 0x80], 48_000, nil),
+    ])
+    func audioSpecificConfigReportsCoreAndSBRRates(config: [UInt8], core: Double, sbr: Double?) throws {
+        let configuration = try FLV.audioSpecificConfig(config)
+        #expect(configuration.sampleRate == core)
+        #expect(configuration.sbrSampleRate == sbr)
+    }
+
     @Test func remuxKeepsCompositionOffsets() throws {
         var source = try FLVDemuxer(url: Fixture.resource("ffmpeg-h264-aac.flv"))
         var packets = try Fixture.packets(&source)

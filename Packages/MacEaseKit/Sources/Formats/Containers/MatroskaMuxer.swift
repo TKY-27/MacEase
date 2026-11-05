@@ -137,9 +137,18 @@ public struct MatroskaMuxer: MediaMuxer {
             body += EBML.element(MatroskaID.video, video)
         case .audio(let sampleRate, let channels):
             body += EBML.element(MatroskaID.trackType, unsigned: UInt64(MatroskaValue.audioTrack))
-            var audio =
-                EBML.element(MatroskaID.samplingFrequency, float: sampleRate)
-                + EBML.element(MatroskaID.channels, unsigned: UInt64(channels))
+            var coreRate = sampleRate
+            var outputRate = sampleRate
+            if track.codec == .aac, let config = track.codecPrivate {
+                let configuration = try FLV.audioSpecificConfig([UInt8](config))
+                coreRate = configuration.sampleRate
+                outputRate = configuration.sbrSampleRate ?? sampleRate
+            }
+            var audio = EBML.element(MatroskaID.samplingFrequency, float: coreRate)
+            if outputRate != coreRate {
+                audio += EBML.element(MatroskaID.outputSamplingFrequency, float: outputRate)
+            }
+            audio += EBML.element(MatroskaID.channels, unsigned: UInt64(channels))
             if case .pcm(let bits, _, _) = track.codec {
                 audio += EBML.element(MatroskaID.bitDepth, unsigned: UInt64(bits))
             }
