@@ -725,7 +725,7 @@ enum ImageCompressor {
                 try ImageOutput.validateTransparency(
                     frame.image, as: plan.format,
                     keepsOriginal: context.settings.outputMode == .newFile, context: context)
-                context.progress(Double(index + 1) / Double(plan.frameCount + 1))
+                context.progress(Double(index + 1) / Double(plan.frameCount))
                 return frame
             }
         }

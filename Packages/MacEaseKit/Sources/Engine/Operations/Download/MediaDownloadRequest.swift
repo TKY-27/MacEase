@@ -77,7 +77,9 @@ public struct MediaDownloadRequest: Sendable {
     public func retryingFailed(_ outcome: BatchOutcome) -> MediaDownloadRequest? {
         guard outcome.outcomes.count == selections.count else { return nil }
         let failed = selections.indices.compactMap { index -> MediaDownloadSelection? in
-            guard case .failed(let error) = outcome.outcomes[index], error != .cancelled else { return nil }
+            guard case .failed(let error) = outcome.outcomes[index], error != .cancelled,
+                outcome.details.indices.contains(index), outcome.details[index].outputStamps.isEmpty
+            else { return nil }
             return selections[index]
         }
         return failed.isEmpty ? nil : MediaDownloadRequest(destination: destination, selections: failed)
@@ -97,12 +99,12 @@ public struct MediaAnalysis: Sendable {
 public struct MediaDownloadTools: Sendable {
     public let directory: URL
     public var python: URL { directory.appending(path: "python3") }
-    public var deno: URL { directory.appending(path: "deno") }
+    public var node: URL { directory.appending(path: "node") }
     public var ffmpeg: URL { directory.appending(path: "ffmpeg") }
     public var ffprobe: URL { directory.appending(path: "ffprobe") }
 
     public init(directory: URL) throws {
-        for executable in ["python3", "deno", "ffmpeg", "ffprobe"] {
+        for executable in ["python3", "node", "ffmpeg", "ffprobe"] {
             guard FileManager.default.isExecutableFile(atPath: directory.appending(path: executable).path) else {
                 throw EngineError.unsupportedCodec("Bundled media tools are unavailable")
             }

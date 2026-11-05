@@ -63,7 +63,7 @@ public struct StagedFile: Sendable {
 public enum OutputCheck: Sendable {
     case image
     case media
-    case downloadedMedia(MediaDownloadTools)
+    case downloadedMedia(MediaDownloadTools, duration: Double?)
     case sdrImage
     case sdrVideo
     /// Decoded fully with MacEase's own audio decoders.

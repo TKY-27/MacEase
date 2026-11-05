@@ -1,7 +1,26 @@
 import Foundation
 import MenuCatalog
+import Synchronization
 
 public struct MediaDownloader: Sendable {
+    private enum Limits {
+        static let urlBytes = 8_192
+        static let inputURLs = 100
+        static let selections = 512
+        static let nameBytes = 170
+        static let languageCharacters = 64
+        static let playlistDepth = 8
+        static let sourceIDBytes = 1_024
+        static let titleBytes = 16_384
+        static let maximumResolution = 16_384.0
+    }
+    private enum ConversionQuality {
+        static let h264 = "65"
+        static let vp9 = "24"
+        static let audioBitrate = "192k"
+        static let mp3 = "2"
+        static let microsecondsPerSecond = 1_000_000.0
+    }
     private let tools: MediaDownloadTools
 
     public init(tools: MediaDownloadTools? = nil) throws {
@@ -9,7 +28,8 @@ public struct MediaDownloader: Sendable {
     }
 
     public static func validateURL(_ text: String) throws -> URL {
-        guard text.utf8.count <= 8_192, !text.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
+        guard text.utf8.count <= Limits.urlBytes,
+            !text.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
             let components = URLComponents(string: text),
             ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
             let host = components.host, !host.isEmpty, components.user == nil, components.password == nil,
@@ -19,7 +39,7 @@ public struct MediaDownloader: Sendable {
     }
 
     public func analyze(urls: [URL]) async throws -> MediaAnalysis {
-        guard !urls.isEmpty, urls.count <= 100 else { throw EngineError.invalidInput(.emptyInput) }
+        guard !urls.isEmpty, urls.count <= Limits.inputURLs else { throw EngineError.invalidInput(.emptyInput) }
         var sources: [MediaSource] = []
         var failures: [MediaAnalysisFailure] = []
         for url in urls {
@@ -37,7 +57,8 @@ public struct MediaDownloader: Sendable {
     }
 
     public func makeBatch(_ request: MediaDownloadRequest) throws -> Batch {
-        guard request.destination.isFileURL, !request.selections.isEmpty, request.selections.count <= 512 else {
+        guard request.destination.isFileURL, !request.selections.isEmpty, request.selections.count <= Limits.selections
+        else {
             throw EngineError.invalidInput(.emptyInput)
         }
         let values = try request.destination.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
@@ -76,7 +97,11 @@ public struct MediaDownloader: Sendable {
             ],
             directory: directory)
         let decoded = try JSONDecoder().decode(Metadata.self, from: result.stdout)
-        return try decoded.sources(fallback: page)
+        let sources = try decoded.sources(fallback: page)
+        guard Set(sources.map(\.webpageURL)).count == sources.count else {
+            throw EngineError.decodeFailed("This playlist does not expose independent media URLs")
+        }
+        return sources
     }
 
     private func download(_ selection: MediaDownloadSelection, destination: URL, context: ItemContext) async throws
@@ -95,8 +120,10 @@ public struct MediaDownloader: Sendable {
         let directory = try context.stagingDirectory(for: destination)
         context.phase(.downloading)
         var arguments = [
-            "--no-playlist", "--no-simulate", "--no-overwrites", "--no-continue", "--newline", "--progress",
-            "--progress-template", "download:MACEASE:%(progress.downloaded_bytes)s:%(progress.total_bytes)s",
+            "--no-playlist", "--match-filters", "!is_live", "--no-simulate", "--no-overwrites", "--no-continue",
+            "--newline", "--progress",
+            "--progress-template",
+            "download:MACEASE:%(info.format_id)s:%(progress.downloaded_bytes)s:%(progress.total_bytes)s",
             "--progress-template", "postprocess:MACEASE:POST",
             "--output", directory.appending(path: "download.%(ext)s").path,
             "--format", formatSelector(selection),
@@ -110,13 +137,22 @@ public struct MediaDownloader: Sendable {
             ]
         }
         arguments += ["--", source.webpageURL.absoluteString]
+        let measurement = Mutex((format: "", postprocessing: false))
         _ = try await invoke(arguments, directory: directory, captureOutput: false) { line in
-            if line == "MACEASE:POST" { context.phase(.converting) }
-            let components = line.split(separator: ":")
-            if components.count == 3, components[0] == "MACEASE", let bytes = Double(components[1]),
-                let total = Double(components[2]), total > 0, bytes >= 0
-            {
-                context.progress(bytes / total)
+            measurement.withLock { stage in
+                if line == "MACEASE:POST" {
+                    stage.postprocessing = true
+                    context.phase(.converting)
+                }
+                let components = line.split(separator: ":")
+                guard !stage.postprocessing, components.count == 4, components[0] == "MACEASE" else { return }
+                if stage.format != String(components[1]) {
+                    stage.format = String(components[1])
+                    context.phase(.downloading)
+                }
+                if let bytes = Double(components[2]), let total = Double(components[3]), total > 0, bytes >= 0 {
+                    context.progress(bytes / total)
+                }
             }
         }
         let downloaded = try outputs(in: directory)
@@ -126,11 +162,15 @@ public struct MediaDownloader: Sendable {
         var output = media[0]
         if selection.format != .source && selection.format != .audio {
             context.phase(.converting)
-            output = try await convert(output, selection: selection, directory: directory)
+            output = try await convert(output, selection: selection, directory: directory, context: context)
         }
         context.phase(.verifying)
         let base = Self.safeName(source.title)
-        var staged = [StagedFile(url: output, name: base + "." + output.pathExtension, check: .downloadedMedia(tools))]
+        var staged = [
+            StagedFile(
+                url: output, name: base + "." + output.pathExtension,
+                check: .downloadedMedia(tools, duration: source.duration))
+        ]
         if let requested = selection.subtitle {
             guard subtitles.count == 1 else { throw EngineError.decodeFailed("Requested subtitle was not downloaded") }
             let subtitle = subtitles[0]
@@ -160,7 +200,9 @@ public struct MediaDownloader: Sendable {
         return "bestvideo+bestaudio/best"
     }
 
-    private func convert(_ input: URL, selection: MediaDownloadSelection, directory: URL) async throws -> URL {
+    private func convert(_ input: URL, selection: MediaDownloadSelection, directory: URL, context: ItemContext)
+        async throws -> URL
+    {
         let output = directory.appending(path: "converted." + selection.format.rawValue)
         let probe = try await Self.probe(input, tools: tools)
         let video = probe.streams.first { $0.codecType == "video" }?.codecName
@@ -169,8 +211,10 @@ public struct MediaDownloader: Sendable {
         switch selection.format {
         case .mp4:
             arguments += [
-                "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "h264_videotoolbox", "-b:v", "0", "-q:v", "65", "-c:a",
-                "aac", "-movflags", "+faststart",
+                "-map", "0:v:0", "-map", "0:a:0?", "-c:v",
+                ["h264", "hevc", "av1"].contains(video ?? "") ? "copy" : "h264_videotoolbox",
+                "-c:a", ["aac", "alac", "mp3", "ac3", "eac3"].contains(audio ?? "") ? "copy" : "aac",
+                "-movflags", "+faststart",
             ]
         case .mkv: arguments += ["-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy"]
         case .webm:
@@ -185,17 +229,49 @@ public struct MediaDownloader: Sendable {
         case .flac: arguments += ["-vn", "-c:a", audio == "flac" ? "copy" : "flac"]
         case .source, .audio: break
         }
-        arguments.append(output.path)
+        if selection.format == .mp4, !["h264", "hevc", "av1"].contains(video ?? "") {
+            arguments += ["-q:v", ConversionQuality.h264, "-b:v", "0", "-pix_fmt", "yuv420p"]
+        }
+        if selection.format == .webm, !["vp8", "vp9", "av1"].contains(video ?? "") {
+            arguments += ["-crf", ConversionQuality.vp9, "-b:v", "0"]
+        }
+        if selection.format == .m4a, !["aac", "alac"].contains(audio ?? "") {
+            arguments += ["-b:a", ConversionQuality.audioBitrate]
+        }
+        if selection.format == .mp3, audio != "mp3" { arguments += ["-q:a", ConversionQuality.mp3] }
+        arguments += ["-progress", "pipe:1", "-nostats", output.path]
         _ = try await MediaToolProcess().run(
-            executable: tools.ffmpeg, arguments: arguments, directory: directory, tools: tools, captureOutput: false)
+            executable: tools.ffmpeg, arguments: arguments, directory: directory, tools: tools, captureOutput: false
+        ) { line in
+            guard line.hasPrefix("out_time_us="), let duration = selection.source.duration, duration > 0,
+                let microseconds = Double(line.dropFirst("out_time_us=".count))
+            else { return }
+            context.progress(microseconds / ConversionQuality.microsecondsPerSecond / duration)
+        }
         return output
     }
 
-    static func verify(_ output: URL, tools: MediaDownloadTools) async throws {
+    static func verify(
+        _ output: URL, tools: MediaDownloadTools, duration: Double? = nil,
+        progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws {
         let probe = try await probe(output, tools: tools)
         let streams = probe.streams.filter { ["video", "audio"].contains($0.codecType) }
         guard !streams.isEmpty, streams.allSatisfy({ (Int($0.packets ?? "") ?? 0) > 0 }) else {
             throw EngineError.decodeFailed("Downloaded media has no valid packets")
+        }
+        _ = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: [
+                "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-i", output.path,
+                "-map", "0:v?", "-map", "0:a?", "-progress", "pipe:1", "-nostats", "-f", "null", "-",
+            ],
+            directory: output.deletingLastPathComponent(), tools: tools, captureOutput: false
+        ) { line in
+            guard line.hasPrefix("out_time_us="), let duration, duration > 0,
+                let microseconds = Double(line.dropFirst("out_time_us=".count))
+            else { return }
+            progress(microseconds / ConversionQuality.microsecondsPerSecond / duration)
         }
     }
 
@@ -231,13 +307,11 @@ public struct MediaDownloader: Sendable {
         _ arguments: [String], directory: URL, captureOutput: Bool = true,
         line: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> MediaToolResult {
-        let launcher =
-            "import os,runpy,sys; os.setsid(); sys.argv=['yt-dlp']+sys.argv[1:]; runpy.run_module('yt_dlp',run_name='__main__')"
         return try await MediaToolProcess().run(
             executable: tools.python,
             arguments: [
-                "-I", "-c", launcher, "--ignore-config", "--no-plugin-dirs", "--no-update", "--no-cache-dir",
-                "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno:" + tools.deno.path,
+                "-I", "-B", "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--no-update", "--no-cache-dir",
+                "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "node:" + tools.node.path,
                 "--ffmpeg-location", tools.directory.path, "--socket-timeout", "30",
             ] + arguments,
             directory: directory, tools: tools, captureOutput: captureOutput, line: line)
@@ -251,14 +325,14 @@ public struct MediaDownloader: Sendable {
         let trimmed = scalars.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
         var bounded = ""
         for character in trimmed {
-            guard bounded.utf8.count + String(character).utf8.count <= 170 else { break }
+            guard bounded.utf8.count + String(character).utf8.count <= Limits.nameBytes else { break }
             bounded.append(character)
         }
         return bounded.isEmpty ? "Media" : bounded
     }
 
     private static func safeLanguage(_ language: String) -> Bool {
-        !language.isEmpty && language.count <= 64
+        !language.isEmpty && language.count <= Limits.languageCharacters
             && language.unicodeScalars.allSatisfy {
                 CharacterSet.alphanumerics.contains($0) || "-_".unicodeScalars.contains($0)
             }
@@ -288,16 +362,20 @@ public struct MediaDownloader: Sendable {
         let webpageURL: String?
         let duration: Double?
         let entries: [Metadata?]?
+        let playlistCount: Int?
         let formats: [Format]?
+        let height: Double?
+        let ext: String?
         let subtitles: [String: [Track]]?
         let automaticCaptions: [String: [Track]]?
         let isLive: Bool?
         let liveStatus: String?
         let hasDRM: Bool?
         enum CodingKeys: String, CodingKey {
-            case id, title, duration, entries, formats, subtitles
+            case id, title, duration, entries, formats, subtitles, height, ext
             case webpageURL = "webpage_url", automaticCaptions = "automatic_captions"
             case isLive = "is_live", liveStatus = "live_status", hasDRM = "has_drm"
+            case playlistCount = "playlist_count"
         }
         struct Track: Decodable {}
         struct Format: Decodable {
@@ -308,9 +386,11 @@ public struct MediaDownloader: Sendable {
         }
 
         func sources(fallback: URL, playlist: Bool = false, depth: Int = 0) throws -> [MediaSource] {
-            guard depth < 8 else { throw EngineError.decodeFailed("Playlist nesting exceeds limit") }
+            guard depth < Limits.playlistDepth else { throw EngineError.decodeFailed("Playlist nesting exceeds limit") }
             if let entries {
-                guard entries.count <= 512 else { throw EngineError.decodeFailed("Playlist exceeds 512 entries") }
+                guard entries.count <= Limits.selections, (playlistCount ?? entries.count) <= Limits.selections else {
+                    throw EngineError.decodeFailed("Playlist exceeds 512 entries")
+                }
                 return try entries.compactMap { $0 }.flatMap {
                     try $0.sources(fallback: fallback, playlist: true, depth: depth + 1)
                 }
@@ -318,8 +398,12 @@ public struct MediaDownloader: Sendable {
             guard isLive != true, liveStatus != "is_live", liveStatus != "is_upcoming", hasDRM != true else {
                 throw EngineError.decodeFailed("Live, upcoming and DRM-protected media are unsupported")
             }
-            let page = try MediaDownloader.validateURL(webpageURL ?? fallback.absoluteString)
-            guard let id, !id.isEmpty, id.utf8.count <= 1_024, let title, !title.isEmpty, title.utf8.count <= 16_384
+            guard let pageText = webpageURL ?? (playlist ? nil : fallback.absoluteString) else {
+                throw EngineError.decodeFailed("A playlist entry has no independent webpage URL")
+            }
+            let page = try MediaDownloader.validateURL(pageText)
+            guard let id, !id.isEmpty, id.utf8.count <= Limits.sourceIDBytes, let title, !title.isEmpty,
+                title.utf8.count <= Limits.titleBytes
             else {
                 throw EngineError.decodeFailed("Media metadata is incomplete")
             }
@@ -328,7 +412,9 @@ public struct MediaDownloader: Sendable {
                 throw EngineError.decodeFailed("DRM-protected media is unsupported")
             }
             let heights = Set(
-                usable.compactMap(\.height).filter { $0.isFinite && $0 > 0 && $0 <= 16_384 }.map(Int.init))
+                (usable.compactMap(\.height) + (height.map { [$0] } ?? [])).filter {
+                    $0.isFinite && $0 > 0 && $0 <= Limits.maximumResolution
+                }.map(Int.init))
             let authored = (subtitles ?? [:]).keys.filter(MediaDownloader.safeLanguage).map {
                 MediaSubtitle(language: $0, automatic: false)
             }
@@ -336,7 +422,7 @@ public struct MediaDownloader: Sendable {
                 MediaSubtitle(language: $0, automatic: true)
             }
             let extensions = Set(
-                usable.compactMap(\.ext).filter {
+                (usable.compactMap(\.ext) + (ext.map { [$0] } ?? [])).filter {
                     $0.count <= 16 && $0.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains)
                 })
             return [

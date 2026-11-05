@@ -190,7 +190,7 @@ enum ImageOutput {
                 try validateTransparency(
                     image, as: format,
                     keepsOriginal: context.settings.outputMode == .newFile, context: context)
-                context.progress(Double(index + 1) / Double(count + 1))
+                context.progress(Double(index + 1) / Double(count))
                 return ImageFrame(image: image, duration: frame.duration)
             }
             return self.staged(staged, for: document, as: format)
@@ -208,7 +208,7 @@ enum ImageOutput {
                     context: context)
             }
             try retainedBudget.reserve(frames[index].image)
-            context.progress(Double(index + 1) / Double(frames.count + 1))
+            context.progress(Double(index + 1) / Double(frames.count))
         }
         var options = defaultOptions(for: document, format: format, settings: context.settings.image)
         options.gainMaps = try options.gainMaps.map {
@@ -299,7 +299,7 @@ enum ImageEdits {
                 frameCount: count, as: conversion.format, options: options, to: staged
             ) { index in
                 let frame = try document.frame(at: index)
-                context.progress(Double(index + 1) / Double(count + 1))
+                context.progress(Double(index + 1) / Double(count))
                 return frame
             }
             guard let encoded = CGImageSourceCreateWithURL(staged as CFURL, nil) else {

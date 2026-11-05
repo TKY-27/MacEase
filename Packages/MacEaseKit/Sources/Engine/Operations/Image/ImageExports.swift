@@ -48,7 +48,7 @@ enum ImageExports {
             guard !document.isAnimated else { throw EngineError.imageSequenceUnsupported }
             let images = document.isMultiPage ? document.frames.map(\.image) : [document.first]
             for image in images { ImageEncoder.addPDFPage(image, pixelsPerInch: document.pixelsPerInch, to: pdf) }
-            context.progress(Double(index + 1) / Double(inputs.count + 1))
+            context.progress(Double(index + 1) / Double(inputs.count))
         }
         pdf.closePDF()
         return .derived(nextTo: first, outputs: [StagedFile(url: staged, name: name, check: .pdf)])

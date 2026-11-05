@@ -34,11 +34,16 @@ final class MediaToolProcess: Sendable {
             self.state.withLock {
                 $0.cancelled = true
                 if let child = $0.child, child.isRunning {
-                    kill(-child.processIdentifier, SIGKILL)
-                    kill(child.processIdentifier, SIGKILL)
+                    Self.stop(child)
                 }
             }
         }
+    }
+
+    private static func stop(_ child: Process) {
+        let identifier = child.processIdentifier
+        if getpgid(identifier) == identifier { kill(-identifier, SIGKILL) }
+        kill(identifier, SIGKILL)
     }
 
     private func execute(
@@ -80,8 +85,7 @@ final class MediaToolProcess: Sendable {
                                 $0.append(chunk)
                             } else {
                                 overflow.withLock { $0 = true }
-                                kill(-child.processIdentifier, SIGKILL)
-                                kill(child.processIdentifier, SIGKILL)
+                                Self.stop(child)
                             }
                         }
                     }

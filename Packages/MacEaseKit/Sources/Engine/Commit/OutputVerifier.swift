@@ -5,7 +5,7 @@ import ImageIO
 import PDFKit
 
 enum OutputVerifier {
-    static func verify(_ file: StagedFile) async throws {
+    static func verify(_ file: StagedFile, progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
         let values = try file.url.resourceValues(
             forKeys: [.fileSizeKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
         switch file.check {
@@ -41,8 +41,8 @@ enum OutputVerifier {
             try actualBudget.reserve(image)
         case .sdrImage:
             try ImageSDR.verify(file.url)
-        case .downloadedMedia(let tools):
-            try await MediaDownloader.verify(file.url, tools: tools)
+        case .downloadedMedia(let tools, let duration):
+            try await MediaDownloader.verify(file.url, tools: tools, duration: duration, progress: progress)
         case .media:
             try await verifyMedia(file.url)
         case .sdrVideo:

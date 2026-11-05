@@ -122,9 +122,9 @@ public enum RecipePlanner {
             try Task.checkCancellation()
             var variantSettings = execution.settings
             if run.variant.output == .pdfPagesJPEG { variantSettings.image.jpegQuality = run.variant.quality }
-            let child = ItemContext(settings: variantSettings, staging: context.staging) { fraction in
-                context.progress((Double(index) + fraction) / Double(runs.count))
-            }
+            let child = ItemContext(
+                settings: variantSettings, staging: context.staging, phase: { context.phase($0) }
+            ) { context.progress($0) }
             defer {
                 for warning in child.warnings where !context.warnings.contains(warning) { context.warn(warning) }
                 child.removeStaging()

@@ -33,6 +33,7 @@ import Testing
         #expect(analysis.failures[0].message == "The website refused the request or applied a rate limit")
         #expect(!analysis.failures[0].message.contains("private"))
         let arguments = try String(contentsOf: fixture.root.appending(path: "arguments"), encoding: .utf8)
+        #expect(arguments.hasPrefix("-I\n-B\n-m\nyt_dlp\n"))
         #expect(arguments.contains("--ignore-config\n--no-plugin-dirs\n--no-update"))
         #expect(arguments.contains("--no-remote-components"))
         #expect(arguments.contains("--\nhttps://example.com/fail?secret=private"))
@@ -69,6 +70,88 @@ import Testing
         #expect(undone == [.restored])
         #expect(!FileManager.default.fileExists(atPath: outputs[0].path))
         #expect(try String(contentsOf: original, encoding: .utf8) == "original")
+    }
+
+    @Test(arguments: [false, true])
+    func subtitlesShareMediaCollisionSuffix(sidecarOccupied: Bool) async throws {
+        let fixture = try DownloadFixture(root: TestVolume.makeFolder())
+        defer { fixture.remove() }
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let page = try #require(URL(string: "https://example.com/video"))
+        let analysis = try await downloader.analyze(urls: [page])
+        let source = try #require(analysis.sources.first)
+        let occupied = fixture.destination.appending(path: sidecarOccupied ? "Fixture.en.vtt" : "Fixture.mp4")
+        try Data("original".utf8).write(to: occupied)
+        let selection = MediaDownloadSelection(
+            source: source, subtitle: MediaSubtitle(language: "en", automatic: false))
+        let request = MediaDownloadRequest(destination: fixture.destination, selections: [selection])
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
+        guard case .succeeded(let outputs, _) = outcome.outcomes.first else {
+            Issue.record("Grouped download failed: \(outcome.outcomes)")
+            return
+        }
+        #expect(outputs.map(\.lastPathComponent) == ["Fixture (2).mp4", "Fixture (2).en.vtt"])
+        #expect(try String(contentsOf: occupied, encoding: .utf8) == "original")
+        #expect(outcome.record?.outputPaths == outputs.map(\.path))
+        #expect(request.retryingFailed(outcome) == nil)
+        #expect(try await engine.undo(outcome.batchID) == [.restored, .restored])
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path) == [
+                occupied.lastPathComponent
+            ])
+    }
+
+    @Test func failedGroupMoveRollsBackEarlierOutput() async throws {
+        let fixture = try DownloadFixture(root: TestVolume.makeFolder())
+        defer { fixture.remove() }
+        let first = fixture.root.appending(path: "primary.txt")
+        let second = FileManager.default.temporaryDirectory.appending(path: "MacEaseCrossVolume-" + UUID().uuidString)
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: second) } }
+        try Data("primary".utf8).write(to: first)
+        try Data("subtitle".utf8).write(to: second)
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let batch = Batch(
+            operation: .folderDownloadMedia,
+            items: [
+                WorkItem(inputs: []) { _ in
+                    .created(
+                        in: fixture.destination,
+                        outputs: [
+                            StagedFile(url: first, name: "Media.txt", check: .text(.utf8)),
+                            StagedFile(url: second, name: "Media.en.txt", check: .text(.utf8)),
+                        ])
+                }
+            ])
+        let outcome = await engine.run(batch, settings: Settings()) { _ in }
+        guard case .failed = outcome.outcomes.first else {
+            Issue.record("Cross-volume rename must fail")
+            return
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path).isEmpty)
+        #expect(try String(contentsOf: first, encoding: .utf8) == "primary")
+        #expect(try String(contentsOf: second, encoding: .utf8) == "subtitle")
+        #expect(outcome.record == nil)
+    }
+
+    @Test func compatibleMP4StreamsAreCopied() async throws {
+        let fixture = try DownloadFixture(root: TestVolume.makeFolder())
+        defer { fixture.remove() }
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let page = try #require(URL(string: "https://example.com/video"))
+        let analysis = try await downloader.analyze(urls: [page])
+        let source = try #require(analysis.sources.first)
+        let request = MediaDownloadRequest(
+            destination: fixture.destination, selections: [MediaDownloadSelection(source: source, format: .mp4)])
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
+        guard case .succeeded = outcome.outcomes.first else {
+            Issue.record("Compatible download failed: \(outcome.outcomes)")
+            return
+        }
+        let arguments = try String(contentsOf: fixture.root.appending(path: "conversion-arguments"), encoding: .utf8)
+        #expect(arguments.contains("-c:v\ncopy\n-c:a\ncopy"))
+        #expect(!arguments.contains("h264_videotoolbox"))
     }
 
     @Test func retriesOnlyFailuresAndResolvesMetadataAgain() async throws {
@@ -113,6 +196,67 @@ import Testing
         let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
         #expect(outcome.outcomes == [.failed(.decodeFailed("Download output is unsafe or incomplete"))])
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.destination.path).isEmpty)
+    }
+
+    @Test func cancellationStopsChildProcessesBeforeReturning() async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.remove() }
+        let sentinel = fixture.root.appending(path: "orphan")
+        let gate = fixture.root.appending(path: "gate")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        let sentinelLiteral = String(decoding: try encoder.encode(sentinel.path), as: UTF8.self)
+        let gateLiteral = String(decoding: try encoder.encode(gate.path), as: UTF8.self)
+        let childScript =
+            "import os,time\nwhile not os.path.exists(" + gateLiteral + "):time.sleep(0.01)\nopen(" + sentinelLiteral
+            + ",'w').write('orphan')"
+        let childLiteral = String(decoding: try encoder.encode(childScript), as: UTF8.self)
+        let script =
+            "import subprocess,time;subprocess.Popen(['/usr/bin/python3','-I','-B','-c'," + childLiteral
+            + "]);print('READY',flush=True);time.sleep(30)"
+        let ready = AsyncStream<Void>.makeStream()
+        let running = Task {
+            defer { ready.continuation.finish() }
+            return try await MediaToolProcess().run(
+                executable: URL(filePath: "/usr/bin/python3"), arguments: ["-I", "-B", "-c", script],
+                directory: fixture.root, tools: fixture.tools
+            ) { line in
+                if line == "READY" { ready.continuation.yield(()) }
+            }
+        }
+        var started = false
+        for await _ in ready.stream {
+            started = true
+            break
+        }
+        #expect(started)
+        running.cancel()
+        await #expect(throws: CancellationError.self) { try await running.value }
+        try Data().write(to: gate)
+        try await Task.sleep(for: .seconds(1))
+        #expect(!FileManager.default.fileExists(atPath: sentinel.path))
+    }
+
+    @Test func downloadsUseAtMostTwoConcurrentSlots() async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.remove() }
+        let occupancy = Mutex((active: 0, maximum: 0))
+        let work = (0..<6).map { _ in
+            WorkItem(inputs: [], lane: .download) { _ in
+                occupancy.withLock {
+                    $0.active += 1
+                    $0.maximum = max($0.maximum, $0.active)
+                }
+                try await Task.sleep(for: .milliseconds(30))
+                occupancy.withLock { $0.active -= 1 }
+                return .text("done", .clipboard)
+            }
+        }
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 8)
+        let outcome = await engine.run(Batch(operation: .folderDownloadMedia, items: work), settings: Settings()) { _ in
+        }
+        #expect(outcome.outcomes.count == 6)
+        #expect(occupancy.withLock { $0.maximum } == 2)
     }
 
     @Test(arguments: [
@@ -187,13 +331,24 @@ private struct DownloadFixture {
                 exit 0;;
             esac
             if [ -f "$fixture/symlink" ]; then ln -s /etc/hosts download.mp4; else printf fixture-media > download.mp4; fi
-            printf 'MACEASE:5:10\\n' >&2
+            case "$*" in
+              *--write-subs*) printf 'WEBVTT\\n\\n00:00:01.000 --> 00:00:02.000\\nCaption\\n' > download.en.vtt;;
+            esac
+            printf 'MACEASE:fixture:5:10\\n' >&2
             """
         try Self.executable(launcher, at: bin.appending(path: "python3"))
         try Self.executable(
-            "#!/bin/sh\nprintf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"nb_read_packets\":\"3\"}]}'\n",
+            "#!/bin/sh\nprintf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"h264\",\"nb_read_packets\":\"3\"},{\"codec_type\":\"audio\",\"codec_name\":\"aac\",\"nb_read_packets\":\"3\"}]}'\n",
             at: bin.appending(path: "ffprobe"))
-        for name in ["ffmpeg", "deno"] { try Self.executable("#!/bin/sh\nexit 0\n", at: bin.appending(path: name)) }
+        let converter = """
+            #!/bin/sh
+            case "$*" in *"-f null"*) exit 0;; esac
+            printf '%s\\n' "$@" > '\(self.root.path)/conversion-arguments'
+            for argument in "$@"; do output="$argument"; done
+            cp download.mp4 "$output"
+            """
+        try Self.executable(converter, at: bin.appending(path: "ffmpeg"))
+        try Self.executable("#!/bin/sh\nexit 0\n", at: bin.appending(path: "node"))
         tools = try MediaDownloadTools(directory: bin)
     }
 

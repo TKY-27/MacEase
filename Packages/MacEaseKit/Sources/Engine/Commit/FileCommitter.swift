@@ -180,17 +180,104 @@ struct FileCommitter: Sendable {
         }
     }
 
-    func create(_ output: StagedFile, in directory: URL, phase: @Sendable (ItemPhase) -> Void = { _ in }) async throws
-        -> Committed
-    {
-        guard AvailableName.checkedName(output.name) else {
-            throw EngineError.invalidInput(.malformed("Invalid output name"))
+    struct CreationFailure: Error {
+        let retained: [Committed]
+        let reason: EngineError
+    }
+
+    func create(
+        _ outputs: [StagedFile], in directory: URL, phase: @Sendable (ItemPhase) -> Void = { _ in },
+        progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> [Committed] {
+        guard directory.isFileURL, let primary = outputs.first,
+            outputs.allSatisfy({ AvailableName.checkedName($0.name) }),
+            Set(outputs.map(\.name)).count == outputs.count
+        else { throw EngineError.invalidInput(.malformed("Invalid output group")) }
+        let base = AvailableName.split(primary.name).base
+        guard outputs.allSatisfy({ $0.name.hasPrefix(base + ".") }) else {
+            throw EngineError.invalidInput(.malformed("Output group names do not match"))
         }
         phase(.verifying)
-        try await OutputVerifier.verify(output)
+        for output in outputs { try await OutputVerifier.verify(output, progress: progress) }
         phase(.saving)
-        return try Self.namingLock.withLock { _ in
-            try coordinatedMove(output.url, toAvailableNameIn: directory, named: output.name)
+        let cancellation = OSAllocatedUnfairLock(initialState: false)
+        return try await withTaskCancellationHandler {
+            try Self.namingLock.withLock { _ in
+                var nextCandidate = 1
+                while true {
+                    try Task.checkCancellation()
+                    let primaryURL = try AvailableName.url(
+                        for: primary.name, in: directory, nextCandidate: &nextCandidate)
+                    let sharedBase = AvailableName.split(primaryURL.lastPathComponent).base
+                    let destinations = outputs.map {
+                        directory.appending(path: sharedBase + $0.name.dropFirst(base.count))
+                    }
+                    let occupied = try destinations.contains { destination in
+                        var metadata = stat()
+                        if lstat(destination.path, &metadata) == 0 { return true }
+                        if errno == ENOENT { return false }
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    if occupied { continue }
+                    do {
+                        return try coordinateCreation(outputs, destinations: destinations, cancellation: cancellation)
+                    } catch Failure.destinationOccupied { continue }
+                }
+            }
+        } onCancel: {
+            cancellation.withLock { $0 = true }
+        }
+    }
+
+    private func coordinateCreation(
+        _ outputs: [StagedFile], destinations: [URL], cancellation: OSAllocatedUnfairLock<Bool>
+    ) throws -> [Committed] {
+        let sources = outputs.map { NSFileAccessIntent.writingIntent(with: $0.url, options: .forMoving) }
+        let targets = destinations.map { NSFileAccessIntent.writingIntent(with: $0, options: .forReplacing) }
+        let completed = DispatchSemaphore(value: 0)
+        let result = Mutex<Result<[Committed], any Error>?>(nil)
+        NSFileCoordinator(filePresenter: nil).coordinate(with: sources + targets, queue: OperationQueue()) { error in
+            result.withLock { outcome in
+                outcome = Result {
+                    if let error { throw error }
+                    if cancellation.withLock({ $0 }) { throw CancellationError() }
+                    var moved: [Committed] = []
+                    do {
+                        for (source, target) in zip(sources, targets) {
+                            guard renamex_np(source.url.path, target.url.path, UInt32(RENAME_EXCL)) == 0 else {
+                                if errno == EEXIST { throw Failure.destinationOccupied }
+                                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                            }
+                            moved.append(Committed(output: target.url, stamp: outputStamp(of: target.url)))
+                        }
+                        return moved
+                    } catch {
+                        var retained: [Committed] = []
+                        for index in moved.indices.reversed() {
+                            let committed = moved[index]
+                            guard committed.stamp?.matches(committed.output.path) == true,
+                                renamex_np(committed.output.path, sources[index].url.path, UInt32(RENAME_EXCL)) == 0
+                            else {
+                                retained.append(committed)
+                                continue
+                            }
+                        }
+                        if !retained.isEmpty {
+                            throw CreationFailure(
+                                retained: retained,
+                                reason: EngineError.wrapping(
+                                    error, path: destinations[0].path, otherwise: EngineError.commitFailed))
+                        }
+                        throw error
+                    }
+                }
+            }
+            completed.signal()
+        }
+        completed.wait()
+        return try result.withLock {
+            guard let outcome = $0 else { throw EngineError.commitFailed("Coordination did not run") }
+            return try outcome.get()
         }
     }
 

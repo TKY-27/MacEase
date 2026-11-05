@@ -354,13 +354,22 @@ public final class JobEngine: Sendable {
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .created(let destination, let staged):
-            for file in staged {
-                try await history.checkAcceptingCommits()
-                let output = try await committer.create(file, in: destination, phase: { context.phase($0) })
+            try await history.checkAcceptingCommits()
+            let committed: [FileCommitter.Committed]
+            do {
+                committed = try await committer.create(
+                    staged, in: destination, phase: { context.phase($0) }, progress: { context.progress($0) })
+            } catch let failure as FileCommitter.CreationFailure {
+                for output in failure.retained {
+                    records.append(.derived(output: output.output.path, stamp: output.stamp))
+                    recordOutput(output.output, stamp: output.stamp, context: context)
+                }
+                throw failure.reason
+            }
+            for output in committed {
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
                 recordOutput(output.output, stamp: output.stamp, context: context)
-                await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .exported(let source, let stamp, let destination, let staged, let preservingAttributes):
             for file in staged {
