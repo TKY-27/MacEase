@@ -337,6 +337,24 @@ private let japanese = "日本語のテキストです。\n二行目"
         #expect(outcome.outcomes == [.failed(.invalidInput(.malformed("CSV record 2 has 1 fields, the header has 2")))])
     }
 
+    @Test(arguments: [TextConversion.csvToJSON, .csvToXML])
+    func duplicateCSVHeadersRefuseObjectConversions(conversion: TextConversion) async throws {
+        let (outcome, output) = try await convert(
+            conversion, name: "duplicate.csv", input: "name,name\r\nAlice,Bob\r\n")
+
+        #expect(outcome.outcomes == [.failed(.invalidInput(.malformed("CSV header repeats column name: name")))])
+        #expect(outcome.record == nil)
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+    }
+
+    @Test func jsonToCSVWritesUTF8BOM() async throws {
+        let (outcome, output) = try await convert(
+            .jsonToCSV, name: "japanese.json", input: #"[{"name":"日本語"}]"#)
+
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        #expect(try bytes(output) == [0xEF, 0xBB, 0xBF] + Array("name\r\n日本語\r\n".utf8))
+    }
+
     @Test func jsonToCSVQuotesPerRFC4180() async throws {
         let csv = try await converted(
             .jsonToCSV, name: "rows.json",

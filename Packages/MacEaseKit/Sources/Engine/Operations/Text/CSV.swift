@@ -47,8 +47,12 @@ struct CSVTable {
         self.init(header: header, rows: cells.map { row in header.map { row[$0] ?? "" } })
     }
 
-    func objects(inferringTypes: Bool) -> JSONValue {
-        .array(
+    func objects(inferringTypes: Bool) throws -> JSONValue {
+        var seen = Set<String>()
+        for name in header where !seen.insert(name).inserted {
+            throw EngineError.invalidInput(.malformed("CSV header repeats column name: \(name)"))
+        }
+        return .array(
             rows.map { row in
                 .object(zip(header, row).map { ($0, inferringTypes ? Self.inferred($1) : .string($1)) })
             })

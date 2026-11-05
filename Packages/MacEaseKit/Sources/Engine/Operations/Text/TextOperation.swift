@@ -189,7 +189,8 @@ enum TextPlanner {
         default:
             let output = try TextConverter.convert(
                 input, conversion, settings: settings, title: title, source: source)
-            bytes = Data(output.utf8)
+            let encoding: TextEncodingTarget = conversion == .jsonToCSV ? .utf8BOM : .utf8
+            bytes = try TextEncoding.encode(output, as: encoding, unmappable: settings.unmappable).data
             check = .text(.utf8)
         }
         try Task.checkCancellation()
