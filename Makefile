@@ -2,6 +2,7 @@ PROJECT := MacEase.xcodeproj
 SCHEME := MacEase
 DERIVED_DATA := build/DerivedData
 PACKAGE := Packages/MacEaseKit
+MEDIA_TOOLS := $(CURDIR)/Vendor/build/media-tools/bin
 SOURCES := App FinderSync Packages
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'platform=macOS,arch=arm64' \
 	-derivedDataPath $(DERIVED_DATA)
@@ -29,11 +30,11 @@ build: project
 	$(XCODEBUILD) -configuration Debug build
 
 test:
-	swift test --package-path $(PACKAGE)
+	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --package-path $(PACKAGE)
 
 # Missing capabilities fail here instead of skipping.
 test-device: build
-	MACEASE_DEVICE_TESTS=1 swift test --package-path $(PACKAGE)
+	MACEASE_DEVICE_TESTS=1 MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --package-path $(PACKAGE)
 
 lint:
 	swift format lint --strict --recursive $(SOURCES)

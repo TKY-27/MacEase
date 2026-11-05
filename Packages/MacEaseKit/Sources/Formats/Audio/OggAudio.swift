@@ -8,7 +8,7 @@ package struct OpusHead {
     private static let gainScale = 256.0
 
     package let channels: Int
-    let preSkip: Int64
+    package let preSkip: Int64
     package let gain: Float
 
     package init(_ packet: Data) throws {

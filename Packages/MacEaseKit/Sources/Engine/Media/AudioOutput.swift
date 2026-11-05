@@ -60,7 +60,7 @@ public enum AudioFormat: String, Codable, CaseIterable, Sendable {
         try AudioMetadata.validate(sampleRate: sampleRate, channels: channels)
         let rate = Int(outputSampleRate(sampleRate))
         switch self {
-        case .mp3: return MP3EncoderOptions.constantBitrates
+        case .mp3: return [128, 192, 256, 320]
         case .m4aAAC, .aac:
             do {
                 let bitrates = try AACEncoder.applicableKilobits(sampleRate: rate, channels: channels)
@@ -185,9 +185,9 @@ public final class AudioFileEncoder {
                 : try PCMConverter(sampleRate: sampleRate, channels: channels, toSampleRate: rate, channels: count)
             switch format {
             case .mp3:
-                let mode: MP3EncoderOptions.Mode =
-                    target.variableQuality.map { .variable(quality: $0) } ?? .constant(kilobits: kilobits)
-                sink = try MP3Sink(url: url, sampleRate: Int(rate), channels: count, mode: mode, tags: tags)
+                sink = try LameAudioSink(
+                    url: url, sampleRate: Int(rate), channels: count, kilobits: kilobits,
+                    quality: target.variableQuality, tags: tags)
             case .m4aAAC, .m4aALAC:
                 let depth = bitDepth == Self.alacMiddleDepth ? Self.alacMiddleDepth : losslessDepth ?? Self.highDepth
                 sink = try MPEG4Sink(
@@ -392,34 +392,6 @@ private final class MPEG4Sink: AudioSink {
         }
         guard status == noErr, let sample else { throw EngineError.encodeFailed("CMSampleBuffer \(status)") }
         return sample
-    }
-}
-
-/// In-house MP3 frames behind an ID3v2 tag.
-private final class MP3Sink: AudioSink {
-    private let encoder: MP3Encoder
-    private let handle: FileHandle
-    private let audioStart: UInt64
-
-    init(url: URL, sampleRate: Int, channels: Int, mode: MP3EncoderOptions.Mode, tags: AudioTags) throws {
-        encoder = try MP3Encoder(options: MP3EncoderOptions(sampleRate: sampleRate, channels: channels, mode: mode))
-        try ID3Tag.encode(tags).write(to: url, options: .withoutOverwriting)
-        handle = try FileHandle(forWritingTo: url)
-        audioStart = try handle.seekToEnd()
-    }
-
-    func write(_ interleaved: [Float]) throws {
-        try handle.write(contentsOf: try encoder.encode(interleaved: interleaved))
-    }
-
-    func finish() throws {
-        let finish = try encoder.finish()
-        try handle.write(contentsOf: finish.trailingBytes)
-        if let xing = finish.xingFrame {
-            try handle.seek(toOffset: audioStart)
-            try handle.write(contentsOf: xing)
-        }
-        try handle.close()
     }
 }
 

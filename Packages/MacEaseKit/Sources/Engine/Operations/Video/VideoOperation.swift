@@ -64,6 +64,7 @@ public enum VideoOperation: Codable, Hashable, Sendable {
     case compress(VideoCompression)
     /// `nil` kilobits copies when possible.
     case extractAudio(AudioFormat, kilobits: Int? = nil)
+    case extractOriginalAudio
     case still(VideoStill)
     case gif(AnimationRendering)
     case apng(AnimationRendering)
@@ -122,6 +123,7 @@ enum VideoPlanner {
         case .videoCompress:
             return compression(preset, settings: settings).map(VideoOperation.compress)
         case .videoExtractAudio:
+            if preset == "original" { return .extractOriginalAudio }
             if preset == "m4a" { return .extractAudio(.m4aAAC, kilobits: settings.audio.extractedAudioBitrate) }
             return AudioFormat(rawValue: preset).map {
                 .extractAudio($0, kilobits: settings.audio.extractedAudioBitrate)
@@ -212,6 +214,8 @@ enum VideoPlanner {
                 case .compress(let compression): try await VideoCompressor.run(compression, url: url, context: context)
                 case .extractAudio(let format, let kilobits):
                     try await VideoAudio.extract(format, kilobits: kilobits, url: url, context: context)
+                case .extractOriginalAudio:
+                    try await VideoAudio.extractOriginal(url: url, context: context)
                 case .still(let still): try await VideoStills.run(still, url: url, context: context)
                 case .gif(let rendering): try await VideoAnimations.gif(rendering, url: url, context: context)
                 case .apng(let rendering): try await VideoAnimations.apng(rendering, url: url, context: context)
@@ -231,7 +235,7 @@ enum VideoPlanner {
 extension VideoOperation {
     var usesHardwareVideo: Bool {
         switch self {
-        case .removeAudio, .still, .gif, .apng, .webP, .gifX, .extractAudio, .subtitles: false
+        case .removeAudio, .still, .gif, .apng, .webP, .gifX, .extractAudio, .extractOriginalAudio, .subtitles: false
         case .trim(_, _, let mode): mode == .exact
         case .convert(let container): container != .webm && container != .avi
         case .resize, .speed, .edit, .rotate, .flip, .frameRate, .compress, .background, .hdrToSDR: true

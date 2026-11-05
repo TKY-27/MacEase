@@ -449,6 +449,25 @@ enum VideoAudio {
     private static let flacMarkerLength = 4
     private static let flacBlockHeaderLength = 4
     private static let opusSampleRate = 48_000
+    static func extractOriginal(url: URL, context: ItemContext) async throws -> ItemResult {
+        let input = try await MediaInput.open(url)
+        guard let track = input.audio else {
+            throw EngineError.invalidInput(.malformed("no audio track"))
+        }
+        let candidates: [AudioFormat] = [.m4aAAC, .m4aALAC, .mp3, .flac, .ogg, .opus, .wav, .aiff]
+        guard let format = candidates.first(where: { canCopy(track, to: $0) }) else {
+            throw EngineError.audioCopyUnsupported
+        }
+        let metadata = try await VideoMetadata.load(from: input)
+        let losses = metadata.losses(for: nil, includingVideo: false, includingAudio: true)
+        if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
+        let name = url.deletingPathExtension().lastPathComponent + "." + format.fileExtension
+        let output = try context.stagingURL(for: url, name: name)
+        try await copy(
+            input, track: track, format: format, to: output, unchangedTiming: true, progress: context.progress)
+        return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .audio)])
+    }
+
     static func extract(
         _ format: AudioFormat, kilobits: Int? = nil, url: URL, context: ItemContext
     ) async throws -> ItemResult {
@@ -628,11 +647,13 @@ enum VideoAudio {
 
     private static func copy(
         _ input: MediaInput, track: MediaTrack, format: AudioFormat, to output: URL,
+        unchangedTiming: Bool = false,
         progress: (Double) -> Void
     ) async throws {
         let stage = try await PacketCopyStage(input: input, track: track, number: 1, start: 0, end: .max)
         switch format {
         case .m4aAAC, .m4aALAC:
+            if unchangedTiming, track.codecDelay != 0 { throw EngineError.audioCopyTimingUnsupported }
             guard let outputTrack = stage.output else { throw EngineError.decodeFailed("missing audio track") }
             let sink = try AssetWriterSink(url: output, fileType: .m4a, tracks: [outputTrack], transform: .identity)
             do {
@@ -652,6 +673,8 @@ enum VideoAudio {
                 throw error
             }
         case .aac, .mp3, .flac:
+            if unchangedTiming, track.codecDelay != 0 { throw EngineError.audioCopyTimingUnsupported }
+            var nextTimestamp: Int64 = 0
             try Data().write(to: output, options: .withoutOverwriting)
             let file = try FileHandle(forWritingTo: output)
             defer { try? file.close() }
@@ -659,6 +682,19 @@ enum VideoAudio {
             while stage.nextTime != nil {
                 try Task.checkCancellation()
                 for packet in try await stage.pull() {
+                    if unchangedTiming {
+                        guard let duration = packet.duration, !packet.continuesPrevious,
+                            packet.trimDurationAtStart ?? 0 == 0,
+                            packet.outputTimestamp == nil || packet.outputTimestamp == packet.timestamp,
+                            abs(Double(packet.timestamp) - Double(nextTimestamp))
+                                <= Double(max(track.timestampQuantum ?? 0, 1))
+                        else {
+                            throw EngineError.audioCopyTimingUnsupported
+                        }
+                        let (end, overflow) = packet.timestamp.addingReportingOverflow(duration)
+                        guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+                        nextTimestamp = end
+                    }
                     guard packet.discardPadding ?? 0 == 0 else {
                         throw EngineError.unsupportedCodec(track.codec.displayName)
                     }
@@ -673,7 +709,9 @@ enum VideoAudio {
         case .ogg, .opus:
             try await copyOgg(stage, input: input, track: track, format: format, to: output, progress: progress)
         case .wav, .aiff:
-            try await copyPCM(stage, input: input, track: track, format: format, to: output, progress: progress)
+            try await copyPCM(
+                stage, input: input, track: track, format: format, to: output,
+                unchangedTiming: unchangedTiming, progress: progress)
         default:
             throw EngineError.unsupportedCodec(track.codec.displayName)
         }
@@ -702,6 +740,13 @@ enum VideoAudio {
         guard let codecPrivate = track.codecPrivate,
             case .audio(let sampleRate, _) = track.kind
         else { throw EngineError.decodeFailed("missing Ogg codec headers") }
+        let continuity = PCMFrameContinuity(
+            sampleRate: format == .opus ? Double(Self.opusSampleRate) : sampleRate,
+            timestampQuantum: track.timestampQuantum)
+        var decodedFrames: Int64 = 0
+        var rawTrack = track
+        rawTrack.codecDelay = 0
+        let decoder = try AudioPacketDecoder(track: rawTrack)
         let writer = try OggPacketWriter(url: output)
         if format == .opus {
             try writer.writeHeader(codecPrivate)
@@ -712,6 +757,7 @@ enum VideoAudio {
             }
         }
         var held: MediaPacket?
+        var heldEndFrames: Int64 = 0
         let rate = format == .opus ? Self.opusSampleRate : Int(sampleRate)
         while stage.nextTime != nil {
             try Task.checkCancellation()
@@ -721,41 +767,34 @@ enum VideoAudio {
                 else {
                     throw EngineError.unsupportedCodec(track.codec.displayName)
                 }
+                guard packet.trimDurationAtStart ?? 0 == 0, packet.outputTimestamp == nil,
+                    try continuity.gap(at: packet.timestamp, after: decodedFrames) == 0
+                else { throw EngineError.audioCopyTimingUnsupported }
+                var raw = packet
+                raw.discardPadding = nil
+                decodedFrames += Int64(try decoder.decode(raw).count / decoder.channels)
                 if let held {
                     guard held.discardPadding ?? 0 == 0 else {
                         throw EngineError.unsupportedCodec(track.codec.displayName)
                     }
-                    let duration: Int64
-                    if let declared = held.duration {
-                        duration = declared
-                    } else {
-                        let (gap, gapOverflow) = packet.timestamp.subtractingReportingOverflow(held.timestamp)
-                        guard !gapOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                        duration = max(gap, 0)
-                    }
-                    let (end, endOverflow) = held.timestamp.addingReportingOverflow(duration)
-                    guard !endOverflow else { throw EngineError.decodeFailed("media duration out of range") }
-                    let granule = max(0, try Nanoseconds.scale(end, by: Int64(rate), over: Nanoseconds.perSecond))
-                    try writer.write(held.payload, granule: granule, last: false)
+                    try writer.write(held.payload, granule: heldEndFrames, last: false)
                 }
                 held = packet
+                heldEndFrames = decodedFrames
                 progress(Double(packet.timestamp) / Double(max(input.duration, 1)))
             }
         }
         guard let held else { throw EngineError.decodeFailed("empty audio stream") }
-        let duration: Int64
-        if let declared = held.duration {
-            duration = declared
-        } else {
-            let (gap, gapOverflow) = input.duration.subtractingReportingOverflow(held.timestamp)
-            guard !gapOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-            duration = max(gap, 0)
+        let delay = try continuity.framePosition(track.codecDelay)
+        if format == .opus {
+            guard try OpusHead(codecPrivate).preSkip == delay else {
+                throw EngineError.audioCopyTimingUnsupported
+            }
+        } else if delay != 0 {
+            throw EngineError.audioCopyTimingUnsupported
         }
-        let (end, endOverflow) = held.timestamp.addingReportingOverflow(duration)
-        guard !endOverflow else { throw EngineError.decodeFailed("media duration out of range") }
         let padding = try Nanoseconds.scale(held.discardPadding ?? 0, by: Int64(rate), over: Nanoseconds.perSecond)
-        let endGranule = try Nanoseconds.scale(end, by: Int64(rate), over: Nanoseconds.perSecond)
-        let (adjustedGranule, granuleOverflow) = endGranule.subtractingReportingOverflow(padding)
+        let (adjustedGranule, granuleOverflow) = decodedFrames.subtractingReportingOverflow(padding)
         guard !granuleOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
         let granule = max(0, adjustedGranule)
         try writer.write(held.payload, granule: granule, last: true)
@@ -764,6 +803,7 @@ enum VideoAudio {
 
     private static func copyPCM(
         _ stage: PacketCopyStage, input: MediaInput, track: MediaTrack, format: AudioFormat, to output: URL,
+        unchangedTiming: Bool,
         progress: (Double) -> Void
     ) async throws {
         guard case .audio(let sampleRate, let channels) = track.kind,
@@ -815,6 +855,9 @@ enum VideoAudio {
                     let count = Int64(packet.payload.count / bytesPerFrame)
                     let leading = try continuity.framePosition(packet.trimDurationAtStart ?? 0)
                     let padding = try continuity.framePosition(packet.discardPadding ?? 0)
+                    if unchangedTiming, leading != 0 || padding != 0 || codecDelay != 0 {
+                        throw EngineError.audioCopyTimingUnsupported
+                    }
                     let initialTrim = min(count, max(0, leading))
                     let negativePadding = padding < 0 ? min(UInt64(count - initialTrim), padding.magnitude) : 0
                     let first = initialTrim + Int64(negativePadding)
@@ -832,6 +875,7 @@ enum VideoAudio {
                         at: packet.outputTimestamp ?? packet.timestamp,
                         adjustment: adjustment,
                         after: packetNumber, continuesPrevious: packet.continuesPrevious)
+                    if unchangedTiming, gap != 0 { throw EngineError.audioCopyTimingUnsupported }
                     if gap > 0 {
                         let (total, overflow) = synthesizedSilenceFrames.addingReportingOverflow(gap)
                         guard !overflow, total <= maximumSilenceFrames else {

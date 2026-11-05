@@ -12,6 +12,8 @@ public enum EngineError: Error, Equatable, Sendable {
     case unsupportedCodec(String)
     case audioChannelLayoutUnsupported
     case audioMetadataUnsupported
+    case audioCopyUnsupported
+    case audioCopyTimingUnsupported
     case imageGainMapUnsupported
     case imageSequenceUnsupported
     case imageLoopCountUnsupported

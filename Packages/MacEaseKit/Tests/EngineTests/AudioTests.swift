@@ -132,7 +132,8 @@ func audioReplacementRefusesID3Payload(frameID: String) async throws {
     }
     let frame = Data(frameID.utf8) + Data([0, 0, 0, UInt8(body.count), 0, 0]) + body
     let tag = Data("ID3".utf8) + Data([4, 0, 0, 0, 0, 0, UInt8(frame.count)]) + frame
-    let original = tag + audio
+    let headerLength = ID3Tag.length(prefix: Array(audio.prefix(ID3Tag.headerLength))) ?? 0
+    let original = tag + audio.dropFirst(headerLength)
     try original.write(to: url)
     let outcome = try await run(.audioConvert, .convert(.wav), on: url)
     #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams))])

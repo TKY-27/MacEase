@@ -1,11 +1,12 @@
-# Bundled download tools
+# Bundled media tools
 
-MacEase remains MIT licensed. Its media download workflow launches independent
+MacEase remains MIT licensed. Its media download and local MP3 workflows launch independent
 third-party executables from `Contents/Resources/media-tools/bin`. It does not
-link FFmpeg into the MacEase app or use it for existing conversion operations.
+link FFmpeg into the MacEase app. Local MP3 encoding streams PCM through a pipe
+into libmp3lame, with no automatic fallback or intermediate audio file.
 These executables retain their upstream licenses. GPL and nonfree FFmpeg
-features are disabled. LGPL FFmpeg and LAME are the download-only exception
-recorded in SPEC section 22 and ADR 0052.
+features are disabled. LGPL FFmpeg and LAME are the isolated executable exception
+recorded in SPEC sections 22–23 and ADRs 0052–0053.
 
 ## Build
 

@@ -222,6 +222,17 @@ import UniformTypeIdentifiers
         #expect(samples[gapStartFrame + gapFrames] != 0)
         if gapFrames > 0 {
             #expect(samples[gapStartFrame..<gapStartFrame + gapFrames].allSatisfy { $0 == 0 })
+            await #expect(throws: EngineError.audioCopyTimingUnsupported) {
+                _ = try await VideoAudio.extractOriginal(url: source, context: context)
+            }
+        } else {
+            guard case .derived(_, let copies) = try await VideoAudio.extractOriginal(url: source, context: context),
+                let copy = copies.first
+            else {
+                Issue.record("expected unchanged PCM extraction")
+                return
+            }
+            #expect(try AudioSignals.decode(copy.url).1 == samples)
         }
     }
 
@@ -301,6 +312,41 @@ import UniformTypeIdentifiers
         let maximumDifference = zip(waveAudio.samples, sourceAudio.samples).map { abs($0 - $1) }.max() ?? .infinity
         let pcmTolerance: Float = 1.0 / 32_768
         #expect(maximumDifference <= pcmTolerance)
+        #expect(try Data(contentsOf: source) == originalBytes)
+    }
+
+    @Test func originalExtractionIgnoresEncodingPreferences() async throws {
+        let source = try fixture()
+        let originalBytes = try Data(contentsOf: source)
+        var settings = Settings()
+        settings.audio.extractedAudioBitrate = 64
+        #expect(
+            VideoPlanner.options(for: .videoExtractAudio, preset: "original", settings: settings)
+                == .extractOriginalAudio)
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: source.deletingLastPathComponent()),
+            progress: { _ in })
+        defer { context.removeStaging() }
+        let result = try await VideoAudio.extractOriginal(url: source, context: context)
+        guard case .derived(_, let outputs) = result, let output = outputs.first else {
+            Issue.record("expected extracted original audio")
+            return
+        }
+        #expect(output.url.pathExtension == "m4a")
+        #expect(try await assetPackets(output.url) == assetPackets(source))
+        #expect(try AudioSignals.decode(output.url).samples == AudioSignals.decode(source).samples)
+        #expect(try Data(contentsOf: source) == originalBytes)
+    }
+
+    @Test func originalExtractionRefusesUnsupportedCopyWithoutEncoding() async throws {
+        let source = URL(filePath: #filePath).deletingLastPathComponent()
+            .appending(path: "../FormatsTests/Resources/ffmpeg-mpeg4-ac3.avi")
+        let originalBytes = try Data(contentsOf: source)
+        let folder = try AudioSignals.temporaryFolder()
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.self) { try await VideoAudio.extractOriginal(url: source, context: context) }
         #expect(try Data(contentsOf: source) == originalBytes)
     }
 
@@ -433,6 +479,9 @@ import UniformTypeIdentifiers
         let opusAudio = try AudioInput(url: opus)
         #expect(opusAudio.codec == .opus)
         #expect((opusAudio.frameCount ?? 0) > 80_000)
+        let originalOpus = try await run(.videoExtractAudio, preset: "original", on: webm)
+        #expect(try oggPackets(originalOpus, headers: 2) == containerPackets(webm))
+        #expect(try AudioInput(url: originalOpus).frameCount == opusAudio.frameCount)
 
         let input = try await MediaInput.open(webm)
         let vorbis = try TestVolume.makeFolder().appending(path: "vorbis.webm")
@@ -443,5 +492,66 @@ import UniformTypeIdentifiers
         let vorbisAudio = try AudioInput(url: ogg)
         #expect(vorbisAudio.codec == .vorbis)
         #expect((vorbisAudio.frameCount ?? 0) > 80_000)
+        let originalVorbis = try await run(.videoExtractAudio, preset: "original", on: vorbis)
+        #expect(try oggPackets(originalVorbis, headers: 3) == containerPackets(vorbis))
+        #expect(try AudioInput(url: originalVorbis).frameCount == vorbisAudio.frameCount)
+        #expect(try AudioInput(url: originalVorbis).frameCount == Int64(decodedAudio(MatroskaDemuxer(url: vorbis))))
+    }
+
+    @Test(arguments: [0, 20])
+    func originalOggExtractionRefusesTimelineGaps(firstShiftedPacket: Int) async throws {
+        let source = try fixture()
+        let webm = try await run(.videoConvert, preset: "webm", on: source)
+        var reader = try MatroskaDemuxer(url: webm)
+        let folder = try TestVolume.makeFolder()
+        let shifted = folder.appending(path: "shifted.webm")
+        let audio = try #require(reader.tracks.first { !$0.isVideo })
+        var writer = try MatroskaMuxer(url: shifted, tracks: reader.tracks, webm: true)
+        var count = 0
+        while var packet = try reader.nextPacket() {
+            if packet.track == audio.number {
+                if count >= firstShiftedPacket { packet.timestamp += 100 * Nanoseconds.perMillisecond }
+                count += 1
+            }
+            try writer.write(packet)
+        }
+        try writer.finish()
+        let original = try Data(contentsOf: shifted)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.audioCopyTimingUnsupported) {
+            _ = try await VideoAudio.extractOriginal(url: shifted, context: context)
+        }
+        #expect(try Data(contentsOf: shifted) == original)
+    }
+
+    @Test(arguments: ["original", "opus"])
+    func copiedOggDurationComesFromAudioRatherThanVideo(preset: String) async throws {
+        let source = try fixture()
+        let webm = try await run(.videoConvert, preset: "webm", on: source)
+        var reader = try MatroskaDemuxer(url: webm)
+        let folder = try TestVolume.makeFolder()
+        let extended = folder.appending(path: "extended.webm")
+        let audio = try #require(reader.tracks.first { !$0.isVideo })
+        let decoder = try AudioPacketDecoder(track: audio)
+        var expected: [Float] = []
+        var writer = try MatroskaMuxer(url: extended, tracks: reader.tracks, webm: true)
+        while var packet = try reader.nextPacket() {
+            if packet.track == audio.number {
+                expected += try decoder.decode(packet)
+                packet.duration = nil
+            } else {
+                packet.timestamp += 3 * Nanoseconds.perSecond
+            }
+            try writer.write(packet)
+        }
+        try writer.finish()
+        let original = try Data(contentsOf: extended)
+        let output = try await run(.videoExtractAudio, preset: preset, on: extended)
+        let (_, actual) = try AudioSignals.decode(output)
+        #expect(actual.count == expected.count)
+        #expect(actual == expected)
+        #expect(try Data(contentsOf: extended) == original)
     }
 }

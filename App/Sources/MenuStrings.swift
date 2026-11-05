@@ -50,6 +50,10 @@ enum MenuStrings {
             return String(localized: "menu.preset.custom-size", defaultValue: "Custom Size…")
         }
         switch (op, preset) {
+        case (.videoExtractAudio, "original"):
+            return String(localized: "Extract Original Audio")
+        case (.videoExtractAudio, "mp3"):
+            return String(localized: "MP3 (Lossy Conversion)")
         case (.videoExtractAudio, "m4a"):
             return String(localized: "menu.preset.video.extractAudio.m4a-aac", defaultValue: "M4A (AAC)")
         case (.videoExtractAudio, "m4a-alac"):

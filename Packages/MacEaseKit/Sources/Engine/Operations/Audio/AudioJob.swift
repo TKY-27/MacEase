@@ -404,8 +404,9 @@ enum AudioJob {
     }
 
     private static func tags(of input: AudioInput, context: ItemContext) async throws -> AudioTags {
+        let tags: AudioTags
         do {
-            return try await input.tags()
+            tags = try await input.tags()
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -413,6 +414,19 @@ enum AudioJob {
             context.warn(.metadataDropped)
             return AudioTags()
         }
+        let losesMetadata: Bool
+        do {
+            losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(input.url)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            losesMetadata = true
+        }
+        if losesMetadata {
+            guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
+            context.warn(.metadataDropped)
+        }
+        return tags
     }
 
     private static func encode(

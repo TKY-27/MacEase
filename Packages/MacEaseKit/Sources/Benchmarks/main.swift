@@ -357,7 +357,7 @@ func chipName() throws -> String {
     return chip
 }
 
-func benchmarkMP3(chip: String, outputURL: URL) throws {
+func benchmarkMP3(chip: String, outputURL: URL) async throws {
     #if DEBUG
         throw BenchError(
             description: String(
@@ -383,27 +383,19 @@ func benchmarkMP3(chip: String, outputURL: URL) throws {
             samples[index * channels + 1] = Float((right + bass) * envelope)
         }
         let start = ContinuousClock.now
-        let encoder = try MP3Encoder(
-            options: MP3EncoderOptions(
-                sampleRate: rate, channels: channels, mode: .constant(kilobits: Targets.mp3BitrateKilobits)))
-        var encodedPackets: [Data] = []
+        let encoder = try AudioFileEncoder(
+            url: outputURL, target: AudioTarget(format: .mp3, kilobits: Targets.mp3BitrateKilobits),
+            sampleRate: Double(rate), channels: channels)
         for offset in stride(from: 0, to: frames, by: Targets.mp3ChunkFrames) {
             let end = min(frames, offset + Targets.mp3ChunkFrames)
-            encodedPackets.append(try encoder.encode(interleaved: Array(samples[offset * channels..<end * channels])))
+            try await encoder.write(Array(samples[offset * channels..<end * channels]))
         }
-        encodedPackets.append(try encoder.finish().trailingBytes)
+        try await encoder.finish()
         let elapsed = (ContinuousClock.now - start) / .seconds(1)
         guard elapsed > 0 else {
             throw BenchError(
                 description: String(localized: "MP3 elapsed time was zero.", comment: "Benchmark measurement error"))
         }
-        let encoded = encodedPackets.reduce(into: Data()) { $0.append($1) }
-        guard !encoded.isEmpty else {
-            throw BenchError(
-                description: String(
-                    localized: "MP3 encoding produced no output.", comment: "Benchmark output validation"))
-        }
-        try encoded.write(to: outputURL)
         let mp3 = try AudioInput(url: outputURL)
         guard mp3.codec == .mp3, mp3.channels == channels, mp3.sampleRate == Double(rate) else {
             throw BenchError(
@@ -468,7 +460,7 @@ func benchmark(chip: String, volume: URL) async throws {
     try await measure("12 MP HEIC to JPEG", target: Targets.heicSeconds) {
         try await run(.imageConvert, preset: "jpeg", on: photo)
     }
-    try benchmarkMP3(chip: chip, outputURL: volume.appending(path: "benchmark.mp3"))
+    try await benchmarkMP3(chip: chip, outputURL: volume.appending(path: "benchmark.mp3"))
 
     let clip = volume.appending(path: "clip.mp4")
     try await writeClip(to: clip)

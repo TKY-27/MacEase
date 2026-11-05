@@ -96,6 +96,10 @@ enum UserMessages {
                 localized:
                     "“\(file)” could not be converted because the output cannot preserve its audio channel layout. The original was kept."
             )
+        case .audioCopyUnsupported:
+            String(localized: "This audio cannot be extracted unchanged. Choose an explicit conversion format.")
+        case .audioCopyTimingUnsupported:
+            String(localized: "This audio timing cannot be copied unchanged. Choose a lossless conversion format.")
         case .audioMetadataUnsupported:
             String(
                 localized:

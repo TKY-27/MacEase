@@ -48,7 +48,8 @@ let package = Package(
         .executableTarget(name: "Benchmarks", dependencies: ["Engine", "MenuCatalog"], swiftSettings: strict),
         .testTarget(name: "MenuCatalogTests", dependencies: ["MenuCatalog"], swiftSettings: strict),
         .testTarget(
-            name: "FormatsTests", dependencies: ["Formats"], resources: [.copy("Resources")], swiftSettings: strict
+            name: "FormatsTests", dependencies: ["Formats", "Engine"], resources: [.copy("Resources")],
+            swiftSettings: strict
         ),
         .testTarget(
             name: "EngineTests", dependencies: ["Engine"], resources: [.copy("Resources")], swiftSettings: strict

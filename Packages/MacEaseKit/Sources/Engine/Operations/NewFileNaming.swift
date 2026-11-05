@@ -35,7 +35,8 @@ enum NewFileNaming: Sendable {
                     "speed\(speed.formatted(.number.grouping(.never).locale(Locale(identifier: "en_US_POSIX"))))x")
             case .frameRate: self = .edit("fps")
             case .removeAudio: self = .edit("noaudio")
-            case .extractAudio, .still, .gif, .apng, .webP, .gifX, .subtitles, .background: return nil
+            case .extractAudio, .extractOriginalAudio, .still, .gif, .apng, .webP, .gifX, .subtitles, .background:
+                return nil
             }
         case .audio(let operation):
             switch operation {

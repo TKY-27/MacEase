@@ -149,7 +149,7 @@ extension OperationID {
         switch self {
         case .audioConvert:
             ["mp3", "m4a-aac", "m4a-alac", "aac", "wav", "aiff", "flac", "ogg", "opus", "caf-pcm", "caf-alac"]
-        default: ["m4a", "m4a-alac", "mp3", "aac", "wav", "aiff", "flac", "ogg", "opus"]
+        default: ["original", "m4a", "m4a-alac", "mp3", "aac", "wav", "aiff", "flac", "ogg", "opus"]
         }
     }
 
