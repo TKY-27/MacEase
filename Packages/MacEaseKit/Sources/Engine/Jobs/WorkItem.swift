@@ -5,6 +5,7 @@ import Synchronization
 public enum Lane: Sendable {
     case cpu
     case hardwareVideo
+    case download
 }
 
 public struct WorkItem: Sendable {
@@ -62,6 +63,7 @@ public struct StagedFile: Sendable {
 public enum OutputCheck: Sendable {
     case image
     case media
+    case downloadedMedia(MediaDownloadTools)
     case sdrImage
     case sdrVideo
     /// Decoded fully with MacEase's own audio decoders.
@@ -104,6 +106,7 @@ public enum ItemResult: Sendable {
     case hatchExtraction(HatchExtractionResult)
     case replace(original: URL, output: StagedFile)
     case derived(nextTo: URL, outputs: [StagedFile])
+    case created(in: URL, outputs: [StagedFile])
     case exported(
         from: URL, stamp: FileStamp, to: URL, outputs: [StagedFile], preservingAttributes: Bool = true)
     case rename([RenamePlan])

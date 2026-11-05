@@ -348,7 +348,7 @@ enum AudioJob {
             try Task.checkCancellation()
             meter.add(chunk)
             measured += Int64(chunk.count / input.channels)
-            context.progress(measureShare * fraction(measured, of: input.frameCount))
+            context.progress(fraction(measured, of: input.frameCount))
         }
         guard let loudness = meter.integratedLoudness else { return .skipped(.alreadyDone) }
         let wanted = target - loudness
@@ -444,7 +444,7 @@ enum AudioJob {
             if gain != 1 { vDSP.multiply(gain, samples, result: &samples) }
             try await encoder.write(samples)
             written += upper - lower
-            context.progress(progressStart + (1 - progressStart) * fraction(written, of: total))
+            context.progress(fraction(written, of: total))
         }
         try Task.checkCancellation()
         try await encoder.finish()

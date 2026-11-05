@@ -186,10 +186,9 @@ enum ImageCompressor {
         pixels = nil
         var scale = 1.0
         var previousDimensions = plan.frames.map { [$0.image.width, $0.image.height] }
-        for correction in 1...maximumPNGScaleCorrections {
+        for _ in 1...maximumPNGScaleCorrections {
             try Task.checkCancellation()
             context.phase(.searching)
-            context.progress(Double(correction) / Double(maximumPNGScaleCorrections + 1))
             let available = pngTargetHeadroom * Double(target) - Double(candidate.fixedBytes)
             let compressed = Double(candidate.bytes - candidate.fixedBytes)
             guard available > 0, compressed > 0 else { throw EngineError.pngTargetNotReached }
@@ -333,7 +332,7 @@ enum ImageCompressor {
         }
         for step in 0...steps {
             try Task.checkCancellation()
-            context.progress(Double(step) / Double(steps + 1))
+            context.phase(.searching)
             let scaled = try scaled(plan, by: pow(downscaleStep, Double(step)))
             if let candidate = try await fitting(scaled, under: target, smallest: &smallest, context: context) {
                 return candidate
@@ -665,7 +664,7 @@ enum ImageCompressor {
             var fitted = false
             for step in 0...steps {
                 try Task.checkCancellation()
-                context.progress(Double(step) / Double(steps + 1))
+                context.phase(.searching)
                 plan.scale = pow(downscaleStep, Double(step))
                 if try await fitAnimatedScale(
                     plan, under: target, candidate: candidate, best: best, output: output,

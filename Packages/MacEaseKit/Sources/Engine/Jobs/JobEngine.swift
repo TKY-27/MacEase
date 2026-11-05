@@ -26,6 +26,9 @@ public struct BatchOutcome: Sendable {
 
 public struct BatchProgress: Sendable {
     public let fraction: Double
+    public let sequence: UInt64
+    public let stageFractions: [Double?]
+    public var currentFileFraction: Double? { currentItem.flatMap { stageFractions[$0] } }
     public let completedItems: Int
     /// An unfinished item, preferring one already started.
     public let currentItem: Int?
@@ -39,6 +42,7 @@ public final class JobEngine: Sendable {
     public let hatchExtractions: HatchExtractionStore
     private let cpuGate: LaneGate
     private let hardwareVideoGate = LaneGate(width: 1)
+    private let downloadGate = LaneGate(width: 2)
     private let committer = FileCommitter()
     private let logger = Logger(category: "jobs")
 
@@ -153,7 +157,12 @@ public final class JobEngine: Sendable {
         context: ItemContext,
         tracker: BatchTracker
     ) async -> (ItemOutcome, (String, TextDestination)?) {
-        let gate = workItem.lane == .hardwareVideo ? hardwareVideoGate : cpuGate
+        let gate: LaneGate
+        switch workItem.lane {
+        case .cpu: gate = cpuGate
+        case .hardwareVideo: gate = hardwareVideoGate
+        case .download: gate = downloadGate
+        }
         let path = workItem.inputs.first?.path ?? ""
         defer { context.removeStaging() }
         let result: ItemResult
@@ -204,7 +213,6 @@ public final class JobEngine: Sendable {
         let outcome: (ItemOutcome, (String, TextDestination)?)
         do {
             try await history.checkAcceptingWork()
-            context.phase(.saving)
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs, inputStamps: inputStamps,
                 context: context, batch: batch, tracker: tracker, records: &records)
@@ -284,13 +292,18 @@ public final class JobEngine: Sendable {
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
         var outputs: [URL] = []
         switch result {
+        case .replace, .derived, .created, .exported, .groupedDerived: break
+        default: context.phase(.saving)
+        }
+        switch result {
         case .organize(let plan):
             let output = try await history.organize(plan, batch: batch)
             outputs.append(output)
         case .groupedDerived(let destination, let sources, let output):
             try await history.checkAcceptingCommits()
             let committed = try await committer.deriveGroup(
-                output, destination: destination, sources: sources, attributeSource: inputs.first)
+                output, destination: destination, sources: sources, attributeSource: inputs.first,
+                phase: { context.phase($0) })
             records.append(.derived(output: committed.output.path, stamp: committed.stamp))
             outputs.append(committed.output)
             recordOutput(committed.output, stamp: committed.stamp, context: context)
@@ -305,7 +318,8 @@ public final class JobEngine: Sendable {
                 let named = StagedFile(
                     url: output.url, name: newFileNaming.name(for: original, outputName: output.name),
                     check: output.check)
-                let committed = try await committer.derive(named, nextTo: original, expectedStamp: expectedStamp)
+                let committed = try await committer.derive(
+                    named, nextTo: original, expectedStamp: expectedStamp, phase: { context.phase($0) })
                 records.append(.derived(output: committed.output.path, stamp: committed.stamp))
                 outputs.append(committed.output)
                 recordOutput(committed.output, stamp: committed.stamp, context: context)
@@ -313,7 +327,8 @@ public final class JobEngine: Sendable {
             }
             let cloneDirectory = try context.stagingDirectory(for: original)
             let replaced = try await committer.replace(
-                original: original, with: output, cloneDirectory: cloneDirectory, expectedStamp: expectedStamp)
+                original: original, with: output, cloneDirectory: cloneDirectory, expectedStamp: expectedStamp,
+                phase: { context.phase($0) })
             if let trashed = replaced.trashed {
                 records.append(
                     .replaced(
@@ -332,7 +347,16 @@ public final class JobEngine: Sendable {
                 try await history.checkAcceptingCommits()
                 let output = try await committer.derive(
                     file, nextTo: original, expectedStamp: inputStamps[original],
-                    attributeSource: inputs.contains(original) ? original : nil)
+                    attributeSource: inputs.contains(original) ? original : nil, phase: { context.phase($0) })
+                records.append(.derived(output: output.output.path, stamp: output.stamp))
+                outputs.append(output.output)
+                recordOutput(output.output, stamp: output.stamp, context: context)
+                await recordCommits(&records, batch: batch, tracker: tracker)
+            }
+        case .created(let destination, let staged):
+            for file in staged {
+                try await history.checkAcceptingCommits()
+                let output = try await committer.create(file, in: destination, phase: { context.phase($0) })
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
                 recordOutput(output.output, stamp: output.stamp, context: context)
@@ -343,7 +367,7 @@ public final class JobEngine: Sendable {
                 try await history.checkAcceptingCommits()
                 let output = try await committer.derive(
                     file, nextTo: destination, expectedStamp: stamp, attributeSource: source,
-                    preservingAttributes: preservingAttributes)
+                    preservingAttributes: preservingAttributes, phase: { context.phase($0) })
                 records.append(.derived(output: output.output.path, stamp: output.stamp))
                 outputs.append(output.output)
                 recordOutput(output.output, stamp: output.stamp, context: context)
@@ -419,41 +443,53 @@ public final class JobEngine: Sendable {
 }
 
 private final class BatchTracker: Sendable {
-    private let fractions: Mutex<[Double]>
-    private let phases: Mutex<[ItemPhase]>
+    private struct State {
+        var phases: [ItemPhase]
+        var fractions: [Double?]
+        var sequence: UInt64 = 0
+        var failedHistory = false
+    }
+    private let state: Mutex<State>
     private let started = Date()
-    private let failedHistory = Mutex(false)
 
     init(itemCount: Int) {
-        fractions = Mutex([Double](repeating: 0, count: itemCount))
-        phases = Mutex([ItemPhase](repeating: .queued, count: itemCount))
+        state = Mutex(
+            State(
+                phases: Array(repeating: .queued, count: itemCount), fractions: Array(repeating: nil, count: itemCount))
+        )
     }
 
     func phase(_ index: Int, phase: ItemPhase, report: (BatchProgress) -> Void) {
-        phases.withLock { $0[index] = phase }
-        update(index, fraction: nil, report: report)
-    }
-
-    /// Reporting under the lock keeps order.
-    func update(_ index: Int, fraction: Double?, report: (BatchProgress) -> Void) {
-        fractions.withLock { values in
-            let itemPhases = phases.withLock { $0 }
-            if let fraction { values[index] = itemPhases[index] == .finished ? fraction : min(fraction, 0.99) }
-            report(
-                BatchProgress(
-                    fraction: values.reduce(0, +) / Double(values.count),
-                    completedItems: values.count { $0 >= 1 },
-                    currentItem: itemPhases.indices.first {
-                        itemPhases[$0] != .queued && itemPhases[$0] != .finished && values[$0] < 1
-                    } ?? values.firstIndex { $0 < 1 },
-                    itemPhases: itemPhases,
-                    elapsedSeconds: values.map { _ in Date().timeIntervalSince(started) }))
+        state.withLock {
+            $0.phases[index] = phase
+            $0.fractions[index] = nil
+            snapshot(&$0, report: report)
         }
     }
 
-    func markHistoryFailed() {
-        failedHistory.withLock { $0 = true }
+    func update(_ index: Int, fraction: Double?, report: (BatchProgress) -> Void) {
+        state.withLock {
+            if let fraction, fraction.isFinite, $0.phases[index] != .searching, $0.phases[index] != .finished {
+                $0.fractions[index] = min(max(fraction, 0), 1)
+            }
+            snapshot(&$0, report: report)
+        }
     }
 
-    var historyFailed: Bool { failedHistory.withLock { $0 } }
+    private func snapshot(_ state: inout State, report: (BatchProgress) -> Void) {
+        state.sequence += 1
+        let completed = state.phases.count { $0 == .finished }
+        report(
+            BatchProgress(
+                fraction: state.phases.isEmpty ? 1 : Double(completed) / Double(state.phases.count),
+                sequence: state.sequence, stageFractions: state.fractions,
+                completedItems: completed,
+                currentItem: state.phases.indices.first { state.phases[$0] != .queued && state.phases[$0] != .finished }
+                    ?? state.phases.indices.first { state.phases[$0] != .finished },
+                itemPhases: state.phases,
+                elapsedSeconds: state.phases.map { _ in Date().timeIntervalSince(started) }))
+    }
+
+    func markHistoryFailed() { state.withLock { $0.failedHistory = true } }
+    var historyFailed: Bool { state.withLock { $0.failedHistory } }
 }

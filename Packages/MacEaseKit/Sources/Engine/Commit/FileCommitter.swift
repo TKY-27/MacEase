@@ -33,9 +33,12 @@ struct FileCommitter: Sendable {
     private let logger = Logger(category: "commit")
 
     func replace(
-        original: URL, with output: StagedFile, cloneDirectory: URL, expectedStamp: FileStamp
+        original: URL, with output: StagedFile, cloneDirectory: URL, expectedStamp: FileStamp,
+        phase: @Sendable (ItemPhase) -> Void = { _ in }
     ) async throws -> Replaced {
+        phase(.verifying)
         try await OutputVerifier.verify(output)
+        phase(.saving)
         return try Self.namingLock.withLock { _ in
             try Task.checkCancellation()
             let directory = original.deletingLastPathComponent()
@@ -137,9 +140,11 @@ struct FileCommitter: Sendable {
 
     func derive(
         _ output: StagedFile, nextTo original: URL, expectedStamp: FileStamp? = nil, attributeSource: URL? = nil,
-        preservingAttributes: Bool = true
+        preservingAttributes: Bool = true, phase: @Sendable (ItemPhase) -> Void = { _ in }
     ) async throws -> Committed {
+        phase(.verifying)
         try await OutputVerifier.verify(output)
+        phase(.saving)
         if let sourceURL = attributeSource ?? (expectedStamp == nil ? nil : original) {
             return try Self.namingLock.withLock { _ in
                 var nextCandidate = 1
@@ -175,12 +180,31 @@ struct FileCommitter: Sendable {
         }
     }
 
-    func deriveGroup(_ output: StagedFile, destination: URL, sources: [URL: FileStamp], attributeSource: URL?)
+    func create(_ output: StagedFile, in directory: URL, phase: @Sendable (ItemPhase) -> Void = { _ in }) async throws
+        -> Committed
+    {
+        guard AvailableName.checkedName(output.name) else {
+            throw EngineError.invalidInput(.malformed("Invalid output name"))
+        }
+        phase(.verifying)
+        try await OutputVerifier.verify(output)
+        phase(.saving)
+        return try Self.namingLock.withLock { _ in
+            try coordinatedMove(output.url, toAvailableNameIn: directory, named: output.name)
+        }
+    }
+
+    func deriveGroup(
+        _ output: StagedFile, destination: URL, sources: [URL: FileStamp], attributeSource: URL?,
+        phase: @Sendable (ItemPhase) -> Void = { _ in }
+    )
         async throws -> Committed
     {
         let cancellation = OSAllocatedUnfairLock(initialState: false)
         return try await withTaskCancellationHandler {
+            phase(.verifying)
             try await OutputVerifier.verify(output)
+            phase(.saving)
             guard destination.isFileURL, AvailableName.checkedName(destination.lastPathComponent), !sources.isEmpty
             else {
                 throw EngineError.invalidInput(.malformed("Invalid grouped output destination"))

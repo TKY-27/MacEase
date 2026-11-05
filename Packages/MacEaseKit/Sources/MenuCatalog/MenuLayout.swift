@@ -49,7 +49,7 @@ public enum MenuLayout {
             openChildren = []
         }
 
-        for (index, entry) in file.entries.enumerated() where entry.kind == kind {
+        for (index, entry) in file.entries.enumerated() where entry.kind == kind && entry.op != .folderDownloadMedia {
             guard let title = entry.path.first else { continue }
             let parent = entry.path.count > 1 ? title : rootLevel
             if entry.separatorBefore { pendingBoundaries.insert(parent) }
@@ -103,6 +103,7 @@ private struct SelectionSummary {
     func count(for kind: FileKind) -> Int { counts[kind] ?? 0 }
 
     func allows(_ entry: MenuEntry) -> Bool {
+        if entry.op == .folderDownloadMedia { return totalCount == 1 && count(for: .folder) == 1 }
         let count = count(for: entry.kind)
         guard count >= entry.minimumSelection, entry.maximumSelection.map({ count <= $0 }) ?? true else {
             return false

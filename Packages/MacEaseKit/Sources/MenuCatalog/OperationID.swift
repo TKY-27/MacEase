@@ -49,6 +49,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case folderTree = "folder.tree"
     case folderRename = "folder.rename"
     case folderAIRename = "folder.aiRename"
+    case folderDownloadMedia = "folder.downloadMedia"
     case folderAnalyze = "folder.analyze"
     case folderCompress = "folder.compress"
     case folderOrganize = "folder.organize"
@@ -189,7 +190,7 @@ extension OperationID {
     public var maximumSelection: Int? {
         switch self {
         case .videoTrim, .audioTrim, .pdfExtractPages, .pdfEditPages, .imageCopyBase64, .imageTraceSVG,
-            .archiveBrowse:
+            .archiveBrowse, .folderDownloadMedia:
             1
         default: nil
         }
@@ -207,7 +208,8 @@ extension OperationID {
         .pdfEditPages, .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit,
         .pdfAIRename,
         .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
-        .folderOrganize, .folderCompress, .folderRename, .folderTree, .folderAnalyze, .folderRemoveDuplicates,
+        .folderDownloadMedia, .folderOrganize, .folderCompress, .folderRename, .folderTree, .folderAnalyze,
+        .folderRemoveDuplicates,
         .folderRemoveEmpty, .folderAIRename, .archiveHatchExtract, .archiveExtract, .archiveBrowse,
         .jarDecompile, .filesFinish, .anyChecksum,
     ]

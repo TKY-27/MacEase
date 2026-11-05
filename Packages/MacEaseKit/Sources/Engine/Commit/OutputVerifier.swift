@@ -41,6 +41,8 @@ enum OutputVerifier {
             try actualBudget.reserve(image)
         case .sdrImage:
             try ImageSDR.verify(file.url)
+        case .downloadedMedia(let tools):
+            try await MediaDownloader.verify(file.url, tools: tools)
         case .media:
             try await verifyMedia(file.url)
         case .sdrVideo:
