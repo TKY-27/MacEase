@@ -269,8 +269,10 @@ struct MediaDownloadView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(Array(model.failures.enumerated()), id: \.offset) { _, failure in
-                                Text("\(failure.url.host() ?? "") — \(failure.message)")
-                                    .textSelection(.enabled)
+                                Text(
+                                    "\(failure.url.host() ?? "") — \(String(localized: String.LocalizationValue(failure.message)))"
+                                )
+                                .textSelection(.enabled)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

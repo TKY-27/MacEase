@@ -194,15 +194,17 @@ struct MediaIntegration {
     @discardableResult
     private static func inspect(_ file: URL, using tools: MediaDownloadTools, video: Bool, audio: Bool) throws -> Probe
     {
-        let process = Process()
-        process.executableURL = tools.ffprobe
-        process.arguments = ["-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "json", file.path]
+        let probeProcess = Process()
+        probeProcess.executableURL = tools.ffprobe
+        probeProcess.arguments = [
+            "-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "json", file.path,
+        ]
         let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
+        probeProcess.standardOutput = pipe
+        try probeProcess.run()
         let result = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        try expect(process.terminationStatus == 0, "ffprobe rejected \(file.lastPathComponent)")
+        probeProcess.waitUntilExit()
+        try expect(probeProcess.terminationStatus == 0, "ffprobe rejected \(file.lastPathComponent)")
         let probe = try JSONDecoder().decode(Probe.self, from: result)
         try expect(probe.streams.contains { $0.codecType == "video" } == video, "Unexpected video stream")
         try expect(probe.streams.contains { $0.codecType == "audio" } == audio, "Unexpected audio stream")

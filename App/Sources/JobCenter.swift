@@ -41,7 +41,9 @@ final class JobCenter {
 
         var failedIndices: [Int] {
             outcome.outcomes.indices.filter {
-                if case .failed(let error) = outcome.outcomes[$0] { return error != .cancelled }
+                if case .failed(let error) = outcome.outcomes[$0] {
+                    return error != .cancelled && outcome.details[$0].outputStamps.isEmpty
+                }
                 return false
             }
         }

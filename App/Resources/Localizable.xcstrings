@@ -1850,6 +1850,12 @@
             "state": "translated",
             "value": "再生時間"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration"
+          }
         }
       }
     },
@@ -2436,6 +2442,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "形式"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
           }
         }
       }
@@ -5044,7 +5056,13 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてを選択"
+            "value": "すべて選択"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select All"
           }
         }
       }
@@ -5532,6 +5550,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "字幕"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtitles"
           }
         }
       }
@@ -15741,6 +15765,700 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在の設定では「%@」を目標サイズ以下にできませんでした。目標サイズを大きくして再実行してください。"
+          }
+        }
+      }
+    },
+    "Choose one destination folder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose one destination folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存先のフォルダを1つ選んでください。"
+          }
+        }
+      }
+    },
+    "Enter one valid HTTP or HTTPS URL per line.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter one valid HTTP or HTTPS URL per line."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPまたはHTTPSの有効なURLを1行に1つずつ入力してください。"
+          }
+        }
+      }
+    },
+    "Save to": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存先"
+          }
+        }
+      }
+    },
+    "URLs, one per line": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLs, one per line"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL（1行に1つ）"
+          }
+        }
+      }
+    },
+    "Public videos and audio. Live streams and sign-in are not supported.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Public videos and audio. Live streams and sign-in are not supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開された動画や音声に対応します。ライブ配信やログインには対応していません。"
+          }
+        }
+      }
+    },
+    "Stop Analysis": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Analysis"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析を停止"
+          }
+        }
+      }
+    },
+    "Analyze": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析"
+          }
+        }
+      }
+    },
+    "Media": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディア"
+          }
+        }
+      }
+    },
+    "Clear Selection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択を解除"
+          }
+        }
+      }
+    },
+    "Download %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@をダウンロード"
+          }
+        }
+      }
+    },
+    "Title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル"
+          }
+        }
+      }
+    },
+    "Playlist entry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playlist entry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイリストの項目"
+          }
+        }
+      }
+    },
+    "Available formats": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available formats"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能な形式"
+          }
+        }
+      }
+    },
+    "Analyzing…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyzing…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析中…"
+          }
+        }
+      }
+    },
+    "Analyze URLs to choose media and available options.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyze URLs to choose media and available options."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLを解析すると、メディアと利用可能な設定を選べます。"
+          }
+        }
+      }
+    },
+    "Choose the playlist entries you want to download.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the playlist entries you want to download."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードするプレイリストの項目を選んでください。"
+          }
+        }
+      }
+    },
+    "URLs that could not be analyzed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLs that could not be analyzed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析できなかったURL"
+          }
+        }
+      }
+    },
+    "Best available": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Best available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能な最高画質"
+          }
+        }
+      }
+    },
+    "Off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        }
+      }
+    },
+    "Subtitle file": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subtitle file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕ファイル"
+          }
+        }
+      }
+    },
+    "Keeps source quality without re-encoding. Container merging may be required.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps source quality without re-encoding. Container merging may be required."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再エンコードせず元の品質を保ちます。コンテナの結合が必要な場合があります。"
+          }
+        }
+      }
+    },
+    "Best video (original format)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Best video (original format)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最高画質の動画（元の形式）"
+          }
+        }
+      }
+    },
+    "Original audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の音声"
+          }
+        }
+      }
+    },
+    "%@ (automatic)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (automatic)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（自動生成）"
+          }
+        }
+      }
+    },
+    "%@ (authored)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (authored)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（手動作成）"
+          }
+        }
+      }
+    },
+    "Download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード"
+          }
+        }
+      }
+    },
+    "This format may require re-encoding when the source codec is incompatible.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This format may require re-encoding when the source codec is incompatible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のコーデックに互換性がない場合、この形式には再エンコードが必要です。"
+          }
+        }
+      }
+    },
+    "menu.op.folder.downloadMedia": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp…"
+          }
+        }
+      }
+    },
+    "%lld of %lld completed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld of %lld completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld 件完了"
+          }
+        }
+      }
+    },
+    "Appears if a batch is still running after two seconds. Finder keeps focus.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appears if a batch is still running after two seconds. Finder keeps focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "処理が2秒後も続いている場合に表示します。Finderの操作はそのまま続けられます。"
+          }
+        }
+      }
+    },
+    "Open Download Page": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Download Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードページを開く"
+          }
+        }
+      }
+    },
+    "Open the official website to download MacEase.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the official website to download MacEase."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公式サイトでMacEaseをダウンロードします。"
+          }
+        }
+      }
+    },
+    "Downloading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード中"
+          }
+        }
+      }
+    },
+    "Converting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換中"
+          }
+        }
+      }
+    },
+    "Media could not be analyzed. The site may require login or be unsupported.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解析できませんでした。ログインが必要か、未対応のサイトの可能性があります。"
+          }
+        }
+      }
+    },
+    "This media requires login; only public media is supported": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログインが必要なメディアです。公開メディアのみ対応しています。"
+          }
+        }
+      }
+    },
+    "The website refused the request or applied a rate limit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイトがリクエストを拒否したか、回数制限が適用されました。"
+          }
+        }
+      }
+    },
+    "This website or URL is unsupported": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトまたはURLには対応していません。"
+          }
+        }
+      }
+    },
+    "The network transfer failed; retry when the connection is available": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通信に失敗しました。接続を確認して再試行してください。"
+          }
+        }
+      }
+    },
+    "The selected format or resolution is unavailable": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した形式または解像度を利用できません。"
+          }
+        }
+      }
+    },
+    "Enter a public HTTP or HTTPS URL without credentials": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証情報を含まない、公開されたHTTPまたはHTTPSのURLを入力してください。"
+          }
+        }
+      }
+    },
+    "Media metadata exceeds limit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディア情報が上限を超えています。"
+          }
+        }
+      }
+    },
+    "The selected media is no longer available": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したメディアは現在利用できません。"
+          }
+        }
+      }
+    },
+    "The selected resolution is no longer available": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した解像度は現在利用できません。"
+          }
+        }
+      }
+    },
+    "Playlist nesting exceeds limit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイリストの入れ子が上限を超えています。"
+          }
+        }
+      }
+    },
+    "Playlist exceeds 512 entries": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイリストが512項目の上限を超えています。"
+          }
+        }
+      }
+    },
+    "Live, upcoming and DRM-protected media are unsupported": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配信中・配信予定・DRMで保護されたメディアには対応していません。"
+          }
+        }
+      }
+    },
+    "Media metadata is incomplete": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディア情報を完全に取得できませんでした。"
+          }
+        }
+      }
+    },
+    "DRM-protected media is unsupported": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DRMで保護されたメディアには対応していません。"
           }
         }
       }
