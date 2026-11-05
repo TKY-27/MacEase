@@ -103,7 +103,8 @@ public struct MediaDownloader: Sendable {
             return MediaSource(
                 id: source.id, webpageURL: source.webpageURL, title: source.title, duration: source.duration,
                 resolutions: source.resolutions, subtitles: source.subtitles, isPlaylistEntry: source.isPlaylistEntry,
-                availableFormats: source.availableFormats, playlistIndex: sharedPage ? source.playlistIndex : nil)
+                availableFormats: source.availableFormats, playlistIndex: sharedPage ? source.playlistIndex : nil,
+                videoDimensions: source.videoDimensions)
         }
     }
 
@@ -130,7 +131,7 @@ public struct MediaDownloader: Sendable {
             source.playlistIndex.map { ["--yes-playlist", "--playlist-items", String($0)] } ?? ["--no-playlist"]
         arguments += [
             "--match-filters", "!is_live & id ~= '^" + escapedID + "$'", "--no-simulate", "--no-overwrites",
-            "--no-continue",
+            "--no-continue", "--abort-on-unavailable-fragments",
             "--newline", "--progress",
             "--progress-template",
             "download:MACEASE:%(info.format_id)s:%(progress.downloaded_bytes)s:%(progress.total_bytes)s",
@@ -270,6 +271,25 @@ public struct MediaDownloader: Sendable {
         guard !streams.isEmpty, streams.allSatisfy({ (Int($0.packets ?? "") ?? 0) > 0 }) else {
             throw EngineError.decodeFailed("Downloaded media has no valid packets")
         }
+        do {
+            try await decode(output, tools: tools, duration: duration, progress: progress)
+        } catch let failure as EngineError {
+            guard case .decodeFailed = failure,
+                probe.streams.filter({ $0.codecType == "video" }).count == 1,
+                let video = probe.streams.first(where: { $0.codecType == "video" }), video.codecName == "h264",
+                let index = video.index,
+                try await DownloadedMediaRepair.removeEmptyH264Tail(
+                    output, videoIndex: index, tools: tools,
+                    verify: {
+                        try await decode($0, tools: tools, duration: duration, progress: progress)
+                    })
+            else { throw failure }
+        }
+    }
+
+    private static func decode(
+        _ output: URL, tools: MediaDownloadTools, duration: Double?, progress: @escaping @Sendable (Double) -> Void
+    ) async throws {
         _ = try await MediaToolProcess().run(
             executable: tools.ffmpeg,
             arguments: [
@@ -289,7 +309,8 @@ public struct MediaDownloader: Sendable {
         let result = try await MediaToolProcess().run(
             executable: tools.ffprobe,
             arguments: [
-                "-v", "error", "-count_packets", "-show_entries", "stream=codec_type,codec_name,nb_read_packets", "-of",
+                "-v", "error", "-count_packets", "-show_entries", "stream=index,codec_type,codec_name,nb_read_packets",
+                "-of",
                 "json",
                 output.path,
             ],
@@ -357,11 +378,12 @@ public struct MediaDownloader: Sendable {
     private struct Probe: Decodable {
         let streams: [Stream]
         struct Stream: Decodable {
+            let index: Int?
             let codecType: String
             let codecName: String?
             let packets: String?
             enum CodingKeys: String, CodingKey {
-                case codecType = "codec_type", codecName = "codec_name", packets = "nb_read_packets"
+                case index, codecType = "codec_type", codecName = "codec_name", packets = "nb_read_packets"
             }
         }
     }
@@ -375,6 +397,7 @@ public struct MediaDownloader: Sendable {
         let playlistCount: Int?
         let formats: [Format]?
         let height: Double?
+        let width: Double?
         let ext: String?
         let subtitles: [String: [Track]]?
         let automaticCaptions: [String: [Track]]?
@@ -382,7 +405,7 @@ public struct MediaDownloader: Sendable {
         let liveStatus: String?
         let hasDRM: Bool?
         enum CodingKeys: String, CodingKey {
-            case id, title, duration, entries, formats, subtitles, height, ext
+            case id, title, duration, entries, formats, subtitles, height, width, ext
             case webpageURL = "webpage_url", automaticCaptions = "automatic_captions"
             case isLive = "is_live", liveStatus = "live_status", hasDRM = "has_drm"
             case playlistCount = "playlist_count"
@@ -390,9 +413,14 @@ public struct MediaDownloader: Sendable {
         struct Track: Decodable {}
         struct Format: Decodable {
             let height: Double?
+            let width: Double?
             let ext: String?
             let hasDRM: Bool?
-            enum CodingKeys: String, CodingKey { case height, ext, hasDRM = "has_drm" }
+            let videoCodec: String?
+            let audioCodec: String?
+            enum CodingKeys: String, CodingKey {
+                case height, width, ext, hasDRM = "has_drm", videoCodec = "vcodec", audioCodec = "acodec"
+            }
         }
 
         func sources(fallback: URL, playlist: Bool = false, index: Int? = nil, depth: Int = 0) throws -> [MediaSource] {
@@ -421,9 +449,18 @@ public struct MediaDownloader: Sendable {
                 throw EngineError.decodeFailed("DRM-protected media is unsupported")
             }
             let heights = Set(
-                (usable.compactMap(\.height) + (height.map { [$0] } ?? [])).filter {
+                (usable.filter { $0.videoCodec != "none" }.compactMap(\.height) + (height.map { [$0] } ?? [])).filter {
                     $0.isFinite && $0 > 0 && $0 <= Limits.maximumResolution
                 }.map(Int.init))
+            let dimensions = Set(
+                (usable.filter { $0.videoCodec != "none" }.map { ($0.width, $0.height) } + [(width, height)])
+                    .compactMap { width, height -> MediaVideoDimensions? in
+                        guard let width, let height, width.isFinite, height.isFinite,
+                            width >= 1, height >= 1,
+                            width <= Limits.maximumResolution, height <= Limits.maximumResolution
+                        else { return nil }
+                        return MediaVideoDimensions(width: Int(width), height: Int(height))
+                    })
             let authored = (subtitles ?? [:]).keys.filter(MediaDownloader.safeLanguage).map {
                 MediaSubtitle(language: $0, automatic: false)
             }
@@ -431,9 +468,10 @@ public struct MediaDownloader: Sendable {
                 MediaSubtitle(language: $0, automatic: true)
             }
             let extensions = Set(
-                (usable.compactMap(\.ext) + (ext.map { [$0] } ?? [])).filter {
-                    $0.count <= 16 && $0.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains)
-                })
+                (usable.filter { $0.videoCodec != "none" || $0.audioCodec != "none" }.compactMap(\.ext)
+                    + (ext.map { [$0] } ?? [])).filter {
+                        $0.count <= 16 && $0.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains)
+                    })
             return [
                 MediaSource(
                     id: page.absoluteString + "#" + id, webpageURL: page, title: title,
@@ -441,7 +479,8 @@ public struct MediaDownloader: Sendable {
                     resolutions: heights.sorted(by: >),
                     subtitles: (authored + automatic).sorted {
                         ($0.language, $0.automatic ? 1 : 0) < ($1.language, $1.automatic ? 1 : 0)
-                    }, isPlaylistEntry: playlist, availableFormats: extensions.sorted(), playlistIndex: index)
+                    }, isPlaylistEntry: playlist, availableFormats: extensions.sorted(), playlistIndex: index,
+                    videoDimensions: dimensions.sorted { ($0.height, $0.width) > ($1.height, $1.width) })
             ]
         }
     }

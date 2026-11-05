@@ -12653,7 +12653,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld項目を選択中"
+            "value": "%lld 件を選択"
           }
         }
       }
@@ -13242,7 +13242,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "全体を表示"
+            "value": "全体表示"
           }
         }
       }
@@ -16459,6 +16459,146 @@
           "stringUnit": {
             "state": "translated",
             "value": "DRMで保護されたメディアには対応していません。"
+          }
+        }
+      }
+    },
+    "Extract Original Audio": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の音声をそのまま抽出"
+          }
+        }
+      }
+    },
+    "MP3 (Lossy Conversion)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP3（非可逆変換）"
+          }
+        }
+      }
+    },
+    "Only resolutions offered by every selected video are listed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したすべての動画で利用できる解像度を表示します。"
+          }
+        }
+      }
+    },
+    "Set In": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始をここに"
+          }
+        }
+      }
+    },
+    "Set Out": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了をここに"
+          }
+        }
+      }
+    },
+    "Set In Point at Playhead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始を再生位置に合わせる"
+          }
+        }
+      }
+    },
+    "Set Out Point at Playhead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了を再生位置に合わせる"
+          }
+        }
+      }
+    },
+    "Set In Point at Playhead (I)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始を再生位置に合わせる（I）"
+          }
+        }
+      }
+    },
+    "Set Out Point at Playhead (O)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了を再生位置に合わせる（O）"
+          }
+        }
+      }
+    },
+    "Fit Timeline (⇧Z)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムライン全体を表示（⇧Z）"
+          }
+        }
+      }
+    },
+    "Zoom In (⌘+)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大（⌘+）"
+          }
+        }
+      }
+    },
+    "Zoom Out (⌘−)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小（⌘−）"
+          }
+        }
+      }
+    },
+    "This audio cannot be extracted unchanged. Choose an explicit conversion format.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この音声はそのまま抽出できません。変換先の形式を指定してください。"
+          }
+        }
+      }
+    },
+    "This audio timing cannot be copied unchanged. Choose a lossless conversion format.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この音声は再生タイミングを保ったままコピーできません。可逆形式への変換を選んでください。"
           }
         }
       }

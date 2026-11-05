@@ -17,7 +17,8 @@ final class MediaToolProcess: Sendable {
 
     func run(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
-        captureOutput: Bool = true, line: @escaping @Sendable (String) -> Void = { _ in }
+        captureOutput: Bool = true, input: FileHandle? = nil,
+        line: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> MediaToolResult {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -26,7 +27,7 @@ final class MediaToolProcess: Sendable {
                         with: Result {
                             try self.execute(
                                 executable: executable, arguments: arguments, directory: directory, tools: tools,
-                                captureOutput: captureOutput, line: line)
+                                captureOutput: captureOutput, input: input, line: line)
                         })
                 }
             }
@@ -48,11 +49,12 @@ final class MediaToolProcess: Sendable {
 
     private func execute(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
-        captureOutput: Bool, line: @escaping @Sendable (String) -> Void
+        captureOutput: Bool, input: FileHandle?, line: @escaping @Sendable (String) -> Void
     ) throws -> MediaToolResult {
         let child = Process()
         child.executableURL = executable
         child.arguments = arguments
+        child.standardInput = input ?? FileHandle.nullDevice
         child.currentDirectoryURL = directory
         child.environment = [
             "HOME": directory.path, "TMPDIR": directory.path, "LANG": "en_US.UTF-8",
@@ -62,11 +64,13 @@ final class MediaToolProcess: Sendable {
         let standardError = Pipe()
         child.standardOutput = standardOutput
         child.standardError = standardError
+        defer { try? input?.close() }
         try state.withLock {
             guard !$0.cancelled else { throw CancellationError() }
             $0.child = child
             try child.run()
         }
+        try input?.close()
         let capture = Mutex(Data())
         let overflow = Mutex(false)
         let diagnostics = Mutex(Data())
@@ -113,7 +117,7 @@ final class MediaToolProcess: Sendable {
             let message = String(decoding: diagnostics.withLock { $0 }, as: UTF8.self).lowercased()
             let reason: String
             if message.contains("no space left") {
-                reason = "There is not enough disk space for this download"
+                reason = "There is not enough disk space for this operation"
             } else if message.contains("permission denied") {
                 reason = "The destination or media tool is not accessible"
             } else if message.contains("sign in") || message.contains("login") || message.contains("private video") {

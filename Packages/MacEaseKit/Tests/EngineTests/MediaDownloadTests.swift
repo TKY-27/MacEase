@@ -15,6 +15,40 @@ import Testing
         #expect(throws: EngineError.self) { try MediaDownloader.validateURL(text) }
     }
 
+    @Test func portraitDimensionsExcludeStoryboardAndAudioFormats() async throws {
+        let fixture = try DownloadFixture()
+        defer { fixture.remove() }
+        let metadata = """
+            {"id":"portrait","title":"Portrait","webpage_url":"https://example.com/video", "formats":[
+              {"width":1080,"height":1440,"ext":"mp4","vcodec":"h264"},
+              {"width":540,"height":720,"ext":"mp4","vcodec":"h264"},
+              {"width":48,"height":27,"ext":"mhtml","vcodec":"none","acodec":"none"},
+              {"height":144,"ext":"m4a","vcodec":"none"}]}
+            """
+        try Data(metadata.utf8).write(to: fixture.root.appending(path: "metadata"))
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let analysis = try await downloader.analyze(urls: [try #require(URL(string: "https://example.com/video"))])
+        let source = try #require(analysis.sources.first)
+        #expect(source.resolutions == [1440, 720])
+        #expect(source.availableFormats == ["m4a", "mp4"])
+        #expect(
+            source.videoDimensions == [
+                MediaVideoDimensions(width: 1080, height: 1440), MediaVideoDimensions(width: 540, height: 720),
+            ])
+        let request = MediaDownloadRequest(
+            destination: fixture.destination,
+            selections: [MediaDownloadSelection(source: source, resolution: 720)])
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
+        guard case .succeeded = outcome.outcomes.first else {
+            Issue.record("Portrait resolution download failed: \(outcome.outcomes)")
+            return
+        }
+        let arguments = try String(contentsOf: fixture.root.appending(path: "arguments"), encoding: .utf8)
+        #expect(arguments.contains("bestvideo[height=720]+bestaudio/best[height=720]"))
+        #expect(arguments.contains("--abort-on-unavailable-fragments"))
+    }
+
     @Test func analyzesSubprocessMetadataAndSanitizesFailure() async throws {
         let fixture = try DownloadFixture()
         defer { fixture.remove() }

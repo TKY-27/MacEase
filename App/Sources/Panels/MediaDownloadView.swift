@@ -55,6 +55,13 @@ final class MediaDownloadModel {
         }
     }
 
+    func resolutionTitle(_ height: Int) -> String {
+        let candidates = selectedSources.isEmpty ? sources : selectedSources
+        let widths = Set(candidates.flatMap(\.videoDimensions).filter { $0.height == height }.map(\.width))
+        if widths.count == 1, let width = widths.first { return "\(width) × \(height)" }
+        return "\(height)p"
+    }
+
     func normalizeOptions() {
         if let resolution, !resolutions.contains(resolution) { self.resolution = nil }
         if let subtitle, !subtitles.contains(subtitle) { self.subtitle = nil }
@@ -137,24 +144,26 @@ struct MediaDownloadView: View {
     @FocusState private var urlsFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            destination
-            urlInput
-            results
-            options
-            if let error = model.error { ProblemLabel(text: error) }
-            HStack {
-                Button("Cancel", action: close).keyboardShortcut(.cancelAction)
-                Spacer()
-                Button("Download") {
-                    if model.submit(run) { close() }
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                destination
+                urlInput
+                results
+                options
+                if let error = model.error { ProblemLabel(text: error) }
+            }
+            .padding(20)
+            PanelBar(actionTitle: String(localized: "Download"), canRun: model.canDownload, cancel: close) {
+                if model.submit(run) { close() }
+            } accessory: {
+                if !model.sources.isEmpty {
+                    Text("\(model.selectedSources.count) selected")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!model.canDownload)
             }
         }
-        .padding(20)
-        .frame(minWidth: 660, minHeight: 580)
+        .frame(minWidth: 700, minHeight: 650)
         .onAppear { urlsFocused = true }
         .onChange(of: model.selectedIDs) { model.normalizeOptions() }
     }
@@ -179,7 +188,7 @@ struct MediaDownloadView: View {
                 .font(.body.monospaced())
                 .focused($urlsFocused)
                 .frame(height: 86)
-                .border(.separator)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
                 .accessibilityLabel(Text("URLs, one per line"))
                 .disabled(model.isAnalyzing)
             HStack {
@@ -240,6 +249,12 @@ struct MediaDownloadView: View {
                     Text(Self.duration(source.duration)).monospacedDigit()
                 }
                 .width(74)
+                TableColumn("Resolution") { source in
+                    Text(source.videoDimensions.map { "\($0.width) × \($0.height)" }.joined(separator: ", "))
+                        .lineLimit(1)
+                        .help(source.videoDimensions.map { "\($0.width) × \($0.height)" }.joined(separator: ", "))
+                }
+                .width(min: 100, ideal: 120)
                 TableColumn("Available formats") { source in
                     Text(source.availableFormats.joined(separator: ", "))
                         .lineLimit(1)
@@ -286,33 +301,54 @@ struct MediaDownloadView: View {
 
     private var options: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                Picker("Format", selection: $model.format) {
-                    ForEach(MediaDownloadFormat.allCases, id: \.self) { format in
-                        Text(Self.formatTitle(format)).tag(format)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                GridRow {
+                    Text("Format").gridColumnAlignment(.trailing)
+                    Picker("Format", selection: $model.format) {
+                        ForEach(MediaDownloadFormat.allCases, id: \.self) { format in
+                            Text(Self.formatTitle(format)).tag(format)
+                        }
                     }
+                    .labelsHidden()
                 }
-                Picker("Resolution", selection: $model.resolution) {
-                    Text("Best available").tag(nil as Int?)
-                    ForEach(model.resolutions, id: \.self) { resolution in
-                        Text("\(resolution)p").tag(Optional(resolution))
+                GridRow {
+                    Text("Resolution")
+                    Picker("Resolution", selection: $model.resolution) {
+                        Text("Best available").tag(nil as Int?)
+                        ForEach(model.resolutions, id: \.self) { resolution in
+                            Text(model.resolutionTitle(resolution)).tag(Optional(resolution))
+                        }
                     }
+                    .labelsHidden()
+                    .disabled(model.isAudioOnly || model.sources.isEmpty)
                 }
-                .disabled(model.isAudioOnly || model.sources.isEmpty)
+                GridRow {
+                    Text("Subtitles")
+                    Picker("Subtitles", selection: $model.subtitle) {
+                        Text("Off").tag(nil as MediaSubtitle?)
+                        ForEach(model.subtitles, id: \.self) { subtitle in
+                            Text(Self.subtitleTitle(subtitle)).tag(Optional(subtitle))
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(model.subtitles.isEmpty)
+                }
+                GridRow {
+                    Text("Subtitle file")
+                    Picker("Subtitle file", selection: $model.subtitleFormat) {
+                        ForEach(MediaSubtitleFormat.allCases, id: \.self) { format in
+                            Text(format.rawValue.uppercased()).tag(format)
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(model.subtitle == nil)
+                }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                Picker("Subtitles", selection: $model.subtitle) {
-                    Text("Off").tag(nil as MediaSubtitle?)
-                    ForEach(model.subtitles, id: \.self) { subtitle in
-                        Text(Self.subtitleTitle(subtitle)).tag(Optional(subtitle))
-                    }
-                }
-                Picker("Subtitle file", selection: $model.subtitleFormat) {
-                    ForEach(MediaSubtitleFormat.allCases, id: \.self) { format in
-                        Text(format.rawValue.uppercased()).tag(format)
-                    }
-                }
-                .disabled(model.subtitle == nil)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !model.sources.isEmpty && !model.isAudioOnly {
+                Text("Only resolutions offered by every selected video are listed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
             Text(
                 model.format.requiresReencoding

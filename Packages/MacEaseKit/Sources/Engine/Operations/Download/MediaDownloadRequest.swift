@@ -16,6 +16,7 @@ public struct MediaSource: Identifiable, Hashable, Sendable {
     public let title: String
     public let duration: Double?
     public let resolutions: [Int]
+    public let videoDimensions: [MediaVideoDimensions]
     public let availableFormats: [String]
     public let subtitles: [MediaSubtitle]
     public let isPlaylistEntry: Bool
@@ -23,17 +24,29 @@ public struct MediaSource: Identifiable, Hashable, Sendable {
 
     public init(
         id: String, webpageURL: URL, title: String, duration: Double?, resolutions: [Int],
-        subtitles: [MediaSubtitle], isPlaylistEntry: Bool, availableFormats: [String] = [], playlistIndex: Int? = nil
+        subtitles: [MediaSubtitle], isPlaylistEntry: Bool, availableFormats: [String] = [], playlistIndex: Int? = nil,
+        videoDimensions: [MediaVideoDimensions] = []
     ) {
         self.id = id
         self.webpageURL = webpageURL
         self.title = title
         self.duration = duration
         self.resolutions = resolutions
+        self.videoDimensions = videoDimensions
         self.availableFormats = availableFormats
         self.subtitles = subtitles
         self.isPlaylistEntry = isPlaylistEntry
         self.playlistIndex = playlistIndex
+    }
+}
+
+public struct MediaVideoDimensions: Hashable, Sendable {
+    public let width: Int
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
     }
 }
 
