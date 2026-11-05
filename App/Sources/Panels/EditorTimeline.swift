@@ -1,59 +1,112 @@
 import Engine
 import SwiftUI
 
+/// Playback controls centred under the viewer.
+struct EditorTransportBar: View {
+    @Bindable var model: MediaEditorModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            TransportClock(position: model.position, duration: model.outputDuration)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 18) {
+                Button {
+                    model.stepFrame(-1)
+                } label: {
+                    Label("Previous Frame", systemImage: "backward.frame.fill")
+                }
+                .help("Previous Frame (←)")
+                Button {
+                    model.play()
+                } label: {
+                    Label(model.playing ? "Pause" : "Play", systemImage: model.playing ? "pause.fill" : "play.fill")
+                        .font(.title2)
+                        .frame(width: 28, height: 28)
+                }
+                .help(model.playing ? "Pause (Space)" : "Play (Space)")
+                Button {
+                    model.stepFrame(1)
+                } label: {
+                    Label("Next Frame", systemImage: "forward.frame.fill")
+                }
+                .help("Next Frame (→)")
+            }
+            .disabled(!model.canPlay)
+            HStack {
+                Button {
+                    model.toggleMute()
+                } label: {
+                    Label("Mute Preview", systemImage: model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }
+                .help(model.muted ? "Unmute Preview" : "Mute Preview")
+                .disabled(!model.hasAudio || !model.canPlay)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .font(.body)
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+    }
+}
+
+struct TransportClock: View {
+    let position: Double
+    let duration: Double
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(Timecode.string(position)).foregroundStyle(.primary)
+            Text(verbatim: "/").foregroundStyle(.tertiary)
+            Text(Timecode.string(duration)).foregroundStyle(.secondary)
+        }
+        .font(.callout.monospacedDigit())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Playhead"))
+        .accessibilityValue(Text("\(Timecode.string(position)) of \(Timecode.string(duration))"))
+    }
+}
+
 struct EditorTimeline: View {
     @Bindable var model: MediaEditorModel
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             HStack(spacing: 14) {
-                HStack(spacing: 12) {
-                    Button {
-                        model.stepFrame(-1)
-                    } label: {
-                        Label("Previous Frame", systemImage: "backward.end")
-                    }
-                    Button {
-                        model.play()
-                    } label: {
-                        Label(model.playing ? "Pause" : "Play", systemImage: model.playing ? "pause.fill" : "play.fill")
-                    }
-                    Button {
-                        model.stepFrame(1)
-                    } label: {
-                        Label("Next Frame", systemImage: "forward.end")
-                    }
-                    Button {
-                        model.toggleMute()
-                    } label: {
-                        Label("Mute Preview", systemImage: model.muted ? "speaker.slash" : "speaker.wave.2")
-                    }.disabled(!model.hasAudio)
-                }
-                .labelStyle(.iconOnly).disabled(!model.canPlay)
-                Text(model.position, format: .number.precision(.fractionLength(3)))
-                    .monospacedDigit().frame(width: 80, alignment: .leading)
-                Divider().frame(height: 18)
                 Button {
                     model.split()
                 } label: {
                     Label("Split", systemImage: "scissors")
                 }
-                .help("Split at playhead (⌘B)").disabled(!model.canSplit)
+                .help("Split at Playhead (⌘B)").disabled(!model.canSplit)
                 Button {
+                    model.duplicateSelection()
+                } label: {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                .help("Duplicate Segment").disabled(!model.hasSelection)
+                Button(role: .destructive) {
                     model.deleteSelection()
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
-                .help("Delete selected segment (Delete)").disabled(!model.hasSelection)
+                .help("Delete Segment (⌫)").disabled(!model.hasSelection)
                 Menu {
                     segmentActions
                 } label: {
                     Label("Segment Actions", systemImage: "ellipsis.circle")
                 }
-                .labelStyle(.iconOnly).disabled(!model.hasSelection)
+                .labelStyle(.iconOnly)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More Segment Actions")
+                .disabled(!model.hasSelection)
                 Spacer(minLength: 8)
                 TimelineZoomControls(zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom)
-            }.buttonStyle(.borderless)
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonStyle(.borderless)
             MediaTimeline(
                 duration: max(model.timelineDuration, model.frameDuration), position: model.position,
                 clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
@@ -72,9 +125,13 @@ struct EditorTimeline: View {
                     case .delete: model.deleteSelection()
                     }
                 }, viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } }
-            ).frame(height: 106)
-
+            )
+            .frame(height: MediaTimeline.height)
+            .accessibilityLabel(Text("Timeline"))
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
     }
 
     private var segmentActions: some View {
@@ -82,18 +139,15 @@ struct EditorTimeline: View {
             Button("Set In Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: true) }
             Button("Set Out Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: false) }
             Divider()
-            Button("Split at Playhead") { model.split() }.disabled(!model.canSplit)
-            Button("Duplicate Segment") { model.duplicateSelection() }
             Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
                 .disabled(model.values.selectedIndex == model.values.segments.count - 1)
-            Divider()
-            Button("Delete Segment", role: .destructive) { model.deleteSelection() }
         }
     }
 
     private var clips: [TimelineClip] {
-        model.values.segments.enumerated().map { index, segment in
+        let numbered = model.values.segments.count > 1
+        return model.values.segments.enumerated().map { index, segment in
             let range = model.timelineRange(for: segment)
             let name =
                 model.values.sources.indices.contains(segment.sourceIndex)
@@ -101,7 +155,7 @@ struct EditorTimeline: View {
             return TimelineClip(
                 id: segment.id, range: range,
                 selection: model.values.selectedID == segment.id ? range : nil,
-                label: "\(index + 1) · \(name)", frames: frames(for: segment))
+                label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment))
         }
     }
 
@@ -114,5 +168,4 @@ struct EditorTimeline: View {
         let last = max(first, min(count - 1, Int(segment.end / duration * Double(count))))
         return Array(frames[first...last])
     }
-
 }

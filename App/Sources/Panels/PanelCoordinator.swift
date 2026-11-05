@@ -77,8 +77,8 @@ final class PanelCoordinator {
     private func showMediaDownload(_ destination: URL) {
         let model = MediaDownloadModel(destination: destination)
         featureHost.show(
-            title: "yt-dlp", minimumSize: NSSize(width: 700, height: 650),
-            initialSize: NSSize(width: 820, height: 720), onClose: { await model.close() }
+            title: "yt-dlp", minimumSize: NSSize(width: 640, height: 520),
+            initialSize: NSSize(width: 820, height: 640), onClose: { await model.close() }
         ) { close in
             MediaDownloadView(model: model, close: close) { request in
                 try self.jobs.runDownloads(request)
@@ -94,8 +94,9 @@ final class PanelCoordinator {
         let model = MediaEditorModel(
             urls: ordered, isVideo: isVideo, settings: store.planning, staging: jobs.engine.staging)
         featureHost.show(
-            title: MenuStrings.operationName(isVideo ? .videoEdit : .imageEdit),
-            minimumSize: NSSize(width: 960, height: 540),
+            title: ordered.count == 1
+                ? ordered[0].displayName : MenuStrings.operationName(isVideo ? .videoEdit : .imageEdit),
+            minimumSize: NSSize(width: 960, height: 600),
             initialSize: NSSize(width: 1280, height: 720), onClose: { await model.close() }
         ) { close in
             MediaEditorView(model: model, close: close) { batch, settings in
@@ -247,24 +248,34 @@ final class PanelCoordinator {
         _ op: OperationID, file: URL, prefill: ClosedRange<Double>?,
         then next: (op: OperationID, options: OperationOptions)? = nil
     ) {
-        let isVideo = op == .videoTrim
+        func run(_ options: OperationOptions) {
+            let trim = jobs.run(OperationRequest(op: op, options: options, inputs: [file]))
+            guard let next else { return }
+            Task {
+                guard let outcome = await trim.value, !outcome.wasCancelled else { return }
+                let trimmed = Self.continuing(outcome)
+                if !trimmed.isEmpty { self.launch(next.op, next.options, trimmed) }
+            }
+        }
+        if op == .audioTrim {
+            let model = AudioTrimModel(url: file, staging: jobs.engine.staging, prefill: prefill)
+            featureHost.show(
+                title: file.displayName, minimumSize: NSSize(width: 720, height: 300),
+                initialSize: NSSize(width: 960, height: 320), onClose: { await model.close() }
+            ) { close in
+                AudioTrimPanel(model: model, cancel: close) { start, end in
+                    close()
+                    run(.audio(.trim(start: start, end: end)))
+                }
+            }
+            return
+        }
         let mode = PanelMemory.value(for: op, default: store.settings.video.trimMode)
         host.show(title: MenuStrings.operationName(op)) { close in
-            TrimPanel(
-                url: file, isVideo: isVideo, prefill: prefill, mode: mode, staging: self.jobs.engine.staging,
-                close: close
-            ) { start, end, mode in
+            TrimPanel(url: file, prefill: prefill, mode: mode, close: close) { start, end, mode in
                 PanelMemory.remember(mode, for: op)
                 close()
-                let options: OperationOptions =
-                    isVideo ? .video(.trim(start: start, end: end, mode: mode)) : .audio(.trim(start: start, end: end))
-                let trim = self.jobs.run(OperationRequest(op: op, options: options, inputs: [file]))
-                guard let next else { return }
-                Task {
-                    guard let outcome = await trim.value, !outcome.wasCancelled else { return }
-                    let trimmed = Self.continuing(outcome)
-                    if !trimmed.isEmpty { self.launch(next.op, next.options, trimmed) }
-                }
+                run(.video(.trim(start: start, end: end, mode: mode)))
             }
         }
     }

@@ -262,37 +262,18 @@ final class AudioTrimModel {
 }
 
 struct AudioTrimPanel: View {
-    @State private var model: AudioTrimModel
+    @Bindable var model: AudioTrimModel
     let cancel: () -> Void
     let run: (Double, Double) -> Void
+    @State private var startDraft = ""
+    @State private var endDraft = ""
 
-    init(
-        url: URL, staging: StagingArea, prefill: ClosedRange<Double>?, cancel: @escaping () -> Void,
-        run: @escaping (Double, Double) -> Void
-    ) {
-        _model = State(initialValue: AudioTrimModel(url: url, staging: staging, prefill: prefill))
-        self.cancel = cancel; self.run = run
+    private var draftsAreValid: Bool {
+        [(startDraft, model.start), (endDraft, model.end)].allSatisfy { !TimecodeField.isInvalid($0, from: $1) }
     }
 
     var body: some View {
-        PanelForm(
-            actionTitle: String(localized: "Trim"), canRun: model.canSave,
-            width: PanelLayout.wideWidth, cancel: cancel
-        ) {
-            do { try model.validate(); run(model.start, model.end) } catch {
-                model.failure = error.localizedDescription
-            }
-        } content: {
-            HStack(spacing: 12) {
-                Button {
-                    model.play()
-                } label: {
-                    Image(systemName: model.playing ? "pause.fill" : "play.fill")
-                }.disabled(!model.ready).help(model.playing ? "Pause" : "Play")
-                Text(model.position, format: .number.precision(.fractionLength(3))).monospacedDigit()
-                Spacer(minLength: 6)
-                TimelineZoomControls(zoom: $model.zoom, maximumZoom: model.maximumZoom)
-            }.buttonStyle(.borderless)
+        VStack(spacing: 0) {
             MediaTimeline(
                 duration: max(model.duration, 0.001), position: model.position,
                 clips: [
@@ -306,30 +287,215 @@ struct AudioTrimPanel: View {
                 beginTrim: model.beginTrim, trim: model.trim, endTrim: model.endTrim,
                 visibleRange: { range in Task { @MainActor in model.refineWaveform(range) } },
                 viewportChanged: { width in Task { @MainActor in model.viewportWidth = width } }
-            ).frame(height: 106)
-            SecondsField(
-                title: String(localized: "Start (seconds)"),
-                value: Binding(
-                    get: { model.start }, set: { model.changeRange(start: $0, end: model.end) }))
-            SecondsField(
-                title: String(localized: "End (seconds)"),
-                value: Binding(
-                    get: { model.end }, set: { model.changeRange(start: model.start, end: $0) }))
-            HStack {
-                Button("Undo") { model.undo() }.disabled(!model.canUndo)
-                Button("Redo") { model.redo() }.disabled(!model.canRedo)
-                Divider().frame(height: 14)
-                Button("Set In") { model.setBoundary(start: true) }.disabled(!model.ready)
-                    .help("Set In Point at Playhead (I)")
-                Button("Set Out") { model.setBoundary(start: false) }.disabled(!model.ready)
-                    .help("Set Out Point at Playhead (O)")
-                Spacer()
-                if !model.ready { ProgressView().controlSize(.small) }
-                if let failure = model.failure { Text(failure).foregroundStyle(.red) }
+            )
+            .frame(height: MediaTimeline.height)
+            .accessibilityLabel(Text("Waveform"))
+            .overlay {
+                if !model.ready, model.failure == nil { ProgressView().controlSize(.small) }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            transport
+            Divider()
+            rangeEditor
+            Divider()
+            footer
         }
+        .frame(minWidth: 720)
+        .background(.background)
+        .preferredColorScheme(.dark)
         .background(EditorKeyboardShortcuts(audio: model).frame(width: 0, height: 0))
         .task { await model.load() }
-        .onDisappear { Task { await model.close() } }
+    }
+
+    private var transport: some View {
+        HStack(spacing: 0) {
+            TransportClock(position: model.position, duration: model.duration)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 18) {
+                Button {
+                    model.seek(model.start)
+                } label: {
+                    Label("Go to In Point", systemImage: "backward.end.fill")
+                }
+                .help("Go to In Point")
+                Button {
+                    model.play()
+                } label: {
+                    Label(model.playing ? "Pause" : "Play", systemImage: model.playing ? "pause.fill" : "play.fill")
+                        .font(.title2)
+                        .frame(width: 28, height: 28)
+                }
+                .help(model.playing ? "Pause (Space)" : "Play Selection (Space)")
+                Button {
+                    model.seek(model.end)
+                } label: {
+                    Label("Go to Out Point", systemImage: "forward.end.fill")
+                }
+                .help("Go to Out Point")
+            }
+            .labelStyle(.iconOnly)
+            .disabled(!model.ready)
+            TimelineZoomControls(zoom: $model.zoom, maximumZoom: model.maximumZoom)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+    }
+
+    private var rangeEditor: some View {
+        HStack(spacing: 24) {
+            boundary(
+                String(localized: "Start"), value: model.start, draft: $startDraft, symbol: "arrow.right.to.line",
+                help: String(localized: "Set In Point at Playhead (I)")
+            ) {
+                model.changeRange(start: $0, end: model.end)
+            } setToPlayhead: {
+                model.setBoundary(start: true)
+            }
+            boundary(
+                String(localized: "End"), value: model.end, draft: $endDraft, symbol: "arrow.left.to.line",
+                help: String(localized: "Set Out Point at Playhead (O)")
+            ) {
+                model.changeRange(start: model.start, end: $0)
+            } setToPlayhead: {
+                model.setBoundary(start: false)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Length").font(.caption).foregroundStyle(.secondary)
+                Text(Timecode.string(max(0, model.end - model.start), fractionDigits: 3))
+                    .font(.body.monospacedDigit())
+                    .frame(height: 22)
+            }
+            Spacer()
+            if let failure = model.failure { ProblemLabel(text: failure) }
+        }
+        .disabled(!model.ready)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func boundary(
+        _ title: String, value: Double, draft: Binding<String>, symbol: String, help: String,
+        set: @escaping (Double) -> Void, setToPlayhead: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                TimecodeField(title: title, value: value, draft: draft, commit: set).frame(width: 104)
+                Button(action: setToPlayhead) {
+                    Label(help, systemImage: symbol)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help(help)
+            }
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            ControlGroup {
+                Button {
+                    model.undo()
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .help("Undo (⌘Z)")
+                .disabled(!model.canUndo)
+                Button {
+                    model.redo()
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .help("Redo (⇧⌘Z)")
+                .disabled(!model.canRedo)
+            }
+            .fixedSize()
+            Spacer()
+            Button(String(localized: "Cancel", comment: "Panel button"), action: cancel)
+                .keyboardShortcut(.cancelAction)
+            Button(String(localized: "Trim")) {
+                if let start = TimecodeField.edited(startDraft, from: model.start) {
+                    model.changeRange(start: start, end: model.end)
+                }
+                if let end = TimecodeField.edited(endDraft, from: model.end) {
+                    model.changeRange(start: model.start, end: end)
+                }
+                do { try model.validate(); run(model.start, model.end) } catch {
+                    model.failure = error.localizedDescription
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canSave || !draftsAreValid)
+        }
+        .padding(16)
+    }
+}
+
+/// Accepts `m:ss.sss`, `h:mm:ss.sss` or plain seconds.
+struct TimecodeField: View {
+    private static let fractionDigits = 3
+
+    let title: String
+    let value: Double
+    @Binding var draft: String
+    let commit: (Double) -> Void
+    @FocusState private var focused: Bool
+
+    /// `nil` while the draft still shows `value`.
+    static func edited(_ draft: String, from value: Double) -> Double? {
+        draft == Timecode.string(value, fractionDigits: fractionDigits) ? nil : parse(draft)
+    }
+
+    static func isInvalid(_ draft: String, from value: Double) -> Bool {
+        draft != Timecode.string(value, fractionDigits: fractionDigits) && parse(draft) == nil
+    }
+
+    static func parse(_ text: String) -> Double? {
+        let parts = text.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
+            .split(separator: ":", omittingEmptySubsequences: false)
+        guard (1...3).contains(parts.count), let seconds = Double(parts[parts.count - 1]), seconds >= 0 else {
+            return nil
+        }
+        guard parts.count == 1 || seconds < 60 else { return nil }
+        var minutes = 0.0
+        for (index, part) in parts.dropLast().enumerated() {
+            guard let unit = Int(part), unit >= 0, index == 0 || unit < 60 else { return nil }
+            minutes = minutes * 60 + Double(unit)
+        }
+        let total = minutes * 60 + seconds
+        return total.isFinite ? total : nil
+    }
+
+    var body: some View {
+        TextField(title, text: $draft)
+            .labelsHidden()
+            .textFieldStyle(.roundedBorder)
+            .font(.body.monospacedDigit())
+            .multilineTextAlignment(.trailing)
+            .focused($focused)
+            .overlay {
+                if Self.isInvalid(draft, from: value) {
+                    RoundedRectangle(cornerRadius: 5).stroke(.red, lineWidth: 1).allowsHitTesting(false)
+                }
+            }
+            .onAppear { synchronize() }
+            .onChange(of: value) { _, _ in synchronize() }
+            .onChange(of: focused) { _, focused in if !focused { submit() } }
+            .onSubmit { submit() }
+    }
+
+    private func submit() {
+        guard let seconds = Self.edited(draft, from: value) else { return }
+        commit(seconds)
+        synchronize()
+    }
+
+    private func synchronize() {
+        draft = Timecode.string(value, fractionDigits: Self.fractionDigits)
     }
 }

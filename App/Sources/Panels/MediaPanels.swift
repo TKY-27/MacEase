@@ -7,7 +7,6 @@ import os
 enum LoadedMedia {
     case player(AVPlayer, duration: Double)
     case frames(MediaPreview, [CGImage])
-    case audio(duration: Double)
 
     private static let stripCount = 20
     private static let slotMiddle = 0.5
@@ -21,12 +20,12 @@ enum LoadedMedia {
 
     var duration: Double {
         switch self {
-        case .player(_, let duration), .audio(let duration): duration
+        case .player(_, let duration): duration
         case .frames(let preview, _): preview.durationSeconds
         }
     }
 
-    static func load(_ url: URL, isVideo: Bool) async throws -> LoadedMedia {
+    static func load(_ url: URL) async throws -> LoadedMedia {
         try OperationPlanner.validateInput(url)
         if playerExtensions.contains(url.pathExtension.lowercased()) {
             let asset = AVURLAsset(url: url)
@@ -40,22 +39,16 @@ enum LoadedMedia {
                 if playerItem.status == .readyToPlay { return .player(player, duration: duration.seconds) }
             }
         }
-        if isVideo {
-            let preview = try await MediaPreview(videoAt: url)
-            let times = (0..<stripCount).map {
-                preview.durationSeconds * (Double($0) + slotMiddle) / Double(stripCount)
-            }
-            return .frames(preview, try await preview.frames(at: times, width: stripFrameWidth))
+        let preview = try await MediaPreview(videoAt: url)
+        let times = (0..<stripCount).map {
+            preview.durationSeconds * (Double($0) + slotMiddle) / Double(stripCount)
         }
-        let duration = try await offMain { try AudioInput(url: url).duration }
-        guard let duration else { throw EngineError.decodeFailed("unknown duration") }
-        return .audio(duration: duration)
+        return .frames(preview, try await preview.frames(at: times, width: stripFrameWidth))
     }
 }
 
 struct MediaLoader<Content: View>: View {
     let url: URL
-    let isVideo: Bool
     let close: () -> Void
     @ViewBuilder let content: (LoadedMedia) -> Content
 
@@ -76,7 +69,7 @@ struct MediaLoader<Content: View>: View {
         }
         .task {
             do {
-                media = try await LoadedMedia.load(url, isVideo: isVideo)
+                media = try await LoadedMedia.load(url)
             } catch {
                 failure = UserMessages.describe(
                     EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
@@ -87,35 +80,27 @@ struct MediaLoader<Content: View>: View {
 
 struct TrimPanel: View {
     let url: URL
-    let isVideo: Bool
     /// Seconds to preselect, such as LINE's limit.
     let prefill: ClosedRange<Double>?
     @State var mode: TrimMode
-    let staging: StagingArea
     let close: () -> Void
     let run: (_ start: Double, _ end: Double, TrimMode) -> Void
 
     var body: some View {
-        if !isVideo {
-            AudioTrimPanel(url: url, staging: staging, prefill: prefill, cancel: close) { start, end in
-                run(start, end, mode)
-            }
-        } else {
-            MediaLoader(url: url, isVideo: isVideo, close: close) { media in
-                switch media {
-                case .player(let player, let duration):
-                    VStack(spacing: 0) {
-                        if isVideo { modePicker.padding() }
-                        TrimmingPlayer(player: player, prefill: prefill) { range in
-                            guard let range else { return close() }
-                            run(range.lowerBound, min(range.upperBound, duration), mode)
-                        }
-                        .frame(height: isVideo ? MediaLayout.videoHeight : MediaLayout.audioHeight)
+        MediaLoader(url: url, close: close) { media in
+            switch media {
+            case .player(let player, let duration):
+                VStack(spacing: 0) {
+                    modePicker.padding()
+                    TrimmingPlayer(player: player, prefill: prefill) { range in
+                        guard let range else { return close() }
+                        run(range.lowerBound, min(range.upperBound, duration), mode)
                     }
-                    .frame(width: PanelLayout.wideWidth)
-                default:
-                    NumericTrim(media: media, prefill: prefill, isVideo: isVideo, mode: $mode, cancel: close, run: run)
+                    .frame(height: MediaLayout.videoHeight)
                 }
+                .frame(width: PanelLayout.wideWidth)
+            case .frames:
+                NumericTrim(media: media, prefill: prefill, mode: $mode, cancel: close, run: run)
             }
         }
     }
@@ -130,7 +115,6 @@ struct TrimPanel: View {
 
 enum MediaLayout {
     static let videoHeight: CGFloat = 340
-    static let audioHeight: CGFloat = 96
     static let stripHeight: CGFloat = 40
     static let previewHeight: CGFloat = 240
     static let playheadWidth: CGFloat = 2
@@ -140,7 +124,6 @@ enum MediaLayout {
 private struct NumericTrim: View {
     let media: LoadedMedia
     let prefill: ClosedRange<Double>?
-    let isVideo: Bool
     @Binding var mode: TrimMode
     let cancel: () -> Void
     let run: (_ start: Double, _ end: Double, TrimMode) -> Void
@@ -163,10 +146,8 @@ private struct NumericTrim: View {
             LabeledContent("Duration") {
                 Text(Duration.seconds(media.duration), format: .time(pattern: .hourMinuteSecond))
             }
-            if isVideo {
-                Picker("Cut", selection: $mode) {
-                    ForEach(TrimMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
+            Picker("Cut", selection: $mode) {
+                ForEach(TrimMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }
         }
         .onAppear {
@@ -299,7 +280,7 @@ struct FramePickerPanel: View {
     let run: (_ seconds: Double) -> Void
 
     var body: some View {
-        MediaLoader(url: url, isVideo: true, close: close) { media in
+        MediaLoader(url: url, close: close) { media in
             switch media {
             case .player(let player, _):
                 PanelForm(

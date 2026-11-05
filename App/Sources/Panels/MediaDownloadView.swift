@@ -33,7 +33,7 @@ final class MediaDownloadModel {
     init(destination: URL) { self.destination = destination }
 
     var selectedSources: [MediaSource] { sources.filter { selectedIDs.contains($0.id) } }
-    var isAudioOnly: Bool { [.audio, .m4a, .mp3, .wav, .flac].contains(format) }
+    var isAudioOnly: Bool { format.audioOnly }
     var canAnalyze: Bool { !closed && !isAnalyzing && !urls.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var canDownload: Bool { !closed && !isAnalyzing && !selectedSources.isEmpty }
 
@@ -137,234 +137,268 @@ final class MediaDownloadModel {
     }
 }
 
+enum MediaDownloadKind: CaseIterable {
+    case video, audio
+
+    var formats: [MediaDownloadFormat] { MediaDownloadFormat.allCases.filter { $0.audioOnly == (self == .audio) } }
+}
+
 struct MediaDownloadView: View {
     @Bindable var model: MediaDownloadModel
     let close: () -> Void
     let run: (MediaDownloadRequest) throws -> Void
     @FocusState private var urlsFocused: Bool
 
+    private var kind: Binding<MediaDownloadKind> {
+        Binding(
+            get: { model.isAudioOnly ? .audio : .video },
+            set: { kind in
+                guard !kind.formats.contains(model.format), let first = kind.formats.first else { return }
+                model.format = first
+            })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
-                destination
-                urlInput
-                results
-                options
-                if let error = model.error { ProblemLabel(text: error) }
-            }
-            .padding(20)
-            PanelBar(actionTitle: String(localized: "Download"), canRun: model.canDownload, cancel: close) {
-                if model.submit(run) { close() }
-            } accessory: {
-                if !model.sources.isEmpty {
-                    Text("\(model.selectedSources.count) selected")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
+            urlBar
+            Divider()
+            results.frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            options
+            Divider()
+            footer
         }
-        .frame(minWidth: 700, minHeight: 650)
+        .frame(minWidth: 640, minHeight: 520)
         .onAppear { urlsFocused = true }
         .onChange(of: model.selectedIDs) { model.normalizeOptions() }
     }
 
-    private var destination: some View {
-        LabeledContent("Save to") {
-            HStack(spacing: 6) {
-                Image(systemName: "folder")
-                Text(model.destination.path(percentEncoded: false))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+    private var urlBar: some View {
+        HStack(alignment: .top, spacing: 10) {
+            TextField(
+                String(localized: "Paste video or playlist URLs"), text: $model.urls, axis: .vertical
+            )
+            .lineLimit(1...4)
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.large)
+            .focused($urlsFocused)
+            .disabled(model.isAnalyzing)
+            .onSubmit { model.analyze() }
+            .accessibilityLabel(Text("URLs, one per line"))
+            if model.isAnalyzing {
+                Button("Stop Analysis") { model.cancelAnalysis() }
+                    .controlSize(.large)
+            } else {
+                Button("Analyze") { model.analyze() }
+                    .controlSize(.large)
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(!model.canAnalyze)
             }
-            .help(model.destination.path(percentEncoded: false))
         }
+        .padding(16)
     }
 
-    private var urlInput: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("URLs, one per line")
-            TextEditor(text: $model.urls)
-                .font(.body.monospaced())
-                .focused($urlsFocused)
-                .frame(height: 86)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(.separator))
-                .accessibilityLabel(Text("URLs, one per line"))
-                .disabled(model.isAnalyzing)
-            HStack {
-                Text("Public videos and audio. Live streams and sign-in are not supported.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer()
+    @ViewBuilder private var results: some View {
+        if model.sources.isEmpty {
+            VStack(spacing: 12) {
                 if model.isAnalyzing {
-                    ProgressView().controlSize(.small)
-                    Button("Stop Analysis") { model.cancelAnalysis() }
+                    ProgressView()
+                    Text("Analyzing…").foregroundStyle(.secondary)
                 } else {
-                    Button("Analyze") { model.analyze() }
-                        .keyboardShortcut("r", modifiers: .command)
-                        .disabled(!model.canAnalyze)
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 40, weight: .light))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text("Paste a URL and press Return").font(.title3.weight(.semibold))
+                    Text("Public videos and audio. Live streams and sign-in are not supported.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                failureList
+                if let error = model.error { ProblemLabel(text: error) }
+            }
+            .padding(24)
+        } else {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("\(model.selectedSources.count) of \(model.sources.count) selected")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    let allSelected = model.selectedIDs.count == model.sources.count
+                    Button(allSelected ? String(localized: "Clear Selection") : String(localized: "Select All")) {
+                        model.selectedIDs = allSelected ? [] : Set(model.sources.map(\.id))
+                    }
+                    .buttonStyle(.link)
+                    .disabled(model.isAnalyzing)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                List(model.sources) { source in sourceRow(source) }
+                    .listStyle(.inset)
+                    .alternatingRowBackgrounds(.disabled)
+                if !model.failures.isEmpty || model.error != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        failureList
+                        if let error = model.error { ProblemLabel(text: error) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
                 }
             }
         }
     }
 
-    private var results: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Media")
-                Spacer()
-                Button("Select All") { model.selectedIDs = Set(model.sources.map(\.id)) }
-                    .disabled(model.sources.isEmpty || model.isAnalyzing)
-                Button("Clear Selection") { model.selectedIDs = [] }
-                    .disabled(model.selectedIDs.isEmpty || model.isAnalyzing)
+    private func sourceRow(_ source: MediaSource) -> some View {
+        let selected = Binding(
+            get: { model.selectedIDs.contains(source.id) },
+            set: {
+                if $0 { model.selectedIDs.insert(source.id) } else { model.selectedIDs.remove(source.id) }
+            })
+        return HStack(spacing: 12) {
+            Toggle(isOn: selected) { Text("Download \(source.title)") }
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+            Image(systemName: "play.rectangle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(source.title).lineLimit(1).truncationMode(.middle).help(source.title)
+                Text(Self.details(source).joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            Table(model.sources) {
-                TableColumn("") { source in
-                    Toggle(
-                        source.title,
-                        isOn: Binding(
-                            get: { model.selectedIDs.contains(source.id) },
-                            set: {
-                                if $0 {
-                                    model.selectedIDs.insert(source.id)
-                                } else {
-                                    model.selectedIDs.remove(source.id)
-                                }
-                            })
-                    )
-                    .labelsHidden()
-                    .accessibilityLabel(Text("Download \(source.title)"))
-                }
-                .width(28)
-                TableColumn("Title") { source in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(source.title).lineLimit(1)
-                        if source.isPlaylistEntry {
-                            Text("Playlist entry").font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { selected.wrappedValue.toggle() }
+        .disabled(model.isAnalyzing)
+    }
+
+    @ViewBuilder private var failureList: some View {
+        if !model.failures.isEmpty {
+            DisclosureGroup(String(localized: "URLs that could not be analyzed")) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(model.failures.enumerated()), id: \.offset) { _, failure in
+                            Text(
+                                "\(failure.url.host() ?? "") — \(String(localized: String.LocalizationValue(failure.message)))"
+                            )
+                            .textSelection(.enabled)
                         }
                     }
-                    .help(source.title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                TableColumn("Duration") { source in
-                    Text(Self.duration(source.duration)).monospacedDigit()
-                }
-                .width(74)
-                TableColumn("Resolution") { source in
-                    Text(source.videoDimensions.map { "\($0.width) × \($0.height)" }.joined(separator: ", "))
-                        .lineLimit(1)
-                        .help(source.videoDimensions.map { "\($0.width) × \($0.height)" }.joined(separator: ", "))
-                }
-                .width(min: 100, ideal: 120)
-                TableColumn("Available formats") { source in
-                    Text(source.availableFormats.joined(separator: ", "))
-                        .lineLimit(1)
-                        .help(source.availableFormats.joined(separator: ", "))
-                }
-                .width(min: 110, ideal: 140)
+                .frame(maxHeight: 90)
             }
-            .frame(minHeight: 140)
-            .overlay {
-                if model.sources.isEmpty {
-                    Text(
-                        model.isAnalyzing
-                            ? String(localized: "Analyzing…")
-                            : String(localized: "Analyze URLs to choose media and available options.")
-                    )
-                    .foregroundStyle(.secondary)
-                    .allowsHitTesting(false)
-                }
-            }
-            if model.sources.contains(where: \.isPlaylistEntry) {
-                Text("Choose the playlist entries you want to download.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            if !model.failures.isEmpty {
-                DisclosureGroup(String(localized: "URLs that could not be analyzed")) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(Array(model.failures.enumerated()), id: \.offset) { _, failure in
-                                Text(
-                                    "\(failure.url.host() ?? "") — \(String(localized: String.LocalizationValue(failure.message)))"
-                                )
-                                .textSelection(.enabled)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 90)
-                }
-                .font(.callout)
-            }
+            .font(.callout)
         }
     }
 
     private var options: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-                GridRow {
-                    Text("Format").gridColumnAlignment(.trailing)
+            HStack(alignment: .bottom, spacing: 16) {
+                option(String(localized: "Media Type")) {
+                    Picker("Media Type", selection: kind) {
+                        Text("Video").tag(MediaDownloadKind.video)
+                        Text("Audio Only").tag(MediaDownloadKind.audio)
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                }
+                option(String(localized: "Format")) {
                     Picker("Format", selection: $model.format) {
-                        ForEach(MediaDownloadFormat.allCases, id: \.self) { format in
+                        ForEach(kind.wrappedValue.formats, id: \.self) { format in
                             Text(Self.formatTitle(format)).tag(format)
                         }
                     }
-                    .labelsHidden()
+                    .fixedSize()
                 }
-                GridRow {
-                    Text("Resolution")
-                    Picker("Resolution", selection: $model.resolution) {
-                        Text("Best available").tag(nil as Int?)
-                        ForEach(model.resolutions, id: \.self) { resolution in
-                            Text(model.resolutionTitle(resolution)).tag(Optional(resolution))
+                if !model.isAudioOnly {
+                    option(String(localized: "Resolution")) {
+                        Picker("Resolution", selection: $model.resolution) {
+                            Text("Best available").tag(nil as Int?)
+                            ForEach(model.resolutions, id: \.self) { resolution in
+                                Text(model.resolutionTitle(resolution)).tag(Optional(resolution))
+                            }
+                        }
+                        .fixedSize()
+                        .disabled(model.sources.isEmpty)
+                    }
+                }
+                option(String(localized: "Subtitles")) {
+                    HStack(spacing: 6) {
+                        Picker("Subtitles", selection: $model.subtitle) {
+                            Text("Off").tag(nil as MediaSubtitle?)
+                            ForEach(model.subtitles, id: \.self) { subtitle in
+                                Text(Self.subtitleTitle(subtitle)).tag(Optional(subtitle))
+                            }
+                        }
+                        .fixedSize()
+                        .disabled(model.subtitles.isEmpty)
+                        if model.subtitle != nil {
+                            Picker("Subtitle file", selection: $model.subtitleFormat) {
+                                ForEach(MediaSubtitleFormat.allCases, id: \.self) { format in
+                                    Text(format.rawValue.uppercased()).tag(format)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .fixedSize()
                         }
                     }
-                    .labelsHidden()
-                    .disabled(model.isAudioOnly || model.sources.isEmpty)
                 }
-                GridRow {
-                    Text("Subtitles")
-                    Picker("Subtitles", selection: $model.subtitle) {
-                        Text("Off").tag(nil as MediaSubtitle?)
-                        ForEach(model.subtitles, id: \.self) { subtitle in
-                            Text(Self.subtitleTitle(subtitle)).tag(Optional(subtitle))
-                        }
-                    }
-                    .labelsHidden()
-                    .disabled(model.subtitles.isEmpty)
-                }
-                GridRow {
-                    Text("Subtitle file")
-                    Picker("Subtitle file", selection: $model.subtitleFormat) {
-                        ForEach(MediaSubtitleFormat.allCases, id: \.self) { format in
-                            Text(format.rawValue.uppercased()).tag(format)
-                        }
-                    }
-                    .labelsHidden()
-                    .disabled(model.subtitle == nil)
-                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if !model.sources.isEmpty && !model.isAudioOnly {
-                Text("Only resolutions offered by every selected video are listed.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
+            .labelsHidden()
             Text(
                 model.format.requiresReencoding
                     ? String(localized: "This format may require re-encoding when the source codec is incompatible.")
                     : String(localized: "Keeps source quality without re-encoding. Container merging may be required.")
             )
-            .font(.callout)
+            .font(.caption)
             .foregroundStyle(.secondary)
         }
         .disabled(model.isAnalyzing)
+        .padding(16)
+    }
+
+    private func option<Control: View>(_ title: String, @ViewBuilder control: () -> Control) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            control()
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Label {
+                Text(model.destination.displayName).lineLimit(1).truncationMode(.middle)
+            } icon: {
+                Image(systemName: "folder.fill").foregroundStyle(.secondary)
+            }
+            .help(model.destination.path(percentEncoded: false))
+            .accessibilityLabel(Text("Save to \(model.destination.displayName)"))
+            Spacer()
+            Button(String(localized: "Cancel", comment: "Panel button"), action: close)
+                .keyboardShortcut(.cancelAction)
+            Button(String(localized: "Download")) {
+                if model.submit(run) { close() }
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canDownload)
+        }
+        .padding(16)
     }
 
     private static func formatTitle(_ format: MediaDownloadFormat) -> String {
         switch format {
-        case .source: String(localized: "Best video (original format)")
-        case .audio: String(localized: "Original audio")
+        case .source: String(localized: "Original format (no re-encoding)")
+        case .audio: String(localized: "Original audio (no re-encoding)")
         default: format.rawValue.uppercased()
         }
     }
@@ -376,8 +410,18 @@ struct MediaDownloadView: View {
             : String(localized: "\(language) (authored)")
     }
 
-    private static func duration(_ seconds: Double?) -> String {
-        guard let seconds, seconds.isFinite, seconds >= 0, seconds < Double(Int.max) else { return "—" }
+    private static func details(_ source: MediaSource) -> [String] {
+        var details = [source.webpageURL.host() ?? source.webpageURL.absoluteString]
+        if let duration = duration(source.duration) { details.append(duration) }
+        if let largest = source.videoDimensions.max(by: { $0.height < $1.height }) {
+            details.append("\(largest.width) × \(largest.height)")
+        }
+        if source.isPlaylistEntry { details.append(String(localized: "Playlist entry")) }
+        return details
+    }
+
+    private static func duration(_ seconds: Double?) -> String? {
+        guard let seconds, seconds.isFinite, seconds >= 0, seconds < Double(Int.max) else { return nil }
         let total = Int(seconds)
         return total >= 3600
             ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)

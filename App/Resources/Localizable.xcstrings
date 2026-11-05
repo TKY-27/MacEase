@@ -16602,6 +16602,366 @@
           }
         }
       }
+    },
+    "Show Original (M)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オリジナルを表示 (M)"
+          }
+        }
+      }
+    },
+    "Undo (⌘Z)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消す (⌘Z)"
+          }
+        }
+      }
+    },
+    "Redo (⇧⌘Z)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "やり直す (⇧⌘Z)"
+          }
+        }
+      }
+    },
+    "Zoom is unavailable while cropping": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り抜き中は拡大できません"
+          }
+        }
+      }
+    },
+    "Preview Zoom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの拡大率"
+          }
+        }
+      }
+    },
+    "Rotate and Flip": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回転と反転"
+          }
+        }
+      }
+    },
+    "Exact Selection (%)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数値で指定 (%)"
+          }
+        }
+      }
+    },
+    "sec": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒"
+          }
+        }
+      }
+    },
+    "Length": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長さ"
+          }
+        }
+      }
+    },
+    "Pitch is preserved.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音程は変わりません。"
+          }
+        }
+      }
+    },
+    "Unmute": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消音を解除"
+          }
+        }
+      }
+    },
+    "Export": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き出し"
+          }
+        }
+      }
+    },
+    "Light": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト"
+          }
+        }
+      }
+    },
+    "Color": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラー"
+          }
+        }
+      }
+    },
+    "Previous Frame (←)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のフレーム (←)"
+          }
+        }
+      }
+    },
+    "Pause (Space)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止 (スペース)"
+          }
+        }
+      }
+    },
+    "Play (Space)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生 (スペース)"
+          }
+        }
+      }
+    },
+    "Next Frame (→)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のフレーム (→)"
+          }
+        }
+      }
+    },
+    "Unmute Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの消音を解除"
+          }
+        }
+      }
+    },
+    "%@ of %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@"
+          }
+        }
+      }
+    },
+    "Split at Playhead (⌘B)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生位置で分割 (⌘B)"
+          }
+        }
+      }
+    },
+    "Delete Segment (⌫)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区間を削除 (⌫)"
+          }
+        }
+      }
+    },
+    "More Segment Actions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の区間操作"
+          }
+        }
+      }
+    },
+    "Timeline": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムライン"
+          }
+        }
+      }
+    },
+    "Waveform": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "波形"
+          }
+        }
+      }
+    },
+    "Go to In Point": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始点へ移動"
+          }
+        }
+      }
+    },
+    "Play Selection (Space)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択範囲を再生 (スペース)"
+          }
+        }
+      }
+    },
+    "Go to Out Point": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了点へ移動"
+          }
+        }
+      }
+    },
+    "Paste video or playlist URLs": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画またはプレイリストのURLを貼り付け"
+          }
+        }
+      }
+    },
+    "Paste a URL and press Return": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLを貼り付けて Return キーを押してください"
+          }
+        }
+      }
+    },
+    "%lld of %lld selected": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld 件中 %1$lld 件を選択"
+          }
+        }
+      }
+    },
+    "Audio Only": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声のみ"
+          }
+        }
+      }
+    },
+    "Save to %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存先: %@"
+          }
+        }
+      }
+    },
+    "Original format (no re-encoding)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の形式 (再エンコードなし)"
+          }
+        }
+      }
+    },
+    "Original audio (no re-encoding)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の音声 (再エンコードなし)"
+          }
+        }
+      }
+    },
+    "Media Type": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -290,6 +290,43 @@ final class MediaEditorModelTests: XCTestCase {
         return model
     }
 
+    func testTimecodeFormatsClockTextAndParsesTypedBoundaries() {
+        XCTAssertEqual(Timecode.string(65.257), "1:05.26")
+        XCTAssertEqual(Timecode.string(16.704, fractionDigits: 3), "0:16.704")
+        XCTAssertEqual(Timecode.string(3_725.5, fractionDigits: 3), "1:02:05.500")
+        XCTAssertEqual(Timecode.string(-1), "0:00.00")
+        XCTAssertEqual(TimecodeField.parse("1:05.250"), 65.25)
+        XCTAssertEqual(TimecodeField.parse("1:02:05"), 3_725)
+        XCTAssertEqual(TimecodeField.parse("12.5"), 12.5)
+        XCTAssertEqual(TimecodeField.parse(" 90 "), 90)
+        for invalid in ["", "1:75", "1:-2", "a:05", "1::05", "1:2:3:4", "-3"] {
+            XCTAssertNil(TimecodeField.parse(invalid), invalid)
+        }
+        XCTAssertEqual(TimecodeField.parse("200000000000000000:0:0"), 7.2e20)
+        let snapped = 0.5 + 10.0 / 44_100
+        XCTAssertNil(TimecodeField.edited("0:00.500", from: snapped), "an untouched field never moves its boundary")
+        XCTAssertFalse(TimecodeField.isInvalid("0:00.500", from: snapped))
+        XCTAssertEqual(TimecodeField.edited("0:01", from: snapped), 1)
+        XCTAssertTrue(TimecodeField.isInvalid("0:1x", from: snapped))
+    }
+
+    func testTypedAudioBoundaryCommitsSampleAlignedRange() async throws {
+        let directory = try workspace()
+        let support = directory.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let model = AudioTrimModel(
+            url: try audioFixture(in: directory), staging: StagingArea(supportDirectory: support), prefill: nil)
+        addTeardownBlock { await model.close() }
+        await model.load()
+        XCTAssertTrue(model.ready, model.failure ?? "Audio did not load")
+        let start = try XCTUnwrap(TimecodeField.parse("0:00.5"))
+        model.changeRange(start: start, end: model.end)
+        XCTAssertEqual(model.start, 0.5)
+        XCTAssertTrue(model.canUndo)
+        model.changeRange(start: model.end + 1, end: model.end)
+        XCTAssertEqual(model.start, 0.5, "an inverted range is ignored")
+    }
+
     private func workspace() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseAppTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)

@@ -13,15 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared yellow video/audio trim ranges, silent skimming, committed playheads,
   zoom gestures and keyboard controls, snapping and session Undo/Redo.
 - Progressive audio waveforms and app-hosted trim regression tests.
+- Typed `m:ss.sss` trim boundaries and a resizable dark audio trim window.
 
 ### Changed
 
 - Stream all local MP3 output through isolated FFmpeg/libmp3lame, retaining
   CBR/VBR controls and independent decoding and quality tests.
 - Align download controls and show actual source video dimensions, excluding storyboards.
+- Redesign the photo/video editor like familiar editing apps: dark workspace,
+  unified toolbar with centred tools, a transport bar under the viewer,
+  a taller filmstrip timeline and an inspector grouped into Light, Color and Detail.
+- Simplify the yt-dlp window to one URL field, a checkbox result list,
+  Video/Audio Only options and a destination footer.
 
 ### Fixed
 
+- Choppy, half-length audio when extracting, converting or editing videos with
+  HE-AAC audio, such as TikTok downloads; decoding now uses the real output rate.
 - Swift exclusive-access crashes while changing video trim boundaries.
 - Silent loss of unsupported audio tags during replacement; refuse replacement
   or disclose the loss when retaining the original with New File.

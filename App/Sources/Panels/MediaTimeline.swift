@@ -28,31 +28,67 @@ enum TimelineAction: Int, CaseIterable {
     }
 }
 
+/// Editor clock text, such as `1:05.25`.
+enum Timecode {
+    static func string(_ seconds: Double, fractionDigits: Int = 2) -> String {
+        let value = max(0, seconds.isFinite ? seconds : 0)
+        let scale = pow(10, Double(fractionDigits))
+        let units = Int((value * scale).rounded())
+        let whole = units / Int(scale)
+        let fraction = units % Int(scale)
+        let clock =
+            whole >= 3_600
+            ? String(format: "%d:%02d:%02d", whole / 3_600, whole / 60 % 60, whole % 60)
+            : String(format: "%d:%02d", whole / 60, whole % 60)
+        guard fractionDigits > 0 else { return clock }
+        return clock + "." + String(format: "%0\(fractionDigits)d", fraction)
+    }
+}
+
 struct TimelineZoomControls: View {
     @Binding var zoom: Double
     let maximumZoom: Double
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Button {
                 zoom = max(1, zoom / 2)
             } label: {
-                Image(systemName: "minus.magnifyingglass")
-            }.help("Zoom Out (⌘−)")
+                Label("Zoom Out", systemImage: "minus.magnifyingglass")
+            }
+            .help("Zoom Out (⌘−)")
+            .disabled(zoom <= 1)
             Slider(value: Binding(get: { log2(zoom) }, set: { zoom = pow(2, $0) }), in: 0...log2(maximumZoom)) {
                 Text("Timeline Zoom")
-            }.labelsHidden().frame(width: 100)
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(width: 110)
             Button {
                 zoom = min(maximumZoom, zoom * 2)
             } label: {
-                Image(systemName: "plus.magnifyingglass")
-            }.help("Zoom In (⌘+)")
-            Button("Fit") { zoom = 1 }.help("Fit Timeline (⇧Z)")
-        }.buttonStyle(.borderless).fixedSize(horizontal: true, vertical: false)
+                Label("Zoom In", systemImage: "plus.magnifyingglass")
+            }
+            .help("Zoom In (⌘+)")
+            .disabled(zoom >= maximumZoom)
+            Button("Fit") { zoom = 1 }
+                .help("Fit Timeline (⇧Z)")
+                .disabled(zoom == 1)
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
 struct MediaTimeline: NSViewRepresentable {
+    static var height: CGFloat {
+        let scroller =
+            NSScroller.preferredScrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return TimelineCanvas.contentHeight + 4 + scroller
+    }
+
     static func maximumZoom(duration: Double, viewport: Double, interval: Double) -> Double {
         max(2, duration / max(0.000_001, interval) * 6 / max(1, viewport))
     }
@@ -128,7 +164,8 @@ final class TimelineScrollView: NSScrollView {
             }
         }
         appliedZoom = configuration.zoom
-        canvas.frame = CGRect(x: 0, y: 0, width: viewportWidth * configuration.zoom, height: 92)
+        canvas.frame = CGRect(
+            x: 0, y: 0, width: viewportWidth * configuration.zoom, height: TimelineCanvas.contentHeight)
         canvas.configuration = configuration
         if let anchor {
             contentView.scroll(
@@ -140,6 +177,7 @@ final class TimelineScrollView: NSScrollView {
             self.anchor = nil
         }
         canvas.needsDisplay = true
+        window?.invalidateCursorRects(for: canvas)
         notifyVisibleRange()
     }
 
@@ -175,6 +213,17 @@ final class TimelineScrollView: NSScrollView {
 }
 
 final class TimelineCanvas: NSView, NSDraggingSource {
+    static let rulerHeight = 24.0
+    static let clipHeight = 64.0
+    static let contentHeight = rulerHeight + clipHeight + 8
+    private static let handleWidth = 12.0
+    private static let handleHitSlop = 4.0
+    private static let snapDistance = 8.0
+    private static let clipRadius = 6.0
+    private static let selectionLine = 3.0
+    private static let playheadWidth = 2.0
+    private static let rulerMinorTicks = 4
+
     var configuration: MediaTimeline?
     private(set) var pointerInViewport: CGPoint?
     private var tracking: NSTrackingArea?
@@ -184,10 +233,6 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private var draggedClip: UUID?
     private var menuClip: UUID?
     override var isFlipped: Bool { true }
-    private static let rulerHeight = 24.0
-    private static let clipHeight = 56.0
-    private static let handleWidth = 9.0
-    private static let snapDistance = 8.0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -206,83 +251,99 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         addTrackingArea(tracking)
     }
 
+    override func resetCursorRects() {
+        guard let configuration, configuration.duration > 0 else { return }
+        for clip in configuration.clips {
+            guard let selection = clip.selection else { continue }
+            for handle in handleRects(rectangle(selection, duration: configuration.duration)) {
+                addCursorRect(handle.insetBy(dx: -Self.handleHitSlop, dy: 0), cursor: .columnResize)
+            }
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let configuration, configuration.duration > 0,
             let context = NSGraphicsContext.current?.cgContext
         else { return }
-        NSColor.controlBackgroundColor.setFill()
+        NSColor.black.withAlphaComponent(0.18).setFill()
         dirtyRect.fill()
         drawRuler(context, configuration: configuration)
         for clip in configuration.clips {
             let rect = rectangle(clip.range, duration: configuration.duration)
             guard rect.intersects(dirtyRect) else { continue }
+            let shape = NSBezierPath(roundedRect: rect, xRadius: Self.clipRadius, yRadius: Self.clipRadius)
             context.saveGState()
-            context.clip(to: rect)
-            NSColor.separatorColor.setFill()
+            shape.addClip()
+            NSColor.quaternaryLabelColor.setFill()
             rect.fill()
             if let waveform = clip.waveform { drawWaveform(waveform, in: rect, context: context) }
             if let detail = clip.detailWaveform {
                 let detailRect = rectangle(
                     detail.start...(detail.start + detail.duration), duration: configuration.duration)
-                NSColor.controlBackgroundColor.setFill(); detailRect.fill()
+                NSColor.quaternaryLabelColor.setFill(); detailRect.fill()
                 drawWaveform(detail, in: rect, context: context)
             }
             drawFrames(clip.frames, in: rect, context: context)
-            if !clip.label.isEmpty {
-                let label = NSAttributedString(
-                    string: clip.label,
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.white,
-                        .backgroundColor: NSColor.black.withAlphaComponent(0.65),
-                    ])
-                label.draw(at: CGPoint(x: rect.minX + 12, y: rect.maxY - 17))
+            if let selection = clip.selection, selection != clip.range {
+                NSColor.black.withAlphaComponent(0.55).setFill()
+                rectangle(clip.range.lowerBound...selection.lowerBound, duration: configuration.duration).fill()
+                rectangle(selection.upperBound...clip.range.upperBound, duration: configuration.duration).fill()
             }
+            if !clip.label.isEmpty { drawLabel(clip.label, in: rect) }
             context.restoreGState()
-            NSColor.separatorColor.setStroke()
-            NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5)).stroke()
-            if let selection = clip.selection {
-                if selection != clip.range {
-                    NSColor.controlBackgroundColor.withAlphaComponent(0.7).setFill()
-                    rectangle(clip.range.lowerBound...selection.lowerBound, duration: configuration.duration).fill()
-                    rectangle(selection.upperBound...clip.range.upperBound, duration: configuration.duration).fill()
-                }
-                drawSelection(selection, duration: configuration.duration)
-            }
+            NSColor.white.withAlphaComponent(0.12).setStroke()
+            let outline = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: Self.clipRadius, yRadius: Self.clipRadius)
+            outline.stroke()
+            if let selection = clip.selection { drawSelection(selection, duration: configuration.duration) }
         }
-        drawMarker(configuration.position, color: .white, configuration: configuration)
-        if !configuration.playing, let hoverTime {
-            drawMarker(hoverTime, color: .systemRed, configuration: configuration)
-            let label = NSAttributedString(
-                string: Self.timeLabel(hoverTime),
-                attributes: [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium),
-                    .foregroundColor: NSColor.systemRed,
-                    .backgroundColor: NSColor.controlBackgroundColor,
-                ])
-            let x = min(visibleRect.maxX - label.size().width, max(visibleRect.minX, point(hoverTime, configuration)))
-            label.draw(at: CGPoint(x: x, y: 0))
-        }
+        if !configuration.playing, let hoverTime { drawSkimmer(hoverTime, configuration: configuration) }
+        drawPlayhead(configuration.position, configuration: configuration)
+    }
+
+    private func drawLabel(_ text: String, in rect: CGRect) {
+        let label = NSAttributedString(
+            string: text,
+            attributes: [.font: NSFont.systemFont(ofSize: 10, weight: .medium), .foregroundColor: NSColor.white])
+        let size = label.size()
+        let inset = Self.handleWidth + 4
+        let pill = CGRect(
+            x: rect.minX + inset, y: rect.minY + 4, width: min(size.width + 10, max(0, rect.width - inset * 2)),
+            height: size.height + 2)
+        guard pill.width > 12 else { return }
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2).fill()
+        label.draw(
+            with: pill.insetBy(dx: 5, dy: 1), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
     private func drawRuler(_ context: CGContext, configuration: MediaTimeline) {
         let secondsPerPoint = configuration.duration / max(1, bounds.width)
-        let approximate = secondsPerPoint * 90
+        let approximate = secondsPerPoint * 80
         let power = pow(10, floor(log10(max(approximate, 0.001))))
         let step = [1.0, 2, 5, 10].map { $0 * power }.first { $0 >= approximate } ?? power * 10
-        var time = floor(visibleRect.minX * secondsPerPoint / step) * step
-        while time <= min(configuration.duration, visibleRect.maxX * secondsPerPoint) {
-            let x = point(time, configuration)
-            NSColor.secondaryLabelColor.setStroke()
-            context.setStrokeColor(NSColor.secondaryLabelColor.cgColor)
-            context.move(to: CGPoint(x: x, y: 18)); context.addLine(to: CGPoint(x: x, y: 23)); context.strokePath()
-            NSAttributedString(
-                string: Self.timeLabel(time),
-                attributes: [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
-                    .foregroundColor: NSColor.secondaryLabelColor,
-                ]
-            ).draw(at: CGPoint(x: x + 3, y: 2))
-            time += step
+        let minor = step / Double(Self.rulerMinorTicks)
+        let digits = step >= 1 ? 0 : step >= 0.1 ? 1 : step >= 0.01 ? 2 : 3
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let last = min(configuration.duration, visibleRect.maxX * secondsPerPoint)
+        var index = Int(floor(visibleRect.minX * secondsPerPoint / minor))
+        context.setLineWidth(1)
+        while Double(index) * minor <= last {
+            let time = Double(index) * minor
+            let x = (point(time, configuration)).rounded() + 0.5
+            let major = index % Self.rulerMinorTicks == 0
+            context.setStrokeColor((major ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor).cgColor)
+            context.move(to: CGPoint(x: x, y: Self.rulerHeight - (major ? 8 : 4)))
+            context.addLine(to: CGPoint(x: x, y: Self.rulerHeight - 1))
+            context.strokePath()
+            if major {
+                NSAttributedString(string: Timecode.string(time, fractionDigits: digits), attributes: attributes)
+                    .draw(at: CGPoint(x: x + 3, y: 2))
+            }
+            index += 1
         }
     }
 
@@ -314,7 +375,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         guard firstTime < lastTime else { return }
         let firstX = max(0, Int(point(firstTime, configuration)))
         let lastX = min(Int(bounds.width), Int(ceil(point(lastTime, configuration))))
-        context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.8).cgColor)
+        context.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.85).cgColor)
         context.setLineWidth(1)
         for x in firstX..<lastX {
             let seconds = Double(x) / bounds.width * configuration.duration
@@ -327,30 +388,93 @@ final class TimelineCanvas: NSView, NSDraggingSource {
                     Int(ceil((next - waveform.start) / waveform.duration * Double(waveform.peaks.count)))))
             guard lower < upper else { continue }
             let peak = Double(waveform.peaks[lower..<upper].max() ?? 0)
-            let amplitude = max(1, min(1, peak) * (rect.height / 2 - 5))
+            let amplitude = max(0.5, min(1, peak) * (rect.height / 2 - 6))
             context.move(to: CGPoint(x: Double(x) + 0.5, y: rect.midY - amplitude))
             context.addLine(to: CGPoint(x: Double(x) + 0.5, y: rect.midY + amplitude))
         }
         context.strokePath()
     }
 
+    private func handleRects(_ rect: CGRect) -> [CGRect] {
+        let width = min(Self.handleWidth, rect.width / 2)
+        return [
+            CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height),
+            CGRect(x: rect.maxX - width, y: rect.minY, width: width, height: rect.height),
+        ]
+    }
+
     private func drawSelection(_ selection: ClosedRange<Double>, duration: Double) {
         let rect = rectangle(selection, duration: duration)
+        let frame = NSBezierPath(
+            roundedRect: rect.insetBy(dx: Self.selectionLine / 2, dy: Self.selectionLine / 2),
+            xRadius: Self.clipRadius, yRadius: Self.clipRadius)
+        frame.lineWidth = Self.selectionLine
         NSColor.systemYellow.setStroke()
-        let border = NSBezierPath(rect: rect.insetBy(dx: 1.5, dy: 1.5)); border.lineWidth = 3; border.stroke()
-        for x in [rect.minX, rect.maxX - Self.handleWidth] {
-            let handle = CGRect(x: x, y: rect.minY, width: Self.handleWidth, height: rect.height)
-            NSColor.systemYellow.setFill(); handle.fill()
-            NSColor.black.withAlphaComponent(0.6).setFill()
-            CGRect(x: x + 4, y: rect.midY - 7, width: 1, height: 14).fill()
+        frame.stroke()
+        for (index, handle) in handleRects(rect).enumerated() {
+            let corners = NSBezierPath(roundedRect: handle, xRadius: Self.clipRadius, yRadius: Self.clipRadius)
+            NSColor.systemYellow.setFill()
+            corners.fill()
+            let inner = max(0, handle.width - Self.clipRadius)
+            CGRect(
+                x: index == 0 ? handle.maxX - inner : handle.minX, y: handle.minY, width: inner, height: handle.height
+            )
+            .fill()
+            let chevron = NSBezierPath()
+            let direction = index == 0 ? 1.0 : -1.0
+            chevron.move(to: CGPoint(x: handle.midX + 1.5 * direction, y: handle.midY - 5))
+            chevron.line(to: CGPoint(x: handle.midX - 1.5 * direction, y: handle.midY))
+            chevron.line(to: CGPoint(x: handle.midX + 1.5 * direction, y: handle.midY + 5))
+            chevron.lineWidth = 2
+            chevron.lineCapStyle = .round
+            chevron.lineJoinStyle = .round
+            NSColor.black.withAlphaComponent(0.7).setStroke()
+            chevron.stroke()
         }
     }
 
-    private func drawMarker(_ seconds: Double, color: NSColor, configuration: MediaTimeline) {
+    private func drawPlayhead(_ seconds: Double, configuration: MediaTimeline) {
+        let knobHalfWidth = 6.0
+        let actual = point(seconds, configuration)
+        let x = min(max(actual, knobHalfWidth), bounds.width - knobHalfWidth)
+        let line = CGRect(
+            x: min(max(actual - Self.playheadWidth / 2, 0), bounds.width - Self.playheadWidth),
+            y: Self.rulerHeight - 6, width: Self.playheadWidth, height: Self.clipHeight + 12)
+        NSColor.black.withAlphaComponent(0.5).setFill()
+        line.insetBy(dx: -0.5, dy: 0).fill()
+        NSColor.white.setFill()
+        line.fill()
+        let knob = NSBezierPath()
+        knob.move(to: CGPoint(x: x - knobHalfWidth, y: 3))
+        knob.line(to: CGPoint(x: x + knobHalfWidth, y: 3))
+        knob.line(to: CGPoint(x: x + knobHalfWidth, y: Self.rulerHeight - 12))
+        knob.line(to: CGPoint(x: x, y: Self.rulerHeight - 5))
+        knob.line(to: CGPoint(x: x - knobHalfWidth, y: Self.rulerHeight - 12))
+        knob.close()
+        NSColor.white.setFill()
+        knob.fill()
+        NSColor.black.withAlphaComponent(0.35).setStroke()
+        knob.lineWidth = 0.5
+        knob.stroke()
+    }
+
+    private func drawSkimmer(_ seconds: Double, configuration: MediaTimeline) {
         let x = point(seconds, configuration)
-        let rect = CGRect(x: x - 0.75, y: 17, width: 1.5, height: Self.clipHeight + 9)
-        NSColor.black.withAlphaComponent(0.65).setFill(); rect.insetBy(dx: -0.5, dy: 0).fill()
-        color.setFill(); rect.fill()
+        NSColor.systemPink.withAlphaComponent(0.9).setFill()
+        CGRect(x: x - 0.5, y: Self.rulerHeight, width: 1, height: Self.clipHeight).fill()
+        let label = NSAttributedString(
+            string: Timecode.string(seconds),
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: NSColor.white,
+            ])
+        let size = label.size()
+        let pill = CGRect(
+            x: min(visibleRect.maxX - size.width - 10, max(visibleRect.minX, x - size.width / 2 - 5)),
+            y: Self.rulerHeight + Self.clipHeight - size.height - 6, width: size.width + 10, height: size.height + 2)
+        NSColor.systemPink.setFill()
+        NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2).fill()
+        label.draw(at: CGPoint(x: pill.minX + 5, y: pill.minY + 1))
     }
 
     private func rectangle(_ range: ClosedRange<Double>, duration: Double) -> CGRect {
@@ -393,18 +517,18 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         for clip in configuration.clips where location.y >= Self.rulerHeight {
             if let selection = clip.selection {
                 let rect = rectangle(selection, duration: configuration.duration)
-                for start in [true, false] {
-                    let boundary = start ? rect.minX : rect.maxX
-                    if abs(location.x - boundary) <= Self.handleWidth {
-                        trimDrag = (
-                            location.x, start ? selection.lowerBound : selection.upperBound,
-                            configuration.duration / max(1, bounds.width),
-                            configuration.clips.flatMap { [$0.range.lowerBound, $0.range.upperBound] }
-                                + [configuration.position]
-                        )
-                        configuration.beginTrim(clip.id, start)
-                        return
-                    }
+                for (start, handle) in zip([true, false], handleRects(rect))
+                where handle.insetBy(dx: -Self.handleHitSlop, dy: 0).minX <= location.x
+                    && location.x <= handle.insetBy(dx: -Self.handleHitSlop, dy: 0).maxX
+                {
+                    trimDrag = (
+                        location.x, start ? selection.lowerBound : selection.upperBound,
+                        configuration.duration / max(1, bounds.width),
+                        configuration.clips.flatMap { [$0.range.lowerBound, $0.range.upperBound] }
+                            + [configuration.position]
+                    )
+                    configuration.beginTrim(clip.id, start)
+                    return
                 }
             }
         }
@@ -430,7 +554,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
                 : drag.snaps.filter { abs($0 - candidate) / drag.scale <= Self.snapDistance }
                     .min { abs($0 - candidate) < abs($1 - candidate) } ?? candidate
             configuration.trim(snapped)
-        } else if let draggedClip, let mouseOrigin, configuration.move != nil,
+        } else if let draggedClip, let mouseOrigin, configuration.move != nil, configuration.clips.count > 1,
             hypot(location.x - mouseOrigin.x, location.y - mouseOrigin.y) >= 5
         {
             let pasteboard = NSPasteboardItem(); pasteboard.setString(draggedClip.uuidString, forType: .string)
@@ -493,9 +617,5 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     @objc private func performTimelineAction(_ sender: NSMenuItem) {
         guard let menuClip, let action = TimelineAction(rawValue: sender.tag) else { return }
         configuration?.action?(menuClip, action)
-    }
-
-    private static func timeLabel(_ seconds: Double) -> String {
-        String(format: "%02d:%06.3f", Int(max(0, seconds)) / 60, max(0, seconds).truncatingRemainder(dividingBy: 60))
     }
 }

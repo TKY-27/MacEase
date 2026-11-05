@@ -54,7 +54,7 @@ public enum MediaDownloadFormat: String, CaseIterable, Sendable {
     case source, mp4, mkv, webm, audio, m4a, mp3, wav, flac
 
     public var requiresReencoding: Bool { [.mp4, .webm, .m4a, .mp3, .wav, .flac].contains(self) }
-    var audioOnly: Bool { [.audio, .m4a, .mp3, .wav, .flac].contains(self) }
+    public var audioOnly: Bool { [.audio, .m4a, .mp3, .wav, .flac].contains(self) }
 }
 
 public enum MediaSubtitleFormat: String, CaseIterable, Sendable {

@@ -27,13 +27,16 @@ final class FeatureWindowHost: NSObject, NSWindowDelegate {
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = title
+        window.toolbarStyle = .unified
         window.contentMinSize = minimumSize
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentViewController = NSHostingController(
+        let hosting = NSHostingController(
             rootView: content { [weak window] in
                 window?.performClose(nil)
             })
+        hosting.sceneBridgingOptions = [.toolbars]
+        window.contentViewController = hosting
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
         let available = screen?.visibleFrame.size ?? initialSize ?? minimumSize
         let requested = initialSize ?? minimumSize

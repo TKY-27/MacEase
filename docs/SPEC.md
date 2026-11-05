@@ -715,9 +715,9 @@ system behavior. Values are remembered only for retained panels.
 | --- | --- | --- |
 | Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
 | Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint and live byte equivalent. Image requests expose Allow downscaling; other processing options remain in Settings. No quality/platform picker. |
-| Photo / video editor | One still image or video | Resizable 1280×720 workspace: large preview, right inspector, top tool categories and consistent native action controls; video timeline below. Section 8.1.1. |
+| Photo / video editor | One still image or video | Resizable dark workspace: unified toolbar with centred tool tabs, large viewer with centred transport, sectioned right inspector; video timeline below. Section 8.1.1. |
 | Speed | One or more videos, Custom Speed… | Numeric playback speed, presets, current save policy. |
-| Trim | Audio trim; single over-limit LINE clip | AVPlayerView for native containers/audio; thumbnail strip sampled at one twentieth of duration and numeric times for other supported video containers. Start/end, kept duration, keyframe/exact choice defaulted from Settings. |
+| Trim | Audio trim; single over-limit LINE clip | Video: AVPlayerView for native containers; thumbnail strip sampled at one twentieth of duration and numeric times for other supported containers; keyframe/exact choice defaulted from Settings. Audio: resizable dark window with a full-width waveform timeline, centred transport and Start/End/Length timecodes (section 23.2). |
 | Frame picker | Single video Choose Frame… | Preview and timestamp. |
 | Page order | PDF Merge, Make PDF with multiple images | Thumbnails, reorder/remove, Move Up and Move Down. |
 | Page select | Single PDF Extract Pages… | Page ranges and thumbnails. |
@@ -883,14 +883,20 @@ inputs skip with a reason. Video p values refer to the short edge.
 
 ### 8.1.1 Photo and video editor
 
-The editor opens from Finder and Services for one file. Its initial content
-size is 1280×720, constrained to the active screen, with a 960×540 minimum.
-Window proportions do not change the source or output aspect ratio. A large
-preview sits left of a 290-point inspector; video adds a bottom thumbnail
-timeline. Top categories are Video (video only), Adjust, Styles and Crop.
-Compare Original, session Undo/Redo, Reset All and a standard Liquid Glass Save
-button remain visible. Glass is limited to controls. The footer shows output
-size, video duration and save policy. Unchanged or invalid edits disable Save.
+The editor opens from Finder and Services. Its initial content size is
+1280×720, constrained to the active screen, with a 960×600 minimum; a single
+source names the window. Window proportions do not change the source or output
+aspect ratio. Like common media editors it always uses the dark appearance. A
+unified toolbar centres Video (video only), Adjust, Styles and Crop, and keeps
+Compare Original, session Undo/Redo, More (Reset All), Cancel and a prominent
+Save at its trailing edge. A large viewer sits left of a 300-point inspector.
+Video adds a transport bar under the viewer (position/duration clock, previous
+frame, play/pause, next frame, preview mute) and a full-width timeline with
+Split, Duplicate, Delete, a segment menu and zoom. Photos show Fit/200%/400%
+zoom under the viewer. The inspector groups adjustments into Light, Color and
+Detail, lists styles as selectable rows, and uses tiles for rotation, flips and
+aspect ratios. Its pinned foot shows output size, video duration, save policy
+and validation problems. Unchanged or invalid edits disable Save.
 
 Both media types offer exposure, brightness, contrast, highlights, shadows,
 saturation, vibrance, warmth and tint. Photos also offer black point, sharpness,
@@ -915,7 +921,7 @@ playhead, selected-segment trim handles, numeric source start/end, actual-frame
 stepping and timeline zoom. Command-B splits the selected segment at the playhead;
 Backspace deletes it and closes the gap. Visible buttons and the context menu
 provide split, delete, duplicate, and move left/right; drag-and-drop reorders
-segments. A duplicate receives a new identity. Split children inherit adjustments.
+segments. With one segment, dragging across it scrubs instead. A duplicate receives a new identity. Split children inherit adjustments.
 Each mutation or completed drag is one session Undo operation. Text editors keep
 their normal editing keys. Empty timelines disable playback and Save, retaining Undo.
 
@@ -2364,9 +2370,13 @@ Mixed selections and multiple folders do not expose the action. The authenticate
 run request and host validation remain mandatory; the extension performs no
 network work. Finder Services provides the same operation where applicable.
 
-A native window accepts newline-separated HTTP(S) URLs and shows its destination,
-output format, resolution and subtitle options. Analyze obtains titles, durations
-and available formats. Playlist entries require explicit selection before download.
+A native window starts with one URL field accepting newline-separated HTTP(S)
+URLs; Return or Analyze obtains titles, durations, dimensions and formats, and
+Return then downloads the selection. Editing the URLs clears the results. Results
+list each source with a checkbox, host, duration, largest dimensions and playlist
+status. Options choose Video or Audio Only, then the matching format, resolution
+and subtitles; the footer shows the destination folder. Playlist entries require
+explicit selection before download.
 Independent invocations retain their own destination and draft. Native controls,
 lightweight tables and standard title bars follow Finder and Safari conventions.
 
@@ -2458,10 +2468,17 @@ builds resolve their bundled tools. Command-line package clients may select a
 runtime directory with `MACEASE_MEDIA_TOOLS`; make test and benchmarks supply
 the pinned repository runtime.
 
+Decoded PCM from AVFoundation tracks uses the richest decodable layer of the
+track description, so HE-AAC SBR and parametric-stereo output rates and channels
+drive every encoder and timing check. A decoded buffer whose rate or channel
+count differs from the description fails instead of being retimed or dropped.
+
 ### 23.2 Shared timeline interactions
 
-Video and audio use yellow retained ranges with draggable end handles, an
-independent fixed playhead and a hover skimmer. Video skimming previews silently;
+Video and audio use yellow retained ranges with draggable 12-point chevron end
+handles and a resize cursor, a white playhead with a ruler knob and a pink hover
+skimmer that labels its time. Rounded clips sit under an `m:ss` ruler with minor
+ticks; trimmed-away media is dimmed. Video skimming previews silently;
 leaving restores the committed playhead and playback takes precedence. Audio
 shows a progressively decoded waveform. Click commits the playhead. Command
 plus wheel, pinch, the zoom slider and Command plus/minus zoom around the pointer;
@@ -2470,6 +2487,10 @@ is drawn, including waveform refinement at higher zoom.
 
 Handles snap within eight screen points of the committed playhead or segment
 boundaries; Option bypasses snapping. Set Start/End at Playhead is also available.
+The audio trim window types boundaries as `m:ss.sss`, `h:mm:ss.sss` or seconds.
+Unparsable entries are outlined and disable Trim; ranges that would invert are
+not applied. An untouched field never re-commits its rounded text, and Trim
+commits pending typed boundaries before it runs.
 Video endpoints resolve against actual source frame times; audio endpoints
 resolve to samples. A drag snapshots its original range and time scale and is
 one Undo action. Preserve split, delete, duplicate, reorder, multi-source editing,
@@ -2505,6 +2526,9 @@ website, bump the installed release version, or claim release verification.
 Preserve the existing signing identity and disabled Actions.
 
 ## Changelog
+
+- 2026-11-05: Decode HE-AAC tracks at their output layer, and give the photo/video
+  editor, audio trim and download windows familiar editing layouts (ADR 0054).
 
 - 2026-11-05: Preserve extracted audio, replace local MP3 encoding with an isolated
   LGPL executable, unify timeline interactions and harden downloads. Delivery is

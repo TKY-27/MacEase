@@ -98,8 +98,11 @@ It works best for logos and flat shapes. Photos, editable text, and reconstructe
 gradients are outside its scope. Review any metadata, transparency, or HDR warning
 before saving.
 
-The photo and video editors use a resizable landscape workspace, with the
-preview on the left and controls on the right. Drag a crop edge or corner, or
+The photo and video editors use a resizable dark workspace like familiar
+editing apps. The toolbar centres the tools and keeps Compare, Undo/Redo,
+Cancel and Save on the right. Video plays from the transport bar under the
+viewer, and adjustments are grouped into Light, Color and Detail in the
+inspector. Drag a crop edge or corner, or
 enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
@@ -146,10 +149,12 @@ and transitions are outside this editor's scope.
 
 Video and audio trimming share a yellow selection with draggable ends. Zoom with
 Command-scroll, a trackpad pinch, the zoom slider or Command-plus/minus; use
-**Fit** to see the whole timeline. The red hover line previews silently; clicking
+**Fit** to see the whole timeline. The pink hover line previews silently; clicking
 sets the white playhead. Trim ends snap within eight screen points of the playhead
-and segment boundaries; hold Option to disable snapping. **Set In** and **Set Out**
-place a boundary at the playhead. One drag is one Undo operation.
+and segment boundaries; hold Option to disable snapping. Press **I** or **O**, or use
+the segment menu (video) or the buttons beside Start and End (audio), to place a
+boundary at the playhead. Audio trim times can be typed as `1:05.250` or seconds.
+One drag is one Undo operation.
 
 **Extract Original Audio** ignores bitrate settings and copies compatible audio
 without normalization, volume changes or re-encoding. Unsupported formats or
@@ -281,8 +286,10 @@ Closing removes temporary previews. Files you explicitly save remain and support
 ### Media downloads
 
 Right-click an empty area in a Finder folder, or one selected folder, and choose
-**yt-dlp…**. The folder becomes the destination. Paste one public HTTP(S) URL per
-line and choose **Analyze** to inspect titles, durations and available formats.
+**yt-dlp…**. The folder becomes the destination. Paste one or more public HTTP(S)
+URLs, one per line, and press Return or **Analyze** to inspect titles, durations and
+sizes. Choose **Video** or **Audio Only**, then a format, and press Return again or
+**Download**.
 Playlist entries start unselected; choose the entries you want before downloading.
 
 Best-quality video in its original format is the default. Choose MP4, MKV or WebM,
