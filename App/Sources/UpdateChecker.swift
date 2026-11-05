@@ -15,30 +15,44 @@ final class UpdateChecker {
     private static let availableVersionKey = "availableReleaseVersion"
     private static let availablePageURLKey = "availableReleasePageURL"
     private static let interval: TimeInterval = 24 * 60 * 60
+    private static let downloadURL = URL(string: "https://macease-site.pages.dev/#download")
+    private static let japaneseDownloadURL = URL(string: "https://macease-site.pages.dev/ja/#download")
 
-    private(set) var availableRelease: Release?
+    private(set) var availableVersion: String?
+    var availableRelease: Release? {
+        guard let availableVersion else { return nil }
+        return Release(version: availableVersion, pageURL: officialDownloadURL)
+    }
     @ObservationIgnored var onNewRelease: ((Release) -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let runningVersion: SemanticVersion
     @ObservationIgnored private let logger = Logger(category: "updates")
 
-    init(defaults: UserDefaults = .standard) {
+    init(settings: SettingsStore, defaults: UserDefaults = .standard) {
         guard let running = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             let local = SemanticVersion(running)
         else { preconditionFailure("The app version must be semantic") }
         self.defaults = defaults
+        self.settings = settings
         runningVersion = local
         let storedVersion = defaults.string(forKey: Self.availableVersionKey)
-        let storedPageURL = defaults.string(forKey: Self.availablePageURLKey)
-        if let storedVersion, let storedPageURL,
-            let remote = SemanticVersion(storedVersion), remote > local,
-            let pageURL = URL(string: storedPageURL)
-        {
-            availableRelease = Release(version: remote.description, pageURL: pageURL)
-        } else if storedVersion != nil || storedPageURL != nil {
+        if let storedVersion, let remote = SemanticVersion(storedVersion), remote > local {
+            availableVersion = remote.description
+        } else if storedVersion != nil {
             defaults.removeObject(forKey: Self.availableVersionKey)
-            defaults.removeObject(forKey: Self.availablePageURLKey)
         }
+        defaults.removeObject(forKey: Self.availablePageURLKey)
+    }
+
+    var officialDownloadURL: URL {
+        let isJapanese =
+            settings.language == .japanese
+            || (settings.language == .system && Locale.preferredLanguages.first?.hasPrefix("ja") == true)
+        guard let destination = isJapanese ? Self.japaneseDownloadURL : Self.downloadURL else {
+            preconditionFailure("Official download URL is invalid")
+        }
+        return destination
     }
 
     func check(force: Bool = false) async {
@@ -48,17 +62,17 @@ final class UpdateChecker {
         var request = URLRequest(url: endpoint)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw URLError(.badServerResponse)
+            }
             let latest = try JSONDecoder().decode(LatestRelease.self, from: data)
-            guard let pageURL = URL(string: latest.htmlURL),
-                let remote = SemanticVersion(latest.tagName), remote > runningVersion
+            guard let remote = SemanticVersion(latest.tagName), remote > runningVersion
             else { return }
-            let release = Release(version: remote.description, pageURL: pageURL)
-            if release != availableRelease {
-                availableRelease = release
-                defaults.set(release.version, forKey: Self.availableVersionKey)
-                defaults.set(release.pageURL.absoluteString, forKey: Self.availablePageURLKey)
-                onNewRelease?(release)
+            if remote.description != availableVersion {
+                availableVersion = remote.description
+                defaults.set(remote.description, forKey: Self.availableVersionKey)
+                onNewRelease?(Release(version: remote.description, pageURL: officialDownloadURL))
             }
         } catch {
             let failure = error as NSError
@@ -70,11 +84,9 @@ final class UpdateChecker {
 
     private struct LatestRelease: Decodable {
         let tagName: String
-        let htmlURL: String
 
         enum CodingKeys: String, CodingKey {
             case tagName = "tag_name"
-            case htmlURL = "html_url"
         }
     }
 }

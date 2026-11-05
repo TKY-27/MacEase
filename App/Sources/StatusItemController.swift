@@ -235,9 +235,22 @@ private struct ActiveBatchRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: "\(MenuStrings.operationName(batch.operation)) (\(batch.itemCount))")
                         .font(.system(size: 13))
-                    ProgressView(value: batch.progress)
-                        .progressViewStyle(.linear)
-                        .frame(width: 180)
+                    if let fraction = batch.isScan ? batch.scanFraction : batch.currentFileFraction {
+                        ProgressView(value: fraction)
+                            .progressViewStyle(.linear)
+                            .frame(width: 180)
+                    } else {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .frame(width: 180)
+                    }
+                    Text(
+                        String(
+                            localized: "\(batch.completedItems) of \(batch.itemCount) completed",
+                            comment: "Menu bar batch completed count")
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 Button(
                     batch.operation == .archiveHatchExtract

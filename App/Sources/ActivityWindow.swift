@@ -7,7 +7,7 @@ import SwiftUI
 /// Automatic progress preserves Finder focus.
 @MainActor
 final class ActivityWindow: NSObject, NSWindowDelegate {
-    private static let appearanceDelay: TimeInterval = 0.8
+    private static let appearanceDelay: TimeInterval = 2
     private static let frameName = "Activity"
     private static let topMargin: CGFloat = 96
 
@@ -37,7 +37,8 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
             AccessibilityNotification.Announcement(String(localized: "Paused.")).post()
             return panel?.isVisible == true
         }
-        let result = ActivityResult(outcome)
+        let names = jobs.downloadSessions[outcome.batchID]?.request.selections.map(\.source.title)
+        let result = ActivityResult(outcome, fileNames: names)
         let wasVisible = panel?.isVisible == true
         if wasVisible {
             let operation = MenuStrings.operationName(batch.operation)
@@ -185,14 +186,15 @@ private struct ActivityResult {
     let details: String
     let hasHistory: Bool
 
-    init(_ outcome: BatchOutcome) {
+    init(_ outcome: BatchOutcome, fileNames: [String]? = nil) {
         var problems: [ActivityProblem] = []
         var warnings: [ActivityWarning] = []
         var succeeded = 0
         var failed = 0
         var skipped = 0
-        for (result, inputs) in zip(outcome.outcomes, outcome.inputs) {
-            let file = inputs.first?.lastPathComponent ?? ""
+        for index in outcome.outcomes.indices {
+            let result = outcome.outcomes[index]
+            let file = fileNames?[index] ?? outcome.inputs[index].first?.lastPathComponent ?? ""
             switch result {
             case .succeeded(_, let itemWarnings):
                 succeeded += 1
@@ -344,21 +346,32 @@ private struct ActivityRowView: View {
         return HStack(spacing: Self.lineSpacing * 2) {
             VStack(alignment: .leading, spacing: Self.lineSpacing) {
                 title
-                if batch.isScan, batch.progress == 0 {
+                if batch.isScan, batch.scanFraction == nil {
                     ProgressView()
                         .progressViewStyle(.linear)
+                } else if let fraction = batch.isScan ? batch.scanFraction : batch.currentFileFraction {
+                    ProgressView(value: fraction)
+                        .progressViewStyle(.linear)
                 } else {
-                    ProgressView(value: batch.progress)
+                    ProgressView()
+                        .progressViewStyle(.linear)
                 }
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(runningStatus(batch))
+                if !batch.isScan {
+                    Text(
+                        String(
+                            localized: "\(batch.completedItems) of \(batch.itemCount) completed",
+                            comment: "Activity completed item count")
+                    )
+                    .monospacedDigit()
                 }
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .monospacedDigit()
+                if let status = runningStatus(batch) {
+                    Text(status)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
             .accessibilityElement(children: .combine)
             Button {
                 jobs.cancel(batch.id)
@@ -377,21 +390,15 @@ private struct ActivityRowView: View {
         }
     }
 
-    private func runningStatus(_ batch: JobCenter.ActiveBatch) -> String {
+    private func runningStatus(_ batch: JobCenter.ActiveBatch) -> String? {
         if batch.isScan {
             return String(
                 localized: "Scanning \(batch.fileNames.formatted(.list(type: .and)))…",
                 comment: "Activity status while scanning folders")
         }
-        let file = batch.currentFileName ?? batch.fileNames.first ?? ""
-        let index = batch.currentItem ?? 0
+        guard let file = batch.currentFileName, let index = batch.currentItem else { return nil }
         let phase = batch.itemPhases.indices.contains(index) ? UserMessages.describe(batch.itemPhases[index]) : ""
-        let elapsed = Date().timeIntervalSince(batch.startedAt)
-        let status = "\(file) · \(phase) · \(Int(elapsed)) s"
-        guard batch.itemCount > 1 else { return status }
-        return String(
-            localized: "\(batch.completedItems) of \(batch.itemCount) — \(status)",
-            comment: "Activity progress: done, total, current file")
+        return phase.isEmpty ? file : "\(file) · \(phase)"
     }
 
     @ViewBuilder private func fileStatus(_ outcome: ItemOutcome, file: String) -> some View {
@@ -450,6 +457,15 @@ private struct ActivityRowView: View {
         .padding(.vertical, 4)
     }
 
+    private func downloadResult(_ session: JobCenter.DownloadSession, index: Int) -> some View {
+        let name = session.request.selections[index].source.title
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: name).lineLimit(1).truncationMode(.middle)
+            fileStatus(session.outcome.outcomes[index], file: name)
+        }
+        .padding(.vertical, 4)
+    }
+
     @ViewBuilder private func finished(_ result: ActivityResult) -> some View {
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             title
@@ -475,6 +491,13 @@ private struct ActivityRowView: View {
                 }
             }
             .font(.callout)
+        } else if let session = jobs.downloadSessions[row.batchID] {
+            DisclosureGroup(String(localized: "File Results")) {
+                ForEach(session.outcome.outcomes.indices, id: \.self) { index in
+                    downloadResult(session, index: index)
+                }
+            }
+            .font(.callout)
         }
         HStack {
             if let session = jobs.sessions[row.batchID] {
@@ -494,6 +517,10 @@ private struct ActivityRowView: View {
                     Button(String(localized: "Retry Failed…")) { jobs.retry(row.batchID) }
                         .disabled(!jobs.canRetry(row.batchID))
                 }
+            }
+            if let session = jobs.downloadSessions[row.batchID], !session.failedIndices.isEmpty {
+                Button(String(localized: "Retry Failed…")) { jobs.retry(row.batchID) }
+                    .disabled(!jobs.canRetry(row.batchID))
             }
             if result.notices.count > Self.visibleNotices || result.hasCondensedWarnings {
                 Button(String(localized: "Show All…", comment: "Activity button listing every result detail")) {

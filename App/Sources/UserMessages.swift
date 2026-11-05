@@ -41,6 +41,8 @@ enum UserMessages {
         case .verifying: String(localized: "Verifying")
         case .saving: String(localized: "Saving output")
         case .finished: String(localized: "Finished")
+        case .downloading: String(localized: "Downloading")
+        case .converting: String(localized: "Converting")
         }
     }
 

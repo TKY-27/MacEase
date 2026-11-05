@@ -12,6 +12,8 @@ final class BatchNotifier: NSObject {
         static let permissionCategory = "permission"
         static let batchPermissionCategory = "batch-permission"
         static let permissionShowCategory = "batch-permission-show"
+        static let updateCategory = "update"
+        static let openUpdate = "openUpdate"
         static let permissions = "permissions"
         static let permissionLocation = "permissionLocation"
         static let undo = "undo"
@@ -21,6 +23,7 @@ final class BatchNotifier: NSObject {
 
     var onUndo: ((UUID) -> Void)?
     var onShow: ((UUID) -> Void)?
+    var onOpenUpdate: (() -> Void)?
     private let settings: SettingsStore
     private let center = UNUserNotificationCenter.current()
     private let logger = Logger(category: "notifications")
@@ -44,6 +47,14 @@ final class BatchNotifier: NSObject {
             options: [.foreground]
         )
         center.setNotificationCategories([
+            UNNotificationCategory(
+                identifier: Identifier.updateCategory,
+                actions: [
+                    UNNotificationAction(
+                        identifier: Identifier.openUpdate,
+                        title: String(localized: "Open Download Page", comment: "Update notification action"),
+                        options: [.foreground])
+                ], intentIdentifiers: []),
             UNNotificationCategory(identifier: Identifier.category, actions: [undo, show], intentIdentifiers: []),
             UNNotificationCategory(identifier: Identifier.showCategory, actions: [show], intentIdentifiers: []),
             UNNotificationCategory(
@@ -105,6 +116,14 @@ final class BatchNotifier: NSObject {
         post(content, id: UUID().uuidString)
     }
 
+    func notifyUpdate(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.categoryIdentifier = Identifier.updateCategory
+        post(content, id: "available-update")
+    }
+
     private func post(_ content: UNMutableNotificationContent, id: String) {
         guard settings.notificationsEnabled else { return }
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { [logger] error in
@@ -131,6 +150,11 @@ extension BatchNotifier: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let action = response.actionIdentifier
+        if response.notification.request.content.categoryIdentifier == Identifier.updateCategory {
+            guard action == Identifier.openUpdate || action == UNNotificationDefaultActionIdentifier else { return }
+            await MainActor.run { onOpenUpdate?() }
+            return
+        }
         if action == Identifier.permissions {
             guard
                 let locationName = response.notification.request.content.userInfo[Identifier.permissionLocation]

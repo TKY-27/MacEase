@@ -16,6 +16,7 @@ final class SettingsStore {
         static let appleLanguages = "AppleLanguages"
         static let unreadableSettings = "settings.unreadable"
         static let showsActivity = "activity.shows"
+        static let activityV22Migrated = "activity.v22Migrated"
         static let activityClosesAfterSuccess = "activity.closesAfterSuccess"
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
@@ -88,7 +89,7 @@ final class SettingsStore {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: [
-            Key.notificationsEnabled: true, Key.showsActivity: false, Key.activityClosesAfterSuccess: true,
+            Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
         ])
         settings = Self.decodeSettings(from: defaults)
@@ -99,6 +100,10 @@ final class SettingsStore {
         }
         hiddenEntries = hidden
         notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
+        if !defaults.bool(forKey: Key.activityV22Migrated) {
+            defaults.set(true, forKey: Key.showsActivity)
+            defaults.set(true, forKey: Key.activityV22Migrated)
+        }
         showsActivity = defaults.bool(forKey: Key.showsActivity)
         activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
@@ -112,7 +117,7 @@ final class SettingsStore {
         settings = Settings()
         hiddenEntries = Self.newInstallHiddenEntries
         notificationsEnabled = true
-        showsActivity = false
+        showsActivity = true
         activityClosesAfterSuccess = true
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false

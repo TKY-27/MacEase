@@ -51,10 +51,10 @@ struct GeneralSettingsView: View {
             Section {
                 Toggle(isOn: $store.showsActivity) {
                     Text("Show progress window")
-                    Text("Appears when a batch takes more than a moment. Finder keeps focus.")
+                    Text("Appears if a batch is still running after two seconds. Finder keeps focus.")
                 }
                 .accessibilityLabel(Text("Show progress window"))
-                .accessibilityHint(Text("Appears when a batch takes more than a moment. Finder keeps focus."))
+                .accessibilityHint(Text("Appears if a batch is still running after two seconds. Finder keeps focus."))
                 LabeledContent("Close automatically") {
                     VStack(alignment: .leading) {
                         Toggle("After success", isOn: $store.activityClosesAfterSuccess)

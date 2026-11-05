@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(category: "app")
     private let settings = SettingsStore()
     private let folders = FolderAccessStore()
-    private let updates = UpdateChecker()
+    private lazy var updates = UpdateChecker(settings: settings)
     private lazy var notifier = BatchNotifier(settings: settings)
     private var jobs: JobCenter?
     private var panels: PanelCoordinator?
@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openApp: { [weak self] in self?.openApp() })
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
+        notifier.onOpenUpdate = { [updates] in NSWorkspace.shared.open(updates.officialDownloadURL) }
         makeWindows(jobs: jobs)
         statusItem = StatusItemController(
             jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() }
@@ -100,9 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self, selector: #selector(folderVolumesChanged(_:)), name: name, object: nil)
         }
         updates.onNewRelease = { [notifier] release in
-            notifier.notify(
+            notifier.notifyUpdate(
                 title: String(localized: "MacEase \(release.version) is available", comment: "Update notification"),
-                body: String(localized: "Open the menu bar menu to see the release.", comment: "Update notification")
+                body: String(
+                    localized: "Open the official website to download MacEase.", comment: "Update notification")
             )
         }
         refreshMenuFile()

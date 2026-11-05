@@ -13,9 +13,11 @@ final class JobCenter {
         let batchID: UUID
         let operation: OperationID
         let fileNames: [String]
-        let startedAt = Date()
         var isScan = false
         var progress = 0.0
+        var scanFraction: Double?
+        var currentFileFraction: Double?
+        var progressSequence: UInt64 = 0
         var completedItems = 0
         var currentItem: Int?
         var itemPhases: [ItemPhase] = []
@@ -234,13 +236,15 @@ final class JobCenter {
             self.active.append(started)
             self.onStart?(started)
             let reporter = ProgressReporter(
-                fraction: \.fraction,
+                fraction: { $0.currentFileFraction ?? -1 },
                 milestone: { progress in
-                    let completed = progress.completedItems * 100
-                    guard let current = progress.currentItem, progress.itemPhases.indices.contains(current) else {
-                        return completed
+                    var hasher = Hasher()
+                    hasher.combine(progress.completedItems)
+                    hasher.combine(progress.currentItem)
+                    if let current = progress.currentItem, progress.itemPhases.indices.contains(current) {
+                        hasher.combine(progress.itemPhases[current].rawValue)
                     }
-                    return completed + progress.itemPhases[current].rawValue
+                    return hasher.finalize()
                 }
             ) {
                 self.update(id, progress: $0)
@@ -271,6 +275,7 @@ final class JobCenter {
         let reporter = ProgressReporter { fraction in
             guard let index = self.active.firstIndex(where: { $0.id == id }) else { return }
             self.active[index].progress = max(self.active[index].progress, fraction)
+            if fraction > 0 { self.active[index].scanFraction = self.active[index].progress }
         }
         let task = Task.detached { try work(reporter.report) }
         runningJobs[id] = RunningJob(cancel: task.cancel, waitForCompletion: { _ = await task.result })
@@ -495,9 +500,10 @@ final class JobCenter {
 
     private func update(_ id: UUID, progress: BatchProgress) {
         guard let index = active.firstIndex(where: { $0.id == id }) else { return }
-        // Main-actor hops can reorder.
-        guard progress.completedItems >= active[index].completedItems else { return }
-        active[index].progress = max(active[index].progress, progress.fraction)
+        guard progress.sequence > active[index].progressSequence else { return }
+        active[index].progressSequence = progress.sequence
+        active[index].progress = progress.fraction
+        active[index].currentFileFraction = progress.currentFileFraction
         active[index].completedItems = progress.completedItems
         active[index].currentItem = progress.currentItem
         active[index].itemPhases = progress.itemPhases
@@ -601,7 +607,9 @@ final class ProgressReporter<Update: Sendable>: Sendable {
         let fraction = fraction(update)
         let milestone = milestone(update)
         let shouldSend = lastReported.withLock { last in
-            guard fraction - last.fraction >= Self.minimumStep || fraction >= 1 || milestone != last.milestone
+            guard
+                fraction - last.fraction >= Self.minimumStep || fraction < last.fraction
+                    || (fraction >= 1 && last.fraction < 1) || milestone != last.milestone
             else { return false }
             last = (fraction, milestone)
             return true
