@@ -36,6 +36,20 @@ the SBR rate as `SamplingFrequency`, which its own decoder could not open.
 
 ## Consequences
 
+Decoded chunks advance by the CodecDelay frames removed from each block,
+including laces, so nonzero starts and range trims preserve sample positions.
+A block within the track's timestamp quantum of the running frame position
+continues it, so millisecond block times shifted by a fractional delay do not
+trim audible frames at the stream start.
+Direct PCM copies consume the same leading frames, before any padding, as the
+decoder does.
+Trimless packet copies apply the first kept packet's offset to all later packets;
+AAC without block durations uses the AudioSpecificConfig frame length (1,024
+or 960) at its core sampling rate, and is refused when that is unknown.
+Native priming lookahead retains at most 64 packets before refusing unsupported
+timing. Delay-rounding overflow also refuses timing. Explicit AAC core and SBR
+rates outside the existing positive, at-most-768-kHz metadata range are rejected.
+
 FFmpeg decodes MKV conversions of the AAC-LC, HE-AAC and HE-AAC v2 fixtures to
 the same samples as their MP4 sources, also after a further Matroska copy.
 MacEase decodes the AAC-LC MKV like its source. Matroska AAC with `CodecDelay`

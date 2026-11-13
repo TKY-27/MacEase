@@ -10,13 +10,17 @@ public enum AudioMetadata {
             throw FormatError.corrupt(
                 String(localized: "Audio channel count out of range", comment: "Rejects unsafe audio metadata"))
         }
-        guard sampleRate.isFinite, sampleRate > 0, sampleRate <= maximumSampleRate else {
-            throw FormatError.corrupt(
-                String(localized: "Audio sample rate out of range", comment: "Rejects unsafe audio metadata"))
-        }
+        try validate(sampleRate: sampleRate)
         if let bitDepth, !(1...maximumBitDepth).contains(bitDepth) {
             throw FormatError.corrupt(
                 String(localized: "Audio bit depth out of range", comment: "Rejects unsafe audio metadata"))
+        }
+    }
+
+    public static func validate(sampleRate: Double) throws {
+        guard sampleRate.isFinite, sampleRate > 0, sampleRate <= maximumSampleRate else {
+            throw FormatError.corrupt(
+                String(localized: "Audio sample rate out of range", comment: "Rejects unsafe audio metadata"))
         }
     }
 }

@@ -886,3 +886,16 @@ frames late. AVAssetReader-style media timestamps made AAC-LC 2,048 frames late.
 Untrimmed priming before the session start at 0 stalled `finishWriting` after
 every packet was appended. Dropping whole priming packets kept AAC-LC exact and
 HE-AAC 128 frames late, but drops packets a native copy otherwise retains.
+CodecDelay regression checks (2026-11-05): a PCM block at 100 ms with 2 ms
+delay previously placed retained samples at 98 ms and trimmed them again at a
+100 ms range start. Advancing by the removed frames preserves their positions,
+also across padded laces and direct PCM extraction. HE-AAC MKV-to-FLV copying previously shortened the first
+packet interval by about 3 ms; a shared offset keeps intervals within the 1 ms
+container quantum. AAC SimpleBlocks without durations copy using core-rate frame
+durations. A modified MP4 edit list and roll group exposes 65 priming packets;
+the copy now refuses the bounded lookahead. Int64.max delay and zero or excessive
+explicit ASC core/SBR rates throw instead of trapping or writing invalid headers.
+Placing each block at its own delayed time instead decoded the AAC-LC MKV
+16 frames short: the first audible block is stored at 21 ms, 0.333 ms before
+the 21.333 ms CodecDelay ends, and the start trim cut those frames. Blocks within
+the 1 ms quantum of the running frame position now continue it.

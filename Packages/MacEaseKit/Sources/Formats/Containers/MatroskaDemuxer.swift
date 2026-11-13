@@ -6,8 +6,6 @@ public struct MatroskaDemuxer: MediaDemuxer {
     private static let maximumFrameDuration = 10 * 60 * Nanoseconds.perSecond
     private static let maximumClusterTimestamp: Int64 = 1 << 62
     private static let hdrTransferCharacteristics: Set<Int> = [16, 18]
-    private static let aacLongFrameSamples: Int64 = 1_024
-    private static let aacShortFrameSamples: Int64 = 960
     private static let ac3FrameSamples: Int64 = 1_536
     private static let mpeg1Layer3Samples: Int64 = 1_152
     private static let mpeg2Layer3Samples: Int64 = 576
@@ -482,9 +480,9 @@ public struct MatroskaDemuxer: MediaDemuxer {
                         frequencyIndex < FLV.aacSampleRates.count, (1...7).contains(channelConfiguration)
                     {
                         let configured = try FLV.aacFormat(config)
-                        if configured.sampleRate == sampleRate, configured.channels == channels {
-                            let samples =
-                                config[1] & 0x04 == 0 ? Self.aacLongFrameSamples : Self.aacShortFrameSamples
+                        if configured.sampleRate == sampleRate, configured.channels == channels,
+                            let samples = configured.frameSamples
+                        {
                             sampleCounts = [Int64](repeating: samples, count: payloads.count)
                         }
                     }

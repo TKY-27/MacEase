@@ -66,8 +66,9 @@ final class VideoPCMSource {
     private let start: Int64
     private let end: Int64
     private let codecDelay: Int64
-    private var laceOrigin: Int64 = 0
-    private var laceFrames: Int64 = 0
+    private let timestampQuantum: Int64?
+    private var originTimestamp: Int64 = 0
+    private var framesSinceOrigin: Int64 = 0
     private var returnedLaceSamples = false
     let sampleRate: Double
     let channels: Int
@@ -80,6 +81,7 @@ final class VideoPCMSource {
         self.start = start
         self.end = end
         codecDelay = track.codecDelay
+        timestampQuantum = track.timestampQuantum
         switch input.backend {
         case .asset(let asset, _, let audio):
             guard let audio else { throw EngineError.decodeFailed("missing audio track") }
@@ -107,6 +109,7 @@ final class VideoPCMSource {
         self.start = start
         end = .max
         codecDelay = 0
+        timestampQuantum = nil
         sampleRate = stretched.sampleRate
         channels = stretched.channels
     }
@@ -117,6 +120,7 @@ final class VideoPCMSource {
         start = 0
         end = .max
         codecDelay = 0
+        timestampQuantum = nil
         sampleRate = timeline.sampleRate
         channels = timeline.channels
     }
@@ -163,23 +167,31 @@ final class VideoPCMSource {
             while let packet = try demuxer.nextPacket() {
                 try Task.checkCancellation()
                 guard packet.track == track else { continue }
+                let continuity = PCMFrameContinuity(sampleRate: sampleRate, timestampQuantum: timestampQuantum)
                 let (adjustedTimestamp, timestampOverflow) = packet.timestamp.subtractingReportingOverflow(codecDelay)
                 guard !timestampOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
                 if !packet.continuesPrevious {
-                    laceOrigin = max(0, adjustedTimestamp)
-                    laceFrames = 0
+                    // Quantized block times keep contiguous frame positions.
+                    let gap = try continuity.gap(
+                        at: adjustedTimestamp, relativeTo: originTimestamp, after: framesSinceOrigin)
+                    if gap != 0 {
+                        originTimestamp = adjustedTimestamp
+                        framesSinceOrigin = 0
+                    }
                     returnedLaceSamples = false
                 }
-                let offset = try Nanoseconds.from(seconds: Double(laceFrames) / sampleRate)
-                let (packetTimestamp, laceOverflow) = laceOrigin.addingReportingOverflow(offset)
-                guard !laceOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
-                if packetTimestamp >= end { return nil }
+                // Dropped delay only moves samples later.
+                if try timestamp(afterOriginFrames: framesSinceOrigin) >= end { return nil }
+                let droppedBefore = decoder?.droppedLeadingFrames ?? 0
                 let decoded = try decodedSamples(from: packet, demuxer: &demuxer)
+                let dropped = (decoder?.droppedLeadingFrames ?? 0) - droppedBefore
+                let (audibleFrame, delayOverflow) = framesSinceOrigin.addingReportingOverflow(Int64(dropped))
+                guard !delayOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
+                let packetTimestamp = try timestamp(afterOriginFrames: audibleFrame)
                 let decodedFrames = decoded.count / channels
-                let (followingFrames, frameOverflow) = laceFrames.addingReportingOverflow(Int64(decodedFrames))
+                let (followingFrames, frameOverflow) = audibleFrame.addingReportingOverflow(Int64(decodedFrames))
                 guard !frameOverflow else { throw EngineError.decodeFailed("audio frame count out of range") }
-                laceFrames = followingFrames
-                let continuity = PCMFrameContinuity(sampleRate: sampleRate, timestampQuantum: nil)
+                framesSinceOrigin = followingFrames
                 let padding = try continuity.framePosition(packet.discardPadding ?? 0)
                 let leading = padding < 0 ? Int(min(UInt64(decodedFrames), padding.magnitude)) : 0
                 let trailing = padding > 0 ? Int(min(Int64(decodedFrames), padding)) : 0
@@ -212,6 +224,13 @@ final class VideoPCMSource {
             }
             return nil
         }
+    }
+
+    private func timestamp(afterOriginFrames frames: Int64) throws -> Int64 {
+        let offset = try Nanoseconds.from(seconds: Double(frames) / sampleRate)
+        let (timestamp, overflow) = originTimestamp.addingReportingOverflow(offset)
+        guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
+        return timestamp
     }
 
     private func decodedSamples(from first: MediaPacket, demuxer: inout any MediaDemuxer) throws -> [Float] {
@@ -831,6 +850,7 @@ enum VideoAudio {
             let continuity = PCMFrameContinuity(sampleRate: sampleRate, timestampQuantum: track.timestampQuantum)
             let maximumSilenceFrames = try continuity.framePosition(maximumSynthesizedSilence)
             let codecDelay = try continuity.framePosition(track.codecDelay)
+            var pendingCodecDelay = codecDelay
             func write(_ payload: Data) throws {
                 guard !payload.isEmpty else { return }
                 let expectedPackets = UInt32(payload.count / bytesPerFrame)
@@ -861,10 +881,13 @@ enum VideoAudio {
                     if unchangedTiming, leading != 0 || padding != 0 || codecDelay != 0 {
                         throw EngineError.audioCopyTimingUnsupported
                     }
-                    let initialTrim = min(count, max(0, leading))
+                    // Decoders drop the delay before padding.
+                    let delayTrim = min(count, pendingCodecDelay)
+                    pendingCodecDelay -= delayTrim
+                    let initialTrim = min(count, delayTrim + max(0, leading))
                     let negativePadding = padding < 0 ? min(UInt64(count - initialTrim), padding.magnitude) : 0
                     let first = initialTrim + Int64(negativePadding)
-                    let last = count - min(count, max(0, padding))
+                    let last = count - min(count - delayTrim, max(0, padding))
                     guard last > first else { continue }
                     let adjustment: Int64
                     if packet.outputTimestamp == nil {

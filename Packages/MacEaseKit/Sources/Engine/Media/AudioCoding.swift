@@ -407,6 +407,7 @@ public final class AudioPacketDecoder {
     public let channels: Int
     /// Codec delay left to drop.
     private var leadingFrames: Int
+    private(set) var droppedLeadingFrames = 0
 
     public init(track: MediaTrack) throws {
         guard case .audio(let sampleRate, let channels) = track.kind else {
@@ -511,6 +512,7 @@ public final class AudioPacketDecoder {
             let dropped = min(samples.count / channels, leadingFrames)
             samples.removeFirst(dropped * channels)
             leadingFrames -= dropped
+            droppedLeadingFrames += dropped
         }
         return samples
     }

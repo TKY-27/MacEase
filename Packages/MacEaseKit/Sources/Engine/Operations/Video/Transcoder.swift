@@ -272,6 +272,7 @@ final class PacketCopyStage: StreamStage {
 
     /// Deeper than any B-frame pyramid in practice.
     private static let reorderWindow = 16
+    private static let maximumPrimingPackets = 64
     private static let reorderingCodecs: Set<MediaCodec> = [.h264, .hevc, .mpeg4Part2]
     /// Below one sample at supported rates.
     private static let timestampRounding: Int64 = 1_000
@@ -298,6 +299,8 @@ final class PacketCopyStage: StreamStage {
     private var containerDelay: Int64 = 0
     private var pendingPriming: Int64?
     private var audibleStart: Int64?
+    private var containerShift: Int64?
+    private var aacPacketDuration: Int64?
     private(set) var output: OutputTrack?
 
     init(
@@ -336,6 +339,7 @@ final class PacketCopyStage: StreamStage {
             let trimless = !matroska && destination?.fileType == nil
             if trimless, !track.isVideo, track.codec != .opus, !track.codec.isPCM, track.codecDelay > 0 {
                 containerDelay = track.codecDelay
+                aacPacketDuration = try track.aacFrameDuration()
                 if start == 0 { pendingPriming = track.codecDelay }
             }
             source = .container(demuxer, sourceTrack: track.number)
@@ -352,6 +356,9 @@ final class PacketCopyStage: StreamStage {
     func pull() async throws -> [MediaPacket] {
         // Track headers need the whole priming run.
         while !sourceEnded, window.count < Self.reorderWindow || (primingStart != nil && codecDelay == nil) {
+            if primingStart != nil, codecDelay == nil, window.count >= Self.maximumPrimingPackets {
+                throw EngineError.audioCopyTimingUnsupported
+            }
             guard var packet = try await nextRaw() else {
                 sourceEnded = true
                 break
@@ -474,16 +481,24 @@ final class PacketCopyStage: StreamStage {
     /// Whole packets on the presented timeline.
     private func placesDelayedPacket(_ packet: inout MediaPacket) throws -> Bool {
         let blockTime = packet.timestamp
-        packet.timestamp = try Self.delayed(blockTime, by: -containerDelay)
+        packet.timestamp = try Self.delayed(blockTime, by: containerShift ?? -containerDelay)
         if packet.discardPadding ?? 0 > 0 { packet.discardPadding = nil }
         guard let remaining = pendingPriming else { return packet.timestamp >= start }
-        // First block time marks the audible start.
+        // First block bounds the audible start.
         let audible = audibleStart ?? blockTime
         audibleStart = audible
-        guard let duration = packet.duration else { throw EngineError.audioCopyTimingUnsupported }
-        pendingPriming = remaining + Self.timestampRounding >= duration ? max(0, remaining - duration) : nil
+        guard let duration = packet.duration ?? aacPacketDuration, duration > 0 else {
+            throw EngineError.audioCopyTimingUnsupported
+        }
+        let (roundedRemaining, overflow) = remaining.addingReportingOverflow(Self.timestampRounding)
+        guard !overflow else { throw EngineError.audioCopyTimingUnsupported }
+        pendingPriming = roundedRemaining >= duration ? max(0, remaining - duration) : nil
         guard pendingPriming == nil else { return false }
-        packet.timestamp = audible
+        let firstAudibleTime = max(audible, packet.timestamp)
+        let (shift, shiftOverflow) = firstAudibleTime.subtractingReportingOverflow(blockTime)
+        guard !shiftOverflow else { throw EngineError.audioCopyTimingUnsupported }
+        containerShift = shift
+        packet.timestamp = firstAudibleTime
         return true
     }
 
