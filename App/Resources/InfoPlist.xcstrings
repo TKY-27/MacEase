@@ -1,0 +1,22 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSLocalNetworkUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MacEase shares only the files you select with devices on your local network while sharing is active."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共有中は、選択したファイルのみをローカルネットワーク上のデバイスと共有します。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

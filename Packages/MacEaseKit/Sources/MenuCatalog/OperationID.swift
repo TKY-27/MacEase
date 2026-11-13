@@ -1,5 +1,6 @@
 public enum OperationID: String, Codable, CaseIterable, Sendable {
     case imageEdit = "image.edit"
+    case imageEnhance = "image.enhance"
     case imageResize = "image.resize"
     case imageCompress = "image.compress"
     case imageConvert = "image.convert"
@@ -42,6 +43,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case audioCompress = "audio.compress"
     case audioNormalize = "audio.normalize"
     case audioTrim = "audio.trim"
+    case audioEnhance = "audio.enhance"
     case audioAICustom = "audio.aiCustom"
 
     case folderRemoveDuplicates = "folder.removeDuplicates"
@@ -79,6 +81,10 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case jarDecompile = "jar.decompile"
 
     case anyChecksum = "any.checksum"
+    case anyShare = "any.share"
+    case anyFindRelated = "any.findRelated"
+    case anyProtect = "any.protect"
+    case anySourceInfo = "any.sourceInfo"
     case filesFinish = "files.finish"
 
     public var kind: FileKind {
@@ -190,28 +196,30 @@ extension OperationID {
     public var maximumSelection: Int? {
         switch self {
         case .videoTrim, .audioTrim, .pdfExtractPages, .pdfEditPages, .imageCopyBase64, .imageTraceSVG,
-            .archiveBrowse, .folderDownloadMedia:
+            .archiveBrowse, .folderDownloadMedia, .imageEnhance, .audioEnhance,
+            .anyFindRelated, .anyProtect, .anySourceInfo:
             1
+        case .anyShare: 20
         default: nil
         }
     }
 
     public static let menuOrder: [OperationID] = [
-        .imageEdit, .imageConvert, .imageHDRToSDR, .imageCompress, .imageResize,
+        .imageEdit, .imageConvert, .imageHDRToSDR, .imageCompress, .imageResize, .imageEnhance,
         .imageRotate, .imageFlip, .imageBackground,
         .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64, .imageStripMetadata,
         .imageAIRename, .imageAICustom,
         .videoEdit, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR,
         .videoCompress, .videoResize, .videoRotate, .videoFlip, .videoSpeed, .videoRemoveAudio,
         .videoFPS, .videoBackground, .videoThumbnail, .videoExtractAudio, .videoSubtitles, .videoAICustom,
-        .audioTrim, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles, .audioAICustom,
+        .audioTrim, .audioEnhance, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles, .audioAICustom,
         .pdfEditPages, .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit,
         .pdfAIRename,
         .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
         .folderDownloadMedia, .folderOrganize, .folderCompress, .folderRename, .folderTree, .folderAnalyze,
         .folderRemoveDuplicates,
         .folderRemoveEmpty, .folderAIRename, .archiveHatchExtract, .archiveExtract, .archiveBrowse,
-        .jarDecompile, .filesFinish, .anyChecksum,
+        .jarDecompile, .filesFinish, .anyShare, .anyFindRelated, .anyProtect, .anySourceInfo, .anyChecksum,
     ]
 
     public var requirement: OperationRequirement? {

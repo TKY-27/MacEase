@@ -14,6 +14,7 @@ public struct HatchExtractionResult: Sendable {
     public let sessionID: UUID
     public let output: URL
     public let paused: Bool
+    public let warning: String?
 }
 
 public final class HatchExtractionStore: Sendable {
@@ -193,7 +194,8 @@ private final class HatchExecution: Sendable {
                 case "finished", "paused":
                     guard let path = event.output else { throw EngineError.unexpected("Missing extraction output") }
                     result = HatchExtractionResult(
-                        sessionID: sessionID, output: URL(fileURLWithPath: path), paused: event.event == "paused")
+                        sessionID: sessionID, output: URL(fileURLWithPath: path), paused: event.event == "paused",
+                        warning: event.event == "finished" ? event.message : nil)
                 case "passwordRequired": failure = .invalidInput(.passwordRequired)
                 case "wrongPassword": failure = .invalidInput(.wrongPassword)
                 case "error": failure = .unexpected(event.message ?? "Extraction failed")

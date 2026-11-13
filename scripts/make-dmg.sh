@@ -28,6 +28,10 @@ fi
 
 cd "$root"
 scripts/build-media-tools.sh
+scripts/build-hatchzip.sh
+scripts/build-age.sh
+scripts/build-ai-audio.sh
+scripts/build-upscaler.sh
 scripts/generate-notices.sh
 xcodegen generate
 rm -rf "$archive"
@@ -41,10 +45,12 @@ while IFS= read -r -d '' executable; do
     if file -b "$executable" | grep -q 'Mach-O'; then
         codesign "${sign_args[@]}" "$executable"
     fi
-done < <(find "$app/Contents/Resources/media-tools" -type f \( -perm -111 -o -name '*.so' -o -name '*.dylib' \) -print0)
+done < <(find "$app/Contents/Resources/media-tools" "$app/Contents/Resources/ai-audio" \
+    -type f \( -perm -111 -o -name '*.so' -o -name '*.dylib' \) -print0)
 
 # Preserve Xcode's expanded entitlements.
 codesign "${sign_args[@]}" "$app/Contents/Resources/macease-hatchzip"
+codesign "${sign_args[@]}" "$app/Contents/Resources/macease-age"
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$appex"
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$app"
 

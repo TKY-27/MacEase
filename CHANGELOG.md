@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-14
+
 ### Added
+
+- Unified Download Media window with Video, Audio Only and Images modes;
+  isolated gallery-dl supports direct posts/albums with 1–512 images and a local
+  source JSON record. Video/audio downloads record their source URL in WhereFroms.
+- Explicit QR sharing of 1–20 files over private-LAN HTTP, with a random token,
+  15-minute expiry and invalidation on stop or window close. HTTP is unencrypted.
+- Bundled local Swin2SR Core ML 2× upscaling for opaque 8-bit SDR stills up to
+  1 MP, always saving a new PNG. No HDR, alpha, animation or multipage input.
+- Bundled local CPU audio enhancement: GTCRN speech cleanup to 16 kHz mono WAV
+  up to 10 minutes, and Spleeter vocals/instrumental to two 44.1 kHz stereo WAVs
+  up to 5 minutes. Originals are retained; tags are not copied.
+- Read-only related-file discovery in the chosen folder: exact size/SHA-256/byte
+  matches and separately labelled Vision image similarity.
+- Standard age scrypt encryption/decryption through an isolated age v1.3.2
+  bridge; keep originals, authenticate before publishing plaintext and pass
+  session-only passphrases through standard input. New passwords need 12 characters.
+- Hidden-by-default Inspect Source action for recorded links and SHA-256, enabled
+  in Finder Menu settings; no authorship claim or automatic web research.
+- `make toolkit` builds pinned age, audio runtimes/models and the Core ML model;
+  bootstrap installs missing Go/Python 3.11. Models ship with the app.
 
 - Original-audio extraction that ignores bitrate settings and refuses implicit conversion.
 - Shared yellow video/audio trim ranges, silent skimming, committed playheads,
@@ -20,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - yt-dlp link dropping, a privacy-preserving clipboard link suggestion and result thumbnails.
 
 ### Changed
+
+- Closing Activity or dismissing a completed result clears its transient details
+  and notification, while jobs, history and Undo remain. Available updates are
+  announced daily and stay indicated in the menu bar.
+- Update HatchZip core to v0.1.10 with dot-only path, hard-link and extracted-output
+  verification fixes, retaining existing formats and no RAR/tar.xz support.
+- Distribute unmodified standalone GPL-2.0-only gallery-dl with its own license
+  and exact source, alongside model/runtime notices; MacEase source remains MIT.
 
 - Stream all local MP3 output through isolated FFmpeg/libmp3lame, retaining
   CBR/VBR controls and independent decoding and quality tests.
@@ -36,6 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   HE-AAC audio, such as TikTok downloads; decoding now uses the real output rate.
 - Shortened or misaligned audio after converting MP4 with AAC to MKV by copy;
   MKV now keeps the encoder priming and end padding, like FFmpeg's remux.
+- Audio a few milliseconds early or cut short when trimming or converting MKV
+  files with an encoder delay, refused copies of AAC MKV audio without block
+  durations, and crashes or invalid headers from out-of-range delay or AAC rates.
 - Swift exclusive-access crashes while changing video trim boundaries.
 - Silent loss of unsupported audio tags during replacement; refuse replacement
   or disclose the loss when retaining the original with New File.

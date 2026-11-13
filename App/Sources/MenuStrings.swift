@@ -8,8 +8,14 @@ enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
         case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
+        case .imageEnhance: String(localized: "menu.op.image.enhance", defaultValue: "Upscale Photo…")
+        case .audioEnhance: String(localized: "menu.op.audio.enhance", defaultValue: "Enhance Audio…")
+        case .anyShare: String(localized: "menu.op.any.share", defaultValue: "Share with QR Code…")
+        case .anyFindRelated: String(localized: "menu.op.any.findRelated", defaultValue: "Find Related Files…")
+        case .anyProtect: String(localized: "menu.op.any.protect", defaultValue: "Encrypt or Decrypt…")
+        case .anySourceInfo: String(localized: "menu.op.any.sourceInfo", defaultValue: "Inspect Source…")
         case .videoEdit: String(localized: "menu.op.video.edit", defaultValue: "Edit Video…")
-        case .folderDownloadMedia: String(localized: "menu.op.folder.downloadMedia", defaultValue: "yt-dlp…")
+        case .folderDownloadMedia: String(localized: "menu.op.folder.downloadMedia", defaultValue: "Download Media…")
         case .folderOrganize: String(localized: "menu.op.folder.organize", defaultValue: "Organize…")
         case .pdfEditPages: String(localized: "menu.op.pdf.editPages", defaultValue: "Edit Pages…")
         case .filesFinish: String(localized: "menu.op.files.finish", defaultValue: "Finish With Recipe…")

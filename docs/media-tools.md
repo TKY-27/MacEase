@@ -7,6 +7,10 @@ into libmp3lame, with no automatic fallback or intermediate audio file.
 These executables retain their upstream licenses. GPL and nonfree FFmpeg
 features are disabled. LGPL FFmpeg and LAME are the isolated executable exception
 recorded in SPEC sections 22–23 and ADRs 0052–0053.
+Gallery downloads use the unmodified GPL-2.0-only gallery-dl command-line
+program as a separate process (ADR 0057). Its implementation is neither linked
+nor copied into the MIT application. Its exact source, license and required
+Requests dependencies are included in the matching source distribution.
 
 ## Build
 
@@ -31,6 +35,11 @@ Python intentionally omits interactive, database, Tk, ctypes, LZMA and Zstandard
 optional modules. Download requests use the included standard urllib backend.
 The host uses `python3 -I -B -m yt_dlp`, ignores user configuration and plugins,
 passes explicit Node and FFmpeg paths, and never self-updates these tools.
+Image galleries use `python3 -I -B -m gallery_dl` with configuration discovery,
+postprocessors and interactive authentication disabled. Only supported image
+files are accepted; downloads are verified before publishing a new folder.
+`MacEase Source.json` records the requested gallery page, retrieval time and saved
+filenames. This records a download origin, not authorship or authenticity.
 
 FFmpeg uses native VideoToolbox H.264 and AAC encoders, VP9 through libvpx,
 AV1 decoding through dav1d, Opus through libopus, MP3 through libmp3lame, and

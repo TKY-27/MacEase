@@ -40,14 +40,18 @@ public struct MediaDownloader: Sendable {
         return url
     }
 
-    public func analyze(urls: [URL]) async throws -> MediaAnalysis {
+    public func analyze(urls: [URL], images: Bool = false) async throws -> MediaAnalysis {
         guard !urls.isEmpty, urls.count <= Limits.inputURLs else { throw EngineError.invalidInput(.emptyInput) }
         var sources: [MediaSource] = []
         var failures: [MediaAnalysisFailure] = []
         for url in urls {
             try Task.checkCancellation()
             do {
-                sources += try await metadata(url)
+                if images {
+                    sources.append(try await GalleryDownloader(tools: tools).analyze(url))
+                } else {
+                    sources += try await metadata(url)
+                }
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -69,6 +73,11 @@ public struct MediaDownloader: Sendable {
         }
         let selections = try request.selections.map { selection in
             _ = try Self.validateURL(selection.source.webpageURL.absoluteString)
+            if selection.source.galleryCount != nil {
+                guard selection.format == .source, selection.resolution == nil, selection.subtitle == nil else {
+                    throw EngineError.invalidInput(.malformed("Image galleries keep their original formats"))
+                }
+            }
             if let height = selection.resolution {
                 guard height > 0, selection.source.resolutions.contains(height) else {
                     throw EngineError.invalidInput(.invalidNumericParameter)
@@ -169,6 +178,10 @@ public struct MediaDownloader: Sendable {
     private func download(_ selection: MediaDownloadSelection, destination: URL, context: ItemContext) async throws
         -> ItemResult
     {
+        if selection.source.galleryCount != nil {
+            return try await GalleryDownloader(tools: tools).download(
+                selection.source, destination: destination, context: context)
+        }
         let fresh = try await metadata(selection.source.webpageURL)
         guard let source = fresh.first(where: { $0.id == selection.source.id }) else {
             throw EngineError.decodeFailed("The selected media is no longer available")
@@ -260,6 +273,7 @@ public struct MediaDownloader: Sendable {
                     url: sidecar, name: base + "." + requested.language + "." + selection.subtitleFormat.rawValue,
                     check: .text(.utf8)))
         }
+        for file in staged { try FileOrigin.record(source.webpageURL, onStagedFile: file.url) }
         return .created(in: destination, outputs: staged)
     }
 
@@ -406,7 +420,7 @@ public struct MediaDownloader: Sendable {
             directory: directory, tools: tools, captureOutput: captureOutput, line: line)
     }
 
-    private static func safeName(_ title: String) -> String {
+    static func safeName(_ title: String) -> String {
         let scalars = title.unicodeScalars.map { scalar -> String in
             CharacterSet.controlCharacters.contains(scalar) || "/:\\".unicodeScalars.contains(scalar)
                 ? "_" : String(scalar)

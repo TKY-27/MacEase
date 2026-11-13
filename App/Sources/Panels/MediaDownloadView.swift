@@ -21,6 +21,20 @@ final class MediaDownloadModel {
         }
     }
     var format = MediaDownloadFormat.source
+    var images = false {
+        didSet {
+            guard images != oldValue else { return }
+            cancelAnalysis()
+            thumbnailTask?.cancel()
+            thumbnails = [:]
+            sources = []
+            selectedIDs = []
+            failures = []
+            error = nil
+            resolution = nil
+            subtitle = nil
+        }
+    }
     var resolution: Int?
     var subtitle: MediaSubtitle?
     var subtitleFormat = MediaSubtitleFormat.vtt
@@ -98,7 +112,7 @@ final class MediaDownloadModel {
         analysisTask = Task {
             do {
                 let downloader = try MediaDownloader()
-                let analysis = try await downloader.analyze(urls: parsed)
+                let analysis = try await downloader.analyze(urls: parsed, images: images)
                 guard !closed, !Task.isCancelled, generation == expected else { return }
                 sources = analysis.sources
                 failures = analysis.failures
@@ -210,9 +224,11 @@ final class MediaDownloadModel {
 }
 
 enum MediaDownloadKind: CaseIterable {
-    case video, audio
+    case video, audio, images
 
-    var formats: [MediaDownloadFormat] { MediaDownloadFormat.allCases.filter { $0.audioOnly == (self == .audio) } }
+    var formats: [MediaDownloadFormat] {
+        self == .images ? [.source] : MediaDownloadFormat.allCases.filter { $0.audioOnly == (self == .audio) }
+    }
 }
 
 struct MediaDownloadView: View {
@@ -223,8 +239,9 @@ struct MediaDownloadView: View {
 
     private var kind: Binding<MediaDownloadKind> {
         Binding(
-            get: { model.isAudioOnly ? .audio : .video },
+            get: { model.images ? .images : model.isAudioOnly ? .audio : .video },
             set: { kind in
+                model.images = kind == .images
                 guard !kind.formats.contains(model.format), let first = kind.formats.first else { return }
                 model.format = first
             })
@@ -250,25 +267,39 @@ struct MediaDownloadView: View {
     }
 
     private var urlBar: some View {
-        HStack(alignment: .top, spacing: 10) {
-            TextField(
-                String(localized: "Paste video or playlist URLs"), text: $model.urls, axis: .vertical
-            )
-            .lineLimit(1...4)
-            .textFieldStyle(.roundedBorder)
-            .controlSize(.large)
-            .focused($urlsFocused)
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Media Type", selection: kind) {
+                Text("Video").tag(MediaDownloadKind.video)
+                Text("Audio Only").tag(MediaDownloadKind.audio)
+                Text("Images").tag(MediaDownloadKind.images)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
             .disabled(model.isAnalyzing)
-            .onSubmit { model.analyze() }
-            .accessibilityLabel(Text("URLs, one per line"))
-            if model.isAnalyzing {
-                Button("Stop Analysis") { model.cancelAnalysis() }
-                    .controlSize(.large)
-            } else {
-                Button("Analyze") { model.analyze() }
-                    .controlSize(.large)
-                    .keyboardShortcut("r", modifiers: .command)
-                    .disabled(!model.canAnalyze)
+            HStack(alignment: .top, spacing: 10) {
+                TextField(
+                    model.images
+                        ? String(localized: "Paste image gallery URLs")
+                        : String(localized: "Paste video or playlist URLs"),
+                    text: $model.urls, axis: .vertical
+                )
+                .lineLimit(1...4)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .focused($urlsFocused)
+                .disabled(model.isAnalyzing)
+                .onSubmit { model.analyze() }
+                .accessibilityLabel(Text("URLs, one per line"))
+                if model.isAnalyzing {
+                    Button("Stop Analysis") { model.cancelAnalysis() }
+                        .controlSize(.large)
+                } else {
+                    Button("Analyze") { model.analyze() }
+                        .controlSize(.large)
+                        .keyboardShortcut("r", modifiers: .command)
+                        .disabled(!model.canAnalyze)
+                }
             }
         }
         .padding(16)
@@ -288,7 +319,7 @@ struct MediaDownloadView: View {
                     Text("Paste a URL and press Return").font(.title3.weight(.semibold))
                     Text("You can also drop links from a browser here.")
                         .foregroundStyle(.secondary)
-                    Text("Public videos and audio. Live streams and sign-in are not supported.")
+                    Text("Public media only. Live streams and sign-in are not supported.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -352,7 +383,8 @@ struct MediaDownloadView: View {
                 if let thumbnail = model.thumbnails[source.id] {
                     Image(decorative: thumbnail, scale: 1).resizable().aspectRatio(contentMode: .fill)
                 } else {
-                    Image(systemName: "play.rectangle").font(.title2).foregroundStyle(.secondary)
+                    Image(systemName: source.galleryCount == nil ? "play.rectangle" : "photo.on.rectangle")
+                        .font(.title2).foregroundStyle(.secondary)
                 }
             }
             .frame(width: 64, height: 36)
@@ -371,6 +403,9 @@ struct MediaDownloadView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture { selected.wrappedValue.toggle() }
+        .contextMenu {
+            Link("Open Source Page", destination: source.webpageURL)
+        }
         .disabled(model.isAnalyzing)
     }
 
@@ -394,71 +429,73 @@ struct MediaDownloadView: View {
         }
     }
 
-    private var options: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .bottom, spacing: 16) {
-                option(String(localized: "Media Type")) {
-                    Picker("Media Type", selection: kind) {
-                        Text("Video").tag(MediaDownloadKind.video)
-                        Text("Audio Only").tag(MediaDownloadKind.audio)
-                    }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
-                }
-                option(String(localized: "Format")) {
-                    Picker("Format", selection: $model.format) {
-                        ForEach(kind.wrappedValue.formats, id: \.self) { format in
-                            Text(Self.formatTitle(format)).tag(format)
-                        }
-                    }
-                    .fixedSize()
-                }
-                if !model.isAudioOnly {
-                    option(String(localized: "Resolution")) {
-                        Picker("Resolution", selection: $model.resolution) {
-                            Text("Best available").tag(nil as Int?)
-                            ForEach(model.resolutions, id: \.self) { resolution in
-                                Text(model.resolutionTitle(resolution)).tag(Optional(resolution))
+    @ViewBuilder private var options: some View {
+        if model.images {
+            Text("Original images are saved in a new folder with a source record. Select galleries before downloading.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .bottom, spacing: 16) {
+                    option(String(localized: "Format")) {
+                        Picker("Format", selection: $model.format) {
+                            ForEach(kind.wrappedValue.formats, id: \.self) { format in
+                                Text(Self.formatTitle(format)).tag(format)
                             }
                         }
                         .fixedSize()
-                        .disabled(model.sources.isEmpty)
                     }
-                }
-                option(String(localized: "Subtitles")) {
-                    HStack(spacing: 6) {
-                        Picker("Subtitles", selection: $model.subtitle) {
-                            Text("Off").tag(nil as MediaSubtitle?)
-                            ForEach(model.subtitles, id: \.self) { subtitle in
-                                Text(Self.subtitleTitle(subtitle)).tag(Optional(subtitle))
-                            }
-                        }
-                        .fixedSize()
-                        .disabled(model.subtitles.isEmpty)
-                        if model.subtitle != nil {
-                            Picker("Subtitle file", selection: $model.subtitleFormat) {
-                                ForEach(MediaSubtitleFormat.allCases, id: \.self) { format in
-                                    Text(format.rawValue.uppercased()).tag(format)
+                    if !model.isAudioOnly {
+                        option(String(localized: "Resolution")) {
+                            Picker("Resolution", selection: $model.resolution) {
+                                Text("Best available").tag(nil as Int?)
+                                ForEach(model.resolutions, id: \.self) { resolution in
+                                    Text(model.resolutionTitle(resolution)).tag(Optional(resolution))
                                 }
                             }
-                            .pickerStyle(.segmented)
                             .fixedSize()
+                            .disabled(model.sources.isEmpty)
                         }
                     }
+                    option(String(localized: "Subtitles")) {
+                        HStack(spacing: 6) {
+                            Picker("Subtitles", selection: $model.subtitle) {
+                                Text("Off").tag(nil as MediaSubtitle?)
+                                ForEach(model.subtitles, id: \.self) { subtitle in
+                                    Text(Self.subtitleTitle(subtitle)).tag(Optional(subtitle))
+                                }
+                            }
+                            .fixedSize()
+                            .disabled(model.subtitles.isEmpty)
+                            if model.subtitle != nil {
+                                Picker("Subtitle file", selection: $model.subtitleFormat) {
+                                    ForEach(MediaSubtitleFormat.allCases, id: \.self) { format in
+                                        Text(format.rawValue.uppercased()).tag(format)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .fixedSize()
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .labelsHidden()
+                Text(
+                    model.format.requiresReencoding
+                        ? String(
+                            localized: "This format may require re-encoding when the source codec is incompatible.")
+                        : String(
+                            localized: "Keeps source quality without re-encoding. Container merging may be required.")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .labelsHidden()
-            Text(
-                model.format.requiresReencoding
-                    ? String(localized: "This format may require re-encoding when the source codec is incompatible.")
-                    : String(localized: "Keeps source quality without re-encoding. Container merging may be required.")
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .disabled(model.isAnalyzing)
+            .padding(16)
         }
-        .disabled(model.isAnalyzing)
-        .padding(16)
     }
 
     private func option<Control: View>(_ title: String, @ViewBuilder control: () -> Control) -> some View {
@@ -511,7 +548,11 @@ struct MediaDownloadView: View {
         if let largest = source.videoDimensions.max(by: { $0.height < $1.height }) {
             details.append("\(largest.width) × \(largest.height)")
         }
-        if source.isPlaylistEntry { details.append(String(localized: "Playlist entry")) }
+        if let count = source.galleryCount {
+            details.append(String(localized: "\(count) images"))
+        } else if source.isPlaylistEntry {
+            details.append(String(localized: "Playlist entry"))
+        }
         return details
     }
 

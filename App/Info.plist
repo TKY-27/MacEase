@@ -45,6 +45,8 @@
 	<string>© 2026 MacEase contributors. MIT License.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>MacEase transcribes speech on this Mac to create subtitles.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MacEase shares only the files you select with devices on your local network while sharing is active.</string>
 	<key>NSServices</key>
 	<array>
 		<dict>

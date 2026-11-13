@@ -23,13 +23,15 @@ public struct MediaSource: Identifiable, Hashable, Sendable {
     public let playlistIndex: Int?
     /// HTTPS only.
     public let thumbnailURL: URL?
+    public let galleryCount: Int?
 
     public init(
         id: String, webpageURL: URL, title: String, duration: Double?, resolutions: [Int],
         subtitles: [MediaSubtitle], isPlaylistEntry: Bool, availableFormats: [String] = [], playlistIndex: Int? = nil,
-        videoDimensions: [MediaVideoDimensions] = [], thumbnailURL: URL? = nil
+        videoDimensions: [MediaVideoDimensions] = [], thumbnailURL: URL? = nil, galleryCount: Int? = nil
     ) {
         self.thumbnailURL = thumbnailURL
+        self.galleryCount = galleryCount
         self.id = id
         self.webpageURL = webpageURL
         self.title = title

@@ -40,7 +40,7 @@ fetch() {
     expected="$(field "$name" 4)"
     archive="$archives/$name-$(basename "$url")"
     if [[ ! -f "$archive" ]]; then
-        curl --fail --location --retry 3 --output "$archive.part" "$url"
+        curl --fail --location --connect-timeout 20 --max-time 300 --retry 3 --output "$archive.part" "$url"
         mv "$archive.part" "$archive"
     fi
     [[ "$(shasum -a 256 "$archive" | cut -d' ' -f1)" == "$expected" ]] || {
@@ -109,6 +109,10 @@ unpack ejs
 site_packages="$runtime/lib/python$python_version/site-packages"
 mkdir -p "$site_packages"
 cp -R "$work/yt-dlp/yt_dlp" "$site_packages/"
+for package in gallery-dl requests urllib3 certifi idna charset-normalizer; do unpack "$package"; done
+cp -R "$work/gallery-dl/gallery_dl" "$work/certifi/certifi" "$work/idna/idna" "$site_packages/"
+cp -R "$work/requests/src/requests" "$work/urllib3/src/urllib3" \
+    "$work/charset-normalizer/src/charset_normalizer" "$site_packages/"
 "$runtime/bin/python3" -I -B -m zipfile -e "$(fetch ejs-wheel)" "$site_packages"
 "$runtime/bin/python3" -I -B -c \
     'import yt_dlp_ejs.yt.solver as solver; print(solver.lib().split("*/", 1)[0] + "*/")' \
@@ -214,6 +218,7 @@ env -i HOME="$work" PATH=/usr/bin:/bin "$runtime/bin/ffmpeg" -version
 [[ "$("$runtime/bin/node" --version)" == "v$(field node 2)" ]]
 [[ "$("$runtime/bin/python3" -I -B -c 'import platform; print(platform.python_version())')" == "$(field cpython 2)" ]]
 [[ "$("$runtime/bin/python3" -I -B -m yt_dlp --ignore-config --version)" == "$(field yt-dlp 2)" ]]
+[[ "$("$runtime/bin/python3" -I -B -m gallery_dl --config-ignore --version)" == "$(field gallery-dl 2)" ]]
 "$runtime/bin/ffprobe" -version >/dev/null
 for protocol in https tls; do
     "$runtime/bin/ffmpeg" -hide_banner -protocols 2>/dev/null | grep -E "^[[:space:]]+$protocol$" >/dev/null

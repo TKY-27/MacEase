@@ -18,6 +18,7 @@ Run from the repository root.
 | Purpose | Command |
 | --- | --- |
 | Install tools, build native dependencies, generate the Xcode project | `make bootstrap` |
+| Build the age helper and local AI resources | `make toolkit` |
 | Rebuild native dependencies only | `scripts/build-deps.sh` |
 | Generate the Xcode project | `xcodegen generate` |
 | Build the app (Debug) | `make build` |
@@ -82,6 +83,8 @@ Tests
   algorithms. Never copy, translate, adapt or incorporate their code into
   MacEase; implement independently (ADR 0013). ADRs 0052 and 0053 permit isolated
   LGPL executables for downloads and MP3 encoding with source and notices.
+  ADR 0057 additionally permits the unmodified standalone gallery-dl runtime
+  with its GPL license and corresponding source, never linked into MacEase.
 - Flect (Apache-2.0) is the design reference for interaction and features.
   Reuse its code only with the Apache-2.0 notices that require; see ADR 0013.
 - Never write to, move or delete a user's original file except through the

@@ -5,6 +5,8 @@ import MenuCatalog
 /// The host localizes these per file.
 public enum EngineError: Error, Equatable, Sendable {
     case decodeFailed(String)
+    case protectionAuthenticationFailed
+    case protectionDiskFull
     case nonFiniteAudioSample
     case encodeFailed(String)
     case commitFailed(String)

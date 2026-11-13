@@ -60,6 +60,10 @@ public struct StagedFile: Sendable {
     }
 }
 
+public struct AgeAuthenticationProof: Sendable {
+    init() {}
+}
+
 public enum OutputCheck: Sendable {
     case image
     case media
@@ -78,6 +82,7 @@ public enum OutputCheck: Sendable {
     case folder
     /// Its decompressor decoded it without error.
     case decompressed
+    case ageAuthenticatedPlaintext(AgeAuthenticationProof)
 }
 
 public struct RenamePlan: Codable, Hashable, Sendable {
@@ -132,6 +137,7 @@ public enum ItemWarning: Equatable, Sendable {
     case originalKept
     case outputNameUnchanged
     case metadataDropped
+    case archiveFolderAttributesNotRestored
     case hdrProvenanceUnknown
     case dolbyVisionRemoved
     case unmappableCharactersReplaced

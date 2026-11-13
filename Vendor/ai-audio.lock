@@ -1,0 +1,214 @@
+{
+  "schema": 1,
+  "sherpaCommit": "af2d8d81dbfa61c4cea4c568da78f3982edca005",
+  "assets": [
+    {
+      "name": "onnx-1.17.0-cp311-cp311-macosx_12_0_universal2.whl",
+      "url": "https://files.pythonhosted.org/packages/e5/a9/8d1b1d53aec70df53e0f57e9f9fcf47004276539e29230c3d5f1f50719ba/onnx-1.17.0-cp311-cp311-macosx_12_0_universal2.whl",
+      "sha256": "d6fc3a03fc0129b8b6ac03f03bc894431ffd77c7d79ec023d0afd667b4d35869",
+      "bytes": 16647991,
+      "license": "Apache-2.0",
+      "purpose": "build-only"
+    },
+    {
+      "name": "numpy-1.26.4-cp311-cp311-macosx_11_0_arm64.whl",
+      "url": "https://files.pythonhosted.org/packages/1a/2e/151484f49fd03944c4a3ad9c418ed193cfd02724e138ac8a9505d056c582/numpy-1.26.4-cp311-cp311-macosx_11_0_arm64.whl",
+      "sha256": "edd8b5fe47dab091176d21bb6de568acdd906d1887a4584a15a9a96a1dca06ef",
+      "bytes": 13997127,
+      "license": "BSD-3-Clause",
+      "purpose": "build-only"
+    },
+    {
+      "name": "protobuf-7.36.2-cp310-abi3-macosx_10_9_universal2.whl",
+      "url": "https://files.pythonhosted.org/packages/32/72/98342feb672507c8f3a69e34b4fa8961f608edba5c1a48a6f47156d92cb5/protobuf-7.36.2-cp310-abi3-macosx_10_9_universal2.whl",
+      "sha256": "cbc70b17ee27e28894c7fee8bb04be1abead49e936bc70eb60052531eee2079e",
+      "bytes": 456039,
+      "license": "BSD-3-Clause",
+      "purpose": "build-only"
+    },
+    {
+      "name": "sherpa-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/af2d8d81dbfa61c4cea4c568da78f3982edca005/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "onnxruntime-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/v1.28.2/LICENSE",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+      "bytes": 1073,
+      "license": "MIT"
+    },
+    {
+      "name": "onnxruntime-ThirdPartyNotices.txt",
+      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/v1.28.2/ThirdPartyNotices.txt",
+      "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
+      "bytes": 325054,
+      "license": "Upstream notices"
+    },
+    {
+      "name": "gtcrn-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/502ebfab64da7c4a9af78dcb9c6ceef1ebb01c73/LICENSE",
+      "sha256": "c467165e5860b4a7494ef4a6e2788e4115d95b5b8989bb5f86287089adddf794",
+      "bytes": 1069,
+      "license": "MIT"
+    },
+    {
+      "name": "gtcrn-grant.json",
+      "url": "https://api.github.com/repos/Xiaobin-Rong/gtcrn/issues/104/comments",
+      "sha256": "441bf7e5b755d08de1c49fa2c5c3b7f74b9a1cf752abe1dcd42b2cae347ec08c",
+      "bytes": 2063,
+      "license": "MIT grant"
+    },
+    {
+      "name": "spleeter-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/deezer/spleeter/6f2c8a2e283914faa544631430f65b793f1b1218/LICENSE",
+      "sha256": "b15e40c921ec6fe997e0d88ddab9c26fb915bebbbb9496530d3f98f317d4325a",
+      "bytes": 1075,
+      "license": "MIT"
+    },
+    {
+      "name": "spleeter-source-config.json",
+      "url": "https://raw.githubusercontent.com/deezer/spleeter/6f2c8a2e283914faa544631430f65b793f1b1218/spleeter/resources/2stems.json",
+      "sha256": "c0cdb7c3c3b9ecdf378cda45f8a6254ddbc50f1035c24072a21df52d8890788d",
+      "bytes": 718,
+      "license": "MIT"
+    },
+    {
+      "name": "spleeter-paper.pdf",
+      "url": "https://joss.theoj.org/papers/10.21105/joss.02154.pdf",
+      "sha256": "fcb33a38a284189d428c99f5e63d2654c840d31dbc921b55077d320bbb7b2731",
+      "bytes": 131680,
+      "license": "CC-BY-4.0"
+    },
+    {
+      "name": "kaldi-native-fbank-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/csukuangfj/kaldi-native-fbank/v1.22.4/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "utf8proc-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/JuliaStrings/utf8proc/v2.12.0/LICENSE.md",
+      "sha256": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
+      "bytes": 5125,
+      "license": "MIT+Unicode"
+    },
+    {
+      "name": "kaldi-decoder-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/k2-fsa/kaldi-decoder/v0.3.0/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "bytes": 11358,
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "simple-sentencepiece-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/pkufool/simple-sentencepiece/v0.7/LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357,
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "json-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/nlohmann/json/v3.12.0/LICENSE.MIT",
+      "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603",
+      "bytes": 1076,
+      "license": "MIT"
+    },
+    {
+      "name": "eigen-LICENSE.txt",
+      "url": "https://gitlab.com/libeigen/eigen/-/raw/5.0.1/COPYING.MPL2",
+      "sha256": "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172",
+      "bytes": 16727,
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "kissfft-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/mborgerding/kissfft/131.1.0/COPYING",
+      "sha256": "a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6",
+      "bytes": 246,
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "gtcrn.onnx",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx",
+      "sha256": "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534",
+      "bytes": 535638,
+      "license": "MIT"
+    },
+    {
+      "name": "sherpa-onnx-v2.0.1-osx-arm64-shared-no-tts.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-v2.0.1-osx-arm64-shared-no-tts.tar.bz2",
+      "sha256": "4fcc6c77c8d8d2e2f04cfdc17c6fd224c01469b78529370eb9d8e0e5ec97ac79",
+      "bytes": 18663994,
+      "license": "Apache-2.0+MIT",
+      "releaseAsset": {
+        "id": 678782072,
+        "digest": "sha256:4fcc6c77c8d8d2e2f04cfdc17c6fd224c01469b78529370eb9d8e0e5ec97ac79",
+        "updatedAt": "2026-10-26T16:39:48Z"
+      }
+    },
+    {
+      "name": "sherpa-onnx-spleeter-2stems.tar.bz2",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems.tar.bz2",
+      "sha256": "e26401d9c1801f43c0229731d78d32c2e80085e3aceedeb25f29d2de5fa68ca2",
+      "bytes": 74682545,
+      "license": "MIT",
+      "releaseAsset": {
+        "id": 257363376,
+        "digest": null,
+        "updated_at": "2025-05-23T07:28:18Z"
+      },
+      "publishedChecksum": "69b43d35b4cfed03b14c3da6bc64b1cd9e2f75a993f064d953e83d98747828c7"
+    },
+    {
+      "name": "spleeter-original-2stems.tar.gz",
+      "url": "https://github.com/deezer/spleeter/releases/download/v1.4.0/2stems.tar.gz",
+      "sha256": "f3a90b39dd2874269e8b05a48a86745df897b848c61f3958efc80a39152bd692",
+      "bytes": 73109797,
+      "license": "MIT",
+      "purpose": "reference-checkpoint"
+    },
+    {
+      "name": "kissfft-BSD-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/mborgerding/kissfft/131.1.0/LICENSES/BSD-3-Clause",
+      "sha256": "4d6bcab46f27d6d0c878e8305d4bdcfe040d52bf6656b9771f04c9fb9902c0ed",
+      "bytes": 1830,
+      "license": "BSD-3-Clause",
+      "purpose": "notice"
+    },
+    {
+      "name": "eigen-5.0.1.tar.gz",
+      "url": "https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz",
+      "sha256": "e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec",
+      "bytes": 2967272,
+      "license": "MPL-2.0",
+      "purpose": "corresponding-source"
+    }
+  ],
+  "runtimeComponents": [
+    {
+      "paths": [
+        "bin/sherpa-onnx-offline-denoiser",
+        "bin/sherpa-onnx-offline-source-separation"
+      ],
+      "name": "sherpa-onnx",
+      "version": "2.0.1",
+      "sourceCommit": "af2d8d81dbfa61c4cea4c568da78f3982edca005",
+      "license": "Apache-2.0",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/tree/af2d8d81dbfa61c4cea4c568da78f3982edca005"
+    },
+    {
+      "paths": [
+        "lib/libonnxruntime.dylib"
+      ],
+      "name": "ONNX Runtime",
+      "version": "1.28.2",
+      "license": "MIT",
+      "source": "https://github.com/microsoft/onnxruntime/tree/v1.28.2",
+      "thirdPartyNotices": "licenses/onnxruntime-ThirdPartyNotices.txt"
+    }
+  ]
+}

@@ -153,4 +153,31 @@ import Testing
         #expect(result.record == nil)
         #expect(try store.sessions().isEmpty)
     }
+
+    @Test func completionWarningReachesJobOutcome() async throws {
+        let folder = try TestVolume.makeFolder()
+        let archive = folder.appending(path: "warning.zip")
+        try Data("protocol fixture".utf8).write(to: archive)
+        let output = folder.appending(path: "extracted", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
+        let event = try JSONSerialization.data(withJSONObject: [
+            "event": "finished", "output": output.path, "message": "Folder attributes were not restored",
+        ])
+        let line = try #require(String(data: event, encoding: .utf8))
+        let executable = folder.appending(path: "hatch-protocol-fixture.sh")
+        try "#!/bin/sh\nread request\ncat <<'EVENT'\n\(line)\nEVENT\n".write(
+            to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let support = folder.appending(path: "support")
+        let store = HatchExtractionStore(supportDirectory: support, executableURL: executable)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1, hatchExtractions: store)
+        let batch = ArchivePlanner.batch(.hatchExtract(password: nil), op: .archiveHatchExtract, archives: [archive])
+        let outcome = await engine.run(batch, settings: Settings()) { _ in }
+        guard case .succeeded(let outputs, let warnings) = try #require(outcome.outcomes.first) else {
+            Issue.record("Warning completion did not succeed")
+            return
+        }
+        #expect(outputs == [output])
+        #expect(warnings == [.archiveFolderAttributesNotRestored])
+    }
 }

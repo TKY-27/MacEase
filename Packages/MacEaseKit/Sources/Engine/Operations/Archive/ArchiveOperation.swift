@@ -29,10 +29,11 @@ enum ArchivePlanner {
                 operation: op,
                 items: primaryArchives(archives).map { archive in
                     WorkItem(inputs: [archive], durableArchive: true) { context in
-                        .hatchExtraction(
-                            try await context.hatchExtractions.extract(
-                                input: sessionID == nil ? archive : nil, resuming: sessionID, password: password,
-                                progress: context.progress))
+                        let extraction = try await context.hatchExtractions.extract(
+                            input: sessionID == nil ? archive : nil, resuming: sessionID, password: password,
+                            progress: context.progress)
+                        if extraction.warning != nil { context.warn(.archiveFolderAttributesNotRestored) }
+                        return .hatchExtraction(extraction)
                     }
                 })
         case .extract(let password):

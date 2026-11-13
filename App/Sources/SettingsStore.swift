@@ -17,6 +17,7 @@ final class SettingsStore {
         static let unreadableSettings = "settings.unreadable"
         static let showsActivity = "activity.shows"
         static let activityV22Migrated = "activity.v22Migrated"
+        static let sourceInspectorV3Migrated = "menu.sourceInspectorV3Migrated"
         static let activityClosesAfterSuccess = "activity.closesAfterSuccess"
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
@@ -98,6 +99,11 @@ final class SettingsStore {
             hidden.insert(OperationID.videoEdit.menuEntryKey(""))
             defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
         }
+        if !defaults.bool(forKey: Key.sourceInspectorV3Migrated) {
+            hidden.insert(OperationID.anySourceInfo.menuEntryKey(""))
+            defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
+            defaults.set(true, forKey: Key.sourceInspectorV3Migrated)
+        }
         hiddenEntries = hidden
         notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
         if !defaults.bool(forKey: Key.activityV22Migrated) {
@@ -134,6 +140,7 @@ final class SettingsStore {
         OperationID.videoExtractAudio.menuEntryKey("aiff"), OperationID.videoExtractAudio.menuEntryKey("ogg"),
         OperationID.videoExtractAudio.menuEntryKey("opus"),
         OperationID.anyChecksum.menuEntryKey("sha1"), OperationID.anyChecksum.menuEntryKey("sha512"),
+        OperationID.anySourceInfo.menuEntryKey(""),
     ]
 
     /// Existing installs keep their visibility.

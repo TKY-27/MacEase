@@ -77,6 +77,10 @@ enum UserMessages {
             String(localized: "“\(file)” changed since this operation. Run a new operation from Finder.")
         case .decodeFailed:
             String(localized: "“\(file)” could not be read.")
+        case .protectionAuthenticationFailed:
+            String(localized: "The password is incorrect or “\(file)” is damaged.")
+        case .protectionDiskFull:
+            String(localized: "There is not enough disk space to protect “\(file)”.")
         case .nonFiniteAudioSample:
             String(localized: "“\(file)” contains non-finite audio samples and could not be decoded.")
         case .encodeFailed:
@@ -305,6 +309,8 @@ enum UserMessages {
             )
         case .metadataDropped:
             String(localized: "The output format cannot hold the original metadata.")
+        case .archiveFolderAttributesNotRestored:
+            String(localized: "The files were extracted, but some folders kept default permissions and modified times.")
         case .hdrProvenanceUnknown:
             String(localized: "The source signals HDR, but its capture or expansion origin is unknown.")
         case .dolbyVisionRemoved:

@@ -50,6 +50,15 @@ final class PanelCoordinator {
             return
         }
         switch op {
+        case .imageEnhance: showImageEnhancement(inputs[0])
+        case .audioEnhance: showAudioEnhancement(inputs[0])
+        case .anyProtect: showFileProtection(inputs[0])
+        case .anyShare: showFileShare(inputs)
+        case .anyFindRelated: showRelatedFiles(inputs[0])
+        case .anySourceInfo:
+            featureHost.show(
+                title: MenuStrings.operationName(op), minimumSize: NSSize(width: 560, height: 340), onClose: {}
+            ) { close in FileOriginPanel(source: inputs[0], close: close) }
         case .imageEdit: showMediaEditor(inputs, isVideo: false)
         case .imageTraceSVG: showSVGTrace(inputs[0])
         case .archiveBrowse: showArchiveBrowser(inputs[0])
@@ -74,10 +83,47 @@ final class PanelCoordinator {
         }
     }
 
+    private func showImageEnhancement(_ source: URL) {
+        let model = ImageEnhancementModel(source: source) { [jobs] batch in jobs.run(batch: batch) }
+        host.show(title: MenuStrings.operationName(.imageEnhance)) { close in
+            ImageEnhancementPanel(model: model, close: close)
+        }
+    }
+
+    private func showAudioEnhancement(_ source: URL) {
+        let model = AudioEnhancementModel(source: source) { [jobs] batch in jobs.run(batch: batch) }
+        host.show(title: MenuStrings.operationName(.audioEnhance)) { close in
+            AudioEnhancementPanel(model: model, close: close)
+        }
+    }
+
+    private func showFileProtection(_ source: URL) {
+        let model = FileProtectionModel(source: source) { [jobs] batch in jobs.run(batch: batch) }
+        host.show(title: MenuStrings.operationName(.anyProtect)) { close in
+            FileProtectionPanel(model: model, close: close)
+        }
+    }
+
+    private func showFileShare(_ inputs: [URL]) {
+        let model = FileShareModel(inputs: inputs)
+        featureHost.show(
+            title: MenuStrings.operationName(.anyShare), minimumSize: NSSize(width: 460, height: 560),
+            onClose: { model.stop() }
+        ) { close in FileSharePanel(model: model, close: close) }
+    }
+
+    private func showRelatedFiles(_ source: URL) {
+        let model = RelatedFilesModel(source: source)
+        featureHost.show(
+            title: MenuStrings.operationName(.anyFindRelated), minimumSize: NSSize(width: 700, height: 480),
+            onClose: { model.close() }
+        ) { close in RelatedFilesPanel(model: model, close: close) }
+    }
+
     private func showMediaDownload(_ destination: URL) {
         let model = MediaDownloadModel(destination: destination)
         featureHost.show(
-            title: "yt-dlp", minimumSize: NSSize(width: 640, height: 520),
+            title: String(localized: "Download Media"), minimumSize: NSSize(width: 640, height: 520),
             initialSize: NSSize(width: 820, height: 640), onClose: { await model.close() }
         ) { close in
             MediaDownloadView(model: model, close: close) { request in

@@ -1,6 +1,33 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Action": {
+      "localizations": {
+        "ja": { "stringUnit": { "state": "translated", "value": "操作" } }
+      }
+    },
+    "Encrypt": {
+      "localizations": {
+        "ja": { "stringUnit": { "state": "translated", "value": "暗号化" } }
+      }
+    },
+    "Decrypt": {
+      "localizations": {
+        "ja": { "stringUnit": { "state": "translated", "value": "復号" } }
+      }
+    },
+    "Dismiss": {
+      "comment": "Remove a completed Activity result",
+      "localizations": {
+        "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } }
+      }
+    },
+    "MacEase, update available": {
+      "comment": "Menu bar icon VoiceOver label for an update",
+      "localizations": {
+        "ja": { "stringUnit": { "state": "translated", "value": "MacEase、更新あり" } }
+      }
+    },
     "Exact": {
       "localizations": {
         "ja": {
@@ -5885,6 +5912,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "出力形式は元のメタデータを保持できません。"
+          }
+        }
+      }
+    },
+    "The files were extracted, but some folders kept default permissions and modified times.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルは展開されましたが、一部のフォルダのアクセス権と更新日時は既定値のままです。"
           }
         }
       }
@@ -16206,13 +16243,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "yt-dlp…"
+            "value": "Download Media…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "yt-dlp…"
+            "value": "メディアをダウンロード…"
           }
         }
       }
@@ -17079,6 +17116,582 @@
           "stringUnit": {
             "state": "translated",
             "value": "フェードが選択範囲より長くなっています。"
+          }
+        }
+      }
+    },
+    "Upscale 2×": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2倍に拡大"
+          }
+        }
+      }
+    },
+    "Local image upscaling": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像をローカルで拡大"
+          }
+        }
+      }
+    },
+    "Source": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元ファイル"
+          }
+        }
+      }
+    },
+    "New PNG next to the original": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元ファイルの隣にPNGを作成"
+          }
+        }
+      }
+    },
+    "Uses the Swin2SR model on this Mac. No image is uploaded. The original is kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac上でSwin2SRモデルを使用します。画像はアップロードされず、元ファイルも保持されます。"
+          }
+        }
+      }
+    },
+    "Limit: 1 megapixel input. Animated, HDR, transparent and over-8-bit images are unsupported.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力は100万画素までです。アニメーション、HDR、透明、8ビットを超える画像には対応していません。"
+          }
+        }
+      }
+    },
+    "Export New Files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいファイルを書き出す"
+          }
+        }
+      }
+    },
+    "Clean Speech": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声をクリアにする"
+          }
+        }
+      }
+    },
+    "Vocals and Instrumental": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボーカルと伴奏"
+          }
+        }
+      }
+    },
+    "Reduces speech noise. Exports mono WAV at 16 kHz; stereo is mixed to mono. Maximum 10 minutes.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "声の背景ノイズを抑え、16 kHz・モノラルのWAVに保存します。ステレオはモノラルになります。上限10分。"
+          }
+        }
+      }
+    },
+    "Exports vocals and instrumental as two stereo WAV files at 44.1 kHz. Maximum 5 minutes.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボーカルと伴奏を、44.1 kHz・ステレオの2つのWAVに保存します。上限5分。"
+          }
+        }
+      }
+    },
+    "Processed on this Mac. Your original is kept. Tags are not copied.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMac内で処理し、元ファイルは残します。タグ情報はコピーされません。"
+          }
+        }
+      }
+    },
+    "Confirm password": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードを確認"
+          }
+        }
+      }
+    },
+    "Use at least 12 characters for a new password. A forgotten password cannot be recovered.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいパスワードは12文字以上にしてください。忘れたパスワードは復元できません。"
+          }
+        }
+      }
+    },
+    "The original file will be kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元ファイルは保持されます。"
+          }
+        }
+      }
+    },
+    "The QR code could not be created.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QRコードを作成できませんでした。"
+          }
+        }
+      }
+    },
+    "Selected files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したファイル"
+          }
+        }
+      }
+    },
+    "Share on this network": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークで共有"
+          }
+        }
+      }
+    },
+    "QR code for shared files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有ファイルのQRコード"
+          }
+        }
+      }
+    },
+    "Network": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク"
+          }
+        }
+      }
+    },
+    "Interface": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続先"
+          }
+        }
+      }
+    },
+    "Refresh Networks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークを更新"
+          }
+        }
+      }
+    },
+    "Connect to a private Wi-Fi or Ethernet network to share files.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを共有するには、プライベートWi-FiまたはEthernetに接続してください。"
+          }
+        }
+      }
+    },
+    "Use the same trusted network. HTTP is not encrypted. Files stay on this Mac; no cloud service or internet port forwarding is used.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼できる同じネットワークを使ってください。HTTP通信は暗号化されません。ファイルはこのMac内にあり、クラウドサービスやインターネットへのポート転送は使いません。"
+          }
+        }
+      }
+    },
+    "Stop Sharing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有を停止"
+          }
+        }
+      }
+    },
+    "Start Sharing": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有を開始"
+          }
+        }
+      }
+    },
+    "Find Related Files": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "関連ファイルを検索"
+          }
+        }
+      }
+    },
+    "Choose Folder…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを選択…"
+          }
+        }
+      }
+    },
+    "Exact content": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容が完全一致"
+          }
+        }
+      }
+    },
+    "Reveal": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
+          }
+        }
+      }
+    },
+    "No source link is recorded for this file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルにはソースリンクが記録されていません。"
+          }
+        }
+      }
+    },
+    "Recorded sources": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録されたソース"
+          }
+        }
+      }
+    },
+    "Recorded links can be edited. They do not prove authorship or authenticity.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記録されたリンクは編集できます。作成者や真正性を証明するものではありません。"
+          }
+        }
+      }
+    },
+    "Reading source information…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース情報を読み込み中…"
+          }
+        }
+      }
+    },
+    "Paste image gallery URLs": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像ギャラリーのURLを貼り付け"
+          }
+        }
+      }
+    },
+    "Public media only. Live streams and sign-in are not supported.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開メディアのみ対応しています。ライブ配信とサインインが必要なページには対応していません。"
+          }
+        }
+      }
+    },
+    "Open Source Page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースページを開く"
+          }
+        }
+      }
+    },
+    "Original images are saved in a new folder with a source record. Select galleries before downloading.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元画像はソース情報とともに新しいフォルダへ保存されます。ダウンロード前にギャラリーを選択してください。"
+          }
+        }
+      }
+    },
+    "menu.op.image.enhance": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upscale Photo…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を高解像度化…"
+          }
+        }
+      }
+    },
+    "menu.op.audio.enhance": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enhance Audio…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声を補正…"
+          }
+        }
+      }
+    },
+    "menu.op.any.share": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share with QR Code…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QRコードで共有…"
+          }
+        }
+      }
+    },
+    "menu.op.any.findRelated": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Related Files…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "関連ファイルを検索…"
+          }
+        }
+      }
+    },
+    "menu.op.any.protect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypt or Decrypt…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化／復号…"
+          }
+        }
+      }
+    },
+    "menu.op.any.sourceInfo": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspect Source…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース情報を確認…"
+          }
+        }
+      }
+    },
+    "Visually similar": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見た目が似ている"
+          }
+        }
+      }
+    },
+    "%lld files scanned": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のファイルを検索しました"
+          }
+        }
+      }
+    },
+    "Designed for small images. Processing can take several minutes.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小さな画像向けの機能です。処理には数分かかる場合があります。"
+          }
+        }
+      }
+    },
+    "Choose an image containing at most 1 megapixel.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "100万画素以下の画像を選択してください。"
+          }
+        }
+      }
+    },
+    "Download Media": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアをダウンロード"
+          }
+        }
+      }
+    },
+    "%lld images": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像 %lld 枚"
+          }
+        }
+      }
+    },
+    "Expires in %lld seconds": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あと %lld 秒で終了"
+          }
+        }
+      }
+    },
+    "The password is incorrect or “%@” is damaged.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードが違うか、「%@」が破損しています。"
+          }
+        }
+      }
+    },
+    "Source: %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元ファイル: %@"
+          }
+        }
+      }
+    },
+    "%lld unreadable files skipped": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取れない %lld 個のファイルをスキップしました"
           }
         }
       }

@@ -227,6 +227,7 @@ fn paths(directory: &Path, primary: &Path) -> Paths {
         archive: primary.to_path_buf(),
         journal: directory.join("journal.json"),
         tail: directory.join("tail"),
+        folders: directory.join("folders"),
     }
 }
 
@@ -242,12 +243,11 @@ fn archive_stem(primary: &Path) -> Result<String> {
         }
     }
     let lower = stem.to_ascii_lowercase();
-    for suffix in [".tar.gz", ".tgz", ".zip", ".7z", ".tar"] {
-        if lower.ends_with(suffix) {
-            stem.truncate(stem.len() - suffix.len());
-            break;
-        }
-    }
+    let suffix = [".tar.gz", ".tgz", ".zip", ".7z", ".tar"]
+        .into_iter()
+        .find(|suffix| lower.ends_with(suffix))
+        .context("Unsupported archive format for MacEase HatchZip")?;
+    stem.truncate(stem.len() - suffix.len());
     if stem.is_empty() {
         bail!("The archive has no output name");
     }
@@ -296,6 +296,7 @@ fn exclusive_output(primary: &Path) -> Result<PathBuf> {
 fn prepare(request: &Request) -> Result<Manifest> {
     let selected = request.input.as_ref().context("Missing archive")?;
     let (primary, _) = session::locate(selected)?;
+    archive_stem(&primary)?;
     validate_input(&primary)?;
     let job = Job::open(
         &primary,
@@ -522,15 +523,17 @@ fn execute(request: Request) -> Result<()> {
             session::clear_uncommitted(&job, &journal.output)?;
             (job, journal)
         }
-        session::State::Orphan(journal) => {
+        session::State::Orphan(mut journal) => {
             if manifest.state != "finishing" {
                 bail!("The remaining archive is missing. Put it back before resuming extraction");
             }
-            hatchzip_core::engine::finish_orphaned(&journal, &paths)?;
+            let warning = hatchzip_core::engine::finish_orphaned(&mut journal, &paths)?;
             apply_quarantine(&manifest.output, &manifest.quarantine)?;
             manifest.state = "finished".into();
             save_manifest(&request.directory, &manifest)?;
-            emit(serde_json::json!({"event":"finished","output":manifest.output}));
+            emit(
+                serde_json::json!({"event":"finished","output":manifest.output,"message":warning}),
+            );
             return Ok(());
         }
     };
@@ -548,13 +551,18 @@ fn execute(request: Request) -> Result<()> {
         on_bytes: Box::new(move |count| { let value = written.fetch_add(count, Ordering::Relaxed).saturating_add(count); emit(serde_json::json!({"event":"progress","fraction":(value as f64 / total as f64).min(1.0)})); }),
         on_commit: Box::new(|_| {}),
     }}.execute()?;
-    manifest.state = match outcome {
-        Outcome::Finished => "finished",
-        Outcome::Paused => "paused",
-    }
-    .into();
+    let warning = match outcome {
+        Outcome::Finished(warning) => {
+            manifest.state = "finished".into();
+            warning
+        }
+        Outcome::Paused => {
+            manifest.state = "paused".into();
+            None
+        }
+    };
     save_manifest(&request.directory, &manifest)?;
-    emit(serde_json::json!({"event":manifest.state,"output":manifest.output}));
+    emit(serde_json::json!({"event":manifest.state,"output":manifest.output,"message":warning}));
     Ok(())
 }
 

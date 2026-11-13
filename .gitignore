@@ -37,3 +37,6 @@ dist/
 
 # Native Rust build output
 Native/HatchZip/target/
+
+# Python build caches
+__pycache__/

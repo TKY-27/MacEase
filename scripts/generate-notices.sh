@@ -87,6 +87,17 @@ notice() {
 {
     echo "MacEase includes the following third-party software."
     if [[ -f "$media_notices" ]]; then cat "$media_notices"; fi
+    if [[ -f "$root/Vendor/build/ai-audio/THIRD_PARTY_NOTICES.txt" ]]; then
+        cat "$root/Vendor/build/ai-audio/THIRD_PARTY_NOTICES.txt"
+    fi
+    if [[ -f "$root/Vendor/build/macease-age" ]]; then
+        notice "age" "1.3.2" "BSD-3-Clause" "https://github.com/FiloSottile/age" "$root/Vendor/AgeBridge/licenses"
+    fi
+    if [[ -d "$root/Vendor/build/upscaler" ]]; then
+        echo "Swin2SR classical SR x2 (Apache-2.0)"
+        echo "https://huggingface.co/caidas/swin2SR-classical-sr-x2-64"
+        cat "$root/Vendor/build/upscaler/MODEL_CARD.md" "$root/Vendor/build/upscaler/LICENSE-2.0.txt"
+    fi
     cat "$root/Vendor/build/hatchzip-third-party.txt"
     echo
     while read -r name version license _ url files; do

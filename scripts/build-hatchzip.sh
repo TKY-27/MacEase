@@ -4,7 +4,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 command -v cargo >/dev/null || { echo "error: cargo is missing; run make bootstrap" >&2; exit 1; }
 read -r _ revision _ checksum url _ < <(awk '$1 == "hatchzip-core" { print }' "$root/Vendor/deps.lock")
 archive="$root/Vendor/src/hatchzip-$revision.tar.gz"
-source="$root/Vendor/src/hatchzip"
+source="$root/Vendor/src/hatchzip-$revision"
 mkdir -p "$root/Vendor/src" "$root/Vendor/build/licenses/hatchzip-core"
 if [[ ! -f "$archive" ]]; then
     curl -fsSL --retry 3 "$url" -o "$archive.pending"
@@ -14,12 +14,28 @@ fi
     echo "error: HatchZip source checksum mismatch" >&2
     exit 1
 }
-rm -rf "$source"
-mkdir -p "$source"
-tar -xf "$archive" -C "$source" --strip-components 1
-patch -d "$source" -p1 < "$root/Vendor/patches/hatchzip-core-macease.patch"
+candidate="$(mktemp -d "$root/Vendor/src/.hatchzip-$revision.XXXXXX")"
+rollback=""
+cleanup() {
+    if [[ -n "$rollback" && -d "$rollback" ]]; then
+        if [[ ! -e "$source" ]]; then mv "$rollback" "$source"; else rm -rf "$rollback"; fi
+    fi
+    if [[ -n "$candidate" && -d "$candidate" ]]; then rm -rf "$candidate"; fi
+}
+trap cleanup EXIT
+tar -xf "$archive" -C "$candidate" --strip-components 1
+patch -d "$candidate" -p1 < "$root/Vendor/patches/hatchzip-core-macease.patch"
+if [[ -d "$source" ]]; then
+    rollback="$(mktemp -d "$root/Vendor/src/.hatchzip-old-$revision.XXXXXX")"
+    rmdir "$rollback"
+    mv "$source" "$rollback"
+fi
+mv "$candidate" "$source"
+candidate=""
+if [[ -n "$rollback" ]]; then rm -rf "$rollback"; rollback=""; fi
 export MACOSX_DEPLOYMENT_TARGET=26.0
 export CARGO_TARGET_DIR="$root/Vendor/build/hatchzip-target"
+cargo clean --release -p hatchzip-core --manifest-path "$root/Native/HatchZip/Cargo.toml"
 cargo build --release --locked --manifest-path "$root/Native/HatchZip/Cargo.toml"
 cp "$CARGO_TARGET_DIR/release/macease-hatchzip" "$root/Vendor/build/macease-hatchzip"
 cp "$source/LICENSE-MIT" "$source/LICENSE-APACHE" "$root/Vendor/build/licenses/hatchzip-core/"

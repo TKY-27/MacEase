@@ -161,6 +161,7 @@ import Testing
             return
         }
         #expect(outputs.map(\.lastPathComponent) == ["Fixture (2).mp4", "Fixture (2).en.vtt"])
+        for output in outputs { #expect(try FileOrigin.inspect(output).links == [page]) }
         #expect(try String(contentsOf: occupied, encoding: .utf8) == "original")
         #expect(outcome.record?.outputPaths == outputs.map(\.path))
         #expect(request.retryingFailed(outcome) == nil)

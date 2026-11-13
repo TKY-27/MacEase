@@ -16,8 +16,8 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     GCC_TREAT_WARNINGS_AS_ERRORS: YES
-    MARKETING_VERSION: "2.2.0"
-    CURRENT_PROJECT_VERSION: "8"
+    MARKETING_VERSION: "3.0.0"
+    CURRENT_PROJECT_VERSION: "9"
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
@@ -51,6 +51,14 @@ targets:
         excludes:
           - Info.plist
       - path: Vendor/build/macease-hatchzip
+        buildPhase: resources
+      - path: Vendor/build/macease-age
+        buildPhase: resources
+      - path: Vendor/build/ai-audio
+        type: folder
+        buildPhase: resources
+      - path: Vendor/build/upscaler
+        type: folder
         buildPhase: resources
       - path: Vendor/build/media-tools
         type: folder

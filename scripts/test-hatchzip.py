@@ -116,6 +116,30 @@ with tempfile.TemporaryDirectory(prefix='MacEaseHatchTests-') as sandbox:
     check_outputs(session, expected)
     assert all(not part.exists() for part in parts)
 
+    for name in ['..zip', '...zip']:
+        archive = sandbox / name
+        expected = zip_archive(archive, ['payload.txt'], count=1)
+        sentinel = sandbox / f'{name}-sentinel.txt'
+        sentinel.write_bytes(b'outside output')
+        session = sandbox / f'session-dot-{len(name)}'
+        code, events = extract(session, archive)
+        assert code == 0, events
+        output = check_outputs(session, expected)
+        assert output.parent == sandbox and output != sandbox
+        assert sentinel.read_bytes() == b'outside output'
+        assert not archive.exists()
+
+    archive = sandbox / 'unsupported.tar.xz'
+    with tarfile.open(archive, 'w:xz') as writer:
+        content = b'not enabled by MacEase'
+        header = tarfile.TarInfo('payload.txt')
+        header.size = len(content)
+        writer.addfile(header, io.BytesIO(content))
+    before = archive.read_bytes()
+    code, events = extract(sandbox / 'session-unsupported', archive)
+    assert code != 0 and 'Unsupported archive format' in events[-1]['message'], events[-3:]
+    assert archive.read_bytes() == before
+
     for label, first, second in [
         ('unicode-files', 'cafe\u0301.txt', 'caf\u00e9.txt'),
         ('unicode-directories', 'cafe\u0301/first.txt', 'caf\u00e9/second.txt'),
@@ -130,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix='MacEaseHatchTests-') as sandbox:
         before = archive.read_bytes()
         session = sandbox / f'session-{label}'
         code, events = extract(session, archive)
-        assert code != 0 and any(word in events[-1]['message'] for word in ['collide', 'more than once']), events[-3:]
+        assert code != 0 and any(word in events[-1]['message'] for word in ['collide', 'more than once', 'differ only in case']), events[-3:]
         assert archive.read_bytes() == before and not session.exists()
 
     for unsafe in ['/absolute.txt', '../escape.txt', 'safe/../escape.txt']:
@@ -198,6 +222,36 @@ with tempfile.TemporaryDirectory(prefix='MacEaseHatchTests-') as sandbox:
     code, events = extract(sandbox / 'session-hardlink', archive)
     assert code != 0, events
     assert archive.read_bytes() == before == linked.read_bytes()
+
+    split_archive = sandbox / 'hardlinked-volume.zip'
+    zip_archive(split_archive)
+    split_bytes = split_archive.read_bytes()
+    split_archive.unlink()
+    midpoint = len(split_bytes) // 2
+    first = sandbox / 'hardlinked-volume.zip.001'
+    second = sandbox / 'hardlinked-volume.zip.002'
+    alias = sandbox / 'hardlinked-volume-alias'
+    first.write_bytes(split_bytes[:midpoint])
+    second.write_bytes(split_bytes[midpoint:])
+    os.link(second, alias)
+    code, events = extract(sandbox / 'session-hardlinked-volume', first)
+    assert code != 0, events
+    assert first.read_bytes() + second.read_bytes() == split_bytes
+    assert alias.read_bytes() == second.read_bytes()
+
+    if os.environ.get('MACEASE_HATCH_VERIFY_TEST') == '1':
+        archive = sandbox / 'verify-before-release.zip'
+        expected = zip_archive(archive, ['verified.txt'], count=1)
+        before = archive.read_bytes()
+        session = sandbox / 'session-verify-before-release'
+        environment = dict(os.environ, HATCHZIP_REMOVE_AFTER_EXTRACT='verified.txt')
+        code, events = extract(session, archive, environment=environment)
+        assert code != 0 and 'disappeared' in events[-1]['message'], events[-3:]
+        assert archive.read_bytes() == before
+        code, events = extract(session)
+        assert code == 0, events
+        check_outputs(session, expected)
+        assert not archive.exists()
 
     archive = sandbox / 'missing.zip.001'
     archive.write_bytes(archive_bytes[:width])

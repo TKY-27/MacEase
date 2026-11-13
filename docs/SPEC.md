@@ -1,7 +1,7 @@
 # MacEase Specification
 
 This document is the single source of truth for MacEase. It describes the
-finished product, including the v2 additions in section 20. When code and this
+finished product, including the v2 additions in section 20 and v3 in section 24. When code and this
 document disagree, this document wins;
 when a decision changes, update this document, its Changelog, and add an ADR
 under `docs/adr/`.
@@ -25,8 +25,10 @@ Principles:
   verified, durable output replaces archive bytes progressively (section 8.5). Replaced originals go to the Trash and
   every batch can be undone.
 - **Local only.** All processing is on-device. No telemetry. The network is
-  used for update checks, explicitly requested media downloads, and OS-managed
-  model and asset downloads. Local file operations remain offline.
+  used for update checks, explicitly requested media downloads, temporary
+  user-started private-LAN sharing, and OS-managed model and asset downloads.
+  The v3 enhancement models ship with the app; no runtime model download or
+  model-installation UI is required. Other local file operations remain offline.
 - **Native.** Apple frameworks first, permissive C libraries where Apple has no
   encoder, and in-house Swift implementations where no permissive library
   exists.
@@ -466,7 +468,8 @@ exports retain the ordinary Derived behavior. See section 8.5 and ADR 0040.
 ### 3.7 Native dependencies
 
 Libraries linked into MacEase are permissively licensed and compatible with MIT
-distribution. Section 22 permits separately licensed download executables. Versions are
+distribution. Sections 22–24 permit separately licensed isolated tools and
+models; these are not linked-library license exceptions. Versions are
 the latest stable release at implementation time, pinned by version, source URL
 and SHA-256 in `Vendor/deps.lock`. `scripts/build-deps.sh` downloads, verifies,
 builds arm64 static libraries with deployment target 26.0 and packages them as
@@ -518,8 +521,12 @@ algorithms. Their code must never be copied, translated, adapted, or incorporate
 into MacEase source or linked libraries. Section 22 explicitly permits isolated
 LGPL FFmpeg executables and their required LGPL dependencies for downloads
 and, under section 23, local MP3 encoding. Keep them separate processes with
-corresponding source and license notices. All other local operations use platform
-APIs, specifications, and papers. This supersedes ADR 0004's prohibition on reading those sources.
+corresponding source and license notices. Section 24 additionally permits the
+unmodified standalone GPL-2.0-only gallery-dl runtime through its public CLI,
+with its own license and exact corresponding source. Never link or incorporate
+its GPL implementation into the MIT app. Local enhancement uses separately
+licensed models and isolated native audio executables as specified in section
+24.3; it does not incorporate GPL-family implementations. This supersedes ADR 0004's prohibition on reading those sources.
 
 Flect is Apache-2.0 and is the interaction reference. Its developer's permission
 to study or reuse it does not replace license terms. MacEase independently
@@ -530,10 +537,31 @@ mark modifications, and include NOTICE and attribution in
 `THIRD_PARTY_NOTICES.txt` as required by the license and project policy.
 See `adr/0013-flect-style-menu-first-direction.md`.
 
-The bundled HatchZip helper uses `hatchzip-core` 0.1.8 at commit
-`ba72db848178a97183c2225a3fb617f5ba7f9a2f` (MIT OR Apache-2.0), with UnRAR
+The bundled HatchZip helper uses `hatchzip-core` 0.1.10 at commit
+`e56b4ceca0d28e967ce04834895e693c84a2a7a0` (MIT OR Apache-2.0), with UnRAR
 disabled. Its source archive is pinned in `Vendor/deps.lock`; its Rust
 dependencies are locked and their notices accompany the helper.
+
+The v3 toolkit resources are built with `make toolkit`: `build-age.sh`,
+`build-ai-audio.sh` and `build-upscaler.sh` under `scripts/`. `make bootstrap`
+also installs missing Go and Python 3.11 and builds the toolkit before project
+generation. `make media-tools` rebuilds the isolated download runtime.
+
+| Resource | Pin and license | Distribution boundary |
+| --- | --- | --- |
+| gallery-dl | 1.32.19, GPL-2.0-only; source SHA-256 and runtime dependencies in `Vendor/media-tools.lock` | Unmodified private-Python CLI, own license and matching source in media-tools |
+| age bridge | Official age v1.3.2, BSD-3-Clause; `Vendor/AgeBridge/go.mod` and `go.sum` | Separate `Contents/Resources/macease-age` executable and dependency notices |
+| Swin2SR classical SR ×2 | Revision `cee1c923c6a37361c6e5650b65dcf4be821e5d52`, Apache-2.0; `Vendor/upscaler.lock` | `Contents/Resources/upscaler/Swin2SR.mlmodelc`, model card and license |
+| Native audio inference | sherpa-onnx 2.0.1, Apache-2.0, commit `af2d8d81dbfa61c4cea4c568da78f3982edca005`; ONNX Runtime 1.28.2, MIT | `Contents/Resources/ai-audio`, two native executables, dylib and third-party notices |
+| GTCRN / Spleeter 2stems | MIT models; hashes, sizes and provenance evidence in `Vendor/ai-audio.lock` | Bundled ONNX models, validation report, manifest and licenses |
+
+Audio runtime distribution includes Eigen 5.0.1 MPL-2.0 corresponding source
+and all runtime notices. Spleeter adoption requires exact comparison against
+Deezer's original checkpoint and the metadata-only 44,100 Hz correction; the
+archive/checksum-index discrepancy is documented in `docs/ai-audio.md`.
+The build-only Python environments and PyTorch/Transformers conversion code
+are not inference dependencies shipped for these features. Build scripts may
+fetch pinned resources; application inference never downloads models.
 
 ### 3.8 Format implementations
 
@@ -659,9 +687,9 @@ menus.
 
 | Kind | Operation order and grouped choices |
 | --- | --- |
-| Images | Edit Photo…; Convert; Compress; Resolution; Rotate; Background; Recognize Text; separator; Make PDF; Make Icon; Trace to SVG…; Trim Borders; Copy as Base64 (hidden); Remove Metadata; separator; Rename with Apple Intelligence…; Ask Apple Intelligence… |
+| Images | Edit Photo…; Upscale Photo…; Convert; Compress; Resolution; Rotate; Background; Recognize Text; separator; Make PDF; Make Icon; Trace to SVG…; Trim Borders; Copy as Base64 (hidden); Remove Metadata; separator; Rename with Apple Intelligence…; Ask Apple Intelligence… |
 | Videos | Edit Video…; Convert; Compress; Resolution; Rotate; Playback Speed; Remove Audio; Frame Rate; Background; Thumbnail; Extract Audio; Subtitles; separator; Ask Apple Intelligence… |
-| Audio | Trim…; Convert; Compress; Normalize Loudness; Subtitles; separator; Ask Apple Intelligence… |
+| Audio | Trim…; Enhance Audio…; Convert; Compress; Normalize Loudness; Subtitles; separator; Ask Apple Intelligence… |
 | PDFs | Merge…; Export as Images; Export as Text; Compress; Rotate; Extract Pages…; Split into Pages; separator; Rename with Apple Intelligence… |
 | Documents / Property Lists | Convert |
 | Text | Convert; Encoding; Line Endings; separator when JSON commands survive; Pretty Print; Minify; Sort Keys |
@@ -783,6 +811,18 @@ in Activity suppresses its duplicate banner. Successful rows that auto-close
 still produce the banner. Failure-only batches notify when Activity is disabled
 or was closed by the user. Notification denial leaves results in Activity and
 the menu bar. Stale-menu and permission notifications remain actionable.
+
+### 6.1 Dismissing results and update attention
+
+Failed results remain visible in Activity until dismissed or its window is
+closed. Dismissing a result or closing Activity removes completed rows,
+session-only comparison and retry data, and matching delivered notifications.
+Dismissal from Notification Center removes the matching completed Activity row.
+Running jobs can be shown again; paused extraction recovery, durable history,
+and Undo remain available. Automatically closed results do not reappear. The
+menu bar marks an available update with an attention glyph and update-specific
+accessibility label, and places its download action first. Opening the menu
+does not clear update availability.
 
 Invalid inputs become per-item skipped or failed results while valid items
 continue. Per-file problems never open modal alerts. Panels validate inline.
@@ -1935,8 +1975,11 @@ and a menu bar item linking to the official website download section. Japanese
 UI opens `https://macease-site.pages.dev/ja/#download`; other UI languages open
 `https://macease-site.pages.dev/#download`. Stored release-page URLs are migrated
 to this destination. Update notifications open the same destination. No app
-update is downloaded or installed automatically. Network errors are logged and ignored until the next
-check.
+update is downloaded or installed automatically. A confirmed available version
+is notified again after 24 hours while notifications are enabled, including
+after app relaunch; a newer version notifies immediately. Manual checks do not
+repeat a notification within that interval. Network errors are logged and
+ignored until the next check.
 
 ## 13. Error handling
 
@@ -2382,7 +2425,7 @@ never promise every site works.
 
 ### 22.1 Finder and download window
 
-A top-level **yt-dlp…** action appears for folder backgrounds and exactly one
+A top-level **Download Media…** action (formerly **yt-dlp…**) appears for folder backgrounds and exactly one
 selected folder. The background target or selected folder is the destination.
 Mixed selections and multiple folders do not expose the action. The authenticated
 run request and host validation remain mandatory; the extension performs no
@@ -2392,8 +2435,8 @@ A native window starts with one URL field accepting newline-separated HTTP(S)
 URLs; Return or Analyze obtains titles, durations, dimensions and formats, and
 Return then downloads the selection. Editing the URLs clears the results. Results
 list each source with a checkbox, host, duration, largest dimensions and playlist
-status. Options choose Video or Audio Only, then the matching format, resolution
-and subtitles; the footer shows the destination folder. Playlist entries require
+status. Options choose Video, Audio Only or Images; video/audio expose the
+matching format, resolution and subtitles (Images uses section 24.1); the footer shows the destination folder. Playlist entries require
 explicit selection before download.
 Independent invocations retain their own destination and draft. Native controls,
 lightweight tables and standard title bars follow Finder and Safari conventions.
@@ -2557,12 +2600,143 @@ lint, device/package tests, app tests, physical interaction checks, English and
 Japanese layouts, light/dark and macOS 26 smoke checks remain required. Fix
 material review findings without weakening acceptance.
 
-The owner changed delivery to **commit and push only** on 2026-11-05. Do not
-create a release tag, GitHub Release or public package, change the production
-website, bump the installed release version, or claim release verification.
+The owner superseded the earlier commit-only delivery on 2026-11-05 with
+the v3.0.0 implementation and publication described in section 24.
 Preserve the existing signing identity and disabled Actions.
 
+## 24. Version 3.0
+
+Version 3.0 retains the original-file, staging, verification and Undo contracts.
+The owner authorizes logical commits, pushing and a new signed GitHub release
+after verification. Release acceptance is recorded separately from implementation.
+
+### 24.1 Acquisition
+
+One **Download Media…** window groups Video, Audio Only and Images without
+per-site Finder entries. Video/audio use yt-dlp. Images uses gallery-dl 1.32.19
+as a separate, unmodified GPL-2.0-only CLI with its license and matching source.
+No GPL implementation is copied or linked into MacEase's MIT source.
+Pin every runtime dependency, disable user configuration, plugins, credential
+discovery and self-updates, and retain the existing verified no-overwrite
+commit path. Public URLs only; no login or DRM circumvention.
+
+Image acquisition accepts direct posts/albums with 1–512 images. Analyze with
+`--dump-json`; reject errors, child-gallery/recursive records and excess images.
+Profile and collection crawling is unsupported. Validate decoded images before
+publishing a new folder. Its `MacEase Source.json` records source page URL,
+retrieval time, tool and filenames. Video/audio outputs store the page URL in
+`com.apple.metadata:kMDItemWhereFroms`.
+
+**Inspect Source…** is hidden by default and enabled in Settings > Finder Menu.
+For one regular file it reads these local records and computes SHA-256. Recorded
+links are editable and do not prove authorship, authenticity or truth. Do not
+add automatic web research or silently infer provenance.
+
+### 24.2 Local sharing
+
+**Share with QR Code…** serves 1–20 selected regular files through a temporary
+private-LAN HTTP server. The window displays a QR code, file list, expiration,
+interface selection and Stop Sharing. Starting sharing is explicit. The URL
+uses a cryptographically random 32-byte token, expires after fifteen minutes
+and becomes invalid on stop or window close. The window must remain open.
+Anyone possessing the link can download during that lifetime.
+
+Only selected files are served by opaque identifiers; arbitrary paths,
+directory traversal, uploads and public-interface access are forbidden.
+Responses stream with bounded memory. Source changes fail the transfer.
+Explain that the receiver needs the same trusted private Wi-Fi or Ethernet
+network and HTTP is not encrypted; no cloud service or internet port forwarding
+is involved. Android and other devices use their browser without an account.
+
+### 24.3 Local enhancement
+
+Models and inference dependencies are pinned in section 3.7 and bundled with
+the app, independently licensed for distribution. No runtime model download,
+model-installation UI, Apple Intelligence dependency or media upload is involved.
+Missing resources and unsupported inputs fail explicitly. All outputs are new
+Derived files through the existing staging/verification/commit pipeline;
+originals remain untouched. Cancellation removes unfinished staging.
+
+| Operation | Input scope | Output and execution |
+| --- | --- | --- |
+| Upscale Photo… | One opaque, 8-bit SDR still, at most 1,000,000 pixels; reject HDR, alpha, animation and multiple pages | Swin2SR Core ML 2× tiled inference; new PNG, no implicit downscale |
+| Enhance Audio… / Clean Speech | Known duration up to 600 seconds, mono or stereo | GTCRN; explicitly downmix stereo; 16 kHz mono WAV |
+| Enhance Audio… / Vocals and Instrumental | Known duration up to 300 seconds, mono or stereo | Spleeter 2stems; both vocals and instrumental, 44.1 kHz stereo WAVs |
+
+Audio runs locally on CPU with one thread in ten-second segments with one
+second of context on either side and bounded WAV assembly. FFmpeg decodes,
+resamples, downmixes and pads inputs. Tags are not copied. The output containers
+are 32-bit float WAV but the native tools use 16-bit intermediates; do not claim
+restored precision. Multichannel or unknown-duration input fails explicitly.
+`docs/ai-audio.md` records exact model provenance, independent checkpoint
+comparison, rate-metadata correction and frame/timing validation boundaries.
+
+`docs/upscaler.md` records conversion checks and measurements: on an Apple M5
+with 24 GB, 1000×1000 input took 134.42 seconds with 1.33 GB RSS. These are
+observations, not performance or perceptual-quality guarantees. Enhancement
+is a transformation and cannot establish authentic detail. The build-only
+pinned conversion environment is created by `scripts/build-upscaler.sh`;
+Python, PyTorch and Transformers are not shipped for image inference.
+
+### 24.4 Finding and protecting files
+
+**Find Related Files…** starts from one regular file. Default scope is its
+containing folder, with an explicit folder picker to change the scope.
+Exact-content matches require equal size, SHA-256 and byte-by-byte comparison.
+Similar images use local Vision feature prints with distance at most 0.5 and
+are labelled as similarity, never duplicates. Results reveal selected matches
+in Finder and never move or delete files. Skip symlinks and package descendants;
+surface unreadable or changed inputs.
+
+**Encrypt or Decrypt…** uses official age v1.3.2 through the isolated bridge,
+with standard age v1 scrypt passphrase ciphertext, not a custom format.
+New passphrases require at least 12 characters and confirmation. Passphrases
+are session-only and delivered only through length-prefixed standard input,
+never arguments, environment variables, files, logs or history. Explain that a
+forgotten passphrase cannot be recovered; clear panel fields on submission/close.
+
+Encryption decrypts the staged ciphertext and compares complete SHA-256 and
+byte count before publishing. Decryption completes authentication before
+publishing plaintext. Both preserve sources and use collision-safe new names.
+Wrong passwords, corruption and truncation must not publish partial plaintext.
+Empty-file handling is an integration regression under repair; do not claim
+its acceptance before the parent verifies the current implementation.
+`docs/encryption.md` records the bridge and interoperability contract.
+
+HatchZip v0.1.10 includes fixes for dot-only paths, hard-linked volumes and output verification
+before archive-byte reclamation. Preserve its destructive extraction warning,
+durable recovery and existing format scope: no HatchZip RAR or tar.xz support.
+`docs/hatchzip-update.md` records the exact pin and focused verification.
+
+### 24.5 Acceptance
+
+Finish and review interrupted audio fixes before integrating new features.
+Run strict lint, package tests, app tests and release build checks. Exercise
+new windows and real outputs, cancellation, collisions and source retention.
+Test sharing authorization and expiry, download isolation and output validation,
+encryption interoperability/tampering, and independently verified match results.
+Record model provenance and actual enhancement checks without quality claims
+unsupported by observations. Check final-DMG installation, signatures,
+third-party notices/source, anonymous downloads and latest-release resolution.
+Remove only identified regenerable artifacts and stop obsolete app instances
+after confirming they have no active work.
+
 ## Changelog
+
+- 2026-11-14: Update the isolated HatchZip core to 0.1.10, preserve the
+  archive format scope and review current download runtime pins (ADR 0059).
+
+- 2026-11-14: Dismiss completed Activity and notification results without
+  affecting jobs, history, or Undo; repeat available-update notices daily and
+  keep an update indicator in the menu bar (ADR 0058).
+
+- 2026-11-05: Record implemented v3 toolkit limits, bundled model resources and
+  license/source boundaries, gallery source records, QR HTTP lifetime, standard
+  age protection and HatchZip 0.1.9. Keep integrated release acceptance pending
+  and the ADR 0048 future VoiceOver exclusion unchanged (ADR 0057).
+
+- 2026-11-05: Specify v3.0 acquisition, temporary local sharing, local enhancement,
+  related-file discovery, encryption and authorized release delivery (ADR 0057).
 
 - 2026-11-05: Copy native AAC and other non-Opus audio into Matroska with
   CodecDelay, DiscardPadding and the AAC core/SBR rates, and apply CodecDelay

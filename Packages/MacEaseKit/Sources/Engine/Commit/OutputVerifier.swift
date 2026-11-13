@@ -9,6 +9,11 @@ enum OutputVerifier {
         let values = try file.url.resourceValues(
             forKeys: [.fileSizeKey, .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
         switch file.check {
+        case .ageAuthenticatedPlaintext:
+            guard values.isRegularFile == true, values.isSymbolicLink != true, values.fileSize != nil else {
+                throw EngineError.decodeFailed("expected authenticated age plaintext")
+            }
+            return
         case .archiveMember:
             guard values.isRegularFile == true, values.isSymbolicLink != true else {
                 throw EngineError.encodeFailed("expected a regular archive member")
@@ -74,7 +79,7 @@ enum OutputVerifier {
             }
         case .folder, .archiveSelectionFolder:
             throw EngineError.encodeFailed("expected a folder")
-        case .decompressed, .archiveMember:
+        case .decompressed, .archiveMember, .ageAuthenticatedPlaintext:
             return
         }
     }

@@ -7,12 +7,15 @@ SOURCES := App AppTests FinderSync Packages
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'platform=macOS,arch=arm64' \
 	-derivedDataPath $(DERIVED_DATA)
 
-.PHONY: bootstrap deps media-tools project build test test-app test-device lint format dmg
+.PHONY: bootstrap deps media-tools toolkit project build test test-app test-device lint format dmg
 
 bootstrap:
 	brew list xcodegen cmake meson ninja pkg-config >/dev/null 2>&1 || brew install xcodegen cmake meson ninja pkg-config
 	command -v cargo >/dev/null 2>&1 || brew install rust
+	command -v go >/dev/null 2>&1 || brew install go
+	command -v python3.11 >/dev/null 2>&1 || brew install python@3.11
 	scripts/build-media-tools.sh
+	$(MAKE) toolkit
 	scripts/build-deps.sh
 	xcodegen generate
 
@@ -22,6 +25,11 @@ deps:
 
 media-tools:
 	scripts/build-media-tools.sh
+
+toolkit:
+	scripts/build-age.sh
+	scripts/build-ai-audio.sh
+	scripts/build-upscaler.sh
 
 project:
 	xcodegen generate
