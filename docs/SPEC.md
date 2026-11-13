@@ -2699,8 +2699,8 @@ Encryption decrypts the staged ciphertext and compares complete SHA-256 and
 byte count before publishing. Decryption completes authentication before
 publishing plaintext. Both preserve sources and use collision-safe new names.
 Wrong passwords, corruption and truncation must not publish partial plaintext.
-Empty-file handling is an integration regression under repair; do not claim
-its acceptance before the parent verifies the current implementation.
+Empty plaintext is supported and covered by native round-trip checks and
+engine integration regressions.
 `docs/encryption.md` records the bridge and interoperability contract.
 
 HatchZip v0.1.10 includes fixes for dot-only paths, hard-linked volumes and output verification
