@@ -83,8 +83,23 @@ import Testing
         ]
         server.standardOutput = endpoint
         server.standardError = FileHandle.nullDevice
+        let terminated = AsyncStream<Void>.makeStream()
+        server.terminationHandler = { _ in terminated.continuation.finish() }
         try server.run()
-        defer { server.terminate(); server.waitUntilExit() }
+        var failure: (any Error)?
+        do {
+            try await verifyIncompleteDownload(endpoint: endpoint, folder: folder, tools: tools)
+        } catch {
+            failure = error
+        }
+        server.terminate()
+        var termination = terminated.stream.makeAsyncIterator()
+        _ = await termination.next()
+        #expect(!server.isRunning)
+        if let failure { throw failure }
+    }
+
+    private func verifyIncompleteDownload(endpoint: Pipe, folder: URL, tools: MediaDownloadTools) async throws {
         let port = String(decoding: endpoint.fileHandleForReading.availableData, as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let page = try #require(URL(string: "http://127.0.0.1:\(port)/playlist.m3u8"))

@@ -25,3 +25,11 @@ add test-only coordination seams to satisfy an observation deadline.
 Acceptance takes longer and uses fewer simultaneous native resources. This
 controls suite scheduling, not application concurrency. Full-run evidence is
 still required; focused passes alone do not satisfy release acceptance.
+
+The final device run also exposed a fixture shutdown hang: the HLS regression
+had reached `Process.waitUntilExit()` after its asynchronous assertions, while
+the Python server no longer existed. The sampled stack remained there. Register
+a termination handler before launch and await its completion asynchronously,
+including thrown-error cleanup. Keep every download assertion and additionally
+check that the fixture process has stopped. This changes test infrastructure,
+not download behavior.
