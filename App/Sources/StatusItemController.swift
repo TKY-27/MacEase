@@ -27,6 +27,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private static var attentionLabel: String {
         String(localized: "MacEase, needs attention", comment: "Menu bar icon VoiceOver label after a problem")
     }
+    private static var updateLabel: String {
+        String(localized: "MacEase, update available", comment: "Menu bar icon VoiceOver label for an update")
+    }
 
     init(
         jobs: JobCenter, settings: SettingsStore, updates: UpdateChecker, showProgress: @escaping () -> Void,
@@ -44,6 +47,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         checkFinderExtension()
         track({ [jobs] in _ = jobs.isBusy }) { [weak self] in self?.updateImage() }
         track({ [jobs] in _ = jobs.completed }) { [weak self] in self?.batchCompleted() }
+        track({ [updates] in _ = updates.availableVersion }) { [weak self] in self?.updateImage() }
         track({ [settings] in _ = settings.onboardingCompleted }) { [weak self] in self?.checkFinderExtension() }
     }
 
@@ -76,6 +80,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 [weak self] _ in
                 Task { @MainActor in self?.advanceAnimation() }
             }
+        } else if !jobs.isBusy, updates.availableRelease != nil {
+            stopAnimation(showing: Self.attentionImage, label: Self.updateLabel)
         } else if !jobs.isBusy, needsAttention {
             stopAnimation(showing: Self.attentionImage, label: Self.attentionLabel)
         } else if !jobs.isBusy {
@@ -111,6 +117,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if let release = updates.availableRelease {
+            let title = String(localized: "MacEase \(release.version) Is Available…", comment: "Menu bar update item")
+            menu.addItem(ClosureMenuItem(title: title) { NSWorkspace.shared.open(release.pageURL) })
+            menu.addItem(.separator())
+        }
         if settings.onboardingCompleted, !FIFinderSyncController.isExtensionEnabled {
             menu.addItem(
                 ClosureMenuItem(title: String(localized: "Turn On Finder Extension…", comment: "Menu bar item")) {
@@ -157,10 +168,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 menu.addItem(recentItem(record))
             }
             menu.addItem(.separator())
-        }
-        if let release = updates.availableRelease {
-            let title = String(localized: "MacEase \(release.version) Is Available…", comment: "Menu bar update item")
-            menu.addItem(ClosureMenuItem(title: title, keyEquivalent: "") { NSWorkspace.shared.open(release.pageURL) })
         }
         menu.addItem(
             ClosureMenuItem(title: String(localized: "Settings…", comment: "Menu bar item"), keyEquivalent: ",") {

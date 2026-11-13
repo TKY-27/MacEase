@@ -8,6 +8,7 @@ import os
 final class BatchNotifier: NSObject {
     private enum Identifier {
         static let category = "batch"
+        static let plainCategory = "batch-plain"
         static let showCategory = "batch-show"
         static let permissionCategory = "permission"
         static let batchPermissionCategory = "batch-permission"
@@ -23,6 +24,7 @@ final class BatchNotifier: NSObject {
 
     var onUndo: ((UUID) -> Void)?
     var onShow: ((UUID) -> Void)?
+    var onDismissBatch: ((UUID) -> Void)?
     var onOpenUpdate: (() -> Void)?
     private let settings: SettingsStore
     private let center = UNUserNotificationCenter.current()
@@ -55,15 +57,24 @@ final class BatchNotifier: NSObject {
                         title: String(localized: "Open Download Page", comment: "Update notification action"),
                         options: [.foreground])
                 ], intentIdentifiers: []),
-            UNNotificationCategory(identifier: Identifier.category, actions: [undo, show], intentIdentifiers: []),
-            UNNotificationCategory(identifier: Identifier.showCategory, actions: [show], intentIdentifiers: []),
             UNNotificationCategory(
-                identifier: Identifier.permissionCategory, actions: [permissions], intentIdentifiers: []),
+                identifier: Identifier.category, actions: [undo, show], intentIdentifiers: [],
+                options: [.customDismissAction]),
+            UNNotificationCategory(
+                identifier: Identifier.plainCategory, actions: [], intentIdentifiers: [],
+                options: [.customDismissAction]),
+            UNNotificationCategory(
+                identifier: Identifier.showCategory, actions: [show], intentIdentifiers: [],
+                options: [.customDismissAction]),
+            UNNotificationCategory(
+                identifier: Identifier.permissionCategory, actions: [permissions], intentIdentifiers: [],
+                options: [.customDismissAction]),
             UNNotificationCategory(
                 identifier: Identifier.batchPermissionCategory, actions: [permissions, undo, show],
-                intentIdentifiers: []),
+                intentIdentifiers: [], options: [.customDismissAction]),
             UNNotificationCategory(
-                identifier: Identifier.permissionShowCategory, actions: [permissions, show], intentIdentifiers: []),
+                identifier: Identifier.permissionShowCategory, actions: [permissions, show], intentIdentifiers: [],
+                options: [.customDismissAction]),
         ])
     }
 
@@ -84,9 +95,10 @@ final class BatchNotifier: NSObject {
         let content = UNMutableNotificationContent()
         content.title = summary.title
         content.body = summary.body
+        content.categoryIdentifier = Identifier.plainCategory
+        content.userInfo = [Identifier.batchID: outcome.batchID.uuidString]
         if outcome.record != nil {
             content.categoryIdentifier = outcome.record?.canUndo == true ? Identifier.category : Identifier.showCategory
-            content.userInfo = [Identifier.batchID: outcome.batchID.uuidString]
         }
         if let location = outcome.outcomes.lazy.compactMap({ result -> PermissionLocation? in
             guard case .failed(.permissionDenied(let location)) = result else { return nil }
@@ -116,12 +128,21 @@ final class BatchNotifier: NSObject {
         post(content, id: UUID().uuidString)
     }
 
-    func notifyUpdate(title: String, body: String) {
+    @discardableResult
+    func notifyUpdate(title: String, body: String) -> Bool {
+        guard settings.notificationsEnabled else { return false }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.categoryIdentifier = Identifier.updateCategory
         post(content, id: "available-update")
+        return true
+    }
+
+    func dismiss(batchID: UUID) {
+        let identifier = batchID.uuidString
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     private func post(_ content: UNMutableNotificationContent, id: String) {
@@ -168,6 +189,7 @@ extension BatchNotifier: UNUserNotificationCenterDelegate {
         else { return }
         await MainActor.run {
             switch action {
+            case UNNotificationDismissActionIdentifier: onDismissBatch?(id)
             case Identifier.undo: onUndo?(id)
             case Identifier.show, UNNotificationDefaultActionIdentifier: onShow?(id)
             default: break

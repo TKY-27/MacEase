@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
         jobs.askAgain = { [weak panels] in panels?.askAgain($0, files: $1, reason: $2) ?? false }
         jobs.presentFailure = { [weak panels] in panels?.showFailure($0, message: $1) }
-        let activity = ActivityWindow(jobs: jobs, settings: settings)
+        let activity = ActivityWindow(jobs: jobs, settings: settings, notifier: notifier)
         self.activity = activity
         jobs.onStart = { [weak activity] in activity?.started($0) }
         jobs.showsFinished = { [weak activity] in activity?.finished($0, outcome: $1) ?? false }
@@ -78,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openApp: { [weak self] in self?.openApp() })
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
+        notifier.onDismissBatch = { [weak activity] in activity?.dismissBatch($0) }
         notifier.onOpenUpdate = { [updates] in NSWorkspace.shared.open(updates.officialDownloadURL) }
         makeWindows(jobs: jobs)
         statusItem = StatusItemController(
@@ -100,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSWorkspace.shared.notificationCenter.addObserver(
                 self, selector: #selector(folderVolumesChanged(_:)), name: name, object: nil)
         }
-        updates.onNewRelease = { [notifier] release in
+        updates.onAvailableRelease = { [notifier] release in
             notifier.notifyUpdate(
                 title: String(localized: "MacEase \(release.version) is available", comment: "Update notification"),
                 body: String(

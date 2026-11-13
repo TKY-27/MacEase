@@ -13,12 +13,14 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
 
     private let jobs: JobCenter
     private let settings: SettingsStore
+    private let notifier: BatchNotifier
     private let log = ActivityLog()
     private var panel: NSPanel?
 
-    init(jobs: JobCenter, settings: SettingsStore) {
+    init(jobs: JobCenter, settings: SettingsStore, notifier: BatchNotifier) {
         self.jobs = jobs
         self.settings = settings
+        self.notifier = notifier
     }
 
     func started(_ batch: JobCenter.ActiveBatch) {
@@ -47,16 +49,13 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
             ).post()
         }
         log.rows[index].result = result
-        if closesAutomatically(result) {
-            log.rows[index].dismissed = true
+        if log.rows[index].dismissed || closesAutomatically(result) {
+            discard(batch.id, removesNotification: false)
             hideIfEmpty()
         }
         let finished = log.rows.filter { $0.result != nil }
-        for old in finished.dropLast(20) {
-            log.rows.removeAll { $0.id == old.id }
-            jobs.dismissSession(old.batchID)
-        }
-        return wasVisible && !log.rows.contains(where: { $0.id == batch.id && $0.dismissed })
+        for old in finished.dropLast(20) { dismiss(old.id) }
+        return wasVisible && log.rows.contains(where: { $0.id == batch.id && !$0.dismissed })
     }
 
     func scanEnded(_ id: UUID) {
@@ -66,7 +65,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
 
     func show() {
         guard !log.rows.isEmpty || !jobs.pausedExtractions.isEmpty else { return }
-        for index in log.rows.indices { log.rows[index].dismissed = false }
+        for index in log.rows.indices where log.rows[index].result == nil { log.rows[index].dismissed = false }
         present()
         NSApp.activate()
         panel?.makeKeyAndOrderFront(nil)
@@ -79,9 +78,27 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        for id in log.rows.filter({ $0.result != nil }).map(\.id) { dismiss(id) }
         for index in log.rows.indices { log.rows[index].dismissed = true }
         sender.orderOut(nil)
         return false
+    }
+
+    func dismiss(_ id: UUID) {
+        discard(id, removesNotification: true)
+    }
+
+    private func discard(_ id: UUID, removesNotification: Bool) {
+        guard let index = log.rows.firstIndex(where: { $0.id == id }), log.rows[index].result != nil else { return }
+        let row = log.rows.remove(at: index)
+        jobs.dismissSession(row.batchID)
+        if removesNotification { notifier.dismiss(batchID: row.batchID) }
+        hideIfEmpty()
+    }
+
+    func dismissBatch(_ batchID: UUID) {
+        guard let row = log.rows.first(where: { $0.batchID == batchID && $0.result != nil }) else { return }
+        dismiss(row.id)
     }
 
     private func revealIfStillRunning(_ id: UUID) {
@@ -115,7 +132,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         // Finder may be in full screen.
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         panel.delegate = self
-        let view = ActivityView(log: log, jobs: jobs)
+        let view = ActivityView(log: log, jobs: jobs, dismiss: { [weak self] in self?.dismiss($0) })
         let controller = NSHostingController(rootView: view)
         controller.sizingOptions = [.preferredContentSize]
         panel.contentViewController = controller
@@ -269,6 +286,7 @@ private struct ActivityResult {
 private struct ActivityView: View {
     let log: ActivityLog
     let jobs: JobCenter
+    let dismiss: (UUID) -> Void
 
     @State private var contentHeight: CGFloat = 0
 
@@ -295,7 +313,9 @@ private struct ActivityView: View {
                 }
                 ForEach(Array(log.rows.filter { !$0.dismissed }.enumerated()), id: \.element.id) { position, row in
                     if position > 0 { Divider() }
-                    ActivityRowView(row: row, running: jobs.active.first { $0.id == row.id }, jobs: jobs)
+                    ActivityRowView(
+                        row: row, running: jobs.active.first { $0.id == row.id }, jobs: jobs,
+                        dismiss: { dismiss(row.id) })
                 }
             }
             .padding()
@@ -313,6 +333,7 @@ private struct ActivityRowView: View {
     let row: ActivityRow
     let running: JobCenter.ActiveBatch?
     let jobs: JobCenter
+    let dismiss: () -> Void
 
     private static let lineSpacing: CGFloat = 6
     private static let visibleNotices = 5
@@ -467,13 +488,23 @@ private struct ActivityRowView: View {
     }
 
     @ViewBuilder private func finished(_ result: ActivityResult) -> some View {
-        VStack(alignment: .leading, spacing: Self.lineSpacing) {
-            title
-            Text(result.statusText)
-                .font(.subheadline)
-                .foregroundStyle(result.status == .failed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: Self.lineSpacing) {
+                title
+                Text(result.statusText)
+                    .font(.subheadline)
+                    .foregroundStyle(result.status == .failed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+            }
+            .accessibilityElement(children: .combine)
+            Spacer()
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(String(localized: "Dismiss", comment: "Remove a completed Activity result"))
+            .accessibilityLabel(Text("Dismiss", comment: "Remove a completed Activity result"))
         }
-        .accessibilityElement(children: .combine)
         ForEach(Array(result.notices.prefix(Self.visibleNotices).enumerated()), id: \.offset) { _, problem in
             Label {
                 Text(problem.message)

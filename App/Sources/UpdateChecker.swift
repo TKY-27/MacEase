@@ -14,6 +14,8 @@ final class UpdateChecker {
     private static let lastCheckKey = "lastUpdateCheck"
     private static let availableVersionKey = "availableReleaseVersion"
     private static let availablePageURLKey = "availableReleasePageURL"
+    private static let lastNotificationKey = "lastUpdateNotification"
+    private static let notifiedVersionKey = "notifiedReleaseVersion"
     private static let interval: TimeInterval = 24 * 60 * 60
     private static let downloadURL = URL(string: "https://macease-site.pages.dev/#download")
     private static let japaneseDownloadURL = URL(string: "https://macease-site.pages.dev/ja/#download")
@@ -23,7 +25,7 @@ final class UpdateChecker {
         guard let availableVersion else { return nil }
         return Release(version: availableVersion, pageURL: officialDownloadURL)
     }
-    @ObservationIgnored var onNewRelease: ((Release) -> Void)?
+    @ObservationIgnored var onAvailableRelease: ((Release) -> Bool)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let runningVersion: SemanticVersion
@@ -67,19 +69,31 @@ final class UpdateChecker {
                 throw URLError(.badServerResponse)
             }
             let latest = try JSONDecoder().decode(LatestRelease.self, from: data)
-            guard let remote = SemanticVersion(latest.tagName), remote > runningVersion
-            else { return }
-            if remote.description != availableVersion {
-                availableVersion = remote.description
-                defaults.set(remote.description, forKey: Self.availableVersionKey)
-                onNewRelease?(Release(version: remote.description, pageURL: officialDownloadURL))
-            }
+            applyLatestRelease(latest.tagName, checkedAt: Date())
         } catch {
             let failure = error as NSError
             logger.error(
                 "Update check failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
             )
         }
+    }
+
+    func applyLatestRelease(_ tagName: String, checkedAt date: Date) {
+        guard let remote = SemanticVersion(tagName) else { return }
+        guard remote > runningVersion else {
+            availableVersion = nil
+            defaults.removeObject(forKey: Self.availableVersionKey)
+            return
+        }
+        let version = remote.description
+        availableVersion = version
+        defaults.set(version, forKey: Self.availableVersionKey)
+        let lastNotification = defaults.object(forKey: Self.lastNotificationKey) as? Date ?? .distantPast
+        let notifiedVersion = defaults.string(forKey: Self.notifiedVersionKey)
+        guard notifiedVersion != version || date.timeIntervalSince(lastNotification) >= Self.interval else { return }
+        guard onAvailableRelease?(Release(version: version, pageURL: officialDownloadURL)) == true else { return }
+        defaults.set(date, forKey: Self.lastNotificationKey)
+        defaults.set(version, forKey: Self.notifiedVersionKey)
     }
 
     private struct LatestRelease: Decodable {
