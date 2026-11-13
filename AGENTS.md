@@ -22,7 +22,7 @@ Run from the repository root.
 | Rebuild native dependencies only | `scripts/build-deps.sh` |
 | Generate the Xcode project | `xcodegen generate` |
 | Build the app (Debug) | `make build` |
-| Unit tests (package) | `make test` (runs package tests with the pinned media runtime) |
+| Unit tests (package) | `make test` (runs sequential package tests with the pinned media runtime) |
 | App-hosted editor regression tests | `make test-app` |
 | Full tests on a real Mac, including capability-gated and app-hosted tests | `make test-device` |
 | Lint | `make lint` (runs `swift format lint --strict --recursive App AppTests FinderSync Packages`) |

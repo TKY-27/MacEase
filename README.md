@@ -79,6 +79,7 @@ window for input, review, or confirmation. Image and video menus start with
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
 | **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
 | **Resolution** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
+| **Upscale Photo…** | Local Swin2SR 2× upscaling for one opaque, 8-bit SDR still image up to 1 MP; always creates a new PNG |
 | **Trace to SVG…** | Compare a static PNG with editable SVG paths; choose 1–8 colors and three detail levels, then save a new file |
 | **Rotate** | Right-angle turns and an extra editable angle; **Flip** horizontally or vertically |
 | **Background** | Remove it, or replace it with a green, blue, or custom color, or a blur |
@@ -175,6 +176,7 @@ audio tags block replacement; New File retains the source and reports the loss.
 | **Compress** | Bitrate presets or a **Custom Size…** target |
 | **Normalize Loudness** | Match a loudness target |
 | **Trim…** | Keep only the part you mark |
+| **Enhance Audio…** | Local speech cleanup (16 kHz mono, up to 10 minutes) or vocals and instrumental (two 44.1 kHz stereo WAVs, up to 5 minutes) |
 
 Subtitles use Apple's on-device Speech and Translation frameworks.
 
@@ -265,6 +267,13 @@ limited; an unattainable limit fails without publishing an incomplete package.
 | **Browse Contents…** | Search a ZIP hierarchy, preview selected files, and save selected files or folders without unpacking the whole archive |
 | **Decompile** | Turn a JAR into Java source with bundled CFR and an installed Java runtime |
 | **Checksum** | Calculate SHA-256, MD5, SHA-1, or SHA-512 for any file |
+| **Share with QR Code…** | Explicitly start a temporary private-LAN HTTP share for 1–20 regular files |
+| **Find Related Files…** | Read-only search for exact content and visually similar images in the chosen folder |
+| **Encrypt or Decrypt…** | Create a new standard passphrase-protected `.age` file or decrypt one, retaining the source |
+| **Inspect Source…** | Show recorded source links and SHA-256; enable this hidden action in Settings > Finder Menu |
+
+HatchZip uses core v0.1.10, including dot-only path, hard-link and on-disk output
+verification fixes. RAR and tar.xz are not supported by HatchZip.
 
 **HatchZip does not keep an original archive.** Keep a separate backup yourself
 if you need one. Supported split names are `.zip.NNN`, `.7z.NNN` and
@@ -290,9 +299,9 @@ Closing removes temporary previews. Files you explicitly save remain and support
 ### Media downloads
 
 Right-click an empty area in a Finder folder, or one selected folder, and choose
-**yt-dlp…**. The folder becomes the destination. Paste one or more public HTTP(S)
+**Download Media…**. The folder becomes the destination. Paste one or more public HTTP(S)
 URLs, one per line, and press Return or **Analyze** to inspect titles, durations and
-sizes. Choose **Video** or **Audio Only**, then a format, and press Return again or
+sizes. Choose **Video**, **Audio Only** or **Images**; for video/audio, select a format, and press Return again or
 **Download**. You can also drop links from a browser onto the window. When the
 clipboard holds a link, **Paste Link from Clipboard** appears; macOS only reports
 that a link exists until you click it. Results show each video's thumbnail.
@@ -319,6 +328,60 @@ the requested sites and their media hosts; update checks contact GitHub. Update
 buttons open the official download page in the selected app language. MacEase does
 not upload local files for these features. Download tools are bundled and updated
 with MacEase; no user-installed Python or Homebrew is required.
+
+In **Images** mode, gallery-dl accepts direct public post or album URLs containing
+1–512 images. Recursive profile, collection and child-gallery crawling is not
+supported. Images are verified before a new folder is published, with a
+`MacEase Source.json` record of the page URL, retrieval time and filenames.
+Video/audio downloads record the page URL in the file's WhereFroms attribute.
+**Inspect Source…** reads these local records and computes SHA-256. Recorded
+links are editable metadata, not proof of authorship or authenticity; MacEase
+does not automatically research the web.
+
+### Local sharing and file protection
+
+Choose **Share with QR Code…**, select a private Wi-Fi or Ethernet interface,
+and click **Start Sharing**. Scan the QR code on a device on the same trusted
+network, including an Android phone, or open the displayed link in its browser.
+Up to 20 selected regular files are available through a URL with a random
+32-byte token. Anyone holding the link can download them while the session is
+active. It expires after 15 minutes; **Stop Sharing** or closing the window
+invalidates it. **HTTP is not encrypted**: use a trusted private network. There
+is no cloud upload or internet port forwarding. This sharing window must stay
+open, unlike Activity windows whose jobs continue after closing.
+
+**Encrypt or Decrypt…** uses age v1.3.2 and the standard age scrypt format.
+New passwords require at least 12 characters and confirmation; forgotten
+passwords cannot be recovered. Passphrases are session-only and passed to the
+separate tool through standard input, never arguments, environment variables,
+logs or history. Encryption verifies a decrypted copy before publishing;
+decryption completes authentication before publishing plaintext. Both create
+new files and keep originals. See [file protection](docs/encryption.md).
+
+### Local enhancement and related files
+
+**Upscale Photo…** uses bundled Swin2SR through Core ML. It accepts a single
+opaque, 8-bit SDR still of at most 1,000,000 pixels, rejects HDR, transparency,
+animation and multiple pages, and exports a new 2× PNG without implicit
+input downscaling. On an M5 with 24 GB, a 1 MP image took 134.42 seconds and
+reached 1.33 GB RSS. This is an observation, not a speed or quality promise;
+enhancement cannot establish authentic detail. See [upscaler](docs/upscaler.md).
+
+**Enhance Audio…** runs bundled GTCRN or Spleeter locally on CPU in bounded
+chunks. Speech cleanup exports 16 kHz mono WAV (stereo is downmixed), up to
+10 minutes. Separation exports both vocals and instrumental as 44.1 kHz stereo
+WAV, up to 5 minutes. Inputs must be mono or stereo. Originals are retained;
+tags are not copied. The 32-bit float WAV outputs pass through 16-bit native
+tool intermediates and do not recover that precision. No models download at
+runtime and Apple Intelligence is not required. Missing resources fail
+explicitly. See [audio models and exact provenance](docs/ai-audio.md).
+
+**Find Related Files…** starts from one regular file and defaults to its
+containing folder; **Choose Folder…** changes the search scope. Exact matches
+require equal size, SHA-256 and byte-for-byte comparison. Visually similar
+images use local Vision features with distance at most 0.5 and remain labelled
+as similarity, not duplicates. Results can be revealed in Finder; the scan
+never moves or deletes files and skips symlinks and package descendants.
 
 ### Apple Intelligence
 
@@ -366,7 +429,9 @@ or missing files cannot be compared.
 conversion and PDF compression, using the original settings. Target-size
 compression lets you change the limit before retrying. Successful, unchanged
 and cancelled files are excluded; changed inputs require a new Finder operation.
-Reopen Activity to access the latest 20 results from the current app session.
+Activity keeps up to 20 results during the current app session. Dismiss a result
+or close Activity to clear completed rows and their notifications; running jobs
+remain available when you reopen it. Recent batches retain Undo in the menu bar.
 Comparison and retry information is not retained after quitting.
 
 Custom size limits use decimal bytes: **10 MB means at most 10,000,000 bytes**.
@@ -387,7 +452,8 @@ files, and failures remain when Activity is visible. A completion banner
 appears when the result is not already retained there, if notifications are
 enabled. Use **Show in Finder** or **Undo** where available. Recent batches
 also appear in the menu bar with available actions such as **Undo** and
-**Show in Finder**. HatchZip extraction has no Undo.
+**Show in Finder**. HatchZip extraction has no Undo. Available updates show a
+menu bar indicator and download action, with a notification once per day.
 
 <img src="docs/images/menubar-en.png" width="318" alt="The MacEase menu bar menu with Results, a Recent list of batches where one is expanded to Undo and Show in Finder, then Settings, Check for Updates, and Quit MacEase">
 
@@ -490,7 +556,7 @@ Open **Settings** from the menu bar icon. Changes apply immediately.
 | --- | --- |
 | **Mac** | Apple Silicon, macOS 26 or later |
 | **Finder extension** | Enabled, for the right-click menu |
-| **Apple Intelligence** | Enabled with its on-device model available, only for AI features. Other operations do not require it. |
+| **Apple Intelligence** | Enabled with its on-device model available, only for Apple Intelligence rename and request features. Local upscaling and audio enhancement do not require it. |
 | **Speech and Translation assets** | Supported, installed Speech language assets for transcription and Translation models for translated subtitles. MacEase reports missing assets. |
 | **Java runtime** | Discoverable by macOS, only for JAR decompilation |
 
@@ -547,7 +613,9 @@ Follow steps 3 and 4 of [Installation](#installation), or build from source.
 <details>
 <summary><b>Does MacEase upload my files?</b></summary>
 
-No. Processing runs on your Mac. The app checks GitHub for updates, and macOS
+Processing runs on your Mac. Downloads contact the requested sites; QR sharing
+serves only selected files to devices with the temporary link on your private
+network. It uses unencrypted HTTP. The app checks GitHub for updates, and macOS
 may download Speech, Translation, or Apple Intelligence assets that those
 features require.
 
@@ -560,7 +628,10 @@ features require.
 Requirements: Apple Silicon Mac, macOS 26 or later, Xcode 26 or later,
 Homebrew, and Rust 1.93 or later (including Cargo). `make bootstrap` installs
 XcodeGen, CMake, Meson, Ninja and pkg-config, and installs Rust if Cargo is
-missing. Update an older Rust toolchain before building. Xcode 27 is required
+missing. It also installs Go and Python 3.11 if missing, and builds the media
+tools and toolkit resources, including bundled models. Build scripts fetch
+pinned sources and models; ordinary enhancement does not download them.
+Update an older Rust toolchain before building. Xcode 27 is required
 to build macOS 27-specific features.
 
 ```sh
@@ -572,11 +643,23 @@ make test
 make test-app
 ```
 
+Package acceptance runs suites sequentially to avoid resource contention; concurrency tests still exercise parallel work.
+
 Before first launch, copy `build/DerivedData/Build/Products/Debug/MacEase Dev.app`
 to `~/Applications` or `/Applications`. Welcome cannot finish outside those
 folders. Enable the Finder extension from Welcome or
 **System Settings > General > Login Items & Extensions**.
 
+| Purpose | Command |
+| --- | --- |
+| Rebuild isolated download/media tools | `make media-tools` |
+| Build age, audio runtimes/models and the Core ML upscaler | `make toolkit` |
+| Rebuild only the upscaler with its pinned build-only Python environment | `scripts/build-upscaler.sh` |
+| Full real-Mac package and app tests | `make test-device` |
+| Strict Swift lint | `make lint` |
+
+The upscaler conversion environment stays under `Vendor/build/upscaler-work`;
+PyTorch, Transformers and its Python environment are not shipped for inference.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ### Architecture
@@ -594,9 +677,9 @@ behind an owned C bridge for TOML. Other format support uses permissively
 licensed libraries, including libwebp, libavif, libjxl, libvpx, libopus, and
 libarchive, plus independent implementations such as the GIF encoder,
 Matroska and WebM containers, and SVG tracing. A pinned Rust helper uses
-**hatchzip-core 0.1.8** under its MIT license for in-place extraction, with
+**hatchzip-core 0.1.10** under its MIT license for in-place extraction, with
 UnRAR disabled; ordinary RAR extraction uses libarchive. Media downloading uses
-private Python, source-distributed yt-dlp, EJS and a JavaScript runtime. Separate
+private Python, source-distributed yt-dlp and isolated gallery-dl, EJS and a JavaScript runtime. Separate
 FFmpeg and ffprobe executables assist downloaded media. Local MP3 outputs also
 stream PCM into FFmpeg/libmp3lame without an intermediate audio file. These
 independent tools retain their licenses and corresponding sources; MacEase code
@@ -631,3 +714,12 @@ The download tools include LGPL FFmpeg and LAME, built without GPL or nonfree
 features. They remain independent executables under their own licenses. The release
 includes their corresponding source and build instructions; see
 [media tool builds](docs/media-tools.md). MacEase source remains MIT.
+
+The unmodified standalone gallery-dl 1.32.19 runtime is GPL-2.0-only and
+ships with its own license and exact corresponding source. It is never linked
+into MacEase. Swin2SR is Apache-2.0; GTCRN and Spleeter models are MIT. Native
+sherpa-onnx is Apache-2.0 and ONNX Runtime is MIT; their third-party notices
+and Eigen MPL-2.0 corresponding source accompany the audio runtime. The
+separate age bridge uses BSD-3-Clause age and permissively licensed dependencies.
+See [ADR 0057](docs/adr/0057-local-toolkit-and-release.md) and the feature
+documents for pins, provenance and distribution requirements.

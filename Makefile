@@ -38,14 +38,14 @@ build: project
 	$(XCODEBUILD) -configuration Debug build
 
 test:
-	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --package-path $(PACKAGE)
+	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
 
 test-app: project
 	$(XCODEBUILD) -configuration Debug test
 
 # Missing capabilities fail here instead of skipping.
 test-device: build
-	MACEASE_DEVICE_TESTS=1 MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --package-path $(PACKAGE)
+	MACEASE_DEVICE_TESTS=1 MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
 	$(MAKE) test-app
 
 lint:

@@ -2711,7 +2711,10 @@ durable recovery and existing format scope: no HatchZip RAR or tar.xz support.
 ### 24.5 Acceptance
 
 Finish and review interrupted audio fixes before integrating new features.
-Run strict lint, package tests, app tests and release build checks. Exercise
+Run strict lint, package tests, app tests and release build checks. Package
+acceptance runs with `--no-parallel` so resource-heavy suites do not starve
+time-sensitive cancellation observations; explicit concurrency tests retain
+their own parallel work (ADR 0060). Exercise
 new windows and real outputs, cancellation, collisions and source retention.
 Test sharing authorization and expiry, download isolation and output validation,
 encryption interoperability/tampering, and independently verified match results.
@@ -2722,6 +2725,9 @@ Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
 ## Changelog
+
+- 2026-11-14: Run package acceptance suites sequentially without changing test
+  assertions or their internal concurrency (ADR 0060).
 
 - 2026-11-14: Update the isolated HatchZip core to 0.1.10, preserve the
   archive format scope and review current download runtime pins (ADR 0059).
