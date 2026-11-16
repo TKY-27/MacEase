@@ -50,7 +50,7 @@ replace these independent tools with compatible modified builds. Signing
 replacement executables ad hoc can be necessary under macOS code validation.
 No MacEase source object relinking is needed.
 
-Node 26.13.0 is the official Lithium LTS release, and exceeds yt-dlp's Node 22
+Node 26.13.1 is the official Lithium LTS security release, and exceeds yt-dlp's Node 22
 minimum. yt-dlp executes its solver using Node's `--permission` mode over stdin.
 Node was selected over Deno because its official distribution includes a complete
 third-party license document, and over QuickJS because it avoids solver temporary

@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Update the bundled gallery-dl to 1.32.20 and Node to the 26.13.1 security
+  release used by yt-dlp.
+
 - Retry only unsaved photos after a partial editor save or cancellation, block
   editing shortcuts while saving, and show each download's result and actions
   as soon as it finishes.

@@ -442,4 +442,4 @@ Windows エクスプローラー向けツール [Flect](https://github.com/Konay
 
 ダウンロード用ツールには、GPL・nonfree 機能を無効にした LGPL の FFmpeg と LAME を含みます。これらは独立した実行ファイルとして、それぞれのライセンスに従います。リリースには対応ソースとビルド手順を添付します。[メディアツールのビルド](docs/media-tools.md)も参照してください。MacEase 本体のソースは MIT のままです。
 
-未改変の独立した gallery-dl 1.32.19 ランタイムは GPL-2.0-only で、独自のライセンスと完全に対応するソースを同梱し、MacEase にリンクしません。Swin2SR は Apache-2.0、GTCRN・Spleeter モデルは MIT です。ネイティブの sherpa-onnx は Apache-2.0、ONNX Runtime は MIT で、サードパーティ表記と Eigen の MPL-2.0 対応ソースを音声ランタイムに同梱します。別プロセスの age ブリッジは BSD-3-Clause の age と許諾条件が緩やかな依存関係を使います。固定バージョン、来歴、配布条件は [ADR 0057](docs/adr/0057-local-toolkit-and-release.md) と各機能文書を参照してください。MacEase のソースは MIT のままです。
+未改変の独立した gallery-dl 1.32.20 ランタイムは GPL-2.0-only で、独自のライセンスと完全に対応するソースを同梱し、MacEase にリンクしません。Swin2SR は Apache-2.0、GTCRN・Spleeter モデルは MIT です。ネイティブの sherpa-onnx は Apache-2.0、ONNX Runtime は MIT で、サードパーティ表記と Eigen の MPL-2.0 対応ソースを音声ランタイムに同梱します。別プロセスの age ブリッジは BSD-3-Clause の age と許諾条件が緩やかな依存関係を使います。固定バージョン、来歴、配布条件は [ADR 0057](docs/adr/0057-local-toolkit-and-release.md) と各機能文書を参照してください。MacEase のソースは MIT のままです。

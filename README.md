@@ -756,7 +756,7 @@ features. They remain independent executables under their own licenses. The rele
 includes their corresponding source and build instructions; see
 [media tool builds](docs/media-tools.md). MacEase source remains MIT.
 
-The unmodified standalone gallery-dl 1.32.19 runtime is GPL-2.0-only and
+The unmodified standalone gallery-dl 1.32.20 runtime is GPL-2.0-only and
 ships with its own license and exact corresponding source. It is never linked
 into MacEase. Swin2SR is Apache-2.0; GTCRN and Spleeter models are MIT. Native
 sherpa-onnx is Apache-2.0 and ONNX Runtime is MIT; their third-party notices

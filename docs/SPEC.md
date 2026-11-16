@@ -561,7 +561,7 @@ generation. `make media-tools` rebuilds the isolated download runtime.
 
 | Resource | Pin and license | Distribution boundary |
 | --- | --- | --- |
-| gallery-dl | 1.32.19, GPL-2.0-only; source SHA-256 and runtime dependencies in `Vendor/media-tools.lock` | Unmodified private-Python CLI, own license and matching source in media-tools |
+| gallery-dl | 1.32.20, GPL-2.0-only; source SHA-256 and runtime dependencies in `Vendor/media-tools.lock` | Unmodified private-Python CLI, own license and matching source in media-tools |
 | age bridge | Official age v1.3.2, BSD-3-Clause; `Vendor/AgeBridge/go.mod` and `go.sum` | Separate `Contents/Resources/macease-age` executable and dependency notices |
 | Swin2SR classical SR ×2 | Revision `cee1c923c6a37361c6e5650b65dcf4be821e5d52`, Apache-2.0; `Vendor/upscaler.lock` | `Contents/Resources/upscaler/Swin2SR.mlmodelc`, model card and license |
 | Native audio inference | sherpa-onnx 2.0.1, Apache-2.0, commit `af2d8d81dbfa61c4cea4c568da78f3982edca005`; ONNX Runtime 1.28.2, MIT | `Contents/Resources/ai-audio`, two native executables, dylib and third-party notices |
@@ -2720,7 +2720,7 @@ after verification. Release acceptance is recorded separately from implementatio
 ### 24.1 Acquisition
 
 One **yt-dlp…** window groups Video, Audio Only and Images without
-per-site Finder entries. Video/audio use yt-dlp. Images uses gallery-dl 1.32.19
+per-site Finder entries. Video/audio use yt-dlp. Images uses gallery-dl 1.32.20
 as a separate, unmodified GPL-2.0-only CLI with its license and matching source.
 No GPL implementation is copied or linked into MacEase's MIT source.
 Pin every runtime dependency, disable user configuration, plugins, credential
@@ -2829,6 +2829,9 @@ Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
 ## Changelog
+
+- 2026-11-17: Pin gallery-dl 1.32.20 and Node 26.13.1; yt-dlp 2026.10.26,
+  HatchZip 0.1.10, FFmpeg 9.0.2, CPython 3.14.10 and OpenSSL 3.5.9 remain current.
 
 - 2026-11-17: Remove saved photos from partially completed editor sessions,
   preserve remaining edits for retry after failure or cancellation, block editor
