@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-17
+
+### Added
+
 - Edit text/code, Markdown Source, JSON and XML plists in Finder Preview with
   buffer Undo, Find, Save and Revert. Saves preserve encoding/BOM/line endings,
   use loaded-stamp Replace checks and Activity/history Undo, and offer explicit
   UTF-8 confirmation for unrepresentable text. Dirty buffers survive selection
   changes and require Save / Discard / Cancel before closing or quitting.
   Empty buffers remain refused; native editing validation is pending.
-
-### Added
 
 - Finder Preview redesign: a light panel flush against the Finder window with
   outer rounded corners, an always-visible close button (Escape and Command-W),
@@ -80,6 +82,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refuse malformed UTF-16 before editing, and allow source repairs when JSON
+  or XML property list formatting fails.
+- Keep unsaved edits while Finder is hidden, and prevent edits after the
+  quit confirmation while jobs finish cleaning up.
+- Use a small thumbnail to determine image dynamic range in Finder Preview.
+- Preview SVGs through Quick Look.
 - Log every failed operation's cause for diagnosis, not only unexpected errors.
 - Hold the last video frame through edited segments when audio outlasts video,
   preserving the remaining audio instead of failing the export.
