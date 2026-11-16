@@ -106,9 +106,13 @@ before saving.
 
 The photo and video editors use a resizable dark workspace like familiar
 editing apps. The toolbar centres the tools and keeps Compare, Undo/Redo,
-Cancel and Save on the right. Video plays from the transport bar under the
-viewer, and adjustments are grouped into Light, Color and Detail in the
-inspector. Save or Return always creates a new file. Its dropdown offers
+Cancel and Save on the right; Undo's dropdown holds **Reset All Edits**. Video
+plays from the transport bar under the viewer, and adjustments are grouped into
+Light, Color and Detail in the inspector. When no segment is selected, the
+inspector says to select one in the timeline. Save or Return always creates a
+new file. The editor stays open with compact progress while saving, closes on
+success, and stays open with the failure reason so you can adjust and retry.
+Its dropdown offers
 **Replace Original**, with a Trash/Undo hint, independently of the global
 output setting. Replacement is disabled when a new file is required, with a
 reason in the output summary. Drag a crop edge or corner, or
@@ -116,8 +120,8 @@ enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
 Styles are independent presets, not Apple's Photographic Styles.
-For several photos, use the file list to switch sources. Apply adjustments to selected
-photos or all photos, then change each independently. Auto Enhance analyzes every
+For several photos, use the file list to switch sources. **Copy Edits to Selected**
+or **Copy Edits to All Photos** copies the current photo's edits, then change each independently. Auto Enhance analyzes every
 photo separately. Each source retains its own preservation policy.
 Photo adjustments use an interactive preview followed by a refined render.
 The video player surface stays in place while frames are prepared. Histograms,
@@ -144,7 +148,11 @@ are saved in a writable format while retaining the RAW source.
 | **Background** | Export with a transparent, colored, or blurred background |
 
 Edit one or several source videos as an ordered sequence of segments. Use
-**Add Videos…** to append sources. Split at the playhead
+**Add Videos…** in the timeline bar to append sources. Segment Start, End and
+Length use the same m:ss.sss timecode as the timeline; typed seconds are also
+accepted. Speed uses 0.5×, 1×, 1.5× and 2× presets or a custom value from
+0.5–4×. Export resolution sits in its own section at the bottom of the
+inspector. Split at the playhead
 with **Command-B**, delete a selected segment with **Backspace** to close the gap,
 duplicate it, or drag to reorder. Visible controls and the timeline context menu
 provide these actions too. Each action or drag supports session Undo/Redo;
@@ -306,16 +314,22 @@ Closing removes temporary previews. Files you explicitly save remain and support
 ### Media downloads
 
 Right-click an empty area in a Finder folder, or one selected folder, and choose
-**Download Media…**. The folder becomes the destination. Paste one or more public HTTP(S)
-URLs, one per line, and press Return or **Analyze** to inspect titles, durations and
+**yt-dlp…**. The folder becomes the destination. Paste one or more public HTTP(S)
+URLs, one per line, and press Return or **Analyze** (Command-R) to inspect titles, durations and
 sizes. Choose **Video**, **Audio Only** or **Images**; for video/audio, select a format, and press Return again or
-**Download**. You can also drop links from a browser onto the window. When the
+**Download**. Editing the URLs clears the results, so Return analyzes again.
+**Choose…** changes the destination folder for this window. The window stays
+open after Download and lists each item as queued, downloading with progress,
+done with **Show in Finder**, or failed with its reason and **Retry**. Closing
+the window never cancels downloads. You can also drop links from a browser onto the window. When the
 clipboard holds a link, **Paste Link from Clipboard** appears; macOS only reports
 that a link exists until you click it. Results show each video's thumbnail.
 Playlist entries start unselected; choose the entries you want before downloading.
 
-Best-quality video in its original format is the default. Choose MP4, MKV or WebM,
-or original audio, M4A, MP3, WAV or FLAC. Available resolutions come from actual video streams and show pixel dimensions, including portrait video. With multiple selections, only common resolutions are listed. A source offering one resolution cannot supply other native resolutions.
+Best-quality video in its original format is the default. The Format menu groups
+choices into **No Re-encoding** (Original Format, MKV) and **Converts If Needed**
+(MP4, WebM, M4A, MP3, WAV, FLAC). M4A and MP3 add a **Quality** choice of
+Standard, 128, 256 or 320 kbps, applied when the audio is converted. Available resolutions come from actual video streams and show pixel dimensions, including portrait video. With multiple selections, only common resolutions are listed; when none are shared, the window explains that each item downloads at its best. A source offering one resolution cannot supply other native resolutions.
 Compatible streams are copied; a format with incompatible codecs requires
 re-encoding. Optional authored or automatic subtitles are saved alongside the media
 as SRT or VTT in the selected language.

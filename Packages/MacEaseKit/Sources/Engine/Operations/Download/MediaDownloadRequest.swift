@@ -59,6 +59,7 @@ public enum MediaDownloadFormat: String, CaseIterable, Sendable {
     case source, mp4, mkv, webm, audio, m4a, mp3, wav, flac
 
     public var requiresReencoding: Bool { [.mp4, .webm, .m4a, .mp3, .wav, .flac].contains(self) }
+    public var acceptsAudioBitrate: Bool { [.m4a, .mp3].contains(self) }
     public var audioOnly: Bool { [.audio, .m4a, .mp3, .wav, .flac].contains(self) }
 }
 
@@ -67,21 +68,26 @@ public enum MediaSubtitleFormat: String, CaseIterable, Sendable {
 }
 
 public struct MediaDownloadSelection: Hashable, Sendable {
+    public static let audioBitrates = [128, 192, 256, 320]
+
     public let source: MediaSource
     public let format: MediaDownloadFormat
     public let resolution: Int?
     public let subtitle: MediaSubtitle?
     public let subtitleFormat: MediaSubtitleFormat
+    /// Kilobits per second; `nil` is default.
+    public let audioBitrate: Int?
 
     public init(
         source: MediaSource, format: MediaDownloadFormat = .source, resolution: Int? = nil,
-        subtitle: MediaSubtitle? = nil, subtitleFormat: MediaSubtitleFormat = .vtt
+        subtitle: MediaSubtitle? = nil, subtitleFormat: MediaSubtitleFormat = .vtt, audioBitrate: Int? = nil
     ) {
         self.source = source
         self.format = format
         self.resolution = resolution
         self.subtitle = subtitle
         self.subtitleFormat = subtitleFormat
+        self.audioBitrate = audioBitrate
     }
 }
 

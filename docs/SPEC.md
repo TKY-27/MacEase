@@ -645,7 +645,7 @@ Their single final More menu uses `Kind (n): Operation ▸ Choice`, without
 another kind submenu, keeping every path within four levels. Counts and
 single-selection limits use that kind's subset. Unknown files and packages
 receive All Files operations inside More. Folder selection never enables
-recursive media operations. The folder-background **Download Media…** stays
+recursive media operations. The folder-background **yt-dlp…** item stays
 outside MacEase, unchanged.
 
 When the host is available and knows a newer release, the first item inside
@@ -978,17 +978,33 @@ The editor opens from Finder and Services. Its initial content size is
 source names the window. Window proportions do not change the source or output
 aspect ratio. Like common media editors it always uses the dark appearance. A
 unified toolbar centres Video (video only), Adjust, Styles and Crop, and keeps
-Compare Original, session Undo/Redo, More (Reset All), Cancel and a prominent
-split Save button at its trailing edge. A large viewer sits left of a 300-point inspector.
+Compare Original, session Undo/Redo, Cancel and a prominent split Save button
+at its trailing edge. Undo is a split control whose dropdown offers Reset All
+Edits; there is no separate More menu. A large viewer sits left of a 300-point inspector.
 Video adds a transport bar under the viewer (position/duration clock, previous
 frame, play/pause, next frame, preview mute) and a full-width timeline with
-Split, Duplicate, Delete, a segment menu and zoom. Photos show Fit/200%/400%
+Split, Duplicate, Delete, a segment menu, Add Videos… and zoom. Photos show Fit/200%/400%
 zoom under the viewer. The inspector groups adjustments into Light, Color and
 Detail, lists styles as selectable rows, and uses tiles for rotation, flips and
-aspect ratios. Its pinned foot shows output size, video duration
-and validation problems. Unchanged or invalid edits disable Save.
+aspect ratios. Video's inspector holds only selected-segment controls (Start,
+End and Length as m:ss.sss timecode, speed, volume, fade) and source notes.
+Speed is a 0.5×/1×/1.5×/2× segmented preset plus one numeric custom field.
+Without a selected segment, segment controls are disabled and the inspector
+reads "Select a segment in the timeline to adjust it." A separate pinned Export
+section with output resolution sits above the pinned foot, which shows output
+size, video duration, save progress and validation or save problems. Photo
+lists offer Copy Edits to Selected and Copy Edits to All Photos. Unchanged or
+invalid edits disable Save.
 
 Clicking Save or pressing Return always saves a new file and preserves the original.
+The editor stays open and disabled while its batch runs, showing JobCenter
+progress in the foot. Success closes it. Failure keeps it open with the first
+item's one-line reason and Save enabled for a retry; cancellation keeps it
+open silently. Closing the editor never cancels the save.
+After partial photo success, saved photos leave the session; retry saves only
+the remaining photos, including after cancellation. Undo/Redo retains only the
+remaining photos' edits. Saving pauses active playback. Keyboard shortcuts also
+leave the workspace disabled while saving, including playback and transport.
 The dropdown offers **Replace Original**, with a secondary hint that the original
 goes to the Trash and can be undone. The editor ignores the global output-mode
 setting. Each action resolves one settings snapshot used for both batch planning
@@ -1060,7 +1076,7 @@ uses the corresponding SDR rendition when conversion is required. Unsupported
 preview conversions disable saving and explain the failure. All exports retain
 the shared staging, validation, conflict avoidance, Trash and history Undo path.
 
-This release excludes importing additional videos, multitrack editing, subtitle editing, generative repair,
+This release excludes multitrack editing, subtitle editing, generative repair,
 curves/per-color adjustment, saved custom styles and batch application. Required
 verification includes real-Mac rendering and interactions, output geometry and
 color, JPEG/PNG/HEIC/HDR, combined video timing and volume, cancellation, both
@@ -2501,24 +2517,39 @@ never promise every site works.
 
 ### 22.1 Finder and download window
 
-A top-level **Download Media…** action (formerly **yt-dlp…**) appears for folder backgrounds and exactly one
+A top-level **yt-dlp…** action appears for folder backgrounds and exactly one
 selected folder. The background target or selected folder is the destination.
 Mixed selections and multiple folders do not expose the action. The authenticated
 run request and host validation remain mandatory; the extension performs no
 network work. Finder Services provides the same operation where applicable.
 
 A native window starts with one URL field accepting newline-separated HTTP(S)
-URLs; Return or Analyze obtains titles, durations, dimensions and formats, and
-Return then downloads the selection. Editing the URLs clears the results. Results
+URLs; Return or Analyze (⌘R, shown in its tooltip) obtains titles, durations,
+dimensions and formats. While results are listed, Return in the field downloads
+the selection; editing the URLs clears the results, so Return analyzes again.
+The idle state shows one line and, when applicable, Paste Link from Clipboard. Results
 list each source with a checkbox, host, duration, largest dimensions and playlist
 status. Options choose Video, Audio Only or Images; video/audio expose the
-matching format, resolution and subtitles (Images uses section 24.1); the footer shows the destination folder. Playlist entries require
+matching format, resolution and subtitles (Images uses section 24.1); the footer shows the destination folder. Choose… replaces that
+folder for this window through a directories-only open panel; batch planning
+revalidates it as a non-symlink directory. Playlist entries require
 explicit selection before download.
+Download keeps the window open, clears the URLs and lists each submitted item
+from JobCenter progress: queued, downloading or converting with progress, done
+with Show in Finder, cancelled, or failed with the one-line Activity reason and
+Retry. Retry resubmits only that failed, non-cancelled item. Closing the window
+never cancels downloads; Activity still reports them.
+Each row receives its final result as that item finishes, without waiting for
+the remaining downloads in its batch.
 Independent invocations retain their own destination and draft. Native controls,
 lightweight tables and standard title bars follow Finder and Safari conventions.
 
 Default to best available video in its source format, without unnecessary
 re-encoding. Also offer MP4, MKV, WebM, original audio, M4A, MP3, WAV and FLAC.
+The Format menu groups No Re-encoding (Original Format, MKV) and Converts If
+Needed (the rest). M4A and MP3 offer Quality: Standard (192 kbps AAC or VBR
+MP3), 128, 256 or 320 kbps, applied only when the audio is converted. When
+selected items share no resolution, a caption says each downloads at its best.
 Resolutions come from available source formats. Disclose required re-encoding;
 never silently change requested quality or format. Subtitles default off; select
 language, authored or automatic captions, and SRT or VTT sidecars.
@@ -2688,7 +2719,7 @@ after verification. Release acceptance is recorded separately from implementatio
 
 ### 24.1 Acquisition
 
-One **Download Media…** window groups Video, Audio Only and Images without
+One **yt-dlp…** window groups Video, Audio Only and Images without
 per-site Finder entries. Video/audio use yt-dlp. Images uses gallery-dl 1.32.19
 as a separate, unmodified GPL-2.0-only CLI with its license and matching source.
 No GPL implementation is copied or linked into MacEase's MIT source.
@@ -2799,6 +2830,16 @@ after confirming they have no active work.
 
 ## Changelog
 
+- 2026-11-17: Remove saved photos from partially completed editor sessions,
+  preserve remaining edits for retry after failure or cancellation, block editor
+  shortcuts while saving, and deliver individual download outcomes immediately
+  (ADR 0066).
+
+- 2026-11-17: Keep the download window open with per-item status, Retry and a
+  per-window destination; Return downloads listed results. Add M4A/MP3 quality.
+  Keep the editor open while saving, move Reset All into Undo, separate export
+  settings, use timecode and one speed control (ADR 0066).
+
 - 2026-11-17: Add a blue Finder update item and one shared Update window with
   installation instructions and extension settings access (ADR 0065).
 
@@ -2811,7 +2852,7 @@ after confirming they have no active work.
   AI plans. Preserve historical Trim Undo and download provenance (ADR 0063).
 
 - 2026-11-17: Declare one **MacEase…** Services item in Release builds only,
-  fix the folder download title, and record Quick Look preview limits (ADR 0062).
+  keep the folder download item titled **yt-dlp…**, and record Quick Look preview limits (ADR 0062).
 
 - 2026-11-17: Choose photo/video editor output mode per save through a split
   Save button, sharing one settings snapshot for naming and execution (ADR 0061).

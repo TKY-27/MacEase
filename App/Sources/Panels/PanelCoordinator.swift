@@ -118,12 +118,12 @@ final class PanelCoordinator {
     private func showMediaDownload(_ destination: URL) {
         let model = MediaDownloadModel(destination: destination)
         featureHost.show(
-            title: String(localized: "Download Media"), minimumSize: NSSize(width: 640, height: 520),
+            title: String(localized: "yt-dlp"), minimumSize: NSSize(width: 640, height: 520),
             initialSize: NSSize(width: 820, height: 640), onClose: { await model.close() }
         ) { close in
-            MediaDownloadView(model: model, close: close) { request in
-                try self.jobs.runDownloads(request)
-            }
+            MediaDownloadView(
+                model: model, close: close, start: { try self.jobs.runDownloads($0) },
+                progress: { id in self.jobs.active.first { $0.batchID == id } })
         }
     }
 
@@ -144,15 +144,18 @@ final class PanelCoordinator {
             minimumSize: NSSize(width: 960, height: 600),
             initialSize: NSSize(width: 1280, height: 720), onClose: { await model.close() }
         ) { close in
-            MediaEditorView(model: model, close: close) { batch, settings in
-                let edit = self.jobs.run(batch: batch, settings: settings)
-                guard let next else { return }
-                Task {
-                    guard let outcome = await edit.value, !outcome.wasCancelled else { return }
-                    let edited = Self.continuing(outcome)
-                    if !edited.isEmpty { self.launch(next.op, next.options, edited) }
-                }
-            }
+            MediaEditorView(
+                model: model, close: close,
+                save: { batch, settings in
+                    let edit = self.jobs.run(batch: batch, settings: settings)
+                    guard let next else { return edit }
+                    Task {
+                        guard let outcome = await edit.value, !outcome.wasCancelled else { return }
+                        let edited = Self.continuing(outcome)
+                        if !edited.isEmpty { self.launch(next.op, next.options, edited) }
+                    }
+                    return edit
+                }, progress: { id in self.jobs.active.first { $0.batchID == id } })
         }
     }
 

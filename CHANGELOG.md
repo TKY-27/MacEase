@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Retry only unsaved photos after a partial editor save or cancellation, block
+  editing shortcuts while saving, and show each download's result and actions
+  as soon as it finishes.
+
+- Keep the yt-dlp window open after Download with per-item progress, Show in Finder
+  and Retry, and let Choose… change the destination. Return now downloads listed
+  results; Analyze shows its Command-R shortcut. Group formats by whether they
+  re-encode, add M4A/MP3 quality choices and explain unshared resolutions.
+- Keep the photo/video editor open while saving, closing on success and showing
+  the failure reason otherwise. Move Reset All Edits into Undo's dropdown, export
+  resolution into its own section and Add Videos… into the timeline bar. Use
+  timecode for segment boundaries, one speed control and clearer Copy Edits buttons.
+
 - Present successful Activity results with a success symbol and collapsible notes.
   Completion notifications include note counts instead of note text. Failure
   messages explain the cause and next step, with technical diagnostics available
@@ -41,7 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Title the folder download item **Download Media…** instead of **yt-dlp…**.
 - Log every failed operation's cause for diagnosis, not only unexpected errors.
 - Hold the last video frame through edited segments when audio outlasts video,
   preserving the remaining audio instead of failing the export.

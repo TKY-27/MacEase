@@ -125,6 +125,17 @@ struct EditorTimeline: View {
                 .help("More Segment Actions")
                 .disabled(!model.hasSelection)
                 Spacer(minLength: 8)
+                Button {
+                    let panel = NSOpenPanel()
+                    panel.allowsMultipleSelection = true
+                    panel.canChooseDirectories = false
+                    panel.allowedContentTypes = [.movie, .video]
+                    if panel.runModal() == .OK { model.importVideos(panel.urls) }
+                } label: {
+                    Label("Add Videos…", systemImage: "plus")
+                }
+                .help("Add videos to the end of the timeline")
+                .disabled(model.importing)
                 TimelineZoomControls(zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom)
             }
             .labelStyle(.titleAndIcon)

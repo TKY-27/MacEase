@@ -229,6 +229,34 @@ import Testing
         #expect(!arguments.contains("h264_videotoolbox"))
     }
 
+    @Test func requestedAudioBitrateReplacesDefaultMP3QualityAndIsValidated() async throws {
+        let fixture = try DownloadFixture(root: TestVolume.makeFolder())
+        defer { fixture.remove() }
+        let downloader = try MediaDownloader(tools: fixture.tools)
+        let page = try #require(URL(string: "https://example.com/video"))
+        let source = try #require(try await downloader.analyze(urls: [page]).sources.first)
+        for invalid in [
+            MediaDownloadSelection(source: source, format: .mp3, audioBitrate: 100),
+            MediaDownloadSelection(source: source, format: .flac, audioBitrate: 320),
+        ] {
+            #expect(throws: EngineError.invalidInput(.invalidNumericParameter)) {
+                try downloader.makeBatch(MediaDownloadRequest(destination: fixture.destination, selections: [invalid]))
+            }
+        }
+        let request = MediaDownloadRequest(
+            destination: fixture.destination,
+            selections: [MediaDownloadSelection(source: source, format: .mp3, audioBitrate: 320)])
+        let engine = try JobEngine(supportDirectory: fixture.root.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(try downloader.makeBatch(request), settings: Settings()) { _ in }
+        guard case .succeeded = outcome.outcomes.first else {
+            Issue.record("MP3 download failed: \(outcome.outcomes)")
+            return
+        }
+        let arguments = try String(contentsOf: fixture.root.appending(path: "conversion-arguments"), encoding: .utf8)
+        #expect(arguments.contains("-c:a\nlibmp3lame\n-b:a\n320k"))
+        #expect(!arguments.contains("-q:a"))
+    }
+
     @Test(arguments: [false, true])
     func sharedPagePlaylistResolvesOnlyTheSelectedEntry(reordered: Bool) async throws {
         let fixture = try DownloadFixture(root: TestVolume.makeFolder())

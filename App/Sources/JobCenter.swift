@@ -17,10 +17,12 @@ final class JobCenter {
         var progress = 0.0
         var scanFraction: Double?
         var currentFileFraction: Double?
+        var stageFractions: [Double?] = []
         var progressSequence: UInt64 = 0
         var completedItems = 0
         var currentItem: Int?
         var itemPhases: [ItemPhase] = []
+        var itemOutcomes: [ItemOutcome?] = []
         var elapsedSeconds: [Double] = []
 
         var itemCount: Int { fileNames.count }
@@ -210,12 +212,13 @@ final class JobCenter {
     }
 
     @discardableResult
-    func runDownloads(_ request: MediaDownloadRequest) throws -> Task<BatchOutcome?, Never> {
+    func runDownloads(_ request: MediaDownloadRequest) throws -> (batchID: UUID, task: Task<BatchOutcome?, Never>) {
         let downloader = try MediaDownloader()
         let batch = try downloader.makeBatch(request)
-        return run(
+        let task = run(
             settings: settings.planning, request: nil, downloadRequest: request,
             preparing: { batch })
+        return (batch.id, task)
     }
 
     private func run(
@@ -506,9 +509,11 @@ final class JobCenter {
         active[index].progressSequence = progress.sequence
         active[index].progress = progress.fraction
         active[index].currentFileFraction = progress.currentFileFraction
+        active[index].stageFractions = progress.stageFractions
         active[index].completedItems = progress.completedItems
         active[index].currentItem = progress.currentItem
         active[index].itemPhases = progress.itemPhases
+        active[index].itemOutcomes = progress.itemOutcomes
         active[index].elapsedSeconds = progress.elapsedSeconds
     }
 

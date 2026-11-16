@@ -83,6 +83,10 @@ public struct MediaDownloader: Sendable {
                     throw EngineError.invalidInput(.invalidNumericParameter)
                 }
             }
+            if let bitrate = selection.audioBitrate {
+                guard selection.format.acceptsAudioBitrate, MediaDownloadSelection.audioBitrates.contains(bitrate)
+                else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            }
             if let subtitle = selection.subtitle {
                 guard selection.source.subtitles.contains(subtitle), Self.safeLanguage(subtitle.language) else {
                     throw EngineError.invalidInput(.malformed("Subtitle language is unavailable"))
@@ -318,10 +322,13 @@ public struct MediaDownloader: Sendable {
         if selection.format == .webm, !["vp8", "vp9", "av1"].contains(video ?? "") {
             arguments += ["-crf", ConversionQuality.vp9, "-b:v", "0"]
         }
+        let requestedBitrate = selection.audioBitrate.map { "\($0)k" }
         if selection.format == .m4a, !["aac", "alac"].contains(audio ?? "") {
-            arguments += ["-b:a", ConversionQuality.audioBitrate]
+            arguments += ["-b:a", requestedBitrate ?? ConversionQuality.audioBitrate]
         }
-        if selection.format == .mp3, audio != "mp3" { arguments += ["-q:a", ConversionQuality.mp3] }
+        if selection.format == .mp3, audio != "mp3" {
+            arguments += requestedBitrate.map { ["-b:a", $0] } ?? ["-q:a", ConversionQuality.mp3]
+        }
         arguments += ["-progress", "pipe:1", "-nostats", output.path]
         _ = try await MediaToolProcess().run(
             executable: tools.ffmpeg, arguments: arguments, directory: directory, tools: tools, captureOutput: false

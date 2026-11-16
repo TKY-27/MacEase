@@ -19,7 +19,7 @@ Use the fixed primary groups in SPEC sections 4.2 and 4.4. Put remaining groups
 and all All Files operations in one final More submenu. Never adapt positions
 to usage or fill pruned primary slots. Mixed selections keep kind submenus for
 primaries and prefix More operation titles with kind and count, limiting menu
-depth to four levels. Folder-background Download Media remains outside MacEase.
+depth to four levels. Folder-background yt-dlp remains outside MacEase.
 
 Keep schema 3 with optional groupID, placement and localized moreTitle fields,
 all included in the catalog hash. Missing placement uses the default table.

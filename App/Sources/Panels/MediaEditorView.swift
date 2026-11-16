@@ -5,7 +5,10 @@ import SwiftUI
 struct MediaEditorView: View {
     @Bindable var model: MediaEditorModel
     let close: () -> Void
-    let save: (Batch, Engine.Settings) -> Void
+    let save: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
+    let progress: (UUID) -> JobCenter.ActiveBatch?
+
+    private var editable: Bool { model.ready && model.savingBatchID == nil }
 
     var body: some View {
         Group {
@@ -58,6 +61,7 @@ struct MediaEditorView: View {
                 EditorTimeline(model: model)
             }
         }
+        .disabled(model.savingBatchID != nil)
     }
 
     @ToolbarContentBuilder
@@ -71,7 +75,7 @@ struct MediaEditorView: View {
             .pickerStyle(.segmented)
             .labelStyle(.titleAndIcon)
             .labelsHidden()
-            .disabled(!model.ready)
+            .disabled(!editable)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Toggle(isOn: $model.original) {
@@ -80,29 +84,25 @@ struct MediaEditorView: View {
             .toggleStyle(.button)
             .help("Show Original (M)")
             .accessibilityValue(model.original ? Text("Original") : Text("Edited"))
-            .disabled(!model.ready)
+            .disabled(!editable)
             ControlGroup {
-                Button {
-                    model.undo()
+                Menu {
+                    Button("Reset All Edits") { model.reset() }
                 } label: {
                     Label("Undo Edit", systemImage: "arrow.uturn.backward")
+                } primaryAction: {
+                    model.undo()
                 }
                 .help("Undo (⌘Z)")
-                .disabled(!model.canUndo).keyboardShortcut("z", modifiers: .command)
+                .disabled(!model.canUndo || !editable).keyboardShortcut("z", modifiers: .command)
                 Button {
                     model.redo()
                 } label: {
                     Label("Redo Edit", systemImage: "arrow.uturn.forward")
                 }
                 .help("Redo (⇧⌘Z)")
-                .disabled(!model.canRedo).keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!model.canRedo || !editable).keyboardShortcut("z", modifiers: [.command, .shift])
             }
-            Menu {
-                Button("Reset All Edits") { model.reset() }.disabled(!model.canUndo)
-            } label: {
-                Label("More Editing Actions", systemImage: "ellipsis.circle")
-            }
-            .help("More Editing Actions")
             Button("Cancel", action: close).keyboardShortcut(.cancelAction)
         }
         ToolbarItem(placement: .confirmationAction) {
@@ -126,11 +126,9 @@ struct MediaEditorView: View {
     }
 
     private func save(replacingOriginal: Bool) {
-        do {
-            let planned = try model.makeSave(replacingOriginal: replacingOriginal)
-            save(planned.batch, planned.settings)
-            close()
-        } catch { model.report(error) }
+        Task {
+            if await model.save(replacingOriginal: replacingOriginal, run: save) { close() }
+        }
     }
 
     private var photoList: some View {
@@ -151,11 +149,22 @@ struct MediaEditorView: View {
                 if let url = selected.first, !selected.contains(model.url) { model.selectPhoto(url) }
             }
             VStack(spacing: 6) {
-                Button("Apply to Selected") { model.applyPhotoEdits(toAll: false) }
-                    .disabled(model.selectedPhotos.isEmpty)
-                Button("Apply to All Photos") { model.applyPhotoEdits(toAll: true) }
+                Button {
+                    model.applyPhotoEdits(toAll: false)
+                } label: {
+                    Text("Copy Edits to Selected").frame(maxWidth: .infinity)
+                }
+                .help("Copy this photo's edits to the selected photos")
+                .disabled(model.selectedPhotos.isEmpty)
+                Button {
+                    model.applyPhotoEdits(toAll: true)
+                } label: {
+                    Text("Copy Edits to All Photos").frame(maxWidth: .infinity)
+                }
+                .help("Copy this photo's edits to every photo in the list")
             }
-            .controlSize(.small)
+            .lineLimit(1)
+            .padding(.horizontal, 10)
             .padding(.bottom, 10)
         }
     }
@@ -237,20 +246,32 @@ struct MediaEditorView: View {
     }
 
     private var inspector: some View {
-        VStack(spacing: 0) {
+        let needsSegment = model.isVideo && !model.hasSelection && model.category != .crop
+        return VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    switch model.category {
-                    case .video: videoControls
-                    case .adjust: adjustmentControls
-                    case .styles: styleControls
-                    case .crop: cropControls
+                    if needsSegment {
+                        Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
                     }
+                    Group {
+                        switch model.category {
+                        case .video: videoControls
+                        case .adjust: adjustmentControls
+                        case .styles: styleControls
+                        case .crop: cropControls
+                        }
+                    }
+                    .disabled(needsSegment && model.category != .video)
                 }
                 .id(model.isVideo ? model.values.selectedID : nil)
-                .disabled(model.isVideo && !model.hasSelection && model.category != .crop && model.category != .video)
                 .disabled(model.loadingPhoto)
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if model.isVideo {
+                Divider()
+                exportSettings
             }
             Divider()
             outputSummary
@@ -258,9 +279,40 @@ struct MediaEditorView: View {
         .background(.background.secondary)
     }
 
+    private var exportSettings: some View {
+        InspectorSection(String(localized: "Export")) {
+            LabeledContent("Resolution") {
+                Picker("Resolution", selection: model.binding(\.resolution)) {
+                    Text("Original resolution").tag(0)
+                    ForEach([2160, 1080, 720, 480, 360], id: \.self) { Text(verbatim: "\($0)p").tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder private var saveProgress: some View {
+        if let id = model.savingBatchID {
+            let batch = progress(id)
+            let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
+            HStack(spacing: 8) {
+                ProgressView(value: fraction).controlSize(.small)
+                Text("Saving…").font(.callout).foregroundStyle(.secondary).fixedSize()
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     private var outputSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let failure = model.failure { ProblemLabel(text: failure) }
+            saveProgress
+            if let failure = model.saveFailure ?? model.failure {
+                ProblemLabel(text: failure)
+            }
             if !model.invalidFields.isEmpty {
                 ProblemLabel(text: String(localized: "Enter a valid number within the allowed range."))
             }
@@ -443,30 +495,32 @@ struct MediaEditorView: View {
                     GridRow {
                         Text("Start").foregroundStyle(.secondary)
                         EditorNumberField(
-                            model: model, title: Text("Start (seconds)"), id: "start",
+                            model: model, title: Text("Start"), id: "start",
                             value: model.videoBoundaryBinding(start: true),
                             range: 0...max(0, model.values.end - model.sourceFrameDuration),
-                            precision: 3
+                            precision: Self.timecodeDigits, timecode: true
                         )
-                        Text("sec").foregroundStyle(.tertiary)
                     }
                     GridRow {
                         Text("End").foregroundStyle(.secondary)
                         EditorNumberField(
-                            model: model, title: Text("End (seconds)"), id: "end",
+                            model: model, title: Text("End"), id: "end",
                             value: model.videoBoundaryBinding(start: false),
                             range: min(
                                 model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
                                 .sourceDuration,
-                            precision: 3
+                            precision: Self.timecodeDigits, timecode: true
                         )
-                        Text("sec").foregroundStyle(.tertiary)
                     }
                     GridRow {
                         Text("Length").foregroundStyle(.secondary)
-                        Text(Timecode.string((model.values.end - model.values.start) / model.values.speed))
-                            .monospacedDigit()
-                            .gridCellColumns(2)
+                        Text(
+                            Timecode.string(
+                                (model.values.end - model.values.start) / model.values.speed,
+                                fractionDigits: Self.timecodeDigits)
+                        )
+                        .monospacedDigit()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
                 .disabled(!model.hasSelection)
@@ -484,15 +538,11 @@ struct MediaEditorView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                HStack {
-                    Slider(value: model.binding(\.speed), in: 0.5...4) {
-                        Text("Playback speed")
-                    } onEditingChanged: { active in
-                        active ? model.beginInteraction() : model.endInteraction()
-                    }
-                    .labelsHidden()
+                HStack(spacing: 6) {
+                    Text("Custom").foregroundStyle(.secondary)
+                    Spacer()
                     EditorNumberField(
-                        model: model, title: Text("Playback speed"), id: "speed",
+                        model: model, title: Text("Custom speed"), id: "speed",
                         value: model.binding(\.speed), range: VideoEdit.speedRange, precision: 2
                     ).frame(width: 58)
                     Text(verbatim: "×").foregroundStyle(.secondary).accessibilityHidden(true)
@@ -538,14 +588,8 @@ struct MediaEditorView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.hasSelection)
-            InspectorSection(String(localized: "Export")) {
-                Picker("Resolution", selection: model.binding(\.resolution)) {
-                    Text("Original resolution").tag(0)
-                    ForEach([2160, 1080, 720, 480, 360], id: \.self) { Text(verbatim: "\($0)p").tag($0) }
-                }
-            }
-            InspectorSection(String(localized: "Source Videos")) {
-                if model.values.sources.count > 1 {
+            if model.values.sources.count > 1 {
+                InspectorSection(String(localized: "Source Videos")) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(model.values.sources.enumerated()), id: \.offset) { index, source in
                             Text("\(index + 1). \(source.url.lastPathComponent)").font(.callout).lineLimit(1)
@@ -557,21 +601,12 @@ struct MediaEditorView: View {
                     )
                     .font(.caption).foregroundStyle(.secondary)
                 }
-                Button {
-                    let panel = NSOpenPanel()
-                    panel.allowsMultipleSelection = true
-                    panel.canChooseDirectories = false
-                    panel.allowedContentTypes = [.movie, .video]
-                    if panel.runModal() == .OK { model.importVideos(panel.urls) }
-                } label: {
-                    Label("Add Videos…", systemImage: "plus")
-                }
-                .disabled(model.importing)
             }
         }
     }
 
     private static let speedPresets: [Double] = [0.5, 1, 1.5, 2]
+    private static let timecodeDigits = 3
 }
 
 private enum AdjustmentGroup: CaseIterable {
@@ -695,18 +730,24 @@ private struct EditorNumberField: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     let precision: Int
+    var timecode = false
     @State private var draft = ""
     @FocusState private var focused: Bool
 
     private var parsed: Double? {
         let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
-        guard let amount = Double(normalized), amount.isFinite, range.contains(amount) else { return nil }
+        guard let amount = timecode ? TimecodeField.parse(normalized) : Double(normalized), amount.isFinite,
+            range.contains(amount)
+        else { return nil }
         return amount
     }
 
     private func synchronize() {
-        draft = value.formatted(.number.grouping(.never).precision(.fractionLength(precision)))
+        draft =
+            timecode
+            ? Timecode.string(value, fractionDigits: precision)
+            : value.formatted(.number.grouping(.never).precision(.fractionLength(precision)))
         model.invalidFields.remove(id)
     }
 

@@ -33,6 +33,7 @@ public struct BatchProgress: Sendable {
     /// An unfinished item, preferring one already started.
     public let currentItem: Int?
     public let itemPhases: [ItemPhase]
+    public let itemOutcomes: [ItemOutcome?]
     public let elapsedSeconds: [Double]
 }
 
@@ -113,8 +114,7 @@ public final class JobEngine: Sendable {
                     }
                     let started = Date()
                     let (outcome, text) = await self.perform(workItem, of: batch, context: context, tracker: tracker)
-                    context.phase(.finished)
-                    context.progress(1)
+                    tracker.finish(index, outcome: outcome, report: progress)
                     var details = context.details
                     details.elapsedSeconds = Date().timeIntervalSince(started)
                     return ItemResultSummary(index: index, outcome: outcome, text: text, details: details)
@@ -451,6 +451,7 @@ public final class JobEngine: Sendable {
 private final class BatchTracker: Sendable {
     private struct State {
         var phases: [ItemPhase]
+        var outcomes: [ItemOutcome?]
         var fractions: [Double?]
         var sequence: UInt64 = 0
         var failedHistory = false
@@ -461,13 +462,23 @@ private final class BatchTracker: Sendable {
     init(itemCount: Int) {
         state = Mutex(
             State(
-                phases: Array(repeating: .queued, count: itemCount), fractions: Array(repeating: nil, count: itemCount))
+                phases: Array(repeating: .queued, count: itemCount),
+                outcomes: Array(repeating: nil, count: itemCount), fractions: Array(repeating: nil, count: itemCount))
         )
     }
 
     func phase(_ index: Int, phase: ItemPhase, report: (BatchProgress) -> Void) {
         state.withLock {
             $0.phases[index] = phase
+            $0.fractions[index] = nil
+            snapshot(&$0, report: report)
+        }
+    }
+
+    func finish(_ index: Int, outcome: ItemOutcome, report: (BatchProgress) -> Void) {
+        state.withLock {
+            $0.outcomes[index] = outcome
+            $0.phases[index] = .finished
             $0.fractions[index] = nil
             snapshot(&$0, report: report)
         }
@@ -493,6 +504,7 @@ private final class BatchTracker: Sendable {
                 currentItem: state.phases.indices.first { state.phases[$0] != .queued && state.phases[$0] != .finished }
                     ?? state.phases.indices.first { state.phases[$0] != .finished },
                 itemPhases: state.phases,
+                itemOutcomes: state.outcomes,
                 elapsedSeconds: state.phases.map { _ in Date().timeIntervalSince(started) }))
     }
 

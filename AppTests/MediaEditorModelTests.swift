@@ -164,6 +164,163 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(derived.batch.items.count, 2)
     }
 
+    func testSaveStaysOpenUntilSuccessAndKeepsFailureRetryable() async throws {
+        let model = try await photoModel()
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        try await eventually { model.canSave }
+        func finishing(with result: ItemOutcome?) -> (Batch, Engine.Settings) -> Task<BatchOutcome?, Never> {
+            { batch, _ in
+                XCTAssertEqual(model.savingBatchID, batch.id)
+                XCTAssertFalse(model.canSave)
+                let inputs = [[model.url]]
+                return Task {
+                    result.map {
+                        BatchOutcome(
+                            batchID: batch.id, operation: batch.operation, inputs: inputs, outcomes: [$0],
+                            clipboardText: nil, reportText: nil, record: nil, historyFailed: false,
+                            details: [ItemDetails()])
+                    }
+                }
+            }
+        }
+
+        let failed = await model.save(replacingOriginal: false, run: finishing(with: .failed(.protectionDiskFull)))
+        XCTAssertFalse(failed)
+        XCTAssertNil(model.savingBatchID)
+        XCTAssertEqual(
+            model.saveFailure,
+            UserMessages.describeResult(.protectionDiskFull, file: model.url.lastPathComponent))
+        XCTAssertTrue(model.canSave)
+
+        let cancelled = await model.save(replacingOriginal: false, run: finishing(with: .failed(.cancelled)))
+        XCTAssertFalse(cancelled)
+        XCTAssertNil(model.saveFailure)
+        let interrupted = await model.save(replacingOriginal: false, run: finishing(with: nil))
+        XCTAssertFalse(interrupted)
+
+        let output = model.url.deletingLastPathComponent().appending(path: "photo_edited.png")
+        let saved = await model.save(
+            replacingOriginal: false, run: finishing(with: .succeeded(outputs: [output], warnings: [])))
+        XCTAssertTrue(saved)
+        XCTAssertNil(model.saveFailure)
+        XCTAssertNil(model.savingBatchID)
+    }
+
+    func testPartialPhotoSaveRetriesOnlyUnsavedPhotosAfterFailureOrCancellation() async throws {
+        for cancelled in [false, true] {
+            let model = try await photoModel(additionalPhoto: true)
+            let sources = model.photoURLs
+            let savedStamp = try MediaSourceStamp(url: sources[0])
+            model.change { $0.photo.geometry.quarterTurns = 1 }
+            model.applyPhotoEdits(toAll: true)
+            try await eventually { model.canSave }
+            let engine = try JobEngine(supportDirectory: try workspace(), concurrency: 1)
+            let completed = await model.save(replacingOriginal: true) { batch, settings in
+                let remaining = WorkItem(inputs: [sources[1]]) { _ in
+                    if cancelled { throw CancellationError() }
+                    throw EngineError.protectionDiskFull
+                }
+                return Task {
+                    let outcome = await engine.run(
+                        Batch(operation: batch.operation, items: [batch.items[0], remaining]), settings: settings
+                    ) { _ in }
+                    self.addTeardownBlock { _ = try await engine.undo(outcome.batchID) }
+                    if case .succeeded(let outputs, _) = outcome.outcomes[0] {
+                        XCTAssertEqual(outputs, [sources[0]])
+                    } else {
+                        XCTFail("The first photo must commit before retry")
+                    }
+                    return outcome
+                }
+            }
+            XCTAssertFalse(completed)
+            XCTAssertThrowsError(try savedStamp.validate(sources[0]))
+            try await eventually { model.canSave || model.failure != nil }
+            XCTAssertNil(model.failure)
+            XCTAssertEqual(model.saveFailure == nil, cancelled)
+            XCTAssertEqual(model.photoURLs, [sources[1]])
+            XCTAssertEqual(model.url, sources[1])
+            XCTAssertNil(model.values.photoEdits[sources[0]])
+            let retry = try model.makeSave(replacingOriginal: true)
+            XCTAssertEqual(retry.batch.items.map(\.inputs), [[sources[1]]])
+            model.undo()
+            XCTAssertNil(model.values.photoEdits[sources[0]])
+            model.redo()
+            XCTAssertEqual(try model.makeSave(replacingOriginal: true).batch.items.map(\.inputs), [[sources[1]]])
+            try await eventually { model.canSave || model.failure != nil }
+            let saved = await model.save(replacingOriginal: true) { batch, settings in
+                Task {
+                    let outcome = await engine.run(batch, settings: settings) { _ in }
+                    self.addTeardownBlock { _ = try await engine.undo(outcome.batchID) }
+                    return outcome
+                }
+            }
+            XCTAssertTrue(saved, model.saveFailure ?? "Retry did not finish")
+        }
+    }
+
+    func testSavingBlocksKeyboardShortcutsAndModelEdits() async throws {
+        let model = try await videoModel()
+        model.change { $0.speed = 2 }
+        try await eventually { model.canSave }
+        model.seek(0.5)
+        XCTAssertTrue(model.canSplit)
+        let shortcutView = EditorKeyboardShortcuts.ShortcutView()
+        shortcutView.model = model
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = shortcutView
+        defer { shortcutView.stopMonitoring(); window.close() }
+        let shortcuts: [(UInt16, String, NSEvent.ModifierFlags)] = [
+            (51, "\u{7f}", []), (11, "b", .command), (34, "i", []), (31, "o", []),
+            (46, "m", []), (49, " ", []), (24, "=", .command),
+        ]
+        let events = try shortcuts.map { code, characters, modifiers in
+            try XCTUnwrap(
+                NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: characters,
+                    charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
+        }
+        let snapshot = model.values
+        model.play()
+        XCTAssertTrue(model.playing)
+        let saved = await model.save(replacingOriginal: false) { batch, _ in
+            for event in events { NSApp.sendEvent(event) }
+            XCTAssertFalse(model.original)
+            XCTAssertFalse(model.playing)
+            XCTAssertEqual(model.timelineZoom, 1)
+            XCTAssertFalse(model.canSplit)
+            model.deleteSelection()
+            model.split()
+            model.setVideoBoundary(0.25, start: true)
+            model.setTrimBoundaryAtPlayhead(start: false)
+            model.duplicateSelection()
+            model.change { $0.speed = 4 }
+            model.undo()
+            model.redo()
+            model.reset()
+            XCTAssertEqual(model.values, snapshot)
+            XCTAssertFalse(model.splitting)
+            XCTAssertFalse(model.trimming)
+            return Task {
+                BatchOutcome(
+                    batchID: batch.id, operation: batch.operation, inputs: batch.items.map(\.inputs),
+                    outcomes: [.failed(.protectionDiskFull)], clipboardText: nil, reportText: nil,
+                    record: nil, historyFailed: false, details: [ItemDetails()])
+            }
+        }
+        XCTAssertFalse(saved)
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values, snapshot)
+        NSApp.sendEvent(events[4])
+        XCTAssertTrue(model.original, "The monitor must resume after saving")
+        model.deleteSelection()
+        XCTAssertTrue(model.values.segments.isEmpty)
+    }
+
     func testChangeCanReadSourcePropertiesInsideMutation() async throws {
         let model = try await videoModel()
         let original = model.values.segments
@@ -229,7 +386,9 @@ final class MediaEditorModelTests: XCTestCase {
 
     func testFocusedNumericDraftSurvivesAsyncFrameSnappingUntilBlur() async throws {
         let model = try await videoModel()
-        let host = NSHostingView(rootView: MediaEditorView(model: model, close: {}, save: { _, _ in }))
+        let host = NSHostingView(
+            rootView: MediaEditorView(
+                model: model, close: {}, save: { _, _ in Task { nil } }, progress: { _ in nil }))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1_280, height: 720), styleMask: [.titled],
             backing: .buffered, defer: false)
@@ -237,8 +396,8 @@ final class MediaEditorModelTests: XCTestCase {
         window.contentView = host
         defer { window.close() }
         host.layoutSubtreeIfNeeded()
-        try await eventually { self.textFields(in: host).contains { $0.isEditable && $0.stringValue == "0.000" } }
-        let field = try XCTUnwrap(textFields(in: host).first { $0.isEditable && $0.stringValue == "0.000" })
+        try await eventually { self.textFields(in: host).contains { $0.isEditable && $0.stringValue == "0:00.000" } }
+        let field = try XCTUnwrap(textFields(in: host).first { $0.isEditable && $0.stringValue == "0:00.000" })
         XCTAssertTrue(window.makeFirstResponder(field))
         field.selectText(nil)
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
@@ -251,7 +410,7 @@ final class MediaEditorModelTests: XCTestCase {
         try await eventually { abs(model.values.start - 3.0 / 24) < 0.000_001 }
         XCTAssertEqual(editor.string, "0.12")
         XCTAssertTrue(window.makeFirstResponder(nil))
-        try await eventually { field.stringValue == "0.125" }
+        try await eventually { field.stringValue == "0:00.125" }
         model.undo()
         XCTAssertEqual(model.values.start, 0)
         XCTAssertFalse(model.canUndo)

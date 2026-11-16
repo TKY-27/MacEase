@@ -1,6 +1,216 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Analyze Links (⌘R)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを解析（⌘R）"
+          }
+        }
+      }
+    },
+    "Paste or drop gallery links": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーのリンクをペーストまたはドロップ"
+          }
+        }
+      }
+    },
+    "Paste or drop video links": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画のリンクをペーストまたはドロップ"
+          }
+        }
+      }
+    },
+    "Downloads": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード"
+          }
+        }
+      }
+    },
+    "Retry": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "No Re-encoding": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再エンコードなし"
+          }
+        }
+      }
+    },
+    "Converts If Needed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要に応じて変換"
+          }
+        }
+      }
+    },
+    "Applies when the audio is converted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声を変換する場合に適用されます。"
+          }
+        }
+      }
+    },
+    "The selected items share no resolution, so each downloads at its best.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目に共通の解像度がないため、それぞれ最高画質でダウンロードします。"
+          }
+        }
+      }
+    },
+    "Choose Download Folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード先フォルダを選択"
+          }
+        }
+      }
+    },
+    "Choose": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択"
+          }
+        }
+      }
+    },
+    "Original Format": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の形式"
+          }
+        }
+      }
+    },
+    "Copy Edits to Selected": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した写真に編集をコピー"
+          }
+        }
+      }
+    },
+    "Copy Edits to All Photos": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての写真に編集をコピー"
+          }
+        }
+      }
+    },
+    "Copy this photo's edits to the selected photos": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この写真の編集内容を選択した写真にコピーします"
+          }
+        }
+      }
+    },
+    "Copy this photo's edits to every photo in the list": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この写真の編集内容をリスト内のすべての写真にコピーします"
+          }
+        }
+      }
+    },
+    "Select a segment in the timeline to adjust it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整するには、タイムラインでセグメントを選択してください。"
+          }
+        }
+      }
+    },
+    "Saving…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存中…"
+          }
+        }
+      }
+    },
+    "Custom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        }
+      }
+    },
+    "Custom speed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム速度"
+          }
+        }
+      }
+    },
+    "Add videos to the end of the timeline": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムラインの末尾にビデオを追加"
+          }
+        }
+      }
+    },
     "Update Available (v%@)": {
       "localizations": {
         "ja": {
@@ -2198,24 +2408,6 @@
           }
         }
       }
-    },
-    "End (seconds)": {
-      "comment": "Trim field",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "End (seconds)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終了（秒）"
-          }
-        }
-      },
-      "extractionState": "manual"
     },
     "End (seconds, 0 for full duration)": {
       "comment": "Animated image end time",
@@ -14648,26 +14840,6 @@
         }
       }
     },
-    "Apply to All Photos": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべての写真に適用"
-          }
-        }
-      }
-    },
-    "Apply to Selected": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択項目に適用"
-          }
-        }
-      }
-    },
     "Rename opaque camera, scan and random filenames": {
       "localizations": {
         "ja": {
@@ -15548,16 +15720,6 @@
         }
       }
     },
-    "More Editing Actions": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他の編集操作"
-          }
-        }
-      }
-    },
     "Optimizing PNG": {
       "localizations": {
         "ja": {
@@ -16292,13 +16454,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download Media…"
+            "value": "yt-dlp…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メディアをダウンロード…"
+            "value": "yt-dlp…"
           }
         }
       }
@@ -16759,16 +16921,6 @@
         }
       }
     },
-    "sec": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "秒"
-          }
-        }
-      }
-    },
     "Length": {
       "localizations": {
         "ja": {
@@ -16979,16 +17131,6 @@
         }
       }
     },
-    "Paste a URL and press Return": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "URLを貼り付けて Return キーを押してください"
-          }
-        }
-      }
-    },
     "%lld of %lld selected": {
       "localizations": {
         "ja": {
@@ -17015,26 +17157,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存先: %@"
-          }
-        }
-      }
-    },
-    "Original format (no re-encoding)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元の形式 (再エンコードなし)"
-          }
-        }
-      }
-    },
-    "Original audio (no re-encoding)": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元の音声 (再エンコードなし)"
           }
         }
       }
@@ -17115,16 +17237,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "選択範囲をループ再生"
-          }
-        }
-      }
-    },
-    "You can also drop links from a browser here.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザからリンクをここへドロップすることもできます。"
           }
         }
       }
@@ -17479,16 +17591,6 @@
         }
       }
     },
-    "Public media only. Live streams and sign-in are not supported.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公開メディアのみ対応しています。ライブ配信とサインインが必要なページには対応していません。"
-          }
-        }
-      }
-    },
     "Open Source Page": {
       "localizations": {
         "ja": {
@@ -17629,12 +17731,12 @@
         }
       }
     },
-    "Download Media": {
+    "yt-dlp": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メディアをダウンロード"
+            "value": "yt-dlp"
           }
         }
       }
