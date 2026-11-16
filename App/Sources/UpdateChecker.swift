@@ -7,7 +7,6 @@ import os
 final class UpdateChecker {
     struct Release: Equatable {
         let version: String
-        let pageURL: URL
     }
 
     private static let endpoint = URL(string: "https://api.github.com/repos/TKY-27/MacEase/releases/latest")
@@ -20,10 +19,11 @@ final class UpdateChecker {
     private static let downloadURL = URL(string: "https://macease-site.pages.dev/#download")
     private static let japaneseDownloadURL = URL(string: "https://macease-site.pages.dev/ja/#download")
 
+    var currentVersion: String { runningVersion.description }
     private(set) var availableVersion: String?
     var availableRelease: Release? {
         guard let availableVersion else { return nil }
-        return Release(version: availableVersion, pageURL: officialDownloadURL)
+        return Release(version: availableVersion)
     }
     @ObservationIgnored var onAvailableRelease: ((Release) -> Bool)?
     @ObservationIgnored private let defaults: UserDefaults
@@ -91,7 +91,7 @@ final class UpdateChecker {
         let lastNotification = defaults.object(forKey: Self.lastNotificationKey) as? Date ?? .distantPast
         let notifiedVersion = defaults.string(forKey: Self.notifiedVersionKey)
         guard notifiedVersion != version || date.timeIntervalSince(lastNotification) >= Self.interval else { return }
-        guard onAvailableRelease?(Release(version: version, pageURL: officialDownloadURL)) == true else { return }
+        guard onAvailableRelease?(Release(version: version)) == true else { return }
         defaults.set(date, forKey: Self.lastNotificationKey)
         defaults.set(version, forKey: Self.notifiedVersionKey)
     }

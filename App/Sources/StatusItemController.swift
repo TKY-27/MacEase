@@ -12,6 +12,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let updates: UpdateChecker
     private let showProgress: () -> Void
     private let openSettings: () -> Void
+    private let openUpdate: @MainActor () -> Void
     private var animationTimer: Timer?
     private var animationFrame = 0
     private var needsAttention = false
@@ -33,6 +34,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     init(
         jobs: JobCenter, settings: SettingsStore, updates: UpdateChecker, showProgress: @escaping () -> Void,
+        openUpdate: @escaping @MainActor () -> Void,
         openSettings: @escaping () -> Void
     ) {
         self.jobs = jobs
@@ -40,6 +42,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.updates = updates
         self.showProgress = showProgress
         self.openSettings = openSettings
+        self.openUpdate = openUpdate
         super.init()
         let menu = NSMenu()
         menu.delegate = self
@@ -119,7 +122,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         if let release = updates.availableRelease {
             let title = String(localized: "MacEase \(release.version) Is Available…", comment: "Menu bar update item")
-            menu.addItem(ClosureMenuItem(title: title) { NSWorkspace.shared.open(release.pageURL) })
+            menu.addItem(ClosureMenuItem(title: title, handler: openUpdate))
             menu.addItem(.separator())
         }
         if settings.onboardingCompleted, !FIFinderSyncController.isExtensionEnabled {

@@ -1,6 +1,136 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Update Available (v%@)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあります（v%@）"
+          }
+        }
+      }
+    },
+    "MacEase Update": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase のアップデート"
+          }
+        }
+      }
+    },
+    "MacEase v%@ is available": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase v%@ が公開されました"
+          }
+        }
+      }
+    },
+    "You have v%@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のバージョンは v%@ です"
+          }
+        }
+      }
+    },
+    "How to update": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート手順"
+          }
+        }
+      }
+    },
+    "Quit MacEase from the menu bar.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーから MacEase を終了してください。"
+          }
+        }
+      }
+    },
+    "Move the old MacEase in Applications to the Trash.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アプリケーション」にある古い MacEase をゴミ箱に移動してください。"
+          }
+        }
+      }
+    },
+    "Open the downloaded file and drag MacEase into Applications.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードしたファイルを開き、MacEase を「アプリケーション」にドラッグしてください。"
+          }
+        }
+      }
+    },
+    "Open MacEase.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase を開いてください。"
+          }
+        }
+      }
+    },
+    "Turn on MacEase again in System Settings > General > Login Items & Extensions > Finder, and allow folder and privacy access again when macOS asks.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「システム設定」>「一般」>「ログイン項目と機能拡張」>「Finder」で MacEase を再びオンにしてください。macOS から確認を求められたら、フォルダへのアクセスやプライバシー関連の権限も再び許可してください。"
+          }
+        }
+      }
+    },
+    "Open Extension Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機能拡張の設定を開く"
+          }
+        }
+      }
+    },
+    "Later": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "後で"
+          }
+        }
+      }
+    },
+    "Download from Official Site": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公式サイトからダウンロード"
+          }
+        }
+      }
+    },
     "Couldn’t process “%@”: %@. Check the input and settings, then retry.": {
       "localizations": {
         "ja": {
@@ -16205,34 +16335,34 @@
         }
       }
     },
-    "Open Download Page": {
+    "Show Update": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Download Page"
+            "value": "Show Update"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダウンロードページを開く"
+            "value": "アップデートを表示"
           }
         }
       }
     },
-    "Open the official website to download MacEase.": {
+    "View the download link and update instructions.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open the official website to download MacEase."
+            "value": "View the download link and update instructions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "公式サイトでMacEaseをダウンロードします。"
+            "value": "ダウンロード先とアップデート手順を確認できます。"
           }
         }
       }

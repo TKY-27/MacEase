@@ -54,7 +54,7 @@ final class BatchNotifier: NSObject {
                 actions: [
                     UNNotificationAction(
                         identifier: Identifier.openUpdate,
-                        title: String(localized: "Open Download Page", comment: "Update notification action"),
+                        title: String(localized: "Show Update", comment: "Update notification action"),
                         options: [.foreground])
                 ], intentIdentifiers: []),
             UNNotificationCategory(

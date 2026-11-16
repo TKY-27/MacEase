@@ -116,21 +116,25 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public let entries: [MenuEntry]
     public let kinds: [String: KindTitle]
     public let moreTitle: String?
+    public let updateTitle: String?
     public var monitoredDirectoryPaths: [String]?
 
     public init(
-        token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String], moreTitle: String? = nil
+        token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String], moreTitle: String? = nil,
+        updateTitle: String? = nil
     ) {
         self.schema = Self.currentSchema
         self.moreTitle = moreTitle
-        self.catalogVersion = Self.version(of: entries, moreTitle: moreTitle)
+        self.updateTitle = updateTitle
+        self.catalogVersion = Self.version(of: entries, moreTitle: moreTitle, updateTitle: updateTitle)
         self.token = token
         self.hostAvailable = hostAvailable
         self.entries = entries
         self.kinds = Dictionary(uniqueKeysWithValues: kinds.map { ($0.key.rawValue, KindTitle(title: $0.value)) })
     }
 
-    public static func version(of entries: [MenuEntry], moreTitle: String? = nil) -> String {
+    public static func version(of entries: [MenuEntry], moreTitle: String? = nil, updateTitle: String? = nil) -> String
+    {
         let unitSeparator = "\u{1F}"
         let canonical = entries.map { entry in
             let constraints: [String] = [
@@ -151,7 +155,8 @@ public struct MenuFile: Codable, Equatable, Sendable {
                 .joined(separator: unitSeparator)
         }.joined(separator: "\u{1E}")
         let localized = moreTitle.map { canonical + "\u{1E}" + $0 } ?? canonical
-        return SHA256.hash(data: Data(localized.utf8)).hexEncoded
+        let withUpdate = updateTitle.map { localized + "\u{1E}update\u{1F}" + $0 } ?? localized
+        return SHA256.hash(data: Data(withUpdate.utf8)).hexEncoded
     }
 
     public func kindTitle(_ kind: FileKind) -> String {
@@ -212,7 +217,7 @@ extension MenuFile {
         extraRotationDegrees: Double? = nil,
         frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
         sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil,
-        placements: [String: MenuPlacement] = [:], moreTitle: String? = nil
+        placements: [String: MenuPlacement] = [:], moreTitle: String? = nil, updateTitle: String? = nil
     ) {
         var entries: [MenuEntry] = []
         let visible = Set(visibleOperations)
@@ -271,7 +276,9 @@ extension MenuFile {
             }
         }
         let kinds = Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, titles.kind($0)) })
-        self.init(token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds, moreTitle: moreTitle)
+        self.init(
+            token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds, moreTitle: moreTitle,
+            updateTitle: updateTitle)
     }
 }
 

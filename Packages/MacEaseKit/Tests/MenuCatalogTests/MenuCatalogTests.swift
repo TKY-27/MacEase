@@ -34,6 +34,35 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 }
 
 @Suite struct MenuFileTests {
+    @Test func schemaThreeWithoutUpdateTitleRemainsReadable() throws {
+        let json = Data(
+            #"{"schema":3,"catalogVersion":"legacy","token":"token","hostAvailable":true,"entries":[],"kinds":{}}"#.utf8
+        )
+        let decoded = try MenuFile(json: json)
+        #expect(decoded.schema == 3)
+        #expect(decoded.updateTitle == nil)
+        #expect(decoded.catalogVersion == "legacy")
+    }
+
+    @Test func updateTitleRoundTripsAndChangesInvalidateCatalogs() throws {
+        let original = menuFile()
+        var versions: Set<String> = [original.catalogVersion]
+        for title in ["Update Available (v3.1.0)", "Update Available (v3.2.0)", "MacEase v3.1.0 Is Available"] {
+            let updated = MenuFile(
+                token: original.token, hostAvailable: true, visibleOperations: OperationID.allCases, titles: titles,
+                updateTitle: title)
+            let decoded = try MenuFile(json: updated.encoded())
+            #expect(decoded.schema == 3)
+            #expect(decoded.updateTitle == title)
+            #expect(decoded.entries == original.entries)
+            #expect(decoded == updated)
+            #expect(versions.insert(updated.catalogVersion).inserted)
+        }
+        let withoutUpdate = MenuFile(
+            token: original.token, hostAvailable: true, entries: original.entries, kinds: [:], updateTitle: nil)
+        #expect(withoutUpdate.catalogVersion == original.catalogVersion)
+    }
+
     @Test func duplicateTitleChangesInvalidatePreviousCatalogs() {
         let ask = MenuFile(
             token: "token", hostAvailable: true,

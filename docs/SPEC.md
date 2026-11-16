@@ -110,10 +110,11 @@ Menu file content:
 ```json
 {
   "schema": 3,
-  "catalogVersion": "sha256 of ordered entries and More title",
+  "catalogVersion": "sha256 of ordered entries and localized menu titles",
   "token": "64 hex characters",
   "hostAvailable": true,
   "moreTitle": "More",
+  "updateTitle": "Update Available (v3.1.0)",
   "entries": [
     { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"], "separatorBefore": false }
   ],
@@ -143,6 +144,9 @@ Menu file content:
   accepted kinds; the host never silently drops unsupported files.
 - `token` is generated once from 32 random bytes on first launch, persisted by
   the host, and rotatable in Settings > Advanced.
+- Schema 3 accepts an optional localized `updateTitle`, included in the catalog
+  hash. Old files omit it. The host rewrites the menu file whenever the known
+  available version changes, including when it is cleared.
 
 If the menu file is missing, unreadable, or uses an unsupported schema
 (including schemas 1 and 2), the extension shows a single item,
@@ -171,6 +175,11 @@ macease://run?v=<catalogVersion>&e=<entryIndex>&t=<token>&path=<path>&path=<path
   rejected with a notification asking the user to retry.
 - For a container menu (right-click on a folder background), the single path is
   `FIFinderSyncController.targetedURL()`.
+
+`macease://update?t=<token>` opens the host's single Update window. It requires
+exactly one token matching the current menu file and an available host. The
+host shows the window only while a newer release is known. It needs no catalog
+version, entry index or selection, and never starts jobs or writes history.
 
 **Threat model.** The token stops web pages and documents from triggering
 operations through the URL scheme. Local processes running as the same user can
@@ -639,6 +648,13 @@ receive All Files operations inside More. Folder selection never enables
 recursive media operations. The folder-background **Download Media…** stays
 outside MacEase, unchanged.
 
+When the host is available and knows a newer release, the first item inside
+MacEase is **Update Available (v3.1.0)** (Japanese:
+**アップデートがあります（v3.1.0）**), followed by a separator. The version is
+dynamic. Its cached, non-template SF Symbol uses system blue; Finder Sync does
+not preserve attributed title colors. It opens the authenticated Update route,
+independently of the selection. Unavailable hosts never show this item.
+
 Positions never adapt to usage. Pruning a primary never promotes another group
 from More. Settings > Finder Menu can pin or unpin visible groups through
 **Show at Top Level**, independently of their visibility. All Files operations
@@ -857,7 +873,7 @@ Dismissal from Notification Center removes the matching completed Activity row.
 Running jobs can be shown again; paused extraction recovery, durable history,
 and Undo remain available. Automatically closed results do not reappear. The
 menu bar marks an available update with an attention glyph and update-specific
-accessibility label, and places its download action first. Opening the menu
+accessibility label, and places its Update window action first. Opening the menu
 does not clear update availability.
 
 Invalid inputs become per-item skipped or failed results while valid items
@@ -2008,11 +2024,25 @@ Open MacEase fallback follows the same open route.
 
 At launch and at most once every 24 hours, the host requests
 `https://api.github.com/repos/TKY-27/MacEase/releases/latest`. When the tag is
-newer than the running version (semantic versioning), it shows a notification
-and a menu bar item linking to the official website download section. Japanese
-UI opens `https://macease-site.pages.dev/ja/#download`; other UI languages open
+newer than the running version (semantic versioning), it shows a notification,
+a first menu bar item and a first item inside the Finder MacEase submenu.
+All three open the same single Update window through the existing window
+presenter. The compact native window is approximately 460 points wide, with no
+decorative cards. It shows the available and running versions, **Download from
+Official Site**, **Later** to close, and **How to update** with these steps:
+
+1. Quit MacEase from the menu bar.
+2. Move the old MacEase in Applications to the Trash.
+3. Open the downloaded file and drag MacEase into Applications.
+4. Open MacEase.
+5. Turn on MacEase again in System Settings > General > Login Items & Extensions
+   > Finder, and allow folder and privacy access again when macOS asks.
+
+**Open Extension Settings** uses Finder Sync's extension management interface.
+The download button opens the official website. Japanese UI opens
+`https://macease-site.pages.dev/ja/#download`; other UI languages open
 `https://macease-site.pages.dev/#download`. Stored release-page URLs are migrated
-to this destination. Update notifications open the same destination. No app
+to this destination. Clearing update availability closes the Update window. No app
 update is downloaded or installed automatically. A confirmed available version
 is notified again after 24 hours while notifications are enabled, including
 after app relaunch; a newer version notifies immediately. Manual checks do not
@@ -2768,6 +2798,9 @@ Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
 ## Changelog
+
+- 2026-11-17: Add a blue Finder update item and one shared Update window with
+  installation instructions and extension settings access (ADR 0065).
 
 - 2026-11-17: Present successful results before secondary notes, keep notification
   notes count-only, and expose failure diagnostics in Activity Details with

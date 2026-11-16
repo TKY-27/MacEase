@@ -462,7 +462,25 @@ enabled. Successful banners include only the summary and any note count, without
 note text or raw diagnostics. Use **Show in Finder** or **Undo** where available. Recent batches
 also appear in the menu bar with available actions such as **Undo** and
 **Show in Finder**. HatchZip extraction has no Undo. Available updates show a
-menu bar indicator and download action, with a notification once per day.
+menu bar indicator and update action, with a notification once per day.
+
+### Updates
+
+When an update is available, **Update Available (v…)** appears first inside the
+Finder **MacEase** submenu with a blue symbol. This entry, the menu bar update
+item and update notifications open the same window with the available and
+installed versions. Choose **Download from Official Site** to download manually,
+or **Later** to close the window.
+
+1. Quit MacEase from the menu bar.
+2. Move the old MacEase in Applications to the Trash.
+3. Open the downloaded file and drag MacEase into Applications.
+4. Open MacEase.
+5. Turn on MacEase again in **System Settings > General > Login Items & Extensions
+   > Finder**. Allow folder and privacy access again when macOS asks.
+
+The update window's **Open Extension Settings** button opens Finder extension
+settings. MacEase does not download or install updates automatically.
 
 <img src="docs/images/menubar-en.png" width="318" alt="The MacEase menu bar menu with Results, a Recent list of batches where one is expanded to Undo and Show in Finder, then Settings, Check for Updates, and Quit MacEase">
 

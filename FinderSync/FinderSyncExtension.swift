@@ -16,6 +16,13 @@ final class FinderSyncExtension: FIFinderSync {
     private let directoryRegistration = Mutex(())
     private let scheme: String
     private let menuFileURL: URL
+    private let updateImage: NSImage = {
+        guard let symbol = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: nil),
+            let colored = symbol.withSymbolConfiguration(.init(paletteColors: [.systemBlue]))
+        else { preconditionFailure("The update symbol is unavailable") }
+        colored.isTemplate = false
+        return colored
+    }()
 
     override init() {
         guard let scheme = Bundle.main.object(forInfoDictionaryKey: "MacEaseURLScheme") as? String,
@@ -79,6 +86,13 @@ final class FinderSyncExtension: FIFinderSync {
         let menu = NSMenu(title: "")
         let submenu = NSMenu(title: "MacEase")
         if let file, file.hostAvailable {
+            if let title = file.updateTitle {
+                let update = NSMenuItem(title: title, action: #selector(showUpdate(_:)), keyEquivalent: "")
+                update.target = self
+                update.image = updateImage
+                submenu.addItem(update)
+                submenu.addItem(.separator())
+            }
             let nodes = MenuLayout.nodes(for: file, selection: selection)
             if let index = file.entries.firstIndex(where: {
                 $0.op == .folderDownloadMedia && MenuLayout.isApplicable($0, selection: selection)
@@ -136,6 +150,16 @@ final class FinderSyncExtension: FIFinderSync {
         var components = URLComponents()
         components.scheme = scheme
         components.host = "open"
+        guard let url = components.url else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc func showUpdate(_ sender: NSMenuItem) {
+        guard let file = cache.withLock({ $0.file }), file.hostAvailable, file.updateTitle != nil else { return }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = "update"
+        components.queryItems = [URLQueryItem(name: "t", value: file.token)]
         guard let url = components.url else { return }
         NSWorkspace.shared.open(url)
     }

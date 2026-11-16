@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Show available updates first inside the Finder MacEase submenu with a blue
+  symbol. Finder, menu bar and notification update actions open one native
+  window with official downloads, installation instructions and extension settings.
+
 ### Changed
 
 - Present successful Activity results with a success symbol and collapsible notes.

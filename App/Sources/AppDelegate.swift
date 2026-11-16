@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wakeObserver: NSObjectProtocol?
     private var settingsWindow: SingleWindowPresenter?
     private var welcomeWindow: SingleWindowPresenter?
+    private var updateWindow: SingleWindowPresenter?
     private var launchedAsLoginItem = false
     private var menuWriteScheduled = false
     private var menuInputs: [OperationID]?
@@ -75,14 +76,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         router = RequestRouter(
             configuration: configuration, jobs: jobs, notifier: notifier,
             menuFile: { [weak self] in self?.menuFile },
-            openApp: { [weak self] in self?.openApp() })
+            openApp: { [weak self] in self?.openApp() },
+            openUpdate: { [weak self] in self?.showUpdate() })
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
         notifier.onDismissBatch = { [weak activity] in activity?.dismissBatch($0) }
-        notifier.onOpenUpdate = { [updates] in NSWorkspace.shared.open(updates.officialDownloadURL) }
+        notifier.onOpenUpdate = { [weak self] in self?.showUpdate() }
         makeWindows(jobs: jobs)
         statusItem = StatusItemController(
-            jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() }
+            jobs: jobs, settings: settings, updates: updates, showProgress: { [weak activity] in activity?.show() },
+            openUpdate: { [weak self] in self?.showUpdate() }
         ) { [weak self] in self?.showSettings() }
         NSApp.mainMenu = MainMenu.make(
             openSettings: { [weak self] in self?.showSettings() },
@@ -105,10 +108,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifier.notifyUpdate(
                 title: String(localized: "MacEase \(release.version) is available", comment: "Update notification"),
                 body: String(
-                    localized: "Open the official website to download MacEase.", comment: "Update notification")
+                    localized: "View the download link and update instructions.", comment: "Update notification")
             )
         }
         refreshMenuFile()
+        observeAvailableUpdate()
         let service = FinderService(catalog: { [weak self] in self?.menuFile }, jobs: jobs)
         finderService = service
         NSApp.servicesProvider = service
@@ -142,7 +146,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if launchFinished { Task { await refreshCapabilities() } }
     }
 
+    private func showUpdate() {
+        guard updates.availableVersion != nil else { return }
+        updateWindow?.show()
+    }
+
     private func makeWindows(jobs: JobCenter) {
+        updateWindow = SingleWindowPresenter { [unowned self] in
+            UpdateWindow.make(updates: updates) { [weak self] in self?.updateWindow?.close() }
+        }
         settingsWindow = SingleWindowPresenter { [unowned self] in
             SettingsWindow.make(
                 store: settings, folders: folders, notifier: notifier, jobs: jobs, organization: organization,
@@ -284,6 +296,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func observeAvailableUpdate() {
+        withObservationTracking {
+            _ = updates.availableVersion
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observeAvailableUpdate()
+                self.refreshMenuFile()
+                if self.updates.availableVersion == nil { self.updateWindow?.close() }
+            }
+        }
+    }
+
     private func refreshMenuFile() {
         do {
             try writeMenuFile()
@@ -299,7 +324,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
             visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
-            monitoredPaths: folders.monitoredPaths, recipes: recipes, placements: settings.menuPlacements
+            monitoredPaths: folders.monitoredPaths, recipes: recipes, placements: settings.menuPlacements,
+            availableVersion: updates.availableVersion
         )
         menuInputs = inputs
     }
