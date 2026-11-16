@@ -21,6 +21,7 @@ final class FrameSampler {
     private let sourceFrameDuration: Int64
     private let sourceCodec: MediaCodec
     private let end: Int64
+    private let holdsLastFrame: Bool
     private let timing: VideoTiming
     private var decoded: [DecodedFrame] = []
     private var sourceQueue: [DecodedFrame] = []
@@ -31,7 +32,8 @@ final class FrameSampler {
 
     init(
         input: MediaInput, frameDuration: Int64, edit: FrameEdit, start: Int64, end: Int64,
-        hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool = false, speed: Double = 1
+        hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool = false, speed: Double = 1,
+        holdsLastFrame: Bool = false
     ) async throws {
         guard let track = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         if hdr != nil {
@@ -48,6 +50,7 @@ final class FrameSampler {
         sourceFrameDuration = input.frameDuration
         sourceCodec = track.codec
         self.end = end
+        self.holdsLastFrame = holdsLastFrame
         nextOutput = start
         position = start
         switch input.backend {
@@ -119,6 +122,8 @@ final class FrameSampler {
         guard center < end, let first = decoded.first else { return nil }
         if decoded.count >= 2 { return first }
         guard sourceEnded else { return nil }
+        // Editor segments may outlast the video track.
+        if holdsLastFrame { return first }
         let (sourceEnd, overflow) = first.timestamp.addingReportingOverflow(max(frameDuration, sourceFrameDuration))
         guard !overflow else { throw EngineError.decodeFailed("media timestamp out of range") }
         guard center < sourceEnd else { return nil }

@@ -435,6 +435,20 @@ import Testing
         }
     }
 
+    @Test func segmentPastVideoEndHoldsLastFrameAndKeepsAudio() async throws {
+        let source = try await fixture(audioEnd: Self.duration + 0.5)
+        let input = try await MediaInput.open(source)
+        let length = Double(input.duration) / Double(Nanoseconds.perSecond)
+        try #require(length > Self.duration + 0.4)
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0, end: length)]
+        let output = try await edited(source, edit: edit)
+        let duration = try await AVURLAsset(url: output).load(.duration).seconds
+        #expect(abs(duration - length) <= 1 / Double(Self.frameRate))
+        let samples = try await audioSamples(output)
+        #expect(samples.suffix(Int(0.3 * Self.sampleRate)).contains { abs($0) > 0.05 })
+    }
+
     @Test func speedWithoutAudioChangesVideoDuration() async throws {
         let source = try await fixture(channels: 0)
         let output = try await edited(source, edit: VideoEdit(start: 0.5, end: 3.5, speed: 2, resize: .percent(50)))

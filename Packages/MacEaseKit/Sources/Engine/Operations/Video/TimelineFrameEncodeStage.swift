@@ -56,7 +56,7 @@ final class TimelineFrameEncodeStage: StreamStage {
             sampler = try await FrameSampler(
                 input: input, frameDuration: encoding.frameDuration, edit: frameEdit,
                 start: Nanoseconds.from(seconds: segment.start), end: Nanoseconds.from(seconds: segment.end),
-                hdr: encoding.hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil)
+                hdr: encoding.hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil, holdsLastFrame: true)
             segmentIndex = index
         }
         let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)

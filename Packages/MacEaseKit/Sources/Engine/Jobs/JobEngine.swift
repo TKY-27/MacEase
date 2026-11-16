@@ -267,16 +267,13 @@ public final class JobEngine: Sendable {
     }
 
     private func logged(_ error: EngineError, batch: Batch, workItem: WorkItem) -> EngineError {
-        switch error {
-        case .unexpected(let detail), .commitFailed(let detail):
-            let pathExtension = workItem.inputs.first?.pathExtension ?? ""
-            let operation = batch.operation.rawValue
-            logger.error(
-                "\(operation, privacy: .public) failed on .\(pathExtension, privacy: .public): \(detail, privacy: .private)"
-            )
-        default:
-            break
-        }
+        guard error != .cancelled else { return error }
+        let pathExtension = workItem.inputs.first?.pathExtension ?? ""
+        let operation = batch.operation.rawValue
+        let detail = String(describing: error)
+        logger.error(
+            "\(operation, privacy: .public) failed on .\(pathExtension, privacy: .public): \(detail, privacy: .private)"
+        )
         return error
     }
 
