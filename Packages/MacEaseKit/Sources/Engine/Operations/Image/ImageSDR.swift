@@ -3,7 +3,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-enum ImageSDR {
+public enum ImageSDR {
     private static let hdrNamespaces: Set<String> = [
         "http://ns.apple.com/HDRGainMap/1.0/", "http://ns.apple.com/HDRToneMap/1.0/",
         "http://ns.adobe.com/hdr-gain-map/1.0/",
@@ -88,7 +88,7 @@ enum ImageSDR {
         return hasHDRMetadata(CGImageSourceCopyMetadataAtIndex(source, index, nil)) ? .metadataOnly : .sdr
     }
 
-    static func content(_ source: CGImageSource, index: Int) throws -> (gainMap: Bool, pixels: Bool) {
+    public static func content(_ source: CGImageSource, index: Int) throws -> (gainMap: Bool, pixels: Bool) {
         var budget = FrameMemoryBudget()
         try budget.reserve(source: source, index: index)
         guard

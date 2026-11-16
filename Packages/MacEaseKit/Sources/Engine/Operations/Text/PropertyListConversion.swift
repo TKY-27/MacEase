@@ -1,13 +1,13 @@
 import CoreFoundation
 import Foundation
 
-enum PropertyListConversion {
+public enum PropertyListConversion {
     private static let maximumBytes = 8 * 1024 * 1024
     static let maximumDepth = 64
     static let maximumNodes = 100_000
     private static let tagKey = "$maceaseType"
 
-    static func json(from bytes: Data, indent: String) throws -> String {
+    public static func json(from bytes: Data, indent: String) throws -> String {
         guard bytes.count <= maximumBytes else { throw failure("Property list exceeds 8 MiB") }
         if !bytes.starts(with: "bplist".utf8) { try XMLKeyValidator.validate(bytes) }
         var format = PropertyListSerialization.PropertyListFormat.xml

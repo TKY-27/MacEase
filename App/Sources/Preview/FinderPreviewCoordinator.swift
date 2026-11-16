@@ -3,6 +3,7 @@ import ApplicationServices
 import Engine
 import MenuCatalog
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 @MainActor
@@ -15,7 +16,9 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var state = FinderPreviewState()
     private var pollTimer: Timer?
     private var metadataTask: Task<Void, Never>?
-    private var generation: UInt64 = 0
+    private var generation: UInt64 = 0 {
+        didSet { state.generation = generation }
+    }
     private var targetID: CGWindowID?
     private var needsSlide = true
     private var retryAfter = Date.distantPast
@@ -130,6 +133,9 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func followWindow() {
         guard let panel, let target = tracker?.target else {
+            generation &+= 1
+            metadataTask?.cancel()
+            clearSelection()
             panel?.orderOut(nil)
             return
         }
@@ -229,6 +235,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
                 }
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 state.isLoading = false
+                state.kind = details.kind
                 state.isFolder = details.isFolder
                 state.folderSummary = details.summary
                 installContent()
@@ -285,14 +292,19 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 private struct PreviewFileDetails: Sendable {
     let isFolder: Bool
     let summary: String?
+    var kind: PreviewKind = .quickLook
     private static let entryLimit = 100_000
     private static let timeLimit: TimeInterval = 2
 
     static func read(_ url: URL) throws -> Self {
-        let attributes = try url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isPackageKey])
+        let attributes = try url.resourceValues(forKeys: [
+            .isDirectoryKey, .isRegularFileKey, .isPackageKey, .contentTypeKey,
+        ])
         guard attributes.isDirectory == true else {
             guard attributes.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
-            return Self(isFolder: false, summary: nil)
+            return Self(
+                isFolder: false, summary: nil,
+                kind: PreviewKind.resolve(type: attributes.contentType, extension: url.pathExtension))
         }
         if attributes.isPackage == true { return Self(isFolder: false, summary: nil) }
         var enumerationFailure: Error?

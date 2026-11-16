@@ -21,6 +21,8 @@ final class FinderPreviewState {
         }
     }
 
+    var generation: UInt64 = 0
+    var kind: PreviewKind = .quickLook
     var urls: [URL] = []
     var selectedIndex = 0
     var notice: Notice?
@@ -147,7 +149,7 @@ struct FinderPreviewView: View {
                 }
                 .padding(20)
             } else {
-                QuickLookPreview(url: url)
+                PreviewContent(url: url, kind: state.kind).id(state.generation)
             }
         } else {
             Text("No Selection").foregroundStyle(.secondary)
@@ -167,7 +169,7 @@ private struct PreviewSidebar: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-private struct QuickLookPreview: NSViewRepresentable {
+struct QuickLookPreview: NSViewRepresentable {
     let url: URL
 
     func makeNSView(context: Context) -> NSView {

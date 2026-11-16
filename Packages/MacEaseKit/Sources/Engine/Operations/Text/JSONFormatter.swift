@@ -2,7 +2,14 @@ import CJSONCompare
 import Darwin
 import Foundation
 
-enum JSONFormatter {
+public enum JSONFormatter {
+    public static func formatted(_ text: String) throws -> String {
+        guard text.utf8.count <= ConversionInput.maximumBytes else {
+            throw EngineError.invalidInput(.tooLarge(limitBytes: Int64(ConversionInput.maximumBytes)))
+        }
+        return try JSONParser.parse(text).serialized(indent: "  ", maximumBytes: ConversionInput.maximumBytes) + "\n"
+    }
+
     static func write(_ source: URL, _ formatting: JSONFormatting, settings: TextSettings, to destination: URL) throws {
         try Task.checkCancellation()
         let directory = destination.deletingLastPathComponent().appendingPathComponent(".json-\(UUID().uuidString)")

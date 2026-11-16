@@ -33,12 +33,33 @@ serial queue, at most one in flight. Poll visible/frontmost selection every
 Use a two-second Apple event timeout. Close removes observers/timers and cancels
 inspection; pending Apple events cannot publish after closing.
 
-Use a native sidebar material, compact header and footer, and QLPreviewView.
+Use a native sidebar material, compact header and footer, and a Quick Look fallback.
 Show bounded folder counts and logical size, empty selection, multiple-file
-navigation, Open and the existing media-editor path. No custom viewers or text
-editing belong to this unit. Permission denial has explicit explanation,
+navigation, Open and the existing media-editor path. Previews remain read-only.
+Permission denial has explicit explanation,
 System Settings links and Retry. Missing Accessibility uses a centered titled
 panel; denied Automation retains docking. Log failures without selected paths.
+
+Extend the Decision in this unpublished branch with UTType-selected text/code,
+HTML, Markdown, JSON/plist, image, audio/video and PDF viewers. Reuse engine
+encoding detection, safe Markdown conversion, JSON/plist formatting and audio
+waveforms. Text reads are bounded to 4 MiB, with a labeled 256 KiB excerpt above
+that size; syntax highlighting stops at 512 KiB. Explicit encoding choices
+re-decode the original bytes. Binary plists expose formatted JSON only.
+
+Share the engine's nonpersistent WebKit configuration. HTML scripts/network
+reset off per selection; toggles recreate the web view. Install compiled rules
+before loading; failure prevents loading. Offline rules deny all resource schemes
+except file/data/blob, explicitly blocking HTTP(S) and WS(S). Network opt-in
+permits those network resources but never external navigation. Limit file read
+access to the selected parent directory; cancel other documents, schemes, hosts,
+subframes, forms, popups and downloads. Markdown uses safe generated HTML with
+no scripts, network or local resource base URL. Preserve engine conversion limits.
+
+Use native text, image, player and PDF controls, small tool rows and adaptive
+colors. Decode images frame-by-frame, load audio waveforms independently, and
+remove player observers and content when selection generations change or the
+panel hides/closes. Background reads/conversions reject cancelled results.
 
 ## Consequences
 

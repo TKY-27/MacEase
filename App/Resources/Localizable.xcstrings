@@ -1,6 +1,316 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Detect Encoding": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字コードを自動判定"
+          }
+        }
+      }
+    },
+    "View": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        }
+      }
+    },
+    "Rendered": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダリング"
+          }
+        }
+      }
+    },
+    "Formatted": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整形表示"
+          }
+        }
+      }
+    },
+    "Run Scripts": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトを実行"
+          }
+        }
+      }
+    },
+    "Allow Network": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク接続を許可"
+          }
+        }
+      }
+    },
+    "Soft Wrap": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折り返し"
+          }
+        }
+      }
+    },
+    "Showing the first 256 KB": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭256 KBを表示しています"
+          }
+        }
+      }
+    },
+    "The text could not be decoded or formatted. Try Source or another encoding.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストの読み込みまたは整形に失敗しました。ソース表示や別の文字コードをお試しください。"
+          }
+        }
+      }
+    },
+    "100%": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "100%"
+          }
+        }
+      }
+    },
+    "Unknown Color Space": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な色空間"
+          }
+        }
+      }
+    },
+    "HDR: Yes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR：あり"
+          }
+        }
+      }
+    },
+    "HDR: No": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR：なし"
+          }
+        }
+      }
+    },
+    "Image Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像プレビュー"
+          }
+        }
+      }
+    },
+    "%lld × %lld pixels · %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld × %lld ピクセル・%@"
+          }
+        }
+      }
+    },
+    "Playback Speed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生速度"
+          }
+        }
+      }
+    },
+    "Set A": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A点を設定"
+          }
+        }
+      }
+    },
+    "Set B": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B点を設定"
+          }
+        }
+      }
+    },
+    "Clear Loop": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ループを解除"
+          }
+        }
+      }
+    },
+    "A: %@ s · B: %@ s": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A：%@ 秒・B：%@ 秒"
+          }
+        }
+      }
+    },
+    "Waveform unavailable": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "波形を表示できません"
+          }
+        }
+      }
+    },
+    "Page Thumbnails": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのサムネイル"
+          }
+        }
+      }
+    },
+    "UTF-8": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8"
+          }
+        }
+      }
+    },
+    "UTF-16": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16"
+          }
+        }
+      }
+    },
+    "UTF-16 LE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 LE"
+          }
+        }
+      }
+    },
+    "UTF-16 BE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 BE"
+          }
+        }
+      }
+    },
+    "Shift_JIS": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift_JIS"
+          }
+        }
+      }
+    },
+    "EUC-JP": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EUC-JP"
+          }
+        }
+      }
+    },
+    "ISO-2022-JP": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ISO-2022-JP"
+          }
+        }
+      }
+    },
+    "Windows-1252": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows-1252"
+          }
+        }
+      }
+    },
+    "ISO-8859-1": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ISO-8859-1"
+          }
+        }
+      }
+    },
     "This preview could not be displayed.": {
       "localizations": {
         "ja": {

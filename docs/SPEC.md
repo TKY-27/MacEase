@@ -2853,17 +2853,57 @@ opening and focus changes request an immediate read. Window IDs and a selection
 generation reject stale results. Denied Automation stops polling until retry;
 other failures show an explanation and back off for two seconds.
 
-The sidebar-material view has a file icon, name, close control, and count with
-previous/next controls for multiple selections. Quick Look supplies the generic
-preview for files, including system-supported media, PDF, text and HTML. Unsupported
-types retain the system Quick Look fallback; custom renderers and text editing
-are outside this unit. Empty selections show No Selection. Folders show their
-icon, immediate child count and recursive logical regular-file size, without
-following directory symlinks. Inspection is cancellable and limited to 100,000
-entries or a two-second budget checked between reads; unavailable/incomplete
-inspection shows a read failure,
-never a partial total. Open uses the default application. Photos and videos
-also offer Edit in MacEase through the existing PanelCoordinator editor path.
+The sidebar-material view keeps its file icon, name, close control, multiple-file
+navigation, Open and Edit in MacEase for photos/videos. Viewer selection uses
+UTType conformance with extension support for Markdown, JSON, plists, YAML,
+TOML, CSV and logs. Unknown types retain QLPreviewView. Empty selections and
+bounded folder summaries retain their existing behavior.
+
+Read-only specialized viewers:
+
+- Text/code uses TextKit 2 NSTextView, monospaced text, logical line numbers,
+  soft wrapping and an encoding picker. Automatic detection reuses the engine;
+  explicit choices re-decode retained bytes without replacing invalid characters.
+  Read at most 4 MiB; larger files display the first 256 KiB with a visible note.
+  An excerpt may omit an incomplete final encoded character. Highlight only the
+  first 512 KiB using a local tokenizer for Swift, JS/TS, Python, C-family, JSON,
+  HTML/XML, CSS, shell, YAML and Markdown. Use adaptive system colors.
+- HTML offers Source/Preview, Run Scripts and Allow Network. Both permissions
+  start off for every selection and changing either recreates WKWebView.
+  Reuse the engine's nonpersistent configuration. Content JavaScript and popup
+  creation are off by default; AirPlay is off and media requires user action.
+  Compile and install content rules before any load, failing closed on errors.
+  Offline rules deny all resources except file/data/blob and explicitly block
+  `^https?://` and `^wss?://`; opt-in network permits HTTP(S)/WS(S) resources.
+  `loadFileURL` grants read access only to the selected file's parent folder.
+  Navigation permits only the selected local main document, including anchors;
+  other files, hosts, schemes, subframes, forms, popups and downloads are denied.
+- Markdown offers Rendered/Source through the existing safe cmark conversion.
+  Rendered HTML uses the same offline web configuration, without script/network
+  controls, loading an in-memory document without a local resource base URL.
+  Relative images are therefore unavailable. The engine's 1 MiB Markdown input
+  limit remains in force; Source remains available when rendering fails.
+- JSON and plists offer Formatted/Source using engine formatters. Binary plists
+  display formatted JSON only. Formatting errors remain visible; source bytes
+  are never rewritten. Truncated textual sources open in Source mode.
+- Images fit initially, support pinch/scroll zoom and Fit/100% controls, and show
+  pixel dimensions, color profile, HDR presence and file size. ImageIO decodes
+  GIF/WebP/APNG frames sequentially; the viewer does not retain all frames.
+- Audio/video uses AVPlayerView inline controls, 0.5×–2× speed, supported video
+  frame stepping, and A/B loop controls backed by a boundary observer. Audio
+  loads an engine waveform independently; waveform failure does not stop playback.
+- PDF uses auto-scaled PDFView with optional page thumbnails.
+
+File reads, text conversion, image decoding, PDF opening and waveform work run
+outside the main actor; WebKit and AVFoundation use asynchronous loading. Viewer
+identity follows the coordinator's selection generation. Selection changes and
+hidden/closed panels cancel tasks, discard stale results, release viewer content,
+pause playback and remove time observers. All viewers are read-only.
+
+Folders show immediate child count and recursive logical regular-file size
+without following directory symlinks. Inspection is cancellable and limited to
+100,000 entries or two seconds checked between reads; unavailable/incomplete
+inspection reports failure rather than a partial total.
 
 Accessibility permission is requested on first opening without trust. Until it
 is granted, a centered titled panel explains the permission and links to
@@ -2880,6 +2920,10 @@ basic AX docking, relative ordering and Finder scripting, not those behaviors.
 No xcodebuild, swift test or native UI execution was performed for this unit.
 
 ## Changelog
+
+- 2026-11-17: Extend Finder Preview with read-only text, web, structured-document,
+  image, media and PDF viewers, bounded text decoding and opt-in HTML permissions
+  (ADR 0067). Native execution remains unverified.
 
 - 2026-11-17: Add authenticated Finder Preview, a docked host Quick Look panel
   with selection following, permission guidance and generic folder summaries

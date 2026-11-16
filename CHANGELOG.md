@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Read-only Finder Preview viewers for code/text, HTML, Markdown, JSON/plists,
+  images, audio/video and PDFs. Add encoding selection, line numbers, bounded
+  highlighting, image zoom, waveforms, A–B loops and PDF thumbnails. HTML scripts
+  and networking require per-selection opt-in. Native validation is pending.
+
 - Finder Preview: toggle a host Quick Look panel from Finder, follow the selected
   files, switch among selections, inspect folders, and open photos or videos in
   the existing MacEase editor. Dock to Finder with Accessibility permission and

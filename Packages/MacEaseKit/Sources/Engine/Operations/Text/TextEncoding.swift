@@ -2,6 +2,10 @@ import CoreFoundation
 import Foundation
 
 public enum TextEncoding {
+    public static func detectedString(from bytes: Data) throws -> String {
+        try decode(bytes).text
+    }
+
     static let cp932 = String.Encoding(
         rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
 

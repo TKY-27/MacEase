@@ -60,7 +60,9 @@ restart MacEase, and retry. This does not require Full Disk Access.
 
 Choose **MacEase > Finder Preview** in Finder to toggle a preview panel beside
 its window. It follows selections, offers navigation for multiple files, and uses
-Quick Look for generic previews. Folders show a count and size; photos and videos
+native read-only viewers for text, HTML, Markdown, JSON/plists, images, media and PDFs,
+with Quick Look for other formats. HTML scripts and networking default to off.
+Folders show a count and size; photos and videos
 can open in the existing MacEase editor. Allow Accessibility for docking and
 Automation for following Finder selections. Permission messages link to System
 Settings. This upcoming feature still needs native validation; full screen,
