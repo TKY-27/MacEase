@@ -22,10 +22,7 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
 
     func decode(_ bytes: Data) throws -> String {
         if self == .automatic { return try TextEncoding.detectedString(from: bytes) }
-        let encoding = foundation
-        guard let text = String(data: bytes, encoding: encoding) else {
-            throw CocoaError(.fileReadInapplicableStringEncoding)
-        }
+        let text = try TextEncoding.strictString(from: bytes, encoding: foundation)
         return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
     }
 

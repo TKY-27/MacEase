@@ -55,13 +55,15 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         return false
     }
 
-    func resolveEdits() async -> Bool {
+    func resolveEdits(terminating: Bool = false) async -> Bool {
         let editor = state.textEditor
         panel?.makeFirstResponder(nil)
         guard !editor.saving, !editor.confirming else { return false }
-        guard editor.dirty else { return true }
+        guard editor.dirty else {
+            editor.confirming = terminating
+            return true
+        }
         editor.confirming = true
-        defer { editor.confirming = false }
         panel?.makeKeyAndOrderFront(nil)
         let alert = NSAlert()
         alert.messageText = String(localized: "Save changes before closing?")
@@ -69,13 +71,27 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         alert.addButton(withTitle: String(localized: "Save"))
         alert.addButton(withTitle: String(localized: "Discard"))
         alert.addButton(withTitle: String(localized: "Cancel"))
+        let resolved: Bool
         switch alert.runModal() {
-        case .alertFirstButtonReturn: return await editor.save(using: jobs)
+        case .alertFirstButtonReturn: resolved = await editor.save(using: jobs)
         case .alertSecondButtonReturn:
             editor.discard()
-            return true
-        default: return false
+            resolved = true
+        default: resolved = false
         }
+        editor.confirming = terminating && resolved
+        return resolved
+    }
+
+    func cancelTermination() {
+        state.textEditor.confirming = false
+    }
+
+    func finishTermination() {
+        guard let panel else { return }
+        panel.delegate = nil
+        panel.close()
+        stop()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -220,12 +236,6 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func followWindow() {
         guard let panel, let target = tracker?.target else {
-            if state.textEditor.pinsSelection {
-                state.docked = false
-                panel?.undock()
-                panel?.makeKeyAndOrderFront(nil)
-                return
-            }
             generation &+= 1
             metadataTask?.cancel()
             clearSelection()
@@ -241,7 +251,6 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             if state.notice != .automation { state.notice = nil }
         }
         guard target.visible else {
-            if state.textEditor.pinsSelection { return }
             if panel.isVisible {
                 generation &+= 1
                 metadataTask?.cancel()

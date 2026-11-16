@@ -88,13 +88,25 @@ public enum ImageSDR {
         return hasHDRMetadata(CGImageSourceCopyMetadataAtIndex(source, index, nil)) ? .metadataOnly : .sdr
     }
 
-    public static func content(_ source: CGImageSource, index: Int) throws -> (gainMap: Bool, pixels: Bool) {
-        var budget = FrameMemoryBudget()
-        try budget.reserve(source: source, index: index)
-        guard
-            let image = CGImageSourceCreateImageAtIndex(
+    public static func content(_ source: CGImageSource, index: Int, thumbnailMaximum: Int? = nil) throws
+        -> (gainMap: Bool, pixels: Bool)
+    {
+        let image: CGImage?
+        if let thumbnailMaximum {
+            image = CGImageSourceCreateThumbnailAtIndex(
+                source, index,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: thumbnailMaximum,
+                    kCGImageSourceDecodeRequest: kCGImageSourceDecodeToHDR,
+                ] as CFDictionary)
+        } else {
+            var budget = FrameMemoryBudget()
+            try budget.reserve(source: source, index: index)
+            image = CGImageSourceCreateImageAtIndex(
                 source, index, [kCGImageSourceShouldCache: false] as CFDictionary)
-        else { throw EngineError.decodeFailed("image frame") }
+        }
+        guard let image else { throw EngineError.decodeFailed("image frame") }
         return (try ImageGainMap.contains(in: source, at: index), hasHDRPixels(image))
     }
 

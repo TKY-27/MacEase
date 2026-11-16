@@ -117,6 +117,19 @@ import UniformTypeIdentifiers
         }
     }
 
+    @Test(arguments: [true, false])
+    func thumbnailClassifiesNativeHDRAndSDR(hdr: Bool) throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let url = folder.appending(path: "ramp.png")
+        let space = try #require(CGColorSpace(name: hdr ? CGColorSpace.itur_2100_PQ : CGColorSpace.displayP3))
+        try Self.writeRamp(url, colorSpace: space)
+        let source = try ImageFixtures.source(url)
+        let signal = try ImageSDR.content(source, index: 0, thumbnailMaximum: 64)
+        #expect(signal.pixels == hdr)
+        #expect(!signal.gainMap)
+    }
+
     @Test(arguments: GainMapRetryOperation.allCases)
     func negativeISOGainMapKeepsCalibrationOrToneMapsAfterEncodeFailure(_ operation: GainMapRetryOperation)
         async throws

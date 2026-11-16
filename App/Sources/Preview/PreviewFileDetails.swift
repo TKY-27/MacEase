@@ -16,6 +16,7 @@ struct PreviewFileDetails: Sendable {
     let facts: [PreviewFact]
     private static let entryLimit = 100_000
     private static let timeLimit: TimeInterval = 2
+    private static let dynamicRangeSampleEdge = 256
     private static let rotatedOrientations: ClosedRange<Int> = 5...8
 
     static func read(_ url: URL) async throws -> Self {
@@ -91,7 +92,6 @@ struct PreviewFileDetails: Sendable {
         let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
         let rotated = rotatedOrientations.contains(orientation)
         let (shownWidth, shownHeight) = rotated ? (height, width) : (width, height)
-        let signal = try ImageSDR.content(source, index: 0)
         var facts = [dimensions(shownWidth, shownHeight)]
         if let profile = properties[kCGImagePropertyProfileName] as? String {
             facts.append(
@@ -99,10 +99,17 @@ struct PreviewFileDetails: Sendable {
                     label: String(localized: "preview.fact.colorProfile", defaultValue: "Color Profile"),
                     value: profile))
         }
+        let dynamicRange: String
+        do {
+            let signal = try ImageSDR.content(source, index: 0, thumbnailMaximum: dynamicRangeSampleEdge)
+            dynamicRange = signal.gainMap || signal.pixels ? "HDR" : "SDR"
+        } catch {
+            dynamicRange = String(localized: "Unavailable")
+        }
         facts.append(
             PreviewFact(
                 label: String(localized: "preview.fact.dynamicRange", defaultValue: "Dynamic Range"),
-                value: signal.gainMap || signal.pixels ? "HDR" : "SDR"))
+                value: dynamicRange))
         return (CGFloat(shownWidth) / CGFloat(shownHeight), facts)
     }
 

@@ -230,7 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
         Task {
-            guard await finderPreview?.resolveEdits() != false else {
+            guard await finderPreview?.resolveEdits(terminating: true) != false else {
                 terminationPending = false
                 sender.reply(toApplicationShouldTerminate: false)
                 return
@@ -242,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 terminationPending = false
+                finderPreview?.cancelTermination()
                 await organization?.start()
                 logger.error("Termination history flush failed: \(error.localizedDescription, privacy: .private)")
                 sender.reply(toApplicationShouldTerminate: false)
@@ -258,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        finderPreview?.close()
+        finderPreview?.finishTermination()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         if let recipeObserver { NotificationCenter.default.removeObserver(recipeObserver) }
     }

@@ -15,6 +15,7 @@ enum PreviewKind: Sendable {
             return .markdown
         }
         if ["md", "markdown"].contains(suffix) { return .markdown }
+        if type?.conforms(to: .svg) == true || suffix == "svg" { return .quickLook }
         if type?.conforms(to: .image) == true { return .image }
         if type?.conforms(to: .audio) == true { return .audio }
         if type?.conforms(to: .audiovisualContent) == true { return .media }

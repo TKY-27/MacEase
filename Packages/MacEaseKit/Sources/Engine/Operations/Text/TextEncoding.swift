@@ -6,6 +6,21 @@ public enum TextEncoding {
         try decode(bytes).text
     }
 
+    public static func strictString(from bytes: Data, encoding: String.Encoding) throws -> String {
+        switch encoding {
+        case .utf16, .utf16LittleEndian, .utf16BigEndian:
+            // Foundation ignores a trailing UTF-16 byte.
+            guard bytes.count.isMultiple(of: MemoryLayout<UInt16>.size) else {
+                throw EngineError.invalidInput(.textEncodingUndetected)
+            }
+        default: break
+        }
+        guard let text = String(data: bytes, encoding: encoding) else {
+            throw EngineError.invalidInput(.textEncodingUndetected)
+        }
+        return text
+    }
+
     static let cp932 = String.Encoding(
         rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
 
@@ -55,10 +70,7 @@ public enum TextEncoding {
     }
 
     private static func decode(_ data: Data, as source: SourceTextEncoding) throws -> Decoded {
-        guard let text = String(data: data, encoding: source.foundation) else {
-            throw EngineError.invalidInput(.textEncodingUndetected)
-        }
-        return Decoded(text: text, source: source)
+        try Decoded(text: strictString(from: data, encoding: source.foundation), source: source)
     }
 
     static func byteOrderMark(of data: Data) -> (SourceTextEncoding, Int)? {

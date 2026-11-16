@@ -11,7 +11,7 @@ final class PreviewContentTests: XCTestCase {
             (.html, "html", .html), (.json, "json", .json), (.xml, "xml", .text),
             (.propertyList, "plist", .propertyList), (.pdf, "pdf", .pdf), (.png, "png", .image),
             (.audio, "wav", .audio), (.movie, "mov", .media), (.sourceCode, "swift", .text),
-            (.plainText, "txt", .text), (.plainText, "MD", .markdown), (nil, "yaml", .text),
+            (.plainText, "txt", .text), (.plainText, "MD", .markdown), (.svg, "svg", .quickLook), (nil, "yaml", .text),
             (nil, "toml", .text), (nil, "csv", .text), (nil, "LOG", .text), (nil, "unknown", .quickLook),
         ]
         for (type, suffix, expected) in cases {
@@ -57,6 +57,10 @@ final class PreviewContentTests: XCTestCase {
             try PreviewTextSource(bytes: Data([0x41, 0, 0x3D, 0xD8]), truncated: true).decoded(as: .utf16LE), "A")
         XCTAssertEqual(try PreviewTextSource(bytes: Data([0x41, 0x93]), truncated: true).decoded(as: .shiftJIS), "A")
         XCTAssertThrowsError(try PreviewTextSource(bytes: Data([0xFF, 0x41]), truncated: true).decoded(as: .utf8))
+        let oddUTF16 = Data([0xFF, 0xFE, 0x41, 0, 0xBC])
+        XCTAssertThrowsError(try PreviewTextSource(bytes: oddUTF16, truncated: false).decoded(as: .automatic))
+        XCTAssertThrowsError(try PreviewTextSource(bytes: oddUTF16, truncated: false).decoded(as: .utf16LE))
+        XCTAssertEqual(try PreviewTextSource(bytes: oddUTF16, truncated: true).decoded(as: .automatic), "A")
     }
 
     func testTokenizerRecognizesSmallSamplesForEverySupportedLanguage() throws {

@@ -11,10 +11,7 @@ public struct TextEditDocument: Sendable {
         let mark = TextEncoding.byteOrderMark(of: bytes)
         let encoding = mark?.0.foundation ?? (chosen == .utf16 ? .utf16BigEndian : chosen)
         if let encoding {
-            guard let decoded = String(data: bytes.dropFirst(mark?.1 ?? 0), encoding: encoding) else {
-                throw EngineError.invalidInput(.textEncodingUndetected)
-            }
-            text = decoded
+            text = try TextEncoding.strictString(from: bytes.dropFirst(mark?.1 ?? 0), encoding: encoding)
             self.encoding = encoding
         } else {
             let decoded = try TextEncoding.decode(bytes)

@@ -48,6 +48,16 @@ struct TextReplacementTests {
         #expect(try Data(contentsOf: url) == bytes)
     }
 
+    @Test(arguments: [true, false])
+    func refusesIncompleteUTF16BeforeEditing(littleEndian: Bool) {
+        let mark: [UInt8] = littleEndian ? [0xFF, 0xFE] : [0xFE, 0xFF]
+        let body = Data(littleEndian ? [0x41, 0, 0xBC] : [0, 0x41, 0xBC])
+        let encoding: String.Encoding = littleEndian ? .utf16LittleEndian : .utf16BigEndian
+        let failure = EngineError.invalidInput(.textEncodingUndetected)
+        #expect(throws: failure) { try TextEditDocument(bytes: Data(mark) + body) }
+        #expect(throws: failure) { try TextEditDocument(bytes: body, encoding: encoding) }
+    }
+
     @Test(arguments: [false, true])
     func refusesChangesAfterLoadingEvenBeforeJobStarts(changeDuringJob: Bool) async throws {
         let url = try original(Data("loaded".utf8))

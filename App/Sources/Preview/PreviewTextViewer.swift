@@ -205,7 +205,7 @@ struct PreviewTextViewer: View {
             .disabled(!editor.dirty || editor.saving || editor.confirming)
         } else if kind != .html && !(kind == .markdown && rich) {
             Button("Edit") { beginEditing() }.keyboardShortcut("e", modifiers: .command)
-                .disabled(source == nil || source?.truncated == true || source?.binaryPropertyList == true || failed)
+                .disabled(!canEditSource)
         }
         if kind != .text && source?.binaryPropertyList != true {
             ViewThatFits(in: .horizontal) {
@@ -282,6 +282,11 @@ struct PreviewTextViewer: View {
             editor.message = UserMessages.describeResult(
                 EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
         }
+    }
+
+    private var canEditSource: Bool {
+        guard let source, !source.truncated, !source.binaryPropertyList else { return false }
+        return !failed || rich && (kind == .json || kind == .propertyList)
     }
 
     private func save(asUTF8: Bool = false) {
