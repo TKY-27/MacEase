@@ -39,11 +39,13 @@ struct PreviewContent: View {
     let url: URL
     let kind: PreviewKind
     let previewHeight: CGFloat?
+    let textEditor: PreviewTextEditor
+    let jobs: JobCenter
 
     var body: some View {
         switch kind {
         case .text, .html, .markdown, .json, .propertyList:
-            PreviewTextViewer(url: url, kind: kind)
+            PreviewTextViewer(url: url, kind: kind, editor: textEditor, jobs: jobs)
         case .image: PreviewImageViewer(url: url, height: previewHeight)
         case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio, height: previewHeight)
         case .pdf: PreviewPDFViewer(url: url)

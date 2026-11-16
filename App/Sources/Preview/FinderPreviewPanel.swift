@@ -114,6 +114,11 @@ final class FinderPreviewPanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let key = event.charactersIgnoringModifiers
+        if modifiers.isEmpty, key == Self.escape, let editor = firstResponder as? NSTextView,
+            editor.hasMarkedText()
+        {
+            return super.performKeyEquivalent(with: event)
+        }
         let closes = (modifiers.isEmpty && key == Self.escape) || (modifiers == .command && key == "w")
         guard closes, let closeRequested else { return super.performKeyEquivalent(with: event) }
         closeRequested()

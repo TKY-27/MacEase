@@ -7,6 +7,8 @@ import os
 
 @MainActor
 final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
+    private let jobs: JobCenter
+    private var closing = false
     private let panels: PanelCoordinator
     private let reader = FinderSelectionReader()
     private let logger = Logger(category: "finder-preview")
@@ -16,7 +18,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var pollTimer: Timer?
     private var metadataTask: Task<Void, Never>?
     private var generation: UInt64 = 0 {
-        didSet { state.generation = generation }
+        didSet { if !state.textEditor.pinsSelection { state.generation = generation } }
     }
     private var targetID: CGWindowID?
     private var placement: FinderPreviewGeometry.Placement?
@@ -25,7 +27,10 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var observingTermination = false
     var visibilityChanged: (() -> Void)?
 
-    init(panels: PanelCoordinator) { self.panels = panels }
+    init(panels: PanelCoordinator, jobs: JobCenter) {
+        self.panels = panels
+        self.jobs = jobs
+    }
 
     var isOpen: Bool { panel != nil }
 
@@ -34,10 +39,43 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     func close() {
-        guard let panel else { return }
-        panel.delegate = nil
-        panel.dismiss()
-        stop()
+        guard panel != nil, !closing else { return }
+        closing = true
+        Task {
+            defer { closing = false }
+            guard await resolveEdits(), let panel else { return }
+            panel.delegate = nil
+            panel.dismiss()
+            stop()
+        }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        close()
+        return false
+    }
+
+    func resolveEdits() async -> Bool {
+        let editor = state.textEditor
+        panel?.makeFirstResponder(nil)
+        guard !editor.saving, !editor.confirming else { return false }
+        guard editor.dirty else { return true }
+        editor.confirming = true
+        defer { editor.confirming = false }
+        panel?.makeKeyAndOrderFront(nil)
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Save changes before closing?")
+        alert.informativeText = editor.url?.lastPathComponent ?? ""
+        alert.addButton(withTitle: String(localized: "Save"))
+        alert.addButton(withTitle: String(localized: "Discard"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return await editor.save(using: jobs)
+        case .alertSecondButtonReturn:
+            editor.discard()
+            return true
+        default: return false
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -96,7 +134,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         self.tracker = tracker
         tracker.changed = { [weak self] in self?.followWindow() }
         tracker.focused = { [weak self] in self?.readSelection(immediate: true) }
-        tracker.ended = { [weak self] in self?.close() }
+        tracker.ended = { [weak self] in self?.finderEnded() }
         tracker.failed = { [weak self] in self?.trackingFailed() }
         do {
             try tracker.start()
@@ -118,9 +156,13 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func makeView() -> FinderPreviewView {
         FinderPreviewView(
-            state: state, close: { [weak self] in self?.close() },
+            state: state, jobs: jobs, close: { [weak self] in self?.close() },
             retry: { [weak self] in
-                self?.close(); self?.open()
+                guard let self, !state.textEditor.pinsSelection else { return }
+                panel?.delegate = nil
+                panel?.dismiss()
+                stop()
+                open()
             },
             select: { [weak self] in self?.select($0) },
             open: { [weak self] in self?.openFile($0) },
@@ -139,18 +181,37 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
             application.bundleIdentifier == "com.apple.finder"
         else { return }
-        close()
+        finderEnded()
     }
 
-    private func trackingFailed() {
-        generation &+= 1
-        metadataTask?.cancel()
-        clearSelection()
-        state.notice = AXIsProcessTrusted() ? .unavailable : .accessibility
+    private func finderEnded() {
         tracker?.stop()
         tracker = nil
         pollTimer?.invalidate()
         pollTimer = nil
+        if state.textEditor.pinsSelection {
+            state.docked = false
+            panel?.undock()
+            panel?.makeKeyAndOrderFront(nil)
+        }
+        close()
+    }
+
+    private func trackingFailed() {
+        tracker?.stop()
+        tracker = nil
+        pollTimer?.invalidate()
+        pollTimer = nil
+        if state.textEditor.pinsSelection {
+            state.docked = false
+            panel?.undock()
+            panel?.makeKeyAndOrderFront(nil)
+            return
+        }
+        generation &+= 1
+        metadataTask?.cancel()
+        clearSelection()
+        state.notice = AXIsProcessTrusted() ? .unavailable : .accessibility
         state.docked = false
         placement = nil
         panel?.undock()
@@ -159,6 +220,12 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func followWindow() {
         guard let panel, let target = tracker?.target else {
+            if state.textEditor.pinsSelection {
+                state.docked = false
+                panel?.undock()
+                panel?.makeKeyAndOrderFront(nil)
+                return
+            }
             generation &+= 1
             metadataTask?.cancel()
             clearSelection()
@@ -174,6 +241,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             if state.notice != .automation { state.notice = nil }
         }
         guard target.visible else {
+            if state.textEditor.pinsSelection { return }
             if panel.isVisible {
                 generation &+= 1
                 metadataTask?.cancel()
@@ -210,7 +278,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
                     return
                 }
                 state.notice = nil
-                guard selection.urls != state.urls else { return }
+                guard selection.urls != state.urls, !state.textEditor.pinsSelection else { return }
                 let previous = state.selectedURL
                 state.urls = selection.urls
                 select(previous.flatMap { selection.urls.firstIndex(of: $0) } ?? 0)
@@ -220,6 +288,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func selectionFailed(_ failure: FinderSelectionReader.Failure) {
+        guard !state.textEditor.pinsSelection else { return }
         generation &+= 1
         metadataTask?.cancel()
         clearSelection()
@@ -232,6 +301,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func clearSelection() {
+        guard !state.textEditor.pinsSelection else { return }
+        state.textEditor.reset()
         state.urls = []
         state.selectedIndex = 0
         state.details = nil
@@ -239,6 +310,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func select(_ index: Int) {
+        guard !state.textEditor.pinsSelection else { return }
+        state.textEditor.reset()
         generation &+= 1
         metadataTask?.cancel()
         state.selectedIndex = index

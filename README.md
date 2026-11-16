@@ -64,17 +64,24 @@ panel is open, and the panel's × button, Escape or Command-W also close it. Dra
 its outer edge to resize. It shows the file name, kind, size and an Information
 section like Finder's preview pane. It follows selections, offers navigation for
 multiple files, and uses
-native read-only viewers for text, HTML, Markdown, JSON/plists, images, media and PDFs,
+native viewers for text, HTML, Markdown, JSON/plists, images, media and PDFs,
 with Quick Look for other formats. HTML scripts and networking default to off.
 Folders show a count and size; photos and videos
 can open in the existing MacEase editor. Allow Accessibility for docking and
 Automation for following Finder selections. Permission messages link to System
-Settings. This upcoming feature still needs native validation; full screen,
+Settings. Text/code, Markdown Source, JSON and XML plists up to 4 MiB support
+Edit (Command-E), Save (Command-S), Revert, buffer Undo and Find (Command-F).
+Saving replaces the original through Trash and history Undo, retaining its
+encoding, BOM and line endings. Unrepresentable characters require explicit
+UTF-8 confirmation; empty buffers cannot be saved. Unsaved edits stay pinned
+when Finder selection changes; closing or quitting asks Save / Discard / Cancel.
+A volume without Trash saves a separate file and keeps the buffer until Discard.
+This upcoming feature still needs native validation; full screen,
 Spaces and Finder tabs are untested.
 
 **Conversions and edits keep originals by default. HatchZip extraction consumes its archive.**
 
-By default, every conversion and edit saves a new file next to its source,
+By default, conversions and edits outside Finder Preview save a new file next to its source,
 with a numbered name when needed to avoid overwrites. Exports and ordinary
 extracts keep their sources. If you prefer, **Settings > General** can replace
 originals instead: MacEase verifies the output before moving the original to

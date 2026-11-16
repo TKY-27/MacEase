@@ -75,6 +75,8 @@ public enum InvalidInput: Equatable, Sendable {
     case notSquareEnough
     case jsonSyntax(line: Int, column: Int)
     case jsonNotFlatArray(path: String)
+    case emptyTextEdit
+    case textEditUnrepresentable
     case textEncodingUndetected
     case unmappableCharacter(line: Int)
     case emptyInput

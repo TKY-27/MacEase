@@ -30,6 +30,7 @@ final class FinderPreviewState {
         }
     }
 
+    let textEditor = PreviewTextEditor()
     var generation: UInt64 = 0
     var urls: [URL] = []
     var selectedIndex = 0
@@ -50,6 +51,7 @@ enum PreviewLayout {
 
 struct FinderPreviewView: View {
     let state: FinderPreviewState
+    let jobs: JobCenter
     let close: () -> Void
     let retry: () -> Void
     let select: (Int) -> Void
@@ -64,7 +66,7 @@ struct FinderPreviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if state.docked || state.urls.count > 1 {
+            if state.docked || state.urls.count > 1 || state.textEditor.editing {
                 header
                 Divider()
             }
@@ -93,6 +95,10 @@ struct FinderPreviewView: View {
                 Text("Finder Preview").font(.headline).foregroundStyle(.secondary)
                     .accessibilityAddTraits(.isHeader)
             }
+            if state.textEditor.dirty {
+                Circle().fill(.secondary).frame(width: 6, height: 6)
+                    .accessibilityLabel(Text("Edited")).help(Text("Edited"))
+            }
             Spacer(minLength: 0)
             if state.urls.count > 1 { selectionStepper }
             if state.docked {
@@ -116,7 +122,7 @@ struct FinderPreviewView: View {
             } label: {
                 Image(systemName: "chevron.left").frame(width: 22, height: 22)
             }
-            .disabled(state.selectedIndex == 0)
+            .disabled(state.selectedIndex == 0 || state.textEditor.pinsSelection)
             .accessibilityLabel(Text("Previous File"))
             Text("\(state.selectedIndex + 1) of \(state.urls.count)")
                 .font(.callout).monospacedDigit().foregroundStyle(.secondary)
@@ -125,7 +131,7 @@ struct FinderPreviewView: View {
             } label: {
                 Image(systemName: "chevron.right").frame(width: 22, height: 22)
             }
-            .disabled(state.selectedIndex == state.urls.count - 1)
+            .disabled(state.selectedIndex == state.urls.count - 1 || state.textEditor.pinsSelection)
             .accessibilityLabel(Text("Next File"))
         }
         .buttonStyle(PreviewButtonStyle(cornerRadius: 6, restingOpacity: 0))
@@ -160,7 +166,8 @@ struct FinderPreviewView: View {
             PreviewMessage(symbol: "exclamationmark.triangle", message: Text(failure)) { EmptyView() }
         } else if let url = state.selectedURL {
             if let details = state.details {
-                PreviewFilePane(url: url, details: details).id(state.generation)
+                PreviewFilePane(url: url, details: details, textEditor: state.textEditor, jobs: jobs).id(
+                    state.generation)
             } else {
                 ProgressView().controlSize(.small).accessibilityLabel(Text("Reading File"))
             }
@@ -188,14 +195,18 @@ struct FinderPreviewView: View {
 private struct PreviewFilePane: View {
     let url: URL
     let details: PreviewFileDetails
+    let textEditor: PreviewTextEditor
+    let jobs: JobCenter
     @State private var width: CGFloat = 0
     @State private var showsInformation: Bool
     private static let folderIconSize: CGFloat = 128
     private static let fallbackAspectRatio: CGFloat = 4 / 3
 
-    init(url: URL, details: PreviewFileDetails) {
+    init(url: URL, details: PreviewFileDetails, textEditor: PreviewTextEditor, jobs: JobCenter) {
         self.url = url
         self.details = details
+        self.textEditor = textEditor
+        self.jobs = jobs
         _showsInformation = State(initialValue: details.isFolder || !details.kind.fillsPane)
     }
 
@@ -209,7 +220,9 @@ private struct PreviewFilePane: View {
                             .padding(.top, PreviewLayout.margin * 2)
                             .accessibilityHidden(true)
                     } else {
-                        PreviewContent(url: url, kind: details.kind, previewHeight: previewHeight)
+                        PreviewContent(
+                            url: url, kind: details.kind, previewHeight: previewHeight, textEditor: textEditor,
+                            jobs: jobs)
                     }
                     summary
                 }
@@ -222,7 +235,8 @@ private struct PreviewFilePane: View {
             .scrollBounceBehavior(.basedOnSize)
         } else {
             VStack(spacing: 0) {
-                PreviewContent(url: url, kind: details.kind, previewHeight: nil).frame(maxHeight: .infinity)
+                PreviewContent(url: url, kind: details.kind, previewHeight: nil, textEditor: textEditor, jobs: jobs)
+                    .frame(maxHeight: .infinity)
                 Divider()
                 summary
             }

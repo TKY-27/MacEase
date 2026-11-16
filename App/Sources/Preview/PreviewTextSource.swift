@@ -22,26 +22,30 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
 
     func decode(_ bytes: Data) throws -> String {
         if self == .automatic { return try TextEncoding.detectedString(from: bytes) }
-        let encoding: String.Encoding
-        switch self {
-        case .automatic, .utf8: encoding = .utf8
-        case .utf16: encoding = .utf16
-        case .utf16LE: encoding = .utf16LittleEndian
-        case .utf16BE: encoding = .utf16BigEndian
-        case .shiftJIS:
-            encoding = String.Encoding(
-                rawValue: CFStringConvertEncodingToNSStringEncoding(
-                    CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
-        case .eucJP: encoding = .japaneseEUC
-        case .iso2022JP: encoding = .iso2022JP
-        case .windows1252: encoding = .windowsCP1252
-        case .latin1: encoding = .isoLatin1
-        }
+        let encoding = foundation
         guard let text = String(data: bytes, encoding: encoding) else {
             throw CocoaError(.fileReadInapplicableStringEncoding)
         }
         return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
     }
+
+    var foundation: String.Encoding {
+        switch self {
+        case .automatic, .utf8: return .utf8
+        case .utf16: return .utf16
+        case .utf16LE: return .utf16LittleEndian
+        case .utf16BE: return .utf16BigEndian
+        case .shiftJIS:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
+        case .eucJP: return .japaneseEUC
+        case .iso2022JP: return .iso2022JP
+        case .windows1252: return .windowsCP1252
+        case .latin1: return .isoLatin1
+        }
+    }
+
 }
 
 struct PreviewTextSource: Sendable {
@@ -50,10 +54,23 @@ struct PreviewTextSource: Sendable {
     static let highlightBytes = 512 * 1024
     let bytes: Data
     let truncated: Bool
+    var stamp: FileStamp? = nil
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
 
     static func read(_ url: URL) throws -> Self {
+        var result: Result<Self, Error>?
+        var failure: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &failure) { target in
+            result = Result { try readCoordinated(target) }
+        }
+        if let failure { throw failure }
+        guard let result else { throw CocoaError(.fileReadUnknown) }
+        return try result.get()
+    }
+
+    private static func readCoordinated(_ url: URL) throws -> Self {
+        let stamp = try FileStamp(of: url)
         let file = try FileHandle(forReadingFrom: url)
         do {
             let size = try file.seekToEnd()
@@ -69,8 +86,9 @@ struct PreviewTextSource: Sendable {
                 bytes.append(chunk)
             }
             try Task.checkCancellation()
+            guard try FileStamp(of: url) == stamp else { throw EngineError.retryInputChanged }
             try file.close()
-            return Self(bytes: bytes, truncated: truncated)
+            return Self(bytes: bytes, truncated: truncated, stamp: stamp)
         } catch {
             try file.close()
             throw error

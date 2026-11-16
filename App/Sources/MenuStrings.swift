@@ -7,6 +7,7 @@ import Speech
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
+        case .textEdit: String(localized: "Edit Text")
         case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
         case .imageEnhance: String(localized: "menu.op.image.enhance", defaultValue: "Upscale Photo…")
         case .audioEnhance: String(localized: "menu.op.audio.enhance", defaultValue: "Enhance Audio…")

@@ -48,7 +48,7 @@ Finder's toolbar and an always-visible close button (Escape and Command-W also
 close), a per-viewer toolbar row, aspect-sized previews, Finder-style
 Information rows and an icon-over-label action bar. Keep a Quick Look fallback.
 Show bounded folder counts and logical size, empty selection, multiple-file
-navigation, Open and the existing media-editor path. Previews remain read-only.
+navigation, Open and the existing media-editor path. Viewers start read-only; text editing is explicit.
 Permission denial has explicit explanation,
 System Settings links and Retry. Missing Accessibility uses a centered titled
 panel; denied Automation retains docking. Log failures without selected paths.
@@ -74,6 +74,27 @@ adaptive colors. Compact icon variants replace titled controls when the panel
 is narrow. Decode images frame-by-frame, load audio waveforms independently, and
 remove player observers and content when selection generations change or the
 panel hides/closes. Background reads/conversions reject cancelled results.
+
+Extend this unpublished Decision with a coordinator-owned text edit model and
+an editable native text view. Keep the view mounted across rendered/source
+switches so buffer Undo survives. Edit is limited to complete decodable text,
+code, Markdown Source, JSON and XML plists at most 4 MiB. Preserve existing mixed
+line endings; Return uses the first original ending, or LF when absent.
+
+Add a host-only `text.edit` batch with original URL, loaded FileStamp, buffer,
+encoding and BOM. Pass that stamp separately from job-start scans to the existing
+Replace commit path. Verify exact decoded buffer equality, retain same-name
+clone/Trash/replace semantics, and use JobCenter for Activity/history/Undo.
+Never recapture the save baseline after committing: retain the committed stamp.
+Keep empty buffers prohibited by section 3.5. Refuse unrepresentable characters
+and offer explicitly confirmed UTF-8 without a BOM; never substitute characters.
+
+Pin dirty, saving and confirmation states against selection/lifecycle updates.
+Closing and orderly quit resolve Save / Discard / Cancel before tearing down
+views or stopping jobs. Failed saves preserve edits and cancel closing. Detach
+from a terminated Finder or destroyed window so Cancel does not reopen alerts.
+No-Trash derived fallback and history failures keep the buffer with an explicit
+inline explanation. Revert/Discard returns to the last loaded or saved buffer.
 
 ## Consequences
 

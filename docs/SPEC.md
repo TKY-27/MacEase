@@ -226,6 +226,10 @@ saved output-mode choice. A saved choice is preserved. Each batch snapshots
 its resolved mode and settings, so later Settings changes cannot alter a job.
 The photo/video editor chooses this mode per save through its split Save button,
 independently of the global setting (section 8.1.1).
+Finder Preview text saves (`text.edit`, section 25.1) explicitly use same-name
+Replace, independently of this setting, with the stamp captured during loading.
+Empty text buffers are refused, including BOM-only output; the non-empty
+verification contract remains unchanged.
 
 **Transform** in section 8 means this switch applies. It covers image resize,
 compression, conversion, rotation, flip, border trimming, background editing,
@@ -2881,7 +2885,7 @@ UTType conformance with extension support for Markdown, JSON, plists, YAML,
 TOML, CSV and logs. Unknown types retain QLPreviewView. Empty selections and
 bounded folder summaries retain their existing behavior.
 
-Read-only specialized viewers:
+Specialized viewers:
 
 - Text/code uses TextKit 2 NSTextView, monospaced text, logical line numbers,
   soft wrapping and an encoding picker. Automatic detection reuses the engine;
@@ -2921,7 +2925,48 @@ File reads, text conversion, image decoding, PDF opening and waveform work run
 outside the main actor; WebKit and AVFoundation use asynchronous loading. Viewer
 identity follows the coordinator's selection generation. Selection changes and
 hidden/closed panels cancel tasks, discard stale results, release viewer content,
-pause playback and remove time observers. All viewers are read-only.
+pause playback and remove time observers. Unsaved text editing is the exception:
+the coordinator retains its buffer and viewer identity until Save or Discard.
+
+Text/code, Markdown Source, JSON and XML plists offer Edit (Command-E).
+Binary plists, excerpts, files over 4 MiB and undecodable sources cannot enter
+editing. JSON/plist Edit switches to Source. The native text view supports
+buffer Undo/Redo, IME and the standard Command-F find bar; spelling and automatic
+text substitutions are disabled. Existing line endings remain in the buffer;
+Return inserts the original first line ending (LF for a single-line file).
+Mixed existing line endings are retained without normalization. Markdown Rendered
+and JSON/plist Formatted show the current unsaved buffer. The source text view
+stays mounted while rendering, preserving its undo stack.
+
+A dot labeled Edited marks a dirty buffer. Save (Command-S) and Revert appear in
+the toolbar; a compact Unsaved changes banner offers Save and Discard. Revert and
+Discard restore the last loaded/successfully saved buffer and clear its local
+undo stack. Finder selection changes cannot replace a dirty or saving buffer.
+Closing, toggling off or orderly application quit asks Save / Discard / Cancel;
+a failed save keeps the panel and cancels closing/quit. If Finder exits or its
+tracked window disappears, detach tracking and retain an undocked editor when
+closing is cancelled. Saving disables text input and closing until completion.
+
+A coordinated bounded read captures a FileStamp before reading and checks it
+again afterward. The model retains that stamp, original encoding and BOM with
+the text. `TextReplacement` passes the retained stamp through its WorkItem into
+JobEngine's existing Replace commit path; a job-start stamp never substitutes
+for it. It stages on the source volume, re-decodes the staged bytes and requires
+exact UTF-8 code-unit equality with the buffer before FileCommitter checks the
+loaded stamp inside the coordinated write. Same-name replacement, metadata,
+Trash, durable history, cancellation and Undo follow sections 3.5 and 3.6.
+Save goes through JobCenter and appears in Activity with progress and Undo.
+Inline results show Saved briefly, or a localized one-line failure with the
+buffer retained. The next save uses the commit-time output stamp, never a
+post-save scan. Missing stamps or history failures retain the buffer and report
+failure. A no-Trash derived fallback explicitly reports the separate file and
+retains the original buffer until Discard; closing is not treated as saved.
+
+Unrepresentable text is refused without substitution and offers Save as UTF-8.
+Only explicit confirmation permits UTF-8 without a BOM. Empty buffers are refused
+with an instruction to enter text or revert; this operation does not relax the
+non-empty output rule. Builds, automated tests and native editing interaction
+for this unit remain unverified until run on the target Mac.
 
 Folders show immediate child count and recursive logical regular-file size
 without following directory symlinks. Inspection is cancellable and limited to
@@ -2943,6 +2988,11 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-17: Add Finder Preview text editing with loaded-stamp Replace saves,
+  original encoding/BOM and line endings, explicit UTF-8 confirmation, local
+  buffer undo/find, Activity/Undo and dirty-buffer close/quit protection. Empty
+  buffers remain prohibited by section 3.5. Extend unpublished ADR 0067.
 
 - 2026-11-17: Redesign Finder Preview as a light, flush-docked panel with an
   always-visible close button, Show/Hide menu titles, outer-edge resizing,

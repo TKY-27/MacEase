@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.organization = organization
         let panels = PanelCoordinator(jobs: jobs, store: settings, organization: organization, recipes: recipeStore)
         self.panels = panels
-        let finderPreview = FinderPreviewCoordinator(panels: panels)
+        let finderPreview = FinderPreviewCoordinator(panels: panels, jobs: jobs)
         finderPreview.visibilityChanged = { [weak self] in self?.refreshMenuFile() }
         self.finderPreview = finderPreview
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
@@ -230,6 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
         Task {
+            guard await finderPreview?.resolveEdits() != false else {
+                terminationPending = false
+                sender.reply(toApplicationShouldTerminate: false)
+                return
+            }
             do {
                 organization?.stop()
                 await panels?.closeFeatureWindows()
