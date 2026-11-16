@@ -26,18 +26,26 @@ enum PreviewKind: Sendable {
         }
         return .quickLook
     }
+
+    var fillsPane: Bool {
+        switch self {
+        case .image, .media, .audio: false
+        case .text, .html, .markdown, .json, .propertyList, .pdf, .quickLook: true
+        }
+    }
 }
 
 struct PreviewContent: View {
     let url: URL
     let kind: PreviewKind
+    let previewHeight: CGFloat?
 
     var body: some View {
         switch kind {
         case .text, .html, .markdown, .json, .propertyList:
             PreviewTextViewer(url: url, kind: kind)
-        case .image: PreviewImageViewer(url: url)
-        case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
+        case .image: PreviewImageViewer(url: url, height: previewHeight)
+        case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio, height: previewHeight)
         case .pdf: PreviewPDFViewer(url: url)
         case .quickLook: QuickLookPreview(url: url)
         }
@@ -46,6 +54,22 @@ struct PreviewContent: View {
 
 struct PreviewFailure: View {
     var body: some View {
-        Text("This preview could not be displayed.").foregroundStyle(.secondary).padding(12)
+        Text("This preview could not be displayed.").font(.callout).foregroundStyle(.secondary)
+            .multilineTextAlignment(.center).padding(PreviewLayout.margin)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct PreviewToolbar<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) { content }
+                .controlSize(.small)
+                .padding(.horizontal, PreviewLayout.margin)
+                .frame(maxWidth: .infinity, minHeight: PreviewLayout.toolbarHeight)
+            Divider()
+        }
     }
 }

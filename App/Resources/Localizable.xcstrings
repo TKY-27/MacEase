@@ -101,52 +101,12 @@
         }
       }
     },
-    "Unknown Color Space": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明な色空間"
-          }
-        }
-      }
-    },
-    "HDR: Yes": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HDR：あり"
-          }
-        }
-      }
-    },
-    "HDR: No": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HDR：なし"
-          }
-        }
-      }
-    },
     "Image Preview": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "画像プレビュー"
-          }
-        }
-      }
-    },
-    "%lld × %lld pixels · %@": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld × %lld ピクセル・%@"
           }
         }
       }
@@ -451,16 +411,6 @@
         }
       }
     },
-    "Reading Folder": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを読み込み中"
-          }
-        }
-      }
-    },
     "Reading File": {
       "localizations": {
         "ja": {
@@ -501,12 +451,174 @@
         }
       }
     },
-    "%lld items · %@": {
+    "Hide Finder Preview": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld項目・%@"
+            "value": "Finderプレビューを閉じる"
+          }
+        }
+      }
+    },
+    "Show Finder Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビューを表示"
+          }
+        }
+      }
+    },
+    "Information": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "情報"
+          }
+        }
+      }
+    },
+    "Show More": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を表示"
+          }
+        }
+      }
+    },
+    "Show Less": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を隠す"
+          }
+        }
+      }
+    },
+    "Select a file in Finder to preview it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderでファイルを選択すると、ここにプレビューを表示します。"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "preview.fact.modified": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modified"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更日"
+          }
+        }
+      }
+    },
+    "preview.fact.items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目数"
+          }
+        }
+      }
+    },
+    "preview.fact.pages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pages"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ数"
+          }
+        }
+      }
+    },
+    "preview.fact.colorProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラープロファイル"
+          }
+        }
+      }
+    },
+    "preview.fact.dynamicRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Range"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイナミックレンジ"
+          }
+        }
+      }
+    },
+    "preview.fact.dimensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きさ"
           }
         }
       }

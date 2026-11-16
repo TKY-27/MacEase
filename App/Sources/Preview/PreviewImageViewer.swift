@@ -9,22 +9,13 @@ private struct PreviewImageFrame: Sendable {
     let delay: Double
 }
 
-private struct PreviewImageDetails: Sendable {
-    let width: Int
-    let height: Int
-    let profile: String
-    let hdr: Bool
-    let byteCount: Int64
-    let frameCount: Int
-}
-
 private actor PreviewImageSource {
     private var source: CGImageSource?
     private var maximumEdge = 0
     private static let defaultDelay = 0.1
     private static let minimumDelay = 0.02
 
-    func open(_ url: URL) throws -> (PreviewImageDetails, PreviewImageFrame) {
+    func open(_ url: URL) throws -> (frameCount: Int, first: PreviewImageFrame) {
         try Task.checkCancellation()
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -34,22 +25,11 @@ private actor PreviewImageSource {
         else { throw CocoaError(.fileReadCorruptFile) }
         self.source = source
         maximumEdge = max(width, height)
-        let signal = try ImageSDR.content(source, index: 0)
         let first = try frame(0)
         let animated =
             properties[kCGImagePropertyGIFDictionary] != nil
             || properties[kCGImagePropertyPNGDictionary] != nil || properties[kCGImagePropertyWebPDictionary] != nil
-        let profile =
-            properties[kCGImagePropertyProfileName] as? String
-            ?? first.pixels.colorSpace?.name.map { $0 as String } ?? String(localized: "Unknown Color Space")
-        let hdr = signal.gainMap || signal.pixels
-        let attributes = try url.resourceValues(forKeys: [.fileSizeKey])
-        guard let byteCount = attributes.fileSize else { throw CocoaError(.fileReadUnknown) }
-        return (
-            PreviewImageDetails(
-                width: width, height: height, profile: profile, hdr: hdr, byteCount: Int64(byteCount),
-                frameCount: animated ? CGImageSourceGetCount(source) : 1), first
-        )
+        return (animated ? CGImageSourceGetCount(source) : 1, first)
     }
 
     func frame(_ index: Int) throws -> PreviewImageFrame {
@@ -86,56 +66,50 @@ private actor PreviewImageSource {
 
 struct PreviewImageViewer: View {
     let url: URL
+    let height: CGFloat?
     @State private var pixels: CGImage?
-    @State private var details: PreviewImageDetails?
     @State private var fit = true
     @State private var zoomRequest = 0
     @State private var failed = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            PreviewToolbar {
                 Button("Fit") {
                     fit = true; zoomRequest += 1
                 }
                 Button("100%") {
                     fit = false; zoomRequest += 1
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
-            .controlSize(.small).padding(8)
-            Divider()
-            if failed {
-                PreviewFailure()
-            } else if let pixels {
-                PreviewImageCanvas(pixels: pixels, fit: fit, zoomRequest: zoomRequest)
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            if let details {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(details.width) × \(details.height) pixels · \(details.byteCount.fileSize)")
-                    Text(verbatim: details.profile)
-                    Text(details.hdr ? String(localized: "HDR: Yes") : String(localized: "HDR: No"))
+            .disabled(pixels == nil)
+            Group {
+                if failed {
+                    PreviewFailure()
+                } else if let pixels {
+                    PreviewImageCanvas(pixels: pixels, fit: fit, zoomRequest: zoomRequest)
+                } else {
+                    ProgressView().controlSize(.small)
                 }
-                .font(.caption).foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(8)
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background(Color(nsColor: .underPageBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: PreviewLayout.previewCornerRadius, style: .continuous))
+            .padding([.horizontal, .top], PreviewLayout.margin)
         }
         .task { await load() }
-        .onDisappear {
-            pixels = nil; details = nil
-        }
+        .onDisappear { pixels = nil }
     }
 
     private func load() async {
         let source = PreviewImageSource()
         do {
-            let (metadata, first) = try await source.open(url)
+            let (frameCount, first) = try await source.open(url)
             try Task.checkCancellation()
-            details = metadata
             pixels = first.pixels
-            guard metadata.frameCount > 1 else { return }
+            guard frameCount > 1 else { return }
             var delay = first.delay
             var index = 1
             while !Task.isCancelled {
@@ -144,7 +118,7 @@ struct PreviewImageViewer: View {
                 try Task.checkCancellation()
                 pixels = frame.pixels
                 delay = frame.delay
-                index = (index + 1) % metadata.frameCount
+                index = (index + 1) % frameCount
             }
         } catch is CancellationError {
         } catch {
@@ -164,9 +138,11 @@ private struct PreviewImageCanvas: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PreviewImageScroll {
         let scroll = PreviewImageScroll()
+        scroll.contentView = CenteringClipView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
         scroll.allowsMagnification = true
         scroll.minMagnification = 0.01
         scroll.maxMagnification = 16
@@ -186,6 +162,17 @@ private struct PreviewImageCanvas: NSViewRepresentable {
             scroll.zoomRequest = zoomRequest
             scroll.fitting = fit
             scroll.adjustZoom()
+        }
+    }
+
+    final class CenteringClipView: NSClipView {
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+            var bounds = super.constrainBoundsRect(proposedBounds)
+            guard let documentView else { return bounds }
+            let content = documentView.frame
+            if bounds.width > content.width { bounds.origin.x = (content.width - bounds.width) / 2 }
+            if bounds.height > content.height { bounds.origin.y = (content.height - bounds.height) / 2 }
+            return bounds
         }
     }
 
@@ -213,12 +200,13 @@ private struct PreviewImageCanvas: NSViewRepresentable {
             super.magnify(with: event)
         }
 
+        // A fitted image lets the pane scroll.
         override func scrollWheel(with event: NSEvent) {
-            fitting = false
-            let target = magnification * exp(-event.scrollingDeltaY * 0.01)
-            setMagnification(
-                max(minMagnification, min(maxMagnification, target)),
-                centeredAt: NSPoint(x: contentView.bounds.midX, y: contentView.bounds.midY))
+            if fitting {
+                nextResponder?.scrollWheel(with: event)
+            } else {
+                super.scrollWheel(with: event)
+            }
         }
     }
 }

@@ -9,7 +9,8 @@ struct MenuFileWriter {
 
     func write(
         visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings, monitoredPaths: [String] = [],
-        recipes: [Recipe] = [], placements: [String: MenuPlacement] = [:], availableVersion: String? = nil
+        recipes: [Recipe] = [], placements: [String: MenuPlacement] = [:], availableVersion: String? = nil,
+        previewOpen: Bool = false
     ) throws -> MenuFile {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -45,7 +46,7 @@ struct MenuFileWriter {
             sizeTargets: sizeTargets, resizeTargets: resizeTargets, parameterVersion: parameterVersion,
             placements: placements, moreTitle: String(localized: "More"),
             updateTitle: availableVersion.map { String(localized: "Update Available (v\($0))") },
-            previewTitle: String(localized: "Finder Preview")
+            previewTitle: MenuStrings.previewTitle(open: previewOpen)
         )
         if file.entries.contains(where: { $0.op == .filesFinish }), !recipes.isEmpty {
             let title = MenuStrings.operationName(.filesFinish)

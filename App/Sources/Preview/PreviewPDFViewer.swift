@@ -10,15 +10,18 @@ struct PreviewPDFViewer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Toggle("Page Thumbnails", isOn: $thumbnails).toggleStyle(.checkbox)
-                .controlSize(.small).frame(maxWidth: .infinity, alignment: .leading).padding(8)
-            Divider()
+            PreviewToolbar {
+                Toggle(isOn: $thumbnails) { Label("Page Thumbnails", systemImage: "sidebar.left") }
+                    .toggleStyle(.button).labelStyle(.iconOnly).help(Text("Page Thumbnails"))
+                    .disabled(document == nil)
+                Spacer(minLength: 0)
+            }
             if failed {
                 PreviewFailure()
             } else if let document {
                 PreviewPDFDocument(document: document, thumbnails: thumbnails)
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .task {
@@ -56,6 +59,7 @@ private struct PreviewPDFDocument: NSViewRepresentable {
         let viewer = PDFView()
         viewer.autoScales = true
         viewer.displayMode = .singlePageContinuous
+        viewer.backgroundColor = .underPageBackgroundColor
         viewer.document = document
         pages.pdfView = viewer
         let stack = NSStackView(views: [pages, viewer])

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Finder Preview redesign: a light panel flush against the Finder window with
+  outer rounded corners, an always-visible close button (Escape and Command-W),
+  Show/Hide Finder Preview menu titles, outer-edge resizing, aspect-sized
+  previews, Finder-style Information rows and an icon action bar. The window
+  shown without Accessibility permission no longer collapses to a sliver.
+
 - Read-only Finder Preview viewers for code/text, HTML, Markdown, JSON/plists,
   images, audio/video and PDFs. Add encoding selection, line numbers, bounded
   highlighting, image zoom, waveforms, A–B loops and PDF thumbnails. HTML scripts

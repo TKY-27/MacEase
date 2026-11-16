@@ -10,6 +10,22 @@ private struct PreviewTextRequest: Equatable {
 }
 
 private struct PreviewTextRendering: Sendable {
+    private static let markdownStyle = """
+        <style>
+        :root { color-scheme: light dark; }
+        body { font: 14px/1.6 -apple-system, sans-serif; margin: 16px; overflow-wrap: anywhere; }
+        h1, h2 { border-bottom: 1px solid #8884; padding-bottom: .3em; }
+        h1 { font-size: 1.6em; } h2 { font-size: 1.3em; }
+        code, pre { font: 12px/1.5 ui-monospace, Menlo, monospace; }
+        code { background: #8881; padding: .1em .3em; border-radius: 4px; }
+        pre { background: #8881; padding: 10px; border-radius: 6px; overflow-x: auto; }
+        pre code { background: none; padding: 0; }
+        table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
+        th, td { border: 1px solid #8884; padding: 4px 8px; }
+        img { max-width: 100%; }
+        blockquote { margin: 0; padding-left: 1em; border-left: 3px solid #8886; color: #888; }
+        </style>
+        """
     let text: String
     let tokens: [PreviewToken]
     let lineStarts: [Int]
@@ -34,6 +50,7 @@ private struct PreviewTextRendering: Sendable {
                 language = .json
             } else if html {
                 text = try MarkdownConversion.html(decoded, title: url.lastPathComponent)
+                    .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
             } else {
                 text = decoded
             }
@@ -65,26 +82,32 @@ struct PreviewTextViewer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            controls
-            Divider()
-            if kind == .html && rich {
-                PreviewWebViewer(url: url, html: nil, scripts: scripts, network: network)
-                    .id("\(scripts)-\(network)")
-            } else if failed {
-                Text("The text could not be decoded or formatted. Try Source or another encoding.")
-                    .foregroundStyle(.secondary).padding(12)
-            } else if let rendering {
-                if rendering.html {
-                    PreviewWebViewer(url: url, html: rendering.text, scripts: false, network: false)
+            PreviewToolbar { controls }
+            Group {
+                if kind == .html && rich {
+                    PreviewWebViewer(url: url, html: nil, scripts: scripts, network: network)
+                        .id("\(scripts)-\(network)")
+                } else if failed {
+                    Text("The text could not be decoded or formatted. Try Source or another encoding.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .padding(PreviewLayout.margin)
+                } else if let rendering {
+                    if rendering.html {
+                        PreviewWebViewer(url: url, html: rendering.text, scripts: false, network: false)
+                    } else {
+                        PreviewCodeView(
+                            text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts,
+                            wrap: wrap)
+                    }
                 } else {
-                    PreviewCodeView(
-                        text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts, wrap: wrap)
+                    ProgressView().controlSize(.small)
                 }
-            } else {
-                ProgressView().controlSize(.small)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             if source?.truncated == true && !(kind == .html && rich) {
-                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary).padding(6)
+                Divider()
+                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 24)
             }
         }
         .task { await read() }
@@ -95,45 +118,64 @@ struct PreviewTextViewer: View {
         }
     }
 
-    private var controls: some View {
-        VStack(spacing: 6) {
-            if kind != .text && source?.binaryPropertyList != true {
-                Picker("View", selection: $rich) {
-                    if kind == .html {
-                        Text("Preview").tag(true)
-                    } else if kind == .markdown {
-                        Text("Rendered").tag(true)
-                    } else {
-                        Text("Formatted").tag(true)
-                    }
-                    Text("Source").tag(false)
+    @ViewBuilder private var controls: some View {
+        if kind != .text && source?.binaryPropertyList != true {
+            Picker("View", selection: $rich) {
+                if kind == .html {
+                    Text("Preview").tag(true)
+                } else if kind == .markdown {
+                    Text("Rendered").tag(true)
+                } else {
+                    Text("Formatted").tag(true)
                 }
-                .pickerStyle(.segmented)
+                Text("Source").tag(false)
             }
-            if kind == .html {
-                HStack {
-                    Toggle("Run Scripts", isOn: $scripts)
-                    Toggle("Allow Network", isOn: $network)
-                }
-                .toggleStyle(.checkbox)
+            .pickerStyle(.segmented).labelsHidden().fixedSize()
+        }
+        Spacer(minLength: 0)
+        if kind == .html && rich {
+            ViewThatFits(in: .horizontal) {
+                webPermissions.labelStyle(.titleOnly)
+                webPermissions.labelStyle(.iconOnly)
             }
-            if !(rich && [.html, .markdown].contains(kind)) {
-                HStack {
-                    if source?.binaryPropertyList != true {
-                        Picker("Encoding", selection: $encoding) {
-                            ForEach(PreviewEncoding.allCases, id: \.self) { choice in
-                                Text(verbatim: choice.title).tag(choice)
-                            }
-                        }
-                        .labelsHidden()
-                        .accessibilityLabel(Text("Encoding"))
+        } else if !(rich && kind == .markdown) {
+            if source?.binaryPropertyList != true {
+                ViewThatFits(in: .horizontal) {
+                    encodingPicker.labelsHidden().fixedSize()
+                    Menu {
+                        encodingPicker.pickerStyle(.inline)
+                    } label: {
+                        Label("Encoding", systemImage: "textformat")
                     }
-                    Toggle("Soft Wrap", isOn: $wrap).toggleStyle(.checkbox)
+                    .labelStyle(.iconOnly).fixedSize()
                 }
+                .accessibilityLabel(Text("Encoding"))
+                .help(Text("Encoding"))
+            }
+            Toggle(isOn: $wrap) {
+                Label("Soft Wrap", systemImage: "arrow.turn.down.left")
+            }
+            .toggleStyle(.button).labelStyle(.iconOnly).help(Text("Soft Wrap"))
+        }
+    }
+
+    private var encodingPicker: some View {
+        Picker("Encoding", selection: $encoding) {
+            ForEach(PreviewEncoding.allCases, id: \.self) { choice in
+                Text(verbatim: choice.title).tag(choice)
             }
         }
-        .controlSize(.small)
-        .padding(8)
+    }
+
+    private var webPermissions: some View {
+        HStack(spacing: 6) {
+            Toggle(isOn: $scripts) { Label("Run Scripts", systemImage: "curlybraces") }
+                .help(Text("Run Scripts"))
+            Toggle(isOn: $network) { Label("Allow Network", systemImage: "network") }
+                .help(Text("Allow Network"))
+        }
+        .toggleStyle(.button)
+        .fixedSize()
     }
 
     private func read() async {
@@ -198,6 +240,7 @@ private struct PreviewCodeView: NSViewRepresentable {
         scroll.documentView = editor
         let ruler = PreviewLineRuler(scrollView: scroll, orientation: .verticalRuler)
         ruler.clientView = editor
+        ruler.clipsToBounds = true
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             ruler, selector: #selector(PreviewLineRuler.scrolled),

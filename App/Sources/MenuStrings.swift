@@ -46,6 +46,11 @@ enum MenuStrings {
         return title
     }
 
+    // Titles replace unreliable Finder Sync checkmarks.
+    static func previewTitle(open: Bool) -> String {
+        open ? String(localized: "Hide Finder Preview") : String(localized: "Show Finder Preview")
+    }
+
     static func preset(_ op: OperationID, _ preset: String) -> String {
         if op == .videoSpeed {
             if preset == MenuEntry.customPreset { return String(localized: "Custom Speed…") }

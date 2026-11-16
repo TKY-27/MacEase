@@ -149,84 +149,120 @@ private final class PreviewPlayback {
 struct PreviewMediaViewer: View {
     let url: URL
     let audioOnly: Bool
+    let height: CGFloat?
     @State private var playback = PreviewPlayback()
     private static let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+    private static let waveformHeight: CGFloat = 72
+    private static let audioControlsHeight: CGFloat = 48
 
     var body: some View {
         VStack(spacing: 0) {
-            if playback.failed {
-                PreviewFailure()
-            } else if let player = playback.player {
-                PreviewPlayer(player: player)
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            if audioOnly {
-                if let waveform = playback.waveform {
-                    Canvas { context, size in
-                        var path = Path()
-                        let middle = size.height / 2
-                        for (index, amplitude) in waveform.peaks.enumerated() {
-                            let x = CGFloat(index) / CGFloat(max(1, waveform.peaks.count - 1)) * size.width
-                            let height = CGFloat(min(1, amplitude)) * middle
-                            path.move(to: CGPoint(x: x, y: middle - height))
-                            path.addLine(to: CGPoint(x: x, y: middle + height))
-                        }
-                        context.stroke(path, with: .color(.secondary), lineWidth: 1)
-                    }
-                    .frame(height: 64).padding(.horizontal, 8).accessibilityLabel(Text("Waveform"))
-                } else if playback.waveformFailed {
-                    Text("Waveform unavailable").font(.caption).foregroundStyle(.secondary).padding(8)
-                }
-            }
-            Divider()
             controls
+            VStack(spacing: 8) {
+                if audioOnly { waveform }
+                Group {
+                    if playback.failed {
+                        PreviewFailure()
+                    } else if let player = playback.player {
+                        PreviewPlayer(player: player)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: audioOnly ? Self.audioControlsHeight : height)
+                .background(Color(nsColor: .underPageBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: PreviewLayout.previewCornerRadius, style: .continuous))
+            }
+            .padding([.horizontal, .top], PreviewLayout.margin)
         }
         .task { await playback.load(url) }
         .task { if audioOnly { await playback.loadWaveform(url) } }
         .onDisappear { playback.stop() }
     }
 
-    private var controls: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Picker("Playback Speed", selection: $playback.speed) {
-                    ForEach(Self.speeds, id: \.self) { speed in
-                        Text(verbatim: "\(speed.formatted())×").tag(speed)
+    @ViewBuilder private var waveform: some View {
+        Group {
+            if let waveform = playback.waveform {
+                Canvas { context, size in
+                    var path = Path()
+                    let middle = size.height / 2
+                    for (index, amplitude) in waveform.peaks.enumerated() {
+                        let x = CGFloat(index) / CGFloat(max(1, waveform.peaks.count - 1)) * size.width
+                        let height = CGFloat(min(1, amplitude)) * middle
+                        path.move(to: CGPoint(x: x, y: middle - height))
+                        path.addLine(to: CGPoint(x: x, y: middle + height))
                     }
+                    context.stroke(path, with: .color(.secondary), lineWidth: 1)
                 }
-                .labelsHidden().accessibilityLabel(Text("Playback Speed"))
-                if !audioOnly {
-                    Button {
-                        playback.step(-1)
-                    } label: {
-                        Image(systemName: "backward.frame")
-                    }
-                    .disabled(!playback.canStepBackward).accessibilityLabel(Text("Previous Frame"))
-                    Button {
-                        playback.step(1)
-                    } label: {
-                        Image(systemName: "forward.frame")
-                    }
-                    .disabled(!playback.canStepForward).accessibilityLabel(Text("Next Frame"))
-                }
-            }
-            HStack {
-                Button("Set A") { playback.setStart() }
-                Button("Set B") { playback.setEnd() }
-                    .disabled(playback.loopStart == nil || playback.current <= (playback.loopStart ?? 0))
-                Button("Clear Loop") { playback.clearLoop() }.disabled(playback.loopStart == nil)
-                Spacer(minLength: 0)
-            }
-            if let start = playback.loopStart {
-                Text(
-                    "A: \(start.formatted(.number.precision(.fractionLength(2)))) s · B: \(playback.loopEnd.map { $0.formatted(.number.precision(.fractionLength(2))) } ?? "—") s"
-                )
-                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityLabel(Text("Waveform"))
+            } else if playback.waveformFailed {
+                Text("Waveform unavailable").font(.callout).foregroundStyle(.secondary)
+            } else {
+                ProgressView().controlSize(.small)
             }
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: Self.waveformHeight)
+    }
+
+    private var controls: some View {
+        PreviewToolbar {
+            Picker("Playback Speed", selection: $playback.speed) {
+                ForEach(Self.speeds, id: \.self) { speed in
+                    Text(verbatim: "\(speed.formatted())×").tag(speed)
+                }
+            }
+            .labelsHidden().fixedSize().help(Text("Playback Speed"))
+            if !audioOnly {
+                Button {
+                    playback.step(-1)
+                } label: {
+                    Image(systemName: "backward.frame")
+                }
+                .disabled(!playback.canStepBackward).accessibilityLabel(Text("Previous Frame"))
+                .help(Text("Previous Frame"))
+                Button {
+                    playback.step(1)
+                } label: {
+                    Image(systemName: "forward.frame")
+                }
+                .disabled(!playback.canStepForward).accessibilityLabel(Text("Next Frame"))
+                .help(Text("Next Frame"))
+            }
+            Spacer(minLength: 0)
+            loopControls
+        }
         .disabled(playback.player == nil)
-        .controlSize(.small).padding(8)
+    }
+
+    @ViewBuilder private var loopControls: some View {
+        Button {
+            playback.setStart()
+        } label: {
+            Text(verbatim: "A").foregroundStyle(playback.loopStart == nil ? Color.primary : Color.accentColor)
+        }
+        .accessibilityLabel(Text("Set A")).help(loopHelp(fallback: Text("Set A")))
+        Button {
+            playback.setEnd()
+        } label: {
+            Text(verbatim: "B").foregroundStyle(playback.loopEnd == nil ? Color.primary : Color.accentColor)
+        }
+        .disabled(playback.loopStart == nil || playback.current <= (playback.loopStart ?? 0))
+        .accessibilityLabel(Text("Set B")).help(loopHelp(fallback: Text("Set B")))
+        Button {
+            playback.clearLoop()
+        } label: {
+            Image(systemName: "xmark")
+        }
+        .disabled(playback.loopStart == nil)
+        .accessibilityLabel(Text("Clear Loop")).help(Text("Clear Loop"))
+    }
+
+    private func loopHelp(fallback: Text) -> Text {
+        guard let start = playback.loopStart else { return fallback }
+        let end = playback.loopEnd.map { $0.formatted(.number.precision(.fractionLength(2))) } ?? "—"
+        return Text("A: \(start.formatted(.number.precision(.fractionLength(2)))) s · B: \(end) s")
     }
 }
 

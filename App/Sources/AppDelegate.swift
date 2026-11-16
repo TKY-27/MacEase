@@ -65,7 +65,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.organization = organization
         let panels = PanelCoordinator(jobs: jobs, store: settings, organization: organization, recipes: recipeStore)
         self.panels = panels
-        finderPreview = FinderPreviewCoordinator(panels: panels)
+        let finderPreview = FinderPreviewCoordinator(panels: panels)
+        finderPreview.visibilityChanged = { [weak self] in self?.refreshMenuFile() }
+        self.finderPreview = finderPreview
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
         jobs.askAgain = { [weak panels] in panels?.askAgain($0, files: $1, reason: $2) ?? false }
@@ -329,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuFile = try MenuFileWriter(configuration: configuration).write(
             visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
             monitoredPaths: folders.monitoredPaths, recipes: recipes, placements: settings.menuPlacements,
-            availableVersion: updates.availableVersion
+            availableVersion: updates.availableVersion, previewOpen: finderPreview?.isOpen == true
         )
         menuInputs = inputs
     }

@@ -56,4 +56,44 @@ final class FinderPreviewGeometryTests: XCTestCase {
         XCTAssertEqual(placement.dock, .right)
         XCTAssertEqual(placement.frame.maxX, 1600)
     }
+
+    func testDraggingTheFreeEdgeFollowsThePointer() {
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let window = CGRect(x: 100, y: 100, width: 800, height: 700)
+        let right = FinderPreviewGeometry.placement(window: window, screen: screen, width: 360)
+        XCTAssertEqual(right.dock, .right)
+        XCTAssertEqual(
+            FinderPreviewGeometry.resizedWidth(right, pointerDelta: 40, window: window, screen: screen), 400)
+        let leftWindow = CGRect(x: 700, y: 100, width: 900, height: 700)
+        let left = FinderPreviewGeometry.placement(window: leftWindow, screen: screen, width: 360)
+        XCTAssertEqual(left.dock, .left)
+        XCTAssertEqual(
+            FinderPreviewGeometry.resizedWidth(left, pointerDelta: -40, window: leftWindow, screen: screen), 400)
+        let fullWindow = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let inset = FinderPreviewGeometry.placement(window: fullWindow, screen: screen, width: 360)
+        XCTAssertEqual(inset.dock, .inset)
+        XCTAssertEqual(
+            FinderPreviewGeometry.resizedWidth(inset, pointerDelta: -40, window: fullWindow, screen: screen), 400)
+    }
+
+    func testResizingKeepsTheCurrentDockSide() {
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let window = CGRect(x: 100, y: 100, width: 1050, height: 700)
+        let right = FinderPreviewGeometry.placement(window: window, screen: screen, width: 360)
+        XCTAssertEqual(right.dock, .right)
+        XCTAssertEqual(
+            FinderPreviewGeometry.resizedWidth(right, pointerDelta: 300, window: window, screen: screen), 450)
+        XCTAssertEqual(
+            FinderPreviewGeometry.resizedWidth(right, pointerDelta: -300, window: window, screen: screen), 280)
+        let fullWindow = CGRect(x: 0, y: 0, width: 1600, height: 1000)
+        let inset = FinderPreviewGeometry.placement(window: fullWindow, screen: screen, width: 360)
+        XCTAssertEqual(
+            FinderPreviewGeometry.resizedWidth(inset, pointerDelta: -2000, window: fullWindow, screen: screen), 800)
+    }
+
+    func testPreviewHeightFollowsAspectRatioAndCapsTallContent() {
+        XCTAssertEqual(FinderPreviewGeometry.previewHeight(width: 320, aspectRatio: 16 / 9), 180, accuracy: 0.001)
+        XCTAssertEqual(FinderPreviewGeometry.previewHeight(width: 320, aspectRatio: 1), 320)
+        XCTAssertEqual(FinderPreviewGeometry.previewHeight(width: 320, aspectRatio: 9 / 16), 400)
+    }
 }

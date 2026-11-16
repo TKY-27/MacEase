@@ -58,8 +58,12 @@ restart MacEase, and retry. This does not require Full Disk Access.
 
 ### Finder Preview
 
-Choose **MacEase > Finder Preview** in Finder to toggle a preview panel beside
-its window. It follows selections, offers navigation for multiple files, and uses
+Choose **MacEase > Show Finder Preview** in Finder to attach a light preview
+panel flush against its window; the item reads **Hide Finder Preview** while the
+panel is open, and the panel's × button, Escape or Command-W also close it. Drag
+its outer edge to resize. It shows the file name, kind, size and an Information
+section like Finder's preview pane. It follows selections, offers navigation for
+multiple files, and uses
 native read-only viewers for text, HTML, Markdown, JSON/plists, images, media and PDFs,
 with Quick Look for other formats. HTML scripts and networking default to off.
 Folders show a count and size; photos and videos

@@ -3,9 +3,14 @@ import Foundation
 enum FinderPreviewGeometry {
     static let defaultWidth: CGFloat = 360
     static let minimumWidth: CGFloat = 280
+    // Keeps tall previews from hiding details.
+    static let maximumPreviewAspect: CGFloat = 1.25
 
     enum Dock: Equatable {
         case right, left, inset
+
+        // The opposite edge stays pinned.
+        var resizesLeadingEdge: Bool { self != .right }
     }
 
     struct Placement: Equatable {
@@ -36,5 +41,20 @@ enum FinderPreviewGeometry {
         }
         return Placement(
             frame: CGRect(x: x, y: window.minY, width: resolved, height: window.height), dock: dock)
+    }
+
+    static func resizedWidth(_ placement: Placement, pointerDelta: CGFloat, window: CGRect, screen: CGRect) -> CGFloat {
+        let proposed = placement.frame.width + (placement.dock.resizesLeadingEdge ? -pointerDelta : pointerDelta)
+        let room: CGFloat
+        switch placement.dock {
+        case .right: room = screen.maxX - window.maxX
+        case .left: room = window.minX - screen.minX
+        case .inset: room = screen.width
+        }
+        return min(screen.width / 2, room, max(minimumWidth, proposed))
+    }
+
+    static func previewHeight(width: CGFloat, aspectRatio: CGFloat) -> CGFloat {
+        min(width / aspectRatio, width * maximumPreviewAspect)
     }
 }

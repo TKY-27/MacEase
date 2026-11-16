@@ -3,7 +3,6 @@ import ApplicationServices
 import Engine
 import MenuCatalog
 import SwiftUI
-import UniformTypeIdentifiers
 import os
 
 @MainActor
@@ -20,22 +19,33 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         didSet { state.generation = generation }
     }
     private var targetID: CGWindowID?
+    private var placement: FinderPreviewGeometry.Placement?
     private var needsSlide = true
     private var retryAfter = Date.distantPast
     private var observingTermination = false
+    var visibilityChanged: (() -> Void)?
 
     init(panels: PanelCoordinator) { self.panels = panels }
 
+    var isOpen: Bool { panel != nil }
+
     func toggle() {
-        if panel != nil, tracker == nil || tracker?.frontWindowMatchesTarget() == true {
-            close()
-        } else {
-            close()
-            open()
-        }
+        if isOpen { close() } else { open() }
     }
 
     func close() {
+        guard let panel else { return }
+        panel.delegate = nil
+        panel.dismiss()
+        stop()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        panel?.delegate = nil
+        stop()
+    }
+
+    private func stop() {
         generation &+= 1
         pollTimer?.invalidate()
         pollTimer = nil
@@ -44,19 +54,15 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         tracker?.stop()
         tracker = nil
         targetID = nil
-        panel?.delegate = nil
-        panel?.contentViewController = nil
-        panel?.contentView = nil
-        panel?.close()
+        placement = nil
         panel = nil
         state = FinderPreviewState()
         if observingTermination {
             NSWorkspace.shared.notificationCenter.removeObserver(self)
             observingTermination = false
         }
+        visibilityChanged?()
     }
-
-    func windowWillClose(_ notification: Notification) { close() }
 
     // Value of kAXTrustedCheckOptionPrompt, which isn't Sendable.
     private static let accessibilityPromptOption = "AXTrustedCheckOptionPrompt"
@@ -70,17 +76,19 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             logger.notice("Finder Preview requires Accessibility permission")
             state.notice = .accessibility
         }
-        let panel = FinderPreviewPanel(docked: trusted)
+        let content = NSHostingView(rootView: makeView())
+        content.sizingOptions = []
+        let panel = FinderPreviewPanel(content: content, docked: trusted)
         self.panel = panel
         panel.delegate = self
         panel.resizePreview = { [weak self] in self?.followWindow() }
-        installContent()
+        panel.closeRequested = { [weak self] in self?.close() }
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(applicationTerminated(_:)),
             name: NSWorkspace.didTerminateApplicationNotification, object: nil)
         observingTermination = true
+        visibilityChanged?()
         guard trusted else {
-            panel.center()
             panel.makeKeyAndOrderFront(nil)
             return
         }
@@ -98,8 +106,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             self.tracker = nil
             state.notice = .unavailable
             state.docked = false
-            panel.styleMask = [.titled, .closable]
-            panel.center()
+            panel.undock()
             panel.makeKeyAndOrderFront(nil)
             return
         }
@@ -107,6 +114,25 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             Task { @MainActor in self?.readSelection() }
         }
         readSelection(immediate: true)
+    }
+
+    private func makeView() -> FinderPreviewView {
+        FinderPreviewView(
+            state: state, close: { [weak self] in self?.close() },
+            retry: { [weak self] in
+                self?.close(); self?.open()
+            },
+            select: { [weak self] in self?.select($0) },
+            open: { [weak self] in self?.openFile($0) },
+            edit: { [weak self] in self?.editFile($0) },
+            resize: { [weak self] in self?.resize(by: $0) })
+    }
+
+    private func resize(by pointerDelta: CGFloat) {
+        guard let panel, let placement, let target = tracker?.target else { return }
+        panel.setPreviewWidth(
+            FinderPreviewGeometry.resizedWidth(
+                placement, pointerDelta: pointerDelta, window: target.frame, screen: target.screen))
     }
 
     @objc private func applicationTerminated(_ notification: Notification) {
@@ -126,8 +152,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         pollTimer?.invalidate()
         pollTimer = nil
         state.docked = false
-        panel?.styleMask = [.titled, .closable]
-        panel?.center()
+        placement = nil
+        panel?.undock()
         panel?.makeKeyAndOrderFront(nil)
     }
 
@@ -159,6 +185,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         let wasVisible = panel.isVisible
         let placement = FinderPreviewGeometry.placement(
             window: target.frame, screen: target.screen, width: panel.previewWidth)
+        self.placement = placement
         state.dock = placement.dock
         panel.dock(placement, above: target.windowID, animate: needsSlide)
         needsSlide = false
@@ -207,26 +234,20 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private func clearSelection() {
         state.urls = []
         state.selectedIndex = 0
-        state.isLoading = false
-        state.isFolder = false
-        state.folderSummary = nil
+        state.details = nil
         state.fileFailure = nil
-        installContent()
     }
 
     private func select(_ index: Int) {
         generation &+= 1
         metadataTask?.cancel()
         state.selectedIndex = index
-        state.isFolder = false
-        state.folderSummary = nil
+        state.details = nil
         state.fileFailure = nil
-        state.isLoading = state.selectedURL != nil
-        installContent()
         guard let url = state.selectedURL else { return }
         let requestedGeneration = generation
         metadataTask = Task { [weak self] in
-            let inspection = Task.detached(priority: .utility) { try PreviewFileDetails.read(url) }
+            let inspection = Task.detached(priority: .utility) { try await PreviewFileDetails.read(url) }
             do {
                 let details = try await withTaskCancellationHandler {
                     try await inspection.value
@@ -234,45 +255,13 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
                     inspection.cancel()
                 }
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
-                state.isLoading = false
-                state.kind = details.kind
-                state.isFolder = details.isFolder
-                state.folderSummary = details.summary
-                installContent()
+                state.details = details
             } catch is CancellationError {
             } catch {
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 logger.error("Preview file inspection failed: \(error.localizedDescription, privacy: .private)")
-                state.isLoading = false
                 state.fileFailure = String(localized: "This file could not be read.")
             }
-        }
-    }
-
-    private func installContent() {
-        let canEdit =
-            !state.isFolder
-            && state.selectedURL.map {
-                let kind = FileKind(fileURL: $0)
-                return kind == .image || kind == .video
-            } == true
-        let content = FinderPreviewView(
-            state: state, close: { [weak self] in self?.close() },
-            retry: { [weak self] in
-                self?.close(); self?.open()
-            },
-            select: { [weak self] in self?.select($0) },
-            open: { [weak self] in self?.openFile($0) },
-            edit: { [weak self] in self?.editFile($0) }, canEdit: canEdit,
-            resize: { [weak self] delta in
-                guard let self, let panel else { return }
-                let adjustment = state.dock == .left ? delta : -delta
-                panel.setPreviewWidth(panel.previewWidth + adjustment)
-            })
-        if let hosting = panel?.contentViewController as? NSHostingController<FinderPreviewView> {
-            hosting.rootView = content
-        } else {
-            panel?.contentViewController = NSHostingController(rootView: content)
         }
     }
 
@@ -286,49 +275,5 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private func editFile(_ url: URL) {
         let operation: OperationID = FileKind(fileURL: url) == .video ? .videoEdit : .imageEdit
         panels.present(MenuEntry(op: operation, preset: nil, path: []), inputs: [url])
-    }
-}
-
-private struct PreviewFileDetails: Sendable {
-    let isFolder: Bool
-    let summary: String?
-    var kind: PreviewKind = .quickLook
-    private static let entryLimit = 100_000
-    private static let timeLimit: TimeInterval = 2
-
-    static func read(_ url: URL) throws -> Self {
-        let attributes = try url.resourceValues(forKeys: [
-            .isDirectoryKey, .isRegularFileKey, .isPackageKey, .contentTypeKey,
-        ])
-        guard attributes.isDirectory == true else {
-            guard attributes.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
-            return Self(
-                isFolder: false, summary: nil,
-                kind: PreviewKind.resolve(type: attributes.contentType, extension: url.pathExtension))
-        }
-        if attributes.isPackage == true { return Self(isFolder: false, summary: nil) }
-        var enumerationFailure: Error?
-        guard
-            let enumerator = FileManager.default.enumerator(
-                at: url, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-                errorHandler: { _, error in
-                    enumerationFailure = error; return false
-                })
-        else { throw CocoaError(.fileReadUnknown) }
-        let deadline = Date().addingTimeInterval(timeLimit)
-        var count = 0
-        var scanned = 0
-        var bytes: Int64 = 0
-        while let child = enumerator.nextObject() as? URL {
-            try Task.checkCancellation()
-            scanned += 1
-            guard scanned <= entryLimit, Date() < deadline else { throw CocoaError(.fileReadTooLarge) }
-            if enumerator.level == 1 { count += 1 }
-            let values = try child.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            if values.isRegularFile == true, let size = values.fileSize { bytes += Int64(size) }
-        }
-        if let enumerationFailure { throw enumerationFailure }
-        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return Self(isFolder: true, summary: String(localized: "\(count) items · \(size)"))
     }
 }

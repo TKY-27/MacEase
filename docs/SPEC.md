@@ -115,7 +115,7 @@ Menu file content:
   "hostAvailable": true,
   "moreTitle": "More",
   "updateTitle": "Update Available (v3.1.0)",
-  "previewTitle": "Finder Preview",
+  "previewTitle": "Show Finder Preview",
   "entries": [
     { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"], "separatorBefore": false }
   ],
@@ -185,8 +185,8 @@ exactly one token matching the current menu file and an available host. The
 host shows the window only while a newer release is known. It needs no catalog
 version, entry index or selection, and never starts jobs or writes history.
 
-`macease://preview?t=<token>` toggles Finder Preview for the front Finder
-window. Like Update, it requires exactly one matching token and an available
+`macease://preview?t=<token>` opens Finder Preview when it is closed and closes
+it when it is open. Like Update, it requires exactly one matching token and an available
 host, without a catalog version, selection payload, job or history record.
 
 **Threat model.** The token stops web pages and documents from triggering
@@ -663,11 +663,13 @@ dynamic. Its cached, non-template SF Symbol uses system blue; Finder Sync does
 not preserve attributed title colors. It opens the authenticated Update route,
 independently of the selection. Unavailable hosts never show this item.
 
-**Finder Preview** (Japanese: **Finderプレビュー**) follows Update when present,
-otherwise it is first, before the operations. One separator divides these host
-commands from operations. Preview is available for every selection, including
-unknown types and folder backgrounds, whenever the menu advertises it and the
-host is available. Repeating it for the tracked Finder window closes the panel.
+**Show Finder Preview** (Japanese: **Finderプレビューを表示**) follows Update when
+present, otherwise it is first, before the operations. While the panel is open
+the host rewrites menu.json so the item reads **Hide Finder Preview** (Japanese:
+**Finderプレビューを閉じる**); Finder Sync does not reliably show checkmarks, so
+the title states the action. One separator divides these host commands from
+operations. The item is available for every selection, including unknown types
+and folder backgrounds, whenever the menu advertises it and the host is available.
 
 Positions never adapt to usage. Pruning a primary never promotes another group
 from More. Settings > Finder Menu can pin or unpin visible groups through
@@ -2817,15 +2819,20 @@ after confirming they have no active work.
 ### 25.1 Finder Preview
 
 Finder Preview is a host-owned panel, not a Finder Quick Look extension.
-One panel follows the front Finder window as focus changes. Repeating the menu
-command closes it when the focused AX window is the tracked AX element;
-otherwise the command opens it for the newly focused window. Closing the panel
+One panel follows the front Finder window as focus changes. The menu command
+toggles it: an open panel closes, otherwise it opens. Opening and closing rewrite
+menu.json with the matching Show/Hide title. Closing the panel
 or quitting Finder removes observers and timers, cancels file inspection, and
 invalidates pending selection results. An already executing Apple event finishes
 or reaches its two-second Apple event timeout; its result cannot reopen the panel.
 
 The docked panel is borderless and nonactivating, can become key but not main,
 uses normal window level, and remains visible while its Finder window is visible.
+It sits flush against the Finder window with the same top and height. Its
+content is clipped to Finder's 16-point continuous corner radius on the outer
+corners only, keeps the system window shadow, and draws a one-pixel separator on
+the joined edge. A header matching Finder's 52-point toolbar holds the title and
+an always-visible close (×) button; Escape and Command-W close a key panel.
 It orders directly above the matched Finder CGWindowID, including when another
 application is frontmost. AX focus, main-window, move, resize, destroy and
 minimize/deminimize notifications coalesce; workspace events and a half-second
@@ -2840,10 +2847,14 @@ screen's visible frame for docking: right edge first, left if right does not fit
 otherwise inset over the window's right side and clamp horizontally to the screen.
 The panel keeps the Finder window's height and top. Width defaults to 360 points,
 is clamped to 280 through half the usable screen width, and persists in
-UserDefaults after dragging the inner edge. On an unusually narrow screen,
-the half-screen cap takes precedence. Finder itself is never resized. Opening
-slides 20 points over 0.16 seconds unless Reduce Motion is enabled; following
-uses immediate frame updates.
+UserDefaults. The resize edge is the edge that moves when the width grows: the
+outer edge for right and left docking and the leading edge for inset docking,
+so it follows the pointer. Dragging never exceeds the room on the current side.
+The edge shows a resize cursor and a small grip on hover. On an unusually narrow
+screen, the half-screen cap takes precedence. Finder itself is never resized.
+Opening fades in while sliding 20 points out of Finder over 0.16 seconds with a
+strong ease-out; closing reverses it over 0.12 seconds. Reduce Motion keeps only
+the fade. Following uses immediate frame updates.
 
 A single compiled NSAppleScript runs on a serial background queue with at most
 one request in flight. It reads the front-window ID and selection URL descriptors,
@@ -2853,8 +2864,19 @@ opening and focus changes request an immediate read. Window IDs and a selection
 generation reject stale results. Denied Automation stops polling until retry;
 other failures show an explanation and back off for two seconds.
 
-The sidebar-material view keeps its file icon, name, close control, multiple-file
-navigation, Open and Edit in MacEase for photos/videos. Viewer selection uses
+The panel uses the opaque system window background (white in light mode, its
+dark counterpart in dark mode) with 16-point margins. From top to bottom it shows
+the header, a viewer toolbar row with that viewer's controls, the preview, the
+file name (semibold), "kind · size", an Information section of label/value rows
+separated by hairlines (created, modified and dimensions, duration, pages, color
+profile, dynamic range or item count as relevant), and a bottom bar of
+icon-over-label buttons: Open, plus Edit in MacEase for photos and videos.
+Images, video, audio and folders scroll as one column; the preview height follows
+the content aspect ratio and panel width, capped at 1.25 times the width.
+Text, web, PDF and Quick Look previews fill the remaining height and start with
+Information collapsed. Multiple selections show "n of m" with previous/next
+buttons in the header. Empty selection, loading, failures and permission notices
+use a centered symbol and message. Viewer selection uses
 UTType conformance with extension support for Markdown, JSON, plists, YAML,
 TOML, CSV and logs. Unknown types retain QLPreviewView. Empty selections and
 bounded folder summaries retain their existing behavior.
@@ -2886,8 +2908,9 @@ Read-only specialized viewers:
 - JSON and plists offer Formatted/Source using engine formatters. Binary plists
   display formatted JSON only. Formatting errors remain visible; source bytes
   are never rewritten. Truncated textual sources open in Source mode.
-- Images fit initially, support pinch/scroll zoom and Fit/100% controls, and show
-  pixel dimensions, color profile, HDR presence and file size. ImageIO decodes
+- Images fit initially, support pinch zoom and Fit/100% controls, and stay
+  centered; scrolling pans a zoomed image and otherwise scrolls the panel.
+  Dimensions, color profile and dynamic range appear in Information. ImageIO decodes
   GIF/WebP/APNG frames sequentially; the viewer does not retain all frames.
 - Audio/video uses AVPlayerView inline controls, 0.5×–2× speed, supported video
   frame stepping, and A/B loop controls backed by a boundary observer. Audio
@@ -2906,20 +2929,25 @@ without following directory symlinks. Inspection is cancellable and limited to
 inspection reports failure rather than a partial total.
 
 Accessibility permission is requested on first opening without trust. Until it
-is granted, a centered titled panel explains the permission and links to
-Accessibility settings. Retry attaches after authorization. Automation denial
+is granted, a centered titled, resizable window (360 by 600 points, minimum 280
+by 420) explains the permission and links to Accessibility settings. Retry attaches after authorization. Automation denial
 (error -1743) keeps the panel docked and explains how to authorize Finder control,
 with an Automation settings button and Retry. Other tracking/selection/file
 failures are logged and shown explicitly. The host declares an English
 NSAppleEventsUsageDescription. The Finder extension remains sandboxed and never
 reads selected file contents.
 
-Full screen, Spaces, Finder tabs, visual seams, keyboard interaction and native
-Quick Look controls require real-host validation. The recorded spike establishes
-basic AX docking, relative ordering and Finder scripting, not those behaviors.
-No xcodebuild, swift test or native UI execution was performed for this unit.
+Full screen, Spaces, Finder tabs, live AX-driven docking and native Quick Look
+controls require real-host validation with a trusted build. The panel layout,
+docked frame flush against a real Finder window, outer-corner mask, hairline,
+toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-17: Redesign Finder Preview as a light, flush-docked panel with an
+  always-visible close button, Show/Hide menu titles, outer-edge resizing,
+  aspect-sized previews, Information rows and an icon action bar; fix the
+  undocked window collapsing to its content's ideal size (ADR 0067).
 
 - 2026-11-17: Extend Finder Preview with read-only text, web, structured-document,
   image, media and PDF viewers, bounded text decoding and opt-in HTML permissions
