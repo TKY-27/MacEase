@@ -423,7 +423,10 @@ received bytes, processed media time or PDF pages. Searches and work with unknow
 totals show the stage name and an indeterminate bar. Verification and saving remain
 visible until the output is committed.
 
-Activity also shows elapsed time and per-file results.
+Activity also shows elapsed time and per-file results. Successes keep a success
+symbol even when output differences need explaining; expand **1 note** or
+**{n} notes** for those secondary notes. Failures show the cause and next step.
+Expand **Details** to copy available technical diagnostics when reporting an error.
 **Compare…** opens successful still-image compression or conversion results
 beside their originals, with synchronized zoom and position, **Fit**, **100%**,
 file sizes, dimensions and disclosed palette or resolution reductions.
@@ -452,10 +455,11 @@ mean compression failed; the verified output size determines whether it fits.
 <img src="docs/images/activity-run-en.png" width="420" alt="The MacEase Activity window compressing Long Trip.mov, with a progress bar and a stop button"><br>
 <img src="docs/images/activity-done-en.png" width="420" alt="The MacEase Activity window after compressing, reading Done, with Undo and Show in Finder buttons">
 
-With default settings, clean successes close automatically. Warnings, skipped
+With default settings, clean successes close automatically. Successes with notes, skipped
 files, and failures remain when Activity is visible. A completion banner
 appears when the result is not already retained there, if notifications are
-enabled. Use **Show in Finder** or **Undo** where available. Recent batches
+enabled. Successful banners include only the summary and any note count, without
+note text or raw diagnostics. Use **Show in Finder** or **Undo** where available. Recent batches
 also appear in the menu bar with available actions such as **Undo** and
 **Show in Finder**. HatchZip extraction has no Undo. Available updates show a
 menu bar indicator and download action, with a notification once per day.

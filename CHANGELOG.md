@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Present successful Activity results with a success symbol and collapsible notes.
+  Completion notifications include note counts instead of note text. Failure
+  messages explain the cause and next step, with technical diagnostics available
+  in Activity Details. Remove routine original-retention boilerplate.
+
 - Use fixed primary Finder menu groups and a final More submenu, with per-group
   Show at Top Level settings independent of visibility. Include Documents and
   Property Lists in Finder Menu settings. Keep original request indices.

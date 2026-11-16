@@ -168,26 +168,36 @@ private struct ActivityRow: Identifiable {
     var result: ActivityResult?
 }
 
-private struct ActivityProblem {
+struct ActivityProblem {
     let message: String
     let isFailure: Bool
+    var technicalDetail: String?
+
+    init(message: String, isFailure: Bool) {
+        self.message = message
+        self.isFailure = isFailure
+    }
+
+    init(_ error: EngineError, file: String) {
+        message = UserMessages.describeResult(error, file: file)
+        isFailure = error != .cancelled
+        technicalDetail = UserMessages.technicalDetail(error)
+    }
 }
 
-private struct ActivityWarning {
+struct ActivityWarning {
     let message: String
     let file: String
     var count: Int
 
-    var summary: ActivityProblem {
-        let text =
-            count == 1
+    var summary: String {
+        count == 1
             ? String(localized: "“\(file)”: \(message)", comment: "File warning in batch results")
             : String(localized: "\(count) files: \(message)", comment: "Grouped file warning in Activity")
-        return ActivityProblem(message: text, isFailure: false)
     }
 }
 
-private struct ActivityResult {
+struct ActivityResult {
     enum Status {
         case done
         case problems
@@ -233,7 +243,7 @@ private struct ActivityResult {
                 break
             case .failed(let error):
                 failed += 1
-                problems.append(ActivityProblem(message: UserMessages.describe(error, file: file), isFailure: true))
+                problems.append(ActivityProblem(error, file: file))
             }
         }
         if outcome.historyFailed {
@@ -256,8 +266,14 @@ private struct ActivityResult {
         hasHistory = outcome.record != nil
     }
 
-    var notices: [ActivityProblem] { problems + warnings.map(\.summary) }
+    var noteCount: Int { warnings.reduce(0) { $0 + $1.count } }
     var hasCondensedWarnings: Bool { warnings.contains { $0.count > 1 } }
+    var isFailure: Bool { problems.contains(where: \.isFailure) }
+
+    var systemImage: String {
+        if isFailure { return "xmark.octagon.fill" }
+        return status == .done ? "checkmark.circle.fill" : "info.circle"
+    }
 
     var statusText: String {
         switch status {
@@ -280,6 +296,27 @@ private struct ActivityResult {
                     comment: "Activity status"
                 ).characters)
         }
+    }
+}
+
+private struct ActivityProblemView: View {
+    let problem: ActivityProblem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(problem.message, systemImage: problem.isFailure ? "xmark.octagon.fill" : "info.circle")
+                .foregroundStyle(problem.isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail = problem.technicalDetail {
+                DisclosureGroup(String(localized: "Details")) {
+                    Text(verbatim: detail)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
     }
 }
 
@@ -424,18 +461,35 @@ private struct ActivityRowView: View {
 
     @ViewBuilder private func fileStatus(_ outcome: ItemOutcome, file: String) -> some View {
         switch outcome {
-        case .succeeded:
+        case .succeeded(_, let warnings):
             if [OperationID.imageCompress, .videoCompress, .audioCompress, .pdfCompress].contains(row.operation) {
-                Text("Compression complete.").foregroundStyle(.secondary)
+                Label("Compression complete.", systemImage: "checkmark.circle.fill")
             } else if [OperationID.imageConvert, .videoConvert, .audioConvert].contains(row.operation) {
-                Text("Conversion complete.").foregroundStyle(.secondary)
+                Label("Conversion complete.", systemImage: "checkmark.circle.fill")
             } else {
-                Text("Done.").foregroundStyle(.secondary)
+                Label("Done.", systemImage: "checkmark.circle.fill")
             }
+            let messages = warnings.map { UserMessages.describe($0) }
+            let unique = messages.enumerated().filter { index, message in !messages.prefix(index).contains(message) }
+                .map(\.element)
+            notes(unique, count: unique.count)
         case .skipped(let reason): Text(UserMessages.describe(reason, file: file)).foregroundStyle(.secondary)
         case .failed(let error):
-            Text(UserMessages.describe(error, file: file))
-                .foregroundStyle(error == .cancelled ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
+            ActivityProblemView(problem: ActivityProblem(error, file: file))
+        }
+    }
+
+    @ViewBuilder private func notes(_ messages: [String], count: Int) -> some View {
+        if count > 0 {
+            DisclosureGroup {
+                ForEach(Array(messages.enumerated()), id: \.offset) { _, message in
+                    Text(message).fixedSize(horizontal: false, vertical: true)
+                }
+            } label: {
+                Label(UserMessages.noteCount(count), systemImage: "info.circle")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -491,9 +545,9 @@ private struct ActivityRowView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: Self.lineSpacing) {
                 title
-                Text(result.statusText)
+                Label(result.statusText, systemImage: result.systemImage)
                     .font(.subheadline)
-                    .foregroundStyle(result.status == .failed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(result.isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
             }
             .accessibilityElement(children: .combine)
             Spacer()
@@ -505,16 +559,19 @@ private struct ActivityRowView: View {
             .help(String(localized: "Dismiss", comment: "Remove a completed Activity result"))
             .accessibilityLabel(Text("Dismiss", comment: "Remove a completed Activity result"))
         }
-        ForEach(Array(result.notices.prefix(Self.visibleNotices).enumerated()), id: \.offset) { _, problem in
-            Label {
-                Text(problem.message)
-                    .fixedSize(horizontal: false, vertical: true)
-            } icon: {
-                Image(systemName: problem.isFailure ? "exclamationmark.triangle.fill" : "info.circle")
-                    .foregroundStyle(problem.isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+        ForEach(Array(result.problems.prefix(Self.visibleNotices).enumerated()), id: \.offset) { _, problem in
+            ActivityProblemView(problem: problem)
+        }
+        if result.problems.count > Self.visibleNotices {
+            DisclosureGroup(String(localized: "More Results")) {
+                ForEach(Array(result.problems.dropFirst(Self.visibleNotices).enumerated()), id: \.offset) {
+                    _, problem in
+                    ActivityProblemView(problem: problem)
+                }
             }
             .font(.callout)
         }
+        notes(result.warnings.map(\.summary), count: result.noteCount)
         if let session = jobs.sessions[row.batchID] {
             DisclosureGroup(String(localized: "File Results")) {
                 ForEach(session.outcome.outcomes.indices, id: \.self) { index in
@@ -553,7 +610,7 @@ private struct ActivityRowView: View {
                 Button(String(localized: "Retry Failed…")) { jobs.retry(row.batchID) }
                     .disabled(!jobs.canRetry(row.batchID))
             }
-            if result.notices.count > Self.visibleNotices || result.hasCondensedWarnings {
+            if result.problems.count > Self.visibleNotices || result.hasCondensedWarnings {
                 Button(String(localized: "Show All…", comment: "Activity button listing every result detail")) {
                     jobs.presentReport?(result.details, row.operation)
                 }

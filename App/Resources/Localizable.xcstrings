@@ -1,6 +1,77 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Couldn’t process “%@”: %@. Check the input and settings, then retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” を処理できませんでした：%2$@。入力と設定を確認してから再試行してください。"
+          }
+        }
+      }
+    },
+    "More Results": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他の結果"
+          }
+        }
+      }
+    },
+    "Couldn’t protect “%@”: there is not enough disk space. Free up space, then retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” を保護できませんでした：空き容量が足りません。容量を確保してから再試行してください。"
+          }
+        }
+      }
+    },
+    "“%@” is protected by a password.": {
+      "comment": "Archive extraction needs a password; the Password panel opens next",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” はパスワードで保護されています。"
+          }
+        }
+      }
+    },
+    "%lld notes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモ %lld 件"
+          }
+        }
+      }
+    },
+    "1 note": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモ 1 件"
+          }
+        }
+      }
+    },
+    "Details": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細"
+          }
+        }
+      }
+    },
     "More": {
       "localizations": {
         "en": {
@@ -149,12 +220,12 @@
         }
       }
     },
-    "%@ metadata was not preserved because this output cannot store it. The original was kept.": {
+    "Metadata not kept: this format cannot store %@.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この出力形式では保存できないため、%@ のメタデータは保持されませんでした。元のファイルはそのまま残しています。"
+            "value": "この形式では %@ を保存できないため、メタデータを省略しました。"
           }
         }
       }
@@ -1157,12 +1228,12 @@
         }
       }
     },
-    "Characters that Shift_JIS cannot represent were replaced using the saved policy.": {
+    "Characters unsupported by Shift_JIS replaced using the saved policy.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shift_JIS で表せない文字を、設定した方法で置き換えました。"
+            "value": "Shift_JIS で表せない文字を設定に従って置き換えました。"
           }
         }
       }
@@ -1803,12 +1874,12 @@
         }
       }
     },
-    "Document conversion keeps basic text and formatting. Original pagination, fields, and revisions may change; TXT omits formatting and attachments.": {
+    "Basic text and formatting kept; pagination, fields and revisions may change. TXT omits formatting and attachments.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "書類の変換では基本的なテキストと書式を保持します。元のページ割り、フィールド、変更履歴は変わることがあります。TXT には書式と添付ファイルは含まれません。"
+            "value": "基本的な文字と書式のみ保持します。改ページ、フィールド、変更履歴は変わる場合があります。TXT では書式と添付を省略します。"
           }
         }
       }
@@ -2619,12 +2690,12 @@
         }
       }
     },
-    "HDR was tone-mapped to SDR because this output cannot preserve it. The original was kept.": {
+    "HDR tone-mapped to SDR: this output cannot preserve HDR.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この出力形式では HDR を保持できないため、SDR にトーンマッピングしました。元のファイルはそのまま残しています。"
+            "value": "HDR を保持できない出力のため、SDR にトーンマッピングしました。"
           }
         }
       }
@@ -2640,12 +2711,12 @@
         }
       }
     },
-    "HTML conversion disables scripts and external resources. PDF uses one continuous page; TXT keeps rendered text only.": {
+    "Scripts and external resources omitted. PDF uses one continuous page; TXT keeps rendered text only.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTML の変換ではスクリプトと外部リソースを無効にします。PDF は 1 枚の連続したページになり、TXT には表示されるテキストだけが含まれます。"
+            "value": "スクリプトと外部リソースを省略します。PDF は連続した 1 ページ、TXT は表示された文字のみです。"
           }
         }
       }
@@ -3195,12 +3266,12 @@
         }
       }
     },
-    "Loudness stopped at %@ LUFS to keep peaks below −1 dBTP.": {
+    "Loudness limited to %@ LUFS to keep peaks below −1 dBTP.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ピークを −1 dBTP 以下に保つため、ラウドネスは %@ LUFS で止めました。"
+            "value": "ピークを −1 dBTP 未満に保つため、ラウドネスを %@ LUFS に制限しました。"
           }
         }
       }
@@ -3374,12 +3445,12 @@
         }
       }
     },
-    "Markdown conversion leaves out raw HTML, including scripts, and unsafe links.": {
+    "Raw HTML, scripts and unsafe links omitted.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Markdown の変換では、スクリプトなどの生 HTML と安全でないリンクを除外します。"
+            "value": "生の HTML、スクリプト、安全でないリンクを省略しました。"
           }
         }
       }
@@ -3785,12 +3856,12 @@
         }
       }
     },
-    "No pages were selected from “%@”.": {
+    "Couldn’t process “%@”: no pages were selected. Select at least one page.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” のページが選択されていません。"
+            "value": "“%@” を処理できませんでした：ページが選択されていません。1 ページ以上選んでください。"
           }
         }
       }
@@ -4109,12 +4180,12 @@
         }
       }
     },
-    "PSD conversion uses the stored composite image. Layers are not preserved; the original was kept.": {
+    "PSD layers flattened using the stored composite image.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PSD の変換では保存されている統合画像を使用します。レイヤーは保持されません。元のファイルはそのまま残しています。"
+            "value": "PSD の保存済み合成画像を使用し、レイヤーを統合しました。"
           }
         }
       }
@@ -5269,12 +5340,12 @@
         }
       }
     },
-    "Something went wrong with “%@”. Details are in the log.": {
+    "Couldn’t process “%@”: an unexpected error occurred. Retry, or report the error with its details.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の処理中に問題が発生しました。詳細はログを確認してください。"
+            "value": "“%@” を処理できませんでした：予期しないエラーが発生しました。再試行するか、詳細を添えて報告してください。"
           }
         }
       }
@@ -5464,12 +5535,12 @@
         }
       }
     },
-    "Structured conversion preserves supported values, not comments, key order, or source formatting.": {
+    "Supported values kept; comments, key order and source formatting omitted.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構造化データの変換では対応する値を保持しますが、コメント、キーの順序、元の書式は保持しません。"
+            "value": "対応する値を保持し、コメント、キーの順序、元の書式は省略します。"
           }
         }
       }
@@ -5637,12 +5708,12 @@
         }
       }
     },
-    "Text recognition is unavailable on this Mac.": {
+    "Couldn’t recognize text: recognition is unavailable on this Mac. Try another text recognition app.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac ではテキスト認識を利用できません。"
+            "value": "文字を認識できませんでした：この Mac では文字認識を利用できません。別の文字認識アプリを試してください。"
           }
         }
       }
@@ -5778,12 +5849,12 @@
         }
       }
     },
-    "The original could not be moved to the Trash, so both files were kept.": {
+    "Both files kept: the original could not be moved to the Trash.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元のファイルをゴミ箱に移動できなかったため、両方のファイルを残しました。"
+            "value": "元のファイルをゴミ箱に移せなかったため、両方のファイルを保持しました。"
           }
         }
       }
@@ -5809,44 +5880,44 @@
         }
       }
     },
-    "The output does not contain Dolby Vision dynamic metadata.": {
+    "Dolby Vision dynamic metadata omitted.": {
       "comment": "Discloses Dolby Vision metadata loss",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力には Dolby Vision の動的メタデータが含まれていません。"
+            "value": "Dolby Vision の動的メタデータを省略しました。"
           }
         }
       }
     },
-    "The output format cannot hold the original metadata.": {
+    "Metadata not kept: this output format cannot store it.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力形式は元のメタデータを保持できません。"
+            "value": "この出力形式では保存できないため、メタデータを省略しました。"
           }
         }
       }
     },
-    "The files were extracted, but some folders kept default permissions and modified times.": {
+    "Some extracted folders use default permissions and modified times.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルは展開されましたが、一部のフォルダのアクセス権と更新日時は既定値のままです。"
+            "value": "展開した一部のフォルダは既定のアクセス権と更新日時になっています。"
           }
         }
       }
     },
-    "The password for “%@” is incorrect.": {
+    "Couldn’t extract “%@”: the password is incorrect. Check the password, then retry.": {
       "comment": "Archive extraction failed because the entered password is wrong",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” のパスワードが正しくありません。"
+            "value": "“%@” を展開できませんでした：パスワードが違います。パスワードを確認してから再試行してください。"
           }
         }
       }
@@ -5892,13 +5963,13 @@
         }
       }
     },
-    "The result was saved with the original name because its capitalization could not be changed.": {
+    "Filename capitalization unchanged: renaming failed after saving.": {
       "comment": "Replacement succeeded before renaming failed",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "大文字と小文字を変更できなかったため、結果は元の名前のまま保存しました。"
+            "value": "保存後の名前変更に失敗したため、ファイル名の大文字・小文字は変更されていません。"
           }
         }
       }
@@ -5914,22 +5985,22 @@
         }
       }
     },
-    "The source signals HDR, but its capture or expansion origin is unknown.": {
+    "Source signals HDR; capture or expansion origin unknown.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ソースは HDR を示していますが、撮影由来か拡張由来かは不明です。"
+            "value": "元のファイルは HDR を示していますが、撮影時の HDR か拡張されたものかは不明です。"
           }
         }
       }
     },
-    "The text encoding of “%@” could not be detected.": {
+    "Couldn’t read “%@”: its text encoding is unknown. Save a UTF-8 copy, then retry.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の文字コードを判別できませんでした。"
+            "value": "“%@” を読み込めませんでした：文字コードを判別できません。UTF-8 のコピーを保存してから再試行してください。"
           }
         }
       }
@@ -5954,12 +6025,12 @@
         }
       }
     },
-    "The volume has no Trash, so the original was kept next to the result.": {
+    "Saved as a new file: this volume has no Trash.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ボリュームにゴミ箱がないため、元のファイルは結果の隣に残しました。"
+            "value": "このボリュームにはゴミ箱がないため、新しいファイルとして保存しました。"
           }
         }
       }
@@ -5974,12 +6045,12 @@
         }
       }
     },
-    "This Mac has no hardware encoder for this format.": {
+    "Couldn’t encode: this Mac has no hardware encoder for this format. Choose another output format.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac にはこの形式のハードウェアエンコーダがありません。"
+            "value": "エンコードできませんでした：この Mac には、この形式のハードウェアエンコーダがありません。別の出力形式を選んでください。"
           }
         }
       }
@@ -6027,12 +6098,12 @@
         }
       }
     },
-    "This output cannot preserve %@. The original was kept.": {
+    "Not kept: this output cannot preserve %@.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この出力形式では%@を保持できません。元のファイルはそのまま残しています。"
+            "value": "この出力では保持できないため、%@を省略しました。"
           }
         }
       }
@@ -6130,22 +6201,22 @@
         }
       }
     },
-    "Transparency was flattened onto the configured background color. The original was kept.": {
+    "Transparency flattened onto the configured background color.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明部分を設定した背景色で塗りつぶしました。元のファイルはそのまま残しています。"
+            "value": "透明部分を設定した背景色で塗りつぶしました。"
           }
         }
       }
     },
-    "Transparency was flattened onto the video background color. The original was kept.": {
+    "Transparency flattened onto the video background color.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "透明部分を動画の背景色で塗りつぶしました。元のファイルはそのまま残しています。"
+            "value": "透明部分を動画の背景色で塗りつぶしました。"
           }
         }
       }
@@ -11438,84 +11509,84 @@
         }
       }
     },
-    "“%@” cannot get under the target size. The smallest result was %@.": {
+    "Couldn’t compress “%@” below the target: the smallest result was %@. Choose a larger target size.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を目標サイズ以下にできませんでした。最小の結果は %2$@ でした。"
+            "value": "“%1$@” を目標容量以下に圧縮できませんでした：最小の結果は %2$@ でした。目標容量を大きくしてください。"
           }
         }
       }
     },
-    "“%@” cannot preserve transparency in this output. Choose Save as New File to flatten onto the video background color. The original was kept.": {
+    "“%@” cannot preserve transparency in this output. Choose Save as New File to flatten onto the video background color.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この出力形式では “%@” の透明部分を保持できません。「新しいファイルとして保存」を選ぶと、動画の背景色で透明部分を塗りつぶします。元のファイルはそのまま残しています。"
+            "value": "この出力形式では “%@” の透明部分を保持できません。「新しいファイルとして保存」を選ぶと、動画の背景色で透明部分を塗りつぶします。"
           }
         }
       }
     },
-    "“%@” cannot replace the original because its audio metadata cannot be preserved. Choose Save as New File. The original was kept.": {
+    "“%@” cannot replace the original because its audio metadata cannot be preserved. Choose Save as New File.": {
       "comment": "Refuses audio metadata loss on replacement",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音声のメタデータを保持できないため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+            "value": "音声のメタデータを保持できないため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
     },
-    "“%@” cannot replace the original because the output would lose %@ metadata. Choose Save as New File. The original was kept.": {
+    "“%@” cannot replace the original because the output would lose %@ metadata. Choose Save as New File.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると %2$@ のメタデータが失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+            "value": "出力すると %2$@ のメタデータが失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
     },
-    "“%@” cannot replace the original because the output would lose %@. Choose Save as New File. The original was kept.": {
+    "“%@” cannot replace the original because the output would lose %@. Choose Save as New File.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると%2$@が失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+            "value": "出力すると%2$@が失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
     },
-    "“%@” cannot replace the original because the output would lose Dolby Vision dynamic metadata. Choose Save as New File. The original was kept.": {
+    "“%@” cannot replace the original because the output would lose Dolby Vision dynamic metadata. Choose Save as New File.": {
       "comment": "Refuses Dolby Vision metadata loss",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると Dolby Vision の動的メタデータが失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。元のファイルはそのまま残しています。"
+            "value": "出力すると Dolby Vision の動的メタデータが失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
     },
-    "“%@” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR. The original was kept.": {
+    "“%@” cannot replace the original because the output would lose HDR. Choose Save as New File or Convert > SDR to tone-map it to SDR.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると HDR が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」または「変換 > SDR」を選ぶと、SDR にトーンマッピングします。元のファイルはそのまま残しています。"
+            "value": "出力すると HDR が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」または「変換 > SDR」を選ぶと、SDR にトーンマッピングします。"
           }
         }
       }
     },
-    "“%@” cannot replace the original because the output would lose transparency. Choose Save as New File to flatten onto the configured background color. The original was kept.": {
+    "“%@” cannot replace the original because the output would lose transparency. Choose Save as New File to flatten onto the configured background color.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると透明部分が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選ぶと、設定した背景色で透明部分を塗りつぶします。元のファイルはそのまま残しています。"
+            "value": "出力すると透明部分が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選ぶと、設定した背景色で透明部分を塗りつぶします。"
           }
         }
       }
@@ -11541,122 +11612,122 @@
         }
       }
     },
-    "“%@” contains chained Ogg streams, which MacEase does not support. The original was kept.": {
+    "Couldn’t read “%@”: chained Ogg streams are unsupported. Split the streams in another app before retrying.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” には連結された Ogg ストリームが含まれていますが、MacEase は対応していません。元のファイルはそのまま残しています。"
+            "value": "“%@” を読み込めませんでした：連結された Ogg ストリームに対応していません。別のアプリでストリームを分割してから再試行してください。"
           }
         }
       }
     },
-    "“%@” contains non-finite audio samples and could not be decoded.": {
+    "Couldn’t read “%@”: its audio contains invalid samples. Export a new copy in another audio app.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” には数値として無効な音声サンプルが含まれているため、デコードできませんでした。"
+            "value": "“%@” を読み込めませんでした：無効な音声サンプルが含まれています。別の音声アプリで新しく書き出してください。"
           }
         }
       }
     },
-    "“%@” contains streams or chapters that this operation cannot preserve. The original was kept.": {
+    "Couldn’t process “%@”: some streams or chapters cannot be preserved. Export a compatible copy in another app.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” には、この操作で保持できないストリームまたはチャプタが含まれています。元のファイルはそのまま残しています。"
+            "value": "“%@” を処理できませんでした：保持できないストリームやチャプタがあります。別のアプリで対応するコピーを書き出してください。"
           }
         }
       }
     },
-    "“%@” could not be converted because its animation loop count cannot be preserved. The original was kept.": {
+    "Couldn’t convert “%@”: its animation loop count cannot be preserved. Choose another animation format.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アニメーションの繰り返し回数を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+            "value": "“%@” を変換できませんでした：アニメーションの繰り返し回数を保持できません。別のアニメーション形式を選んでください。"
           }
         }
       }
     },
-    "“%@” could not be converted because the output cannot preserve every frame or page. The original was kept.": {
+    "Couldn’t convert “%@”: this format cannot preserve every frame or page. Choose a format that supports the full sequence.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力形式ではすべてのフレームまたはページを保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+            "value": "“%@” を変換できませんでした：すべてのフレームまたはページを保持できません。全体を保持できる形式を選んでください。"
           }
         }
       }
     },
-    "“%@” could not be converted because the output cannot preserve its audio channel layout. The original was kept.": {
+    "Couldn’t convert “%@”: this format cannot preserve its audio channel layout. Choose another output format.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力形式で音声のチャンネル構成を保持できないため、“%@” を変換できませんでした。元のファイルはそのまま残しています。"
+            "value": "“%@” を変換できませんでした：この形式では音声のチャンネル構成を保持できません。別の出力形式を選んでください。"
           }
         }
       }
     },
-    "“%@” could not be converted.": {
+    "Couldn’t convert “%@”: encoding failed. Try another output format or different settings.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を変換できませんでした。"
+            "value": "“%@” を変換できませんでした：エンコードに失敗しました。出力形式または設定を変更してください。"
           }
         }
       }
     },
-    "“%@” could not be edited because its HDR gain map cannot be preserved. The original was kept.": {
+    "Couldn’t edit “%@”: its HDR gain map cannot be preserved. Convert a copy to SDR before editing.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HDR ゲインマップを保持できないため、“%@” を編集できませんでした。元のファイルはそのまま残しています。"
+            "value": "“%@” を編集できませんでした：HDR ゲインマップを保持できません。コピーを SDR に変換してから編集してください。"
           }
         }
       }
     },
-    "“%@” could not be processed: %@.": {
+    "Couldn’t process “%@”: the input or settings could not be accepted. Check them and retry.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を処理できませんでした: %2$@。"
+            "value": "“%@” を処理できませんでした：入力または設定を受け付けられませんでした。内容を確認してから再試行してください。"
           }
         }
       }
     },
-    "“%@” could not be read.": {
+    "Couldn’t read “%@”: decoding failed. Check that the file opens in another app, then retry.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を読み込めませんでした。"
+            "value": "“%@” を読み込めませんでした：デコードに失敗しました。別のアプリで開けるか確認してから再試行してください。"
           }
         }
       }
     },
-    "“%@” could not be saved.": {
+    "Couldn’t save “%@”: saving failed. Check free disk space and folder access, then retry.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を保存できませんでした。"
+            "value": "“%@” を保存できませんでした：保存処理に失敗しました。空き容量とフォルダへのアクセス権を確認してから再試行してください。"
           }
         }
       }
     },
-    "“%@” did not produce a verified SDR output. The original was kept.": {
+    "Couldn’t convert “%@” to SDR: output verification failed. Try another output format.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” から検証済みの SDR 出力を作成できませんでした。元のファイルはそのまま残しました。"
+            "value": "“%@” を SDR に変換できませんでした：出力の検証に失敗しました。別の出力形式を試してください。"
           }
         }
       }
@@ -11712,23 +11783,23 @@
         }
       }
     },
-    "“%@” has characters on line %lld that Shift_JIS cannot represent.": {
+    "Couldn’t convert “%@”: line %lld contains characters unsupported by Shift_JIS. Use UTF-8 or allow character replacement.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” の %2$lld 行目に Shift_JIS で表現できない文字があります。"
+            "value": "“%1$@” を変換できませんでした：%2$lld 行に Shift_JIS で表せない文字があります。UTF-8 を選ぶか、文字の置き換えを許可してください。"
           }
         }
       }
     },
-    "“%@” has multiple audio or video tracks. Replacement supports at most one of each.": {
+    "Couldn’t process “%@”: only one audio and one video track are supported. Export a copy with those tracks in another app.": {
       "comment": "Replacement would discard additional tracks",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” には複数の音声トラックまたは映像トラックがあります。置き換えでは、それぞれ 1 つまでしか扱えません。"
+            "value": "“%@” を処理できませんでした：音声と映像は各 1 トラックのみ対応しています。別のアプリでその構成のコピーを書き出してください。"
           }
         }
       }
@@ -11773,33 +11844,33 @@
         }
       }
     },
-    "“%@” is empty.": {
+    "Couldn’t process “%@”: the file is empty. Choose a file with content.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は空です。"
+            "value": "“%@” を処理できませんでした：ファイルが空です。内容のあるファイルを選んでください。"
           }
         }
       }
     },
-    "“%@” is larger than %@.": {
+    "Couldn’t process “%@”: it exceeds %@. Choose a smaller file.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” は %2$@ を超えています。"
+            "value": "“%1$@” を処理できませんでした：%2$@ を超えています。小さいファイルを選んでください。"
           }
         }
       }
     },
-    "“%@” is longer than this preset allows (%@).": {
+    "Couldn’t process “%@”: it exceeds this preset’s duration limit (%@). Trim it or choose another preset.": {
       "comment": "Platform preset duration limit; the Trim panel opens next",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はこのプリセットの上限 (%@) より長いです。"
+            "value": "“%1$@” を処理できませんでした：プリセットの時間制限（%2$@）を超えています。短く切り取るか別のプリセットを選んでください。"
           }
         }
       }
@@ -11824,12 +11895,12 @@
         }
       }
     },
-    "“%@” is not valid JSON (line %lld, column %lld).": {
+    "Couldn’t read “%@”: invalid JSON at line %lld, column %lld. Correct the syntax, then retry.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” は正しい JSON ではありません (%2$lld 行、%3$lld 列)。"
+            "value": "“%1$@” を読み込めませんでした：%2$lld 行 %3$lld 列の JSON 構文が無効です。構文を修正してから再試行してください。"
           }
         }
       }
@@ -11844,43 +11915,43 @@
         }
       }
     },
-    "“%@” is password-protected.": {
+    "Couldn’t process “%@”: it is password-protected. Unlock a copy before retrying.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はパスワードで保護されています。"
+            "value": "“%@” を処理できませんでした：パスワードで保護されています。コピーの保護を解除してから再試行してください。"
           }
         }
       }
     },
-    "“%@” is protected by a password.": {
+    "Couldn’t extract “%@”: a password is required. Enter the archive password.": {
       "comment": "Archive extraction needs a password; the Password panel opens next",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はパスワードで保護されています。"
+            "value": "“%@” を展開できませんでした：パスワードが必要です。アーカイブのパスワードを入力してください。"
           }
         }
       }
     },
-    "“%@” is too small for an icon.": {
+    "Couldn’t create an icon from “%@”: the image is too small. Choose a larger image.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はアイコンにするには小さすぎます。"
+            "value": "“%@” からアイコンを作成できませんでした：画像が小さすぎます。大きい画像を選んでください。"
           }
         }
       }
     },
-    "“%@” must be an array of flat objects; %@ is not.": {
+    "Couldn’t convert “%@”: %@ is not a flat object array. Use an array of flat objects.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” はフラットなオブジェクトの配列である必要があります。%2$@ が該当しません。"
+            "value": "“%1$@” を変換できませんでした：%2$@ はフラットなオブジェクトの配列ではありません。フラットなオブジェクトの配列を使用してください。"
           }
         }
       }
@@ -11895,54 +11966,54 @@
         }
       }
     },
-    "“%@” uses %@, which MacEase does not support.": {
+    "Couldn’t convert “%@”: the codec is unsupported. Choose a supported format or convert it in another app.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” は MacEase が対応していない %2$@ を使用しています。"
+            "value": "“%@” を変換できませんでした：コーデックに対応していません。対応する形式を選ぶか、別のアプリで変換してください。"
           }
         }
       }
     },
-    "“%@” uses HDR content that cannot be safely converted to SDR. The original was kept.": {
+    "Couldn’t convert “%@” to SDR: this HDR content is unsupported. Export an SDR copy in another app.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” には安全に SDR に変換できない HDR コンテンツが含まれています。元のファイルはそのまま残しました。"
+            "value": "“%@” を SDR に変換できませんでした：この HDR コンテンツには対応していません。別のアプリで SDR のコピーを書き出してください。"
           }
         }
       }
     },
-    "“%@” uses an unsupported video display transform. The original was kept.": {
+    "Couldn’t edit “%@”: its video display transform is unsupported. Export a new copy in another video app.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は対応していない表示変換を使用しているため、元のファイルはそのまま残しています。"
+            "value": "“%@” を編集できませんでした：動画の表示変換に対応していません。別の動画アプリで新しく書き出してください。"
           }
         }
       }
     },
-    "“%@” was not extracted because it expands to more than %@.": {
+    "Couldn’t extract “%@”: expanded content exceeds %@. Use a smaller archive.": {
       "comment": "Archive extraction stopped by the zip bomb guard",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は展開後のサイズが %@ を超えるため、展開しませんでした。"
+            "value": "“%1$@” を展開できませんでした：展開後の容量が %2$@ を超えます。小さいアーカイブを使用してください。"
           }
         }
       }
     },
-    "“%@” was not extracted because the entry “%@” points outside its folder.": {
+    "Couldn’t extract “%@”: entry “%@” points outside its folder. Use an archive with safe relative paths.": {
       "comment": "Archive extraction refused a path traversal or absolute entry name",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の項目 “%@” が展開先のフォルダの外部を参照しているため、展開しませんでした。"
+            "value": "“%1$@” を展開できませんでした：“%2$@” がフォルダの外を指しています。安全な相対パスを使ったアーカイブを使用してください。"
           }
         }
       }
@@ -15367,12 +15438,12 @@
         }
       }
     },
-    "Optional lossless PNG optimization was skipped to stay within the memory budget. The output was saved successfully.": {
+    "Optional lossless PNG optimization skipped to stay within the memory budget.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモリ使用量を抑えるため、追加の可逆PNG最適化を省略しました。処理結果は正常に保存されました。"
+            "value": "メモリの上限を守るため、追加の PNG 可逆最適化を省略しました。"
           }
         }
       }
@@ -15614,12 +15685,12 @@
         }
       }
     },
-    "Image dimensions were reduced.": {
+    "Image dimensions reduced.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画像の解像度を下げました。"
+            "value": "画像の寸法を縮小しました。"
           }
         }
       }
@@ -15634,12 +15705,12 @@
         }
       }
     },
-    "Saved with a palette of up to %lld colors.": {
+    "Palette reduced to at most %lld colors.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大%lld色のパレット形式で保存しました。"
+            "value": "パレットを最大 %lld 色に減らしました。"
           }
         }
       }
@@ -17458,12 +17529,12 @@
         }
       }
     },
-    "The password is incorrect or “%@” is damaged.": {
+    "Couldn’t unlock “%@”: the password is incorrect or the file is damaged. Check the password or use an intact copy.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パスワードが違うか、「%@」が破損しています。"
+            "value": "“%@” を復号できませんでした：パスワードが違うか、ファイルが破損しています。パスワードを確認するか、破損していないコピーを使用してください。"
           }
         }
       }

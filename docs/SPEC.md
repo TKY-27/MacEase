@@ -805,16 +805,25 @@ a determinate progress bar or indeterminate scan, and a separately labelled
 Stop button. Rows use spacing rather than cards. Status is **Done.**,
 **Finished with {n} problems.**, **Finished — {n} skipped.**,
 **Finished with {n} problems, {m} skipped.**, **Cancelled.**, or **Failed.**
-Skipped items and warnings on successful items are not problems. Repeated
-warnings appear once with the affected file count; Show All reveals individual
-file warnings. Problems and skips expand inline with filenames and actionable
-reasons. Only failures use the error color.
+Skipped items and warnings on successful items are not problems. Successful
+results use a success symbol and normal text color even when notes are present.
+Warnings appear as secondary notes behind a compact **1 note** / **{n} notes**
+disclosure with an info.circle symbol (Japanese: **メモ {n} 件**). Repeated notes
+appear once with the affected file count; the disclosure count sums distinct
+notes per file. File Results and Show All retain individual file notes.
+Failures use xmark.octagon.fill and the error color; skips stay neutral.
+Failure headlines name the action, file, cause and next step. Associated decode,
+encode, commit, unexpected-error, unsupported-codec and malformed-input
+diagnostics appear as
+selectable text in a collapsed **Details** disclosure (Japanese: **詳細**).
+After five problems, **More Results** reveals the remaining rows and their
+diagnostics, including batches without a comparison or retry session.
 Scan rows read **Scanning {folders}…** with an indeterminate bar until the
 scan reports progress; Stop cancels the scan and opens nothing. Finished rows
 offer Show in Finder and Undo when applicable.
 
 General settings default to close after success on, after cancel on, after
-failure off. Success with warnings reports Done and stays visible; skips also
+failure off. Success with notes reports Done and stays visible; skips also
 stay visible. The window closes
 when no rows remain. Closing Activity hides it without cancelling jobs. Stop
 cancels the chosen batch. Turning Show progress window off keeps menu-bar and
@@ -831,7 +840,9 @@ The status item retains the native labels **MacEase**, **MacEase, processing**,
 and **MacEase, needs attention**.
 
 `UserNotifications` sends at most one completion banner per batch, with counts,
-the first problem, Undo, and Show in Finder. A completed row retained and visible
+the first problem, Undo, and Show in Finder. Fully successful batches show only
+the completion summary and a note count when needed, never note text. Raw engine
+diagnostics stay out of notification bodies. A completed row retained and visible
 in Activity suppresses its duplicate banner. Successful rows that auto-close
 still produce the banner. Failure-only batches notify when Activity is disabled
 or was closed by the user. Notification denial leaves results in Activity and
@@ -2015,7 +2026,15 @@ ignored until the next check.
   including panel previews.
 - Errors are typed per domain (decode, encode, commit, unsupported codec,
   permission, cancelled, target unreachable, invalid input). Each maps to a
-  localized, actionable message naming the file.
+  localized, single-line failure headline naming the action and file, explaining
+  the cause and suggesting a next step. Cancellation remains neutral. Decode,
+  encode, commit, unexpected-error, unsupported-codec and malformed-input strings are
+  available through Activity's Details disclosure, separate from the headline
+  and notifications. Empty diagnostics do not show an empty disclosure.
+- Successful operations with ItemWarnings remain successes. Concise notes explain
+  format limits or other output differences without suggesting failure. Omit
+  routine original-retention boilerplate; retain meaningful exceptions such as
+  a requested replacement becoming a new file because Trash is unavailable.
 - Non-finite audio samples fail decoding with a typed error. Floating-point
   input values must be finite and representable before integer conversion;
   invalid operation parameters fail validation.
@@ -2749,6 +2768,10 @@ Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
 ## Changelog
+
+- 2026-11-17: Present successful results before secondary notes, keep notification
+  notes count-only, and expose failure diagnostics in Activity Details with
+  actionable localized headlines (ADR 0064).
 
 - 2026-11-17: Add fixed primary Finder groups, More and group placement settings;
   remove legacy video Trim, Copy as Base64, Inspect Source and natural-language
