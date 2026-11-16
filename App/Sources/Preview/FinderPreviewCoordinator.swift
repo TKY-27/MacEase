@@ -271,14 +271,15 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func readSelection(immediate: Bool = false) {
         guard let panel, panel.isVisible, let tracker, let target = tracker.target, target.visible,
-            (immediate || tracker.finderIsFrontmost), Date() >= retryAfter, state.notice != .automation,
-            tracker.frontWindowMatchesTarget()
+            (immediate || tracker.finderIsFrontmost), Date() >= retryAfter, state.notice != .automation
         else { return }
         let requestedGeneration = generation
-        reader.read { [weak self] result in
-            guard let self, generation == requestedGeneration, self.panel?.isVisible == true,
-                self.tracker?.frontWindowMatchesTarget() == true
-            else { return }
+        reader.read(isCurrent: { [weak self] in
+            guard let self else { return false }
+            return generation == requestedGeneration && self.panel?.isVisible == true
+                && self.tracker?.frontWindowMatchesTarget() == true
+        }) { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success(let selection):
                 guard selection.windowID == targetID else {

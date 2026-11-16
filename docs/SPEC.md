@@ -2892,7 +2892,10 @@ strong ease-out; closing reverses it over 0.12 seconds. Reduce Motion keeps only
 the fade. Following uses immediate frame updates.
 
 A single compiled NSAppleScript runs on a serial background queue with at most
-one request in flight. It reads the front-window ID and selection URL descriptors,
+one request in flight. Before sending the first selection request, the worker
+asks macOS for Finder Automation authorization and waits for the answer. The
+two-second timeout applies only to selection requests. The script reads the
+front-window ID and selection URL descriptors,
 validates local file URLs, and detects a front-window change during the script.
 Polling runs every 250 ms only while the panel is visible and Finder is frontmost;
 opening and focus changes request an immediate read. Window IDs and a selection
@@ -3021,6 +3024,9 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-17: Request Finder Automation authorization before timed selection
+  reads so the system consent dialog can remain open (ADR 0068).
 
 - 2026-11-17: Add Finder Preview text editing with loaded-stamp Replace saves,
   original encoding/BOM and line endings, explicit UTF-8 confirmation, local

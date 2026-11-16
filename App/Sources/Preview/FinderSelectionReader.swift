@@ -1,3 +1,4 @@
+import ApplicationServices
 import Engine
 import Foundation
 import Synchronization
@@ -17,24 +18,41 @@ final class FinderSelectionReader {
     private let worker = ScriptWorker()
     private let queue = DispatchQueue(label: "io.github.tky27.MacEase.finder-selection", qos: .userInitiated)
     private var inFlight = false
+    private var authorized = false
 
-    func read(_ completion: @escaping @MainActor (Result<Selection, Failure>) -> Void) {
+    func read(
+        isCurrent: @escaping @MainActor () -> Bool,
+        completion: @escaping @MainActor (Result<Selection, Failure>) -> Void
+    ) {
         guard !inFlight else { return }
         inFlight = true
-        queue.async { [worker, weak self] in
-            let result = worker.read()
-            Task { @MainActor in
-                self?.inFlight = false
-                completion(result)
+        Task {
+            defer { inFlight = false }
+            guard isCurrent() else { return }
+            if !authorized {
+                let failure = await withCheckedContinuation { continuation in
+                    queue.async { [worker] in continuation.resume(returning: worker.requestConsent()) }
+                }
+                if let failure {
+                    if isCurrent() { completion(.failure(failure)) }
+                    return
+                }
+                authorized = true
+                guard isCurrent() else { return }
             }
+            let result = await withCheckedContinuation { continuation in
+                queue.async { [worker] in continuation.resume(returning: worker.read()) }
+            }
+            if case .failure(.automationDenied) = result { authorized = false }
+            if isCurrent() { completion(result) }
         }
     }
 
     private final class ScriptWorker: Sendable {
         private let script = Mutex<NSAppleScript?>(nil)
         private let logger = Logger(category: "finder-preview")
-        private static let deniedCode = -1743
-        private static let timeoutCode = -1712
+        private static let deniedCode = Int(errAEEventNotPermitted)
+        private static let timeoutCode = Int(errAETimeout)
         private static let source = """
             with timeout of 2 seconds
                 tell application id "com.apple.finder"
@@ -50,17 +68,29 @@ final class FinderSelectionReader {
             end timeout
             """
 
+        func requestConsent() -> Failure? {
+            let finder = NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder")
+            let permission = withExtendedLifetime(finder) {
+                guard let target = finder.aeDesc else { return OSStatus(paramErr) }
+                return AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard, true)
+            }
+            return permission == noErr ? nil : rejected(Int(permission))
+        }
+
         func read() -> Result<Selection, Failure> {
             script.withLock { compiled in
                 var failure: NSDictionary?
                 if compiled == nil {
                     guard let candidate = NSAppleScript(source: Self.source), candidate.compileAndReturnError(&failure)
-                    else { return rejected(failure) }
+                    else { return .failure(rejected((failure?[NSAppleScript.errorNumber] as? NSNumber)?.intValue)) }
                     compiled = candidate
                 }
                 guard let compiled else { return .failure(.unavailable) }
                 let response = compiled.executeAndReturnError(&failure)
-                if let failure { return rejected(failure) }
+                if let failure {
+                    let code = (failure[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+                    return .failure(rejected(code))
+                }
                 guard response.numberOfItems == 2, let identifier = response.atIndex(1),
                     identifier.int32Value > 0, let selection = response.atIndex(2),
                     selection.descriptorType == typeAEList
@@ -85,13 +115,12 @@ final class FinderSelectionReader {
             }
         }
 
-        private func rejected(_ failure: NSDictionary?) -> Result<Selection, Failure> {
-            let code = (failure?[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+        private func rejected(_ code: Int?) -> Failure {
             logger.error("Finder selection request failed: \(code ?? 0)")
             switch code {
-            case Self.deniedCode: return .failure(.automationDenied)
-            case Self.timeoutCode: return .failure(.timedOut)
-            default: return .failure(.unavailable)
+            case Self.deniedCode: return .automationDenied
+            case Self.timeoutCode: return .timedOut
+            default: return .unavailable
             }
         }
     }

@@ -88,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quit confirmation while jobs finish cleaning up.
 - Use a small thumbnail to determine image dynamic range in Finder Preview.
 - Preview SVGs through Quick Look.
+- Wait for Finder Automation consent before starting timed selection reads.
 - Log every failed operation's cause for diagnosis, not only unexpected errors.
 - Hold the last video frame through edited segments when audio outlasts video,
   preserving the remaining audio instead of failing the export.
