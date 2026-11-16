@@ -3,7 +3,17 @@ import UniformTypeIdentifiers
 import WebKit
 
 @MainActor
-enum HTMLDocument {
+public enum HTMLDocument {
+    public static func isolatedConfiguration(allowsScripts: Bool = false) -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = allowsScripts
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.allowsAirPlayForMediaPlayback = false
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        return configuration
+    }
+
     private static let rules =
         #"[{"trigger":{"url-filter":".*"},"action":{"type":"block"}},{"trigger":{"url-filter":"^macease-document://local/"},"action":{"type":"ignore-previous-rules"}}]"#
 
@@ -37,9 +47,7 @@ private final class HTMLSession: NSObject, WKNavigationDelegate {
 
     init(html: String, source: URL, rules: WKContentRuleList) {
         resources = HTMLResources(html: html, source: source)
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        let configuration = HTMLDocument.isolatedConfiguration()
         configuration.userContentController.add(rules)
         configuration.setURLSchemeHandler(resources, forURLScheme: HTMLResources.scheme)
         browser = WKWebView(

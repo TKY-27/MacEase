@@ -181,6 +181,728 @@
         }
       }
     },
+    "Save changes before closing?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を保存してから閉じますか？"
+          }
+        }
+      }
+    },
+    "Save as UTF-8…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8で保存…"
+          }
+        }
+      }
+    },
+    "Save as UTF-8?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8で保存しますか？"
+          }
+        }
+      }
+    },
+    "Save as UTF-8": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8で保存"
+          }
+        }
+      }
+    },
+    "This changes the file’s encoding to UTF-8. The original remains available through Undo.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの文字コードをUTF-8に変更します。「取り消す」で元のファイルに戻せます。"
+          }
+        }
+      }
+    },
+    "Empty text cannot be saved. Enter text or revert your changes.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のテキストは保存できません。文字を入力するか、変更を元に戻してください。"
+          }
+        }
+      }
+    },
+    "Some characters cannot be saved in the original encoding. Save as UTF-8 instead.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の文字コードでは保存できない文字があります。UTF-8で保存してください。"
+          }
+        }
+      }
+    },
+    "Saved as a separate file; the original is unchanged. Discard to leave this buffer.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のファイルとして保存しました。元のファイルは変更していません。編集を終了するには「破棄」を選んでください。"
+          }
+        }
+      }
+    },
+    "Detect Encoding": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字コードを自動判定"
+          }
+        }
+      }
+    },
+    "View": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        }
+      }
+    },
+    "Rendered": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダリング"
+          }
+        }
+      }
+    },
+    "Formatted": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整形表示"
+          }
+        }
+      }
+    },
+    "Run Scripts": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトを実行"
+          }
+        }
+      }
+    },
+    "Allow Network": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク接続を許可"
+          }
+        }
+      }
+    },
+    "Soft Wrap": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折り返し"
+          }
+        }
+      }
+    },
+    "Showing the first 256 KB": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭256 KBを表示しています"
+          }
+        }
+      }
+    },
+    "The text could not be decoded or formatted. Try Source or another encoding.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストの読み込みまたは整形に失敗しました。ソース表示や別の文字コードをお試しください。"
+          }
+        }
+      }
+    },
+    "100%": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "100%"
+          }
+        }
+      }
+    },
+    "Image Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像プレビュー"
+          }
+        }
+      }
+    },
+    "Playback Speed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生速度"
+          }
+        }
+      }
+    },
+    "Set A": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A点を設定"
+          }
+        }
+      }
+    },
+    "Set B": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B点を設定"
+          }
+        }
+      }
+    },
+    "Clear Loop": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ループを解除"
+          }
+        }
+      }
+    },
+    "A: %@ s · B: %@ s": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A：%@ 秒・B：%@ 秒"
+          }
+        }
+      }
+    },
+    "Waveform unavailable": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "波形を表示できません"
+          }
+        }
+      }
+    },
+    "Page Thumbnails": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのサムネイル"
+          }
+        }
+      }
+    },
+    "UTF-8": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8"
+          }
+        }
+      }
+    },
+    "UTF-16": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16"
+          }
+        }
+      }
+    },
+    "UTF-16 LE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 LE"
+          }
+        }
+      }
+    },
+    "UTF-16 BE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 BE"
+          }
+        }
+      }
+    },
+    "Shift_JIS": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift_JIS"
+          }
+        }
+      }
+    },
+    "EUC-JP": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EUC-JP"
+          }
+        }
+      }
+    },
+    "ISO-2022-JP": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ISO-2022-JP"
+          }
+        }
+      }
+    },
+    "Windows-1252": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows-1252"
+          }
+        }
+      }
+    },
+    "ISO-8859-1": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ISO-8859-1"
+          }
+        }
+      }
+    },
+    "This preview could not be displayed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプレビューを表示できませんでした。"
+          }
+        }
+      }
+    },
+    "Finder Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビュー"
+          }
+        }
+      }
+    },
+    "Allow Accessibility access to attach Finder Preview to Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderにプレビューを連動させるには、アクセシビリティへのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "Allow MacEase to control Finder to follow the selection.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択項目を追従するには、MacEaseによるFinderの操作を許可してください。"
+          }
+        }
+      }
+    },
+    "Finder Preview is unavailable. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビューを表示できません。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Finder did not respond in time. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderからの応答がありません。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Edit in MacEase": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseで編集"
+          }
+        }
+      }
+    },
+    "Preview Width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの幅"
+          }
+        }
+      }
+    },
+    "Previous File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のファイル"
+          }
+        }
+      }
+    },
+    "Next File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のファイル"
+          }
+        }
+      }
+    },
+    "Close Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを閉じる"
+          }
+        }
+      }
+    },
+    "Open Accessibility Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティ設定を開く"
+          }
+        }
+      }
+    },
+    "Open Automation Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オートメーション設定を開く"
+          }
+        }
+      }
+    },
+    "Try Again": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "Reading File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込み中"
+          }
+        }
+      }
+    },
+    "No Selection": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択項目なし"
+          }
+        }
+      }
+    },
+    "This file could not be read.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "This file could not be opened.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを開けませんでした。"
+          }
+        }
+      }
+    },
+    "Hide Finder Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビューを閉じる"
+          }
+        }
+      }
+    },
+    "Show Finder Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビューを表示"
+          }
+        }
+      }
+    },
+    "Information": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "情報"
+          }
+        }
+      }
+    },
+    "Show More": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を表示"
+          }
+        }
+      }
+    },
+    "Show Less": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細を隠す"
+          }
+        }
+      }
+    },
+    "Select a file in Finder to preview it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderでファイルを選択すると、ここにプレビューを表示します。"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "preview.fact.modified": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modified"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更日"
+          }
+        }
+      }
+    },
+    "preview.fact.items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目数"
+          }
+        }
+      }
+    },
+    "preview.fact.pages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pages"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ数"
+          }
+        }
+      }
+    },
+    "preview.fact.colorProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラープロファイル"
+          }
+        }
+      }
+    },
+    "preview.fact.dynamicRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dynamic Range"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイナミックレンジ"
+          }
+        }
+      }
+    },
+    "preview.fact.dimensions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きさ"
+          }
+        }
+      }
+    },
+    "%lld items": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目"
+          }
+        }
+      }
+    },
+    "Open": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
     "Custom": {
       "localizations": {
         "ja": {
@@ -462,29 +1184,54 @@
     },
     "Action": {
       "localizations": {
-        "ja": { "stringUnit": { "state": "translated", "value": "操作" } }
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作"
+          }
+        }
       }
     },
     "Encrypt": {
       "localizations": {
-        "ja": { "stringUnit": { "state": "translated", "value": "暗号化" } }
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化"
+          }
+        }
       }
     },
     "Decrypt": {
       "localizations": {
-        "ja": { "stringUnit": { "state": "translated", "value": "復号" } }
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復号"
+          }
+        }
       }
     },
     "Dismiss": {
       "comment": "Remove a completed Activity result",
       "localizations": {
-        "ja": { "stringUnit": { "state": "translated", "value": "閉じる" } }
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
       }
     },
     "MacEase, update available": {
       "comment": "Menu bar icon VoiceOver label for an update",
       "localizations": {
-        "ja": { "stringUnit": { "state": "translated", "value": "MacEase、更新あり" } }
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase、更新あり"
+          }
+        }
       }
     },
     "Exact": {
@@ -17787,6 +18534,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "読み取れない %lld 個のファイルをスキップしました"
+          }
+        }
+      }
+    },
+    "Edit Text": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを編集"
+          }
+        }
+      }
+    },
+    "Unsaved changes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未保存の変更"
+          }
+        }
+      }
+    },
+    "Discard": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破棄"
+          }
+        }
+      }
+    },
+    "Revert": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元に戻す"
+          }
+        }
+      }
+    },
+    "Saved": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存しました"
           }
         }
       }

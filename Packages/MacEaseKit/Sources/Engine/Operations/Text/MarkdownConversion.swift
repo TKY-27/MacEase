@@ -2,13 +2,13 @@ import Foundation
 import cmark_gfm
 import cmark_gfm_extensions
 
-enum MarkdownConversion {
+public enum MarkdownConversion {
     /// Pathological nesting allocates ~250× the input.
     static let maximumBytes = 1024 * 1024
     private static let extensions = ["table", "strikethrough", "autolink", "tagfilter", "tasklist"]
     // Safe mode drops raw HTML, unsafe links.
     private static let options = CMARK_OPT_DEFAULT | CMARK_OPT_FOOTNOTES
-    static func html(_ markdown: String, title: String) throws -> String {
+    public static func html(_ markdown: String, title: String) throws -> String {
         guard markdown.utf8.count <= maximumBytes else {
             throw EngineError.invalidInput(.tooLarge(limitBytes: Int64(maximumBytes)))
         }

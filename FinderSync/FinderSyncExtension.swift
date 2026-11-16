@@ -91,7 +91,11 @@ final class FinderSyncExtension: FIFinderSync {
                 update.target = self
                 update.image = updateImage
                 submenu.addItem(update)
-                submenu.addItem(.separator())
+            }
+            if let title = file.previewTitle {
+                let preview = NSMenuItem(title: title, action: #selector(showPreview(_:)), keyEquivalent: "")
+                preview.target = self
+                submenu.addItem(preview)
             }
             let nodes = MenuLayout.nodes(for: file, selection: selection)
             if let index = file.entries.firstIndex(where: {
@@ -99,6 +103,7 @@ final class FinderSyncExtension: FIFinderSync {
             }), let title = file.entries[index].path.last {
                 add([.action(title: title, entryIndex: index)], to: menu)
             }
+            if !submenu.items.isEmpty, !nodes.isEmpty { submenu.addItem(.separator()) }
             add(nodes, to: submenu)
         } else {
             let open = NSMenuItem(title: openTitle, action: #selector(openHost(_:)), keyEquivalent: "")
@@ -159,6 +164,16 @@ final class FinderSyncExtension: FIFinderSync {
         var components = URLComponents()
         components.scheme = scheme
         components.host = "update"
+        components.queryItems = [URLQueryItem(name: "t", value: file.token)]
+        guard let url = components.url else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc func showPreview(_ sender: NSMenuItem) {
+        guard let file = cache.withLock({ $0.file }), file.hostAvailable, file.previewTitle != nil else { return }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = "preview"
         components.queryItems = [URLQueryItem(name: "t", value: file.token)]
         guard let url = components.url else { return }
         NSWorkspace.shared.open(url)

@@ -11,13 +11,15 @@ final class RequestRouter {
     private let notifier: BatchNotifier
     private let openApp: () -> Void
     private let openUpdate: () -> Void
+    private let openPreview: () -> Void
     private let logger = Logger(category: "requests")
     /// The extension's Open MacEase fallback.
     private static let openHost = "open"
 
     init(
         configuration: HostConfiguration, jobs: JobCenter, notifier: BatchNotifier,
-        menuFile: @escaping () -> MenuFile?, openApp: @escaping () -> Void, openUpdate: @escaping () -> Void
+        menuFile: @escaping () -> MenuFile?, openApp: @escaping () -> Void, openUpdate: @escaping () -> Void,
+        openPreview: @escaping () -> Void
     ) {
         self.configuration = configuration
         self.jobs = jobs
@@ -25,6 +27,7 @@ final class RequestRouter {
         self.menuFile = menuFile
         self.openApp = openApp
         self.openUpdate = openUpdate
+        self.openPreview = openPreview
     }
 
     func route(_ url: URL) {
@@ -37,6 +40,8 @@ final class RequestRouter {
                 openApp()
             } else if url.host() == "update" {
                 routeUpdate(url)
+            } else if url.host() == "preview" {
+                routePreview(url)
             }
             return
         } catch {
@@ -68,5 +73,16 @@ final class RequestRouter {
             return
         }
         openUpdate()
+    }
+
+    private func routePreview(_ url: URL) {
+        let tokens = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.filter { $0.name == "t" }
+        guard let tokens, tokens.count == 1, let token = tokens.first?.value,
+            let file = menuFile(), file.hostAvailable, RequestToken.matches(token, file.token)
+        else {
+            logger.error("Preview request with an invalid token or unavailable host rejected")
+            return
+        }
+        openPreview()
     }
 }

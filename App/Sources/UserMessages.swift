@@ -378,6 +378,10 @@ enum UserMessages {
             String(
                 localized:
                     "Couldn’t convert “\(file)”: \(path) is not a flat object array. Use an array of flat objects.")
+        case .emptyTextEdit:
+            String(localized: "Empty text cannot be saved. Enter text or revert your changes.")
+        case .textEditUnrepresentable:
+            String(localized: "Some characters cannot be saved in the original encoding. Save as UTF-8 instead.")
         case .textEncodingUndetected:
             String(localized: "Couldn’t read “\(file)”: its text encoding is unknown. Save a UTF-8 copy, then retry.")
         case .unmappableCharacter(let line):

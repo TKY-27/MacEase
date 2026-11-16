@@ -65,6 +65,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case pdfSplit = "pdf.split"
     case pdfAIRename = "pdf.aiRename"
 
+    case textEdit = "text.edit"
     case textEncoding = "text.encoding"
     case textLineEndings = "text.lineEndings"
     case textConvert = "text.convert"

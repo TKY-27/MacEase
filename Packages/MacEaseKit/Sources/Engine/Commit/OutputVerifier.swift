@@ -67,6 +67,12 @@ enum OutputVerifier {
             } catch EngineError.invalidInput(.textEncodingUndetected) {
                 throw EngineError.encodeFailed("output text is not valid in its encoding")
             }
+        case .textReplacement(let encoding, let byteOrderMark, let text):
+            let bytes = try Data(contentsOf: file.url)
+            guard bytes.starts(with: byteOrderMark),
+                let decoded = String(data: bytes.dropFirst(byteOrderMark.count), encoding: encoding),
+                decoded.utf8.elementsEqual(text.utf8)
+            else { throw EngineError.encodeFailed("edited text did not round-trip") }
         case .svg:
             let parser = XMLParser(contentsOf: file.url)
             parser?.shouldResolveExternalEntities = false

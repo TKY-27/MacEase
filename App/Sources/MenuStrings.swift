@@ -7,6 +7,7 @@ import Speech
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
+        case .textEdit: String(localized: "Edit Text")
         case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
         case .imageEnhance: String(localized: "menu.op.image.enhance", defaultValue: "Upscale Photo…")
         case .audioEnhance: String(localized: "menu.op.audio.enhance", defaultValue: "Enhance Audio…")
@@ -44,6 +45,11 @@ enum MenuStrings {
         let title = operation(op)
         for ellipsis in ["…", "..."] where title.hasSuffix(ellipsis) { return String(title.dropLast(ellipsis.count)) }
         return title
+    }
+
+    // Titles replace unreliable Finder Sync checkmarks.
+    static func previewTitle(open: Bool) -> String {
+        open ? String(localized: "Hide Finder Preview") : String(localized: "Show Finder Preview")
     }
 
     static func preset(_ op: OperationID, _ preset: String) -> String {

@@ -117,24 +117,28 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public let kinds: [String: KindTitle]
     public let moreTitle: String?
     public let updateTitle: String?
+    public let previewTitle: String?
     public var monitoredDirectoryPaths: [String]?
 
     public init(
         token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String], moreTitle: String? = nil,
-        updateTitle: String? = nil
+        updateTitle: String? = nil, previewTitle: String? = nil
     ) {
         self.schema = Self.currentSchema
         self.moreTitle = moreTitle
         self.updateTitle = updateTitle
-        self.catalogVersion = Self.version(of: entries, moreTitle: moreTitle, updateTitle: updateTitle)
+        self.previewTitle = previewTitle
+        self.catalogVersion = Self.version(
+            of: entries, moreTitle: moreTitle, updateTitle: updateTitle, previewTitle: previewTitle)
         self.token = token
         self.hostAvailable = hostAvailable
         self.entries = entries
         self.kinds = Dictionary(uniqueKeysWithValues: kinds.map { ($0.key.rawValue, KindTitle(title: $0.value)) })
     }
 
-    public static func version(of entries: [MenuEntry], moreTitle: String? = nil, updateTitle: String? = nil) -> String
-    {
+    public static func version(
+        of entries: [MenuEntry], moreTitle: String? = nil, updateTitle: String? = nil, previewTitle: String? = nil
+    ) -> String {
         let unitSeparator = "\u{1F}"
         let canonical = entries.map { entry in
             let constraints: [String] = [
@@ -156,7 +160,8 @@ public struct MenuFile: Codable, Equatable, Sendable {
         }.joined(separator: "\u{1E}")
         let localized = moreTitle.map { canonical + "\u{1E}" + $0 } ?? canonical
         let withUpdate = updateTitle.map { localized + "\u{1E}update\u{1F}" + $0 } ?? localized
-        return SHA256.hash(data: Data(withUpdate.utf8)).hexEncoded
+        let withPreview = previewTitle.map { withUpdate + "\u{1E}preview\u{1F}" + $0 } ?? withUpdate
+        return SHA256.hash(data: Data(withPreview.utf8)).hexEncoded
     }
 
     public func kindTitle(_ kind: FileKind) -> String {
@@ -217,7 +222,8 @@ extension MenuFile {
         extraRotationDegrees: Double? = nil,
         frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
         sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil,
-        placements: [String: MenuPlacement] = [:], moreTitle: String? = nil, updateTitle: String? = nil
+        placements: [String: MenuPlacement] = [:], moreTitle: String? = nil, updateTitle: String? = nil,
+        previewTitle: String? = nil
     ) {
         var entries: [MenuEntry] = []
         let visible = Set(visibleOperations)
@@ -278,7 +284,7 @@ extension MenuFile {
         let kinds = Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, titles.kind($0)) })
         self.init(
             token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds, moreTitle: moreTitle,
-            updateTitle: updateTitle)
+            updateTitle: updateTitle, previewTitle: previewTitle)
     }
 }
 

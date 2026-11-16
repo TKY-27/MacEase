@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Edit text/code, Markdown Source, JSON and XML plists in Finder Preview with
+  buffer Undo, Find, Save and Revert. Saves preserve encoding/BOM/line endings,
+  use loaded-stamp Replace checks and Activity/history Undo, and offer explicit
+  UTF-8 confirmation for unrepresentable text. Dirty buffers survive selection
+  changes and require Save / Discard / Cancel before closing or quitting.
+  Empty buffers remain refused; native editing validation is pending.
+
 ### Added
+
+- Finder Preview redesign: a light panel flush against the Finder window with
+  outer rounded corners, an always-visible close button (Escape and Command-W),
+  Show/Hide Finder Preview menu titles, outer-edge resizing, aspect-sized
+  previews, Finder-style Information rows and an icon action bar. The window
+  shown without Accessibility permission no longer collapses to a sliver.
+
+- Read-only Finder Preview viewers for code/text, HTML, Markdown, JSON/plists,
+  images, audio/video and PDFs. Add encoding selection, line numbers, bounded
+  highlighting, image zoom, waveforms, A–B loops and PDF thumbnails. HTML scripts
+  and networking require per-selection opt-in. Native validation is pending.
+
+- Finder Preview: toggle a host Quick Look panel from Finder, follow the selected
+  files, switch among selections, inspect folders, and open photos or videos in
+  the existing MacEase editor. Dock to Finder with Accessibility permission and
+  follow selections with Automation permission. Native validation is pending.
 
 - Show available updates first inside the Finder MacEase submenu with a blue
   symbol. Finder, menu bar and notification update actions open one native

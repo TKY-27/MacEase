@@ -43,6 +43,8 @@
 	<string>$(MACEASE_URL_SCHEME)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 MacEase contributors. MIT License.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>MacEase follows your Finder selection to show files in Finder Preview.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>MacEase transcribes speech on this Mac to create subtitles.</string>
 	<key>NSLocalNetworkUsageDescription</key>
