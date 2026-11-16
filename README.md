@@ -56,6 +56,16 @@ restart MacEase, and retry. This does not require Full Disk Access.
 
 ## Features
 
+### Finder Preview
+
+Choose **MacEase > Finder Preview** in Finder to toggle a preview panel beside
+its window. It follows selections, offers navigation for multiple files, and uses
+Quick Look for generic previews. Folders show a count and size; photos and videos
+can open in the existing MacEase editor. Allow Accessibility for docking and
+Automation for following Finder selections. Permission messages link to System
+Settings. This upcoming feature still needs native validation; full screen,
+Spaces and Finder tabs are untested.
+
 **Conversions and edits keep originals by default. HatchZip extraction consumes its archive.**
 
 By default, every conversion and edit saves a new file next to its source,

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Finder Preview: toggle a host Quick Look panel from Finder, follow the selected
+  files, switch among selections, inspect folders, and open photos or videos in
+  the existing MacEase editor. Dock to Finder with Accessibility permission and
+  follow selections with Automation permission. Native validation is pending.
+
 - Show available updates first inside the Finder MacEase submenu with a blue
   symbol. Finder, menu bar and notification update actions open one native
   window with official downloads, installation instructions and extension settings.

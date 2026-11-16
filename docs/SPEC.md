@@ -1,7 +1,7 @@
 # MacEase Specification
 
 This document is the single source of truth for MacEase. It describes the
-finished product, including the v2 additions in section 20 and v3 in section 24. When code and this
+finished product, including the v2 additions in section 20 and v3 in sections 24 and 25. When code and this
 document disagree, this document wins;
 when a decision changes, update this document, its Changelog, and add an ADR
 under `docs/adr/`.
@@ -115,6 +115,7 @@ Menu file content:
   "hostAvailable": true,
   "moreTitle": "More",
   "updateTitle": "Update Available (v3.1.0)",
+  "previewTitle": "Finder Preview",
   "entries": [
     { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"], "separatorBefore": false }
   ],
@@ -148,6 +149,9 @@ Menu file content:
   hash. Old files omit it. The host rewrites the menu file whenever the known
   available version changes, including when it is cleared.
 
+- Schema 3 accepts optional localized `previewTitle`, included in the catalog
+  hash and preserved through recipe expansion. Old files omit the preview item.
+
 If the menu file is missing, unreadable, or uses an unsupported schema
 (including schemas 1 and 2), the extension shows a single item,
 "Open MacEase", which opens `macease://open`. The host shows Welcome if
@@ -180,6 +184,10 @@ macease://run?v=<catalogVersion>&e=<entryIndex>&t=<token>&path=<path>&path=<path
 exactly one token matching the current menu file and an available host. The
 host shows the window only while a newer release is known. It needs no catalog
 version, entry index or selection, and never starts jobs or writes history.
+
+`macease://preview?t=<token>` toggles Finder Preview for the front Finder
+window. Like Update, it requires exactly one matching token and an available
+host, without a catalog version, selection payload, job or history record.
 
 **Threat model.** The token stops web pages and documents from triggering
 operations through the URL scheme. Local processes running as the same user can
@@ -650,10 +658,16 @@ outside MacEase, unchanged.
 
 When the host is available and knows a newer release, the first item inside
 MacEase is **Update Available (v3.1.0)** (Japanese:
-**アップデートがあります（v3.1.0）**), followed by a separator. The version is
+**アップデートがあります（v3.1.0）**). The version is
 dynamic. Its cached, non-template SF Symbol uses system blue; Finder Sync does
 not preserve attributed title colors. It opens the authenticated Update route,
 independently of the selection. Unavailable hosts never show this item.
+
+**Finder Preview** (Japanese: **Finderプレビュー**) follows Update when present,
+otherwise it is first, before the operations. One separator divides these host
+commands from operations. Preview is available for every selection, including
+unknown types and folder backgrounds, whenever the menu advertises it and the
+host is available. Repeating it for the tracked Finder window closes the panel.
 
 Positions never adapt to usage. Pruning a primary never promotes another group
 from More. Settings > Finder Menu can pin or unpin visible groups through
@@ -766,7 +780,8 @@ are editable in Finder Menu. Text conversion pairs are specified in section 8.13
 
 ## 5. Panels
 
-Windows appear only for essential per-run input, destructive review, and results.
+Windows appear for essential per-run input, destructive review, results, and
+explicitly requested Finder Preview (section 25.1).
 They use native title bars, system controls, grouped forms, and system colors.
 Flect supplies interaction structure. Finder copy windows and macOS Settings
 supply layout conventions. Decorative cards, gradients, custom glass content,
@@ -2797,7 +2812,78 @@ third-party notices/source, anonymous downloads and latest-release resolution.
 Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
+## 25. Version 3.1
+
+### 25.1 Finder Preview
+
+Finder Preview is a host-owned panel, not a Finder Quick Look extension.
+One panel follows the front Finder window as focus changes. Repeating the menu
+command closes it when the focused AX window is the tracked AX element;
+otherwise the command opens it for the newly focused window. Closing the panel
+or quitting Finder removes observers and timers, cancels file inspection, and
+invalidates pending selection results. An already executing Apple event finishes
+or reaches its two-second Apple event timeout; its result cannot reopen the panel.
+
+The docked panel is borderless and nonactivating, can become key but not main,
+uses normal window level, and remains visible while its Finder window is visible.
+It orders directly above the matched Finder CGWindowID, including when another
+application is frontmost. AX focus, main-window, move, resize, destroy and
+minimize/deminimize notifications coalesce; workspace events and a half-second
+visibility check detect hiding, Spaces and z-order changes. Minimized, off-Space
+and closed windows do not leave a floating preview behind.
+
+AX global top-left coordinates convert to AppKit with
+`x = ax.x; y = primaryScreen.frame.maxY - ax.maxY`, preserving width and height.
+The target screen is the one with the largest window-frame intersection. Match
+CG windows by Finder PID, normal layer and bounds within two points. Use the
+screen's visible frame for docking: right edge first, left if right does not fit,
+otherwise inset over the window's right side and clamp horizontally to the screen.
+The panel keeps the Finder window's height and top. Width defaults to 360 points,
+is clamped to 280 through half the usable screen width, and persists in
+UserDefaults after dragging the inner edge. On an unusually narrow screen,
+the half-screen cap takes precedence. Finder itself is never resized. Opening
+slides 20 points over 0.16 seconds unless Reduce Motion is enabled; following
+uses immediate frame updates.
+
+A single compiled NSAppleScript runs on a serial background queue with at most
+one request in flight. It reads the front-window ID and selection URL descriptors,
+validates local file URLs, and detects a front-window change during the script.
+Polling runs every 250 ms only while the panel is visible and Finder is frontmost;
+opening and focus changes request an immediate read. Window IDs and a selection
+generation reject stale results. Denied Automation stops polling until retry;
+other failures show an explanation and back off for two seconds.
+
+The sidebar-material view has a file icon, name, close control, and count with
+previous/next controls for multiple selections. Quick Look supplies the generic
+preview for files, including system-supported media, PDF, text and HTML. Unsupported
+types retain the system Quick Look fallback; custom renderers and text editing
+are outside this unit. Empty selections show No Selection. Folders show their
+icon, immediate child count and recursive logical regular-file size, without
+following directory symlinks. Inspection is cancellable and limited to 100,000
+entries or a two-second budget checked between reads; unavailable/incomplete
+inspection shows a read failure,
+never a partial total. Open uses the default application. Photos and videos
+also offer Edit in MacEase through the existing PanelCoordinator editor path.
+
+Accessibility permission is requested on first opening without trust. Until it
+is granted, a centered titled panel explains the permission and links to
+Accessibility settings. Retry attaches after authorization. Automation denial
+(error -1743) keeps the panel docked and explains how to authorize Finder control,
+with an Automation settings button and Retry. Other tracking/selection/file
+failures are logged and shown explicitly. The host declares an English
+NSAppleEventsUsageDescription. The Finder extension remains sandboxed and never
+reads selected file contents.
+
+Full screen, Spaces, Finder tabs, visual seams, keyboard interaction and native
+Quick Look controls require real-host validation. The recorded spike establishes
+basic AX docking, relative ordering and Finder scripting, not those behaviors.
+No xcodebuild, swift test or native UI execution was performed for this unit.
+
 ## Changelog
+
+- 2026-11-17: Add authenticated Finder Preview, a docked host Quick Look panel
+  with selection following, permission guidance and generic folder summaries
+  (ADR 0067).
 
 - 2026-11-17: Add a blue Finder update item and one shared Update window with
   installation instructions and extension settings access (ADR 0065).

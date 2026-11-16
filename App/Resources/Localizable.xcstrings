@@ -1,6 +1,226 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "This preview could not be displayed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプレビューを表示できませんでした。"
+          }
+        }
+      }
+    },
+    "Finder Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビュー"
+          }
+        }
+      }
+    },
+    "Allow Accessibility access to attach Finder Preview to Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderにプレビューを連動させるには、アクセシビリティへのアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "Allow MacEase to control Finder to follow the selection.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択項目を追従するには、MacEaseによるFinderの操作を許可してください。"
+          }
+        }
+      }
+    },
+    "Finder Preview is unavailable. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビューを表示できません。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Finder did not respond in time. Try again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderからの応答がありません。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "Edit in MacEase": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseで編集"
+          }
+        }
+      }
+    },
+    "Preview Width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの幅"
+          }
+        }
+      }
+    },
+    "Previous File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のファイル"
+          }
+        }
+      }
+    },
+    "Next File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のファイル"
+          }
+        }
+      }
+    },
+    "Close Preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを閉じる"
+          }
+        }
+      }
+    },
+    "Open Accessibility Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティ設定を開く"
+          }
+        }
+      }
+    },
+    "Open Automation Settings": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オートメーション設定を開く"
+          }
+        }
+      }
+    },
+    "Try Again": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "Reading Folder": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを読み込み中"
+          }
+        }
+      }
+    },
+    "Reading File": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込み中"
+          }
+        }
+      }
+    },
+    "No Selection": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択項目なし"
+          }
+        }
+      }
+    },
+    "This file could not be read.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "This file could not be opened.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを開けませんでした。"
+          }
+        }
+      }
+    },
+    "%lld items · %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目・%@"
+          }
+        }
+      }
+    },
+    "%lld items": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目"
+          }
+        }
+      }
+    },
+    "Open": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
     "Update Available (v%@)": {
       "localizations": {
         "ja": {

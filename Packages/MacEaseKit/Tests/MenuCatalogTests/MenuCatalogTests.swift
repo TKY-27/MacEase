@@ -41,7 +41,30 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         let decoded = try MenuFile(json: json)
         #expect(decoded.schema == 3)
         #expect(decoded.updateTitle == nil)
+        #expect(decoded.previewTitle == nil)
         #expect(decoded.catalogVersion == "legacy")
+    }
+
+    @Test func previewTitleRoundTripsAndInvalidatesTheCatalog() throws {
+        let original = menuFile()
+        var versions: Set<String> = [original.catalogVersion]
+        for title in ["Finder Preview", "Finderプレビュー"] {
+            let preview = MenuFile(
+                token: original.token, hostAvailable: true, visibleOperations: OperationID.allCases, titles: titles,
+                previewTitle: title)
+            let decoded = try MenuFile(json: preview.encoded())
+            #expect(decoded.schema == 3)
+            #expect(decoded.previewTitle == title)
+            #expect(decoded.entries == original.entries)
+            #expect(decoded == preview)
+            #expect(versions.insert(preview.catalogVersion).inserted)
+            let withUpdate = MenuFile(
+                token: original.token, hostAvailable: true, entries: original.entries, kinds: [:],
+                updateTitle: "Update", previewTitle: title)
+            #expect(withUpdate.catalogVersion != preview.catalogVersion)
+        }
+        let cleared = MenuFile(token: original.token, hostAvailable: true, entries: original.entries, kinds: [:])
+        #expect(cleared.catalogVersion == original.catalogVersion)
     }
 
     @Test func updateTitleRoundTripsAndChangesInvalidateCatalogs() throws {

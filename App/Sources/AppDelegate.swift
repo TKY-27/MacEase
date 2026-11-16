@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var notifier = BatchNotifier(settings: settings)
     private var jobs: JobCenter?
     private var panels: PanelCoordinator?
+    private var finderPreview: FinderPreviewCoordinator?
     private var organization: OrganizationController?
     private lazy var recipeStore = RecipeStore(supportDirectory: configuration.supportDirectory)
     private var recipes: [Recipe] = Recipe.builtIns
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.organization = organization
         let panels = PanelCoordinator(jobs: jobs, store: settings, organization: organization, recipes: recipeStore)
         self.panels = panels
+        finderPreview = FinderPreviewCoordinator(panels: panels)
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
         jobs.askAgain = { [weak panels] in panels?.askAgain($0, files: $1, reason: $2) ?? false }
@@ -77,7 +79,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             configuration: configuration, jobs: jobs, notifier: notifier,
             menuFile: { [weak self] in self?.menuFile },
             openApp: { [weak self] in self?.openApp() },
-            openUpdate: { [weak self] in self?.showUpdate() })
+            openUpdate: { [weak self] in self?.showUpdate() },
+            openPreview: { [weak self] in self?.finderPreview?.toggle() })
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
         notifier.onDismissBatch = { [weak activity] in activity?.dismissBatch($0) }
@@ -248,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        finderPreview?.close()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         if let recipeObserver { NotificationCenter.default.removeObserver(recipeObserver) }
     }

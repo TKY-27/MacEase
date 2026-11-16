@@ -44,7 +44,8 @@ struct MenuFileWriter {
             frameRates: MenuStrings.frameRates(settings), loudnessTargets: MenuStrings.loudnessTargets(settings),
             sizeTargets: sizeTargets, resizeTargets: resizeTargets, parameterVersion: parameterVersion,
             placements: placements, moreTitle: String(localized: "More"),
-            updateTitle: availableVersion.map { String(localized: "Update Available (v\($0))") }
+            updateTitle: availableVersion.map { String(localized: "Update Available (v\($0))") },
+            previewTitle: String(localized: "Finder Preview")
         )
         if file.entries.contains(where: { $0.op == .filesFinish }), !recipes.isEmpty {
             let title = MenuStrings.operationName(.filesFinish)
@@ -68,7 +69,7 @@ struct MenuFileWriter {
             file = MenuFile(
                 token: file.token, hostAvailable: file.hostAvailable, entries: entries,
                 kinds: Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, file.kindTitle($0)) }),
-                moreTitle: file.moreTitle, updateTitle: file.updateTitle)
+                moreTitle: file.moreTitle, updateTitle: file.updateTitle, previewTitle: file.previewTitle)
         }
         file.monitoredDirectoryPaths = monitoredPaths
         try FileManager.default.createDirectory(at: configuration.supportDirectory, withIntermediateDirectories: true)

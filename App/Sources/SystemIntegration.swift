@@ -5,6 +5,10 @@ import UserNotifications
 import os
 
 enum SystemSettingsPane {
+    static let accessibility = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    static let automation = URL(
+        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
     static let filesAndFolders = URL(
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")
     static let fullDiskAccess = URL(
