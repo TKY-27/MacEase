@@ -17,7 +17,7 @@ final class SettingsStore {
         static let unreadableSettings = "settings.unreadable"
         static let showsActivity = "activity.shows"
         static let activityV22Migrated = "activity.v22Migrated"
-        static let sourceInspectorV3Migrated = "menu.sourceInspectorV3Migrated"
+        static let menuPlacements = "menuPlacements"
         static let activityClosesAfterSuccess = "activity.closesAfterSuccess"
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
@@ -48,6 +48,14 @@ final class SettingsStore {
         didSet {
             guard hiddenEntries != oldValue else { return }
             defaults.set(hiddenEntries.sorted(), forKey: Key.hiddenEntries)
+            onChange?()
+        }
+    }
+
+    var menuPlacements: [String: MenuPlacement] {
+        didSet {
+            guard menuPlacements != oldValue else { return }
+            defaults.set(menuPlacements.mapValues(\.rawValue), forKey: Key.menuPlacements)
             onChange?()
         }
     }
@@ -95,16 +103,19 @@ final class SettingsStore {
         ])
         settings = Self.decodeSettings(from: defaults)
         var hidden = Self.loadHiddenEntries(from: defaults)
-        if hidden.remove(OperationID.videoTrim.menuEntryKey("")) != nil {
+        if hidden.remove("video.trim/") != nil {
             hidden.insert(OperationID.videoEdit.menuEntryKey(""))
-            defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
         }
-        if !defaults.bool(forKey: Key.sourceInspectorV3Migrated) {
-            hidden.insert(OperationID.anySourceInfo.menuEntryKey(""))
-            defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
-            defaults.set(true, forKey: Key.sourceInspectorV3Migrated)
-        }
+        let removed: Set<String> = [
+            "video.trim", "image.copyBase64", "any.sourceInfo", "image.aiCustom", "video.aiCustom", "audio.aiCustom",
+        ]
+        hidden = hidden.filter { !removed.contains(String($0.prefix { $0 != "/" })) }
+        defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
+        defaults.removeObject(forKey: Key.legacyHiddenOperations)
+        defaults.removeObject(forKey: "menu.sourceInspectorV3Migrated")
         hiddenEntries = hidden
+        menuPlacements = (defaults.dictionary(forKey: Key.menuPlacements) as? [String: String] ?? [:])
+            .compactMapValues(MenuPlacement.init(rawValue:))
         notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
         if !defaults.bool(forKey: Key.activityV22Migrated) {
             defaults.set(true, forKey: Key.showsActivity)
@@ -122,6 +133,7 @@ final class SettingsStore {
     func resetAll() {
         settings = Settings()
         hiddenEntries = Self.newInstallHiddenEntries
+        menuPlacements = [:]
         notificationsEnabled = true
         showsActivity = true
         activityClosesAfterSuccess = true
@@ -133,14 +145,13 @@ final class SettingsStore {
     private static let newInstallHiddenEntries: Set<String> = [
         OperationID.imageResize.menuEntryKey("long-3840"), OperationID.imageResize.menuEntryKey("long-2560"),
         OperationID.imageConvert.menuEntryKey("bmp"), OperationID.imageConvert.menuEntryKey("ico"),
-        OperationID.imageConvert.menuEntryKey("icns"), OperationID.imageCopyBase64.menuEntryKey(""),
+        OperationID.imageConvert.menuEntryKey("icns"),
         OperationID.videoResize.menuEntryKey("2160p"), OperationID.videoCompress.menuEntryKey("mb-100"),
         OperationID.videoConvert.menuEntryKey("m4v"), OperationID.videoConvert.menuEntryKey("avi"),
         OperationID.videoConvert.menuEntryKey("flv"), OperationID.videoToAPNG.menuEntryKey("settings"),
         OperationID.videoExtractAudio.menuEntryKey("aiff"), OperationID.videoExtractAudio.menuEntryKey("ogg"),
         OperationID.videoExtractAudio.menuEntryKey("opus"),
         OperationID.anyChecksum.menuEntryKey("sha1"), OperationID.anyChecksum.menuEntryKey("sha512"),
-        OperationID.anySourceInfo.menuEntryKey(""),
     ]
 
     /// Existing installs keep their visibility.
@@ -154,8 +165,10 @@ final class SettingsStore {
         let entries =
             isExistingInstall
             ? Set((legacy ?? []).compactMap(OperationID.init).flatMap(\.menuEntryKeys)) : newInstallHiddenEntries
-        defaults.set(entries.sorted(), forKey: Key.hiddenEntries)
-        return entries
+        var migrated = entries
+        if legacy?.contains("video.trim") == true { migrated.insert("video.trim/") }
+        defaults.set(migrated.sorted(), forKey: Key.hiddenEntries)
+        return migrated
     }
 
     /// Settings with the user's edited presets.

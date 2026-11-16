@@ -13,7 +13,6 @@ enum MenuStrings {
         case .anyShare: String(localized: "menu.op.any.share", defaultValue: "Share with QR Code…")
         case .anyFindRelated: String(localized: "menu.op.any.findRelated", defaultValue: "Find Related Files…")
         case .anyProtect: String(localized: "menu.op.any.protect", defaultValue: "Encrypt or Decrypt…")
-        case .anySourceInfo: String(localized: "menu.op.any.sourceInfo", defaultValue: "Inspect Source…")
         case .videoEdit: String(localized: "menu.op.video.edit", defaultValue: "Edit Video…")
         case .folderDownloadMedia: String(localized: "menu.op.folder.downloadMedia", defaultValue: "Download Media…")
         case .folderOrganize: String(localized: "menu.op.folder.organize", defaultValue: "Organize…")

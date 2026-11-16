@@ -15,6 +15,12 @@ right-click menu, without opening another app.
 
 ---
 
+Finder shows a fixed set of primary operations for each file kind. **More**
+contains the remaining operations and All Files actions. In **Settings > Finder
+Menu**, expand a group and use **Show at Top Level** to pin or unpin it;
+visibility remains a separate checkbox. Rotate/Flip and Convert choices move
+together. Pruning unavailable operations never fills their places from More.
+
 ## Installation
 
 1. Download `MacEase-<version>.dmg` from
@@ -88,7 +94,6 @@ window for input, review, or confirmation. Image and video menus start with
 | **Make PDF** | Combine selected images into one PDF, with a page-order window for several |
 | **Make Icon** | Export a macOS `.icns`, a Windows `.ico`, or an iOS AppIcon set |
 | **Trim Borders** | Crop away uniform borders |
-| **Copy as Base64** | Copy the image as a `data:` URI (hidden by default) |
 
 TGA conversion appears when ImageIO supports reading and writing it. PSD
 exports use the stored composite and offer PNG, JPEG, or TIFF, keeping the
@@ -273,7 +278,6 @@ limited; an unattainable limit fails without publishing an incomplete package.
 | **Share with QR Code…** | Explicitly start a temporary private-LAN HTTP share for 1–20 regular files |
 | **Find Related Files…** | Read-only search for exact content and visually similar images in the chosen folder |
 | **Encrypt or Decrypt…** | Create a new standard passphrase-protected `.age` file or decrypt one, retaining the source |
-| **Inspect Source…** | Show recorded source links and SHA-256; enable this hidden action in Settings > Finder Menu |
 
 HatchZip uses core v0.1.10, including dot-only path, hard-link and on-disk output
 verification fixes. RAR and tar.xz are not supported by HatchZip.
@@ -337,8 +341,7 @@ In **Images** mode, gallery-dl accepts direct public post or album URLs containi
 supported. Images are verified before a new folder is published, with a
 `MacEase Source.json` record of the page URL, retrieval time and filenames.
 Video/audio downloads record the page URL in the file's WhereFroms attribute.
-**Inspect Source…** reads these local records and computes SHA-256. Recorded
-links are editable metadata, not proof of authorship or authenticity; MacEase
+Recorded links are editable metadata, not proof of authorship or authenticity; MacEase
 does not automatically research the web.
 
 ### Local sharing and file protection
@@ -392,7 +395,6 @@ never moves or deletes files and skips symlinks and package descendants.
 | --- | --- |
 | **Rename with Apple Intelligence…** | Preview and confirm content-based names for images and PDFs |
 | **Rename Contents with Apple Intelligence…** | The same for the images and PDFs directly inside a folder |
-| **Ask Apple Intelligence…** | Turn a request into a plan of supported image, video, or audio operations, review it, then run it |
 
 ### Presets
 
@@ -559,7 +561,7 @@ Open **Settings** from the menu bar icon. Changes apply immediately.
 | --- | --- |
 | **Mac** | Apple Silicon, macOS 26 or later |
 | **Finder extension** | Enabled, for the right-click menu |
-| **Apple Intelligence** | Enabled with its on-device model available, only for Apple Intelligence rename and request features. Local upscaling and audio enhancement do not require it. |
+| **Apple Intelligence** | Enabled with its on-device model available, only for Apple Intelligence rename and organization features. Local upscaling and audio enhancement do not require it. |
 | **Speech and Translation assets** | Supported, installed Speech language assets for transcription and Translation models for translated subtitles. MacEase reports missing assets. |
 | **Java runtime** | Discoverable by macOS, only for JAR decompilation |
 

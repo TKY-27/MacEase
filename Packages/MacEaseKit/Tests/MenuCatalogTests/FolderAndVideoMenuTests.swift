@@ -42,8 +42,7 @@ import Testing
         #expect(MenuLayout.isApplicable(edit, selection: several))
         #expect(MenuLayout.isApplicable(speed, selection: several))
         #expect(OperationID.videoSpeed.presets == ["0.5", "0.75", "1.25", "1.5", "2", "4"])
-        #expect(OperationID(rawValue: "video.trim") == .videoTrim)
+        #expect(OperationID(rawValue: "video.trim") == nil)
         #expect(OperationID.menuOrder.contains(.videoEdit))
-        #expect(!OperationID.menuOrder.contains(.videoTrim))
     }
 }

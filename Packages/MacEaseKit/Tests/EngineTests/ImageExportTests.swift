@@ -139,23 +139,6 @@ private typealias Fixture = ImageFixtures
         #expect(images?.first?["platform"] == "ios")
     }
 
-    @Test func base64UsesTheContentMIMETypeAndRefusesLargeFiles() async throws {
-        let folder = try TestVolume.makeFolder()
-        let png = try Fixture.write([try Fixture.disc(size: 8)], as: .png, to: folder.appending(path: "tiny.png"))
-        let outcome = try await Fixture.run(.imageCopyBase64, preset: nil, inputs: [png])
-        let text = try #require(outcome.clipboardText)
-        #expect(text.hasPrefix("data:image/png;base64,"))
-        #expect(
-            Data(base64Encoded: String(text.dropFirst("data:image/png;base64,".count))) == (try Data(contentsOf: png)))
-
-        let large = folder.appending(path: "large.png")
-        var bytes = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-        bytes.append(Data(count: Int(ImageExports.base64Limit)))
-        try bytes.write(to: large)
-        let refused = try await Fixture.run(.imageCopyBase64, preset: nil, inputs: [large])
-        #expect(refused.outcomes == [.failed(.invalidInput(.tooLarge(limitBytes: ImageExports.base64Limit)))])
-    }
-
     @Test func svgInputsRenderWithoutNetworkAccess() async throws {
         let folder = try TestVolume.makeFolder()
         let svg = folder.appending(path: "badge.svg")
@@ -190,11 +173,4 @@ private typealias Fixture = ImageFixtures
         #expect(FileManager.default.fileExists(atPath: svg.path))
     }
 
-    @Test func svgBase64UsesTheSVGMIMEType() async throws {
-        let folder = try TestVolume.makeFolder()
-        let svg = folder.appending(path: "dot.svg")
-        try Data(#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>"#.utf8).write(to: svg)
-        let outcome = try await Fixture.run(.imageCopyBase64, preset: nil, inputs: [svg])
-        #expect(outcome.clipboardText?.hasPrefix("data:image/svg+xml;base64,") == true)
-    }
 }

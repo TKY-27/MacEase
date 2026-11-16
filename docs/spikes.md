@@ -921,3 +921,23 @@ MPEG-4 audio.
 Finder-native previews therefore cannot replace system previews for media,
 HTML or plain text, and cannot provide text editing. Richer viewing requires
 a host-owned panel.
+
+## Finder-docked host panel (2026-11-17)
+
+An unsandboxed accessory process with Accessibility trust created an
+`AXObserver` on Finder for focused-window, moved and resized notifications and
+placed a borderless, non-activating `NSPanel` at the focused window's right
+edge with the same height. `order(.above, relativeTo:)` with the Finder window
+number, matched by PID and bounds from `CGWindowListCopyWindowInfo`, kept the
+panel directly above that window in the on-screen order.
+
+- Moving and resizing the window through Finder scripting moved the panel to
+  the new edge and height within a second.
+- Bringing another Finder window to the front retargeted the panel to it.
+- Finder scripting returned the front window ID, its bounds and the selected
+  items' URLs to `NSAppleScript`.
+- A window touching the screen's right edge pushed the panel off-screen; the
+  panel needs a left-side or inset fallback there.
+
+Visual seams, full screen, Spaces, Finder tabs and keyboard focus inside the
+panel were not observed in this run.

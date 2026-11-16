@@ -1,6 +1,54 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "More": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        }
+      }
+    },
+    "Show at Top Level": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show at Top Level"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トップに表示"
+          }
+        }
+      }
+    },
+    "AI rename in the Finder menu.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI rename in the Finder menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder メニューで Apple Intelligence による名前変更を使います。"
+          }
+        }
+      }
+    },
     "Action": {
       "localizations": {
         "ja": { "stringUnit": { "state": "translated", "value": "操作" } }
@@ -302,16 +350,6 @@
         }
       }
     },
-    "%lld. %@: %@": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld. %@: %@"
-          }
-        }
-      }
-    },
     "%lldp": {
       "localizations": {
         "ja": {
@@ -348,16 +386,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "この項目にはパスワードが必要です。"
-          }
-        }
-      }
-    },
-    "AI rename and natural-language requests in the Finder menu.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finder のメニューから、AI による名前変更や自然言語での操作指示ができます。"
           }
         }
       }
@@ -869,17 +897,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべての階層"
-          }
-        }
-      }
-    },
-    "At keyframes (fast, lossless)": {
-      "comment": "Video trim mode",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キーフレーム単位 (高速・劣化なし)"
           }
         }
       }
@@ -1704,16 +1721,6 @@
         }
       }
     },
-    "Describe what to do": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行する内容を入力"
-          }
-        }
-      }
-    },
     "Detail": {
       "localizations": {
         "ja": {
@@ -2094,17 +2101,6 @@
         }
       }
     },
-    "Exact (re-encodes)": {
-      "comment": "Video trim mode",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正確 (再エンコード)"
-          }
-        }
-      }
-    },
     "Excluded": {
       "comment": "Exclusion preview result",
       "localizations": {
@@ -2187,16 +2183,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "抽出"
-          }
-        }
-      }
-    },
-    "Extract audio as": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音声の抽出形式"
           }
         }
       }
@@ -2438,16 +2424,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォルダ"
-          }
-        }
-      }
-    },
-    "For example: WebP under 1 MB, long edge 1600": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "例: 1 MB 未満の WebP、長辺 1600"
           }
         }
       }
@@ -3819,17 +3795,6 @@
         }
       }
     },
-    "No plan could be made. Try rephrasing the request.": {
-      "comment": "Custom AI plan error",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プランを作成できませんでした。指示の表現を変えてもう一度お試しください。"
-          }
-        }
-      }
-    },
     "No preview available.": {
       "comment": "Panel preview failure",
       "localizations": {
@@ -3858,16 +3823,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "なし"
-          }
-        }
-      }
-    },
-    "Not available in a plan": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プランでは利用できません"
           }
         }
       }
@@ -4321,26 +4276,6 @@
         }
       }
     },
-    "Plan": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラン"
-          }
-        }
-      }
-    },
-    "Planning": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プランを作成中"
-          }
-        }
-      }
-    },
     "Platform presets": {
       "localizations": {
         "ja": {
@@ -4733,16 +4668,6 @@
         }
       }
     },
-    "Request": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "指示"
-          }
-        }
-      }
-    },
     "Requires Apple Intelligence": {
       "comment": "Menu item visibility note",
       "localizations": {
@@ -4959,17 +4884,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべてのフォルダスキャンに適用するルールも適用されます。"
-          }
-        }
-      }
-    },
-    "Run": {
-      "comment": "Custom AI panel action",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行"
           }
         }
       }
@@ -5943,17 +5857,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@” のパスワードが正しくありません。もう一度入力してください。"
-          }
-        }
-      }
-    },
-    "The plan was rejected: %@": {
-      "comment": "Custom AI plan error",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プランが拒否されました: %@"
           }
         }
       }
@@ -7070,23 +6973,6 @@
         }
       }
     },
-    "menu.op.audio.aiCustom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask Apple Intelligence…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apple Intelligence に指示…"
-          }
-        }
-      }
-    },
     "menu.op.audio.compress": {
       "extractionState": "manual",
       "localizations": {
@@ -7308,23 +7194,6 @@
         }
       }
     },
-    "menu.op.image.aiCustom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask Apple Intelligence…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apple Intelligence に指示…"
-          }
-        }
-      }
-    },
     "menu.op.image.aiRename": {
       "extractionState": "manual",
       "localizations": {
@@ -7389,23 +7258,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "変換"
-          }
-        }
-      }
-    },
-    "menu.op.image.copyBase64": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy as Base64"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Base64 としてコピー"
           }
         }
       }
@@ -7817,23 +7669,6 @@
         }
       }
     },
-    "menu.op.video.aiCustom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask Apple Intelligence…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apple Intelligence に指示…"
-          }
-        }
-      }
-    },
     "menu.op.video.background": {
       "extractionState": "manual",
       "localizations": {
@@ -8119,23 +7954,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "GIF を作成"
-          }
-        }
-      }
-    },
-    "menu.op.video.trim": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trim…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トリミング…"
           }
         }
       }
@@ -17450,46 +17268,6 @@
         }
       }
     },
-    "No source link is recorded for this file.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルにはソースリンクが記録されていません。"
-          }
-        }
-      }
-    },
-    "Recorded sources": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "記録されたソース"
-          }
-        }
-      }
-    },
-    "Recorded links can be edited. They do not prove authorship or authenticity.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "記録されたリンクは編集できます。作成者や真正性を証明するものではありません。"
-          }
-        }
-      }
-    },
-    "Reading source information…": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソース情報を読み込み中…"
-          }
-        }
-      }
-    },
     "Paste image gallery URLs": {
       "localizations": {
         "ja": {
@@ -17606,22 +17384,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "暗号化／復号…"
-          }
-        }
-      }
-    },
-    "menu.op.any.sourceInfo": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspect Source…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソース情報を確認…"
           }
         }
       }

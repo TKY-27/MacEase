@@ -81,6 +81,7 @@ final class MediaEditorModel {
     let settings: Engine.Settings
     private let staging: StagingArea
     var values = EditorValues()
+    var initialVideoRange: ClosedRange<Double>?
     var category: EditorCategory
     var original = false
     var zoom = 1.0
@@ -332,6 +333,10 @@ final class MediaEditorModel {
                 }
                 try Task.checkCancellation()
                 baseline = values
+                if isVideo, let range = initialVideoRange, !values.segments.isEmpty {
+                    values.segments[0].start = min(range.lowerBound, duration)
+                    values.segments[0].end = min(range.upperBound, duration)
+                }
                 ready = true
                 refresh()
             } catch is CancellationError { return } catch { report(error) }

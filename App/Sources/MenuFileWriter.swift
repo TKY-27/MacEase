@@ -9,7 +9,7 @@ struct MenuFileWriter {
 
     func write(
         visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings, monitoredPaths: [String] = [],
-        recipes: [Recipe] = []
+        recipes: [Recipe] = [], placements: [String: MenuPlacement] = [:]
     ) throws -> MenuFile {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -42,7 +42,8 @@ struct MenuFileWriter {
             titles: MenuStrings.titles(settings: settings), hiddenEntries: hiddenEntries,
             extraRotationDegrees: settings.extraRotationEnabled ? settings.extraRotationDegrees : nil,
             frameRates: MenuStrings.frameRates(settings), loudnessTargets: MenuStrings.loudnessTargets(settings),
-            sizeTargets: sizeTargets, resizeTargets: resizeTargets, parameterVersion: parameterVersion
+            sizeTargets: sizeTargets, resizeTargets: resizeTargets, parameterVersion: parameterVersion,
+            placements: placements, moreTitle: String(localized: "More")
         )
         if file.entries.contains(where: { $0.op == .filesFinish }), !recipes.isEmpty {
             let title = MenuStrings.operationName(.filesFinish)
@@ -53,16 +54,20 @@ struct MenuFileWriter {
                     continue
                 }
                 entries.append(
-                    MenuEntry(op: .filesFinish, preset: nil, path: [title, String(localized: "Choose Recipe…")]))
+                    MenuEntry(
+                        op: .filesFinish, preset: nil, path: [title, String(localized: "Choose Recipe…")],
+                        groupID: entry.resolvedGroupID, placement: .more))
                 entries += recipes.map {
                     MenuEntry(
                         op: .filesFinish, preset: nil, path: [title, $0.name],
-                        recipeID: $0.id, recipeRevision: String($0.revision), acceptedKinds: $0.supportedKinds)
+                        recipeID: $0.id, recipeRevision: String($0.revision), acceptedKinds: $0.supportedKinds,
+                        groupID: entry.resolvedGroupID, placement: .more)
                 }
             }
             file = MenuFile(
                 token: file.token, hostAvailable: file.hostAvailable, entries: entries,
-                kinds: Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, file.kindTitle($0)) }))
+                kinds: Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, file.kindTitle($0)) }),
+                moreTitle: file.moreTitle)
         }
         file.monitoredDirectoryPaths = monitoredPaths
         try FileManager.default.createDirectory(at: configuration.supportDirectory, withIntermediateDirectories: true)

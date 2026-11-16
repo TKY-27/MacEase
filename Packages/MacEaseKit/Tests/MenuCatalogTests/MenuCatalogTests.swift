@@ -71,7 +71,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         URL(fileURLWithPath: "/Users/me/\(name)", isDirectory: directory)
     }
 
-    @Test func singleKindListsOperationsThenAllFiles() throws {
+    @Test func singleKindListsPrimariesThenMore() throws {
         let file = menuFile()
         let nodes = MenuLayout.nodes(for: file, selection: [url("a.png"), url("b.jpg")])
         guard case .action(_, let editIndex) = try #require(nodes.first) else {
@@ -86,14 +86,14 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(title == "image.convert")
         #expect(children.suffix(2).first == .separator)
         #expect(nodes.contains(.separator))
-        #expect(nodes.last.map { if case .submenu(let title, _) = $0 { title } else { "" } } == "any.checksum")
+        #expect(nodes.last.map { if case .submenu(let title, _) = $0 { title } else { "" } } == "More")
         #expect(!nodes.contains { if case .submenu(let title, _) = $0 { title.hasPrefix("video") } else { false } })
     }
 
     @Test func mixedSelectionGroupsByKindWithCounts() {
         let nodes = MenuLayout.nodes(for: menuFile(), selection: [url("a.png"), url("b.mov"), url("c.mp4")])
         let titles = nodes.compactMap { if case .submenu(let title, _) = $0 { title } else { nil } }
-        #expect(titles == ["Image (1)", "Video (2)", "Any (3)"])
+        #expect(titles == ["Image (1)", "Video (2)", "More"])
     }
 
     @Test func pdfMergeNeedsTwoPDFs() {
@@ -129,7 +129,12 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
             }
         }
         for (title, index) in leaves(MenuLayout.nodes(for: file, selection: [url("a.wav"), url("b.txt")])) {
-            #expect(file.entries[index].path.last == title)
+            let entry = file.entries[index]
+            let leafTitle = entry.path.last ?? ""
+            let expected =
+                entry.path.count == 1 && entry.resolvedPlacement == .more
+                ? "\(file.kindTitle(entry.kind)) (\(entry.kind == .any ? 2 : 1)): \(leafTitle)" : leafTitle
+            #expect(title == expected)
         }
     }
 
@@ -227,8 +232,8 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test func separatorsAndConstraintsAreSerializedAndHashed() throws {
-        let grouped = MenuEntry(op: .videoTrim, preset: nil, path: ["Trim"], separatorBefore: true)
-        let plain = MenuEntry(op: .videoTrim, preset: nil, path: ["Trim"])
+        let grouped = MenuEntry(op: .audioTrim, preset: nil, path: ["Trim"], separatorBefore: true)
+        let plain = MenuEntry(op: .audioTrim, preset: nil, path: ["Trim"])
         #expect(MenuFile.version(of: [grouped]) != MenuFile.version(of: [plain]))
         let file = MenuFile(token: "token", hostAvailable: true, entries: [grouped], kinds: [:])
         let decoded = try MenuFile(json: file.encoded())
@@ -256,9 +261,14 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test func hiddenGroupLeadersKeepOperationSeparators() {
-        let file = menuFile([.imageResize, .imageIconSet, .imageAICustom])
+        let file = menuFile([.imageResize, .imageIconSet, .imageAIRename])
         let nodes = MenuLayout.nodes(for: file, selection: selection(["photo.png"]))
-        #expect(nodes.filter { $0 == .separator }.count == 2)
+        #expect(nodes.filter { $0 == .separator }.count == 1)
+        guard case .submenu("More", let overflow) = nodes.last else {
+            Issue.record("Expected More submenu")
+            return
+        }
+        #expect(overflow.filter { $0 == .separator }.count == 1)
         checkSeparators(nodes)
         let hiddenLeaf = MenuFile(
             token: "token", hostAvailable: true,
@@ -331,7 +341,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test(arguments: [
-        (OperationID.pdfEditPages, "pdf"), (.audioTrim, "wav"), (.pdfExtractPages, "pdf"), (.imageCopyBase64, "png"),
+        (OperationID.pdfEditPages, "pdf"), (.audioTrim, "wav"), (.pdfExtractPages, "pdf"),
     ])
     func singleOnlyOperationsUsePerKindCounts(op: OperationID, suffix: String) {
         let file = menuFile([op])
@@ -387,7 +397,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         let file = menuFile()
         for suffix in ["png", "mov", "wav", "pdf", "json", "csv", "swift", "zip", "jar"] {
             let nodes = MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)"]))
-            #expect(depth(nodes) + 1 <= 3)
+            #expect(depth(nodes) + 1 <= 4)
             checkSeparators(nodes)
         }
         let mixed = MenuLayout.nodes(for: file, selection: selection(["a.png", "b.mov", "c.json"]))

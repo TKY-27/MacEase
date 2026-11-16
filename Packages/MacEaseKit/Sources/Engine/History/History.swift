@@ -145,6 +145,27 @@ public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+extension BatchRecord {
+    private enum CodingKeys: String, CodingKey {
+        case id, operation, date, recipeExecution, items, undone
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        let identifier = try values.decode(String.self, forKey: .operation)
+        if identifier == "video.trim" {
+            operation = .videoEdit
+        } else {
+            operation = try values.decode(OperationID.self, forKey: .operation)
+        }
+        date = try values.decode(Date.self, forKey: .date)
+        recipeExecution = try values.decodeIfPresent(RecipeExecution.self, forKey: .recipeExecution)
+        items = try values.decode([CommitRecord].self, forKey: .items)
+        undone = try values.decode(Bool.self, forKey: .undone)
+    }
+}
+
 public enum UndoOutcome: Equatable, Sendable {
     case restored
     case skipped(SkipReason, path: String)

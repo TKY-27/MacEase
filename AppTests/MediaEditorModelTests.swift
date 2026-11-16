@@ -44,6 +44,20 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
+    func testCompressionRetryPrefillsEditableVideoRange() async throws {
+        let model = try await videoModel(range: 0.5...1.5)
+        XCTAssertEqual(model.values.start, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(model.values.end, 1.5, accuracy: 0.000_001)
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure)
+        XCTAssertTrue(model.canSave)
+        let planned = try model.makeSave(replacingOriginal: false)
+        XCTAssertEqual(planned.batch.operation, .videoEdit)
+        XCTAssertEqual(planned.settings.outputMode, .newFile)
+        XCTAssertEqual(model.values.video.segments?.first?.start, 0.5)
+        XCTAssertEqual(model.values.video.segments?.first?.end, 1.5)
+    }
+
     func testMultipleVideoSourcesCannotReplaceOriginal() async throws {
         let model = try await videoModel(count: 2)
         XCTAssertTrue(model.forcesNewFile)
@@ -456,7 +470,9 @@ final class MediaEditorModelTests: XCTestCase {
         return model
     }
 
-    private func videoModel(count: Int = 1, settings: Engine.Settings = Engine.Settings()) async throws
+    private func videoModel(
+        count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil
+    ) async throws
         -> MediaEditorModel
     {
         let directory = try workspace()
@@ -471,6 +487,7 @@ final class MediaEditorModelTests: XCTestCase {
         let staging = StagingArea(supportDirectory: support)
         let model = MediaEditorModel(urls: sources, isVideo: true, settings: settings, staging: staging)
         addTeardownBlock { await model.close() }
+        model.initialVideoRange = range
         model.load()
         try await eventually { model.canPlay || model.failure != nil }
         XCTAssertNil(model.failure)

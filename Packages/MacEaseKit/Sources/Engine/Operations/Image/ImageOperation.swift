@@ -189,5 +189,4 @@ public enum ImageOperation: Codable, Hashable, Sendable {
     case ocr(TextOutput)
     case toPDF
     case iconSet(IconSetKind)
-    case copyBase64
 }

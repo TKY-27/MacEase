@@ -6,18 +6,39 @@ import XCTest
 
 @MainActor
 final class ToolkitPanelTests: XCTestCase {
-    func testSourceInspectionMigrationPreservesLaterVisibilityChoice() throws {
+    func testRemovedVisibilityMigratesOnceAndPlacementsPersistIndependently() throws {
         let suite = "MacEaseToolkitTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set([], forKey: "hiddenMenuEntries")
+        defaults.set(
+            ["video.trim/", "image.copyBase64/", "any.sourceInfo/", "image.aiCustom/", "image.convert/png"],
+            forKey: "hiddenMenuEntries")
+        defaults.set(["video.trim", "any.sourceInfo"], forKey: "hiddenOperations")
         let store = SettingsStore(defaults: defaults)
-        let key = OperationID.anySourceInfo.menuEntryKey("")
-        XCTAssertTrue(store.hiddenEntries.contains(key))
-        store.hiddenEntries.remove(key)
-        XCTAssertFalse(SettingsStore(defaults: defaults).hiddenEntries.contains(key))
-        store.resetAll()
-        XCTAssertTrue(store.hiddenEntries.contains(key))
+        XCTAssertEqual(store.hiddenEntries, ["video.edit/", "image.convert/png"])
+        XCTAssertNil(defaults.object(forKey: "hiddenOperations"))
+        var changes = 0
+        store.onChange = { changes += 1 }
+        store.menuPlacements["image.convert"] = .more
+        XCTAssertEqual(changes, 1)
+        XCTAssertEqual(store.hiddenEntries, ["video.edit/", "image.convert/png"])
+        store.hiddenEntries.remove("video.edit/")
+        let restored = SettingsStore(defaults: defaults)
+        XCTAssertFalse(restored.hiddenEntries.contains("video.edit/"))
+        XCTAssertEqual(restored.menuPlacements, ["image.convert": .more])
+        restored.resetAll()
+        XCTAssertTrue(restored.menuPlacements.isEmpty)
+        XCTAssertTrue(SettingsStore(defaults: defaults).menuPlacements.isEmpty)
+    }
+
+    func testLegacyHiddenTrimMigratesToEditing() throws {
+        let suite = "MacEaseToolkitTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(
+            ["video.trim", "image.copyBase64", "video.aiCustom", "audio.aiCustom"], forKey: "hiddenOperations")
+        XCTAssertEqual(SettingsStore(defaults: defaults).hiddenEntries, ["video.edit/"])
+        XCTAssertNil(defaults.object(forKey: "hiddenOperations"))
     }
 
     func testGalleryModeClearsMediaOptionsAndPendingSelection() async {

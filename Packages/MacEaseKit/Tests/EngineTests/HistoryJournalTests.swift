@@ -6,6 +6,30 @@ import Testing
 @testable import Engine
 
 @Suite struct HistoryJournalTests {
+    @Test func historicalVideoTrimStillRestoresTheOriginal() async throws {
+        let folder = try Self.makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "original.mov")
+        let trashed = folder.appending(path: "trashed.mov")
+        try Data("original video".utf8).write(to: trashed)
+        let record = BatchRecord(
+            id: UUID(), operation: .videoEdit, date: Date(timeIntervalSinceReferenceDate: 1),
+            items: [
+                .removed(
+                    original: original.path, trashed: trashed.path,
+                    trashStamp: try FileStamp(of: trashed, includingIdentity: true))
+            ], undone: false)
+        var snapshot = HistorySnapshot()
+        snapshot.batches = [record]
+        let encoded = try JSONEncoder().encode(snapshot)
+        let legacy = String(decoding: encoded, as: UTF8.self).replacingOccurrences(of: "video.edit", with: "video.trim")
+        try Data(legacy.utf8).write(to: folder.appending(path: "history.json"))
+        let store = HistoryStore(supportDirectory: folder)
+        #expect(await store.records == [record])
+        #expect(try await store.undo(record.id) == [.restored])
+        #expect(try String(contentsOf: original, encoding: .utf8) == "original video")
+    }
+
     @Test func legacyRecipeSettingsSurviveHistoryCompaction() async throws {
         let folder = try Self.makeFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }

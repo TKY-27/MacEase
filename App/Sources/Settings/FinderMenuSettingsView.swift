@@ -9,7 +9,9 @@ struct FinderMenuSettingsView: View {
 
     @State private var editsPresets = false
 
-    private static let kinds: [FileKind] = [.image, .video, .audio, .pdf, .text, .folder, .archive, .jar, .any]
+    private static let kinds: [FileKind] = [
+        .image, .video, .audio, .pdf, .text, .document, .plist, .folder, .archive, .jar, .any,
+    ]
 
     /// Adjacent slots sharing an operation and unit.
     private static let slotRows: [[MenuValueSlot]] = MenuValues.slots.reduce(into: []) { rows, slot in
@@ -22,14 +24,22 @@ struct FinderMenuSettingsView: View {
 
     var body: some View {
         let titles = MenuStrings.titles(settings: store.planning)
+        let catalog = MenuFile(
+            token: "", hostAvailable: true, visibleOperations: OperationID.menuOrder,
+            titles: MenuTitles(operation: titles.operation, preset: titles.preset, kind: titles.kind),
+            extraRotationDegrees: store.settings.extraRotationEnabled ? store.settings.extraRotationDegrees : nil)
         Form {
             Section {
                 ForEach(Self.kinds, id: \.self) { kind in
                     MenuTreeRow(name: MenuStrings.kind(kind), sources: visibility(of: kind.menuOperations)) {
                         Text(MenuStrings.kind(kind))
                     } children: {
-                        ForEach(kind.menuOperations, id: \.self) { op in
-                            operationRow(op, titles: titles)
+                        let entries = catalog.entries.filter { $0.kind == kind }
+                        let groups = entries.reduce(into: [String]()) { groups, entry in
+                            if groups.last != entry.resolvedGroupID { groups.append(entry.resolvedGroupID) }
+                        }
+                        ForEach(groups, id: \.self) { groupID in
+                            groupRow(entries.filter { $0.resolvedGroupID == groupID })
                         }
                     }
                 }
@@ -84,27 +94,41 @@ struct FinderMenuSettingsView: View {
         }
     }
 
-    @ViewBuilder private func operationRow(_ op: OperationID, titles: MenuTitles) -> some View {
-        let label = VStack(alignment: .leading) {
-            Text(MenuStrings.operationName(op))
-            if let note = requirementNote(op) {
-                Text(note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        if op.menuPresetIDs.isEmpty {
-            Toggle(sources: visibility(of: [op]), isOn: \.self) { label }
-                .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 2)
-        } else {
-            MenuTreeRow(name: MenuStrings.operationName(op), sources: visibility(of: [op]), depth: 1) {
-                label
-            } children: {
-                ForEach(shownPresets(of: op), id: \.self) { preset in
-                    Toggle(titles.preset(op, preset), isOn: visibility(of: op.menuEntryKey(preset)))
-                        .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
+    @ViewBuilder private func groupRow(_ entries: [MenuEntry]) -> some View {
+        if let first = entries.first, let title = first.path.first {
+            if first.path.count == 1, first.kind == .any || first.op == .folderDownloadMedia {
+                Toggle(title, isOn: visibility(of: first.op.menuEntryKey(first.preset ?? "")))
+                    .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 2)
+            } else {
+                MenuTreeRow(
+                    name: title, sources: entries.map { visibility(of: $0.op.menuEntryKey($0.preset ?? "")) }, depth: 1
+                ) {
+                    Text(title)
+                } children: {
+                    if first.kind != .any, first.op != .folderDownloadMedia {
+                        Toggle("Show at Top Level", isOn: placement(of: first))
+                            .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
+                    }
+                    ForEach(entries, id: \.self) { entry in
+                        if entry.path.count > 1, let title = entry.path.last {
+                            Toggle(title, isOn: visibility(of: entry.op.menuEntryKey(entry.preset ?? "")))
+                                .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
+                        }
+                    }
+                    if let note = requirementNote(first.op) {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
+                            .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
+                    }
                 }
             }
+        }
+    }
+
+    private func placement(of entry: MenuEntry) -> Binding<Bool> {
+        Binding {
+            (store.menuPlacements[entry.resolvedGroupID] ?? entry.op.defaultMenuPlacement) == .primary
+        } set: { primary in
+            store.menuPlacements[entry.resolvedGroupID] = primary ? .primary : .more
         }
     }
 

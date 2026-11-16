@@ -150,9 +150,6 @@ struct VideoSettingsView: View {
                     ForEach(EncodePriority.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Picker("Trim", selection: $store.settings.video.trimMode) {
-                    ForEach(TrimMode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
                 ColorPicker(
                     String(localized: "Rotation fill", comment: "Saved rotation background color"),
                     selection: $store.settings.video.rotationFill.color, supportsOpacity: false)
@@ -317,11 +314,6 @@ struct AudioSettingsView: View {
                     )
                     .foregroundStyle(.red)
                 }
-                Picker("Extract audio as", selection: $store.settings.audio.extractFormat) {
-                    ForEach(OperationID.videoExtractAudio.presets, id: \.self) { format in
-                        Text(MenuStrings.preset(.videoExtractAudio, format)).tag(format)
-                    }
-                }
                 Picker(
                     String(localized: "Extracted audio bitrate", comment: "Saved audio extraction rate"),
                     selection: $store.settings.audio.extractedAudioBitrate
@@ -420,15 +412,6 @@ extension EncodePriority {
         switch self {
         case .speed: String(localized: "Speed", comment: "Video encoding priority")
         case .quality: String(localized: "Quality", comment: "Video encoding priority")
-        }
-    }
-}
-
-extension TrimMode {
-    var title: String {
-        switch self {
-        case .keyframe: String(localized: "At keyframes (fast, lossless)", comment: "Video trim mode")
-        case .exact: String(localized: "Exact (re-encodes)", comment: "Video trim mode")
         }
     }
 }

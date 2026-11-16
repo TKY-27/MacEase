@@ -78,83 +78,11 @@ struct MediaLoader<Content: View>: View {
     }
 }
 
-struct TrimPanel: View {
-    let url: URL
-    /// Seconds to preselect, such as LINE's limit.
-    let prefill: ClosedRange<Double>?
-    @State var mode: TrimMode
-    let close: () -> Void
-    let run: (_ start: Double, _ end: Double, TrimMode) -> Void
-
-    var body: some View {
-        MediaLoader(url: url, close: close) { media in
-            switch media {
-            case .player(let player, let duration):
-                VStack(spacing: 0) {
-                    modePicker.padding()
-                    TrimmingPlayer(player: player, prefill: prefill) { range in
-                        guard let range else { return close() }
-                        run(range.lowerBound, min(range.upperBound, duration), mode)
-                    }
-                    .frame(height: MediaLayout.videoHeight)
-                }
-                .frame(width: PanelLayout.wideWidth)
-            case .frames:
-                NumericTrim(media: media, prefill: prefill, mode: $mode, cancel: close, run: run)
-            }
-        }
-    }
-
-    private var modePicker: some View {
-        Picker("Cut", selection: $mode) {
-            ForEach(TrimMode.allCases, id: \.self) { Text($0.title).tag($0) }
-        }
-        .pickerStyle(.segmented)
-    }
-}
-
 enum MediaLayout {
     static let videoHeight: CGFloat = 340
     static let stripHeight: CGFloat = 40
     static let previewHeight: CGFloat = 240
     static let playheadWidth: CGFloat = 2
-}
-
-/// For media AVKit cannot play.
-private struct NumericTrim: View {
-    let media: LoadedMedia
-    let prefill: ClosedRange<Double>?
-    @Binding var mode: TrimMode
-    let cancel: () -> Void
-    let run: (_ start: Double, _ end: Double, TrimMode) -> Void
-
-    @State private var start = 0.0
-    @State private var end = 0.0
-
-    var body: some View {
-        PanelForm(
-            actionTitle: String(localized: "Trim", comment: "Trim panel action"),
-            canRun: 0 <= start && start < end && end <= media.duration, width: PanelLayout.wideWidth, cancel: cancel
-        ) {
-            run(start, end, mode)
-        } content: {
-            if case .frames(_, let frames) = media {
-                FrameStrip(frames: frames, duration: media.duration, highlight: start...max(start, end))
-            }
-            SecondsField(title: String(localized: "Start (seconds)", comment: "Trim field"), value: $start)
-            SecondsField(title: String(localized: "End (seconds)", comment: "Trim field"), value: $end)
-            LabeledContent("Duration") {
-                Text(Duration.seconds(media.duration), format: .time(pattern: .hourMinuteSecond))
-            }
-            Picker("Cut", selection: $mode) {
-                ForEach(TrimMode.allCases, id: \.self) { Text($0.title).tag($0) }
-            }
-        }
-        .onAppear {
-            start = prefill?.lowerBound ?? 0
-            end = min(prefill?.upperBound ?? media.duration, media.duration)
-        }
-    }
 }
 
 struct SecondsField: View {
@@ -211,66 +139,6 @@ struct FrameStrip: View {
                 }
             }
             .accessibilityHidden(true)
-    }
-}
-
-/// AVKit's trimming bar; `nil` means cancelled.
-private struct TrimmingPlayer: NSViewRepresentable {
-    let player: AVPlayer
-    let prefill: ClosedRange<Double>?
-    let finish: (ClosedRange<Double>?) -> Void
-
-    func makeNSView(context: Context) -> TrimmingPlayerView {
-        let view = TrimmingPlayerView()
-        view.player = player
-        view.controlsStyle = .inline
-        view.prefill = prefill
-        view.finish = finish
-        return view
-    }
-
-    func updateNSView(_ view: TrimmingPlayerView, context: Context) {
-        view.finish = finish
-    }
-
-    /// Closing mid-trim must stop playback.
-    static func dismantleNSView(_ view: TrimmingPlayerView, coordinator: ()) {
-        view.finish = nil
-        view.player?.pause()
-    }
-}
-
-private final class TrimmingPlayerView: AVPlayerView {
-    var finish: ((ClosedRange<Double>?) -> Void)?
-    var prefill: ClosedRange<Double>?
-    private var hasBegun = false
-
-    private static let timescale: CMTimeScale = 600
-
-    /// Trimming needs a window.
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard window != nil, !hasBegun else { return }
-        hasBegun = true
-        Task { @MainActor in
-            // AVKit disables Trim for ranges set beforehand.
-            if let prefill, let playerItem = player?.currentItem {
-                Task { @MainActor in
-                    playerItem.reversePlaybackEndTime = CMTime(
-                        seconds: prefill.lowerBound, preferredTimescale: Self.timescale)
-                    playerItem.forwardPlaybackEndTime = CMTime(
-                        seconds: prefill.upperBound, preferredTimescale: Self.timescale)
-                }
-            }
-            let result = await beginTrimming()
-            player?.pause()
-            guard result == .okButton, let playerItem = player?.currentItem else { return finish?(nil) ?? () }
-            let start = playerItem.reversePlaybackEndTime.isNumeric ? playerItem.reversePlaybackEndTime.seconds : 0
-            let end =
-                playerItem.forwardPlaybackEndTime.isNumeric
-                ? playerItem.forwardPlaybackEndTime.seconds : playerItem.duration.seconds
-            finish?(start...max(start, end))
-        }
     }
 }
 

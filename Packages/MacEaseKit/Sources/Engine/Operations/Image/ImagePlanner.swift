@@ -9,7 +9,6 @@ public enum ImagePlanner {
         case .imageHDRToSDR: return preset == nil ? .hdrToSDR : nil
         case .imageTrimBorders: return .trimBorders
         case .imageToPDF: return .toPDF
-        case .imageCopyBase64: return .copyBase64
         default: break
         }
         guard let preset else { return nil }
@@ -75,7 +74,6 @@ public enum ImagePlanner {
         case .ocr(let output): try await ImageExports.recognizeText(url, output: output, context: context)
         case .toPDF: try await ImageExports.pdf(from: [url], context: context)
         case .iconSet(let kind): try await ImageExports.iconSet(url, kind: kind, context: context)
-        case .copyBase64: try ImageExports.base64(url)
         }
     }
 

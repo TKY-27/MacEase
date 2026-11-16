@@ -161,7 +161,12 @@ import Testing
             return
         }
         #expect(outputs.map(\.lastPathComponent) == ["Fixture (2).mp4", "Fixture (2).en.vtt"])
-        for output in outputs { #expect(try FileOrigin.inspect(output).links == [page]) }
+        for output in outputs {
+            let attribute = try FinderAttributes.extendedAttribute("com.apple.metadata:kMDItemWhereFroms", of: output)
+            let encoded = try #require(attribute)
+            let links = try PropertyListSerialization.propertyList(from: encoded, format: nil) as? [String]
+            #expect(links == [page.absoluteString])
+        }
         #expect(try String(contentsOf: occupied, encoding: .utf8) == "original")
         #expect(outcome.record?.outputPaths == outputs.map(\.path))
         #expect(request.retryingFailed(outcome) == nil)

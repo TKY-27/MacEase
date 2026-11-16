@@ -43,7 +43,7 @@ private func animatedGIF(in folder: URL, frames: Int = 4) throws -> URL {
             #expect(ImagePlanner.operation(for: op, preset: nil, settings: Settings()) == nil)
             #expect(ImagePlanner.operation(for: op, preset: "unknown", settings: Settings()) == nil)
         }
-        for leaf in [OperationID.imageTrimBorders, .imageToPDF, .imageCopyBase64] {
+        for leaf in [OperationID.imageTrimBorders, .imageToPDF] {
             #expect(ImagePlanner.operation(for: leaf, preset: nil, settings: Settings()) != nil)
         }
         #expect(OperationPlanner.options(for: .imageConvert, preset: "webp", settings: Settings()) != nil)

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Use fixed primary Finder menu groups and a final More submenu, with per-group
+  Show at Top Level settings independent of visibility. Include Documents and
+  Property Lists in Finder Menu settings. Keep original request indices.
+- Open the video editor for over-limit compression and preserve Undo for old
+  video trim batches.
+
 - Make the photo/video editor's Save button always create a new file, with
   Replace Original in its dropdown and a Trash/Undo hint. Forced new-file edits
   disable replacement and explain why. Naming and execution share the chosen
@@ -16,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Show a single **MacEase…** Finder Services item; development builds no
   longer add a second **(MacEase Dev)** copy.
+
+### Removed
+
+- Legacy video Trim, Copy as Base64, Inspect Source and Ask Apple Intelligence.
+  AI rename, organization, OCR, subtitles and download provenance remain.
 
 ### Fixed
 
@@ -43,8 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standard age scrypt encryption/decryption through an isolated age v1.3.2
   bridge; keep originals, authenticate before publishing plaintext and pass
   session-only passphrases through standard input. New passwords need 12 characters.
-- Hidden-by-default Inspect Source action for recorded links and SHA-256, enabled
-  in Finder Menu settings; no authorship claim or automatic web research.
 - `make toolkit` builds pinned age, audio runtimes/models and the Core ML model;
   bootstrap installs missing Go/Python 3.11. Models ship with the app.
 

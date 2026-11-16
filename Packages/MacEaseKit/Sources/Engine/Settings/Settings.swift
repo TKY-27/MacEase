@@ -203,7 +203,6 @@ public struct VideoSettings: Codable, Equatable, Sendable {
     public var frameRateFilm = 24
     public var frameRateStandard = 30
     public var frameRateSmooth = 60
-    public var trimMode = TrimMode.keyframe
     public var rotationFill = RGBColor.black
     public var gifWidth = 480
     public var gifFrameRate = 15
@@ -230,7 +229,6 @@ public struct AudioSettings: Codable, Equatable, Sendable {
     public var loudnessTarget = -14.0
     public var loudnessStreaming = -16.0
     public var loudnessBroadcast = -23.0
-    public var extractFormat = "m4a"
     public var extractedAudioBitrate: Int?
 
     public init() {}

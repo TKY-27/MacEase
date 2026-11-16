@@ -18,7 +18,7 @@ enum NewFileNaming: Sendable {
             case .trimBorders: self = .edit("cropped")
             case .background: self = .edit("nobg")
             case .stripMetadata: self = .edit("clean")
-            case .ocr, .toPDF, .iconSet, .copyBase64: return nil
+            case .ocr, .toPDF, .iconSet: return nil
             }
         case .video(let operation):
             switch operation {

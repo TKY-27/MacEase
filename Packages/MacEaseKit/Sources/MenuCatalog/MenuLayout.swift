@@ -9,33 +9,62 @@ public indirect enum MenuNode: Equatable, Sendable {
 public enum MenuLayout {
     public static func nodes(for file: MenuFile, selection: [URL]) -> [MenuNode] {
         let summary = SelectionSummary(selection)
-        let sections = FileKind.menuOrder.compactMap { kind -> (FileKind, [MenuNode])? in
-            let children = operationNodes(for: kind, summary: summary, in: file)
-            return children.isEmpty ? nil : (kind, children)
-        }
-        let specificKinds = sections.filter { $0.0 != .any }
-        let classifiedCount = specificKinds.reduce(0) { $0 + summary.count(for: $1.0) }
-        if specificKinds.count == 1, let section = specificKinds.first, classifiedCount == selection.count {
-            var nodes = section.1
-            if let allFiles = sections.first(where: { $0.0 == .any }) {
-                nodes.append(.separator)
-                nodes += allFiles.1
+        var primary: [FileKind: [(Int, MenuEntry)]] = [:]
+        var more: [FileKind: [(Int, MenuEntry)]] = [:]
+        for (index, entry) in file.entries.enumerated() where entry.op != .folderDownloadMedia {
+            if entry.resolvedPlacement == .primary {
+                primary[entry.kind, default: []].append((index, entry))
+            } else {
+                more[entry.kind, default: []].append((index, entry))
             }
-            return nodes
         }
-        if specificKinds.isEmpty { return sections.first?.1 ?? [] }
-        return sections.map { kind, children in
-            .submenu(title: "\(file.kindTitle(kind)) (\(summary.count(for: kind)))", children: children)
+        let selectedKinds = FileKind.menuOrder.filter { $0 != .any && summary.count(for: $0) > 0 }
+        let singleKind =
+            selectedKinds.count == 1 && selectedKinds.first.map { summary.count(for: $0) } == selection.count
+        var nodes: [MenuNode] = []
+        var moreNodes: [MenuNode] = []
+        for kind in FileKind.menuOrder {
+            let title = "\(file.kindTitle(kind)) (\(summary.count(for: kind)))"
+            let ordered = (primary[kind] ?? []).sorted {
+                let left = $0.1.op.primaryMenuRank
+                let right = $1.1.op.primaryMenuRank
+                return left == right ? $0.0 < $1.0 : left < right
+            }
+            let children = operationNodes(ordered, summary: summary)
+            if !children.isEmpty {
+                if singleKind { nodes += children } else { nodes.append(.submenu(title: title, children: children)) }
+            }
+            var overflow = operationNodes(more[kind] ?? [], summary: summary)
+            if !singleKind, !selectedKinds.isEmpty {
+                overflow = overflow.map { node in
+                    switch node {
+                    case .action(let operation, let index): .action(title: "\(title): \(operation)", entryIndex: index)
+                    case .submenu(let operation, let children):
+                        .submenu(title: "\(title): \(operation)", children: children)
+                    case .separator: .separator
+                    }
+                }
+            }
+            if !overflow.isEmpty {
+                if !moreNodes.isEmpty { moreNodes.append(.separator) }
+                moreNodes += overflow
+            }
         }
+        if !moreNodes.isEmpty {
+            if !nodes.isEmpty { nodes.append(.separator) }
+            nodes.append(.submenu(title: file.moreTitle ?? "More", children: moreNodes))
+        }
+        return nodes
     }
 
     public static func isApplicable(_ entry: MenuEntry, selection: [URL]) -> Bool {
         SelectionSummary(selection).allows(entry)
     }
 
-    private static func operationNodes(for kind: FileKind, summary: SelectionSummary, in file: MenuFile) -> [MenuNode] {
+    private static func operationNodes(_ entries: [(Int, MenuEntry)], summary: SelectionSummary) -> [MenuNode] {
         var nodes: [MenuNode] = []
         var openTitle: String?
+        var openGroup: String?
         var openChildren: [MenuNode] = []
         var pendingBoundaries: Set<String> = []
         let rootLevel = ""
@@ -46,27 +75,31 @@ public enum MenuLayout {
                 nodes.append(.submenu(title: title, children: openChildren))
             }
             openTitle = nil
+            openGroup = nil
             openChildren = []
         }
 
-        for (index, entry) in file.entries.enumerated() where entry.kind == kind && entry.op != .folderDownloadMedia {
+        for (index, entry) in entries {
             guard let title = entry.path.first else { continue }
-            let parent = entry.path.count > 1 ? title : rootLevel
+            let parent = entry.path.count > 1 ? entry.resolvedGroupID : rootLevel
             if entry.separatorBefore { pendingBoundaries.insert(parent) }
             if entry.operationSeparatorBefore { operationBoundary = true }
             guard summary.allows(entry) else { continue }
-            if entry.path.count == 1 || openTitle != title {
+            if entry.path.count == 1 || openGroup != entry.resolvedGroupID {
                 closeSubmenu()
                 if operationBoundary, !nodes.isEmpty, nodes.last != .separator { nodes.append(.separator) }
                 operationBoundary = false
             }
             if entry.path.count == 1 {
-                if pendingBoundaries.remove(parent) != nil, !nodes.isEmpty { nodes.append(.separator) }
+                if pendingBoundaries.remove(parent) != nil, !nodes.isEmpty, nodes.last != .separator {
+                    nodes.append(.separator)
+                }
                 nodes.append(.action(title: title, entryIndex: index))
             } else if let leafTitle = entry.path.last {
-                if openTitle != title {
+                if openGroup != entry.resolvedGroupID {
                     closeSubmenu()
                     openTitle = title
+                    openGroup = entry.resolvedGroupID
                 }
                 if pendingBoundaries.remove(parent) != nil, !openChildren.isEmpty {
                     openChildren.append(.separator)

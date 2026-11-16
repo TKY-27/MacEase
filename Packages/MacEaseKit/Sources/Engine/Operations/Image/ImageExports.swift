@@ -1,11 +1,7 @@
 import CoreGraphics
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
-/// Text, PDF, icon and data URI outputs.
 enum ImageExports {
-    static let base64Limit: Int64 = 10_000_000
     static let smallestIconEdge = 16
     static let appIconEdge = 1024
     static let appIconFile = "AppIcon.png"
@@ -99,21 +95,4 @@ enum ImageExports {
         return try JSONSerialization.data(withJSONObject: contents, options: [.prettyPrinted, .sortedKeys])
     }
 
-    static func base64(_ url: URL) throws -> ItemResult {
-        let size = Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
-        guard size <= base64Limit else { throw EngineError.invalidInput(.tooLarge(limitBytes: base64Limit)) }
-        let data = try Data(contentsOf: url)
-        guard let mime = mimeType(of: data) else { throw EngineError.decodeFailed(url.lastPathComponent) }
-        return .text("data:\(mime);base64,\(data.base64EncodedString())", .clipboard)
-    }
-
-    private static func mimeType(of data: Data) -> String? {
-        if let source = CGImageSourceCreateWithData(data as CFData, nil),
-            let identifier = CGImageSourceGetType(source),
-            let mime = UTType(identifier as String)?.preferredMIMEType
-        {
-            return mime
-        }
-        return SVGRenderer.isSVG(data) ? UTType.svg.preferredMIMEType : nil
-    }
 }

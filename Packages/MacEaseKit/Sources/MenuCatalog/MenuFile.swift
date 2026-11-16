@@ -1,6 +1,10 @@
 import CryptoKit
 import Foundation
 
+public enum MenuPlacement: String, Codable, Sendable {
+    case primary, more
+}
+
 public struct MenuEntry: Codable, Hashable, Sendable {
     public static let customPreset = "custom"
 
@@ -24,14 +28,19 @@ public struct MenuEntry: Codable, Hashable, Sendable {
     public let recipeID: UUID?
     public let recipeRevision: String?
     public let acceptedKinds: Set<FileKind>?
+    public let groupID: String?
+    public let placement: MenuPlacement?
 
     public init(
         op: OperationID, preset: String?, path: [String], separatorBefore: Bool = false,
         operationSeparatorBefore: Bool = false, targetBytes: Int64? = nil, resizeValue: Int? = nil,
         parameterVersion: String? = nil,
         rotationDegrees: Double? = nil, frameRate: Int? = nil, targetLoudness: Double? = nil,
-        recipeID: UUID? = nil, recipeRevision: String? = nil, acceptedKinds: Set<FileKind>? = nil
+        recipeID: UUID? = nil, recipeRevision: String? = nil, acceptedKinds: Set<FileKind>? = nil,
+        groupID: String? = nil, placement: MenuPlacement? = nil
     ) {
+        self.groupID = groupID
+        self.placement = placement
         self.op = op
         self.preset = preset
         self.kind = op.kind
@@ -80,6 +89,12 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         }
     }
 
+    public var resolvedGroupID: String { groupID ?? op.menuGroupID(preset: preset) }
+
+    public var resolvedPlacement: MenuPlacement {
+        kind == .any ? .more : placement ?? op.defaultMenuPlacement
+    }
+
     public var isCustom: Bool { preset == Self.customPreset }
 }
 
@@ -100,21 +115,26 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public let hostAvailable: Bool
     public let entries: [MenuEntry]
     public let kinds: [String: KindTitle]
+    public let moreTitle: String?
     public var monitoredDirectoryPaths: [String]?
 
-    public init(token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String]) {
+    public init(
+        token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String], moreTitle: String? = nil
+    ) {
         self.schema = Self.currentSchema
-        self.catalogVersion = Self.version(of: entries)
+        self.moreTitle = moreTitle
+        self.catalogVersion = Self.version(of: entries, moreTitle: moreTitle)
         self.token = token
         self.hostAvailable = hostAvailable
         self.entries = entries
         self.kinds = Dictionary(uniqueKeysWithValues: kinds.map { ($0.key.rawValue, KindTitle(title: $0.value)) })
     }
 
-    public static func version(of entries: [MenuEntry]) -> String {
+    public static func version(of entries: [MenuEntry], moreTitle: String? = nil) -> String {
         let unitSeparator = "\u{1F}"
         let canonical = entries.map { entry in
             let constraints: [String] = [
+                entry.groupID ?? "", entry.placement?.rawValue ?? "",
                 String(entry.separatorBefore), String(entry.operationSeparatorBefore),
                 entry.targetBytes.map { String($0) } ?? "", entry.resizeValue.map { String($0) } ?? "",
                 entry.parameterVersion ?? "",
@@ -130,7 +150,8 @@ public struct MenuFile: Codable, Equatable, Sendable {
             return ([entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue] + constraints + entry.path)
                 .joined(separator: unitSeparator)
         }.joined(separator: "\u{1E}")
-        return SHA256.hash(data: Data(canonical.utf8)).hexEncoded
+        let localized = moreTitle.map { canonical + "\u{1E}" + $0 } ?? canonical
+        return SHA256.hash(data: Data(localized.utf8)).hexEncoded
     }
 
     public func kindTitle(_ kind: FileKind) -> String {
@@ -190,7 +211,8 @@ extension MenuFile {
         hiddenEntries: Set<String> = [],
         extraRotationDegrees: Double? = nil,
         frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
-        sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil
+        sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil,
+        placements: [String: MenuPlacement] = [:], moreTitle: String? = nil
     ) {
         var entries: [MenuEntry] = []
         let visible = Set(visibleOperations)
@@ -201,14 +223,7 @@ extension MenuFile {
             if op.startsGroup { operationBoundaries.insert(op.kind) }
             guard visible.contains(op) else { continue }
             if !titles.speechAvailable, op == .audioSubtitles || op == .videoSubtitles { continue }
-            let parent: OperationID =
-                switch op {
-                case .imageFlip: .imageRotate
-                case .imageHDRToSDR: .imageConvert
-                case .videoFlip: .videoRotate
-                case .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR: .videoConvert
-                default: op
-                }
+            let parent = op.menuGroupOperation
             let opTitle = titles.operation(parent)
             var groups = op.presetGroups
             if extraRotationDegrees != nil, op == .imageRotate || op == .videoRotate {
@@ -223,7 +238,8 @@ extension MenuFile {
                             op: op, preset: nil, path: isSDR ? [opTitle, titles.operation(op)] : [opTitle],
                             separatorBefore: isSDR,
                             operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
-                            parameterVersion: parameterVersion))
+                            parameterVersion: parameterVersion,
+                            groupID: op.menuGroupID(preset: nil), placement: placements[op.menuGroupID(preset: nil)]))
                 }
                 continue
             }
@@ -247,20 +263,22 @@ extension MenuFile {
                             resizeValue: resizeTargets["\(op.rawValue)/\(preset)"], parameterVersion: parameterVersion,
                             rotationDegrees: preset == "extra-angle" ? extraRotationDegrees : nil,
                             frameRate: op == .videoFPS ? frameRates[preset] : nil,
-                            targetLoudness: op == .audioNormalize ? loudnessTargets[preset] : nil))
+                            targetLoudness: op == .audioNormalize ? loudnessTargets[preset] : nil,
+                            groupID: op.menuGroupID(preset: preset),
+                            placement: placements[op.menuGroupID(preset: preset)]))
                     if animations.contains(op) { hasAnimations = true }
                 }
             }
         }
         let kinds = Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, titles.kind($0)) })
-        self.init(token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds)
+        self.init(token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds, moreTitle: moreTitle)
     }
 }
 
 extension OperationID {
     fileprivate var startsGroup: Bool {
         switch self {
-        case .imageToPDF, .imageAIRename, .videoAICustom, .audioAICustom, .pdfAIRename,
+        case .imageToPDF, .imageAIRename, .pdfAIRename,
             .textJSON, .folderRemoveDuplicates, .folderAIRename:
             true
         default: false

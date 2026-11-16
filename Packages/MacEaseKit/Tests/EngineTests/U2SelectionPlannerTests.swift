@@ -12,25 +12,19 @@ import Testing
         return directory
     }
 
-    @Test(arguments: [OperationID.videoTrim, .audioTrim, .pdfExtractPages, .imageCopyBase64])
+    @Test(arguments: [OperationID.audioTrim, .pdfExtractPages])
     func staleMultiSelectionFailsBeforeReadingFiles(op: OperationID) async throws {
         let directory = try folder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: directory) } }
         let suffix: String
         let options: OperationOptions
         switch op {
-        case .videoTrim:
-            suffix = "mov"
-            options = .video(.trim(start: 0, end: 1, mode: .keyframe))
         case .audioTrim:
             suffix = "wav"
             options = .audio(.trim(start: 0, end: 1))
         case .pdfExtractPages:
             suffix = "pdf"
             options = .pdf(.extractPages(IndexSet(integer: 0)))
-        case .imageCopyBase64:
-            suffix = "png"
-            options = .image(.copyBase64)
         default:
             Issue.record("Unexpected single-input operation")
             return

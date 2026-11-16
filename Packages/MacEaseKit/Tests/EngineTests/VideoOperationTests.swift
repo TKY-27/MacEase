@@ -497,8 +497,8 @@ import Testing
 
     @Test func exactTrimReencodesTheRange() async throws {
         let url = try fixture("ffmpeg-h264-aac.mp4")
-        let options = OperationOptions.video(.trim(start: 0.5, end: 1.5, mode: .exact))
-        let result = try output(try await run(.videoTrim, options: options, on: url))
+        let options = OperationOptions.video(.edit(VideoEdit(start: 0.5, end: 1.5, trimMode: .exact)))
+        let result = try output(try await run(.videoEdit, options: options, on: url))
         let duration = try await AVURLAsset(url: result).load(.duration).seconds
         #expect(abs(duration - 1) < 0.1)
     }

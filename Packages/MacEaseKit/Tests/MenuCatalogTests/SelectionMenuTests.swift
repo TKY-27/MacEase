@@ -25,7 +25,7 @@ import Testing
         }
         #expect(Array(titles.prefix(4)) == ["\(kind).edit", "\(kind).convert", "\(kind).compress", "\(kind).resize"])
         #expect(titles.filter { $0 == "\(kind).convert" }.count == 1)
-        #expect(titles.filter { $0 == "\(kind).rotate" }.count == 1)
+        #expect(titles.filter { $0 == "\(kind).rotate" }.count == (kind == "image" ? 1 : 0))
     }
 
     @Test(arguments: ["zip", "7z", "tar", "tar.gz", "tgz", "zip.001", "7z.002", "tar.gz.010"])

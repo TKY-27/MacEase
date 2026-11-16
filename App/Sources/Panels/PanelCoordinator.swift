@@ -55,10 +55,6 @@ final class PanelCoordinator {
         case .anyProtect: showFileProtection(inputs[0])
         case .anyShare: showFileShare(inputs)
         case .anyFindRelated: showRelatedFiles(inputs[0])
-        case .anySourceInfo:
-            featureHost.show(
-                title: MenuStrings.operationName(op), minimumSize: NSSize(width: 560, height: 340), onClose: {}
-            ) { close in FileOriginPanel(source: inputs[0], close: close) }
         case .imageEdit: showMediaEditor(inputs, isVideo: false)
         case .imageTraceSVG: showSVGTrace(inputs[0])
         case .archiveBrowse: showArchiveBrowser(inputs[0])
@@ -66,7 +62,7 @@ final class PanelCoordinator {
         case .imageCompress, .videoCompress, .audioCompress: showTargetSize(op, inputs)
         case .videoEdit: showMediaEditor(inputs, isVideo: true)
         case .videoSpeed: showSpeed(inputs)
-        case .videoTrim, .audioTrim: presentTrim(op, file: inputs[0], prefill: nil)
+        case .audioTrim: presentAudioTrim(file: inputs[0])
         case .videoThumbnail where entry.preset == "choose-frame": showFramePicker(op, file: inputs[0])
         case .imageToPDF, .pdfMerge: showPageOrder(op, inputs)
         case .pdfExtractPages: showPageSelect(op, file: inputs[0])
@@ -77,7 +73,6 @@ final class PanelCoordinator {
         case .folderRemoveDuplicates: showDuplicates(op, inputs)
         case .folderRemoveEmpty: showEmptyFolders(op, inputs)
         case .folderAnalyze: showAnalysis(op, inputs)
-        case .imageAICustom, .videoAICustom, .audioAICustom: showCustomAI(op, inputs)
         default:
             logger.error("No panel for \(op.rawValue, privacy: .public)")
         }
@@ -132,13 +127,17 @@ final class PanelCoordinator {
         }
     }
 
-    private func showMediaEditor(_ inputs: [URL], isVideo: Bool) {
+    private func showMediaEditor(
+        _ inputs: [URL], isVideo: Bool, range: ClosedRange<Double>? = nil,
+        then next: (op: OperationID, options: OperationOptions)? = nil
+    ) {
         let ordered = inputs.sorted {
             let comparison = $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
             return comparison == .orderedSame ? $0.path < $1.path : comparison == .orderedAscending
         }
         let model = MediaEditorModel(
             urls: ordered, isVideo: isVideo, settings: store.planning, staging: jobs.engine.staging)
+        model.initialVideoRange = range
         featureHost.show(
             title: ordered.count == 1
                 ? ordered[0].displayName : MenuStrings.operationName(isVideo ? .videoEdit : .imageEdit),
@@ -146,7 +145,13 @@ final class PanelCoordinator {
             initialSize: NSSize(width: 1280, height: 720), onClose: { await model.close() }
         ) { close in
             MediaEditorView(model: model, close: close) { batch, settings in
-                self.jobs.run(batch: batch, settings: settings)
+                let edit = self.jobs.run(batch: batch, settings: settings)
+                guard let next else { return }
+                Task {
+                    guard let outcome = await edit.value, !outcome.wasCancelled else { return }
+                    let edited = Self.continuing(outcome)
+                    if !edited.isEmpty { self.launch(next.op, next.options, edited) }
+                }
             }
         }
     }
@@ -278,7 +283,7 @@ final class PanelCoordinator {
         case (.video(.compress), .tooLong(let limit)):
             let prefill = 0...max(limit - Self.trimHeadroomSeconds, 0)
             files.forEach {
-                presentTrim(.videoTrim, file: $0, prefill: prefill, then: (request.op, request.options))
+                showMediaEditor([$0], isVideo: true, range: prefill, then: (request.op, request.options))
             }
         default:
             return false
@@ -289,39 +294,15 @@ final class PanelCoordinator {
     /// Trims can overshoot the end slightly.
     private static let trimHeadroomSeconds = 1.0
 
-    /// `next` runs on the trimmed file.
-    func presentTrim(
-        _ op: OperationID, file: URL, prefill: ClosedRange<Double>?,
-        then next: (op: OperationID, options: OperationOptions)? = nil
-    ) {
-        func run(_ options: OperationOptions) {
-            let trim = jobs.run(OperationRequest(op: op, options: options, inputs: [file]))
-            guard let next else { return }
-            Task {
-                guard let outcome = await trim.value, !outcome.wasCancelled else { return }
-                let trimmed = Self.continuing(outcome)
-                if !trimmed.isEmpty { self.launch(next.op, next.options, trimmed) }
-            }
-        }
-        if op == .audioTrim {
-            let model = AudioTrimModel(url: file, staging: jobs.engine.staging, prefill: prefill)
-            featureHost.show(
-                title: file.displayName, minimumSize: NSSize(width: 720, height: 300),
-                initialSize: NSSize(width: 960, height: 320), onClose: { await model.close() }
-            ) { close in
-                AudioTrimPanel(model: model, cancel: close) { start, end, fadeIn, fadeOut in
-                    close()
-                    run(.audio(.trim(start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut)))
-                }
-            }
-            return
-        }
-        let mode = PanelMemory.value(for: op, default: store.settings.video.trimMode)
-        host.show(title: MenuStrings.operationName(op)) { close in
-            TrimPanel(url: file, prefill: prefill, mode: mode, close: close) { start, end, mode in
-                PanelMemory.remember(mode, for: op)
+    private func presentAudioTrim(file: URL) {
+        let model = AudioTrimModel(url: file, staging: jobs.engine.staging, prefill: nil)
+        featureHost.show(
+            title: file.displayName, minimumSize: NSSize(width: 720, height: 300),
+            initialSize: NSSize(width: 960, height: 320), onClose: { await model.close() }
+        ) { close in
+            AudioTrimPanel(model: model, cancel: close) { start, end, fadeIn, fadeOut in
                 close()
-                run(.video(.trim(start: start, end: end, mode: mode)))
+                self.launch(.audioTrim, .audio(.trim(start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut)), [file])
             }
         }
     }
@@ -580,39 +561,6 @@ final class PanelCoordinator {
         saveReport(
             report, suggestedName: "\(analysis.folder.lastPathComponent) analysis.\(format.pathExtension)",
             operation: op, contentType: contentType)
-    }
-
-    private func showCustomAI(_ op: OperationID, _ inputs: [URL]) {
-        let settings = store.settings
-        let prompt = PanelMemory.value(for: op, default: "")
-        let isRunnable = { (step: CustomStep) in
-            OperationPlanner.options(for: step.operation, preset: step.preset, settings: settings) != nil
-        }
-        host.show(title: MenuStrings.operationName(op)) { close in
-            CustomAIPanel(kind: op.kind, prompt: prompt, isRunnable: isRunnable, cancel: close) { prompt, steps in
-                PanelMemory.remember(prompt, for: op)
-                close()
-                Task { await self.runInOrder(steps, inputs: inputs) }
-            }
-        }
-    }
-
-    /// Each step consumes the previous results.
-    private func runInOrder(_ steps: [CustomStep], inputs: [URL]) async {
-        var current = inputs
-        for step in steps {
-            guard
-                let options = OperationPlanner.options(
-                    for: step.operation, preset: step.preset, settings: store.settings),
-                let outcome = await jobs.run(OperationRequest(op: step.operation, options: options, inputs: current))
-                    .value
-            else {
-                logger.error("Plan stopped before \(step.operation.rawValue, privacy: .public)")
-                return
-            }
-            current = Self.continuing(outcome)
-            if current.isEmpty || outcome.wasCancelled { return }
-        }
     }
 
     /// Files the next chained step consumes.

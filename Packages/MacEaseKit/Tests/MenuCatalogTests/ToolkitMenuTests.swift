@@ -7,7 +7,7 @@ import Testing
     @Test func relatedAndProtectionRequireOneFile() {
         let source = URL(filePath: "/selection/photo.png")
         let other = URL(filePath: "/selection/song.wav")
-        for operation in [OperationID.anyFindRelated, .anyProtect, .anySourceInfo] {
+        for operation in [OperationID.anyFindRelated, .anyProtect] {
             let entry = MenuEntry(op: operation, preset: nil, path: [operation.rawValue])
             #expect(MenuLayout.isApplicable(entry, selection: [source]))
             #expect(!MenuLayout.isApplicable(entry, selection: [source, other]))

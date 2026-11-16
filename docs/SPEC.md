@@ -110,9 +110,10 @@ Menu file content:
 ```json
 {
   "schema": 3,
-  "catalogVersion": "sha256 of the entries array",
+  "catalogVersion": "sha256 of ordered entries and More title",
   "token": "64 hex characters",
   "hostAvailable": true,
+  "moreTitle": "More",
   "entries": [
     { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"], "separatorBefore": false }
   ],
@@ -214,7 +215,7 @@ compression, conversion, rotation, flip, border trimming, background editing,
 and metadata stripping; video resize, trim, compression, rotation, flip,
 frame-rate changes, remove audio, and container conversion; audio conversion,
 compression, normalization, and trim; PDF compression and rotation; text encoding,
-line endings, and JSON formatting or sorting. AI plans use each step's policy.
+line endings, and JSON formatting or sorting.
 
 Exports, extracts, and reports keep their inputs regardless of the switch,
 except explicitly requested HatchZip in-place extraction (section 8.5).
@@ -627,12 +628,23 @@ The setting explains this fallback and links to macOS permission settings.
 ### 4.2 Structure and pruning
 
 One top-level **MacEase ▸** uses the extension's Context Page template glyph
-(ADR 0027). A single kind exposes
-operations directly, with choices one level below. Mixed selections retain
-`MacEase ▸ Kind (n) ▸ Operation ▸ Choice`, at most four levels. Counts and
+(ADR 0027). A single kind exposes its fixed primary groups directly, followed
+by a separator and **More ▸** (Japanese: **その他**) for all remaining groups.
+All Files operations appear once inside More. Empty More menus disappear.
+Mixed selections retain `MacEase ▸ Kind (n) ▸ Operation ▸ Choice` for primaries.
+Their single final More menu uses `Kind (n): Operation ▸ Choice`, without
+another kind submenu, keeping every path within four levels. Counts and
 single-selection limits use that kind's subset. Unknown files and packages
-receive All Files operations. Folder selection never enables recursive media
-operations.
+receive All Files operations inside More. Folder selection never enables
+recursive media operations. The folder-background **Download Media…** stays
+outside MacEase, unchanged.
+
+Positions never adapt to usage. Pruning a primary never promotes another group
+from More. Settings > Finder Menu can pin or unpin visible groups through
+**Show at Top Level**, independently of their visibility. All Files operations
+always remain in More. Shared Rotate/Flip and Convert/SDR/animation groups move
+together; JSON commands have individual groups. Reset All clears placement
+choices. Document and Property List kinds appear in the settings tree.
 
 Only image/video Resize and image/video/audio Compress have **Custom Size…**.
 Flip leaves share Rotate. Video animation leaves share Convert. JSON commands
@@ -651,8 +663,7 @@ Selection rules:
 - Text structural conversion requires one canonical source format and offers
   only its valid targets. Generic text formats can still derive TXT. JSON
   Pretty Print, Minify, and Sort Keys appear only when all Text inputs are JSON.
-- Trim for video or audio, Choose Frame, Extract Pages, and Copy as Base64
-  require exactly one input of that kind. PDF Merge requires two or more PDFs.
+- Audio Trim, Choose Frame, and Extract Pages require exactly one input of that kind. PDF Merge requires two or more PDFs.
   Make PDF supports one image directly and opens page ordering for two or more.
 - Analyze combines all selected folder roots in one report. It has no
   single-folder limit. Repeated and overlapping roots are counted once.
@@ -682,23 +693,34 @@ Scripts and source files are decoded as text and never executed.
 
 ### 4.4 Menu groups and defaults
 
-The first table gives operation order. Semicolons delimit entries there; only
-the word `separator` inserts a menu separator. In the second table, semicolons
-divide preset groups and render as separators. `hidden` means hidden only on
-new installs. Single leaves and count constraints follow section 4.2. All Files
-Checksum follows a separator in single-kind file menus, or an **All Files (n)** submenu in mixed
-menus.
+The first table gives the fixed primary order and default More groups.
+Semicolons separate visible groups. The second table lists preset groups;
+semicolons there render as separators. `hidden` means hidden only on new
+installs. Single leaves and count constraints follow section 4.2.
 
-| Kind | Operation order and grouped choices |
-| --- | --- |
-| Images | Edit Photo…; Upscale Photo…; Convert; Compress; Resolution; Rotate; Background; Recognize Text; separator; Make PDF; Make Icon; Trace to SVG…; Trim Borders; Copy as Base64 (hidden); Remove Metadata; separator; Rename with Apple Intelligence…; Ask Apple Intelligence… |
-| Videos | Edit Video…; Convert; Compress; Resolution; Rotate; Playback Speed; Remove Audio; Frame Rate; Background; Thumbnail; Extract Audio; Subtitles; separator; Ask Apple Intelligence… |
-| Audio | Trim…; Enhance Audio…; Convert; Compress; Normalize Loudness; Subtitles; separator; Ask Apple Intelligence… |
-| PDFs | Merge…; Export as Images; Export as Text; Compress; Rotate; Extract Pages…; Split into Pages; separator; Rename with Apple Intelligence… |
-| Documents / Property Lists | Convert |
-| Text | Convert; Encoding; Line Endings; separator when JSON commands survive; Pretty Print; Minify; Sort Keys |
-| Folders | Compress; Rename…; Folder Tree; Analyze…; separator; Remove Duplicates… or Remove Duplicates under an automatic keep policy; Remove Empty Folders…; separator; Rename Contents with Apple Intelligence… |
-| Archives / JAR | Extract with HatchZip; Extract RAR; Browse Contents… / Decompile |
+| Kind | Primary groups, in order | More groups |
+| --- | --- | --- |
+| Images | Edit Photo…; Convert; Compress; Resolution; Rotate; Background; Recognize Text | Upscale Photo…; Make PDF; Make Icon; Trace to SVG…; Trim Borders; Remove Metadata; Rename with Apple Intelligence… |
+| Videos | Edit Video…; Convert; Compress; Resolution; Extract Audio; Thumbnail; Subtitles | Rotate; Playback Speed; Remove Audio; Frame Rate; Background |
+| Audio | Trim…; Enhance Audio…; Convert; Compress; Normalize Loudness; Subtitles | — |
+| PDFs | Edit Pages…; Merge…; Export as Images; Export as Text; Compress; Rotate; Extract Pages…; Split into Pages | Rename with Apple Intelligence… |
+| Documents / Property Lists | Convert | — |
+| Text | Convert; Pretty Print; Minify; Sort Keys | Encoding; Line Endings |
+| Folders | Compress; Rename…; Organize…; Analyze…; Remove Duplicates…; Remove Empty Folders… | Folder Tree; Rename Contents with Apple Intelligence… |
+| Archives | Extract with HatchZip; Extract RAR; Browse Contents… | — |
+| JAR | — | Decompile |
+| All Files | — | Finish With Recipe…; Share with QR Code…; Find Related Files…; Encrypt or Decrypt…; Checksum |
+
+Remove Duplicates omits its ellipsis under an automatic keep policy.
+Every operation absent from the primary table defaults to More. Primary groups retain the fixed order above. Newly pinned groups follow those
+primaries in catalog order; More groups retain catalog order.
+Schema 3 adds optional `groupID` and `placement` (`primary` or `more`) to
+entries and optional localized `moreTitle` to the file. Old schema-3 files use
+the default placement table and the title More. The catalog hash covers all
+three fields. Layout partitions indexed entries once and preserves original
+request indices. Placement choices persist as group IDs in UserDefaults;
+localized paths never identify groups. Removed operation visibility keys are
+discarded; a hidden `video.trim/` migrates once to `video.edit/`.
 
 | Submenu | Groups in display order |
 | --- | --- |
@@ -747,9 +769,9 @@ system behavior. Values are remembered only for retained panels.
 | --- | --- | --- |
 | Size | Image/video Resize > Custom Size… | Width and Height in pixels, live result for the first file. One blank dimension preserves proportions; both fit inside the box. Images have Allow enlarging. No mode picker. |
 | Target size | Image/video/audio Compress > Custom Size… | One decimal size field, largest-selected-file hint and live byte equivalent. Image requests expose Allow downscaling; other processing options remain in Settings. No quality/platform picker. |
-| Photo / video editor | One still image or video | Resizable dark workspace: unified toolbar with centred tool tabs, large viewer with centred transport, sectioned right inspector; video timeline below. Section 8.1.1. |
+| Photo / video editor | Images or videos; over-limit LINE clips with a preselected range | Resizable dark workspace: unified toolbar with centred tool tabs, large viewer with centred transport, sectioned right inspector; video timeline below. Section 8.1.1. |
 | Speed | One or more videos, Custom Speed… | Numeric playback speed, presets, current save policy. |
-| Trim | Audio trim; single over-limit LINE clip | Video: AVPlayerView for native containers; thumbnail strip sampled at one twentieth of duration and numeric times for other supported containers; keyframe/exact choice defaulted from Settings. Audio: resizable dark window with a full-width waveform timeline, centred transport and Start/End/Length timecodes (section 23.2). |
+| Trim | Audio trim | Resizable dark window with a full-width waveform timeline, centred transport and Start/End/Length timecodes (section 23.2). |
 | Frame picker | Single video Choose Frame… | Preview and timestamp. |
 | Page order | PDF Merge, Make PDF with multiple images | Thumbnails, reorder/remove, Move Up and Move Down. |
 | Page select | Single PDF Extract Pages… | Page ranges and thumbnails. |
@@ -758,7 +780,6 @@ system behavior. Values are remembered only for retained panels.
 | Analyze | Selected folder roots | Opens after the scan finishes in Activity. One combined report, named roots, totals, largest 50 files, size by type, duplicate and empty summaries, and Export… with a format pop-up (CSV, JSON, HTML, Plain Text, Markdown) that starts at the Settings default. |
 | Text result | OCR Show, multi-file checksum, report details | Read-only text, Copy and Save. |
 | Password / Encoding | Engine requests | Secure archive password field remembered only for the batch, or ambiguous source text encoding. |
-| Ask Apple Intelligence | Natural-language requests | Prompt, validated plan, explicit Run. |
 | Panel failure | Failed panel preparation | Actionable failure and retry or close. |
 
 Angle, Animation, Background, Subtitles, Extract Audio, and generic Options
@@ -846,8 +867,8 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 | Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
 | Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
 | Images | Per-format quality, PNG optimization, independent target-size downscale and frame-rate reduction, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
-| Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, trim accuracy, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
-| Audio | Per-format bitrate, MP3 CBR/VBR, loudness defaults and editable loudness menu values, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode), extract default format for AI plans only. |
+| Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
+| Audio | Per-format bitrate, MP3 CBR/VBR, loudness defaults and editable loudness menu values, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode). |
 | Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), excluded folder names plus an Exclusion Rules sheet for folder, file, and extension patterns per scope (all folder scans, Remove Duplicates, Remove Empty Folders, Folder Tree, Analyze, Rename), folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
 | Text | Shift_JIS policy (fail default, ?, numeric references, or validated custom substitute), JSON indent (2, 4, tab), comparison (ordinal default, case-insensitive, natural), ascending/descending (ascending), recursive/root-only (recursive), pinned keys (empty), primitive-array sorting (off), CSV type inference (off). PDF section: page image resolution (144 dpi), layout (pages folder default, loose files optional). |
 | Text Recognition & AI | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, AI on/off. Audio and video share subtitle settings. |
@@ -900,9 +921,7 @@ network load, plus ICO and ICNS via the in-house readers when ImageIO fails.
 | `image.ocr` | Copy text, Save as .txt, Show | Clipboard, Derived, Report | Vision `RecognizeTextRequest` accurate, language correction on, languages from settings with automatic detection |
 | `image.toPDF` | — | Derived | One PDF from all selected images, initially in natural filename order; Page order panel when more than one image |
 | `image.iconSet` | macOS icon (.icns), iOS AppIcon set, Windows icon (.ico) | Derived | Non-square inputs are padded to square with transparency; AppIcon set writes `Contents.json` and the sizes Xcode 26 expects |
-| `image.copyBase64` | — | Clipboard | `data:` URI with the correct MIME type; refuses files over 10 MB |
 | `image.aiRename` | — | Rename | Section 10 |
-| `image.aiCustom` | — | Depends on plan | Section 10 |
 
 Image property-loss checks apply to conversion, compression and platform
 presets, geometry, background edits, metadata re-encoding, and icon/PDF exports.
@@ -1027,9 +1046,8 @@ harmful findings without speculative complexity (ADR 0039).
 ### 8.2 Videos
 
 The Edit Video panel defaults to the complete range, 1×, original resolution.
-It previews output dimensions, duration and the current save policy. Pure
-keyframe cuts label the requested range as Selected duration and explain that
-the actual cut can start earlier; Exact retains the displayed duration. Native
+It previews output dimensions, duration and the current save policy. Cuts are
+exact. Native
 containers play directly through AVPlayer. Other supported containers use a
 cancellable, low-resolution temporary playback copy; export reads the original. Playback speed also accepts arbitrary finite values from 0.5 to 4.
 Speed changes use a common source/output timeline for video and audio. Slower
@@ -1196,7 +1214,6 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | `video.resize` | 50%, 2160p, 1080p, 720p, 480p, 360p | Transform | Re-encodes video with the source codec family when it is H.264 or HEVC, otherwise the settings codec; audio is copied |
 | `video.edit` | — (editor) | Transform | One video: time range, speed, resolution, geometry, color, style and volume in one export. Unchanged input disables Save. Segments support split, delete, duplicate, reorder and individual speed, volume and color; cuts are exact. HDR color edits always derive SDR. Section 8.1.1. |
 | `video.speed` | 0.5, 0.75, 1.25, 1.5, 2, 4×, Custom Speed… | Transform | Multiple videos; finite custom values from 0.5 through 4, including fractional values. Preserve audio pitch. |
-| `video.trim` | Legacy requests and LINE panel | Transform | Retained for history and compatibility. Keyframe mode copies streams; exact mode re-encodes. Hidden-menu preference migrates once to `video.edit`. |
 | `video.compress` | Discord, X, Instagram Reels, LINE, Email, 10 MB, 25 MB, 50 MB, 100 MB, High, Medium, Low quality | Transform | Section 8.10; bundled platform presets default to MP4 with H.264 High and AAC; edited presets honor section 9; generic presets use HEVC (`hvc1`) in the source container when it supports HEVC, else MP4 |
 | `video.rotate` | 90° right, 90° left, 180°, extra angle from Settings | Transform | Multiples of 90° in MP4 and MOV set the track transform without re-encoding; other angles and containers re-encode with the fill color |
 | `video.flip` | Horizontal, Vertical | Transform | Re-encode |
@@ -1210,7 +1227,11 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | `video.extractAudio` | Original, MP3, M4A (AAC), M4A (ALAC), AAC, WAV, AIFF, FLAC, OGG, Opus | Derived | Copies the stream when the target holds the source codec, else encodes; Original ignores bitrate preferences and refuses unsupported timing; explicit formats copy with Automatic bitrate when possible, otherwise encode |
 | `video.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Speech framework `SpeechAnalyzer` with `SpeechTranscriber` and audio time ranges; language from settings or the system locale; cues split at sentence boundaries, at most 42 characters per line and 2 lines; translation with the Translation framework |
 | `video.background` | Remove, Green Screen, Blue Screen, Custom Color, Blur | Derived | Section 8.11 |
-| `video.aiCustom` | — | Depends on plan | Section 10 |
+
+Over-limit compression opens the video editor with a preselected range and
+compresses its successful outputs through `video.edit`. Historical `video.trim`
+batch records decode as `video.edit` without changing their commit records, so
+Undo remains available. Internal trimming used by VideoEdits is retained.
 
 ### 8.3 Audio
 
@@ -1221,7 +1242,6 @@ packets for unresolved timing. Incomplete output lace groups retain at most
 | `audio.normalize` | −14 LUFS, −16 LUFS, −23 LUFS | Transform | ITU-R BS.1770-4 integrated loudness; gain only, capped so the 4× oversampled true peak stays at or below −1 dBTP; the notification reports when the cap stopped short of the target |
 | `audio.trim` | — (panel) | Transform | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy; optional linear fade in/out within the kept range |
 | `audio.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Same on-device transcription, translation, settings, and cue rules as video subtitles; no video track required |
-| `audio.aiCustom` | — | Depends on plan | Section 10 |
 
 Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF/AIFF-C, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
 WAV input includes RF64 and BW64. Their mandatory first `ds64` chunk supplies
@@ -1929,15 +1949,6 @@ Shown only when `SystemLanguageModel.default.availability == .available` and
 AI features are on in settings. The host refreshes the menu file when
 availability changes.
 
-**Ask Apple Intelligence (natural language)** (`image.aiCustom`, `video.aiCustom`, `audio.aiCustom`). The user
-writes a request such as "WebP under 1 MB, long edge 1600". A
-`LanguageModelSession` with guided generation (`@Generable` plan of one to
-three steps, each an operation ID and one of its menu presets) turns it into a
-plan restricted to the operations of the selected kind (ADR 0010). The Ask
-Apple Intelligence panel shows the plan in plain words; nothing runs until the user presses Run.
-Plans that reference unknown operations or presets are rejected with the
-reason.
-
 **AI rename** (`image.aiRename`, `pdf.aiRename`, `folder.aiRename` for a folder's direct image and PDF children):
 
 - macOS 27 and later: the image (or the first PDF page rendered at 1024 px) is
@@ -2643,10 +2654,7 @@ publishing a new folder. Its `MacEase Source.json` records source page URL,
 retrieval time, tool and filenames. Video/audio outputs store the page URL in
 `com.apple.metadata:kMDItemWhereFroms`.
 
-**Inspect Source…** is hidden by default and enabled in Settings > Finder Menu.
-For one regular file it reads these local records and computes SHA-256. Recorded
-links are editable and do not prove authorship, authenticity or truth. Do not
-add automatic web research or silently infer provenance.
+Recorded links are editable metadata and do not establish authorship or authenticity.
 
 ### 24.2 Local sharing
 
@@ -2741,6 +2749,10 @@ Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
 ## Changelog
+
+- 2026-11-17: Add fixed primary Finder groups, More and group placement settings;
+  remove legacy video Trim, Copy as Base64, Inspect Source and natural-language
+  AI plans. Preserve historical Trim Undo and download provenance (ADR 0063).
 
 - 2026-11-17: Declare one **MacEase…** Services item in Release builds only,
   fix the folder download title, and record Quick Look preview limits (ADR 0062).
@@ -3085,13 +3097,11 @@ after confirming they have no active work.
   clears and dictionary-aware dithering.
 - 2026-10-20: MP3 encoder design and table provenance recorded (ADR 0009).
 - 2026-10-21: Platform-driven adjustments recorded (ADR 0010): video target
-  size steps down after a persistent miss, LINE over 300 s points to Trim,
+  size steps down after a persistent miss,
   archive path checks replace `SECURE_NOABSOLUTEPATHS`, HEIC metadata strip
-  re-encodes, MP3 below 128 kbps compresses to AAC, AI plans use menu presets,
+  re-encodes, MP3 below 128 kbps compresses to AAC,
   and the language switch asks first.
-- 2026-10-21: LINE clips over 300 s open the Trim panel one second under the
-  limit and compress the trimmed file (ADR 0010). Subtitles and Extract audio
-  panels added; a bitrate chosen in the latter always re-encodes. The video
+- 2026-10-21: Subtitles and Extract audio panels added; a bitrate chosen in the latter always re-encodes. The video
   Background panel offers the person and subject masks only.
 - 2026-10-21: Video replace operations reject multiple video or audio tracks
   before writing so additional tracks cannot be lost (ADR 0010).

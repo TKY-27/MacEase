@@ -14,12 +14,9 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case imageOCR = "image.ocr"
     case imageToPDF = "image.toPDF"
     case imageIconSet = "image.iconSet"
-    case imageCopyBase64 = "image.copyBase64"
     case imageAIRename = "image.aiRename"
-    case imageAICustom = "image.aiCustom"
 
     case videoResize = "video.resize"
-    case videoTrim = "video.trim"
     case videoEdit = "video.edit"
     case videoSpeed = "video.speed"
     case videoCompress = "video.compress"
@@ -36,7 +33,6 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case videoExtractAudio = "video.extractAudio"
     case videoSubtitles = "video.subtitles"
     case videoBackground = "video.background"
-    case videoAICustom = "video.aiCustom"
 
     case audioConvert = "audio.convert"
     case audioSubtitles = "audio.subtitles"
@@ -44,7 +40,6 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case audioNormalize = "audio.normalize"
     case audioTrim = "audio.trim"
     case audioEnhance = "audio.enhance"
-    case audioAICustom = "audio.aiCustom"
 
     case folderRemoveDuplicates = "folder.removeDuplicates"
     case folderRemoveEmpty = "folder.removeEmpty"
@@ -84,7 +79,6 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case anyShare = "any.share"
     case anyFindRelated = "any.findRelated"
     case anyProtect = "any.protect"
-    case anySourceInfo = "any.sourceInfo"
     case filesFinish = "files.finish"
 
     public var kind: FileKind {
@@ -195,9 +189,9 @@ extension OperationID {
 
     public var maximumSelection: Int? {
         switch self {
-        case .videoTrim, .audioTrim, .pdfExtractPages, .pdfEditPages, .imageCopyBase64, .imageTraceSVG,
+        case .audioTrim, .pdfExtractPages, .pdfEditPages, .imageTraceSVG,
             .archiveBrowse, .folderDownloadMedia, .imageEnhance, .audioEnhance,
-            .anyFindRelated, .anyProtect, .anySourceInfo:
+            .anyFindRelated, .anyProtect:
             1
         case .anyShare: 20
         default: nil
@@ -207,24 +201,24 @@ extension OperationID {
     public static let menuOrder: [OperationID] = [
         .imageEdit, .imageConvert, .imageHDRToSDR, .imageCompress, .imageResize, .imageEnhance,
         .imageRotate, .imageFlip, .imageBackground,
-        .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageCopyBase64, .imageStripMetadata,
-        .imageAIRename, .imageAICustom,
+        .imageOCR, .imageToPDF, .imageIconSet, .imageTraceSVG, .imageTrimBorders, .imageStripMetadata,
+        .imageAIRename,
         .videoEdit, .videoConvert, .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR,
         .videoCompress, .videoResize, .videoRotate, .videoFlip, .videoSpeed, .videoRemoveAudio,
-        .videoFPS, .videoBackground, .videoThumbnail, .videoExtractAudio, .videoSubtitles, .videoAICustom,
-        .audioTrim, .audioEnhance, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles, .audioAICustom,
+        .videoFPS, .videoBackground, .videoThumbnail, .videoExtractAudio, .videoSubtitles,
+        .audioTrim, .audioEnhance, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles,
         .pdfEditPages, .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit,
         .pdfAIRename,
         .documentConvert, .textConvert, .textEncoding, .textLineEndings, .textJSON, .plistConvert,
         .folderDownloadMedia, .folderOrganize, .folderCompress, .folderRename, .folderTree, .folderAnalyze,
         .folderRemoveDuplicates,
         .folderRemoveEmpty, .folderAIRename, .archiveHatchExtract, .archiveExtract, .archiveBrowse,
-        .jarDecompile, .filesFinish, .anyShare, .anyFindRelated, .anyProtect, .anySourceInfo, .anyChecksum,
+        .jarDecompile, .filesFinish, .anyShare, .anyFindRelated, .anyProtect, .anyChecksum,
     ]
 
     public var requirement: OperationRequirement? {
         switch self {
-        case .imageAIRename, .imageAICustom, .videoAICustom, .audioAICustom, .folderAIRename, .pdfAIRename:
+        case .imageAIRename, .folderAIRename, .pdfAIRename:
             .appleIntelligence
         case .jarDecompile: .java
         default: nil
@@ -233,5 +227,39 @@ extension OperationID {
 
     public var minimumSelection: Int {
         self == .pdfMerge ? 2 : 1
+    }
+}
+
+extension OperationID {
+    public var menuGroupOperation: OperationID {
+        switch self {
+        case .imageFlip: .imageRotate
+        case .imageHDRToSDR: .imageConvert
+        case .videoFlip: .videoRotate
+        case .videoToGIF, .videoToAnimatedWebP, .videoToAPNG, .videoHDRToSDR: .videoConvert
+        default: self
+        }
+    }
+
+    public func menuGroupID(preset: String?) -> String {
+        self == .textJSON ? "\(rawValue)/\(preset ?? "")" : menuGroupOperation.rawValue
+    }
+
+    private static let primaryMenuOrder: [OperationID] = [
+        .imageEdit, .imageConvert, .imageCompress, .imageResize, .imageRotate, .imageBackground, .imageOCR,
+        .videoEdit, .videoConvert, .videoCompress, .videoResize, .videoExtractAudio, .videoThumbnail, .videoSubtitles,
+        .audioTrim, .audioEnhance, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles,
+        .pdfEditPages, .pdfMerge, .pdfToImages, .pdfToText, .pdfCompress, .pdfRotate, .pdfExtractPages, .pdfSplit,
+        .textConvert, .textJSON, .documentConvert, .plistConvert,
+        .folderCompress, .folderRename, .folderOrganize, .folderAnalyze, .folderRemoveDuplicates, .folderRemoveEmpty,
+        .archiveHatchExtract, .archiveExtract, .archiveBrowse,
+    ]
+
+    var primaryMenuRank: Int {
+        Self.primaryMenuOrder.firstIndex(of: menuGroupOperation) ?? Self.primaryMenuOrder.count
+    }
+
+    public var defaultMenuPlacement: MenuPlacement {
+        Self.primaryMenuOrder.contains(menuGroupOperation) ? .primary : .more
     }
 }
