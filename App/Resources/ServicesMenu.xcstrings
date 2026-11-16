@@ -1,19 +1,19 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Process with MacEase…": {
+    "MacEase…": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Process with MacEase…"
+            "value": "MacEase…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEaseで操作…"
+            "value": "MacEase…"
           }
         }
       }

@@ -61,7 +61,7 @@ struct FolderAccessSettingsView: View {
                 Text(
                     "If macOS keeps an access request waiting, select that folder with Add Folder, then restart MacEase and retry."
                 )
-                Text("For cloud folders without a MacEase menu, use Services → Process with MacEase… in Finder.")
+                Text("For cloud folders without a MacEase menu, use Services → MacEase… in Finder.")
                 HStack {
                     Button("Files and Folders…") { SystemSettingsPane.open(SystemSettingsPane.filesAndFolders) }
                     Button("Full Disk Access…") { SystemSettingsPane.open(SystemSettingsPane.fullDiskAccess) }

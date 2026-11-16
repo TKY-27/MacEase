@@ -116,6 +116,7 @@ final class MediaEditorModel {
     var playerReady = false
     var muted = false
     private var photoSource: PhotoEditorSource?
+    private var photoDetails: [URL: PhotoEditorDetails] = [:]
     private var videoSource: VideoEditorSource?
     private var videoSources: [URL: VideoEditorSource] = [:]
     private var videoDetails: [URL: VideoEditorDetails] = [:]
@@ -237,9 +238,22 @@ final class MediaEditorModel {
             && (isVideo && values.sources.count > 1 || changesColor
                 || !isVideo && (requiresSDRForGeometry || values.photo.geometry.straighten != 0))
     }
-    var savesNewFile: Bool {
-        values.sources.count > 1 || requiresNewFile || containsHDR && changesColor || settings.outputMode == .newFile
+    var newFileReason: String? {
+        if values.sources.count > 1 { return String(localized: "Multiple videos require a new file.") }
+        let editedPhotos = values.photoEdits.filter { !$0.value.isIdentity }
+        if isVideo && requiresNewFile
+            || editedPhotos.keys.contains(where: { photoDetails[$0]?.requiresNewFile == true })
+        {
+            return String(localized: "This source requires a new file.")
+        }
+        if isVideo && containsHDR && changesColor
+            || editedPhotos.contains(where: { photoDetails[$0.key]?.containsHDR == true && $0.value.changesColor })
+        {
+            return String(localized: "HDR color edits require a new SDR file.")
+        }
+        return nil
     }
+    var forcesNewFile: Bool { newFileReason != nil }
     var outputSize: CGSize {
         guard (try? values.photo.geometry.validate()) != nil else { return .zero }
         let geometry = values.photo.geometry.outputSize(sourceSize)
@@ -309,6 +323,7 @@ final class MediaEditorModel {
                     let source = try await PhotoEditorSource.open(url)
                     photoSource = source
                     let details = await source.details
+                    photoDetails[url] = details
                     sourceSize = details.size
                     containsHDR = details.containsHDR
                     requiresNewFile = details.requiresNewFile
@@ -755,7 +770,8 @@ final class MediaEditorModel {
                         let maximum = interactionStart == nil ? Int(min(4096, 1600 * zoom)) : 960
                         let cropPreview = category == .crop
                         let rendered = try await photoSource.render(
-                            edit, maximumDimension: maximum, cropPreview: cropPreview, allowsSDR: savesNewFile)
+                            edit, maximumDimension: maximum, cropPreview: cropPreview,
+                            allowsSDR: requiresNewFile || convertsToSDR)
                         if generation == revision, !closed { image = rendered }
                     }
                     guard !closed else { return }
@@ -947,14 +963,24 @@ final class MediaEditorModel {
         if isVideo { _ = try VideoTimeline(edit: values.video, sourceDuration: duration) }
     }
 
-    func makeBatch() throws -> Batch {
+    func makeSave(replacingOriginal: Bool) throws -> (batch: Batch, settings: Engine.Settings) {
+        if replacingOriginal, let reason = newFileReason {
+            throw EngineError.invalidInput(.malformed(reason))
+        }
         try validateForSave()
-        if isVideo { return MediaEditing.video(url: initialURLs[0], edit: values.video, settings: settings) }
-        return MediaEditing.photos(
-            photoURLs.compactMap { url in
-                guard let edit = values.photoEdits[url], !edit.isIdentity else { return nil }
-                return PhotoEditInput(url: url, edit: edit)
-            }, settings: settings)
+        var settings = settings
+        settings.outputMode = replacingOriginal ? .replace : .newFile
+        let batch: Batch
+        if isVideo {
+            batch = MediaEditing.video(url: initialURLs[0], edit: values.video, settings: settings)
+        } else {
+            batch = MediaEditing.photos(
+                photoURLs.compactMap { url in
+                    guard let edit = values.photoEdits[url], !edit.isIdentity else { return nil }
+                    return PhotoEditInput(url: url, edit: edit)
+                }, settings: settings)
+        }
+        return (batch, settings)
     }
 
     func selectPhoto(_ url: URL, force: Bool = false) {
@@ -983,6 +1009,7 @@ final class MediaEditorModel {
                 try Task.checkCancellation()
                 guard !closed, values.selectedPhoto == url else { return }
                 photoSource = source
+                photoDetails[url] = details
                 sourceSize = details.size
                 containsHDR = details.containsHDR
                 requiresNewFile = details.requiresNewFile

@@ -106,19 +106,31 @@ struct MediaEditorView: View {
             Button("Cancel", action: close).keyboardShortcut(.cancelAction)
         }
         ToolbarItem(placement: .confirmationAction) {
-            Button("Save") {
-                do {
-                    try model.validateForSave()
-                    var settings = model.settings
-                    if model.isVideo, model.savesNewFile { settings.outputMode = .newFile }
-                    save(try model.makeBatch(), settings)
-                    close()
-                } catch { model.report(error) }
+            Menu {
+                Button {
+                    save(replacingOriginal: true)
+                } label: {
+                    Text("Replace Original")
+                    Text("The original goes to the Trash and can be undone.")
+                }
+                .disabled(model.forcesNewFile)
+            } label: {
+                Text("Save")
+            } primaryAction: {
+                save(replacingOriginal: false)
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canSave)
             .keyboardShortcut(.defaultAction)
         }
+    }
+
+    private func save(replacingOriginal: Bool) {
+        do {
+            let planned = try model.makeSave(replacingOriginal: replacingOriginal)
+            save(planned.batch, planned.settings)
+            close()
+        } catch { model.report(error) }
     }
 
     private var photoList: some View {
@@ -260,20 +272,12 @@ struct MediaEditorView: View {
                 }
             }
             .font(.callout.monospacedDigit())
-            Group {
-                if model.convertsToSDR {
-                    Label("SDR · Save as new file", systemImage: "sun.max")
-                } else if !model.isVideo, model.photoURLs.count > 1 {
-                    Text("Save policy is applied separately to every photo.")
-                } else {
-                    Text(
-                        model.savesNewFile
-                            ? String(localized: "Save as new file")
-                            : String(localized: "Replace original (Trash and Undo)"))
-                }
+            if let reason = model.newFileReason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)

@@ -899,3 +899,25 @@ Placing each block at its own delayed time instead decoded the AAC-LC MKV
 16 frames short: the first audible block is stored at 21 ms, 0.333 ms before
 the 21.333 ms CodecDelay ends, and the start trim cut those frames. Blocks within
 the 1 ms quantum of the running frame position now continue it.
+
+## Quick Look preview extensions in Finder (2026-11-17)
+
+A view-based Quick Look preview extension (`QLIsDataBasedPreview` false),
+ad-hoc signed, sandboxed and enabled through `pluginkit`, was tested on
+macOS 27 in Finder's preview pane and the Space-bar panel. It declared HTML,
+source code, plain text, Markdown, JSON, JPEG, PNG, MPEG-4 movie, MP3 and
+MPEG-4 audio.
+
+- Finder used the extension for Swift and Python sources, JSON and Markdown,
+  in both the preview pane and the panel.
+- The system preview still won for HTML, plain text, JPEG, PNG, MPEG-4 movie
+  and M4A audio, although each type was declared explicitly.
+- Buttons and scrolling inside the extension received mouse input.
+- Real keystrokes never reached a focused `NSTextView`, in the pane or the
+  panel; Finder type-select consumed them and changed the selection.
+- Pressing Finder's View menu item through Accessibility opened the preview
+  pane, so a host with Accessibility permission can show it.
+
+Finder-native previews therefore cannot replace system previews for media,
+HTML or plain text, and cannot provide text editing. Richer viewing requires
+a host-owned panel.

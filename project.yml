@@ -37,6 +37,8 @@ settings:
       MACEASE_DISPLAY_NAME: MacEase
       MACEASE_URL_SCHEME: macease
       MACEASE_SUPPORT_FOLDER: MacEase
+      # Debug copies duplicate the Services item.
+      INFOPLIST_PREPROCESSOR_DEFINITIONS: MACEASE_SERVICES=1
 
 packages:
   MacEaseKit:
@@ -79,6 +81,7 @@ targets:
         PRODUCT_NAME: $(MACEASE_DISPLAY_NAME)
         PRODUCT_MODULE_NAME: MacEase
         INFOPLIST_FILE: App/Info.plist
+        INFOPLIST_PREPROCESS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_APP_SANDBOX: NO
 

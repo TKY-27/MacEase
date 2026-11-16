@@ -1,12 +1,155 @@
 import AVFoundation
-import Engine
+import CoreImage
+import ImageIO
 import SwiftUI
+import UniformTypeIdentifiers
 import XCTest
 
+@testable import Engine
 @testable import MacEase
 
 @MainActor
 final class MediaEditorModelTests: XCTestCase {
+    func testNewFileSavePlansEditedNamesDespiteGlobalReplaceMode() async throws {
+        var settings = Engine.Settings()
+        settings.outputMode = .replace
+        for model in [try await photoModel(settings: settings), try await videoModel(settings: settings)] {
+            model.change { $0.photo.geometry.quarterTurns = 1 }
+            let planned = try model.makeSave(replacingOriginal: false)
+            XCTAssertEqual(planned.settings.outputMode, .newFile)
+            XCTAssertEqual(model.settings.outputMode, .replace)
+            XCTAssertFalse(model.forcesNewFile)
+            XCTAssertNil(model.newFileReason)
+            XCTAssertEqual(planned.batch.items.count, 1)
+            let work = try XCTUnwrap(planned.batch.items.first)
+            let naming = try XCTUnwrap(work.newFileNaming)
+            XCTAssertEqual(
+                naming.name(for: model.url, outputName: model.url.lastPathComponent),
+                model.isVideo ? "clip-0_edited.mp4" : "photo_edited.png")
+        }
+    }
+
+    func testReplaceSavePlansOriginalNamesDespiteGlobalNewFileMode() async throws {
+        var settings = Engine.Settings()
+        settings.outputMode = .newFile
+        for model in [try await photoModel(settings: settings), try await videoModel(settings: settings)] {
+            model.change { $0.photo.geometry.quarterTurns = 1 }
+            let planned = try model.makeSave(replacingOriginal: true)
+            XCTAssertEqual(planned.settings.outputMode, .replace)
+            XCTAssertEqual(model.settings.outputMode, .newFile)
+            XCTAssertFalse(model.forcesNewFile)
+            XCTAssertNil(model.newFileReason)
+            XCTAssertEqual(planned.batch.items.count, 1)
+            XCTAssertNil(try XCTUnwrap(planned.batch.items.first).newFileNaming)
+        }
+    }
+
+    func testMultipleVideoSourcesCannotReplaceOriginal() async throws {
+        let model = try await videoModel(count: 2)
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
+            XCTAssertEqual(
+                error as? EngineError,
+                .invalidInput(.malformed(String(localized: "Multiple videos require a new file."))))
+        }
+        let planned = try model.makeSave(replacingOriginal: false)
+        XCTAssertEqual(planned.settings.outputMode, .newFile)
+        XCTAssertEqual(planned.batch.items.count, 1)
+        XCTAssertEqual(planned.batch.items.first?.inputs, model.values.sources.map(\.url))
+    }
+
+    func testSourceRequiringNewFileCannotReplaceOriginal() async throws {
+        let model = try await photoModel(svg: true)
+        XCTAssertTrue(model.requiresNewFile)
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
+            XCTAssertEqual(
+                error as? EngineError,
+                .invalidInput(.malformed(String(localized: "This source requires a new file."))))
+        }
+        let planned = try model.makeSave(replacingOriginal: false)
+        XCTAssertEqual(planned.settings.outputMode, .newFile)
+        XCTAssertNotNil(try XCTUnwrap(planned.batch.items.first).newFileNaming)
+    }
+
+    func testHDRColorEditsCannotReplaceOriginal() async throws {
+        for model in [try await photoModel(hdr: true), try await videoModel()] {
+            if model.isVideo { model.containsHDR = true }
+            XCTAssertTrue(model.containsHDR)
+            XCTAssertFalse(model.forcesNewFile)
+            model.change {
+                if model.isVideo {
+                    $0.videoAdjustments[.exposure] = 0.5
+                } else {
+                    $0.photo.adjustments[.exposure] = 0.5
+                }
+            }
+            XCTAssertTrue(model.forcesNewFile)
+            XCTAssertTrue(model.convertsToSDR)
+            XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
+                XCTAssertEqual(
+                    error as? EngineError,
+                    .invalidInput(.malformed(String(localized: "HDR color edits require a new SDR file."))))
+            }
+            let planned = try model.makeSave(replacingOriginal: false)
+            XCTAssertEqual(planned.settings.outputMode, .newFile)
+            XCTAssertNotNil(try XCTUnwrap(planned.batch.items.first).newFileNaming)
+        }
+    }
+
+    func testEditedHDRPhotoPreventsReplacementAfterSelectingSDRPhoto() async throws {
+        let model = try await photoModel(hdr: true, additionalPhoto: true)
+        XCTAssertTrue(model.containsHDR)
+        model.change { $0.photo.adjustments[.exposure] = 0.5 }
+        model.selectPhoto(model.photoURLs[1])
+        try await eventually { !model.loadingPhoto }
+        XCTAssertNil(model.failure)
+        XCTAssertFalse(model.containsHDR)
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
+            XCTAssertEqual(
+                error as? EngineError,
+                .invalidInput(.malformed(String(localized: "HDR color edits require a new SDR file."))))
+        }
+        let planned = try model.makeSave(replacingOriginal: false)
+        XCTAssertEqual(planned.settings.outputMode, .newFile)
+        XCTAssertEqual(planned.batch.items.count, 1)
+        XCTAssertEqual(planned.batch.items.first?.inputs, [model.photoURLs[0]])
+    }
+
+    func testOnlyEditedPhotosDetermineForcedNewFilePolicy() async throws {
+        let model = try await photoModel(svg: true, additionalPhoto: true)
+        XCTAssertTrue(model.requiresNewFile)
+        model.selectPhoto(model.photoURLs[1])
+        try await eventually { !model.loadingPhoto }
+        XCTAssertNil(model.failure)
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        model.selectPhoto(model.photoURLs[0])
+        try await eventually { !model.loadingPhoto }
+        XCTAssertNil(model.failure)
+        XCTAssertTrue(model.requiresNewFile)
+        XCTAssertFalse(model.forcesNewFile)
+        let replacement = try model.makeSave(replacingOriginal: true)
+        XCTAssertEqual(replacement.settings.outputMode, .replace)
+        XCTAssertEqual(replacement.batch.items.count, 1)
+        XCTAssertEqual(replacement.batch.items.first?.inputs, [model.photoURLs[1]])
+
+        model.selectPhoto(model.photoURLs[1])
+        try await eventually { !model.loadingPhoto }
+        XCTAssertNil(model.failure)
+        model.applyPhotoEdits(toAll: true)
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
+            XCTAssertEqual(
+                error as? EngineError,
+                .invalidInput(.malformed(String(localized: "This source requires a new file."))))
+        }
+        let derived = try model.makeSave(replacingOriginal: false)
+        XCTAssertEqual(derived.settings.outputMode, .newFile)
+        XCTAssertEqual(derived.batch.items.count, 2)
+    }
+
     func testChangeCanReadSourcePropertiesInsideMutation() async throws {
         let model = try await videoModel()
         let original = model.values.segments
@@ -270,7 +413,52 @@ final class MediaEditorModelTests: XCTestCase {
         (view as? NSTextField).map { [$0] } ?? view.subviews.flatMap { textFields(in: $0) }
     }
 
-    private func videoModel(count: Int = 1) async throws -> MediaEditorModel {
+    private func photoModel(
+        hdr: Bool = false, svg: Bool = false, additionalPhoto: Bool = false,
+        settings: Engine.Settings = Engine.Settings()
+    ) async throws -> MediaEditorModel {
+        let directory = try workspace()
+        let sources = try (0..<(additionalPhoto ? 2 : 1)).map { index in
+            let name = index == 0 ? "photo" : "photo-\(index)"
+            let pathExtension = svg && index == 0 ? "svg" : hdr && index == 0 ? "jpg" : "png"
+            let source = directory.appending(path: name + "." + pathExtension)
+            let canvas = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 80, height: 60))
+            let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+            if source.pathExtension == "svg" {
+                try """
+                <svg xmlns="http://www.w3.org/2000/svg" width="80" height="60">
+                  <rect width="80" height="60" fill="red"/>
+                </svg>
+                """.write(to: source, atomically: true, encoding: .utf8)
+            } else if source.pathExtension == "jpg" {
+                let bright = CIImage(color: CIColor(red: 1.8, green: 0.5, blue: 0.5))
+                    .cropped(to: canvas.extent).settingContentHeadroom(4)
+                let encoded = try XCTUnwrap(
+                    CIContext().jpegRepresentation(of: canvas, colorSpace: sRGB, options: [.hdrImage: bright]))
+                try encoded.write(to: source)
+            } else {
+                let image = try XCTUnwrap(
+                    CIContext().createCGImage(canvas, from: canvas.extent, format: .RGBA16, colorSpace: sRGB))
+                let destination = try XCTUnwrap(
+                    CGImageDestinationCreateWithURL(source as CFURL, UTType.png.identifier as CFString, 1, nil))
+                CGImageDestinationAddImage(destination, image, nil)
+                XCTAssertTrue(CGImageDestinationFinalize(destination))
+            }
+            return source
+        }
+        let model = MediaEditorModel(
+            urls: sources, isVideo: false, settings: settings, staging: StagingArea(supportDirectory: directory))
+        addTeardownBlock { await model.close() }
+        model.load()
+        try await eventually { model.image != nil || model.failure != nil }
+        XCTAssertNil(model.failure)
+        XCTAssertTrue(model.ready)
+        return model
+    }
+
+    private func videoModel(count: Int = 1, settings: Engine.Settings = Engine.Settings()) async throws
+        -> MediaEditorModel
+    {
         let directory = try workspace()
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "ffmpeg-h264-aac", withExtension: "mp4"))
         let sources = try (0..<count).map { index in
@@ -281,7 +469,7 @@ final class MediaEditorModelTests: XCTestCase {
         let support = directory.appending(path: "support")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
         let staging = StagingArea(supportDirectory: support)
-        let model = MediaEditorModel(urls: sources, isVideo: true, settings: Settings(), staging: staging)
+        let model = MediaEditorModel(urls: sources, isVideo: true, settings: settings, staging: staging)
         addTeardownBlock { await model.close() }
         model.load()
         try await eventually { model.canPlay || model.failure != nil }

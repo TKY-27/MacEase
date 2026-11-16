@@ -41,8 +41,8 @@ again shows Welcome until setup is done, then Settings.
 **Settings > Folder Access** lists standard and added folders. Use **Add Folder…**
 here or in Welcome, check access, and open a location in Finder. Registration
 is separate from macOS permissions. Removing an entry does not revoke access.
-If an iCloud folder suppresses the MacEase menu, use **Services > Process with
-MacEase…** (Finder may show it directly in the context menu). If macOS leaves
+If an iCloud folder suppresses the MacEase menu, use **Services > MacEase…**
+(Finder may show it directly in the context menu). If macOS leaves
 an access request waiting, select the affected folder with **Add Folder…**,
 restart MacEase, and retry. This does not require Full Disk Access.
 
@@ -103,7 +103,10 @@ The photo and video editors use a resizable dark workspace like familiar
 editing apps. The toolbar centres the tools and keeps Compare, Undo/Redo,
 Cancel and Save on the right. Video plays from the transport bar under the
 viewer, and adjustments are grouped into Light, Color and Detail in the
-inspector. Drag a crop edge or corner, or
+inspector. Save or Return always creates a new file. Its dropdown offers
+**Replace Original**, with a Trash/Undo hint, independently of the global
+output setting. Replacement is disabled when a new file is required, with a
+reason in the output summary. Drag a crop edge or corner, or
 enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
@@ -114,7 +117,7 @@ photo separately. Each source retains its own preservation policy.
 Photo adjustments use an interactive preview followed by a refined render.
 The video player surface stays in place while frames are prepared. Histograms,
 keyframe-mode controls and slider tick rows are absent.
-HDR color edits display **SDR · Save as new file** and always keep the original.
+HDR color edits explain that a new SDR file is required and always keep the original.
 Animations and multipage images cannot be opened in Edit Photo; RAW renders
 are saved in a writable format while retaining the RAW source.
 

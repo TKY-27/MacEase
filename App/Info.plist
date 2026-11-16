@@ -47,11 +47,12 @@
 	<string>MacEase transcribes speech on this Mac to create subtitles.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>MacEase shares only the files you select with devices on your local network while sharing is active.</string>
+#if MACEASE_SERVICES
 	<key>NSServices</key>
 	<array>
 		<dict>
 			<key>NSMenuItem</key>
-			<dict><key>default</key><string>Process with MacEase…</string></dict>
+			<dict><key>default</key><string>MacEase…</string></dict>
 			<key>NSMessage</key><string>processFiles</string>
 			<key>NSPortName</key><string>$(MACEASE_DISPLAY_NAME)</string>
 			<key>NSSendFileTypes</key><array><string>public.item</string></array>
@@ -60,5 +61,6 @@
 			<key>NSRestricted</key><true/>
 		</dict>
 	</array>
+#endif
 </dict>
 </plist>

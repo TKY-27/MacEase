@@ -82,8 +82,8 @@ final class FinderSyncExtension: FIFinderSync {
             let nodes = MenuLayout.nodes(for: file, selection: selection)
             if let index = file.entries.firstIndex(where: {
                 $0.op == .folderDownloadMedia && MenuLayout.isApplicable($0, selection: selection)
-            }) {
-                add([.action(title: "yt-dlp…", entryIndex: index)], to: menu)
+            }), let title = file.entries[index].path.last {
+                add([.action(title: title, entryIndex: index)], to: menu)
             }
             add(nodes, to: submenu)
         } else {

@@ -206,6 +206,8 @@ has **When converting or editing** with two choices:
 The default applies to new installs and existing installs without an explicit
 saved output-mode choice. A saved choice is preserved. Each batch snapshots
 its resolved mode and settings, so later Settings changes cannot alter a job.
+The photo/video editor chooses this mode per save through its split Save button,
+independently of the global setting (section 8.1.1).
 
 **Transform** in section 8 means this switch applies. It covers image resize,
 compression, conversion, rotation, flip, border trimming, background editing,
@@ -597,9 +599,11 @@ under root monitoring. Adding uses NSOpenPanel. Bookmarks refresh on launch,
 configuration changes and volume events. Unavailable entries remain removable.
 
 Some iCloud-managed locations suppress Finder Sync menus. The native Finder
-Services action **Process with MacEase…** offers the same enabled, applicable
+Services action **MacEase…** offers the same enabled, applicable
 catalog entries and routes them through the normal host validation and job
 pipeline. It reads file URLs only; it never authorizes an arbitrary command.
+Only Release builds declare the service, so development copies never add a
+second, app-name-qualified item.
 The setting explains this fallback and links to macOS permission settings.
 
 - `directoryURLs` includes `/`, home, standard user folders, iCloud Drive and
@@ -929,14 +933,26 @@ source names the window. Window proportions do not change the source or output
 aspect ratio. Like common media editors it always uses the dark appearance. A
 unified toolbar centres Video (video only), Adjust, Styles and Crop, and keeps
 Compare Original, session Undo/Redo, More (Reset All), Cancel and a prominent
-Save at its trailing edge. A large viewer sits left of a 300-point inspector.
+split Save button at its trailing edge. A large viewer sits left of a 300-point inspector.
 Video adds a transport bar under the viewer (position/duration clock, previous
 frame, play/pause, next frame, preview mute) and a full-width timeline with
 Split, Duplicate, Delete, a segment menu and zoom. Photos show Fit/200%/400%
 zoom under the viewer. The inspector groups adjustments into Light, Color and
 Detail, lists styles as selectable rows, and uses tiles for rotation, flips and
-aspect ratios. Its pinned foot shows output size, video duration, save policy
+aspect ratios. Its pinned foot shows output size, video duration
 and validation problems. Unchanged or invalid edits disable Save.
+
+Clicking Save or pressing Return always saves a new file and preserves the original.
+The dropdown offers **Replace Original**, with a secondary hint that the original
+goes to the Trash and can be undone. The editor ignores the global output-mode
+setting. Each action resolves one settings snapshot used for both batch planning
+and execution, so new-file saves use the `_edited` name and replacement saves
+do not add new-file naming. Replace Original is disabled for multiple video
+sources, sources requiring a new file, and HDR color edits. Only these forced
+cases show a one-line reason in the output summary. Photo selections evaluate
+every changed photo already opened in the editor; unopened photos keep the
+engine's per-photo HDR rule. Preview SDR permission
+follows source and edit requirements, independently of the global setting.
 
 Both media types offer exposure, brightness, contrast, highlights, shadows,
 saturation, vibrance, warmth and tint. Photos also offer black point, sharpness,
@@ -990,8 +1006,8 @@ images are rejected without flattening. RAW edits use the decoded rendering
 and derive a writable output. Source identity is checked at opening, saving and
 after export; changes require closing and reopening the editor.
 
-HDR color edits first tone-map to SDR, display **SDR · Save as new file**, and
-always preserve the original regardless of the normal output mode. Geometry-only
+HDR color edits first tone-map to SDR, explain that a new SDR file is required,
+and always preserve the original. Geometry-only
 HDR edits retain section 3.5 protections: preserve supported gain maps, otherwise
 refuse replacement or tone-map a new file with the existing warning. Preview
 uses the corresponding SDR rendition when conversion is required. Unsupported
@@ -2725,6 +2741,12 @@ Remove only identified regenerable artifacts and stop obsolete app instances
 after confirming they have no active work.
 
 ## Changelog
+
+- 2026-11-17: Declare one **MacEase…** Services item in Release builds only,
+  fix the folder download title, and record Quick Look preview limits (ADR 0062).
+
+- 2026-11-17: Choose photo/video editor output mode per save through a split
+  Save button, sharing one settings snapshot for naming and execution (ADR 0061).
 
 - 2026-11-14: Run package acceptance suites sequentially without changing test
   assertions or their internal concurrency (ADR 0060).

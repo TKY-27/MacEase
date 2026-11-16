@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Make the photo/video editor's Save button always create a new file, with
+  Replace Original in its dropdown and a Trash/Undo hint. Forced new-file edits
+  disable replacement and explain why. Naming and execution share the chosen
+  save mode, independently of the global output setting.
+
+- Show a single **MacEase…** Finder Services item; development builds no
+  longer add a second **(MacEase Dev)** copy.
+
+### Fixed
+
+- Title the folder download item **Download Media…** instead of **yt-dlp…**.
+- Log every failed operation's cause for diagnosis, not only unexpected errors.
+- Hold the last video frame through edited segments when audio outlasts video,
+  preserving the remaining audio instead of failing the export.
+
 ## [3.0.0] - 2026-11-14
 
 ### Added

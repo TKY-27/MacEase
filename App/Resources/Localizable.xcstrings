@@ -12508,19 +12508,19 @@
         }
       }
     },
-    "For cloud folders without a MacEase menu, use Services → Process with MacEase… in Finder.": {
+    "For cloud folders without a MacEase menu, use Services → MacEase… in Finder.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "For cloud folders without a MacEase menu, use Services → Process with MacEase… in Finder."
+            "value": "For cloud folders without a MacEase menu, use Services → MacEase… in Finder."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドフォルダにMacEaseメニューが表示されない場合は、Finderの「サービス → MacEaseで操作…」を使ってください。"
+            "value": "クラウドフォルダにMacEaseメニューが表示されない場合は、Finderの「サービス → MacEase…」を使ってください。"
           }
         }
       }
@@ -13527,22 +13527,62 @@
         }
       }
     },
-    "SDR · Save as new file": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SDR・新しいファイルとして保存"
-          }
-        }
-      }
-    },
     "Saturation": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "彩度"
+          }
+        }
+      }
+    },
+    "Replace Original": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルを上書き"
+          }
+        }
+      }
+    },
+    "The original goes to the Trash and can be undone.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルはゴミ箱へ移動し、取り消せます"
+          }
+        }
+      }
+    },
+    "Multiple videos require a new file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複数の動画は新しいファイルに保存します。"
+          }
+        }
+      }
+    },
+    "This source requires a new file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この素材は新しいファイルに保存します。"
+          }
+        }
+      }
+    },
+    "HDR color edits require a new SDR file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDRの色調整は新しいSDRファイルに保存します。"
           }
         }
       }
@@ -14055,16 +14095,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "PDF：ページ（PNG）"
-          }
-        }
-      }
-    },
-    "Save policy is applied separately to every photo.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存設定は写真ごとに適用されます。"
           }
         }
       }
