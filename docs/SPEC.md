@@ -2947,6 +2947,8 @@ Specialized viewers:
   centered; scrolling pans a zoomed image and otherwise scrolls the panel.
   Dimensions, color profile and dynamic range appear in Information. ImageIO decodes
   GIF/WebP/APNG frames sequentially; the viewer does not retain all frames.
+  Decoding is capped at 4,096 pixels on the long edge, so larger images preview
+  downscaled even at 100%.
 - Audio/video uses AVPlayerView inline controls, 0.5×–2× speed, supported video
   frame stepping, and A/B loop controls backed by a boundary observer. Audio
   loads an engine waveform independently; waveform failure does not stop playback.

@@ -14,6 +14,8 @@ private actor PreviewImageSource {
     private var maximumEdge = 0
     private static let defaultDelay = 0.1
     private static let minimumDelay = 0.02
+    // Bounds decode memory; larger images preview downscaled.
+    private static let maximumPreviewEdge = 4096
 
     func open(_ url: URL) throws -> (frameCount: Int, first: PreviewImageFrame) {
         try Task.checkCancellation()
@@ -24,7 +26,7 @@ private actor PreviewImageSource {
             width > 0, height > 0
         else { throw CocoaError(.fileReadCorruptFile) }
         self.source = source
-        maximumEdge = max(width, height)
+        maximumEdge = min(max(width, height), Self.maximumPreviewEdge)
         let first = try frame(0)
         let animated =
             properties[kCGImagePropertyGIFDictionary] != nil
