@@ -102,6 +102,39 @@ public struct EditGeometry: Codable, Hashable, Sendable {
             .transformed(by: CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
         return output
     }
+
+    public func outputPoint(_ point: EditPoint, canvas: CGSize, includingCrop: Bool = true) -> CGPoint {
+        guard canvas.width > 0, canvas.height > 0 else { return CGPoint(x: point.x, y: point.y) }
+        let rotated = canvasSize(canvas)
+        let bounds = normalizedBounds(in: rotated, includingCrop: includingCrop)
+        guard bounds.width > 0, bounds.height > 0 else { return CGPoint(x: point.x, y: point.y) }
+        let source = CGPoint(x: point.x * canvas.width, y: (1 - point.y) * canvas.height)
+        let mapped = source.applying(transform(canvas))
+        return CGPoint(
+            x: (mapped.x - bounds.minX) / bounds.width,
+            y: 1 - (mapped.y - bounds.minY) / bounds.height)
+    }
+
+    public func canvasPoint(_ point: CGPoint, canvas: CGSize, includingCrop: Bool = true) -> EditPoint {
+        guard canvas.width > 0, canvas.height > 0 else { return EditPoint(x: Double(point.x), y: Double(point.y)) }
+        let rotated = canvasSize(canvas)
+        let bounds = normalizedBounds(in: rotated, includingCrop: includingCrop)
+        guard bounds.width > 0, bounds.height > 0 else { return EditPoint(x: Double(point.x), y: Double(point.y)) }
+        let mapped = CGPoint(
+            x: bounds.minX + point.x * bounds.width,
+            y: bounds.minY + (1 - point.y) * bounds.height)
+        let source = mapped.applying(transform(canvas).inverted())
+        return EditPoint(x: Double(source.x / canvas.width), y: Double(1 - source.y / canvas.height))
+    }
+
+    private func normalizedBounds(in rotated: CGSize, includingCrop: Bool) -> CGRect {
+        guard includingCrop else { return CGRect(origin: .zero, size: rotated) }
+        return CGRect(
+            x: crop.x * rotated.width,
+            y: (1 - crop.y - crop.height) * rotated.height,
+            width: crop.width * rotated.width,
+            height: crop.height * rotated.height)
+    }
 }
 
 public enum MediaStyle: String, Codable, CaseIterable, Sendable {
@@ -243,15 +276,30 @@ public struct ImageEdit: Codable, Hashable, Sendable {
     public var adjustments = MediaAdjustments()
     public var autoEnhance = false
     public var sourceStamp: MediaSourceStamp?
+    public var overlays: [EditOverlay] = []
 
     public init() {}
 
-    public var changesColor: Bool { autoEnhance || !adjustments.isIdentity }
+    private enum CodingKeys: String, CodingKey {
+        case geometry, adjustments, autoEnhance, sourceStamp, overlays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        geometry = try values.decodeIfPresent(EditGeometry.self, forKey: .geometry) ?? EditGeometry()
+        adjustments = try values.decodeIfPresent(MediaAdjustments.self, forKey: .adjustments) ?? MediaAdjustments()
+        autoEnhance = try values.decodeIfPresent(Bool.self, forKey: .autoEnhance) ?? false
+        sourceStamp = try values.decodeIfPresent(MediaSourceStamp.self, forKey: .sourceStamp)
+        overlays = try values.decodeIfPresent([EditOverlay].self, forKey: .overlays) ?? []
+    }
+
+    public var changesColor: Bool { autoEnhance || !adjustments.isIdentity || !overlays.isEmpty }
     public var isIdentity: Bool { geometry.isIdentity && !changesColor }
 
     public func validate() throws {
         try geometry.validate()
         try adjustments.validate()
+        try overlays.validate()
     }
 }
 
