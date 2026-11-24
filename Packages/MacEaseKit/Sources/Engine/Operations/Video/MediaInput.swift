@@ -106,7 +106,7 @@ struct MediaInput {
                 throw EngineError.unsupportedCodec(name)
             case .corrupt, .decoderFailure:
                 return
-            case .nonFiniteAudioSample, .frameMemoryExceeded, .inputTooLarge, .encoderFailure, .io:
+            case .nonFiniteAudioSample, .frameMemoryExceeded, .inputTooLarge, .unsupportedArchive, .encoderFailure, .io:
                 throw EngineError(format)
             }
         }

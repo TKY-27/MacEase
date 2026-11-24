@@ -25,6 +25,11 @@ final class JobCenter {
         var itemOutcomes: [ItemOutcome?] = []
         var elapsedSeconds: [Double] = []
 
+        var canPauseArchiveExtraction: Bool {
+            operation == .archiveHatchExtract && itemPhases.contains(.extractingInPlace)
+                && !itemPhases.contains(.decoding)
+        }
+
         var itemCount: Int { fileNames.count }
         var currentFileName: String? { currentItem.map { fileNames[$0] } }
     }

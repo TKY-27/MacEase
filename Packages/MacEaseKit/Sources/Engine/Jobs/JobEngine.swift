@@ -206,6 +206,7 @@ public final class JobEngine: Sendable {
         let path = workItem.inputs.first?.path ?? ""
         defer { context.removeStaging() }
         let result: ItemResult
+        var commitsInPlace = false
         var preparedMove: FileCommitter.PreparedMove?
         var inputStamps: [URL: FileStamp] = [:]
         do {
@@ -238,6 +239,14 @@ public final class JobEngine: Sendable {
                 }
                 result = try await produce(workItem, context: context)
                 if context.omittedStreams != workItem.omittedStreams { inputStamps = context.details.inputStamps }
+                if case .hatchExtraction = result {
+                    commitsInPlace = true
+                } else if workItem.durableArchive {
+                    inputStamps = context.details.inputStamps
+                    guard workItem.inputs.allSatisfy({ inputStamps[$0] != nil }) else {
+                        throw EngineError.unexpected("Archive fallback has no source identity")
+                    }
+                }
                 if case .move(let entry, let destination) = result {
                     preparedMove = try committer.prepareMove(entry, to: destination, context: context)
                 }
@@ -246,13 +255,13 @@ public final class JobEngine: Sendable {
                 await gate.release()
                 throw error
             }
-            if !workItem.durableArchive { try Task.checkCancellation() }
+            if !commitsInPlace { try Task.checkCancellation() }
         } catch FileCommitter.Failure.changedSinceScan {
             return (.skipped(.changedSinceScan), nil)
         } catch {
             return (.failed(logged(EngineError.wrapping(error, path: path), batch: batch, workItem: workItem)), nil)
         }
-        if workItem.durableArchive {
+        if commitsInPlace {
             return await Task.detached {
                 await self.commitDurable(result, batch: batch, context: context, tracker: tracker)
             }.value
@@ -516,7 +525,7 @@ public final class JobEngine: Sendable {
     }
 
     /// Coordination downloads dataless cloud files.
-    private static func downloadIfNeeded(_ urls: [URL]) throws {
+    static func downloadIfNeeded(_ urls: [URL]) throws {
         for url in urls {
             var metadata = stat()
             guard stat(url.path, &metadata) == 0 else {

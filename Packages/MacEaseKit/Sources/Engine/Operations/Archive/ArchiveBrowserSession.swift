@@ -45,6 +45,8 @@ public enum ArchiveBrowserError: LocalizedError, Equatable, Sendable {
             case .pathTooDeep: String(localized: "ZIP paths cannot exceed 256 components.")
             case .unsafeEntry, .unsupportedEntry:
                 String(localized: "The ZIP archive contains a path, link or special file that isn’t safe to extract.")
+            case .unsupportedNameEncoding:
+                String(localized: "This archive uses a text encoding for file names that MacEase can’t read.")
             case .selectionTooLarge: String(localized: "Preview files must be 256 MiB or smaller.")
             case .passwordRequired: String(localized: "A password is required for this entry.")
             case .wrongPassword: String(localized: "The archive password is incorrect.")
@@ -66,12 +68,17 @@ public final class ArchiveBrowserSession: Sendable {
 
     private let source: URL
     private let staging: StagingArea
+    private let prefersJapanese: Bool
     private let state = Mutex(State())
     private let logger = Logger(category: "archive-browser")
 
-    public init(source: URL, staging: StagingArea) {
+    public init(
+        source: URL, staging: StagingArea,
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages)
+    ) {
         self.source = source
         self.staging = staging
+        self.prefersJapanese = prefersJapanese
     }
 
     public func entries() async throws -> [ArchiveEntry] {
@@ -87,7 +94,8 @@ public final class ArchiveBrowserSession: Sendable {
             return try coordinatedRead {
                 try checkRegularSource()
                 let stamp = try FileStamp(of: source, includingIdentity: true)
-                let listed = try ArchiveBrowserZIP.list(source, check: checkOpen).map(ArchiveEntry.init)
+                let listed = try ArchiveBrowserZIP.list(source, prefersJapanese: prefersJapanese, check: checkOpen).map(
+                    ArchiveEntry.init)
                 guard stamp.matches(source.path) else { throw ArchiveBrowserError.sourceChanged }
                 try state.withLock { state in
                     guard !state.closed else { throw ArchiveBrowserError.closed }
@@ -127,7 +135,7 @@ public final class ArchiveBrowserSession: Sendable {
                 do {
                     try ArchiveBrowserZIP.extract(
                         source, ordinal: entryID, to: output, password: password,
-                        limit: ArchiveBrowserZIP.previewLimit, check: checkOpen)
+                        limit: ArchiveBrowserZIP.previewLimit, prefersJapanese: prefersJapanese, check: checkOpen)
                     try ArchivePlanner.propagateQuarantine(from: source, to: output)
                     try checkStamp()
                     return try state.withLock { state in
@@ -211,7 +219,8 @@ public final class ArchiveBrowserSession: Sendable {
                     if !destinations.isEmpty {
                         try ArchiveBrowserZIP.extract(
                             source, selections: destinations, password: password,
-                            limit: outputLimit, preserveAttributes: true, check: checkOpen)
+                            limit: outputLimit, preserveAttributes: true, prefersJapanese: prefersJapanese,
+                            check: checkOpen)
                     }
                     for entry in outputs where entry.isDirectory && !directFile {
                         try FileManager.default.createDirectory(
@@ -363,6 +372,7 @@ public final class ArchiveBrowserSession: Sendable {
             switch zip {
             case .passwordRequired: return .invalidInput(.passwordRequired)
             case .wrongPassword: return .invalidInput(.wrongPassword)
+            case .unsupportedNameEncoding: return .invalidInput(.archiveNameEncodingUnsupported)
             case .selectionTooLarge:
                 let limit = ExtractionLimits.standard.limit(forArchiveBytes: state.withLock { $0.stamp?.size ?? 0 })
                 return .invalidInput(.archiveExpandsTooMuch(limitBytes: limit))

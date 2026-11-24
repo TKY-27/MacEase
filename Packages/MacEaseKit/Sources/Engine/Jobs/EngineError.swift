@@ -103,6 +103,12 @@ public enum InvalidInput: Equatable, Sendable {
     case passwordRequired
     case wrongPassword
     case unsafeArchivePath(String)
+    case archiveNameEncodingUnsupported
+    case archiveNameInspectionLimit(ArchiveInspectionLimit)
+    case archiveNameCollision(first: String, second: String)
+    case archiveLegacyFeatureUnsupported(ArchiveExtractionFeature)
+    case wrappedZIPArchive
+    case unsupportedArchive
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
     case multipleTracks
@@ -150,6 +156,7 @@ extension EngineError {
         case .nonFiniteAudioSample: self = .nonFiniteAudioSample
         case .frameMemoryExceeded: self = .invalidInput(.frameMemoryExceeded)
         case .inputTooLarge(let limitBytes): self = .invalidInput(.tooLarge(limitBytes: limitBytes))
+        case .unsupportedArchive: self = .invalidInput(.unsupportedArchive)
         case .unsupported(let name): self = .unsupportedCodec(name)
         case .corrupt(let detail), .decoderFailure(let detail): self = .decodeFailed(detail)
         case .encoderFailure(let detail): self = .encodeFailed(detail)
