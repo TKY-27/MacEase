@@ -1,6 +1,7 @@
 import AppKit
 import Engine
 import XCTest
+import os
 
 @testable import MacEase
 
@@ -596,17 +597,21 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         let coordinator = makeCoordinator(store, directory)
         let model = coordinator.storageBar.model
 
-        coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42)
+        coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42, forPreview: false)
         try await waitUntil { model.volume != nil }
         XCTAssertTrue(model.showsStartupDisk)
         XCTAssertNil(model.selectionCount)
+        XCTAssertNil(coordinator.state.notice)
 
         coordinator.applySelectionResult(
-            .success(.init(windowID: 42, urls: [note], folder: directory)), trackedWindowID: 42)
+            .success(.init(windowID: 42, urls: [note], folder: directory, view: .list)),
+            trackedWindowID: 42, forPreview: false)
         try await waitUntil { model.selectionCount == 1 && !model.showsStartupDisk }
-        coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42)
+        coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42, forPreview: false)
         XCTAssertNil(model.selectionCount)
         XCTAssertNotNil(model.volume)
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertEqual(coordinator.storageBar.windowView, .unknown)
     }
 
     func testTransientFailuresKeepTheStorageSelection() async throws {
@@ -617,14 +622,16 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         let coordinator = makeCoordinator(store, directory)
         let model = coordinator.storageBar.model
         coordinator.applySelectionResult(
-            .success(.init(windowID: 42, urls: [note], folder: directory)), trackedWindowID: 42)
+            .success(.init(windowID: 42, urls: [note], folder: directory, view: .list)),
+            trackedWindowID: 42, forPreview: false)
         try await waitUntil { model.selectionCount == 1 }
         for _ in 1..<FinderPreviewCoordinator.transientFailureThreshold {
-            coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
+            coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42, forPreview: false)
         }
         XCTAssertEqual(model.selectionCount, 1)
-        coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
+        coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42, forPreview: false)
         XCTAssertNil(model.selectionCount)
+        XCTAssertNil(coordinator.state.notice)
     }
 
     func testMissingAccessibilityShowsNothing() throws {
@@ -632,6 +639,7 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         let directory = try PreviewFixtures.directory(self)
         let coordinator = makeCoordinator(store, directory)
         coordinator.start()
+        addTeardownBlock { @MainActor in coordinator.stop() }
         XCTAssertFalse(coordinator.storageBar.isVisible)
         XCTAssertFalse(coordinator.storageBar.wantsSelection)
         XCTAssertFalse(NSApp.windows.contains { $0 is FinderPreviewPanel && $0.isVisible })
@@ -642,6 +650,7 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         let directory = try PreviewFixtures.directory(self)
         let coordinator = makeCoordinator(store, directory)
         coordinator.start()
+        addTeardownBlock { @MainActor in coordinator.stop() }
         let bar = coordinator.storageBar
         bar.start()
         bar.model.update(selectionCount: 0, folder: directory)
@@ -651,9 +660,228 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         store.finderStorageBarEnabled = false
         try await waitUntil { !bar.isVisible && bar.model.volume == nil }
         coordinator.applySelectionResult(
-            .success(.init(windowID: 42, urls: [directory], folder: directory)), trackedWindowID: 42)
+            .success(.init(windowID: 42, urls: [directory], folder: directory)),
+            trackedWindowID: 42, forPreview: false)
         XCTAssertNil(bar.model.volume)
         XCTAssertNil(bar.model.selectionCount)
+    }
+
+    func testPreviewOffNeverInspectsSelectedFilesOrKeepsPreviewState() async throws {
+        let (store, _) = try makeStore()
+        let directory = try PreviewFixtures.directory(self)
+        let locked = directory.appendingPathComponent("secret.txt")
+        try Data("secret".utf8).write(to: locked)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        addTeardownBlock {
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path)
+        }
+
+        let reader = FinderSelectionReader(
+            requestConsent: { _ in nil },
+            readSelection: { .success(.init(windowID: 42, urls: [locked], folder: directory, view: .list)) })
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory),
+            storageBar: FinderStorageBar(readsStatusBar: { true }),
+            reader: reader, isTrusted: { true }, finderIsFrontmost: { true }, frontWindowMatches: { true })
+        addTeardownBlock { @MainActor in coordinator.stop() }
+        coordinator.storageBar.start()
+        let generationBefore = coordinator.state.generation
+
+        coordinator.followTrackedWindow(
+            .init(
+                id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
+                screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        try await waitUntil { coordinator.storageBar.model.selectionCount == 1 && coordinator.storageBar.isVisible }
+
+        XCTAssertTrue(coordinator.state.urls.isEmpty)
+        XCTAssertNil(coordinator.state.kind)
+        XCTAssertNil(coordinator.state.trust)
+        XCTAssertNil(coordinator.state.detected)
+        XCTAssertNil(coordinator.state.fileFailure)
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertEqual(coordinator.state.generation, generationBefore + 1)
+
+        let generationAfterSelection = coordinator.state.generation
+        store.finderPreview.disabledKinds.insert(.text)
+        store.finderPreview.addTrustedFolder(directory)
+        XCTAssertEqual(coordinator.state.generation, generationAfterSelection)
+        XCTAssertTrue(coordinator.state.urls.isEmpty)
+        XCTAssertNil(coordinator.state.kind)
+    }
+
+    func testTurningPreviewOffWithStripOnClearsPreviewState() async throws {
+        let (store, _) = try makeStore()
+        store.finderPreviewEnabled = true
+        let directory = try PreviewFixtures.directory(self)
+        let note = directory.appendingPathComponent("note.txt")
+        try Data("hello".utf8).write(to: note)
+        let reader = FinderSelectionReader(
+            requestConsent: { _ in nil },
+            readSelection: { .success(.init(windowID: 42, urls: [note], folder: directory, view: .list)) })
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory),
+            storageBar: FinderStorageBar(readsStatusBar: { true }),
+            reader: reader, isTrusted: { true }, finderIsFrontmost: { true }, frontWindowMatches: { true })
+        addTeardownBlock { @MainActor in coordinator.stop() }
+        coordinator.storageBar.start()
+        coordinator.followTrackedWindow(
+            .init(
+                id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
+                screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        coordinator.start()
+        try await waitUntil { coordinator.state.kind == .text && coordinator.storageBar.isVisible }
+
+        store.finderPreviewEnabled = false
+        try await waitUntil { coordinator.state.urls.isEmpty && coordinator.state.kind == nil }
+        XCTAssertNil(coordinator.state.trust)
+        XCTAssertNil(coordinator.state.detected)
+        XCTAssertNil(coordinator.state.fileFailure)
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertTrue(coordinator.storageBar.isVisible)
+    }
+
+    func testEnablingStorageBarWhilePreviewIsOnShowsStripImmediately() async throws {
+        let (store, _) = try makeStore()
+        store.finderPreviewEnabled = true
+        store.finderStorageBarEnabled = false
+        let directory = try PreviewFixtures.directory(self)
+        let note = directory.appendingPathComponent("note.txt")
+        try Data("hello".utf8).write(to: note)
+        let counter = AtomicCounter()
+        let reader = FinderSelectionReader(
+            requestConsent: { _ in nil },
+            readSelection: {
+                counter.increment()
+                return .success(.init(windowID: 42, urls: [note], folder: directory, view: .list))
+            })
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory),
+            storageBar: FinderStorageBar(readsStatusBar: { true }),
+            reader: reader, isTrusted: { true }, finderIsFrontmost: { false }, frontWindowMatches: { true })
+        addTeardownBlock { @MainActor in coordinator.stop() }
+
+        coordinator.followTrackedWindow(
+            .init(
+                id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
+                screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        coordinator.start()
+        try await waitUntil { coordinator.state.kind == .text && counter.value == 1 }
+        XCTAssertFalse(coordinator.storageBar.isVisible)
+
+        store.finderStorageBarEnabled = true
+        try await waitUntil {
+            counter.value >= 2 && coordinator.storageBar.isVisible
+                && coordinator.storageBar.model.selectionCount == 1
+        }
+        XCTAssertFalse(coordinator.storageBar.model.showsStartupDisk)
+    }
+
+    func testStripSilentDenialStopsRetryingAndDoesNotSwallowPreviewConsent() async throws {
+        let (store, _) = try makeStore()
+        let directory = try PreviewFixtures.directory(self)
+        let note = directory.appendingPathComponent("note.txt")
+        try Data("hello".utf8).write(to: note)
+        let releaseSilent = DispatchSemaphore(value: 0)
+        let silentCalls = AtomicCounter()
+        let askingCalls = AtomicCounter()
+        let reader = FinderSelectionReader(
+            requestConsent: { asking in
+                if asking {
+                    askingCalls.increment()
+                    return nil
+                }
+                silentCalls.increment()
+                releaseSilent.wait()
+                return .automationDenied
+            },
+            readSelection: {
+                .success(.init(windowID: 42, urls: [note], folder: directory, view: .list))
+            })
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory),
+            storageBar: FinderStorageBar(readsStatusBar: { true }),
+            reader: reader, isTrusted: { true }, finderIsFrontmost: { true }, frontWindowMatches: { true })
+        addTeardownBlock { @MainActor in coordinator.stop() }
+        coordinator.storageBar.start()
+
+        coordinator.followTrackedWindow(
+            .init(
+                id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
+                screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        coordinator.start()
+        try await waitUntil { silentCalls.value == 1 }
+
+        store.finderPreviewEnabled = true
+        try await waitUntil { coordinator.state.docked }
+        releaseSilent.signal()
+
+        try await waitUntil { askingCalls.value == 1 && coordinator.state.kind == .text }
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertEqual(coordinator.storageBar.model.selectionCount, 1)
+    }
+
+    func testStripOnlyTransientFailuresDoNotFlashNoticeWhenPreviewTurnsOn() async throws {
+        let (store, _) = try makeStore()
+        let directory = try PreviewFixtures.directory(self)
+        let note = directory.appendingPathComponent("note.txt")
+        try Data("hello".utf8).write(to: note)
+        let reader = FinderSelectionReader(
+            requestConsent: { _ in nil },
+            readSelection: { .success(.init(windowID: 42, urls: [note], folder: directory, view: .list)) })
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory),
+            storageBar: FinderStorageBar(readsStatusBar: { true }),
+            reader: reader, isTrusted: { true }, finderIsFrontmost: { true }, frontWindowMatches: { true })
+        addTeardownBlock { @MainActor in coordinator.stop() }
+        coordinator.storageBar.start()
+        coordinator.followTrackedWindow(
+            .init(
+                id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
+                screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        coordinator.start()
+        try await waitUntil { coordinator.storageBar.model.selectionCount == 1 }
+
+        for _ in 0..<FinderPreviewCoordinator.transientFailureThreshold {
+            coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42, forPreview: false)
+        }
+        XCTAssertNil(coordinator.state.notice)
+
+        store.finderPreviewEnabled = true
+        try await waitUntil { coordinator.state.docked && coordinator.state.kind == .text }
+        XCTAssertNil(coordinator.state.notice)
+    }
+
+    func testStripOnlyAutomationDenialStopsPollingAndKeepsCapacity() async throws {
+        let (store, _) = try makeStore()
+        let directory = try PreviewFixtures.directory(self)
+        let silentCalls = AtomicCounter()
+        let reader = FinderSelectionReader(
+            requestConsent: { _ in
+                silentCalls.increment()
+                return .automationDenied
+            },
+            readSelection: { .failure(.automationDenied) })
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory),
+            storageBar: FinderStorageBar(readsStatusBar: { true }),
+            reader: reader, isTrusted: { true }, finderIsFrontmost: { true }, frontWindowMatches: { true })
+        addTeardownBlock { @MainActor in coordinator.stop() }
+        coordinator.storageBar.start()
+
+        coordinator.followTrackedWindow(
+            .init(
+                id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
+                screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        try await waitUntil {
+            silentCalls.value == 1 && coordinator.storageBar.model.volume != nil
+                && coordinator.storageBar.model.showsStartupDisk
+        }
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertNil(coordinator.storageBar.model.selectionCount)
+
+        coordinator.pollSelectionForTesting(immediate: true)
+        coordinator.pollSelectionForTesting(immediate: false)
+        XCTAssertEqual(silentCalls.value, 1)
     }
 
     private func makeStore() throws -> (SettingsStore, UserDefaults) {
@@ -667,6 +895,16 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         FinderPreviewCoordinator(
             settings: store, staging: StagingArea(supportDirectory: directory),
             storageBar: FinderStorageBar(readsStatusBar: { true }), isTrusted: { false })
+    }
+}
+
+private final class AtomicCounter: Sendable {
+    private let storage = OSAllocatedUnfairLock(initialState: 0)
+
+    var value: Int { storage.withLock { $0 } }
+
+    func increment() {
+        storage.withLock { $0 += 1 }
     }
 }
 

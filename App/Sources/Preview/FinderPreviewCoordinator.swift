@@ -31,17 +31,28 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     // Surface transient failures after three polls.
     static let transientFailureThreshold = 3
 
+    struct TrackedWindow: Equatable {
+        let id: CGWindowID
+        let frame: CGRect
+        let screen: CGRect
+        let visible: Bool
+    }
+
     private let settings: SettingsStore
     private let staging: StagingArea
     private let isTrusted: @MainActor () -> Bool
+    private let finderIsFrontmostCheck: (@MainActor () -> Bool)?
+    private let frontWindowMatchesCheck: (@MainActor () -> Bool)?
     let storageBar: FinderStorageBar
-    private let reader = FinderSelectionReader()
+    private let reader: FinderSelectionReader
     private let logger = Logger(category: "finder-preview")
     private var tracker: FinderWindowTracker?
+    private var trackedWindow: TrackedWindow?
     private var panel: FinderPreviewPanel?
     private(set) var state = FinderPreviewState()
     private var pollTimer: Timer?
     private var trustTimer: Timer?
+    private var activationObserver: (any NSObjectProtocol)?
     private var kindTask: Task<Void, Never>?
     private var generation: UInt64 = 0 {
         didSet { state.generation = generation }
@@ -53,6 +64,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var needsSlide = false
     // Consent prompts follow only a user action.
     private var mayAskConsent = false
+    private var storageBarAutomationDenied = false
     private var consecutiveSelectionFailures = 0
     private var observedDisabledKinds: Set<FinderPreviewFileType>
     private var observedTrustedFolders: [String]
@@ -61,12 +73,18 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     init(
         settings: SettingsStore, staging: StagingArea, storageBar: FinderStorageBar = FinderStorageBar(),
-        isTrusted: @escaping @MainActor () -> Bool = { AXIsProcessTrusted() }
+        reader: FinderSelectionReader = FinderSelectionReader(),
+        isTrusted: @escaping @MainActor () -> Bool = { AXIsProcessTrusted() },
+        finderIsFrontmost: (@MainActor () -> Bool)? = nil,
+        frontWindowMatches: (@MainActor () -> Bool)? = nil
     ) {
         self.settings = settings
         self.staging = staging
         self.storageBar = storageBar
+        self.reader = reader
         self.isTrusted = isTrusted
+        finderIsFrontmostCheck = finderIsFrontmost
+        frontWindowMatchesCheck = frontWindowMatches
         observedDisabledKinds = settings.finderPreview.disabledKinds
         observedTrustedFolders = settings.finderPreview.trustedFolders
         super.init()
@@ -77,9 +95,27 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(applicationLaunched(_:)),
             name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.applicationDidBecomeActive() }
+        }
         observeEnabled()
         observeStorageBarEnabled()
         attach(prompting: false)
+    }
+
+    func stop() {
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        activationObserver.map(NotificationCenter.default.removeObserver)
+        activationObserver = nil
+        detach()
+    }
+
+    func followTrackedWindow(_ window: TrackedWindow?, trusted: Bool = true) {
+        self.trusted = trusted
+        trackedWindow = window
+        followWindow()
     }
 
     func toggle() {
@@ -116,6 +152,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private var tracksFinder: Bool { settings.finderPreviewEnabled || settings.finderStorageBarEnabled }
 
+    private var isTracking: Bool { tracker != nil || trackedWindow != nil }
+
     private var previewDocked: Bool { panel?.isDocked == true && panel?.isVisible == true }
 
     private func observePreviewSettings() {
@@ -144,33 +182,38 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         guard settings.finderPreviewEnabled else {
             guard tracksFinder else { return detach() }
             mayAskConsent = false
+            consecutiveSelectionFailures = 0
+            clearSelection()
             state.notice = nil
             dismissPanel()
             return updateStorageBar()
         }
         needsSlide = true
         mayAskConsent = true
-        guard tracker != nil else { return attach(prompting: true) }
-        // Strip-only polling may have recorded denial.
-        if state.notice == .automation { state.notice = nil }
+        storageBarAutomationDenied = false
+        consecutiveSelectionFailures = 0
+        state.notice = nil
         retryAfter = .distantPast
-        followWindow()
-        readSelection(immediate: true)
+        generation &+= 1
+        guard isTracking else { return attach(prompting: true) }
+        followWindow(forceSelectionRead: true)
     }
 
     private func storageBarEnabledDidChange() {
         guard settings.finderStorageBarEnabled else {
+            storageBarAutomationDenied = false
             storageBar.stop()
             if !tracksFinder { detach() }
             return
         }
-        guard tracker != nil else { return attach(prompting: false) }
+        guard isTracking else { return attach(prompting: false) }
         storageBar.start()
-        followWindow()
+        retryAfter = .distantPast
+        followWindow(forceSelectionRead: true)
     }
 
     private func attach(prompting: Bool) {
-        guard tracksFinder, tracker == nil else { return }
+        guard tracksFinder, !isTracking else { return }
         trusted =
             prompting
             ? AXIsProcessTrustedWithOptions([Self.accessibilityPromptOption: true] as CFDictionary)
@@ -187,7 +230,13 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         }
         let tracker = FinderWindowTracker()
         self.tracker = tracker
-        tracker.changed = { [weak self] in self?.followWindow() }
+        tracker.changed = { [weak self] in
+            guard let self else { return }
+            self.trackedWindow = self.tracker?.target.map {
+                TrackedWindow(id: $0.windowID, frame: $0.frame, screen: $0.screen, visible: $0.visible)
+            }
+            self.followWindow()
+        }
         tracker.focused = { [weak self] in self?.readSelection(immediate: true) }
         tracker.ended = { [weak self] in self?.finderEnded() }
         tracker.failed = { [weak self] in self?.trackingStopped() }
@@ -223,11 +272,22 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         pollTimer = nil
         tracker?.stop()
         tracker = nil
+        trackedWindow = nil
         targetID = nil
         placement = nil
         consecutiveSelectionFailures = 0
+        storageBarAutomationDenied = false
         clearSelection()
         storageBar.stop()
+    }
+
+    private func applicationDidBecomeActive() {
+        guard storageBarAutomationDenied, !settings.finderPreviewEnabled,
+            settings.finderStorageBarEnabled, storageBar.wantsSelection
+        else { return }
+        storageBarAutomationDenied = false
+        retryAfter = .distantPast
+        readSelection(immediate: true)
     }
 
     private func startTrustPolling() {
@@ -267,6 +327,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func retry() {
         mayAskConsent = true
+        storageBarAutomationDenied = false
         guard state.docked else {
             stopTracking()
             return attach(prompting: false)
@@ -279,7 +340,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func updatePresence() {
         let window: FinderPreviewPresence.Window =
-            trackingFailed ? .unavailable : tracker?.target?.visible == true ? .visible : .absent
+            trackingFailed ? .unavailable : trackedWindow?.visible == true ? .visible : .absent
         switch FinderPreviewPresence(enabled: settings.finderPreviewEnabled, trusted: trusted, window: window) {
         case .hidden: hide()
         case .notice: showNotice(trusted ? .unavailable : .accessibility)
@@ -289,11 +350,11 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func updateStorageBar() {
-        guard settings.finderStorageBarEnabled, let target = tracker?.target, target.visible else {
+        guard settings.finderStorageBarEnabled, let target = trackedWindow, target.visible else {
             return storageBar.follow(nil)
         }
         storageBar.follow(
-            .init(id: target.windowID, frame: target.frame, preview: previewDocked ? placement : nil))
+            .init(id: target.id, frame: target.frame, preview: previewDocked ? placement : nil))
     }
 
     private func hide() {
@@ -321,7 +382,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func dock() {
-        guard let target = tracker?.target else { return }
+        guard let target = trackedWindow else { return }
         if !state.docked { state.notice = nil }
         state.docked = true
         let panel = preparedPanel(docked: true)
@@ -329,7 +390,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             window: target.frame, screen: target.screen, width: panel.previewWidth)
         self.placement = placement
         state.dock = placement.dock
-        panel.dock(placement, above: target.windowID, animate: needsSlide && !panel.isVisible)
+        panel.dock(placement, above: target.id, animate: needsSlide && !panel.isVisible)
         needsSlide = false
     }
 
@@ -359,14 +420,14 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func resize(by pointerDelta: CGFloat) {
-        guard let panel, let placement, let target = tracker?.target else { return }
+        guard let panel, let placement, let target = trackedWindow else { return }
         panel.setPreviewWidth(
             FinderPreviewGeometry.resizedWidth(
                 placement, pointerDelta: pointerDelta, window: target.frame, screen: target.screen))
     }
 
-    private func followWindow() {
-        let windowID = tracker?.target?.windowID
+    private func followWindow(forceSelectionRead: Bool = false) {
+        let windowID = trackedWindow?.id
         let changedWindow = windowID != nil && windowID != targetID
         if changedWindow {
             consecutiveSelectionFailures = 0
@@ -376,84 +437,118 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         }
         let wasVisible = panel?.isVisible == true || storageBar.wantsSelection
         updatePresence()
-        // A docked preview stops polling after denial.
-        if changedWindow, state.notice == .automation, settings.finderStorageBarEnabled {
+        let automationBlocked =
+            (previewDocked && state.notice == .automation) || (!previewDocked && storageBarAutomationDenied)
+        if (changedWindow || !wasVisible || forceSelectionRead), automationBlocked,
+            settings.finderStorageBarEnabled, storageBar.wantsSelection
+        {
             storageBar.setView(.unknown)
             storageBar.model.update(selectionCount: nil, folder: nil)
         }
-        if changedWindow || !wasVisible { readSelection(immediate: true) }
+        if changedWindow || !wasVisible || forceSelectionRead { readSelection(immediate: true) }
+    }
+
+    func pollSelectionForTesting(immediate: Bool = false) {
+        readSelection(immediate: immediate)
     }
 
     private func readSelection(immediate: Bool = false) {
-        guard let tracker, let target = tracker.target, target.visible, previewDocked || storageBar.wantsSelection,
-            immediate || tracker.finderIsFrontmost, Date() >= retryAfter,
-            state.notice != .automation || !previewDocked
-        else { return }
+        guard let target = trackedWindow, target.visible else { return }
+        let previewActive = settings.finderPreviewEnabled && previewDocked
+        let storageBarActive = settings.finderStorageBarEnabled && storageBar.wantsSelection
+        guard previewActive || storageBarActive else { return }
+        let finderFrontmost = finderIsFrontmostCheck?() ?? (tracker?.finderIsFrontmost == true)
+        guard immediate || finderFrontmost else { return }
+        if previewActive {
+            guard state.notice != .automation, Date() >= retryAfter else { return }
+        } else {
+            guard !storageBarAutomationDenied, Date() >= retryAfter else { return }
+        }
+        let asking = previewActive && mayAskConsent
         let requestedGeneration = generation
+        let requestedWindowID = targetID
         reader.read(
-            asking: mayAskConsent,
+            asking: asking,
             isCurrent: { [weak self] in
                 guard let self else { return false }
-                return generation == requestedGeneration
-                    && (self.panel?.isVisible == true || storageBar.wantsSelection)
-                    && self.tracker?.frontWindowMatchesTarget() == true
+                let frontMatches = self.frontWindowMatchesCheck?() ?? (self.tracker?.frontWindowMatchesTarget() == true)
+                guard generation == requestedGeneration, targetID == requestedWindowID, frontMatches else {
+                    return false
+                }
+                if previewActive {
+                    return settings.finderPreviewEnabled && previewDocked
+                }
+                return !settings.finderPreviewEnabled && settings.finderStorageBarEnabled && storageBar.wantsSelection
             }
         ) { [weak self] result in
             guard let self else { return }
-            applySelectionResult(result, trackedWindowID: targetID)
+            applySelectionResult(
+                result, trackedWindowID: requestedWindowID,
+                forPreview: previewActive && settings.finderPreviewEnabled)
         }
     }
 
     func applySelectionResult(
         _ result: Result<FinderSelectionReader.Selection, FinderSelectionReader.Failure>,
-        trackedWindowID: CGWindowID?
+        trackedWindowID: CGWindowID?,
+        forPreview: Bool = true
     ) {
         switch result {
         case .success(let selection):
             guard selection.windowID == trackedWindowID else {
                 logger.error("Finder selection did not match the tracked window")
-                selectionFailed(.unavailable)
+                selectionFailed(.unavailable, forPreview: forPreview)
                 return
             }
             consecutiveSelectionFailures = 0
-            state.notice = nil
+            storageBarAutomationDenied = false
             if settings.finderStorageBarEnabled {
                 storageBar.setView(selection.view)
                 storageBar.model.update(
                     selectionCount: selection.urls.count, folder: selection.folder ?? selection.urls.first)
             }
+            guard forPreview else { return }
+            state.notice = nil
             guard selection.urls != state.urls else { return }
             let previous = state.selectedURL
             state.urls = selection.urls
             select(previous.flatMap { selection.urls.firstIndex(of: $0) } ?? 0)
         case .failure(let failure):
-            selectionFailed(failure)
+            selectionFailed(failure, forPreview: forPreview)
         }
     }
 
-    private func selectionFailed(_ failure: FinderSelectionReader.Failure) {
-        defer {
-            if settings.finderStorageBarEnabled, state.notice != nil {
+    private func selectionFailed(_ failure: FinderSelectionReader.Failure, forPreview: Bool) {
+        if failure == .automationDenied {
+            consecutiveSelectionFailures = 0
+            if forPreview {
+                clearSelection()
+                state.notice = .automation
+                retryAfter = Date().addingTimeInterval(Self.failureBackoff)
+            } else {
+                storageBarAutomationDenied = true
+            }
+            if settings.finderStorageBarEnabled {
                 storageBar.setView(.unknown)
                 storageBar.model.update(selectionCount: nil, folder: nil)
             }
-        }
-        if failure == .automationDenied {
-            consecutiveSelectionFailures = 0
-            clearSelection()
-            state.notice = .automation
-            retryAfter = Date().addingTimeInterval(Self.failureBackoff)
             return
         }
         consecutiveSelectionFailures += 1
         guard consecutiveSelectionFailures >= Self.transientFailureThreshold else { return }
-        clearSelection()
-        switch failure {
-        case .automationDenied: state.notice = .automation
-        case .timedOut: state.notice = .timedOut
-        case .unavailable: state.notice = .unavailable
+        if forPreview {
+            clearSelection()
+            switch failure {
+            case .automationDenied: state.notice = .automation
+            case .timedOut: state.notice = .timedOut
+            case .unavailable: state.notice = .unavailable
+            }
         }
         retryAfter = Date().addingTimeInterval(Self.failureBackoff)
+        if settings.finderStorageBarEnabled {
+            storageBar.setView(.unknown)
+            storageBar.model.update(selectionCount: nil, folder: nil)
+        }
     }
 
     private func clearSelection() {

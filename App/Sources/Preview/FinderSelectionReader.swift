@@ -32,37 +32,79 @@ final class FinderSelectionReader {
         static let gallery: OSType = 0x666C_7677
     }
 
-    private let worker = ScriptWorker()
+    private struct PendingRequest {
+        let asking: Bool
+        let isCurrent: @MainActor () -> Bool
+        let completion: @MainActor (Result<Selection, Failure>) -> Void
+    }
+
+    private let requestConsent: @Sendable (Bool) -> Failure?
+    private let readSelection: @Sendable () -> Result<Selection, Failure>
     private let queue = DispatchQueue(label: "io.github.tky27.MacEase.finder-selection", qos: .userInitiated)
     private var inFlight = false
+    private var inFlightAsking = false
+    private var pendingAsking: PendingRequest?
     private var authorized = false
+
+    init() {
+        let worker = ScriptWorker()
+        requestConsent = { worker.requestConsent(asking: $0) }
+        readSelection = { worker.read() }
+    }
+
+    init(
+        requestConsent: @escaping @Sendable (Bool) -> Failure?,
+        readSelection: @escaping @Sendable () -> Result<Selection, Failure>
+    ) {
+        self.requestConsent = requestConsent
+        self.readSelection = readSelection
+    }
 
     // Without asking, undetermined consent counts as denied.
     func read(
         asking: Bool, isCurrent: @escaping @MainActor () -> Bool,
         completion: @escaping @MainActor (Result<Selection, Failure>) -> Void
     ) {
-        guard !inFlight else { return }
+        let request = PendingRequest(asking: asking, isCurrent: isCurrent, completion: completion)
+        guard !inFlight else {
+            // Never drop user-initiated consent behind silent polls.
+            if asking, !inFlightAsking { pendingAsking = request }
+            return
+        }
+        start(request)
+    }
+
+    private func start(_ request: PendingRequest) {
         inFlight = true
+        inFlightAsking = request.asking
         Task {
-            defer { inFlight = false }
-            guard isCurrent() else { return }
+            defer {
+                inFlight = false
+                inFlightAsking = false
+                if let next = pendingAsking {
+                    pendingAsking = nil
+                    start(next)
+                }
+            }
+            guard request.isCurrent() else { return }
             if !authorized {
                 let failure = await withCheckedContinuation { continuation in
-                    queue.async { [worker] in continuation.resume(returning: worker.requestConsent(asking: asking)) }
+                    queue.async { [requestConsent] in
+                        continuation.resume(returning: requestConsent(request.asking))
+                    }
                 }
                 if let failure {
-                    if isCurrent() { completion(.failure(failure)) }
+                    if request.isCurrent() { request.completion(.failure(failure)) }
                     return
                 }
                 authorized = true
-                guard isCurrent() else { return }
+                guard request.isCurrent() else { return }
             }
             let result = await withCheckedContinuation { continuation in
-                queue.async { [worker] in continuation.resume(returning: worker.read()) }
+                queue.async { [readSelection] in continuation.resume(returning: readSelection()) }
             }
             if case .failure(.automationDenied) = result { authorized = false }
-            if isCurrent() { completion(result) }
+            if request.isCurrent() { request.completion(result) }
         }
     }
 
@@ -124,6 +166,7 @@ final class FinderSelectionReader {
 
     private final class ScriptWorker: Sendable {
         private let script = Mutex<NSAppleScript?>(nil)
+        private let loggedSilentDenial = Mutex(false)
         private let logger = Logger(category: "finder-preview")
         private static let deniedCodes = [Int(errAEEventNotPermitted), Int(errAEEventWouldRequireUserConsent)]
         private static let timeoutCode = Int(errAETimeout)
@@ -152,7 +195,11 @@ final class FinderSelectionReader {
 
         func requestConsent(asking: Bool) -> Failure? {
             let permission = FinderSelectionReader.automationPermission(asking: asking)
-            return permission == noErr ? nil : rejected(Int(permission))
+            if permission == noErr {
+                loggedSilentDenial.withLock { $0 = false }
+                return nil
+            }
+            return rejected(Int(permission), silent: !asking)
         }
 
         func read() -> Result<Selection, Failure> {
@@ -177,13 +224,25 @@ final class FinderSelectionReader {
             }
         }
 
-        private func rejected(_ code: Int?) -> Failure {
-            logger.error("Finder selection request failed: \(code ?? 0)")
-            switch code {
-            case let code? where Self.deniedCodes.contains(code): return .automationDenied
-            case Self.timeoutCode: return .timedOut
-            default: return .unavailable
+        private func rejected(_ code: Int?, silent: Bool = false) -> Failure {
+            let failure: Failure =
+                switch code {
+                case let code? where Self.deniedCodes.contains(code): .automationDenied
+                case Self.timeoutCode: .timedOut
+                default: .unavailable
+                }
+            if silent, failure == .automationDenied {
+                let alreadyLogged = loggedSilentDenial.withLock { logged in
+                    defer { logged = true }
+                    return logged
+                }
+                if !alreadyLogged {
+                    logger.error("Finder selection request failed: \(code ?? 0)")
+                }
+            } else {
+                logger.error("Finder selection request failed: \(code ?? 0)")
             }
+            return failure
         }
     }
 }
