@@ -63,6 +63,8 @@ struct FrameEdit: Hashable, Sendable {
     var fitCanvas: PixelSize?
     var editorGeometry: EditGeometry?
     var adjustments: MediaAdjustments?
+    var hasOverlays = false
+    var annotationSize: CGSize?
 }
 
 struct PixelSize: Hashable, Sendable {
@@ -88,6 +90,8 @@ final class FrameProcessor {
     private let fitCanvas: PixelSize?
     private let editorGeometry: EditGeometry?
     private let adjustments: MediaAdjustments?
+    private let annotationCache = EditAnnotationCache()
+    private let annotationSize: CGSize
     let size: PixelSize
 
     static func outputSize(
@@ -122,7 +126,7 @@ final class FrameProcessor {
             else { throw EngineError.encodeFailed("HDR color space unavailable") }
             context = CIContext(options: [.workingColorSpace: working, .workingFormat: CIFormat.RGBAh])
             outputColorSpace = output
-        } else if edit.adjustments?.isIdentity == false {
+        } else if edit.adjustments?.isIdentity == false || edit.hasOverlays {
             context = CIContext(options: [.cacheIntermediates: false])
             outputColorSpace = CGColorSpace(name: CGColorSpace.itur_709)
         } else {
@@ -148,6 +152,7 @@ final class FrameProcessor {
         size = try Self.outputSize(source: source, edit: edit, display: display)
         let canvasSize = edit.fitCanvas.map { CGSize(width: $0.width, height: $0.height) } ?? bounds.size
         let editedSize = edit.editorGeometry?.outputSize(canvasSize) ?? canvasSize
+        annotationSize = edit.annotationSize ?? CGSize(width: size.width, height: size.height)
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / editedSize.width, y: CGFloat(size.height) / editedSize.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
@@ -199,7 +204,7 @@ final class FrameProcessor {
     }
 
     /// `fade` scales colour toward black.
-    func process(_ frame: CVPixelBuffer, fade: Double = 1) throws -> CVPixelBuffer {
+    func process(_ frame: CVPixelBuffer, fade: Double = 1, overlays: [EditOverlay] = []) throws -> CVPixelBuffer {
         var image = CIImage(cvPixelBuffer: frame).cropped(to: sourceCrop).transformed(by: geometry).cropped(
             to: viewport
         )
@@ -214,11 +219,17 @@ final class FrameProcessor {
                     y: (canvas.height - image.extent.height) / 2))
             image = image.composited(over: CIImage(color: .black).cropped(to: canvas)).cropped(to: canvas)
         }
+        let canvasSize = image.extent.size
+        if !overlays.isEmpty { image = overlays.redacting(image) }
         if let editorGeometry { image = editorGeometry.applying(to: image) }
         if let adjustments { image = adjustments.applying(to: image) }
-        if fade < 1 { image = image.fadedToBlack(fade) }
         image = image.transformed(by: scale)
         let extent = CGRect(x: 0, y: 0, width: size.width, height: size.height)
+        image = image.cropped(to: extent)
+        if let layer = annotationLayer(for: overlays, outputSize: extent.size, canvas: canvasSize) {
+            image = layer.composited(over: image).cropped(to: extent)
+        }
+        if fade < 1 { image = image.fadedToBlack(fade) }
         if let background { image = image.composited(over: background) }
         var output: CVPixelBuffer?
         let status = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
@@ -232,5 +243,11 @@ final class FrameProcessor {
         }
         context.render(image.cropped(to: extent), to: output, bounds: extent, colorSpace: outputColorSpace)
         return output
+    }
+
+    private func annotationLayer(for overlays: [EditOverlay], outputSize: CGSize, canvas: CGSize) -> CIImage? {
+        annotationCache.layer(
+            for: overlays, size: outputSize, geometry: editorGeometry ?? EditGeometry(), canvas: canvas,
+            fullOutputSize: annotationSize)
     }
 }

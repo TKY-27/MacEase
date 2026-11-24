@@ -531,45 +531,55 @@ import Testing
 
     private func videoWithExtraTracks(
         includeTimecode: Bool = false, includeChapter: Bool = false, includeMetadata: Bool = false,
-        includeClosedCaption: Bool = false
+        includeClosedCaption: Bool = false, sourceURL: URL? = nil, timecodeRate: Int32 = 24, leadingSeconds: Double = 0,
+        timecodeDuration: CMTime? = nil, associateTimecode: Bool = true
     ) async throws -> URL {
-        let source = try fixture("ffmpeg-h264-aac.mp4")
+        let source = try sourceURL ?? fixture("ffmpeg-h264-aac.mp4")
         let asset = AVURLAsset(url: source)
         let videoTrack = try #require(try await asset.loadTracks(withMediaType: .video).first)
-        let audioTrack = try #require(try await asset.loadTracks(withMediaType: .audio).first)
-        let duration = try await asset.load(.duration)
+        let audioTrack = try await asset.loadTracks(withMediaType: .audio).first
+        let duration = CMTimeAdd(
+            try await asset.load(.duration), CMTime(seconds: leadingSeconds, preferredTimescale: 600))
         let url = try TestVolume.makeFolder().appending(path: "extra-tracks.mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        writer.movieTimeScale = timecodeDuration?.timescale ?? 600
         let reader = try AVAssetReader(asset: asset)
 
-        let videoOut = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
-        let audioOut = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-        reader.add(videoOut)
-        reader.add(audioOut)
-
-        let videoIn = AVAssetWriterInput(
-            mediaType: .video, outputSettings: nil,
-            sourceFormatHint: try await videoTrack.load(.formatDescriptions).first)
-        let audioIn = AVAssetWriterInput(
-            mediaType: .audio, outputSettings: nil,
-            sourceFormatHint: try await audioTrack.load(.formatDescriptions).first)
-        writer.add(videoIn)
-        writer.add(audioIn)
+        var pairs: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)] = []
+        for track in [videoTrack, audioTrack].compactMap({ $0 }) {
+            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+            reader.add(output)
+            let input = AVAssetWriterInput(
+                mediaType: track.mediaType, outputSettings: nil,
+                sourceFormatHint: try await track.load(.formatDescriptions).first)
+            writer.add(input)
+            pairs.append((output, input))
+        }
+        let videoIn = try #require(pairs.first?.input)
 
         var timecodePair: (AVAssetWriterInput, CMTimeCodeFormatDescription)?
         if includeTimecode {
             var timecodeFormat: CMTimeCodeFormatDescription?
-            let frameDuration = CMTime(value: 1, timescale: 24)
+            let frameDuration = CMTime(value: 1, timescale: timecodeRate)
             try #require(
                 CMTimeCodeFormatDescriptionCreate(
                     allocator: kCFAllocatorDefault, timeCodeFormatType: kCMTimeCodeFormatType_TimeCode32,
-                    frameDuration: frameDuration, frameQuanta: 24, flags: 0, extensions: nil,
+                    frameDuration: frameDuration, frameQuanta: UInt32(timecodeRate), flags: 0, extensions: nil,
                     formatDescriptionOut: &timecodeFormat) == noErr)
             let tcFormat = try #require(timecodeFormat)
             let timecodeIn = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: tcFormat)
+            timecodeIn.mediaTimeScale = timecodeDuration?.timescale ?? timecodeRate
+            timecodeIn.languageCode = "jpn"
+            timecodeIn.extendedLanguageTag = "ja-JP"
+            timecodeIn.marksOutputTrackAsEnabled = false
+            let title = AVMutableMetadataItem()
+            title.identifier = .commonIdentifierTitle
+            title.value = "Camera timecode" as NSString
+            timecodeIn.metadata = [title]
             writer.add(timecodeIn)
-            if videoIn.canAddTrackAssociation(
-                withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
+            if associateTimecode,
+                videoIn.canAddTrackAssociation(
+                    withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
             {
                 videoIn.addTrackAssociation(
                     withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
@@ -634,7 +644,8 @@ import Testing
         if let (timecodeIn, tcFormat) = timecodePair {
             var frameNumber: Int32 = 0
             let payload = withUnsafeBytes(of: &frameNumber) { Data($0) }
-            try await appendExtraSample(payload, format: tcFormat, to: timecodeIn, duration: duration)
+            try await appendExtraSample(
+                payload, format: tcFormat, to: timecodeIn, duration: timecodeDuration ?? duration)
         }
         if let (captionIn, format) = captionPair {
             let payload = Data([0, 0, 0, 10, 0x63, 0x64, 0x61, 0x74, 0x94, 0x20])
@@ -653,33 +664,161 @@ import Testing
             metadataIn.markAsFinished()
         }
 
-        var videoDone = false
-        var audioDone = false
-        while !videoDone || !audioDone {
-            var progressed = false
-            if !videoDone, videoIn.isReadyForMoreMediaData {
-                if let sample = videoOut.copyNextSampleBuffer() {
-                    try #require(videoIn.append(sample))
-                } else {
-                    videoIn.markAsFinished()
-                    videoDone = true
+        while !pairs.isEmpty {
+            var remaining: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)] = []
+            for (output, input) in pairs {
+                if input.isReadyForMoreMediaData {
+                    guard let sample = output.copyNextSampleBuffer() else {
+                        input.markAsFinished()
+                        continue
+                    }
+                    var shifted: CMSampleBuffer?
+                    var timings = try sample.sampleTimingInfos()
+                    let offset = CMTime(seconds: leadingSeconds, preferredTimescale: 600)
+                    for index in timings.indices {
+                        timings[index].presentationTimeStamp = CMTimeAdd(timings[index].presentationTimeStamp, offset)
+                        if timings[index].decodeTimeStamp.isNumeric {
+                            timings[index].decodeTimeStamp = CMTimeAdd(timings[index].decodeTimeStamp, offset)
+                        }
+                    }
+                    try #require(
+                        CMSampleBufferCreateCopyWithNewTiming(
+                            allocator: kCFAllocatorDefault,
+                            sampleBuffer: sample, sampleTimingEntryCount: timings.count, sampleTimingArray: &timings,
+                            sampleBufferOut: &shifted) == noErr)
+                    let written = try #require(shifted)
+                    try #require(
+                        CMSampleBufferSetOutputPresentationTimeStamp(
+                            written,
+                            newValue: CMTimeAdd(sample.outputPresentationTimeStamp, offset)) == noErr)
+                    try #require(input.append(written))
                 }
-                progressed = true
+                remaining.append((output, input))
             }
-            if !audioDone, audioIn.isReadyForMoreMediaData {
-                if let sample = audioOut.copyNextSampleBuffer() {
-                    try #require(audioIn.append(sample))
-                } else {
-                    audioIn.markAsFinished()
-                    audioDone = true
-                }
-                progressed = true
-            }
-            if !progressed { try await Task.sleep(for: .milliseconds(1)) }
+            pairs = remaining
+            if !pairs.isEmpty { try await Task.sleep(for: .milliseconds(1)) }
         }
         await writer.finishWriting()
         try #require(writer.status == .completed)
         return url
+    }
+
+    @Test func nativeTimecodeKeepsIndependentRateAndAlphaDecodes() async throws {
+        let alpha = try await transparentVideo()
+        let source = try await videoWithExtraTracks(includeTimecode: true, sourceURL: alpha, timecodeRate: 30)
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        var preset = try #require(library.bundled.first { $0.id == "discord" })
+        preset.video?.formats = ["mov"]
+        preset.video?.videoCodec = "hevc"
+        preset.video?.maxBytes = nil
+        let compression = VideoCompression(goal: .platform(preset))
+        for operation in [VideoOperation.compress(compression), .rotate(degrees: 90, fill: RGBColor.black)] {
+            let result = try output(
+                try await run(.videoEdit, options: .video(operation), on: source, outputMode: .newFile))
+            let asset = AVURLAsset(url: result)
+            let timecode = try #require(try await asset.loadTracks(withMediaType: .timecode).first)
+            let description = try #require(try await timecode.load(.formatDescriptions).first)
+            #expect(CMTimeCodeFormatDescriptionGetFrameQuanta(description) == 30)
+            #expect(
+                CMTimeCompare(CMTimeCodeFormatDescriptionGetFrameDuration(description), CMTime(value: 1, timescale: 30))
+                    == 0)
+            let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
+            let reader = try AssetTrackReader(asset: asset, track: video, number: 1, mode: .frames)
+            var count = 0
+            while let frame = try await reader.nextFrame() {
+                let pixels = try PixelBuffer(cgImage: CGImage.make(from: frame.image))
+                #expect(pixels.rgba.enumerated().contains { $0.offset % 4 == 3 && $0.element < 16 })
+                #expect(pixels.rgba.enumerated().contains { $0.offset % 4 == 3 && $0.element > 240 })
+                count += 1
+            }
+            #expect(count == 12)
+        }
+    }
+
+    @Test func nativeCarryPreservesLeadingEmptyEditAndNonzeroStart() async throws {
+        let source = try await videoWithExtraTracks(includeTimecode: true, timecodeRate: 30, leadingSeconds: 0.5)
+        let sourceAsset = AVURLAsset(url: source)
+        let sourceDuration = try await sourceAsset.load(.duration)
+        #expect(abs(sourceDuration.seconds - 2.5) < 0.001)
+        let sourceTrack = try #require(try await sourceAsset.loadTracks(withMediaType: .video).first)
+        let sourceSegments = try await sourceTrack.load(.segments)
+        #expect(sourceSegments.first(where: { !$0.isEmpty })?.timeMapping.target.start.seconds == 0.5)
+        let library = PresetLibrary(supportDirectory: FileManager.default.temporaryDirectory)
+        var preset = try #require(library.bundled.first { $0.id == "discord" })
+        preset.video?.formats = ["mov"]
+        preset.video?.maxBytes = nil
+        let compression = VideoCompression(goal: .platform(preset))
+        for operation in [VideoOperation.removeAudio, .compress(compression)] {
+            let result = try output(
+                try await run(.videoEdit, options: .video(operation), on: source, outputMode: .newFile))
+            let asset = AVURLAsset(url: result)
+            let duration = try await asset.load(.duration).seconds
+            #expect(abs(duration - sourceDuration.seconds) < 1 / 24.0)
+            let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+            let segments = try await track.load(.segments)
+            #expect(segments.first(where: { !$0.isEmpty })?.timeMapping.target.start.seconds == 0.5)
+            #expect(segments.first?.isEmpty == true)
+            let timecode = try #require(try await asset.loadTracks(withMediaType: .timecode).first)
+            let format = try #require(try await timecode.load(.formatDescriptions).first)
+            #expect(CMTimeCodeFormatDescriptionGetFrameQuanta(format) == 30)
+        }
+    }
+
+    @Test(arguments: [true, false])
+    func timecodeRetainsSourceAssociationAndTrackProperties(associated: Bool) async throws {
+        let source = try await videoWithExtraTracks(includeTimecode: true, associateTimecode: associated)
+        let result = try output(try await run(.videoRotate, preset: "right-90", on: source, outputMode: .newFile))
+        let asset = AVURLAsset(url: result)
+        let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let tracks = try await asset.loadTracks(withMediaType: .timecode)
+        let timecode = try #require(tracks.first)
+        #expect(try await video.loadAssociatedTracks(ofType: .timecode).count == (associated ? 1 : 0))
+        #expect(try await timecode.load(.languageCode) == "jpn")
+        #expect(try await timecode.load(.extendedLanguageTag) == "ja-JP")
+        #expect(try await timecode.load(.isEnabled) == false)
+        let metadata = try await timecode.load(.metadata)
+        #expect(metadata.count == 1)
+        #expect(try await metadata.first?.load(.stringValue) == "Camera timecode")
+    }
+
+    @Test func timecodeKeepsFractionalTrackEndWithoutMovieScaleRounding() async throws {
+        let duration = CMTime(value: 120_084, timescale: 60_000)
+        let source = try await videoWithExtraTracks(includeTimecode: true, timecodeRate: 30, timecodeDuration: duration)
+        let originalTrack = try #require(try await AVURLAsset(url: source).loadTracks(withMediaType: .timecode).first)
+        #expect(CMTimeCompare(try await originalTrack.load(.timeRange).duration, duration) == 0)
+        let result = try output(try await run(.videoRotate, preset: "right-90", on: source, outputMode: .newFile))
+        let asset = AVURLAsset(url: result)
+        let timecode = try #require(try await asset.loadTracks(withMediaType: .timecode).first)
+        #expect(CMTimeCompare(try await timecode.load(.timeRange).duration, duration) == 0)
+        let reader = try AssetTrackReader(asset: asset, track: timecode, number: 1, mode: .packets)
+        while let sample = try await reader.nextSample() {
+            if CMSampleBufferGetNumSamples(sample) > 0 {
+                #expect(CMTimeCompare(sample.outputDuration, duration) == 0)
+            }
+        }
+    }
+
+    @Test func vp9AlphaAdditionalStreamsRequireConsent() async throws {
+        let source = try await transparentVideo(in: .webm)
+        let folder = source.deletingLastPathComponent()
+        let subtitle = folder.appending(path: "cue.vtt")
+        try "WEBVTT\n\n00:00:00.000 --> 00:00:00.500\nAlpha caption\n".write(
+            to: subtitle, atomically: true, encoding: .utf8)
+        let subtitled = folder.appending(path: "alpha-subtitled.webm")
+        let tools = try mediaFixtureTools()
+        _ = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: [
+                "-v", "error", "-nostdin", "-i", source.path, "-i", subtitle.path,
+                "-map", "0:v", "-map", "1:s", "-c", "copy", subtitled.path,
+            ],
+            directory: folder, tools: tools)
+        let opened = try await MediaInput.open(subtitled)
+        #expect(MediaInput.unpreservedStreams(from: opened.skippedStreams) == [.subtitle])
+        #expect(opened.video?.hasAlpha == true)
+        let plan = try await NativeTimecodePlan.make(for: opened, destination: .mkv, preservesTiming: true)
+        #expect(!plan.carriesTimecode)
+        #expect(plan.omittedKinds == [.subtitle])
     }
 
     private func appendExtraSample(
@@ -739,19 +878,22 @@ import Testing
         if mode == .newFile { #expect(try Data(contentsOf: input) == original) }
     }
 
-    @Test func timecodeTrackRequiresConsentAndReportsOmission() async throws {
+    @Test func unpreservableTimecodeRequiresVersionedOmissionConsent() async throws {
         let input = try await videoWithExtraTracks(includeTimecode: true)
         let original = try Data(contentsOf: input)
         let folder = input.deletingLastPathComponent()
 
         #expect(
-            try await run(.videoConvert, preset: "mp4", on: input)
+            try await run(.videoConvert, preset: "mkv", on: input)
                 == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
         #expect(
-            try await run(.videoCompress, preset: "quality-medium", on: input)
+            try await run(.videoSpeed, preset: "2", on: input)
                 == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
         #expect(try Data(contentsOf: input) == original)
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
+
+        let mp4Outcome = try await run(.videoConvert, preset: "mp4", on: input, outputMode: .newFile)
+        #expect(mp4Outcome == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
 
         let editorStaging = StagingArea(supportDirectory: folder)
         await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
@@ -770,12 +912,12 @@ import Testing
         try original.write(to: input)
 
         let derivedOutcome = try await run(
-            .videoConvert, preset: "mp4", on: input, omittedStreams: [.timecode], outputMode: .newFile)
+            .videoConvert, preset: "mkv", on: input, omittedStreams: [.timecode], outputMode: .newFile)
         guard case .succeeded(let derivedOutputs, let derivedWarnings) = derivedOutcome else {
             Issue.record("expected consented new-file convert to succeed, got \(derivedOutcome)")
             return
         }
-        #expect(derivedOutputs.first?.pathExtension == "mp4")
+        #expect(derivedOutputs.first?.pathExtension == "mkv")
         #expect(derivedWarnings.contains(.streamsOmitted([.timecode])))
         #expect(try Data(contentsOf: input) == original)
 
@@ -784,17 +926,17 @@ import Testing
         let engine = try JobEngine(supportDirectory: support, concurrency: 2)
         var replaceSettings = Settings()
         replaceSettings.outputMode = .replace
-        let compressInput = try await videoWithExtraTracks(includeTimecode: true)
-        let compressOriginal = try Data(contentsOf: compressInput)
-        let compressOptions = try #require(
-            OperationPlanner.options(for: .videoCompress, preset: "quality-medium", settings: replaceSettings))
+        let speedInput = try await videoWithExtraTracks(includeTimecode: true)
+        let speedOriginal = try Data(contentsOf: speedInput)
+        let speedOptions = try #require(
+            OperationPlanner.options(for: .videoSpeed, preset: "2", settings: replaceSettings))
         let replaceBatch = OperationPlanner.batch(
             for: OperationRequest(
-                op: .videoCompress, options: compressOptions, inputs: [compressInput], omittedStreams: [.timecode]),
+                op: .videoSpeed, options: speedOptions, inputs: [speedInput], omittedStreams: [.timecode]),
             settings: replaceSettings)
         let replaceOutcome = await engine.run(replaceBatch, settings: replaceSettings) { _ in }
         guard case .succeeded(let replaceOutputs, let replaceWarnings) = replaceOutcome.outcomes.first else {
-            Issue.record("expected consented replace compress to succeed, got \(replaceOutcome.outcomes)")
+            Issue.record("expected consented replace speed to succeed, got \(replaceOutcome.outcomes)")
             return
         }
         #expect(!replaceOutputs.isEmpty)
@@ -802,7 +944,7 @@ import Testing
         let record = try #require(replaceOutcome.record)
         let undone = try await engine.undo(record.id)
         #expect(undone == [.restored])
-        #expect(try Data(contentsOf: compressInput) == compressOriginal)
+        #expect(try Data(contentsOf: speedInput) == speedOriginal)
     }
 
     @Test func consentForOneStreamKindDoesNotCoverOtherKinds() async throws {

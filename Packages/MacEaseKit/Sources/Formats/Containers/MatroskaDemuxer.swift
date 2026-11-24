@@ -329,6 +329,23 @@ public struct MatroskaDemuxer: MediaDemuxer {
         return prefix
     }
 
+    public struct Checkpoint: Sendable {
+        fileprivate let position: Int64
+        fileprivate let clusterEnd: Int64?
+        fileprivate let clusterTimestamp: Int64
+    }
+
+    public func checkpoint() -> Checkpoint {
+        Checkpoint(position: position, clusterEnd: clusterEnd, clusterTimestamp: clusterTimestamp)
+    }
+
+    public mutating func seek(to checkpoint: Checkpoint) {
+        position = checkpoint.position
+        clusterEnd = checkpoint.clusterEnd
+        clusterTimestamp = checkpoint.clusterTimestamp
+        queued.removeAll()
+    }
+
     public mutating func nextPacket() throws -> MediaPacket? {
         while queued.isEmpty {
             guard position < segmentEnd else { return nil }

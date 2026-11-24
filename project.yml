@@ -130,6 +130,7 @@ targets:
     platform: macOS
     sources:
       - path: AppTests
+      - path: Packages/MacEaseKit/Tests/EngineTests/SampleReading.swift
       - path: Packages/MacEaseKit/Tests/EngineTests/Resources/ffmpeg-h264-aac.mp4
         buildPhase: resources
     dependencies:

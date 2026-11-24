@@ -94,7 +94,7 @@ final class TimeStretchedAudio {
         return samples
     }
 
-    private static func writeContinuous(
+    static func writeContinuous(
         _ source: VideoPCMSource, track: MediaTrack, start: Int64, end: Int64, to url: URL
     ) async throws {
         guard let channelCount = AVAudioChannelCount(exactly: source.channels),

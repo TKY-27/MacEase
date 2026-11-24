@@ -39,13 +39,17 @@ final class PreviewContentMatchTests: XCTestCase {
     func testBinaryContentWithTextExtensionIsRefusedWithDetectedName() {
         let png = DetectedContent(family: .image, displayName: "PNG")
         let machO = DetectedContent(family: .executable, displayName: "Mach-O executable")
-        for kind in [PreviewKind.text, .html, .markdown, .json, .propertyList] {
+        let pdf = DetectedContent(family: .pdf, displayName: "PDF")
+        for kind in [PreviewKind.text, .html, .markdown, .json, .propertyList, .svg] {
             XCTAssertEqual(
                 PreviewContentMatch.evaluate(kind: kind, detected: png),
                 .binaryWithTextExtension(detectedName: "PNG"))
             XCTAssertEqual(
                 PreviewContentMatch.evaluate(kind: kind, detected: machO),
                 .binaryWithTextExtension(detectedName: "Mach-O executable"))
+            XCTAssertEqual(
+                PreviewContentMatch.evaluate(kind: kind, detected: pdf),
+                .binaryWithTextExtension(detectedName: "PDF"))
         }
     }
 
@@ -57,7 +61,7 @@ final class PreviewContentMatchTests: XCTestCase {
         XCTAssertEqual(PreviewContentMatch.evaluate(kind: .audio, detected: pdf), .mismatch(detectedName: "PDF"))
         XCTAssertEqual(PreviewContentMatch.evaluate(kind: .pdf, detected: text), .mismatch(detectedName: "Text"))
         XCTAssertEqual(PreviewContentMatch.evaluate(kind: .font, detected: text), .mismatch(detectedName: "Text"))
-        XCTAssertEqual(PreviewContentMatch.evaluate(kind: .svg, detected: pdf), .mismatch(detectedName: "PDF"))
+        XCTAssertEqual(PreviewContentMatch.evaluate(kind: .svg, detected: text), .mismatch(detectedName: "Text"))
     }
 
     func testDecodableTextFilesAreNeverRefused() throws {

@@ -6,9 +6,14 @@ struct MediaEditorView: View {
     @Bindable var model: MediaEditorModel
     let close: () -> Void
     let save: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
+    let runFrame: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
     let progress: (UUID) -> JobCenter.ActiveBatch?
 
-    private var editable: Bool { model.ready && model.savingBatchID == nil }
+    private var editable: Bool { model.ready && !model.editingLocked }
+    @State private var showsPreparing = false
+    @GestureState private var pinch = 1.0
+
+    private var preparing: Bool { model.preparingPreview }
 
     var body: some View {
         Group {
@@ -36,7 +41,12 @@ struct MediaEditorView: View {
         .streamConsentAlert($model.streamConsent, accept: model.continueWithoutStreams) { declined in
             if declined.purpose == .open { close() }
         }
-        .background(EditorKeyboardShortcuts(model: model).frame(width: 0, height: 0))
+        .background(
+            EditorKeyboardShortcuts(
+                model: model, save: { save(replacingOriginal: false) },
+                saveFrame: { Task { await model.saveFrame(run: runFrame) } }, close: close
+            ).frame(width: 0, height: 0)
+        )
         .onChange(of: model.category) { _, _ in
             model.pause(); model.refresh()
         }
@@ -44,7 +54,16 @@ struct MediaEditorView: View {
             model.pause(); model.refresh()
         }
         .onChange(of: model.zoom) { _, _ in model.refresh() }
+        .task(id: preparing) {
+            showsPreparing = false
+            guard preparing else { return }
+            // Quick rebuilds would otherwise flash the indicator.
+            do { try await Task.sleep(for: Self.preparingDelay) } catch { return }
+            showsPreparing = true
+        }
     }
+
+    private static let preparingDelay = Duration.milliseconds(300)
 
     private var workspace: some View {
         VStack(spacing: 0) {
@@ -56,7 +75,11 @@ struct MediaEditorView: View {
                 VStack(spacing: 0) {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
-                    if model.isVideo { EditorTransportBar(model: model) } else { photoBar }
+                    if model.isVideo {
+                        EditorTransportBar(model: model) { Task { await model.saveFrame(run: runFrame) } }
+                    } else {
+                        photoBar
+                    }
                 }
                 Divider()
                 inspector.frame(width: 300)
@@ -99,16 +122,16 @@ struct MediaEditorView: View {
                     model.undo()
                 }
                 .help("Undo (⌘Z)")
-                .disabled(!model.canUndo || !editable).keyboardShortcut("z", modifiers: .command)
+                .disabled(!model.canUndo || !editable)
                 Button {
                     model.redo()
                 } label: {
                     Label("Redo Edit", systemImage: "arrow.uturn.forward")
                 }
                 .help("Redo (⇧⌘Z)")
-                .disabled(!model.canRedo || !editable).keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!model.canRedo || !editable)
             }
-            Button("Cancel", action: close).keyboardShortcut(.cancelAction)
+            Button("Cancel", action: close)
         }
         ToolbarItem(placement: .confirmationAction) {
             Menu {
@@ -126,7 +149,6 @@ struct MediaEditorView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canSave)
-            .keyboardShortcut(.defaultAction)
         }
     }
 
@@ -140,6 +162,7 @@ struct MediaEditorView: View {
         VStack(spacing: 8) {
             List(model.photoURLs, id: \.self, selection: $model.selectedPhotos) { url in
                 HStack {
+                    PhotoListThumbnail(url: url)
                     Text(url.lastPathComponent).lineLimit(2)
                     Spacer()
                     if model.values.photoEdits[url]?.isIdentity == false {
@@ -185,7 +208,7 @@ struct MediaEditorView: View {
             .labelsHidden()
             .fixedSize()
             .disabled(model.category == .crop)
-            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom")
+            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)")
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
@@ -204,7 +227,7 @@ struct MediaEditorView: View {
                             width: model.image?.width ?? 1, height: model.image?.height ?? 1)
                     let scale = min(
                         (proxy.size.width - 48) / imageSize.width, (proxy.size.height - 40) / imageSize.height)
-                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom
+                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom * pinch
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
                         ZStack {
@@ -218,13 +241,23 @@ struct MediaEditorView: View {
                                 Image(decorative: image, scale: 1).resizable().interpolation(.high)
                             }
                             if model.category == .crop && !model.original {
-                                EditorCropOverlay(model: model)
+                                EditorCropOverlay(model: model).disabled(model.editingLocked)
+                                    .allowsHitTesting(!model.editingLocked)
+                            }
+                            if model.category == .markup && !model.original {
+                                EditorMarkupOverlay(model: model).disabled(model.editingLocked)
+                                    .allowsHitTesting(!model.editingLocked)
                             }
                         }
                         .frame(width: size.width, height: size.height)
                         .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
                     .scrollIndicators(zoom > 1 ? .automatic : .never)
+                    .gesture(
+                        MagnifyGesture()
+                            .updating($pinch) { value, pinch, _ in pinch = value.magnification }
+                            .onEnded { value in model.setPhotoZoom(model.zoom * value.magnification) },
+                        isEnabled: !model.isVideo && model.category != .crop)
                 } else {
                     ProgressView()
                 }
@@ -236,12 +269,15 @@ struct MediaEditorView: View {
                                 .background(.regularMaterial, in: Capsule())
                         }
                         Spacer()
-                        if model.preparingPlayback || model.splitting || model.loadingPhoto
-                            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
-                        {
-                            ProgressView("Preparing preview…").controlSize(.small).padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(.regularMaterial, in: Capsule())
+                        if showsPreparing {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Preparing preview…").font(.callout)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.regularMaterial, in: Capsule())
+                            .accessibilityElement(children: .combine)
                         }
                     }
                     Spacer()
@@ -251,32 +287,38 @@ struct MediaEditorView: View {
     }
 
     private var inspector: some View {
-        let needsSegment = model.isVideo && !model.hasSelection && model.category != .crop
+        let needsSegment =
+            model.isVideo && !model.hasSelection && model.category != .crop && model.category != .markup
         return VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if needsSegment {
-                        Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    Group {
-                        switch model.category {
-                        case .video: videoControls
-                        case .adjust: adjustmentControls
-                        case .styles: styleControls
-                        case .crop: cropControls
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if needsSegment {
+                            Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
+                        Group {
+                            switch model.category {
+                            case .video: videoControls
+                            case .adjust: adjustmentControls
+                            case .styles: styleControls
+                            case .crop: cropControls
+                            case .markup: EditorMarkupInspector(model: model)
+                            }
+                        }
+                        .disabled(needsSegment && model.category != .video)
                     }
-                    .disabled(needsSegment && model.category != .video)
+                    .id(model.isVideo ? model.values.selectedID : nil)
+                    .disabled(model.loadingPhoto)
+                    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .id(model.isVideo ? model.values.selectedID : nil)
-                .disabled(model.loadingPhoto)
-                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(model.reverseProgress != nil)
+                .onChange(of: model.musicRevealRequest) { _, _ in reader.scrollTo(Self.musicSectionID) }
             }
             if model.isVideo {
                 Divider()
-                exportSettings
+                exportSettings.disabled(model.editingLocked)
             }
             Divider()
             outputSummary
@@ -300,25 +342,58 @@ struct MediaEditorView: View {
         .padding(.vertical, 12)
     }
 
-    @ViewBuilder private var saveProgress: some View {
-        if let id = model.savingBatchID {
-            let batch = progress(id)
-            let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
+    private func saveProgress(_ id: UUID, title: Text) -> some View {
+        let batch = progress(id)
+        let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
+        return HStack(spacing: 8) {
+            ProgressView(value: fraction).controlSize(.small)
+            title.font(.callout).foregroundStyle(.secondary).fixedSize()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var reverseStatus: some View {
+        if let fraction = model.reverseProgress {
             HStack(spacing: 8) {
                 ProgressView(value: fraction).controlSize(.small)
-                Text("Saving…").font(.callout).foregroundStyle(.secondary).fixedSize()
+                Text("Reversing…").font(.callout).foregroundStyle(.secondary).fixedSize()
+                Button("Cancel", action: model.cancelReverse).controlSize(.small)
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Reversing segment"))
+        }
+        if let failure = model.reverseFailure { ProblemLabel(text: failure) }
+    }
+
+    @ViewBuilder private var frameNote: some View {
+        switch model.frameNote {
+        case .saved(let output):
+            HStack(spacing: 6) {
+                Label("Saved “\(output.lastPathComponent)”", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+                    .buttonStyle(.link)
+                    .fixedSize()
+            }
+            .font(.callout)
+        case .failed(let message): ProblemLabel(text: message)
+        case nil: EmptyView()
         }
     }
 
     private var outputSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            saveProgress
+            if let id = model.savingBatchID { saveProgress(id, title: Text("Saving…")) }
+            if let id = model.frameBatchID { saveProgress(id, title: Text("Saving Frame…")) }
+            frameNote
+            reverseStatus
             if let failure = model.saveFailure ?? model.failure {
                 ProblemLabel(text: failure)
             }
-            if !model.invalidFields.isEmpty {
+            if model.invalidFields.contains(where: { $0 != MediaEditorModel.overlayTextField }) {
                 ProblemLabel(text: String(localized: "Enter a valid number within the allowed range."))
             }
             if let note = model.omittedStreamsNote {
@@ -339,12 +414,27 @@ struct MediaEditorView: View {
                 Text(reason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    @ViewBuilder private func applyToAllSegments(styleOnly: Bool) -> some View {
+        if model.isVideo, model.values.segments.count > 1 {
+            Button {
+                model.applyToAllSegments(styleOnly: styleOnly)
+            } label: {
+                Text(styleOnly ? "Apply Style to All Segments" : "Apply Adjustments to All Segments")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(!model.canApplyToAllSegments(styleOnly: styleOnly))
+            .help(
+                styleOnly
+                    ? "Give every segment this segment’s style" : "Give every segment this segment’s adjustments")
+        }
     }
 
     private var adjustmentControls: some View {
@@ -367,6 +457,7 @@ struct MediaEditorView: View {
                     }
                 }
             }
+            applyToAllSegments(styleOnly: false)
         }
     }
 
@@ -395,10 +486,13 @@ struct MediaEditorView: View {
                 }
             }
             LabeledSlider(
-                title: String(localized: "Intensity"), value: model.adjustmentBinding(\.styleIntensity), range: 0...1,
+                title: String(localized: "Intensity"), value: model.adjustments.styleIntensity, range: 0...1,
                 display: "\(Int((model.adjustments.styleIntensity * 100).rounded()))%", model: model
-            )
+            ) { amount, interaction in
+                model.adjustmentBinding(\.styleIntensity, in: interaction).wrappedValue = amount
+            }
             .disabled(model.adjustments.style == .original)
+            applyToAllSegments(styleOnly: true)
         }
     }
 
@@ -466,10 +560,13 @@ struct MediaEditorView: View {
             }
             InspectorSection(String(localized: "Straighten")) {
                 LabeledSlider(
-                    title: String(localized: "Angle"), value: model.binding(\.photo.geometry.straighten),
+                    title: String(localized: "Angle"), value: model.values.photo.geometry.straighten,
                     range: -45...45,
                     display: model.values.photo.geometry.straighten.formatted(.number.precision(.fractionLength(1)))
-                        + "°", model: model)
+                        + "°", model: model
+                ) { angle, interaction in
+                    model.change(in: interaction) { $0.photo.geometry.straighten = angle }
+                }
             }
             DisclosureGroup("Exact Selection (%)") {
                 VStack(spacing: 8) {
@@ -491,133 +588,50 @@ struct MediaEditorView: View {
         LabeledContent(title) {
             EditorNumberField(
                 model: model, title: title, id: "crop-\(keyPath)",
-                value: Binding(
-                    get: { model.values.photo.geometry.crop[keyPath: keyPath] * 100 },
-                    set: { model.setCropPercentage($0, keyPath: keyPath) }), range: 0...100, precision: 1
-            )
+                value: model.values.photo.geometry.crop[keyPath: keyPath] * 100, range: 0...100, precision: 1
+            ) { percent, interaction in
+                model.setCropPercentage(percent, keyPath: keyPath, in: interaction)
+            }
             .frame(width: 70)
         }
     }
 
-    private var videoControls: some View {
-        Group {
-            InspectorSection(String(localized: "Selected Segment")) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Start").foregroundStyle(.secondary)
-                        EditorNumberField(
-                            model: model, title: String(localized: "Start"), id: "start",
-                            value: model.videoBoundaryBinding(start: true),
-                            range: 0...max(0, model.values.end - model.sourceFrameDuration),
-                            precision: Self.timecodeDigits, timecode: true
-                        )
-                    }
-                    GridRow {
-                        Text("End").foregroundStyle(.secondary)
-                        EditorNumberField(
-                            model: model, title: String(localized: "End"), id: "end",
-                            value: model.videoBoundaryBinding(start: false),
-                            range: min(
-                                model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
-                                .sourceDuration,
-                            precision: Self.timecodeDigits, timecode: true
-                        )
-                    }
-                    GridRow {
-                        Text("Length").foregroundStyle(.secondary)
-                        Text(
-                            Timecode.string(
-                                (model.values.end - model.values.start) / model.values.speed,
-                                fractionDigits: Self.timecodeDigits)
-                        )
-                        .monospacedDigit()
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-                .disabled(!model.hasSelection)
-            }
-            InspectorSection(String(localized: "Speed")) {
-                Picker(
-                    "Playback speed",
-                    selection: Binding(
-                        get: { Self.speedPresets.contains(model.values.speed) ? model.values.speed : nil },
-                        set: { speed in if let speed { model.change { $0.speed = speed } } })
-                ) {
-                    ForEach(Self.speedPresets, id: \.self) { speed in
-                        Text(speed.formatted(.number.precision(.fractionLength(0...2))) + "×").tag(Optional(speed))
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                HStack(spacing: 6) {
-                    Text("Custom").foregroundStyle(.secondary)
-                    Spacer()
-                    EditorNumberField(
-                        model: model, title: String(localized: "Custom speed"), id: "speed",
-                        value: model.binding(\.speed), range: VideoEdit.speedRange, precision: 2
-                    ).frame(width: 58)
-                    Text(verbatim: "×").foregroundStyle(.secondary).accessibilityHidden(true)
-                }
-                Text("Pitch is preserved.").font(.caption).foregroundStyle(.secondary)
-            }
-            .disabled(!model.hasSelection)
-            InspectorSection(String(localized: "Volume")) {
-                HStack(spacing: 10) {
-                    Button {
-                        model.change { $0.volume = $0.volume == 0 ? 1 : 0 }
-                    } label: {
-                        Label(
-                            model.values.volume == 0 ? "Unmute" : "Mute",
-                            systemImage: model.values.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .frame(width: 22)
-                    Slider(value: model.binding(\.volume), in: 0...1) {
-                        Text("Volume")
-                    } onEditingChanged: { active in
-                        active ? model.beginInteraction() : model.endInteraction()
-                    }
-                    .labelsHidden()
-                    Text("\(Int((model.values.volume * 100).rounded()))%")
-                        .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
-                }
-            }
-            .disabled(!model.selectedHasAudio)
-            InspectorSection(String(localized: "Fade")) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Fade In").foregroundStyle(.secondary)
-                        FadePicker(title: Text("Fade In"), value: model.binding(\.fadeIn))
-                    }
-                    GridRow {
-                        Text("Fade Out").foregroundStyle(.secondary)
-                        FadePicker(title: Text("Fade Out"), value: model.binding(\.fadeOut))
-                    }
-                }
-                Text("Fades the picture to and from black and the sound to and from silence.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .disabled(!model.hasSelection)
-            if model.values.sources.count > 1 {
-                InspectorSection(String(localized: "Source Videos")) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(model.values.sources.enumerated()), id: \.offset) { index, source in
-                            Text("\(index + 1). \(source.url.lastPathComponent)").font(.callout).lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    Text(
-                        "Joined videos use the first video's canvas and frame rate. Other sizes fit with black borders. HDR becomes SDR; transparency is flattened. Originals are kept. Metadata may be removed."
-                    )
-                    .font(.caption).foregroundStyle(.secondary)
-                }
-            }
+}
+
+/// Original-photo thumbnail beside a file name.
+private struct PhotoListThumbnail: View {
+    let url: URL
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.15)
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFill() }
+        }
+        .frame(width: Self.side, height: Self.side)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .accessibilityHidden(true)
+        .task(id: url) {
+            let thumbnail = await Self.thumbnail(url)
+            guard !Task.isCancelled else { return }
+            image = thumbnail
         }
     }
 
-    private static let speedPresets: [Double] = [0.5, 1, 1.5, 2]
-    private static let timecodeDigits = 3
+    /// Unreadable files keep the placeholder.
+    @concurrent private static func thumbnail(_ url: URL) async -> CGImage? {
+        guard !Task.isCancelled else { return nil }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Self.pixels,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static let side: CGFloat = 36
+    private nonisolated static let pixels = 96
 }
 
 private enum AdjustmentGroup: CaseIterable {
@@ -681,7 +695,7 @@ private struct CropAspectOption {
     ]
 }
 
-private struct ToolTileLabelStyle: LabelStyle {
+struct ToolTileLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 4) {
             configuration.icon.font(.title3)
@@ -710,12 +724,45 @@ struct InspectorSection<Content: View>: View {
     }
 }
 
+struct EditorSlider: View {
+    @Bindable var model: MediaEditorModel
+    let title: String
+    let value: Double
+    let range: ClosedRange<Double>
+    let commit: (Double, EditorInteraction?) -> Void
+    @State private var interaction: EditorInteraction?
+
+    var body: some View {
+        Slider(
+            value: Binding(get: { value }, set: { commit($0, interaction) }),
+            in: range
+        ) {
+            Text(title)
+        } onEditingChanged: { active in
+            if active {
+                interaction = model.beginInteraction()
+            } else if let token = interaction {
+                interaction = nil
+                model.endInteraction(token)
+            }
+        }
+        .labelsHidden()
+        .onDisappear {
+            if let token = interaction {
+                interaction = nil
+                model.endInteraction(token)
+            }
+        }
+    }
+}
+
 private struct LabeledSlider: View {
     let title: String
-    @Binding var value: Double
+    let value: Double
     let range: ClosedRange<Double>
     let display: String
     @Bindable var model: MediaEditorModel
+    let commit: (Double, EditorInteraction?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -724,28 +771,50 @@ private struct LabeledSlider: View {
                 Spacer()
                 Text(display).monospacedDigit().foregroundStyle(.secondary)
             }
-            Slider(value: $value, in: range) {
-                Text(title)
-            } onEditingChanged: { active in
-                active ? model.beginInteraction() : model.endInteraction()
-            }
-            .labelsHidden()
+            EditorSlider(model: model, title: title, value: value, range: range, commit: commit)
         }
     }
 }
 
-private struct EditorNumberField: View {
+struct EditorNumberField: View {
     @Bindable var model: MediaEditorModel
     let title: String
     let id: String
-    @Binding var value: Double
+    let value: Double
     let range: ClosedRange<Double>
     let precision: Int
     var timecode = false
+    let commit: (Double, EditorInteraction) -> Void
+
+    init(
+        model: MediaEditorModel, title: String, id: String, value: Double, range: ClosedRange<Double>, precision: Int,
+        timecode: Bool = false, commit: @escaping (Double, EditorInteraction) -> Void
+    ) {
+        self.model = model
+        self.title = title
+        self.id = id
+        self.value = value
+        self.range = range
+        self.precision = precision
+        self.timecode = timecode
+        self.commit = commit
+    }
+
+    init(
+        model: MediaEditorModel, title: String, id: String, keyPath: WritableKeyPath<EditorValues, Double>,
+        range: ClosedRange<Double>, precision: Int, timecode: Bool = false
+    ) {
+        self.init(
+            model: model, title: title, id: id, value: model.values[keyPath: keyPath], range: range,
+            precision: precision, timecode: timecode
+        ) { amount, interaction in
+            model.change(in: interaction) { $0[keyPath: keyPath] = amount }
+        }
+    }
 
     var body: some View {
         EditorNumberControl(
-            model: model, title: title, id: id, current: value, value: $value,
+            model: model, title: title, id: id, value: value, commit: commit,
             range: range, precision: precision, timecode: timecode)
     }
 }
@@ -755,8 +824,8 @@ private struct EditorNumberControl: NSViewRepresentable {
     let model: MediaEditorModel
     let title: String
     let id: String
-    let current: Double
-    @Binding var value: Double
+    let value: Double
+    let commit: (Double, EditorInteraction) -> Void
     let range: ClosedRange<Double>
     let precision: Int
     let timecode: Bool
@@ -820,7 +889,8 @@ private struct EditorNumberControl: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
         let fitting = nsView.fittingSize
         let width = proposal.width ?? max(Self.minimumIdealWidth, fitting.width)
-        return CGSize(width: width, height: fitting.height)
+        let height = nsView.controlSize == .small ? Self.smallHeight : fitting.height
+        return CGSize(width: width, height: height)
     }
 
     static func dismantleNSView(_ view: NSTextField, coordinator: Coordinator) {
@@ -829,6 +899,8 @@ private struct EditorNumberControl: NSViewRepresentable {
     }
 
     private static let minimumIdealWidth: CGFloat = 52
+    // Matches SwiftUI's small text field.
+    private static let smallHeight: CGFloat = 21
 
     private static func controlSize(_ size: ControlSize) -> NSControl.ControlSize {
         switch size {
@@ -844,7 +916,7 @@ private struct EditorNumberControl: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: EditorNumberControl
         var editing = false
-        private var session = 0
+        private var interaction: EditorInteraction?
 
         init(parent: EditorNumberControl) { self.parent = parent }
 
@@ -852,10 +924,12 @@ private struct EditorNumberControl: NSViewRepresentable {
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
-            beginEditing()
+            editing = true
+            // Input methods apply only committed text.
+            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
             if let amount = parent.parse(field.stringValue) {
                 parent.model.invalidFields.remove(parent.id)
-                if amount != parent.value { parent.value = amount }
+                if amount != parent.value { parent.commit(amount, ensureInteraction()) }
             } else {
                 parent.model.invalidFields.insert(parent.id)
             }
@@ -863,18 +937,7 @@ private struct EditorNumberControl: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard editing else { return }
-            let field = notification.object as? NSTextField
-            let session = self.session
-            guard parent.model.hasPendingBoundaryInput else {
-                finishEditing(field)
-                return
-            }
-            Task { @MainActor [weak self, weak field] in
-                guard let self else { return }
-                await self.parent.model.finishBoundaryInput()
-                guard self.session == session, field?.currentEditor() == nil else { return }
-                self.finishEditing(field)
-            }
+            finishEditing(notification.object as? NSTextField)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -886,31 +949,38 @@ private struct EditorNumberControl: NSViewRepresentable {
         func teardown() {
             let model = parent.model
             let id = parent.id
+            let token = interaction
+            interaction = nil
             let wasEditing = editing
             editing = false
-            session += 1
-            guard wasEditing || model.invalidFields.contains(id) else { return }
-            Task { @MainActor in
-                model.invalidFields.remove(id)
-                if wasEditing { model.endInteraction() }
-            }
+            guard wasEditing || token != nil || model.invalidFields.contains(id) else { return }
+            guard !model.closed else { return }
+            model.invalidFields.remove(id)
+            if let token { model.endInteraction(token) }
         }
 
         private func beginEditing() {
-            guard !editing else { return }
             editing = true
-            session += 1
-            parent.model.beginInteraction()
+            _ = ensureInteraction()
+        }
+
+        private func ensureInteraction() -> EditorInteraction {
+            if let interaction, parent.model.isActiveInteraction(interaction) { return interaction }
+            let token = parent.model.beginInteraction()
+            interaction = token
+            return token
         }
 
         private func finishEditing(_ field: NSTextField?) {
             editing = false
+            let token = interaction
+            interaction = nil
             if let field {
                 let formatted = parent.formattedValue
                 if field.stringValue != formatted { field.stringValue = formatted }
             }
             parent.model.invalidFields.remove(parent.id)
-            parent.model.endInteraction()
+            if let token { parent.model.endInteraction(token) }
         }
     }
 }
@@ -955,21 +1025,7 @@ private struct EditorAdjustmentRow: View {
     @Bindable var model: MediaEditorModel
     let adjustment: MediaAdjustment
 
-    private var value: Binding<Double> {
-        Binding(
-            get: { model.adjustments[adjustment] },
-            set: { amount in
-                guard amount.isFinite else { return }
-                model.change {
-                    let bounded = min(max(adjustment.range.lowerBound, amount), adjustment.range.upperBound)
-                    if model.isVideo {
-                        $0.videoAdjustments[adjustment] = bounded
-                    } else {
-                        $0.photo.adjustments[adjustment] = bounded
-                    }
-                }
-            })
-    }
+    private var currentValue: Double { model.adjustments[adjustment] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -977,28 +1033,28 @@ private struct EditorAdjustmentRow: View {
                 Text(adjustment.editorTitle)
                 Spacer()
                 Button {
-                    value.wrappedValue = 0
+                    model.setAdjustment(adjustment, to: 0)
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                 }
                 .buttonStyle(.borderless)
                 .help("Reset adjustment")
-                .opacity(value.wrappedValue == 0 ? 0 : 1)
-                .disabled(value.wrappedValue == 0)
+                .opacity(currentValue == 0 ? 0 : 1)
+                .disabled(currentValue == 0)
                 .accessibilityLabel(Text("Reset \(adjustment.editorTitle)"))
                 EditorNumberField(
                     model: model, title: adjustment.editorTitle, id: adjustment.rawValue,
-                    value: value, range: adjustment.range, precision: 2
-                )
+                    value: currentValue, range: adjustment.range, precision: 2
+                ) { amount, interaction in
+                    model.setAdjustment(adjustment, to: amount, in: interaction)
+                }
                 .controlSize(.small)
                 .frame(width: 52)
             }
-            Slider(value: value, in: adjustment.range) {
-                Text(adjustment.editorTitle)
-            } onEditingChanged: { active in
-                active ? model.beginInteraction() : model.endInteraction()
+            EditorSlider(model: model, title: adjustment.editorTitle, value: currentValue, range: adjustment.range) {
+                amount, interaction in
+                model.setAdjustment(adjustment, to: amount, in: interaction)
             }
-            .labelsHidden()
             .controlSize(.small)
             .tint(adjustment.range.lowerBound < 0 ? .secondary : nil)
         }
@@ -1012,6 +1068,7 @@ extension EditorCategory {
         case .adjust: "slider.horizontal.3"
         case .styles: "camera.filters"
         case .crop: "crop.rotate"
+        case .markup: "pencil.tip.crop.circle"
         }
     }
 }
