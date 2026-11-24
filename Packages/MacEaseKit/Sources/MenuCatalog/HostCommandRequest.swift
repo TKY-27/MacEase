@@ -16,7 +16,11 @@ public struct HostCommandRequest: Equatable, Sendable {
     public func url(scheme: String) -> URL? {
         var components = URLComponents()
         components.scheme = scheme
-        components.host = action.command.rawValue.lowercased()
+        components.host = action.command.urlHost
+        guard action.command.requiresSelection else {
+            components.queryItems = [URLQueryItem(name: "t", value: token)]
+            return components.url
+        }
         components.queryItems =
             [
                 URLQueryItem(name: "t", value: token), URLQueryItem(name: "v", value: catalogVersion),
@@ -30,9 +34,9 @@ public struct HostCommandRequest: Equatable, Sendable {
     public init?(url: URL, scheme: String) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
             components.scheme?.lowercased() == scheme.lowercased(),
-            let command = HostCommand.allCases.first(where: {
-                $0.rawValue.lowercased() == components.host?.lowercased()
-            })
+            let host = components.host,
+            let command = HostCommand(urlHost: host),
+            command.requiresSelection
         else { return nil }
         let queries = components.queryItems ?? []
         let tokens = queries.filter { $0.name == "t" }
@@ -44,7 +48,7 @@ public struct HostCommandRequest: Equatable, Sendable {
             versions.count == 1, let version = versions.first?.value,
             presets.count <= 1, presets.allSatisfy({ $0.value != nil }),
             !paths.isEmpty, paths.count == pathQueries.count,
-            paths.allSatisfy({ $0.hasPrefix("/") && !$0.contains("\u{0}") })
+            paths.allSatisfy(RequestPath.isValid)
         else { return nil }
         self.init(
             action: MenuCommandAction(command: command, preset: presets.first?.value),

@@ -38,13 +38,14 @@ final class RequestRouter {
             request = try RunRequest(url: url, scheme: configuration.urlScheme)
         } catch .notARunRequest {
             guard url.scheme?.lowercased() == configuration.urlScheme.lowercased() else { return }
-            if url.host() == Self.openHost {
+            switch url.host()?.lowercased() {
+            case Self.openHost:
                 openApp()
-            } else if url.host() == "update" {
+            case HostCommand.update.urlHost:
                 routeUpdate(url)
-            } else if url.host() == "preview" {
+            case HostCommand.preview.urlHost:
                 routePreview(url)
-            } else {
+            default:
                 routeFinderCommand(url)
             }
             return
@@ -64,14 +65,23 @@ final class RequestRouter {
             return
         }
         let entry = file.entries[request.entryIndex]
-        let inputs = request.paths.map { URL(fileURLWithPath: $0) }
+        let inputs = request.paths.compactMap(RequestPath.fileURL)
+        guard inputs.count == request.paths.count else {
+            logger.error("Request with invalid paths rejected")
+            return
+        }
         jobs.start(entry: entry, inputs: inputs)
     }
 
     private func routeFinderCommand(_ url: URL) {
-        guard let request = HostCommandRequest(url: url, scheme: configuration.urlScheme),
-            let file = menuFile(), file.hostAvailable, RequestToken.matches(request.token, file.token)
-        else { return }
+        guard let request = HostCommandRequest(url: url, scheme: configuration.urlScheme) else {
+            logger.error("Malformed Finder command request rejected")
+            return
+        }
+        guard let file = menuFile(), file.hostAvailable, RequestToken.matches(request.token, file.token) else {
+            logger.error("Finder command request with an invalid token or unavailable host rejected")
+            return
+        }
         guard request.catalogVersion == file.catalogVersion, file.commandActions.contains(request.action) else {
             notifier.notifyStaleMenu()
             return

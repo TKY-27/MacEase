@@ -155,8 +155,9 @@ final class FinderSyncExtension: FIFinderSync {
     @objc func runCommand(_ sender: NSMenuItem) {
         let tag = sender.tag
         let (builds, menuKind) = cache.withLock { ($0.builds, $0.lastMenuKind) }
-        let paths = selection(for: menuKind).map(\.path)
-        guard let url = builds.commandRequest(tag: tag, paths: paths)?.url(scheme: scheme) else { return }
+        guard
+            let url = builds.commandRequest(tag: tag, paths: selection(for: menuKind).map(\.path))?.url(scheme: scheme)
+        else { return }
         NSWorkspace.shared.open(url)
     }
 

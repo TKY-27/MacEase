@@ -1,5 +1,22 @@
 import Foundation
 
+public enum RequestPath {
+    public static func isValid(_ path: String) -> Bool {
+        normalized(path) != nil
+    }
+
+    public static func normalized(_ path: String) -> String? {
+        guard path.hasPrefix("/"), !path.contains("\u{0}") else { return nil }
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.contains("."), !components.contains("..") else { return nil }
+        return components.isEmpty ? "/" : "/" + components.joined(separator: "/")
+    }
+
+    public static func fileURL(for path: String) -> URL? {
+        normalized(path).map { URL(fileURLWithPath: $0) }
+    }
+}
+
 public struct RunRequest: Equatable, Sendable {
     public static let host = "run"
 
@@ -31,7 +48,7 @@ public struct RunRequest: Equatable, Sendable {
     public init(url: URL, scheme: String) throws(RunRequestError) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
             components.scheme?.lowercased() == scheme.lowercased(),
-            components.host == Self.host
+            components.host?.lowercased() == Self.host
         else { throw .notARunRequest }
         let items = components.queryItems ?? []
         func single(_ name: String) throws(RunRequestError) -> String {
@@ -42,8 +59,11 @@ public struct RunRequest: Equatable, Sendable {
         let version = try single("v")
         let token = try single("t")
         guard let index = Int(try single("e")), index >= 0 else { throw .missingField("e") }
-        let paths = items.filter { $0.name == "path" }.compactMap(\.value)
-        guard !paths.isEmpty, paths.allSatisfy({ $0.hasPrefix("/") }) else { throw .invalidPaths }
+        let pathQueries = items.filter { $0.name == "path" }
+        let paths = pathQueries.compactMap(\.value)
+        guard !paths.isEmpty, paths.count == pathQueries.count, paths.allSatisfy(RequestPath.isValid) else {
+            throw .invalidPaths
+        }
         self.init(catalogVersion: version, entryIndex: index, token: token, paths: paths)
     }
 }
@@ -96,13 +116,15 @@ public struct MenuBuilds: Sendable {
         return firstTag + build.file.entries.count + index
     }
 
-    public func commandRequest(tag: Int, paths: [String]) -> HostCommandRequest? {
+    public func commandRequest(tag: Int, paths: @autoclosure () -> [String]) -> HostCommandRequest? {
         guard let build = builds.first(where: { $0.tags.contains(tag) }) else { return nil }
         let index = tag - build.tags.lowerBound - build.file.entries.count
         guard build.file.commandActions.indices.contains(index) else { return nil }
+        let action = build.file.commandActions[index]
         return HostCommandRequest(
-            action: build.file.commandActions[index],
-            catalogVersion: build.file.catalogVersion, token: build.file.token, paths: paths)
+            action: action,
+            catalogVersion: build.file.catalogVersion, token: build.file.token,
+            paths: action.command.requiresSelection ? paths() : [])
     }
 }
 
