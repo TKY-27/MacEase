@@ -7,12 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Build
+### Added
 
-- Fetch ONNX Runtime license documents from a hash-pinned official PyPI package
-  when the upstream repository is unavailable, preserving existing document hashes.
+- Finder Preview stays on as a setting: turn it on from the Finder menu, the
+  menu bar or **Settings > Finder Windows**, and it docks beside the front
+  Finder window whenever one is visible and comes back after Finder or MacEase
+  relaunches. Closing a Finder window no longer turns it off.
+
+- Finder Preview viewers for SVG, fonts (TTF, OTF, TTC, OTC, WOFF, WOFF2) and
+  more text and media types. Images gain Live Text, Fit and 100% with a zoom
+  readout, double-click zoom, full-resolution zoom for large photos, a
+  transparency checkerboard and an Info popover; animated images respect their
+  loop counts and Reduce Motion. Audio shows its artwork, title and artist with
+  a volume control. PDFs gain a page field, table of contents, Fit Width,
+  Actual Size and an inline password field.
+
+- Find (Command-F) in Finder Preview's text, code, Markdown, HTML and PDF
+  views. Rendered Markdown and HTML can be selected and copied, and links within
+  a page scroll to their target.
+
+- **Convert and Play** in Finder Preview for video and audio that macOS cannot
+  play directly, such as MKV, WebM, Ogg and FLAC, up to 10 minutes of video,
+  30 minutes of audio and 512 MiB of input.
+
+- Finder Preview text encodings UTF-32, GB18030, Big5 and EUC-KR; the encoding
+  menu shows the detected encoding.
+
+- **Settings > Finder Windows** with the Finder Preview switch, Accessibility
+  and Automation status, per-type switches, code font, size and wrapping, font
+  sample text, and Trusted Folders.
+
+- A storage bar over Finder's status bar (View > Show Status Bar) shows the
+  disk's name, capacity in your accent colour, available space and the number of
+  selected items, and leaves Finder's icon-size slider uncovered in icon view.
+  It never opens selected files. Turn it off in **Settings > Finder Windows**.
+
+- Finder commands **New File** (Text, Markdown, Rich Text, Word), **Cut**,
+  **Move Here**, **Copy Path** (also quoted for Terminal) and **Open Terminal
+  Here**. Moving to another disk copies the items and keeps the originals.
+
+- Arrange the Finder menu yourself in **Settings > Finder Menu**: drag groups
+  between MacEase Menu, More, Hidden and, for commands, Finder's own menu, or use
+  Move Up, Move Down and Move To. Restore Defaults… resets one menu. Your
+  existing menu choices carry over.
+
+- Editor markup for photos and videos: mosaic, blur and solid redaction, boxes,
+  arrows and text, with a visible range and an overlay lane for video.
+
+- Editor Save Frame (Shift-Command-S), Freeze Frame (Option-F), Reverse for
+  segments up to one minute, Remove Silence… and background music with volume
+  and a start position in the song.
+
+- Editor 4× speed preset, Up and Down Arrow to jump between segment boundaries,
+  an editable playhead clock, photo pinch zoom with Command-plus, Command-minus
+  and Command-0, and Apply Adjustments or Style to All Segments.
+
+- When a file holds content MacEase can't carry over, such as timecode,
+  subtitles or chapters, MacEase now names it and asks: **Continue Without …**
+  in Activity, or a sheet in the editor, Audio Trim, Finishing Recipes and
+  Audio Enhancement. Consent applies only to the file version you saw.
+
+- Settings > General: **Check for updates automatically**, **Show in menu bar**
+  and **Show recent operations** (all on). While the menu bar icon is hidden,
+  open MacEase again to reach Settings.
+
+- The disk image opens a designed install window: drag MacEase onto
+  Applications.
 
 ### Changed
+
+- Finder Preview shows only the content under one top bar, without the title,
+  Information rows, folder totals or action bar, and keeps the previous file
+  visible while the next one loads. Escape no longer closes it; Command-W and
+  the close button still do. Clicking its buttons leaves Finder's keyboard focus
+  alone, and no permission prompt appears until you turn the preview on.
+
+- Finder Preview opens HTML in Source. Preview is static, view-only and offline;
+  **Run Scripts with Network Access** enables both for that file until it
+  changes or MacEase quits. HTML in Trusted Folders opens interactive. Files
+  downloaded from the internet stay restricted even in a Trusted Folder: HTML
+  renders sealed, Markdown embeds no images and media is not converted.
+
+- Finder Preview Markdown embeds images from the same folder (up to 8 MiB each,
+  32 MiB in total). Large HTML previews stream from the file up to 64 MiB.
+
+- Timing-preserving MOV conversions and compressions keep the source's
+  timecode track.
+
+- QuickTime reference movies that point to media in other files are refused
+  everywhere, with a message asking for a self-contained copy.
+
+- Finder menu values (sizes, compression targets, the extra angle, frame rates
+  and loudness targets) moved into **Options…** sheets in Settings > Finder Menu.
+
+- Editor mosaic averages each block, so thin dark text becomes grey blocks
+  instead of disappearing.
 
 - Restrict the bundled JavaScript solver to a CLI without file, process, network
   or native-module APIs. Verify denied capabilities during builds and tests.
@@ -31,6 +120,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   executables, with measured exceptions confined to interpreter and media/audio
   child processes. Add host Finder Automation entitlement. Distribution remains
   self-signed and unnotarized; the host remains unsandboxed.
+
+### Removed
+
+- Text editing in Finder Preview (Edit, Save, Revert and the unsaved-changes
+  prompts). Existing **Edit Text** history entries remain undoable.
+
+- Finder Preview's media speed, frame step, A–B loop and waveform controls, and
+  the PDF thumbnails toggle.
+
+- **Show at Top Level**, **Show All** and **Hide All** in Settings > Finder
+  Menu, replaced by the organizer.
+
+### Fixed
+
+- Compressing or converting a MOV with a timecode track, as most cameras and
+  editing apps write, stopped with a refusal; timing-preserving MOV outputs now
+  keep the timecode, and other cases ask first.
+
+- The editor preview went silent after a video was cut into segments and played
+  across them a few times. Saved files were not affected.
+
+- Downloads, joined-video saves, multi-file Finishing Recipes, automatic
+  organization and some Undo steps failed on exFAT and FAT32 volumes, such as
+  many USB drives and SD cards.
+
+- Finder Preview tried to play TypeScript files named `.ts` or `.mts` as video;
+  they now open as text, while MPEG transport streams with those names still
+  play. The preview also keeps your panel width after docking on a smaller
+  display and no longer clears itself when Finder answers slowly.
+
+- Finder Preview syntax highlighting no longer treats apostrophes in prose,
+  markup text, YAML and C++ digit separators as the start of a string.
+
+### Build
+
+- Fetch ONNX Runtime license documents from a hash-pinned official PyPI
+  package, because the upstream repository's license URLs are unavailable; the
+  shipped documents are unchanged.
 
 ## [3.1.0] - 2026-11-17
 
