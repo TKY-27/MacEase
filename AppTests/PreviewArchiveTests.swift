@@ -645,13 +645,81 @@ final class PreviewArchiveTests: XCTestCase {
             XCTAssertFalse(localized.contains(" 項目"), "\(key) -> \(localized)")
         }
         for key in [
-            "This archive couldn't be listed in time.",
-            "This archive's item names are too large to list.",
+            "MacEase can’t list this kind of archive.",
+            "This archive is damaged, so its contents can’t be listed.",
+            "This archive couldn’t be listed in time.",
+            "This archive’s item names are too large to list.",
             "This archive is too large to list.",
+            "This archive uses a text encoding for file names that MacEase can’t read.",
         ] {
             let localized = japanese.localizedString(forKey: key, value: nil, table: nil)
             XCTAssertNotEqual(localized, key, key)
         }
+    }
+
+    @MainActor
+    func testCP932ZIPAndTARFollowJapanesePreferenceAndCopyDecodedPaths() async throws {
+        let directory = try folder()
+        let zipURL = directory.appending(path: "cp932.zip")
+        let zipScript = """
+            import struct, sys, zlib
+            name = '議事録/メモ.txt'.encode('cp932')
+            payload = b'hi'
+            crc = zlib.crc32(payload) & 0xffffffff
+            local = struct.pack(
+                '<IHHHHHIIIHH', 0x04034b50, 20, 0, 0, 0, 0, crc, len(payload), len(payload), len(name), 0
+            ) + name + payload
+            cd = struct.pack(
+                '<IHHHHHHIIIHHHHHII', 0x02014b50, 20, 20, 0, 0, 0, 0, crc, len(payload), len(payload), len(name),
+                0, 0, 0, 0, 0, 0
+            ) + name
+            eocd = struct.pack('<IHHHHIIH', 0x06054b50, 0, 0, 1, 1, len(cd), len(local), 0)
+            open(sys.argv[1], 'wb').write(local + cd + eocd)
+            """
+        try run("/usr/bin/python3", ["-c", zipScript, zipURL.path])
+
+        let jaZIP = try PreviewArchiveListing(reading: zipURL, foldersFirst: true, prefersJapanese: true)
+        XCTAssertEqual(jaZIP.nodes.first?.name, "議事録")
+        let jaZIPLeaf = try XCTUnwrap(jaZIP.nodes.first?.children?.first)
+        XCTAssertEqual(jaZIPLeaf.name, "メモ.txt")
+        XCTAssertEqual(PreviewArchiveRow(node: jaZIPLeaf).copyPath, "議事録/メモ.txt")
+
+        let enZIP = try PreviewArchiveListing(reading: zipURL, foldersFirst: true, prefersJapanese: false)
+        let enZIPLeaf = try XCTUnwrap(enZIP.nodes.first?.children?.first)
+        XCTAssertNotEqual(enZIPLeaf.name, "メモ.txt")
+
+        let tarURL = directory.appending(path: "cp932.tar")
+        let tarScript = """
+            import sys
+            name = '/議事録/メモ.txt'.encode('cp932')
+            payload = b'hi'
+            header = bytearray(512)
+            header[0:len(name)] = name
+            header[100:108] = b'0000644\\0'
+            header[108:116] = b'0000000\\0'
+            header[116:124] = b'0000000\\0'
+            header[124:136] = f'{len(payload):011o}\\0'.encode('ascii')
+            header[136:148] = f'{1700000000:011o}\\0'.encode('ascii')
+            header[148:156] = b'        '
+            header[156] = ord('0')
+            header[257:263] = b'ustar\\0'
+            header[263:265] = b'00'
+            header[148:156] = f'{sum(header):06o}\\0 '.encode('ascii')
+            open(sys.argv[1], 'wb').write(bytes(header) + payload + b'\\0' * (512 - len(payload)) + b'\\0' * 1024)
+            """
+        try run("/usr/bin/python3", ["-c", tarScript, tarURL.path])
+
+        let jaTAR = try PreviewArchiveListing(reading: tarURL, foldersFirst: true, prefersJapanese: true)
+        let jaTARLeaf = try XCTUnwrap(jaTAR.nodes.first?.children?.first)
+        XCTAssertEqual(jaTARLeaf.name, "メモ.txt")
+        XCTAssertEqual(PreviewArchiveRow(node: jaTARLeaf).copyPath, "/議事録/メモ.txt")
+
+        let enTARModel = PreviewArchiveModel(prefersJapanese: false)
+        await enTARModel.load(tarURL)
+        guard case .failed(let failure) = enTARModel.phase else {
+            return XCTFail("CP932 TAR without Japanese preferred must refuse listing")
+        }
+        XCTAssertEqual(failure, .unsupportedNameEncoding)
     }
 
     private func snapshot(_ directory: URL) throws -> [String: Date] {

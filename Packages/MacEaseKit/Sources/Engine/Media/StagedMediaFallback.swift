@@ -1510,7 +1510,7 @@ enum StagedMediaFallback {
             case .corrupt, .unsupported, .decoderFailure:
                 attributes.trackAttributesUnknown = true
                 return
-            case .io, .inputTooLarge, .frameMemoryExceeded, .nonFiniteAudioSample, .encoderFailure:
+            case .io, .inputTooLarge, .frameMemoryExceeded, .nonFiniteAudioSample, .unsupportedArchive, .encoderFailure:
                 throw format
             }
         }

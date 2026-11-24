@@ -23419,7 +23419,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld項目、展開後 %@"
+            "value": "%lld項目、展開後%@"
           }
         }
       }
@@ -23575,17 +23575,17 @@
         }
       }
     },
-    "MacEase can't list this kind of archive.": {
+    "MacEase can’t list this kind of archive.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この種類のアーカイブは MacEase で一覧表示できません。"
+            "value": "この種類のアーカイブはMacEaseで一覧表示できません。"
           }
         }
       }
     },
-    "This archive is damaged, so its contents can't be listed.": {
+    "This archive is damaged, so its contents can’t be listed.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -23675,7 +23675,7 @@
         }
       }
     },
-    "This archive couldn't be listed in time.": {
+    "This archive couldn’t be listed in time.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -23685,7 +23685,7 @@
         }
       }
     },
-    "This archive's item names are too large to list.": {
+    "This archive’s item names are too large to list.": {
       "localizations": {
         "ja": {
           "stringUnit": {

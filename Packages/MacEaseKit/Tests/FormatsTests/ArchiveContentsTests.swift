@@ -709,4 +709,88 @@ import Testing
         #expect(contents.ending == .complete)
         #expect(contents.entries.map(\.path) == ["note.txt"])
     }
+
+    @Test func cp932ZIPDecodesWithJapanesePreferredAndUsesCP437Otherwise() throws {
+        let archive = try folder().appending(path: "cp932.zip")
+        let script = """
+            import struct, sys, zlib
+            def build_zip(path, items):
+                locals_buf = bytearray()
+                cd_buf = bytearray()
+                for name_bytes, flags, payload in items:
+                    offset = len(locals_buf)
+                    crc = zlib.crc32(payload) & 0xffffffff
+                    locals_buf += struct.pack(
+                        '<IHHHHHIIIHH', 0x04034b50, 20, flags, 0, 0, 0, crc, len(payload), len(payload),
+                        len(name_bytes), 0) + name_bytes + payload
+                    cd_buf += struct.pack(
+                        '<IHHHHHHIIIHHHHHII', 0x02014b50, 20, 20, flags, 0, 0, 0, crc, len(payload), len(payload),
+                        len(name_bytes), 0, 0, 0, 0, 0, offset) + name_bytes
+                eocd = struct.pack('<IHHHHIIH', 0x06054b50, 0, 0, len(items), len(items), len(cd_buf), len(locals_buf), 0)
+                open(path, 'wb').write(bytes(locals_buf + cd_buf + eocd))
+            ja_name = '議事録/メモ.txt'.encode('cp932')
+            utf8_name = '日本語.txt'.encode('utf-8')
+            build_zip(sys.argv[1], [(ja_name, 0, b'hello'), (utf8_name, 0x0800, b'world')])
+            """
+        try run("/usr/bin/python3", ["-c", script, archive.path])
+
+        let japanese = try ArchiveContents.list(archive, prefersJapanese: true)
+        #expect(japanese.ending == .complete)
+        #expect(japanese.entries.map(\.path) == ["議事録/メモ.txt", "日本語.txt"])
+        #expect(japanese.entries.map(\.rawPath) == ["議事録/メモ.txt", "日本語.txt"])
+        #expect(
+            japanese.entries.map(\.path)
+                == (try ArchiveBrowserZIP.list(archive, prefersJapanese: true)).map(\.path))
+
+        let fallback = try ArchiveContents.list(archive, prefersJapanese: false)
+        #expect(fallback.ending == .complete)
+        let browserFallback = try ArchiveBrowserZIP.list(archive, prefersJapanese: false)
+        #expect(fallback.entries.map(\.path) == browserFallback.map(\.path))
+        #expect(fallback.entries[0].path != "議事録/メモ.txt")
+        #expect(fallback.entries[1].path == "日本語.txt")
+    }
+
+    @Test(arguments: ["cp932.tar", "cp932.tar.gz"])
+    func cp932TARDecodesWithJapanesePreferredAndRefusesOtherwise(name: String) throws {
+        let archive = try folder().appending(path: name)
+        let script = """
+            import gzip, sys
+            def ustar_entry(name_bytes, payload):
+                header = bytearray(512)
+                header[0:len(name_bytes)] = name_bytes
+                header[100:108] = b'0000644\\0'
+                header[108:116] = b'0000000\\0'
+                header[116:124] = b'0000000\\0'
+                header[124:136] = f'{len(payload):011o}\\0'.encode('ascii')
+                header[136:148] = f'{1700000000:011o}\\0'.encode('ascii')
+                header[148:156] = b'        '
+                header[156] = ord('0')
+                header[257:263] = b'ustar\\0'
+                header[263:265] = b'00'
+                checksum = sum(header)
+                header[148:156] = f'{checksum:06o}\\0 '.encode('ascii')
+                pad = b'\\0' * ((-len(payload)) % 512)
+                return bytes(header) + payload + pad
+            raw = (
+                ustar_entry('/議事録/メモ.txt'.encode('cp932'), b'hello')
+                + ustar_entry('plain.txt'.encode('ascii'), b'ok')
+                + b'\\0' * 1024
+            )
+            if sys.argv[1].endswith('.gz'):
+                with gzip.open(sys.argv[1], 'wb') as out:
+                    out.write(raw)
+            else:
+                open(sys.argv[1], 'wb').write(raw)
+            """
+        try run("/usr/bin/python3", ["-c", script, archive.path])
+
+        let japanese = try ArchiveContents.list(archive, prefersJapanese: true)
+        #expect(japanese.ending == .complete)
+        #expect(japanese.entries.map(\.path) == ["議事録/メモ.txt", "plain.txt"])
+        #expect(japanese.entries.map(\.rawPath) == ["/議事録/メモ.txt", "plain.txt"])
+
+        #expect(throws: ArchiveContents.Failure.unsupportedNameEncoding) {
+            try ArchiveContents.list(archive, prefersJapanese: false)
+        }
+    }
 }

@@ -15,9 +15,12 @@ struct PreviewArchiveListing: Sendable {
 
     init(
         reading url: URL, foldersFirst: Bool = PreviewArchiveSort.finderKeepsFoldersOnTop,
+        prefersJapanese: Bool = false,
         maximumDuration: Duration = ArchiveContents.maximumDuration
     ) throws {
-        let contents = try ArchiveContents.list(url.resolvingSymlinksInPath(), maximumDuration: maximumDuration) {
+        let contents = try ArchiveContents.list(
+            url.resolvingSymlinksInPath(), prefersJapanese: prefersJapanese, maximumDuration: maximumDuration
+        ) {
             try Task.checkCancellation()
         }
         let entries = contents.entries.enumerated().map { index, entry in
@@ -89,7 +92,7 @@ struct PreviewArchiveListing: Sendable {
 }
 
 enum PreviewArchiveFailure: Equatable {
-    case unsupported, damaged, tooLarge, namesTooLarge, decodedTooLarge, timedOut, unreadable
+    case unsupported, damaged, tooLarge, namesTooLarge, decodedTooLarge, unsupportedNameEncoding, timedOut, unreadable
 
     init(_ error: any Error) {
         switch error {
@@ -97,18 +100,20 @@ enum PreviewArchiveFailure: Equatable {
         case ArchiveContents.Failure.damaged: self = .damaged
         case ArchiveContents.Failure.tooLarge: self = .tooLarge
         case ArchiveContents.Failure.namesTooLarge, ArchiveTreeError.tooLarge: self = .namesTooLarge
+        case ArchiveContents.Failure.unsupportedNameEncoding: self = .unsupportedNameEncoding
         default: self = .unreadable
         }
     }
 
     var message: Text {
         switch self {
-        case .unsupported: Text("MacEase can't list this kind of archive.")
-        case .damaged: Text("This archive is damaged, so its contents can't be listed.")
+        case .unsupported: Text("MacEase can’t list this kind of archive.")
+        case .damaged: Text("This archive is damaged, so its contents can’t be listed.")
         case .tooLarge: Text("This archive has too many items to list.")
-        case .namesTooLarge: Text("This archive's item names are too large to list.")
+        case .namesTooLarge: Text("This archive’s item names are too large to list.")
         case .decodedTooLarge: Text("This archive is too large to list.")
-        case .timedOut: Text("This archive couldn't be listed in time.")
+        case .unsupportedNameEncoding: Text("This archive uses a text encoding for file names that MacEase can’t read.")
+        case .timedOut: Text("This archive couldn’t be listed in time.")
         case .unreadable: Text("This archive could not be read.")
         }
     }
@@ -144,12 +149,15 @@ final class PreviewArchiveModel {
 
     init(
         filterDelay: Duration = defaultFilterDelay,
-        loadListing: @escaping @Sendable (URL) async throws -> PreviewArchiveListing = { url in
-            try await offMain { try PreviewArchiveListing(reading: url) }
-        }
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
+        loadListing: (@Sendable (URL) async throws -> PreviewArchiveListing)? = nil
     ) {
         self.filterDelay = filterDelay
-        self.loadListing = loadListing
+        self.loadListing =
+            loadListing
+            ?? { url in
+                try await offMain { try PreviewArchiveListing(reading: url, prefersJapanese: prefersJapanese) }
+            }
     }
 
     func load(_ url: URL) async {

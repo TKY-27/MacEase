@@ -18,7 +18,7 @@ public struct ArchiveContents: Sendable {
     }
 
     public enum Failure: Error, Equatable, Sendable {
-        case unsupported, damaged, tooLarge, namesTooLarge
+        case unsupported, damaged, tooLarge, namesTooLarge, unsupportedNameEncoding
     }
 
     public static let maximumEntries = ZIPDirectoryBounds.maximumEntries
@@ -47,7 +47,8 @@ public struct ArchiveContents: Sendable {
     let decodedBytes: Int64
 
     public static func list(
-        _ source: URL, maximumDuration: Duration = maximumDuration, check: () throws -> Void = {}
+        _ source: URL, prefersJapanese: Bool = false, maximumDuration: Duration = maximumDuration,
+        check: () throws -> Void = {}
     ) throws -> Self {
         let deadline = ContinuousClock.now + maximumDuration
         return try withoutActuallyEscaping(check) { check in
@@ -56,47 +57,83 @@ public struct ArchiveContents: Sendable {
                 guard progress.proceeds() else { return try interrupted(progress, entries: [], decodedBytes: 0) }
                 let signature = try probeSignature(source)
                 if signature.isZIP {
-                    return try listZIP(source, progress: progress, unsupportedOnInvalidZIP: false)
+                    return try listZIP(
+                        source, progress: progress, prefersJapanese: prefersJapanese, unsupportedOnInvalidZIP: false)
                 }
                 if signature.isCompressed {
-                    return try listCompressed(source, progress: progress)
+                    return try listCompressed(source, progress: progress, prefersJapanese: prefersJapanese)
                 }
                 do {
-                    return try listUncompressed(source, progress: progress, startsWithUstar: signature.isUstar)
+                    return try listUncompressed(
+                        source, progress: progress, prefersJapanese: prefersJapanese,
+                        startsWithUstar: signature.isUstar)
                 } catch Failure.unsupported {
                     guard progress.proceeds() else { return try interrupted(progress, entries: [], decodedBytes: 0) }
-                    return try listZIP(source, progress: progress, unsupportedOnInvalidZIP: true)
+                    return try listZIP(
+                        source, progress: progress, prefersJapanese: prefersJapanese, unsupportedOnInvalidZIP: true)
                 }
             }
         }
     }
 
     private static func listZIP(
-        _ source: URL, progress: Progress, unsupportedOnInvalidZIP: Bool
+        _ source: URL, progress: Progress, prefersJapanese: Bool, unsupportedOnInvalidZIP: Bool
     ) throws -> Self {
+        var entries: [Entry] = []
+        var headersRead = 0
+        var nameBytes = 0
         do {
-            return try ArchiveBrowserZIP.withReader(
-                source: source, check: { try progress.checkProceeds() }
-            ) { archive, expectedEntries in
-                try walk(
-                    archive, progress: progress, expectedEntries: expectedEntries,
-                    compressed: false, rawName: nil, singleFileFallback: nil,
-                    decoderState: { (0, false, false) }, startsWithUstar: false)
+            let input = try ArchiveReadSource([source], check: { try progress.checkProceeds() })
+            let reader = try ArchiveZIPReader(
+                source: input, prefersJapanese: prefersJapanese, inspectLinks: false, bounded: true,
+                check: { try progress.checkProceeds() })
+            return try withExtendedLifetime(reader) {
+                while true {
+                    guard progress.proceeds() else {
+                        return try interrupted(progress, entries: entries, decodedBytes: 0)
+                    }
+                    guard headersRead < maximumEntries else {
+                        return Self(entries: entries, ending: .entryLimit, decodedBytes: 0)
+                    }
+                    guard let pointer = try reader.next() else {
+                        guard headersRead == reader.directory.entries,
+                            archive_format(reader.archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP
+                        else { throw Failure.damaged }
+                        return Self(entries: entries, ending: .complete, decodedBytes: 0)
+                    }
+                    headersRead += 1
+                    let rawPath = try ArchivePathname.decode(pointer, encoding: reader.encoding)
+                    let path = cleanedPath(from: rawPath)
+                    if !path.isEmpty {
+                        let retainedBytes = max(path.utf8.count, rawPath.utf8.count)
+                        guard retainedBytes <= maximumNameBytes - nameBytes else {
+                            return Self(entries: entries, ending: .nameLimit, decodedBytes: 0)
+                        }
+                        nameBytes += retainedBytes
+                        entries.append(entry(pointer, path: path, rawPath: rawPath, fallbackModified: nil))
+                    }
+                }
             }
         } catch is TimeLimitExceeded {
-            return Self(entries: [], ending: .timeLimit, decodedBytes: 0)
+            return Self(entries: entries, ending: .timeLimit, decodedBytes: 0)
         } catch ZIPBrowserError.tooManyEntries {
             throw Failure.tooLarge
         } catch ZIPBrowserError.namesTooLarge {
             throw Failure.namesTooLarge
-        } catch ZIPBrowserError.invalidZIP where unsupportedOnInvalidZIP {
+        } catch ZIPBrowserError.invalidZIP where unsupportedOnInvalidZIP && entries.isEmpty {
             throw Failure.unsupported
+        } catch ArchiveError.unsupportedNameEncoding, ZIPBrowserError.unsupportedNameEncoding {
+            throw Failure.unsupportedNameEncoding
         } catch is ZIPBrowserError {
-            throw Failure.damaged
+            guard !entries.isEmpty else { throw Failure.damaged }
+            return Self(entries: entries, ending: .damaged, decodedBytes: 0)
+        } catch is FormatError {
+            guard !entries.isEmpty else { throw Failure.damaged }
+            return Self(entries: entries, ending: .damaged, decodedBytes: 0)
         }
     }
 
-    private static func listCompressed(_ source: URL, progress: Progress) throws -> Self {
+    private static func listCompressed(_ source: URL, progress: Progress, prefersJapanese: Bool) throws -> Self {
         let decoder = try CompressedDecoder(source: source, progress: progress)
         if progress.stopped {
             return try interrupted(progress, entries: [], decodedBytes: decoder.decodedBytes)
@@ -121,7 +158,7 @@ public struct ArchiveContents: Sendable {
                 return Self(entries: [], ending: .complete, decodedBytes: decoder.decodedBytes)
             }
             return try walk(
-                reader.archive, progress: progress, expectedEntries: nil,
+                reader.archive, progress: progress, tarEncoding: prefersJapanese ? .cp932 : .utf8Only,
                 compressed: true, rawName: stem.isEmpty ? nil : stem,
                 singleFileFallback: singleFileName.map { ($0, decoder.headerModified) },
                 decoderState: { (decoder.decodedBytes, decoder.decodedLimitHit, decoder.damaged) },
@@ -130,12 +167,12 @@ public struct ArchiveContents: Sendable {
     }
 
     private static func listUncompressed(
-        _ source: URL, progress: Progress, startsWithUstar: Bool
+        _ source: URL, progress: Progress, prefersJapanese: Bool, startsWithUstar: Bool
     ) throws -> Self {
         let reader = try UncompressedReader(source: source, progress: progress, startsWithUstar: startsWithUstar)
         return try withExtendedLifetime(reader) {
             try walk(
-                reader.archive, progress: progress, expectedEntries: nil,
+                reader.archive, progress: progress, tarEncoding: prefersJapanese ? .cp932 : .utf8Only,
                 compressed: false, rawName: nil, singleFileFallback: nil,
                 decoderState: { (0, false, false) }, startsWithUstar: startsWithUstar)
         }
@@ -151,7 +188,7 @@ public struct ArchiveContents: Sendable {
     }
 
     private static func walk(
-        _ archive: OpaquePointer, progress: Progress, expectedEntries: Int?,
+        _ archive: OpaquePointer, progress: Progress, tarEncoding: ArchivePathname.LegacyEncoding,
         compressed: Bool, rawName: String?, singleFileFallback: (name: String, modified: Date?)?,
         decoderState: () -> (decoded: Int64, limitHit: Bool, damaged: Bool),
         startsWithUstar: Bool
@@ -174,11 +211,6 @@ public struct ArchiveContents: Sendable {
             let status = archive_read_next_header(archive, &pointer)
             let afterState = decoderState()
             if status == ARCHIVE_EOF {
-                if let expectedEntries {
-                    guard headersRead == expectedEntries,
-                        archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP
-                    else { throw Failure.damaged }
-                }
                 if headersRead == 0, let fallback = singleFileFallback {
                     let single = Entry(
                         path: fallback.name, rawPath: fallback.name, isDirectory: false,
@@ -212,7 +244,12 @@ public struct ArchiveContents: Sendable {
                     fallbackModified: singleFileFallback?.modified)
                 return Self(entries: [rawEntry], ending: .complete, decodedBytes: afterState.decoded)
             }
-            let rawPath = rawPathname(of: pointer)
+            let rawPath: String
+            do {
+                rawPath = try ArchivePathname.decode(pointer, encoding: tarEncoding)
+            } catch ArchiveError.unsupportedNameEncoding {
+                throw Failure.unsupportedNameEncoding
+            }
             let path = cleanedPath(from: rawPath)
             if !path.isEmpty {
                 let retainedBytes = max(path.utf8.count, rawPath.utf8.count)
@@ -281,11 +318,6 @@ public struct ArchiveContents: Sendable {
         return Date(
             timeIntervalSince1970: TimeInterval(archive_entry_mtime(pointer))
                 + TimeInterval(archive_entry_mtime_nsec(pointer)) / 1_000_000_000)
-    }
-
-    private static func rawPathname(of entry: OpaquePointer) -> String {
-        guard let raw = archive_entry_pathname_utf8(entry) ?? archive_entry_pathname(entry) else { return "" }
-        return String(cString: raw)
     }
 
     // Drops only empty and "." components.
