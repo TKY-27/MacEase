@@ -117,7 +117,7 @@ public struct ArchiveContents: Sendable {
 
     private static func startsWithZIPSignature(_ source: URL) throws -> Bool {
         let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard descriptor >= 0 else { throw Failure.damaged }
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         defer { close(descriptor) }
         var header = [UInt8](repeating: 0, count: zipSignature.count)
         let count = pread(descriptor, &header, header.count, 0)
