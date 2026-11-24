@@ -16,6 +16,8 @@ struct GeneralSettingsView: View {
     @State private var failure: String?
 
     private static let exitPollSeconds = 0.2
+    private static let unpreservedStreamsCaption: LocalizedStringKey =
+        "Applies to subtitles, chapters and similar content. Originals stay unchanged, and MacEase always asks before replacing one."
 
     var body: some View {
         Form {
@@ -53,6 +55,16 @@ struct GeneralSettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
+                Picker(selection: $store.settings.unpreservedStreams) {
+                    Text("Ask", comment: "Unpreserved content choice").tag(Engine.Settings.UnpreservedStreamsChoice.ask)
+                    Text("Save without it", comment: "Unpreserved content choice")
+                        .tag(Engine.Settings.UnpreservedStreamsChoice.omitFromNewFiles)
+                } label: {
+                    Text("If some content can’t be kept")
+                    Text(Self.unpreservedStreamsCaption)
+                }
+                .accessibilityLabel(Text("If some content can’t be kept"))
+                .accessibilityHint(Text(Self.unpreservedStreamsCaption))
             }
             Section {
                 Toggle(isOn: $store.showsActivity) {

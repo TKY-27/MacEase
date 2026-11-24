@@ -20443,6 +20443,48 @@
           }
         }
       }
+    },
+    "Ask": {
+      "comment": "Unpreserved content choice",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認する"
+          }
+        }
+      }
+    },
+    "Save without it": {
+      "comment": "Unpreserved content choice",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省いて保存"
+          }
+        }
+      }
+    },
+    "If some content can’t be kept": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き継げない内容がある場合"
+          }
+        }
+      }
+    },
+    "Applies to subtitles, chapters and similar content. Originals stay unchanged, and MacEase always asks before replacing one.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕やチャプターなどが対象です。元のファイルは変更されません。元のファイルを置き換える場合は必ず確認します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

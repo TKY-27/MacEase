@@ -447,12 +447,32 @@ final class JobCenter {
             && !continuedWithoutStreams.contains(id)
     }
 
-    /// Resubmits only the files and kinds shown.
     func continueWithoutStreams(_ id: UUID) {
-        guard !terminating, let session = sessions[id], canContinueWithoutStreams(id) else { return }
+        guard !terminating, canContinueWithoutStreams(id) else { return }
+        omitShownStreams(id)
+    }
+
+    /// Consent for new files only, never replacements.
+    static func omitsWithoutAsking(_ session: ActivitySession) -> Bool {
+        // Resubmitted runs ask, so refusals never loop.
+        session.settings.unpreservedStreams == .omitFromNewFiles && session.settings.outputMode == .newFile
+            && session.request.omittedStreams.isEmpty && session.canRetryOmittingStreams
+    }
+
+    /// Marked first, so Activity never asks.
+    private func continueWithoutAsking(_ id: UUID) {
+        continuedWithoutStreams.insert(id)
+        omitShownStreams(id) { self.continuedWithoutStreams.remove(id) }
+    }
+
+    /// Resubmits only the files and kinds shown.
+    private func omitShownStreams(_ id: UUID, failed: @escaping () -> Void = {}) {
+        guard let session = sessions[id] else { return }
         let streams = Set(session.unpreservedStreams)
         let indices = session.unpreservedStreamIndices
-        validateRetry(id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }) { _, request in
+        validateRetry(
+            id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }, failed: failed
+        ) { _, request in
             self.continuedWithoutStreams.insert(id)
             self.launchRetry(id, request: request)
         }
@@ -460,7 +480,7 @@ final class JobCenter {
 
     private func validateRetry(
         _ id: UUID, beginning: @escaping @Sendable (inout ActivitySession) throws -> OperationRequest,
-        then launch: @escaping (ActivitySession, OperationRequest) -> Void
+        failed: @escaping () -> Void = {}, then launch: @escaping (ActivitySession, OperationRequest) -> Void
     ) {
         guard let session = sessions[id] else { return }
         validatingRetries.insert(id)
@@ -476,6 +496,7 @@ final class JobCenter {
                 sessions[id] = validated.0
                 launch(validated.0, validated.1)
             } catch {
+                failed()
                 presentFailure?(session.request.op, UserMessages.describeActivity(error))
             }
         }
@@ -563,9 +584,15 @@ final class JobCenter {
     }
 
     private func finish(_ outcome: BatchOutcome, request: OperationRequest?, settings: Settings, activeID: UUID) {
+        var resubmitted: Set<Int> = []
         if let request {
-            sessions[outcome.batchID] = ActivitySession(request: request, settings: settings, outcome: outcome)
+            let session = ActivitySession(request: request, settings: settings, outcome: outcome)
+            sessions[outcome.batchID] = session
             rememberSession(outcome.batchID)
+            if !terminating, Self.omitsWithoutAsking(session) {
+                resubmitted = Set(session.unpreservedStreamIndices)
+                continueWithoutAsking(outcome.batchID)
+            }
         }
         let batch = active.first { $0.id == activeID }
         forget(activeID)
@@ -594,7 +621,14 @@ final class JobCenter {
         let shownInActivity = batch.map { showsFinished?($0, outcome) ?? false } ?? false
         // Only the banner can open Privacy settings.
         let needsBanner = !shownInActivity || Self.deniedPermission(outcome)
-        if needsBanner, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
+        // The resubmitted run's banner reports those files.
+        let reportsLater =
+            !resubmitted.isEmpty
+            && outcome.outcomes.indices.allSatisfy { index in
+                if case .succeeded = outcome.outcomes[index] { return true }
+                return resubmitted.contains(index)
+            }
+        if needsBanner, !reportsLater, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
     }
 

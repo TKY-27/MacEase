@@ -94,6 +94,17 @@ private func temporaryFolder() throws -> URL {
         }
     }
 
+    @Test func unpreservedStreamsChoiceDefaultsToAskForExistingSettings() throws {
+        let legacy = try Settings.decode(Data(#"{"outputMode":"replace","permanentDelete":true}"#.utf8))
+        #expect(legacy.unpreservedStreams == .ask)
+        #expect(legacy.outputMode == .replace)
+        for choice in Settings.UnpreservedStreamsChoice.allCases {
+            var settings = legacy
+            settings.unpreservedStreams = choice
+            #expect(try Settings.decode(JSONEncoder().encode(settings)) == settings)
+        }
+    }
+
     @Test func storedValuesSurviveKeysAddedLater() throws {
         var settings = Settings()
         settings.image.jpegQuality = 42
