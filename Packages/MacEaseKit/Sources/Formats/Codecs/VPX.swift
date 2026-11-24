@@ -181,11 +181,17 @@ public final class VPXDecoder {
 
     public init(vp9: Bool) throws {
         let threads = UInt32(min(8, ProcessInfo.processInfo.activeProcessorCount))
-        try VPXEncoder.check(macease_vpx_decoder_init(&context, vp9 ? 1 : 0, threads))
+        try Self.check(macease_vpx_decoder_init(&context, vp9 ? 1 : 0, threads))
     }
 
     deinit {
         vpx_codec_destroy(&context)
+    }
+
+    private static func check(_ status: vpx_codec_err_t) throws {
+        guard status == VPX_CODEC_OK else {
+            throw FormatError.decoderFailure("libvpx: \(String(cString: vpx_codec_err_to_string(status)))")
+        }
     }
 
     public func decode(_ payload: Data) throws -> [YUVFrame] {
@@ -193,7 +199,7 @@ public final class VPXDecoder {
             throw FormatError.corrupt(String(localized: "VPX packet too large", comment: "Invalid video packet"))
         }
         try payload.withUnsafeBytes { bytes in
-            try VPXEncoder.check(
+            try Self.check(
                 vpx_codec_decode(&context, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count), nil, 0)
             )
         }

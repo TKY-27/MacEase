@@ -53,11 +53,15 @@ public enum OperationPlanner {
     /// No file I/O; items validate when run.
     public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
         let planned = plannedBatch(for: request, settings: settings)
-        let naming = NewFileNaming(options: request.options)
-        guard naming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty else { return planned }
+        let fallbackNaming = NewFileNaming(options: request.options)
+        let naming = settings.outputMode == .newFile ? fallbackNaming : nil
+        guard fallbackNaming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty else {
+            return planned
+        }
         let workItems = planned.items.map { workItem in
             var configured = workItem
             configured.newFileNaming = naming
+            configured.fallbackNewFileNaming = fallbackNaming
             configured.omittedStreams = request.omittedStreams
             if !request.inputStamps.isEmpty {
                 configured.requiredInputStamps = request.inputStamps.mapValues(\.fileStamp)

@@ -227,7 +227,8 @@ public final class JobEngine: Sendable {
         do {
             try await history.checkAcceptingWork()
             outcome = try await commit(
-                result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs,
+                result, newFileNaming: workItem.newFileNaming, fallbackNewFileNaming: workItem.fallbackNewFileNaming,
+                inputs: workItem.inputs,
                 inputStamps: inputStamps, preparedMove: preparedMove,
                 context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
@@ -312,6 +313,7 @@ public final class JobEngine: Sendable {
     private func commit(
         _ result: ItemResult,
         newFileNaming: NewFileNaming?,
+        fallbackNewFileNaming: NewFileNaming?,
         inputs: [URL],
         inputStamps: [URL: FileStamp], preparedMove: FileCommitter.PreparedMove?,
         context: ItemContext,
@@ -319,7 +321,8 @@ public final class JobEngine: Sendable {
         tracker: BatchTracker,
         records: inout [CommitRecord]
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
-        let settled = settleFallback(result, newFileNaming: newFileNaming, context: context)
+        let settled = settleFallback(
+            result, newFileNaming: newFileNaming ?? fallbackNewFileNaming, context: context)
         var outputs: [URL] = []
         switch settled {
         case .replace, .derived, .created, .exported, .groupedDerived: break
@@ -344,7 +347,7 @@ public final class JobEngine: Sendable {
             guard let expectedStamp = inputStamps[original] else {
                 throw EngineError.commitFailed("Replacement original was not an input")
             }
-            if context.settings.outputMode == .newFile, let newFileNaming {
+            if let newFileNaming {
                 let named = StagedFile(
                     url: output.url, name: newFileNaming.name(for: original, outputName: output.name),
                     check: output.check)

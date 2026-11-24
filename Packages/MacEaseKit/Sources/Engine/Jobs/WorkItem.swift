@@ -15,6 +15,7 @@ public struct WorkItem: Sendable {
     let managesInputStamps: Bool
     var requiredInputStamps: [URL: FileStamp]?
     var newFileNaming: NewFileNaming?
+    var fallbackNewFileNaming: NewFileNaming?
     var omittedStreams: Set<UnpreservedStream> = []
     let body: @Sendable (ItemContext) async throws -> ItemResult
 
