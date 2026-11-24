@@ -37,7 +37,7 @@ struct VideoMetadata {
             if input.hasContainerTrackMetadata { containerMetadata.insert(.trackMetadata) }
             return VideoMetadata(
                 assetMetadata: [], mpeg4Metadata: [], containerMetadata: containerMetadata,
-                sourceContainer: input.container,
+                sourceContainer: input.originalContainer,
                 video: input.video.map { attributes(of: $0, disabledTrackNumbers: input.disabledTrackNumbers) },
                 audio: input.audio.map { attributes(of: $0, disabledTrackNumbers: input.disabledTrackNumbers) },
                 groups: [])
@@ -62,7 +62,7 @@ struct VideoMetadata {
         }
         return VideoMetadata(
             assetMetadata: metadata, mpeg4Metadata: mpeg4Metadata, containerMetadata: [],
-            sourceContainer: input.container,
+            sourceContainer: input.originalContainer,
             video: video, audio: audio, groups: groups)
     }
 

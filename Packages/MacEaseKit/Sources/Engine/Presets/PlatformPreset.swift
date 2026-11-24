@@ -90,14 +90,15 @@ public struct MediaLimits: Codable, Hashable, Sendable {
         }
     }
 
-    func videoOutput(source: OutputContainer) -> (
+    func videoOutput(source: OutputContainer?) -> (
         container: OutputContainer, video: VideoEncoding.Codec, mediaCodec: MediaCodec, audio: MediaCodec
     )? {
         guard hasSupportedVideoOutput,
             let video = Self.videoCodec(videoCodec), let audio = Self.audioCodec(audioCodec)
         else { return nil }
         let names = formats ?? [OutputContainer.mp4.rawValue]
-        let selected = names.contains { $0.lowercased() == source.rawValue } ? source.rawValue : names[0]
+        let selected =
+            source.flatMap { source in names.first { $0.lowercased() == source.rawValue } } ?? names[0]
         guard let container = OutputContainer(rawValue: selected.lowercased()) else { return nil }
         return (container, video.encoding, video.media, audio)
     }

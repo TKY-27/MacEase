@@ -65,8 +65,7 @@ enum AudioJob {
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
         context.phase(.decoding)
-        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
-        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
+        let input = try await AudioInput.openWithFallback(url, context: context, allowsMultiplexedOgg: true)
         switch operation {
         case .subtitles(let request):
             try requireConsentForMultiplexedStreams(input, context: context)
@@ -108,6 +107,7 @@ enum AudioJob {
     }
 
     static func unpreservedStreams(in input: AudioInput) async throws -> [UnpreservedStream] {
+        if input.isFallback { return [] }
         var found: Set<UnpreservedStream> = []
         if input.container == .mpeg4 {
             let asset = UntrustedMediaAsset.make(input.url)
@@ -296,7 +296,7 @@ enum AudioJob {
 
     /// Lossless sources become AAC in M4A.
     private static func compressedFormat(_ input: AudioInput, kilobits: Int?) throws -> AudioFormat {
-        let format = input.codec.isLossy && input.sameFormat.isLossy ? input.sameFormat : .m4aAAC
+        let format = input.sourceIsLossy && input.sameFormat.isLossy ? input.sameFormat : .m4aAAC
         let supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         guard format == .mp3, let kilobits, let lowest = supported.first, kilobits < lowest else { return format }
         // The in-house encoder stops at 128 kbps.
@@ -518,7 +518,11 @@ enum AudioJob {
 extension AudioInput {
     /// What same-format operations write.
     var sameFormat: AudioFormat {
-        switch (container, codec) {
+        if isFallback {
+            if isFloat || channels > StagedMediaFallback.maximumALACChannels { return .cafPCM }
+            return sourceIsLossy ? .m4aAAC : .m4aALAC
+        }
+        return switch (container, codec) {
         case (.mp3, _): .mp3
         case (.adts, _): .aac
         case (.wave, _): .wav

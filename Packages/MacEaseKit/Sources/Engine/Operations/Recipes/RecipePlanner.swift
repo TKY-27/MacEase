@@ -31,16 +31,34 @@ public enum RecipePlanner {
         var omissions: [URL: StreamOmission] = [:]
         for input in inputs where FileKind(fileURL: input) == .video {
             let stamp = try MediaSourceStamp(url: input)
-            let opened = try await MediaInput.open(input)
             var omitted: Set<UnpreservedStream> = []
-            for variant in variants {
-                guard let target = variant.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) else { continue }
-                let compression = VideoCompression(
-                    goal: .platform(preset(variant, target: variant.targetBytes ?? recipe.totalBytes)))
-                let carryPlan = try await NativeTimecodePlan.make(
-                    for: opened, destination: target,
-                    preservesTiming: VideoCompressor.preservesTiming(compression), omitting: unavailable)
-                omitted.formUnion(carryPlan.omittedKinds)
+            do {
+                let opened = try await MediaInput.open(input)
+                try await opened.verifyDecodable()
+                for variant in variants {
+                    guard let target = variant.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) else {
+                        continue
+                    }
+                    let compression = VideoCompression(
+                        goal: .platform(preset(variant, target: variant.targetBytes ?? recipe.totalBytes)))
+                    let carryPlan = try await NativeTimecodePlan.make(
+                        for: opened, destination: target,
+                        preservesTiming: VideoCompressor.preservesTiming(compression), omitting: unavailable)
+                    omitted.formUnion(carryPlan.omittedKinds)
+                }
+            } catch {
+                let wrapped = EngineError.wrapping(error, path: input.path)
+                switch wrapped {
+                case .decodeFailed, .unsupportedCodec:
+                    let probeDirectory = FileManager.default.temporaryDirectory.appending(
+                        path: "MacEaseProbe-\(UUID().uuidString)", directoryHint: .isDirectory)
+                    try FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
+                    defer { try? FileManager.default.removeItem(at: probeDirectory) }
+                    let probed = try await StagedMediaFallback.probe(input, workingDirectory: probeDirectory)
+                    omitted.formUnion(try StagedMediaFallback.videoUnpreservedStreams(in: probed))
+                default:
+                    throw wrapped
+                }
             }
             if !omitted.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: omitted) }
         }

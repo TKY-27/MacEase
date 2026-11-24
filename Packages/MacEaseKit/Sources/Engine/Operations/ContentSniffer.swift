@@ -172,6 +172,7 @@ public enum ContentSniffer {
             return !["M4A ", "M4B ", "M4P ", "heic", "heix", "mif1", "msf1", "avif", "avis", "crx "].contains(brand)
         }
         return ["moov", "mdat", "wide", "free", "skip"].contains { starts(header, with: ascii($0), at: 4) }
+            || isFallbackVideo(header)
     }
 
     private static func isAudio(_ header: [UInt8]) -> Bool {
@@ -187,7 +188,7 @@ public enum ContentSniffer {
         if starts(header, with: ascii("FORM")), starts(header, with: ascii("AIF"), at: 8) { return true }
         if let brand = isoBrand(header) { return ["M4A ", "M4B ", "mp42", "isom", "dash"].contains(brand) }
         // MPEG audio frame sync or ADTS.
-        return header.count >= 2 && header[0] == 0xFF && header[1] & 0xE0 == 0xE0
+        return (header.count >= 2 && header[0] == 0xFF && header[1] & 0xE0 == 0xE0) || isFallbackAudio(header)
     }
 
     private static func isPDF(_ header: [UInt8]) -> Bool {
@@ -514,5 +515,30 @@ public enum ContentSniffer {
     private static func uint32LE(_ bytes: [UInt8], at offset: Int) -> UInt32 {
         UInt32(bytes[offset]) | (UInt32(bytes[offset + 1]) << 8)
             | (UInt32(bytes[offset + 2]) << 16) | (UInt32(bytes[offset + 3]) << 24)
+    }
+
+    private static func isFallbackVideo(_ header: [UInt8]) -> Bool {
+        if starts(header, with: AudioInput.asfSignature) { return true }
+        if starts(header, with: [0x00, 0x00, 0x01, 0xBA]) { return true }
+        if (header.count >= 189 && header[0] == 0x47 && header[188] == 0x47)
+            || (header.count >= 197 && header[4] == 0x47 && header[196] == 0x47)
+        {
+            return true
+        }
+        if starts(header, with: ascii(".RMF")) || starts(header, with: ascii("OggS")) { return true }
+        if starts(header, with: [0x06, 0x0E, 0x2B, 0x34]) { return true }
+        return header.count >= 8 && header[0] == 0x1F && header[1] == 0x07 && header[2] == 0x00
+    }
+
+    private static func isFallbackAudio(_ header: [UInt8]) -> Bool {
+        let signatures: [[UInt8]] = [
+            [0x0B, 0x77],
+            [0x7F, 0xFE, 0x80, 0x01], [0xFE, 0x7F, 0x01, 0x80],
+            [0x1F, 0xFF, 0xE8, 0x00], [0xFF, 0x1F, 0x00, 0xE8], [0x64, 0x58, 0x20, 0x25],
+            ascii("wvpk"), ascii("MAC "), ascii("TTA1"), ascii("#!AMR"),
+            ascii(".RMF"), [0x2E, 0x72, 0x61, 0xFD],
+            [0x1A, 0x45, 0xDF, 0xA3],
+        ]
+        return signatures.contains { starts(header, with: $0) }
     }
 }

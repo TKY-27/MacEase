@@ -137,11 +137,9 @@ public enum OperationPlanner {
             let checked = batch.items.map { planned in
                 WorkItem(inputs: planned.inputs, lane: planned.lane) { context in
                     for source in planned.inputs {
-                        let media = try await MediaInput.open(source)
-                        guard let audio = media.audio, case .audio(let sampleRate, let channels) = audio.kind else {
-                            throw EngineError.invalidInput(.unsupportedFileType)
-                        }
-                        let supported = try format.supportedKilobits(sampleRate: sampleRate, channels: channels)
+                        let audioParameters = try await audioParametersForExtract(source, context: context)
+                        let supported = try format.supportedKilobits(
+                            sampleRate: audioParameters.sampleRate, channels: audioParameters.channels)
                         guard supported.contains(kilobits) else {
                             throw EngineError.invalidInput(
                                 .malformed(
@@ -173,6 +171,31 @@ public enum OperationPlanner {
             return AudioPlanner.batch(for: request, operation: operation)
         case .image(let operation):
             return ImagePlanner.batch(for: operation, request: request, inputs: inputs)
+        }
+    }
+
+    private static func audioParametersForExtract(
+        _ source: URL, context: ItemContext
+    ) async throws -> (sampleRate: Double, channels: Int) {
+        do {
+            let media = try await MediaInput.open(source)
+            guard let audio = media.audio, case .audio(let sampleRate, let channels) = audio.kind else {
+                throw EngineError.invalidInput(.unsupportedFileType)
+            }
+            return (sampleRate, channels)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: source.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                let directory = try context.stagingDirectory(for: source)
+                let probe = try await StagedMediaFallback.probe(source, workingDirectory: directory)
+                guard let audio = probe.audioStreams.first, let channels = audio.channels else {
+                    throw EngineError.invalidInput(.unsupportedFileType)
+                }
+                return (audio.parsedSampleRate, channels)
+            default:
+                throw wrapped
+            }
         }
     }
 

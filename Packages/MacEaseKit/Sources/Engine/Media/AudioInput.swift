@@ -49,9 +49,16 @@ public struct AudioInput: Sendable {
     /// `nil` when the container does not say.
     public let frameCount: Int64?
     let multiplexedOggStreams: Set<SkippedMediaStream>
+    let isFallback: Bool
+    let sourceIsLossy: Bool
 
     public init(url: URL, allowsMultiplexedOgg: Bool = false) throws {
+        try self.init(url: url, allowsMultiplexedOgg: allowsMultiplexedOgg, isFallback: false, sourceIsLossy: nil)
+    }
+
+    init(url: URL, allowsMultiplexedOgg: Bool, isFallback: Bool, sourceIsLossy: Bool?) throws {
         self.url = url
+        self.isFallback = isFallback
         do {
             container = try Self.sniff(url)
             if container == .ogg {
@@ -85,7 +92,42 @@ public struct AudioInput: Sendable {
         } catch {
             throw EngineError.fromAudio(error)
         }
+        self.sourceIsLossy = sourceIsLossy ?? codec.isLossy
         try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
+    }
+
+    static func openWithFallback(
+        _ originalURL: URL, context: ItemContext, allowsMultiplexedOgg: Bool = true, enforceStreamConsent: Bool = true
+    ) async throws -> AudioInput {
+        try await UntrustedMediaAsset.rejectExternalReferences(in: originalURL)
+        let nativeError: EngineError
+        do {
+            return try AudioInput(url: originalURL, allowsMultiplexedOgg: allowsMultiplexedOgg)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: originalURL.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                nativeError = wrapped
+            default:
+                throw wrapped
+            }
+        }
+        let staged: StagedMediaFallback.StagedAudio
+        do {
+            staged = try await StagedMediaFallback.prepareAudio(
+                originalURL, context: context, enforceStreamConsent: enforceStreamConsent)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: originalURL.path)
+            if case .unsupportedCodec = nativeError {
+                switch wrapped {
+                case .decodeFailed, .unsupportedCodec: throw nativeError
+                default: break
+                }
+            }
+            throw wrapped
+        }
+        return try AudioInput(
+            url: staged.stagedURL, allowsMultiplexedOgg: false, isFallback: true, sourceIsLossy: staged.sourceIsLossy)
     }
 
     /// A fresh decoder positioned at the start.
@@ -114,7 +156,8 @@ public struct AudioInput: Sendable {
 
     /// The writable format reproducing container and codec.
     var exactFormat: AudioFormat? {
-        switch (container, codec) {
+        guard !isFallback else { return nil }
+        return switch (container, codec) {
         case (.mp3, .mp3): .mp3
         case (.mpeg4, .aac): .m4aAAC
         case (.mpeg4, .alac): .m4aALAC

@@ -8,7 +8,7 @@ enum VideoStills {
     private static let sampledFrames: Int64 = 2
 
     static func run(_ still: VideoStill, url: URL, context: ItemContext) async throws -> ItemResult {
-        let input = try await MediaInput.open(url)
+        let input = try await MediaInput.openWithFallback(url, context: context, enforceStreamConsent: false)
         let metadata = try await VideoMetadata.load(from: input)
         let losses = metadata.losses(for: nil, includingAudio: false)
         if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
@@ -102,7 +102,7 @@ enum VideoAnimations {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
 
-        let input = try await MediaInput.open(url)
+        let input = try await MediaInput.openWithFallback(url, context: context, enforceStreamConsent: false)
         let seconds = Double(input.duration) / Double(Nanoseconds.perSecond)
         guard seconds > 0 else { throw EngineError.invalidInput(.emptyInput) }
         var rendering = AnimationRendering(width: min(maxWidth, input.displaySize.width), framesPerSecond: 15)
@@ -119,7 +119,7 @@ enum VideoAnimations {
         func attempt() async throws -> Int64 {
             let sampling = try await Sampling(
                 rendering, maxHeight: maxHeight, minimumFrameDuration: minimumFrameDuration, url: url,
-                context: context)
+                openedInput: input, context: context)
             guard sampling.frameCount <= maxFrames else {
                 throw EngineError.invalidInput(.malformed("X GIF exceeds its frame limit"))
             }
@@ -180,12 +180,16 @@ enum VideoAnimations {
 
         init(
             _ rendering: AnimationRendering, maxHeight: Int? = nil, minimumFrameDuration: Int64 = 0, url: URL,
-            context: ItemContext
+            openedInput: MediaInput? = nil, context: ItemContext
         ) async throws {
             guard rendering.width > 0, rendering.framesPerSecond > 0 else {
                 throw EngineError.invalidInput(.invalidAnimationRange)
             }
-            input = try await MediaInput.open(url)
+            if let openedInput {
+                input = openedInput
+            } else {
+                input = try await MediaInput.openWithFallback(url, context: context, enforceStreamConsent: false)
+            }
             let metadata = try await VideoMetadata.load(from: input)
             let losses = metadata.losses(for: nil, includingAudio: false)
             if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }

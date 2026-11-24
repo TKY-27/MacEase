@@ -493,14 +493,14 @@ enum VideoAudio {
     static func extract(
         _ format: AudioFormat, kilobits: Int? = nil, url: URL, context: ItemContext
     ) async throws -> ItemResult {
-        let input = try await MediaInput.open(url)
+        let input = try await MediaInput.openWithFallback(url, context: context, enforceStreamConsent: false)
         guard let track = input.audio, case .audio(let sampleRate, _) = track.kind else {
             throw EngineError.invalidInput(.malformed("no audio track"))
         }
         let metadata = try await VideoMetadata.load(from: input)
         let losses = metadata.losses(for: nil, includingVideo: false, includingAudio: true)
         if !losses.isEmpty { context.warn(.videoMetadataDropped(losses)) }
-        let copiesPackets = kilobits == nil && canCopy(track, to: format)
+        let copiesPackets = !input.isFallback && kilobits == nil && canCopy(track, to: format)
         if !copiesPackets { _ = try await encodingPrecision(input, track: track, format: format) }
         let name = url.deletingPathExtension().lastPathComponent + "." + format.fileExtension
         let output = try context.stagingURL(for: url, name: name)

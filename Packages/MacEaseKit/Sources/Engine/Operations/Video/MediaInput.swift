@@ -21,6 +21,7 @@ struct MediaInput {
     var hasContainerDescriptiveMetadata = false
     var hasContainerTrackMetadata = false
     var disabledTrackNumbers: Set<Int> = []
+    var isFallback = false
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
 
@@ -30,6 +31,86 @@ struct MediaInput {
         case .matroska: try openContainer(url, backend: .matroska) { try MatroskaDemuxer(url: url) }
         case .avi: try openContainer(url, backend: .avi) { try AVIDemuxer(url: url) }
         case .flv: try openContainer(url, backend: .flv) { try FLVDemuxer(url: url) }
+        }
+    }
+
+    static func openWithFallback(
+        _ originalURL: URL, context: ItemContext, enforceStreamConsent: Bool = true
+    ) async throws -> MediaInput {
+        let nativeError: EngineError
+        do {
+            let opened = try await open(originalURL)
+            if enforceStreamConsent, opened.hasMultipleTracks {
+                throw EngineError.invalidInput(.multipleTracks)
+            }
+            try await opened.verifyDecodable()
+            return opened
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: originalURL.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                nativeError = wrapped
+            default:
+                throw wrapped
+            }
+        }
+        let staged: StagedMediaFallback.StagedVideo
+        do {
+            staged = try await StagedMediaFallback.prepareVideo(
+                originalURL, context: context, enforceStreamConsent: enforceStreamConsent)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: originalURL.path)
+            if case .unsupportedCodec = nativeError {
+                switch wrapped {
+                case .decodeFailed, .unsupportedCodec: throw nativeError
+                default: break
+                }
+            }
+            throw wrapped
+        }
+        var fallback = try await open(staged.stagedURL)
+        fallback.isFallback = true
+        return fallback
+    }
+
+    // Catches partial-open traps before transcoding starts.
+    func verifyDecodable() async throws {
+        if let video {
+            switch backend {
+            case .asset(let asset, let videoTrack?, _):
+                let reader = try AssetTrackReader(asset: asset, track: videoTrack, number: video.number, mode: .frames)
+                _ = try await reader.nextSample()
+            default:
+                guard Self.supportsNativeVideoCodec(video.codec) else {
+                    throw EngineError.unsupportedCodec(video.codec.displayName)
+                }
+            }
+        }
+        if let audio {
+            switch backend {
+            case .asset(let asset, _, let audioTrack?):
+                let reader = try AssetTrackReader(asset: asset, track: audioTrack, number: audio.number, mode: .pcm)
+                _ = try await reader.nextSample()
+            default:
+                guard Self.supportsNativeAudioCodec(audio.codec) else {
+                    throw EngineError.unsupportedCodec(audio.codec.displayName)
+                }
+            }
+        }
+    }
+
+    private static func supportsNativeVideoCodec(_ codec: MediaCodec) -> Bool {
+        switch codec {
+        case .vp8, .vp9, .av1, .mjpeg, .h264, .hevc, .mpeg4Part2: true
+        default: false
+        }
+    }
+
+    private static func supportsNativeAudioCodec(_ codec: MediaCodec) -> Bool {
+        switch codec {
+        case .opus, .vorbis, .aac, .mp3, .ac3, .flac: true
+        case .pcm(let bits, _, _): [8, 16, 24, 32].contains(bits)
+        default: false
         }
     }
 
@@ -190,13 +271,21 @@ struct MediaInput {
     /// Single-frame clips have no spacing to measure.
     private static let fallbackFrameDuration = Nanoseconds.perSecond / 30
 
+    var originalContainer: OutputContainer? {
+        isFallback ? nil : container
+    }
+
     var container: OutputContainer {
+        if isFallback {
+            return video?.hasAlpha == true ? .mov : .mp4
+        }
         switch backend {
         case .asset:
-            OutputContainer(rawValue: url.pathExtension.lowercased()).flatMap { $0.fileType == nil ? nil : $0 } ?? .mp4
-        case .matroska: url.pathExtension.lowercased() == "webm" ? .webm : .mkv
-        case .avi: .avi
-        case .flv: .flv
+            return OutputContainer(rawValue: url.pathExtension.lowercased()).flatMap { $0.fileType == nil ? nil : $0 }
+                ?? .mp4
+        case .matroska: return url.pathExtension.lowercased() == "webm" ? .webm : .mkv
+        case .avi: return .avi
+        case .flv: return .flv
         }
     }
 

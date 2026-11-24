@@ -219,7 +219,7 @@ enum StagedMediaFallback {
     private static let maximumProRes4444BytesPerSecond = 160_000_000.0
     private static let defaultAudioSampleRate = 48_000.0
     private static let defaultAudioChannels = 2
-    private static let maximumALACChannels = 6
+    static let maximumALACChannels = 6
     private static let estimateSafetyMultiplier = 1.25
     private static let fixedOverheadBytes: Int64 = 64_000_000
     private static let unknownDurationSizeMultiplier: Int64 = 4
@@ -256,10 +256,13 @@ enum StagedMediaFallback {
     ]
     private static let allowedColorRanges: Set<String> = ["tv", "pc"]
 
-    static func resolveTools() throws -> MediaDownloadTools {
+    static func resolveTools(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) throws -> MediaDownloadTools {
         do {
-            if let directory = ProcessInfo.processInfo.environment["MACEASE_MEDIA_TOOLS"],
-                Bundle.main.bundleIdentifier?.hasPrefix("io.github.tky27.MacEase") != true
+            if let directory = environment["MACEASE_MEDIA_TOOLS"],
+                bundleIdentifier?.hasPrefix("io.github.tky27.MacEase") != true
             {
                 return try MediaDownloadTools(directory: URL(filePath: directory))
             }
