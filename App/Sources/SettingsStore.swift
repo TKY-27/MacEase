@@ -24,6 +24,9 @@ final class SettingsStore {
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
         static let finderPreviewEnabled = "finderPreview.enabled"
+        static let checksForUpdatesAutomatically = "updates.checksAutomatically"
+        static let showsStatusItem = "menuBar.showsStatusItem"
+        static let showsRecentOperations = "menuBar.showsRecentOperations"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -89,6 +92,18 @@ final class SettingsStore {
         didSet { defaults.set(finderPreviewEnabled, forKey: Key.finderPreviewEnabled) }
     }
 
+    var checksForUpdatesAutomatically: Bool {
+        didSet { defaults.set(checksForUpdatesAutomatically, forKey: Key.checksForUpdatesAutomatically) }
+    }
+
+    var showsStatusItem: Bool {
+        didSet { defaults.set(showsStatusItem, forKey: Key.showsStatusItem) }
+    }
+
+    var showsRecentOperations: Bool {
+        didSet { defaults.set(showsRecentOperations, forKey: Key.showsRecentOperations) }
+    }
+
     var onboardingCompleted: Bool {
         didSet { defaults.set(onboardingCompleted, forKey: Key.onboardingCompleted) }
     }
@@ -109,6 +124,7 @@ final class SettingsStore {
         defaults.register(defaults: [
             Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
+            Key.checksForUpdatesAutomatically: true, Key.showsStatusItem: true, Key.showsRecentOperations: true,
         ])
         let settings = Self.decodeSettings(from: defaults)
         self.settings = settings
@@ -150,6 +166,9 @@ final class SettingsStore {
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
         activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
         finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
+        checksForUpdatesAutomatically = defaults.bool(forKey: Key.checksForUpdatesAutomatically)
+        showsStatusItem = defaults.bool(forKey: Key.showsStatusItem)
+        showsRecentOperations = defaults.bool(forKey: Key.showsRecentOperations)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
         hideEmptiedGroups()
@@ -217,6 +236,9 @@ final class SettingsStore {
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false
         finderPreviewEnabled = false
+        checksForUpdatesAutomatically = true
+        showsStatusItem = true
+        showsRecentOperations = true
     }
 
     /// SPEC 4.4 defaults for new installs.

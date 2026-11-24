@@ -27,6 +27,12 @@ struct GeneralSettingsView: View {
                 }
                 launchAtLogin
                 notifications
+                Toggle(isOn: $store.checksForUpdatesAutomatically) {
+                    Text("Check for updates automatically")
+                    Text("Checks GitHub for a newer version once a day.")
+                }
+                .accessibilityLabel(Text("Check for updates automatically"))
+                .accessibilityHint(Text("Checks GitHub for a newer version once a day."))
             }
             Section("When Converting or Editing") {
                 Picker("When converting or editing", selection: $store.settings.outputMode) {
@@ -64,6 +70,16 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.checkbox)
                 }
                 .disabled(!store.showsActivity)
+            }
+            Section("Menu Bar") {
+                Toggle(isOn: $store.showsStatusItem) {
+                    Text("Show in menu bar")
+                    Text("To open Settings while the icon is hidden, open MacEase again.")
+                }
+                .accessibilityLabel(Text("Show in menu bar"))
+                .accessibilityHint(Text("To open Settings while the icon is hidden, open MacEase again."))
+                Toggle("Show recent operations", isOn: $store.showsRecentOperations)
+                    .disabled(!store.showsStatusItem)
             }
             Section {
                 Toggle(isOn: permanentDeleteSelection) {

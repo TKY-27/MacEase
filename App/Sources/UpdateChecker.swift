@@ -29,14 +29,16 @@ final class UpdateChecker {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let settings: SettingsStore
     @ObservationIgnored private let runningVersion: SemanticVersion
+    @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let logger = Logger(category: "updates")
 
-    init(settings: SettingsStore, defaults: UserDefaults = .standard) {
+    init(settings: SettingsStore, defaults: UserDefaults = .standard, session: URLSession = .shared) {
         guard let running = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             let local = SemanticVersion(running)
         else { preconditionFailure("The app version must be semantic") }
         self.defaults = defaults
         self.settings = settings
+        self.session = session
         runningVersion = local
         let storedVersion = defaults.string(forKey: Self.availableVersionKey)
         if let storedVersion, let remote = SemanticVersion(storedVersion), remote > local {
@@ -58,13 +60,14 @@ final class UpdateChecker {
     }
 
     func check(force: Bool = false) async {
+        guard force || settings.checksForUpdatesAutomatically else { return }
         let last = defaults.object(forKey: Self.lastCheckKey) as? Date ?? .distantPast
         guard force || Date().timeIntervalSince(last) >= Self.interval, let endpoint = Self.endpoint else { return }
         defaults.set(Date(), forKey: Self.lastCheckKey)
         var request = URLRequest(url: endpoint)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 throw URLError(.badServerResponse)
             }

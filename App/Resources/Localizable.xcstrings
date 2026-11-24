@@ -4541,6 +4541,66 @@
         }
       }
     },
+    "Check for updates automatically": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを自動的に確認"
+          }
+        }
+      }
+    },
+    "Checks GitHub for a newer version once a day.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1日に1回、GitHubで新しいバージョンを確認します。"
+          }
+        }
+      }
+    },
+    "Menu Bar": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバー"
+          }
+        }
+      }
+    },
+    "Show in menu bar": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに表示"
+          }
+        }
+      }
+    },
+    "To open Settings while the icon is hidden, open MacEase again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンを非表示にしているときは、MacEaseをもう一度開くと設定が開きます。"
+          }
+        }
+      }
+    },
+    "Show recent operations": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近の処理を表示"
+          }
+        }
+      }
+    },
     "Notifications": {
       "localizations": {
         "ja": {
