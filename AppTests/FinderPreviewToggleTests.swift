@@ -169,6 +169,65 @@ final class FinderPreviewToggleTests: XCTestCase {
         XCTAssertEqual(coordinator.state.notice, .automation)
     }
 
+    func testSettingsChangesRefreshActivePreviewKindAndHTMLTrust() async throws {
+        let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let directory = try PreviewFixtures.directory(self)
+        let pdf = directory.appendingPathComponent("sample.pdf")
+        try Data("%PDF-1.7\n".utf8).write(to: pdf)
+        let page = directory.appendingPathComponent("index.html")
+        try Data("<!doctype html><p>hi</p>".utf8).write(to: page)
+
+        let store = SettingsStore(defaults: defaults)
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory))
+
+        coordinator.applySelectionResult(.success(.init(windowID: 10, urls: [pdf])), trackedWindowID: 10)
+        try await waitUntil { coordinator.state.kind == .pdf }
+        let beforeDisable = coordinator.state.generation
+
+        store.finderPreview.disabledKinds.insert(.pdf)
+        try await waitUntil { coordinator.state.generation > beforeDisable && coordinator.state.kind == .quickLook }
+
+        let beforeEnable = coordinator.state.generation
+        store.finderPreview.disabledKinds.remove(.pdf)
+        try await waitUntil { coordinator.state.generation > beforeEnable && coordinator.state.kind == .pdf }
+
+        store.finderPreview.addTrustedFolder(directory)
+        coordinator.applySelectionResult(.success(.init(windowID: 10, urls: [page])), trackedWindowID: 10)
+        try await waitUntil { coordinator.state.kind == .html && coordinator.state.trust?.level == .trusted }
+        XCTAssertEqual(
+            try PreviewHTMLSnapshot.prepare(
+                url: page, trustedFolders: store.finderPreview.trustedFolders,
+                scriptConsent: coordinator.state.scriptConsent
+            ).policy,
+            .interactive)
+
+        let beforeRevoke = coordinator.state.generation
+        store.finderPreview.removeTrustedFolder(directory.path)
+        try await waitUntil {
+            coordinator.state.generation > beforeRevoke && coordinator.state.trust?.level == .standard
+        }
+        XCTAssertEqual(
+            try PreviewHTMLSnapshot.prepare(
+                url: page, trustedFolders: store.finderPreview.trustedFolders,
+                scriptConsent: coordinator.state.scriptConsent
+            ).policy,
+            .staticPreview)
+
+        let beforeTrustAgain = coordinator.state.generation
+        store.finderPreview.addTrustedFolder(directory)
+        try await waitUntil {
+            coordinator.state.generation > beforeTrustAgain && coordinator.state.trust?.level == .trusted
+        }
+
+        let stableGeneration = coordinator.state.generation
+        store.finderPreview.codeFontSize = 18
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(coordinator.state.generation, stableGeneration)
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(2),
         condition: @MainActor () -> Bool

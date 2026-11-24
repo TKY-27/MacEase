@@ -52,12 +52,18 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     // Consent prompts follow only a user action.
     private var mayAskConsent = false
     private var consecutiveSelectionFailures = 0
+    private var observedDisabledKinds: Set<FinderPreviewFileType>
+    private var observedTrustedFolders: [String]
     private(set) var retryAfter = Date.distantPast
     var enabledChanged: (() -> Void)?
 
     init(settings: SettingsStore, staging: StagingArea) {
         self.settings = settings
         self.staging = staging
+        observedDisabledKinds = settings.finderPreview.disabledKinds
+        observedTrustedFolders = settings.finderPreview.trustedFolders
+        super.init()
+        observePreviewSettings()
     }
 
     func start() {
@@ -87,6 +93,27 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
                 self?.enabledDidChange()
             }
         }
+    }
+
+    private func observePreviewSettings() {
+        withObservationTracking {
+            _ = settings.finderPreview
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observePreviewSettings()
+                self?.previewSettingsDidChange()
+            }
+        }
+    }
+
+    private func previewSettingsDidChange() {
+        let preview = settings.finderPreview
+        let changed =
+            preview.disabledKinds != observedDisabledKinds || preview.trustedFolders != observedTrustedFolders
+        observedDisabledKinds = preview.disabledKinds
+        observedTrustedFolders = preview.trustedFolders
+        guard changed, state.selectedURL != nil else { return }
+        select(state.selectedIndex)
     }
 
     private func enabledDidChange() {
