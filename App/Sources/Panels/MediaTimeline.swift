@@ -3,7 +3,6 @@ import Engine
 import SwiftUI
 
 enum TimelineClipAccessibility: Equatable {
-    case text(name: String, states: [String] = [])
     case segment(index: Int, count: Int, sourceName: String?, freeze: Bool, reversed: Bool, speed: Double)
 }
 
@@ -12,41 +11,19 @@ struct TimelineClip {
     let range: ClosedRange<Double>
     let selection: ClosedRange<Double>?
     let label: String
-    var frames: [CGImage]
+    var frames: [CGImage] = []
     var waveform: AudioWaveformSnapshot?
     var detailWaveform: AudioWaveformSnapshot?
     /// Timeline seconds, measured inside `selection ?? range`.
-    var fadeIn: Double
-    var fadeOut: Double
+    var fadeIn = 0.0
+    var fadeOut = 0.0
     /// A held picture without trim handles.
-    var freeze: Bool
-    var badges: [TimelineBadge]
+    var freeze = false
+    var badges: [TimelineBadge] = []
     /// `nil` keeps the clip unexposed.
     var accessibility: TimelineClipAccessibility?
 
     var isAccessible: Bool { accessibility != nil }
-
-    init(
-        id: UUID, range: ClosedRange<Double>, selection: ClosedRange<Double>?, label: String, frames: [CGImage] = [],
-        waveform: AudioWaveformSnapshot? = nil, detailWaveform: AudioWaveformSnapshot? = nil, fadeIn: Double = 0,
-        fadeOut: Double = 0, freeze: Bool = false, badges: [TimelineBadge] = [],
-        accessibility: TimelineClipAccessibility? = nil, accessibilityName: String? = nil,
-        accessibilityStates: [String] = []
-    ) {
-        self.id = id
-        self.range = range
-        self.selection = selection
-        self.label = label
-        self.frames = frames
-        self.waveform = waveform
-        self.detailWaveform = detailWaveform
-        self.fadeIn = fadeIn
-        self.fadeOut = fadeOut
-        self.freeze = freeze
-        self.badges = badges
-        self.accessibility =
-            accessibility ?? accessibilityName.map { .text(name: $0, states: accessibilityStates) }
-    }
 }
 
 struct TimelineMusicBar {
@@ -168,6 +145,7 @@ struct MediaTimeline: NSViewRepresentable {
     let playing: Bool
     var trimming = false
     var playbackRate: Float = 1
+    var revealRequest: UUID?
     @Binding var zoom: Double
     let maximumZoom: Double
     let seek: (Double) -> Void
@@ -219,38 +197,48 @@ struct MediaTimeline: NSViewRepresentable {
     }
 }
 
+private final class TimelineScroller: NSScroller {
+    override func mouseDown(with event: NSEvent) {
+        (superview as? TimelineScrollView)?.noteManualScroll()
+        super.mouseDown(with: event)
+    }
+
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        (superview as? TimelineScrollView)?.noteManualScroll()
+        return super.sendAction(action, to: target)
+    }
+}
+
 final class TimelineScrollView: NSScrollView {
     private static let pageMargin = 24.0
+    private static let pageMarginFraction = 0.1
     var interactionEnabled = true
     var configuration: MediaTimeline?
     var canvas: TimelineCanvas? { documentView as? TimelineCanvas }
     private var appliedZoom = 1.0
     private var previousViewportWidth = 0.0
     private var anchor: (fraction: Double, viewport: Double)?
+    private var lastRevealRequest: UUID?
     private var revealedPosition: Double?
     private var followingPlayhead = false
     private var wasPlaying = false
-    private var previousPlaybackRate: Float = 1
-    private var updatingTimeline = false
-    private var lastScrolledX = 0.0
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        horizontalScroller = TimelineScroller()
+    }
+
+    required init?(coder: NSCoder) { return nil }
 
     override func layout() {
-        updatingTimeline = true
         super.layout()
-        lastScrolledX = contentView.bounds.minX
-        updatingTimeline = false
         updateTimeline()
     }
 
-    func noteExplicitMove() { followingPlayhead = true }
+    func noteManualScroll() { followingPlayhead = false }
 
     func updateTimeline() {
         guard let configuration, let canvas else { return }
-        updatingTimeline = true
-        defer {
-            lastScrolledX = contentView.bounds.minX
-            updatingTimeline = false
-        }
         canvas.interactionEnabled = interactionEnabled
         let viewportWidth = max(1, contentSize.width)
         if viewportWidth != previousViewportWidth {
@@ -291,9 +279,10 @@ final class TimelineScrollView: NSScrollView {
     }
 
     private func updatePlayheadFollowing(_ configuration: MediaTimeline, canvas: TimelineCanvas) {
+        let revealTriggered = configuration.revealRequest != nil && configuration.revealRequest != lastRevealRequest
         defer {
+            lastRevealRequest = configuration.revealRequest
             wasPlaying = configuration.playing
-            previousPlaybackRate = configuration.playbackRate
             revealedPosition = configuration.position
         }
         guard configuration.duration > 0 else { return }
@@ -303,38 +292,31 @@ final class TimelineScrollView: NSScrollView {
         let visible = contentView.bounds
         let playheadVisible = playheadX >= visible.minX && playheadX <= visible.maxX
 
-        if !wasPlaying, configuration.playing {
-            if positionChanged, !interacting {
-                followingPlayhead = true
-                if !playheadVisible {
+        if revealTriggered {
+            followingPlayhead = true
+            if !interacting, !playheadVisible {
+                if configuration.playing {
                     pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
+                } else {
+                    canvas.scrollToVisible(canvas.playheadFrame(configuration))
+                    reflectScrolledClipView(contentView)
                 }
-            } else {
-                followingPlayhead = playheadVisible
             }
             return
         }
 
+        if !wasPlaying, configuration.playing {
+            followingPlayhead = playheadVisible
+            return
+        }
+
         if configuration.playing {
-            if configuration.playbackRate != previousPlaybackRate, !interacting {
-                followingPlayhead = true
-                if !playheadVisible {
-                    pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
-                }
-                return
-            }
             guard positionChanged, followingPlayhead, !interacting, !playheadVisible else { return }
             pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
             return
         }
 
-        guard positionChanged, !interacting else { return }
-        let endedUnfollowed =
-            wasPlaying && !followingPlayhead
-            && (configuration.position >= configuration.duration || configuration.position <= 0)
-        guard !endedUnfollowed else { return }
-        followingPlayhead = true
-        if !playheadVisible {
+        if wasPlaying, positionChanged, followingPlayhead, !interacting, !playheadVisible {
             canvas.scrollToVisible(canvas.playheadFrame(configuration))
             reflectScrolledClipView(contentView)
         }
@@ -342,7 +324,7 @@ final class TimelineScrollView: NSScrollView {
 
     private func pagePlayhead(to playheadX: Double, forward: Bool, canvas: TimelineCanvas) {
         let viewportWidth = max(1, contentView.bounds.width)
-        let margin = min(Self.pageMargin, viewportWidth * 0.1)
+        let margin = min(Self.pageMargin, viewportWidth * Self.pageMarginFraction)
         let desiredX = forward ? playheadX - margin : playheadX - (viewportWidth - margin)
         let maxScroll = max(0, canvas.frame.width - viewportWidth)
         let clampedX = min(maxScroll, max(0, desiredX))
@@ -352,10 +334,6 @@ final class TimelineScrollView: NSScrollView {
 
     override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
-        if !updatingTimeline, contentView.bounds.minX != lastScrolledX {
-            followingPlayhead = false
-            lastScrolledX = contentView.bounds.minX
-        }
         notifyVisibleRange()
     }
 
@@ -391,12 +369,13 @@ final class TimelineScrollView: NSScrollView {
     }
 }
 
-class TimelineCanvas: NSView, NSDraggingSource {
+final class TimelineCanvas: NSView, NSDraggingSource {
     static let rulerHeight = 24.0
     static let clipHeight = 64.0
     static let contentHeight = rulerHeight + clipHeight + 8
     private static let handleWidth = 12.0
     private static let handleHitSlop = 4.0
+    private static let accessibilityHitSlop = 1.0
     private static let snapDistance = 8.0
     private static let clipRadius = 6.0
     private static let selectionLine = 3.0
@@ -525,12 +504,14 @@ class TimelineCanvas: NSView, NSDraggingSource {
             }
         }
         let local = convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        let slop = Self.accessibilityHitSlop
         func matches(_ rect: CGRect) -> Bool {
-            local.x >= rect.minX - 1 && local.x <= rect.maxX + 1 && local.y >= rect.minY - 1 && local.y <= rect.maxY + 1
+            local.x >= rect.minX - slop && local.x <= rect.maxX + slop && local.y >= rect.minY - slop
+                && local.y <= rect.maxY + slop
                 && NSPointInRect(screenPoint, NSAccessibility.screenRect(fromView: self, rect: rect))
         }
         if matches(playheadFrame(configuration)) { return .playhead }
-        if configuration.showsOverlayLane, local.y >= overlayLane.minY - 1, local.y <= overlayLane.maxY + 1 {
+        if configuration.showsOverlayLane, local.y >= overlayLane.minY - slop, local.y <= overlayLane.maxY + slop {
             for bar in currentLayout().overlayBars.reversed() where matches(bar.rect) {
                 return .overlay(bar.mark.id, part: bar.part)
             }
@@ -539,7 +520,7 @@ class TimelineCanvas: NSView, NSDraggingSource {
             let rect = musicBar(music, configuration: configuration)
             if matches(rect) { return .music }
         }
-        if local.y >= Self.rulerHeight - 1, local.y <= Self.rulerHeight + Self.clipHeight + 1 {
+        if local.y >= Self.rulerHeight - slop, local.y <= Self.rulerHeight + Self.clipHeight + slop {
             for (index, range) in configuration.hatched.enumerated()
             where matches(hatchRect(range, configuration: configuration)) {
                 return .silence(index)
@@ -551,8 +532,8 @@ class TimelineCanvas: NSView, NSDraggingSource {
         return nil
     }
 
-    func postAccessibility(_ notification: NSAccessibility.Notification, on element: Any) {
-        NSAccessibility.post(element: element, notification: notification)
+    var postAccessibilityNotification: (NSAccessibility.Notification, Any) -> Void = {
+        NSAccessibility.post(element: $1, notification: $0)
     }
 
     /// Playback ticks skip layout work when unchanged.
@@ -562,18 +543,18 @@ class TimelineCanvas: NSView, NSDraggingSource {
             if !configuration.playing, previous.position != configuration.position,
                 let playhead = accessibilityElements[.playhead]
             {
-                postAccessibility(.valueChanged, on: playhead)
+                postAccessibilityNotification(.valueChanged, playhead)
             }
             return
         }
         let currentParts = accessibleParts(configuration)
         if lastAccessibleParts != currentParts {
             lastAccessibleParts = currentParts
-            postAccessibility(.layoutChanged, on: self)
+            postAccessibilityNotification(.layoutChanged, self)
         } else if !configuration.playing, previous?.position != configuration.position,
             let playhead = accessibilityElements[.playhead]
         {
-            postAccessibility(.valueChanged, on: playhead)
+            postAccessibilityNotification(.valueChanged, playhead)
         }
     }
 
@@ -1123,13 +1104,11 @@ class TimelineCanvas: NSView, NSDraggingSource {
         mouseOrigin = location
         leave()
         if configuration.music != nil, musicLane(configuration).contains(location) {
-            (enclosingScrollView as? TimelineScrollView)?.noteExplicitMove()
             configuration.selectMusic?()
             configuration.seek(seconds(at: location.x))
             return
         }
         if configuration.showsOverlayLane, overlayLane.contains(location) {
-            (enclosingScrollView as? TimelineScrollView)?.noteExplicitMove()
             if let bar = currentLayout().overlayBars.last(where: {
                 $0.rect.insetBy(dx: -2, dy: 0).contains(location)
             }) {
@@ -1164,7 +1143,6 @@ class TimelineCanvas: NSView, NSDraggingSource {
             configuration.select(clip.id)
             draggedClip = clip.id
         }
-        (enclosingScrollView as? TimelineScrollView)?.noteExplicitMove()
         configuration.seek(seconds(at: location.x))
     }
 

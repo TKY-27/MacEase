@@ -344,7 +344,7 @@ final class MediaEditorModelTests: XCTestCase {
         model.updateTimelineTrim(to: 0.43)
         try await eventually { model.values.start > 0 }
         XCTAssertEqual(model.timelineDuration, 2, accuracy: 0.000_001)
-        XCTAssertEqual(model.timelineRange(for: model.values.segments[0]).lowerBound, 10.0 / 24, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(model.timelineRanges().first).lowerBound, 10.0 / 24, accuracy: 0.000_001)
         model.updateTimelineTrim(to: 0.63)
         await model.endTimelineTrim()
 
@@ -938,9 +938,8 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.values.selectedID, freeze.id)
         XCTAssertEqual(model.position, freeze.start, accuracy: 0.000_001)
         XCTAssertEqual(model.outputDuration, before + 2, accuracy: 0.000_001)
-        XCTAssertEqual(
-            model.timelineRange(for: freeze).upperBound - model.timelineRange(for: freeze).lowerBound, 2,
-            accuracy: 0.000_001)
+        let freezeRange = try XCTUnwrap(model.timelineRanges().dropFirst().first)
+        XCTAssertEqual(freezeRange.upperBound - freezeRange.lowerBound, 2, accuracy: 0.000_001)
 
         XCTAssertFalse(model.canInsertFreezeFrame, "a freeze cannot be frozen again")
         XCTAssertFalse(model.canSplit)
@@ -1997,7 +1996,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(try menuItem(.reverse, in: reversed).state, .on, "matches the inspector toggle")
         XCTAssertTrue(try menuItem(.reverse, in: reversed).isEnabled)
         let frozen = try menu(
-            atSecond: try XCTUnwrap(model.timelineRange(for: model.values.segments[1])).lowerBound + 0.1)
+            atSecond: try XCTUnwrap(model.timelineRanges().dropFirst().first).lowerBound + 0.1)
         XCTAssertEqual(try menuItem(.reverse, in: frozen).state, .off)
         XCTAssertFalse(try menuItem(.reverse, in: frozen).isEnabled)
         XCTAssertEqual(try menuItem(.reverse, in: frozen).toolTip, "A freeze frame can’t be reversed.")

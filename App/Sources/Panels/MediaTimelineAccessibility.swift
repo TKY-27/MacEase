@@ -228,8 +228,6 @@ extension TimelineCanvas {
 
     private static func clipLabel(_ accessibility: TimelineClipAccessibility) -> String {
         switch accessibility {
-        case .text(let name, _):
-            return name
         case .segment(let index, let count, let sourceName, _, _, _):
             if let sourceName { return String(localized: "Segment \(index + 1) of \(count), \(sourceName)") }
             return String(localized: "Segment \(index + 1) of \(count)")
@@ -238,8 +236,6 @@ extension TimelineCanvas {
 
     private static func clipStates(_ accessibility: TimelineClipAccessibility) -> [String] {
         switch accessibility {
-        case .text(_, let states):
-            return states
         case .segment(_, _, _, let freeze, let reversed, let speed):
             var states: [String] = []
             if freeze { states.append(String(localized: "Freeze Frame")) }

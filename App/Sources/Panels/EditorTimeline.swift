@@ -169,6 +169,7 @@ struct EditorTimeline: View {
             MediaTimeline(
                 duration: model.timelineDuration, position: model.position,
                 clips: clips, playing: model.playing, trimming: model.trimming, playbackRate: model.playbackRate,
+                revealRequest: model.playheadRevealRequest,
                 zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
                 seek: model.seek, hover: model.skim, select: model.selectSegment,
                 beginTrim: model.beginTimelineTrim, trim: model.updateTimelineTrim,
@@ -192,14 +193,12 @@ struct EditorTimeline: View {
                 viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } },
                 overlays: overlayMarks, showsOverlayLane: showsOverlayLane,
                 selectOverlay: { id in
+                    guard !model.editingLocked, model.markupOverlays.contains(where: { $0.id == id }) else { return }
                     model.category = .markup
                     model.selectOverlay(id)
                 },
                 hatched: model.silenceHatching, music: musicBar,
-                selectMusic: {
-                    model.category = .video
-                    model.musicRevealRequest = UUID()
-                },
+                selectMusic: model.selectMusic,
                 step: model.stepFrame
             )
             .frame(
@@ -243,13 +242,13 @@ struct EditorTimeline: View {
             } label: {
                 Label("Duplicate", systemImage: "plus.square.on.square")
             }
-            .help("Duplicate Segment").disabled(!model.hasSelection)
+            .help("Duplicate Segment").disabled(!model.hasSelection || model.trimming)
             Button(role: .destructive) {
                 model.deleteSelection()
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-            .help("Delete Segment (⌫)").disabled(!model.hasSelection)
+            .help("Delete Segment (⌫)").disabled(!model.hasSelection || model.trimming)
             Menu {
                 segmentActions
             } label: {
@@ -305,9 +304,10 @@ struct EditorTimeline: View {
             Toggle("Reverse Segment", isOn: model.reversedBinding).disabled(!model.canToggleReverse)
                 .help(model.reverseUnavailableReason ?? "")
             Divider()
-            Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
+            Button("Move Segment Left") { model.moveSelection(-1) }
+                .disabled(model.trimming || model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
-                .disabled(model.values.selectedIndex == model.values.segments.count - 1)
+                .disabled(model.trimming || model.values.selectedIndex == model.values.segments.count - 1)
         }
     }
 
@@ -330,9 +330,10 @@ struct EditorTimeline: View {
             return TimelineActionState(
                 available: model.canReverse(id), checked: segment.isReversed,
                 reason: model.reverseUnavailableReason(for: segment))
-        case .left: return TimelineActionState(available: index > 0)
-        case .right: return TimelineActionState(available: index < model.values.segments.count - 1)
-        case .duplicate, .delete: return TimelineActionState()
+        case .left: return TimelineActionState(available: !model.trimming && index > 0)
+        case .right:
+            return TimelineActionState(available: !model.trimming && index < model.values.segments.count - 1)
+        case .duplicate, .delete: return TimelineActionState(available: !model.trimming)
         }
     }
 
@@ -362,9 +363,8 @@ struct EditorTimeline: View {
         let count = model.values.segments.count
         let numbered = count > 1
         let joined = model.originalSources.count > 1
-        let ranges = model.timelineRanges()
-        return model.values.segments.enumerated().map { index, segment in
-            let range = ranges[segment.id] ?? 0...0
+        return zip(model.values.segments, model.timelineRanges()).enumerated().map { index, pair in
+            let (segment, range) = pair
             let name = model.sourceName(segment)
             let fade = FadeRamp(
                 duration: range.upperBound - range.lowerBound, fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)

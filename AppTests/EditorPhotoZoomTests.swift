@@ -90,4 +90,36 @@ extension MediaEditorModelTests {
         XCTAssertEqual(model.livePhotoZoom(pinch: 100), 8.0, accuracy: 1e-9)
         XCTAssertEqual(try XCTUnwrap(model.livePhotoMagnification(pinch: 100)), 4.0, accuracy: 1e-9)
     }
+
+    func testPhotoZoomOutToLowerBoundLandsOnFitAndFollowsResize() async throws {
+        let model = try await photoModel()
+        model.updatePhotoFitScale(0.3)
+
+        let shortcut = EditorKeyboardShortcuts.ShortcutView()
+        shortcut.model = model
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = shortcut
+        defer { shortcut.stopMonitoring(); window.close() }
+
+        try sendEditorKey("+", modifiers: [.command, .shift], window: window)
+        XCTAssertEqual(model.photoZoom, .magnification(0.6))
+        try sendEditorKey("-", modifiers: [.command], window: window)
+        XCTAssertEqual(model.photoZoom, .fit, "Command-minus to the lower bound lands on Fit")
+        XCTAssertEqual(model.photoZoomStep, .fit)
+        model.updatePhotoFitScale(0.5)
+        XCTAssertEqual(model.photoZoom, .fit, "resizing follows Fit after zooming back out")
+        XCTAssertEqual(try XCTUnwrap(model.photoMagnification), 0.5, accuracy: 1e-9)
+
+        model.setPhotoZoomStep(.double)
+        XCTAssertEqual(model.photoZoomStep, .double)
+        model.setPhotoZoom(model.zoom * 0.1)
+        XCTAssertEqual(model.photoZoom, .fit, "pinching out to the lower bound lands on Fit")
+        XCTAssertEqual(model.photoZoomStep, .fit)
+        model.updatePhotoFitScale(0.75)
+        XCTAssertEqual(model.photoZoom, .fit)
+        XCTAssertEqual(try XCTUnwrap(model.photoMagnification), 0.75, accuracy: 1e-9)
+    }
 }

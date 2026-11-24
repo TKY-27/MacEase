@@ -24,13 +24,17 @@ extension MediaEditorModelTests {
             duration: 6, position: 1,
             clips: [
                 TimelineClip(
-                    id: first, range: 0...2, selection: nil, label: "", accessibilityName: "Segment 1 of 3"),
+                    id: first, range: 0...2, selection: nil, label: "",
+                    accessibility: .segment(
+                        index: 0, count: 3, sourceName: nil, freeze: false, reversed: false, speed: 1)),
                 TimelineClip(
                     id: frozen, range: 2...4, selection: 2...4, label: "", freeze: true,
-                    accessibilityName: "Segment 2 of 3", accessibilityStates: ["Freeze Frame"]),
+                    accessibility: .segment(
+                        index: 1, count: 3, sourceName: nil, freeze: true, reversed: false, speed: 1)),
                 TimelineClip(
                     id: reversed, range: 4...6, selection: nil, label: "",
-                    accessibilityName: "Segment 3 of 3", accessibilityStates: ["Reversed", "Speed 2×"]),
+                    accessibility: .segment(
+                        index: 2, count: 3, sourceName: nil, freeze: false, reversed: true, speed: 2)),
             ],
             playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
             seek: { _ in }, hover: { _ in }, select: { recorder.selected.append($0) }, beginTrim: { _, _ in },
@@ -180,14 +184,15 @@ extension MediaEditorModelTests {
     func testTimelineExposesOnlyNamedClipsAndRevealsAMovedPlayhead() throws {
         var zoom = 8.0
         var position = 0.5
+        var revealRequest: UUID?
         let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
         scroll.documentView = TimelineCanvas()
         func configure() {
             scroll.configuration = MediaTimeline(
                 duration: 10, position: position,
                 clips: [TimelineClip(id: UUID(), range: 0...10, selection: 0...10, label: "")], playing: false,
-                zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in }, hover: { _ in },
-                select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {},
+                revealRequest: revealRequest, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
+                seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {},
                 accessibilityTitle: "Waveform")
             scroll.updateTimeline()
         }
@@ -198,21 +203,13 @@ extension MediaEditorModelTests {
         XCTAssertEqual(canvas.accessibilityLabel(), "Waveform")
         let start = scroll.contentView.bounds
         position = 9
+        revealRequest = UUID()
         configure()
         let playhead = 9.0 / 10 * canvas.bounds.width
         XCTAssertFalse(start.contains(CGPoint(x: playhead, y: 10)))
         XCTAssertTrue(
             scroll.contentView.bounds.contains(CGPoint(x: playhead, y: 10)),
             "a keyboard step past the edge scrolls the playhead into view")
-    }
-
-    private final class ObservedTimelineCanvas: TimelineCanvas {
-        var notifications: [NSAccessibility.Notification] = []
-
-        override func postAccessibility(_ notification: NSAccessibility.Notification, on element: Any) {
-            notifications.append(notification)
-            super.postAccessibility(notification, on: element)
-        }
     }
 
     func testStaleAccessibilityActionsAndPressesRevalidateAtPerformTime() async throws {
@@ -250,7 +247,9 @@ extension MediaEditorModelTests {
             duration: 6, position: 1,
             clips: [
                 TimelineClip(
-                    id: clipID, range: 0...6, selection: nil, label: "", accessibilityName: "Segment 1 of 1")
+                    id: clipID, range: 0...6, selection: nil, label: "",
+                    accessibility: .segment(
+                        index: 0, count: 1, sourceName: nil, freeze: false, reversed: false, speed: 1))
             ],
             playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in },
             hover: { _ in }, select: { recorder.selected.append($0) }, beginTrim: { _, _ in }, trim: { _ in },
@@ -275,7 +274,9 @@ extension MediaEditorModelTests {
             duration: 6, position: 1,
             clips: [
                 TimelineClip(
-                    id: UUID(), range: 0...6, selection: nil, label: "", accessibilityName: "Segment 1 of 1")
+                    id: UUID(), range: 0...6, selection: nil, label: "",
+                    accessibility: .segment(
+                        index: 0, count: 1, sourceName: nil, freeze: false, reversed: false, speed: 1))
             ],
             playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in },
             hover: { _ in }, select: { recorder.selected.append($0) }, beginTrim: { _, _ in }, trim: { _ in },
@@ -326,22 +327,26 @@ extension MediaEditorModelTests {
         XCTAssertEqual((audioCanvas.accessibilityChildren() as? [NSAccessibilityElement])?.count, 0)
 
         var zoom = 1.0
-        let observed = ObservedTimelineCanvas(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
+        var notifications: [NSAccessibility.Notification] = []
+        let observed = TimelineCanvas(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
+        observed.postAccessibilityNotification = { notification, _ in notifications.append(notification) }
         observed.configuration = MediaTimeline(
             duration: 0, position: 0, clips: [], playing: false,
             zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in }, hover: { _ in },
             select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
         XCTAssertEqual((observed.accessibilityChildren() as? [NSAccessibilityElement])?.count, 0)
-        observed.notifications.removeAll()
+        notifications.removeAll()
         observed.configuration = MediaTimeline(
             duration: 5, position: 0,
             clips: [
                 TimelineClip(
-                    id: UUID(), range: 0...5, selection: nil, label: "", accessibilityName: "Segment 1 of 1")
+                    id: UUID(), range: 0...5, selection: nil, label: "",
+                    accessibility: .segment(
+                        index: 0, count: 1, sourceName: nil, freeze: false, reversed: false, speed: 1))
             ],
             playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in },
             hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
-        XCTAssertEqual(observed.notifications, [.layoutChanged])
+        XCTAssertEqual(notifications, [.layoutChanged])
         XCTAssertEqual((observed.accessibilityChildren() as? [NSAccessibilityElement])?.count, 2)
     }
 
@@ -361,7 +366,9 @@ extension MediaEditorModelTests {
                 label: "Box \(index + 1)", fill: .systemRed, text: .white, selected: index == 49)
         }
         let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 1200, height: 180))
-        let canvas = ObservedTimelineCanvas()
+        var notifications: [NSAccessibility.Notification] = []
+        let canvas = TimelineCanvas()
+        canvas.postAccessibilityNotification = { notification, _ in notifications.append(notification) }
         scroll.documentView = canvas
         func makeConfig(playing: Bool) -> MediaTimeline {
             MediaTimeline(
@@ -384,7 +391,7 @@ extension MediaEditorModelTests {
             scroll.configuration = makeConfig(playing: true)
             scroll.updateTimeline()
         }
-        XCTAssertTrue(canvas.notifications.isEmpty, "no notifications before VoiceOver queries children")
+        XCTAssertTrue(notifications.isEmpty, "no notifications before VoiceOver queries children")
 
         let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
         XCTAssertEqual(children.count, 401)
@@ -398,18 +405,31 @@ extension MediaEditorModelTests {
         XCTAssertEqual(hitClip.accessibilityLabel(), "Segment 300 of 300")
         XCTAssertTrue(hitClip === children.last)
 
-        canvas.notifications.removeAll()
+        notifications.removeAll()
         for tick in 11...20 {
             position = Double(tick) / 30.0
             scroll.configuration = makeConfig(playing: true)
             scroll.updateTimeline()
         }
-        XCTAssertTrue(canvas.notifications.isEmpty, "playback ticks with unchanged structure post no notifications")
+        XCTAssertTrue(notifications.isEmpty, "playback ticks with unchanged structure post no notifications")
 
         position = 5.0
         scroll.configuration = makeConfig(playing: false)
         scroll.updateTimeline()
-        XCTAssertEqual(canvas.notifications, [.valueChanged])
+        XCTAssertEqual(notifications, [.valueChanged])
+    }
+
+    private func sendHorizontalScrollWheel(to scroll: TimelineScrollView, deltaX: Int32 = -120) throws {
+        let cgEvent = try XCTUnwrap(
+            CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: deltaX, wheel3: 0))
+        let event = try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+        scroll.scrollWheel(with: event)
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(condition())
     }
 
     func testPlayheadFollowRulePagesWithoutFightingManualScrollOrTrim() throws {
@@ -417,6 +437,7 @@ extension MediaEditorModelTests {
         var position = 0.0
         var playing = false
         var trimming = false
+        var revealRequest: UUID?
         let clipID = UUID()
         let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
         scroll.documentView = TimelineCanvas()
@@ -424,8 +445,9 @@ extension MediaEditorModelTests {
             scroll.configuration = MediaTimeline(
                 duration: 10, position: position,
                 clips: [TimelineClip(id: clipID, range: 0...10, selection: 0...10, label: "")], playing: playing,
-                trimming: trimming, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
-                seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
+                trimming: trimming, revealRequest: revealRequest, zoom: Binding(get: { zoom }, set: { zoom = $0 }),
+                maximumZoom: 100, seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in },
+                trim: { _ in }, endTrim: {})
             scroll.updateTimeline()
         }
         configure()
@@ -450,6 +472,7 @@ extension MediaEditorModelTests {
             XCTAssertEqual(scroll.contentView.bounds.minX, pagedOrigin, "no scroll again until leaving the new page")
         }
 
+        try sendHorizontalScrollWheel(to: scroll)
         scroll.contentView.scroll(to: CGPoint(x: 3000, y: 0))
         scroll.reflectScrolledClipView(scroll.contentView)
         for next in [2.6, 3.0, 4.0] {
@@ -468,6 +491,7 @@ extension MediaEditorModelTests {
 
         playing = false
         position = 1.0
+        revealRequest = UUID()
         configure()
         XCTAssertTrue(scroll.contentView.bounds.contains(CGPoint(x: 1.0 / 10 * 4800, y: 10)))
         playing = true
@@ -482,8 +506,172 @@ extension MediaEditorModelTests {
         trimming = true
         let originBeforeTrim = scroll.contentView.bounds.minX
         position = 9.5
+        revealRequest = UUID()
         configure()
         XCTAssertEqual(scroll.contentView.bounds.minX, originBeforeTrim, "trimming never scrolls the timeline")
+    }
+
+    func testExplicitRevealAndUnfollowedPlaybackEndInEditorAndAudioTrimmer() async throws {
+        let model = try await videoModel()
+        model.timelineZoom = 8
+        let editorHost = NSHostingView(rootView: EditorTimeline(model: model))
+        let editorWindow = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 900, height: 220), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        editorWindow.isReleasedWhenClosed = false
+        editorWindow.contentView = editorHost
+        defer { editorWindow.close() }
+        editorHost.layoutSubtreeIfNeeded()
+        let editorScroll = try XCTUnwrap(timelineView(in: editorHost))
+        let editorCanvas = try XCTUnwrap(editorScroll.canvas)
+
+        model.seek(0.4)
+        editorHost.layoutSubtreeIfNeeded()
+        model.play()
+        editorHost.layoutSubtreeIfNeeded()
+        try sendHorizontalScrollWheel(to: editorScroll)
+        let farRightEditor = max(0, editorCanvas.bounds.width - editorScroll.contentView.bounds.width)
+        editorScroll.contentView.scroll(to: CGPoint(x: farRightEditor, y: 0))
+        editorScroll.reflectScrolledClipView(editorScroll.contentView)
+        XCTAssertFalse(editorScroll.contentView.bounds.contains(CGPoint(x: 0, y: 10)))
+
+        model.seek(0)
+        editorHost.layoutSubtreeIfNeeded()
+        XCTAssertTrue(
+            editorScroll.contentView.bounds.contains(CGPoint(x: 0, y: 10)),
+            "explicit seek to 0:00 during unfollowed playback reveals the playhead")
+
+        model.seek(1.75)
+        editorHost.layoutSubtreeIfNeeded()
+        model.play()
+        editorHost.layoutSubtreeIfNeeded()
+        try sendHorizontalScrollWheel(to: editorScroll, deltaX: 120)
+        editorScroll.contentView.scroll(to: .zero)
+        editorScroll.reflectScrolledClipView(editorScroll.contentView)
+        try await waitUntil { !model.playing }
+        editorHost.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            editorScroll.contentView.bounds.minX, 0, accuracy: 1,
+            "unfollowed playback reaching the end in the editor must not yank the view")
+
+        let directory = try workspace()
+        let audioModel = AudioTrimModel(
+            url: try audioFixture(in: directory), staging: StagingArea(supportDirectory: directory),
+            prefill: 0.2...0.5)
+        addTeardownBlock { await audioModel.close() }
+        await audioModel.load()
+        XCTAssertTrue(audioModel.ready)
+        audioModel.zoom = 8
+        let audioHost = NSHostingView(rootView: AudioTrimPanel(model: audioModel, cancel: {}, run: { _ in }))
+        let audioWindow = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 800, height: 320), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        audioWindow.isReleasedWhenClosed = false
+        audioWindow.contentView = audioHost
+        defer { audioWindow.close() }
+        audioHost.layoutSubtreeIfNeeded()
+        let audioScroll = try XCTUnwrap(timelineView(in: audioHost))
+        let audioCanvas = try XCTUnwrap(audioScroll.canvas)
+
+        audioModel.play()
+        audioHost.layoutSubtreeIfNeeded()
+        try sendHorizontalScrollWheel(to: audioScroll)
+        let farRightAudio = max(0, audioCanvas.bounds.width - audioScroll.contentView.bounds.width)
+        audioScroll.contentView.scroll(to: CGPoint(x: farRightAudio, y: 0))
+        audioScroll.reflectScrolledClipView(audioScroll.contentView)
+        try await waitUntil { !audioModel.playing }
+        audioHost.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            audioScroll.contentView.bounds.minX, farRightAudio, accuracy: 1,
+            "reaching Play Selection out point after manual scroll must not yank the view")
+
+        audioModel.seek(audioModel.start)
+        audioHost.layoutSubtreeIfNeeded()
+        let startX = audioModel.start / audioModel.duration * audioCanvas.bounds.width
+        XCTAssertTrue(
+            audioScroll.contentView.bounds.contains(CGPoint(x: startX, y: 10)),
+            "explicit seek in Audio Trimmer reveals the playhead")
+    }
+
+    func testWideningTimelineOnLastPageKeepsFollowingWhileScrollerDragStopsIt() throws {
+        var zoom = 8.0
+        var position = 9.0
+        var playing = false
+        let revealRequest: UUID? = UUID()
+        let clipID = UUID()
+        let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
+        scroll.hasHorizontalScroller = true
+        scroll.documentView = TimelineCanvas()
+        func configure() {
+            scroll.configuration = MediaTimeline(
+                duration: 10, position: position,
+                clips: [TimelineClip(id: clipID, range: 0...10, selection: 0...10, label: "")], playing: playing,
+                revealRequest: revealRequest, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
+                seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
+            scroll.updateTimeline()
+        }
+        configure()
+        playing = true
+        configure()
+        let canvas = try XCTUnwrap(scroll.canvas)
+        XCTAssertTrue(scroll.contentView.bounds.contains(CGPoint(x: 9.0 / 10 * canvas.bounds.width, y: 10)))
+
+        scroll.setFrameSize(NSSize(width: 900, height: 120))
+        scroll.layoutSubtreeIfNeeded()
+        position = 0.5
+        configure()
+        XCTAssertTrue(
+            scroll.contentView.bounds.contains(CGPoint(x: 0.5 / 10 * canvas.bounds.width, y: 10)),
+            "widening the view on the last page must keep playhead following on")
+
+        let scroller = try XCTUnwrap(scroll.horizontalScroller)
+        _ = scroller.sendAction(scroller.action, to: scroller.target)
+        scroll.contentView.scroll(to: CGPoint(x: 5000, y: 0))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        position = 1.5
+        configure()
+        XCTAssertEqual(scroll.contentView.bounds.minX, 5000, "dragging the scroller turns playhead following off")
+    }
+
+    func testSelectingUnknownTargetsLeavesModelSelectionUnchanged() async throws {
+        let model = try await videoModel()
+        let originalSegment = try XCTUnwrap(model.values.selectedID)
+        model.selectSegment(UUID())
+        XCTAssertEqual(model.values.selectedID, originalSegment)
+
+        model.addDefaultOverlay(.box)
+        let originalOverlay = try XCTUnwrap(model.values.selectedOverlayID)
+        model.selectOverlay(UUID())
+        XCTAssertEqual(model.values.selectedOverlayID, originalOverlay)
+        model.selectOverlay(nil)
+        XCTAssertNil(model.values.selectedOverlayID)
+
+        model.category = .markup
+        model.musicRevealRequest = nil
+        model.selectMusic()
+        XCTAssertEqual(model.category, .markup)
+        XCTAssertNil(model.musicRevealRequest)
+    }
+
+    func testSegmentListMutationsAreRefusedWhileTrimming() async throws {
+        let model = try await videoModel(count: 2)
+        let before = model.values.segments
+        model.seek(0.5)
+        model.beginTimelineTrim(before[0].id, start: true)
+        XCTAssertTrue(model.trimming)
+        let trimmedID = before[0].id
+        XCTAssertEqual(model.values.selectedID, trimmedID)
+
+        model.duplicateSelection()
+        model.deleteSelection()
+        model.moveSelection(1)
+        model.moveSegment(trimmedID, to: 1)
+        model.split()
+        XCTAssertEqual(model.values.segments, before)
+        XCTAssertEqual(model.values.selectedID, trimmedID)
+        XCTAssertEqual(model.timelineRanges().count, before.count)
+        await model.endTimelineTrim()
+        XCTAssertFalse(model.trimming)
     }
 
     func testCShortcutSelectsSegmentAtPlayheadAndDefersToTextAndLock() async throws {

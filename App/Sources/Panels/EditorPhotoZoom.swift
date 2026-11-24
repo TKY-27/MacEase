@@ -3,7 +3,6 @@ import SwiftUI
 enum PhotoZoomState: Equatable {
     case fit
     case magnification(Double)
-    case factor(Double)
 }
 
 /// Percentages are screen pixels per image pixel.
@@ -33,8 +32,7 @@ extension MediaEditorModel {
     var photoMagnification: Double? {
         switch photoZoom {
         case .fit: photoFitScale
-        case .magnification(let level): level
-        case .factor(let factor): photoFitScale.map { $0 * factor }
+        case .magnification(let level): photoFitScale == nil ? nil : level
         }
     }
 
