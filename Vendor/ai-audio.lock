@@ -34,18 +34,33 @@
       "license": "Apache-2.0"
     },
     {
+      "name": "onnxruntime_windowsml-1.28.2.202609030142-cp311-cp311-win_arm64.whl",
+      "url": "https://files.pythonhosted.org/packages/7d/4d/e2d19b7a59c75fe72e3b211975d60fb3c12e43dbeac391aadf78d4883aae/onnxruntime_windowsml-1.28.2.202609030142-cp311-cp311-win_arm64.whl",
+      "sha256": "95f4b53dd284052ff8b5a869d86cbc511342bec8e727249e4f3fcaece0dd99a8",
+      "bytes": 26167729,
+      "license": "MIT",
+      "purpose": "notice-package",
+      "project": "https://pypi.org/project/onnxruntime-windowsml/1.28.2.202609030142/"
+    },
+    {
       "name": "onnxruntime-LICENSE.txt",
-      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/v1.28.2/LICENSE",
       "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
       "bytes": 1073,
-      "license": "MIT"
+      "license": "MIT",
+      "archive": "onnxruntime_windowsml-1.28.2.202609030142-cp311-cp311-win_arm64.whl",
+      "member": "onnxruntime/LICENSE",
+      "normalization": "crlf-to-lf",
+      "rawSha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674"
     },
     {
       "name": "onnxruntime-ThirdPartyNotices.txt",
-      "url": "https://raw.githubusercontent.com/microsoft/onnxruntime/v1.28.2/ThirdPartyNotices.txt",
       "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2",
       "bytes": 325054,
-      "license": "Upstream notices"
+      "license": "Upstream notices",
+      "archive": "onnxruntime_windowsml-1.28.2.202609030142-cp311-cp311-win_arm64.whl",
+      "member": "onnxruntime/ThirdPartyNotices.txt",
+      "normalization": "crlf-to-lf",
+      "rawSha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866"
     },
     {
       "name": "gtcrn-LICENSE.txt",
@@ -207,8 +222,12 @@
       "name": "ONNX Runtime",
       "version": "1.28.2",
       "license": "MIT",
-      "source": "https://github.com/microsoft/onnxruntime/tree/v1.28.2",
-      "thirdPartyNotices": "licenses/onnxruntime-ThirdPartyNotices.txt"
+      "source": null,
+      "thirdPartyNotices": "licenses/onnxruntime-ThirdPartyNotices.txt",
+      "upstreamSource": "https://github.com/microsoft/onnxruntime/tree/v1.28.2",
+      "sourceCheckedAt": "2026-11-24",
+      "sourceStatus": "Unavailable (HTTP 404), including the official v1.28.2 source archive. No source distribution is published for the selected PyPI release. The binary wheel supplies license documents only, not corresponding source. Re-check upstream availability and v1.28.2 provenance before restoring the source link. MIT requires retaining copyright and permission notices; Eigen MPL-2.0 corresponding source remains bundled separately.",
+      "noticeProject": "https://pypi.org/project/onnxruntime-windowsml/1.28.2.202609030142/"
     }
   ]
 }

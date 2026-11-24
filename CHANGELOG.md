@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Build
+
+- Fetch ONNX Runtime license documents from a hash-pinned official PyPI package
+  when the upstream repository is unavailable, preserving existing document hashes.
+
 ### Changed
 
 - Restrict the bundled JavaScript solver to a CLI without file, process, network
