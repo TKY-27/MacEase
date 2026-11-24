@@ -19763,6 +19763,16 @@
           }
         }
       }
+    },
+    "This file references external media, so MacEase won't open it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは外部メディアを参照しているため、MacEaseでは開けません。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

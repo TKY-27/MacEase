@@ -3,9 +3,58 @@ import Engine
 import SwiftUI
 import os
 
+enum PreviewMediaAsset {
+    enum Playability {
+        case playable(AVURLAsset)
+        case unplayable
+        case forbiddenReference
+    }
+
+    static var forbiddenReferenceMessage: String {
+        String(localized: "This file references external media, so MacEase won't open it.")
+    }
+
+    // Blocks QuickTime reference movies reading other files.
+    static func make(_ url: URL) -> AVURLAsset {
+        AVURLAsset(
+            url: url,
+            options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
+    }
+
+    static func checkPlayability(_ url: URL) async throws -> Playability {
+        let asset = make(url)
+        do {
+            let playable = try await withTaskCancellationHandler {
+                try await asset.load(.isPlayable)
+            } onCancel: {
+                asset.cancelLoading()
+            }
+            return playable ? .playable(asset) : .unplayable
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if isReferenceForbidden(error) { return .forbiddenReference }
+            throw error
+        }
+    }
+
+    static func isReferenceForbidden(_ error: (any Error)?) -> Bool {
+        var current = error as NSError?
+        while let candidate = current {
+            if candidate.domain == AVFoundationErrorDomain,
+                candidate.code == AVError.Code.referenceForbiddenByReferencePolicy.rawValue
+            {
+                return true
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+}
+
 @MainActor
 @Observable
-private final class PreviewPlayback {
+final class PreviewPlayback {
     enum Phase: Equatable {
         case loading, playing, convertible
         case converting(Double?)
@@ -41,21 +90,31 @@ private final class PreviewPlayback {
     private let logger = Logger(category: "finder-preview")
 
     func load(_ url: URL, audioOnly: Bool, detected: DetectedContent?, restricted: Bool, staging: StagingArea) async {
-        let playable: Bool
+        let playability: PreviewMediaAsset.Playability
         do {
-            playable = try await Self.isPlayable(url)
+            playability = try await PreviewMediaAsset.checkPlayability(url)
         } catch is CancellationError {
             return
         } catch {
             logger.notice("AVFoundation cannot open the file: \(error.localizedDescription, privacy: .private)")
-            playable = false
+            playability = .unplayable
         }
         guard !Task.isCancelled else { return }
-        guard let detected else { return playable ? play(url) : fail("no detected content") }
+        if case .forbiddenReference = playability {
+            phase = .message(PreviewMediaAsset.forbiddenReferenceMessage)
+            return
+        }
+        let playableAsset: AVURLAsset? =
+            if case .playable(let asset) = playability { asset } else { nil }
+        guard let detected else {
+            return if let playableAsset { play(playableAsset) } else { fail("no detected content") }
+        }
         switch PreviewPlaybackDecision.evaluate(
-            role: audioOnly ? .audio : .video, isPlayable: playable, detected: detected, restricted: restricted)
+            role: audioOnly ? .audio : .video, isPlayable: playableAsset != nil, detected: detected,
+            restricted: restricted)
         {
-        case .playable: play(url)
+        case .playable:
+            if let playableAsset { play(playableAsset) } else { fail("playable asset missing") }
         case .convertible: await prepareConversion(url, audioOnly: audioOnly, staging: staging)
         case .refused(.restricted):
             phase = .message(
@@ -95,7 +154,7 @@ private final class PreviewPlayback {
             do {
                 let playback = try await source.playbackURL(progress: report)
                 try Task.checkCancellation()
-                self?.play(playback)
+                self?.play(PreviewMediaAsset.make(playback))
             } catch is CancellationError {
             } catch {
                 guard let self, !Task.isCancelled else { return }
@@ -111,12 +170,21 @@ private final class PreviewPlayback {
         phase = .converting(fraction)
     }
 
-    private func play(_ url: URL) {
-        let item = AVPlayerItem(url: url)
+    private func play(_ asset: AVURLAsset) {
+        let item = AVPlayerItem(asset: asset)
         statusObservation = item.observe(\.status) { [weak self] item, _ in
             guard item.status == .failed else { return }
-            let reason = item.error?.localizedDescription ?? ""
-            Task { @MainActor in self?.fail(reason) }
+            let error = item.error
+            let reason = error?.localizedDescription ?? ""
+            let forbidden = PreviewMediaAsset.isReferenceForbidden(error)
+            Task { @MainActor in
+                if forbidden {
+                    self?.stopPlayer()
+                    self?.phase = .message(PreviewMediaAsset.forbiddenReferenceMessage)
+                } else {
+                    self?.fail(reason)
+                }
+            }
         }
         player = AVPlayer(playerItem: item)
         phase = .playing
@@ -143,15 +211,6 @@ private final class PreviewPlayback {
         guard let source else { return }
         self.source = nil
         Task { await source.close() }
-    }
-
-    private static func isPlayable(_ url: URL) async throws -> Bool {
-        let asset = AVURLAsset(url: url)
-        return try await withTaskCancellationHandler {
-            try await asset.load(.isPlayable)
-        } onCancel: {
-            asset.cancelLoading()
-        }
     }
 }
 

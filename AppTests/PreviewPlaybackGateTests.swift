@@ -99,6 +99,67 @@ final class PreviewPlaybackGateTests: XCTestCase {
         await audioSource.close()
     }
 
+    @MainActor
+    func testQuickTimeReferenceMovieIsRefusedWithSpecificMessage() async throws {
+        let directory = try PreviewFixtures.directory(self)
+        let videoFixture = try XCTUnwrap(
+            Bundle(for: Self.self).url(forResource: "ffmpeg-h264-aac", withExtension: "mp4"))
+        let targetCopy = directory.appendingPathComponent("secret.mp4")
+        try FileManager.default.copyItem(at: videoFixture, to: targetCopy)
+        let referenceMovie = directory.appendingPathComponent("reference.mov")
+        try Self.makeQuickTimeReferenceMovie(referencing: "secret.mp4").write(to: referenceMovie)
+
+        // Control: unrestricted AVURLAsset resolves the sibling target.
+        let unrestrictedPlayable = try await AVURLAsset(url: referenceMovie).load(.isPlayable)
+        XCTAssertTrue(unrestrictedPlayable)
+
+        let asset = PreviewMediaAsset.make(referenceMovie)
+        XCTAssertEqual(asset.referenceRestrictions, .forbidAll)
+        let playability = try await PreviewMediaAsset.checkPlayability(referenceMovie)
+        guard case .forbiddenReference = playability else {
+            return XCTFail("expected forbiddenReference")
+        }
+
+        let staging = StagingArea(supportDirectory: directory)
+        let detected = try ContentSniffer.identify(referenceMovie)
+        for restricted in [false, true] {
+            let playback = PreviewPlayback()
+            await playback.load(
+                referenceMovie, audioOnly: false, detected: detected, restricted: restricted, staging: staging)
+            XCTAssertEqual(playback.phase, .message(PreviewMediaAsset.forbiddenReferenceMessage))
+            XCTAssertNil(playback.player)
+            playback.stop()
+        }
+    }
+
+    private static func makeQuickTimeReferenceMovie(referencing relativeTarget: String) -> Data {
+        func atom(_ type: String, _ payload: Data) -> Data {
+            var data = Data()
+            appendUInt32BE(&data, UInt32(8 + payload.count))
+            data.append(contentsOf: type.utf8)
+            data.append(payload)
+            return data
+        }
+        var rdrfPayload = Data([0, 0, 0, 0])
+        rdrfPayload.append(contentsOf: "url ".utf8)
+        var urlBytes = Data(relativeTarget.utf8)
+        urlBytes.append(0)
+        appendUInt32BE(&rdrfPayload, UInt32(urlBytes.count))
+        rdrfPayload.append(urlBytes)
+        let moov = atom("moov", atom("rmra", atom("rmda", atom("rdrf", rdrfPayload))))
+        var ftypPayload = Data("qt  ".utf8)
+        ftypPayload.append(contentsOf: [0x20, 0x05, 0x03, 0x00])
+        ftypPayload.append(contentsOf: "qt  ".utf8)
+        return atom("ftyp", ftypPayload) + moov
+    }
+
+    private static func appendUInt32BE(_ buffer: inout Data, _ value: UInt32) {
+        buffer.append(contentsOf: [
+            UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
+            UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+        ])
+    }
+
     private static func writeSilentPCM16WAV(to url: URL) throws {
         let sampleRate: UInt32 = 44_100
         let sampleCount: UInt32 = 4_410
