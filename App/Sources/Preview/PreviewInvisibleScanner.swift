@@ -65,6 +65,17 @@ enum PreviewInvisibleScanner {
     }
 
     static func scan(prefix: Substring, language: PreviewLanguage) throws -> [PreviewInvisibleCharacter] {
+        try scan(prefix, language: language, checkpoint: Task.checkCancellation)
+    }
+
+    // Short strings finish before any checkpoint.
+    static func flagged(in text: Substring) -> [PreviewInvisibleCharacter] {
+        scan(text, language: .plain) {}
+    }
+
+    private static func scan(
+        _ prefix: Substring, language: PreviewLanguage, checkpoint: () throws -> Void
+    ) rethrows -> [PreviewInvisibleCharacter] {
         let scalars = prefix.unicodeScalars
         guard !scalars.isEmpty else { return [] }
         let isProse = proseLanguages.contains(language)
@@ -79,7 +90,7 @@ enum PreviewInvisibleScanner {
 
         while index < scalars.endIndex {
             step &+= 1
-            if (step & (cancellationStride - 1)) == 0 { try Task.checkCancellation() }
+            if (step & (cancellationStride - 1)) == 0 { try checkpoint() }
 
             let scalar = scalars[index]
             let nextIndex = scalars.index(after: index)
