@@ -9,6 +9,8 @@ final class FinderSelectionReader {
     struct Selection: Sendable {
         let windowID: UInt32
         let urls: [URL]
+        /// Nil for Recents, searches and similar windows.
+        var folder: URL? = nil
     }
 
     enum Failure: Error {
@@ -66,14 +68,18 @@ final class FinderSelectionReader {
         private static let source = """
             with timeout of 2 seconds
                 tell application id "com.apple.finder"
-                    if (count of windows) is 0 then return {0, {}}
+                    if (count of windows) is 0 then return {0, {}, ""}
                     set windowID to id of front window
                     set selectedURLs to {}
                     repeat with selectedFile in (get selection)
                         set end of selectedURLs to URL of selectedFile
                     end repeat
-                    if windowID is not id of front window then return {0, {}}
-                    return {windowID, selectedURLs}
+                    set folderURL to ""
+                    try
+                        set folderURL to URL of (target of front window)
+                    end try
+                    if windowID is not id of front window then return {0, {}, ""}
+                    return {windowID, selectedURLs, folderURL}
                 end tell
             end timeout
             """
@@ -97,7 +103,7 @@ final class FinderSelectionReader {
                     let code = (failure[NSAppleScript.errorNumber] as? NSNumber)?.intValue
                     return .failure(rejected(code))
                 }
-                guard response.numberOfItems == 2, let identifier = response.atIndex(1),
+                guard response.numberOfItems == 3, let identifier = response.atIndex(1),
                     identifier.int32Value > 0, let selection = response.atIndex(2),
                     selection.descriptorType == typeAEList
                 else {
@@ -107,18 +113,24 @@ final class FinderSelectionReader {
                 var urls: [URL] = []
                 if selection.numberOfItems > 0 {
                     for index in 1...selection.numberOfItems {
-                        guard let address = selection.atIndex(index)?.stringValue,
-                            let url = URL(string: address), url.isFileURL,
-                            url.host == nil || url.host == "" || url.host == "localhost"
-                        else {
+                        guard let url = Self.localFileURL(selection.atIndex(index)?.stringValue) else {
                             logger.error("Finder returned an invalid file URL")
                             return .failure(.unavailable)
                         }
                         urls.append(url)
                     }
                 }
-                return .success(Selection(windowID: UInt32(identifier.int32Value), urls: urls))
+                // Recents and searches report no folder.
+                let folder = Self.localFileURL(response.atIndex(3)?.stringValue)
+                return .success(Selection(windowID: UInt32(identifier.int32Value), urls: urls, folder: folder))
             }
+        }
+
+        private static func localFileURL(_ address: String?) -> URL? {
+            guard let address, let url = URL(string: address), url.isFileURL,
+                url.host == nil || url.host == "" || url.host == "localhost"
+            else { return nil }
+            return url
         }
 
         private func rejected(_ code: Int?) -> Failure {
