@@ -200,10 +200,10 @@ final class PreviewTokenizerTests: XCTestCase {
             ),
             SnippetExpectation(
                 .php,
-                "# hash\n// slash\nfunction f(): string { $return = 'ok'; return $return; }",
+                "<?php\n# hash\n// slash\nfunction f(): string { $return = 'ok'; return $return; }",
                 required: [
-                    ("# hash", .comment), ("// slash", .comment), ("function", .keyword),
-                    ("string", .type), ("'ok'", .string),
+                    ("<?php", .keyword), ("# hash", .comment), ("// slash", .comment),
+                    ("function", .keyword), ("string", .type), ("'ok'", .string),
                 ],
                 forbidden: [("$return", .keyword)]
             ),
@@ -530,57 +530,299 @@ final class PreviewTokenizerTests: XCTestCase {
         }
     }
 
-    func testUnterminatedConstructsDoNotPaintLargeFiles() throws {
-        let filler = String(repeating: "let ok = 42\n", count: 400)
+    func testUnterminatedSingleQuotesStayBounded() throws {
+        let swiftFiller = String(repeating: "let ok = 42\n", count: 400)
+        let straySingleLine = "let broken = \"unterminated\n" + swiftFiller
+        let singleLineTokens = try PreviewTokenizer.tokens(straySingleLine, language: .swift)
+        XCTAssertEqual(singleLineTokens.filter { $0.kind == .keyword }.count, 401)
 
-        let strayQuote = "let broken = \"unterminated\n" + filler
-        let quoteTokens = try PreviewTokenizer.tokens(strayQuote, language: .swift)
-        XCTAssertGreaterThan(quoteTokens.filter { $0.kind == .keyword }.count, 350)
-
-        let unclosedComment = "/* unterminated comment\n" + filler
-        let commentTokens = try PreviewTokenizer.tokens(unclosedComment, language: .swift)
-        XCTAssertGreaterThan(commentTokens.filter { $0.kind == .keyword }.count, 100)
-
-        let unclosedTriple = "let s = \"\"\"\n" + filler
-        let tripleTokens = try PreviewTokenizer.tokens(unclosedTriple, language: .swift)
-        XCTAssertGreaterThan(tripleTokens.filter { $0.kind == .keyword }.count, 100)
+        let rubyFiller = String(repeating: "def ok; 42; end\n", count: 400)
+        let strayMultilineQuote = "s = 'unterminated\n" + rubyFiller
+        let multilineTokens = try PreviewTokenizer.tokens(strayMultilineQuote, language: .ruby)
+        XCTAssertGreaterThan(multilineTokens.filter { $0.kind == .keyword }.count, 200)
     }
 
-    func testInvisibleAndBidiOverrideCharactersAreMarkedWithoutFlaggingEmojiZWJ() throws {
-        let trojan =
-            "let ok = true // \u{202E} } if (isAdmin) {\u{2066} /* x */\u{2069}\n"
-            + "let z = \"a\u{200B}\u{200C}\u{200D}b\u{2060}\u{FEFF}\u{061C}\u{200E}\u{200F}\u{0007}\u{0085}\"\n"
-        let tokens = try PreviewTokenizer.tokens(trojan, language: .swift)
-        let invisible = tokens.filter { $0.kind == .invisible }
-        let source = trojan as NSString
+    func testLongUnambiguousBlocksDoNotInvertParity() throws {
+        let cBody = String(
+            repeating: " * License clause line with 80 chars padding for testing long header blocks.\n", count: 300)
+        let cSource = "/*\n" + cBody + " */\nint status = 1;\n"
+        let cTokens = try PreviewTokenizer.tokens(cSource, language: .c)
+        let cNS = cSource as NSString
+        let cComments = cTokens.filter { $0.kind == .comment }
+        XCTAssertEqual(cComments.count, 1)
+        XCTAssertEqual(cComments[0].range, NSRange(location: 0, length: ("/*\n" + cBody + " */" as NSString).length))
+        XCTAssertTrue(cTokens.contains { $0.kind == .type && cNS.substring(with: $0.range) == "int" })
+        XCTAssertTrue(cTokens.contains { $0.kind == .number && cNS.substring(with: $0.range) == "1" })
+
+        let pyBody = String(repeating: "Documentation paragraph line.\n", count: 400)
+        let pySource =
+            "def f():\n    \"\"\"\n" + pyBody
+            + "    \"\"\"\n    return 1\n\ndef g():\n    \"\"\"short\"\"\"\n    return 2\n"
+        let pyTokens = try PreviewTokenizer.tokens(pySource, language: .python)
+        let pyNS = pySource as NSString
+        let pyStrings = pyTokens.filter { $0.kind == .string }
+        XCTAssertEqual(pyStrings.count, 2)
+        XCTAssertEqual(pyNS.substring(with: pyStrings[1].range), "\"\"\"short\"\"\"")
         XCTAssertEqual(
-            invisible.map { source.substring(with: $0.range) },
+            pyTokens.filter { $0.kind == .keyword }.map { pyNS.substring(with: $0.range) },
+            ["def", "return", "def", "return"])
+
+        let mdBody = String(repeating: "let line = 1\n", count: 300)
+        let mdBacktick = "```swift\n" + mdBody + "```\n## Next heading\n"
+        let mdBacktickTokens = try PreviewTokenizer.tokens(mdBacktick, language: .markdown)
+        let mdBacktickNS = mdBacktick as NSString
+        XCTAssertEqual(mdBacktickTokens.count, 2)
+        XCTAssertEqual(mdBacktickTokens[0].kind, .string)
+        XCTAssertEqual(mdBacktickTokens[1].kind, .keyword)
+        XCTAssertEqual(mdBacktickNS.substring(with: mdBacktickTokens[1].range), "## Next heading")
+
+        let mdTilde = "~~~python\n" + mdBody + "~~~\n## After tilde\n    # indented comment\n"
+        let mdTildeTokens = try PreviewTokenizer.tokens(mdTilde, language: .markdown)
+        let mdTildeNS = mdTilde as NSString
+        XCTAssertEqual(mdTildeTokens.count, 2)
+        XCTAssertEqual(mdTildeTokens[0].kind, .string)
+        XCTAssertEqual(mdTildeTokens[1].kind, .keyword)
+        XCTAssertEqual(mdTildeNS.substring(with: mdTildeTokens[1].range), "## After tilde")
+    }
+
+    func testPHPTemplatesAndShellAnsiCQuotes() throws {
+        let phpTemplate = """
+            <p>Don't forget to sign in.</p>
+            <?php
+            $user = 'admin';
+            echo $user;
+            ?>
+            <p>Footer's fine</p>
+            <?= $user ?>
+            """
+        let phpTokens = try PreviewTokenizer.tokens(phpTemplate, language: .php)
+        let phpNS = phpTemplate as NSString
+        let phpPairs = phpTokens.map { (phpNS.substring(with: $0.range), $0.kind) }
+        XCTAssertEqual(phpPairs.map(\.0), ["<p", "</p", "<?php", "'admin'", "echo", "?>", "<p", "</p", "<?=", "?>"])
+        XCTAssertEqual(
+            phpPairs.map(\.1),
+            [.keyword, .keyword, .keyword, .string, .keyword, .keyword, .keyword, .keyword, .keyword, .keyword])
+
+        let shellSample = """
+            echo $'it\\'s escaped' "don't"
+            if true; then
+              echo ok
+            fi
+            """
+        let shellTokens = try PreviewTokenizer.tokens(shellSample, language: .shell)
+        let shellNS = shellSample as NSString
+        XCTAssertEqual(
+            shellTokens.filter { $0.kind == .string }.map { shellNS.substring(with: $0.range) },
+            ["$'it\\'s escaped'", "\"don't\""])
+        XCTAssertEqual(
+            shellTokens.filter { $0.kind == .keyword }.map { shellNS.substring(with: $0.range) },
+            ["if", "true", "then", "fi"])
+    }
+
+    func testDiffHeadersDoNotMisclassifyHunkLines() throws {
+        let patch = """
+            diff --git a/query.sql b/query.sql
+            --- a/query.sql
+            +++ b/query.sql
+            @@ -1,3 +1,3 @@
+            --- removed sql comment
+            +++ added line
+             context
+            """
+        let tokens = try PreviewTokenizer.tokens(patch, language: .diff)
+        let ns = patch as NSString
+        XCTAssertEqual(
+            tokens.map { (ns.substring(with: $0.range), $0.kind) }.map(\.0),
             [
-                "\u{202E}", "\u{2066}", "\u{2069}", "\u{200B}", "\u{200C}", "\u{200D}",
-                "\u{2060}", "\u{FEFF}", "\u{061C}", "\u{200E}", "\u{200F}", "\u{0007}", "\u{0085}",
+                "diff --git a/query.sql b/query.sql",
+                "--- a/query.sql",
+                "+++ b/query.sql",
+                "@@ -1,3 +1,3 @@",
+                "--- removed sql comment",
+                "+++ added line",
             ])
+        XCTAssertEqual(
+            tokens.map(\.kind),
+            [.keyword, .keyword, .keyword, .number, .diffRemoved, .diffAdded])
 
-        let plainTrojan = "plain\u{202E}text\u{200D}here"
-        let plainTokens = try PreviewTokenizer.tokens(plainTrojan, language: .plain)
-        XCTAssertEqual(plainTokens.map(\.kind), [.invisible, .invisible])
+        let concatenated = """
+            --- a/first.sql
+            +++ b/first.sql
+            @@ -1 +1 @@
+            --- old comment
+            --- a/second.sql
+            +++ b/second.sql
+            @@ -1 +1 @@
+            -old
+            """
+        let concatTokens = try PreviewTokenizer.tokens(concatenated, language: .diff)
+        let concatNS = concatenated as NSString
+        XCTAssertEqual(
+            concatTokens.map { (concatNS.substring(with: $0.range), $0.kind) }.map(\.1),
+            [.keyword, .keyword, .number, .diffRemoved, .keyword, .keyword, .number, .diffRemoved])
+        XCTAssertEqual(concatNS.substring(with: concatTokens[3].range), "--- old comment")
+        XCTAssertEqual(concatNS.substring(with: concatTokens[4].range), "--- a/second.sql")
+    }
 
-        let cjkText = "日本語のテスト\t简体中文\n한국어 텍스트\r\n"
-        XCTAssertTrue(try PreviewTokenizer.tokens(cjkText, language: .plain).isEmpty)
+    func testINICommentsRequireLineStartOrWhitespace() throws {
+        let envFile = """
+            ; full line comment
+            DATABASE_URL=Server=db;Database=app
+            THEME_COLOR=#336699
+            PORT=8080 # trailing hash
+            HOST=localhost ; trailing semi
+            """
+        let tokens = try PreviewTokenizer.tokens(envFile, language: .ini)
+        let ns = envFile as NSString
+        let comments = tokens.filter { $0.kind == .comment }.map { ns.substring(with: $0.range) }
+        XCTAssertEqual(comments, ["; full line comment", "# trailing hash", "; trailing semi"])
+        XCTAssertEqual(
+            tokens.filter { $0.kind == .keyword }.map { ns.substring(with: $0.range) },
+            ["DATABASE_URL", "THEME_COLOR", "PORT", "HOST"])
+    }
 
-        let emojiSequences =
-            "let family = \"👨\u{200D}👩\u{200D}👧\u{200D}👦 👩\u{200D}💻 🏳\u{FE0F}\u{200D}🌈 ❤\u{FE0F}\u{200D}🔥 👩🏽\u{200D}🚀\""
-        let emojiTokens = try PreviewTokenizer.tokens(emojiSequences, language: .swift)
-        XCTAssertTrue(emojiTokens.filter { $0.kind == .invisible }.isEmpty)
+    func testDotAccessYAMLHyphensCSSSelectorsAndSwiftRawStrings() throws {
+        let jsSample = "map.get(key); params.set(k, v); event.type; obj.default; const x = 1;"
+        let jsTokens = try PreviewTokenizer.tokens(jsSample, language: .javascript)
+        let jsNS = jsSample as NSString
+        XCTAssertEqual(
+            jsTokens.filter { $0.kind == .keyword }.map { jsNS.substring(with: $0.range) },
+            ["const"])
 
-        let digitZWJ = "1\u{200D}2"
-        XCTAssertEqual(try PreviewTokenizer.tokens(digitZWJ, language: .plain).map(\.kind), [.invisible])
+        let yamlSample = "runs-on: macos-15\ntimeout-minutes: 30\n"
+        let yamlTokens = try PreviewTokenizer.tokens(yamlSample, language: .yaml)
+        let yamlNS = yamlSample as NSString
+        XCTAssertEqual(
+            yamlTokens.filter { $0.kind == .keyword }.map { yamlNS.substring(with: $0.range) },
+            ["runs-on", "timeout-minutes"])
+
+        let cssSample = """
+            a:hover, li:first-child { color: red; }
+            .card { a:hover { margin: 0; } }
+            .min{padding:4px;}
+            """
+        let cssTokens = try PreviewTokenizer.tokens(cssSample, language: .css)
+        let cssNS = cssSample as NSString
+        XCTAssertEqual(
+            cssTokens.filter { $0.kind == .keyword }.map { cssNS.substring(with: $0.range) },
+            ["color", "margin", "padding"])
+
+        let swiftSample = """
+            let a = #"quote " inside"#
+            let b = ##"hash "# inside"##
+            let c = #\"\"\"
+            multi " quote
+            \"\"\"#
+            """
+        let swiftTokens = try PreviewTokenizer.tokens(swiftSample, language: .swift)
+        let swiftNS = swiftSample as NSString
+        XCTAssertEqual(
+            swiftTokens.filter { $0.kind == .string }.map { swiftNS.substring(with: $0.range) },
+            [
+                "#\"quote \" inside\"#",
+                "##\"hash \"# inside\"##",
+                "#\"\"\"\nmulti \" quote\n\"\"\"#",
+            ])
+    }
+
+    func testTokenRangesNeverSplitSurrogatePairs() throws {
+        let latex = "\\😀 text"
+        let latexTokens = try PreviewTokenizer.tokens(latex, language: .latex)
+        XCTAssertEqual(latexTokens.count, 1)
+        XCTAssertEqual(latexTokens[0].kind, .keyword)
+        XCTAssertEqual(latexTokens[0].range, NSRange(location: 0, length: 3))
+
+        let capStraddle = "\"" + String(repeating: "a", count: 16_382) + "😀tail"
+        let capTokens = try PreviewTokenizer.tokens(capStraddle, language: .rust)
+        let stringToken = try XCTUnwrap(capTokens.first { $0.kind == .string })
+        XCTAssertEqual(stringToken.range, NSRange(location: 0, length: 16_383))
+
+        let escapedStraddle = "\"" + String(repeating: "a", count: 16_381) + "\\😀tail"
+        let escapedTokens = try PreviewTokenizer.tokens(escapedStraddle, language: .rust)
+        assertNoSurrogateSplits(in: escapedStraddle, tokens: escapedTokens)
+
+        let probes = [
+            "\\😀 \\🚀 % 😀\n",
+            "\"a😀b\" '😀' /* 😀 */ // 😀\n",
+            String(repeating: "😀\\😀\"😀", count: 200),
+        ]
+        for language in [PreviewLanguage.latex, .swift, .rust, .ruby, .python, .markdown, .php] {
+            for probe in probes {
+                let tokens = try PreviewTokenizer.tokens(probe, language: language)
+                assertNoSurrogateSplits(in: probe, tokens: tokens)
+            }
+        }
+    }
+
+    func testInvisibleAndConfusablePolicyCoversAttackClassesWithoutFlaggingNaturalText() throws {
+        let alwaysFlagged =
+            "a\u{202A}\u{202E}\u{2066}\u{2069}\u{0007}\u{007F}\u{0085}"
+            + "\u{200B}\u{2060}\u{2062}\u{FEFF}\u{2028}\u{2029}"
+            + "\u{E0041}\u{E0042}\u{115F}\u{1160}\u{3164}\u{FFA0}\u{180E}\u{2800}"
+            + "\u{034F}\u{17B4}\u{FFF9}b"
+        let alwaysMarks = try PreviewTokenizer.invisibleCharacters(alwaysFlagged, language: .plain)
+        XCTAssertEqual(
+            alwaysMarks.map(\.codePointLabel),
+            [
+                "U+202A", "U+202E", "U+2066", "U+2069", "U+0007", "U+007F", "U+0085",
+                "U+200B", "U+2060", "U+2062", "U+FEFF", "U+2028", "U+2029",
+                "U+E0041", "U+E0042", "U+115F", "U+1160", "U+3164", "U+FFA0", "U+180E", "U+2800",
+                "U+034F", "U+17B4", "U+FFF9",
+            ])
+        let tagMark = try XCTUnwrap(alwaysMarks.first { $0.scalar == Unicode.Scalar(0xE0041) })
+        XCTAssertEqual(tagMark.range.length, 2)
+
+        XCTAssertTrue(try PreviewTokenizer.invisibleCharacters("\u{FEFF}leading BOM", language: .plain).isEmpty)
+
+        let validFlag = "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}"
+        XCTAssertTrue(try PreviewTokenizer.invisibleCharacters(validFlag, language: .plain).isEmpty)
+
+        let unclosedTag = "🏴\u{E0041}"
+        let unclosedMarks = try PreviewTokenizer.invisibleCharacters(unclosedTag, language: .plain)
+        XCTAssertEqual(unclosedMarks.map(\.codePointLabel), ["U+E0041"])
+
+        let vsAttack = "\u{FE00} a\u{FE00} 😀\u{E0100} 😀\u{FE0F}\u{FE0F}"
+        let vsMarks = try PreviewTokenizer.invisibleCharacters(vsAttack, language: .plain)
+        XCTAssertEqual(vsMarks.map(\.codePointLabel), ["U+FE00", "U+FE00", "U+E0100", "U+FE0F"])
+
+        let validVS = "❤\u{FE0F} 🏳\u{FE0F} 1\u{FE0F}\u{20E3} 葛\u{E0100}"
+        XCTAssertTrue(try PreviewTokenizer.invisibleCharacters(validVS, language: .plain).isEmpty)
+
+        let asciiAdjacent = "admin\u{200D}user 1\u{200D}2 a\u{200C}b a\u{200E}b a\u{200F}b a\u{061C}b"
+        let adjacentMarks = try PreviewTokenizer.invisibleCharacters(asciiAdjacent, language: .plain)
+        XCTAssertEqual(
+            adjacentMarks.map(\.codePointLabel),
+            ["U+200D", "U+200D", "U+200C", "U+200E", "U+200F", "U+061C"])
+
+        let codeSoftHyphen = "let is\u{00AD}Admin = true"
+        let codeSoftMarks = try PreviewTokenizer.invisibleCharacters(codeSoftHyphen, language: .swift)
+        XCTAssertEqual(codeSoftMarks.map(\.codePointLabel), ["U+00AD"])
+
+        let naturalParagraphs: [(String, String)] = [
+            ("persian", "من می\u{200C}خواهم این کتاب\u{200C}ها را بخوانم و خانه\u{200C}ها را ببینم."),
+            ("hindi", "हिन्दी पाठ में क्\u{200D}ष और र\u{200D}\u{094D}य जैसे संयुक्त अक्षर होते हैं।"),
+            ("malayalam", "അവന്\u{200D} വന്നു. അവള്\u{200D} പോയി. അവര്\u{200D} കണ്ടു."),
+            ("hebrew", "שלום \u{200F}עולם\u{200F} (123)\u{200E} — בדיקת כיווניות בטקסט רגיל."),
+            (
+                "german",
+                "Die Donau\u{00AD}dampf\u{00AD}schiff\u{00AD}fahrts\u{00AD}gesell\u{00AD}schaft baut Schiffe mit Geschwindig\u{00AD}keits\u{00AD}begren\u{00AD}zung."
+            ),
+            (
+                "cjk-emoji",
+                "日本語のテスト\t简体中文\n한국어 텍스트\r\n👨\u{200D}👩\u{200D}👧\u{200D}👦 👩\u{200D}💻 🏳\u{FE0F}\u{200D}🌈 ❤\u{FE0F}\u{200D}🔥 👩🏽\u{200D}🚀"
+            ),
+        ]
+        for (label, text) in naturalParagraphs {
+            let marks = try PreviewTokenizer.invisibleCharacters(text, language: .plain)
+            XCTAssertTrue(marks.isEmpty, "\(label) unexpectedly flagged: \(marks.map(\.codePointLabel))")
+        }
 
         let beyondCap = String(repeating: "a", count: PreviewTextSource.highlightBytes) + "\u{202E}"
         XCTAssertTrue(try PreviewTokenizer.tokens(beyondCap, language: .plain).isEmpty)
     }
 
     @MainActor
-    func testDiffAndInvisibleAttributesRenderWithAppearanceAwareTints() throws {
+    func testDiffAndInvisibleAttributesKeepCopyAndAvoidShapingBreakage() throws {
         let directory = try PreviewFixtures.directory(self)
         let patchURL = directory.appendingPathComponent("change.diff")
         let patchText = "--- a/x.swift\n+++ b/x.swift\n@@ -1 +1 @@\n-old\n+new\u{202E}\n"
@@ -598,6 +840,10 @@ final class PreviewTokenizerTests: XCTestCase {
         XCTAssertTrue(textView.writeSelection(to: pasteboard, types: textView.writablePasteboardTypes))
         XCTAssertEqual(pasteboard.string(forType: .string), patchText)
 
+        let invisibleTokens = rendering.tokens.filter { $0.kind == .invisible }
+        XCTAssertEqual(invisibleTokens.count, 1)
+        XCTAssertEqual(invisibleTokens[0].invisibleScalar, Unicode.Scalar(0x202E))
+
         let storage = try XCTUnwrap(textView.textStorage)
         let addedOffset = (patchText as NSString).range(of: "+new").location
         let removedOffset = (patchText as NSString).range(of: "-old").location
@@ -607,10 +853,10 @@ final class PreviewTokenizerTests: XCTestCase {
             storage.attribute(.backgroundColor, at: addedOffset, effectiveRange: nil) as? NSColor)
         let removedBg = try XCTUnwrap(
             storage.attribute(.backgroundColor, at: removedOffset, effectiveRange: nil) as? NSColor)
-        let bidiUnderline = storage.attribute(.underlineStyle, at: bidiOffset, effectiveRange: nil) as? Int
-        let bidiToolTip = storage.attribute(.toolTip, at: bidiOffset, effectiveRange: nil) as? String
-        XCTAssertEqual(bidiUnderline, NSUnderlineStyle.single.rawValue)
-        XCTAssertEqual(bidiToolTip, "U+202E")
+        XCTAssertNotNil(storage.attribute(.backgroundColor, at: bidiOffset, effectiveRange: nil) as? NSColor)
+        XCTAssertNil(storage.attribute(.kern, at: bidiOffset, effectiveRange: nil))
+        XCTAssertNil(storage.attribute(.underlineStyle, at: bidiOffset, effectiveRange: nil))
+        XCTAssertNil(storage.attribute(.underlineColor, at: bidiOffset, effectiveRange: nil))
 
         XCTAssertNotEqual(resolvedAlpha(of: addedBg, in: .aqua), resolvedAlpha(of: addedBg, in: .darkAqua))
         XCTAssertNotEqual(resolvedAlpha(of: removedBg, in: .aqua), resolvedAlpha(of: removedBg, in: .darkAqua))
@@ -622,35 +868,103 @@ final class PreviewTokenizerTests: XCTestCase {
             PreviewTextView.diffBackgroundColor(added: false, dark: true, highContrast: false).alphaComponent)
     }
 
-    func testPathologicalAndLarge512KiBInputsStayLinearAndWithinBound() throws {
-        let budgetSeconds = 0.5
-        let cases: [(String, PreviewLanguage, String)] = [
-            ("swift-512k", .swift, Self.make512KiB("struct Box { let n: Int = 42 // note\n  let s = \"hi\"\n}\n")),
-            ("rust-512k", .rust, Self.make512KiB("fn f<'a>(x: &'a str) -> usize { /* a */ x.len() + 1 }\n")),
-            ("python-512k", .python, Self.make512KiB("# note\ndef f(x: int):\n    return r\"ok\" + str(x)\n")),
-            ("sql-512k", .sql, Self.make512KiB("-- q\nSELECT count(*) FROM items WHERE name = 'it''s' AND id = 1;\n")),
-            ("markup-512k", .markup, Self.make512KiB("<div class=\"c\">don't</div><script>const x = 1;</script>\n")),
-            ("single-line-512k", .swift, Self.make512KiB("let alpha = 123 + beta * \"text\" + gamma; ")),
-            ("only-dquotes-512k", .javascript, String(repeating: "\"", count: 512 * 1024)),
-            ("only-squotes-512k", .javascript, String(repeating: "'", count: 512 * 1024)),
+    func testHeredocAndPathologicalInputsScaleLinearly() throws {
+        let heredocLanguages: [(PreviewLanguage, String)] = [
+            (.shell, ""),
+            (.ruby, ""),
+            (.php, "<?php "),
+            (.perl, ""),
+            (.hcl, ""),
+        ]
+        for (language, prefix) in heredocLanguages {
+            let small = prefix + String(repeating: "x<<A ", count: 3_000)
+            let large = prefix + String(repeating: "x<<A ", count: 12_000)
+            let smallTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(small, language: language) }
+            let largeTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(large, language: language) }
+            let ratio = largeTime / max(smallTime, 1e-6)
+            XCTAssertLessThan(
+                ratio, 8.0,
+                "\(language) heredoc scaled superlinearly: \(smallTime)s -> \(largeTime)s (ratio \(ratio))")
+        }
+
+        let scalingCases: [(String, PreviewLanguage, (Int) -> String)] = [
             (
-                "nested-comments-512k", .rust,
-                String(repeating: "/*", count: 128 * 1024) + String(repeating: "*/", count: 128 * 1024)
+                "swift", .swift,
+                { String(repeating: "struct Box { let n: Int = 42 // note\n  let s = \"hi\"\n}\n", count: $0) }
             ),
-            ("unclosed-nested-512k", .swift, String(repeating: "/*", count: 256 * 1024)),
             (
-                "minified-js-512k", .javascript,
-                Self.make512KiB(
-                    "function a(b,c){var d=\"str\\\"ing\",e=12345.67,f=true;return b?c+d.length+e:(f&&null)||'x';}")
+                "minified-js", .javascript,
+                {
+                    String(
+                        repeating:
+                            "function a(b,c){var d=\"str\\\"ing\",e=12345.67,f=true;return b?c+d.length+e:(f&&null)||'x';}",
+                        count: $0)
+                }
+            ),
+            ("only-dquotes", .javascript, { String(repeating: "\"", count: $0 * 40) }),
+            ("only-lt", .markup, { String(repeating: "<", count: $0 * 40) }),
+            (
+                "nested-comments", .rust,
+                { String(repeating: "/*", count: $0 * 20) + String(repeating: "*/", count: $0 * 20) }
             ),
         ]
-        for (name, language, input) in cases {
-            let start = CFAbsoluteTimeGetCurrent()
-            let tokens = try PreviewTokenizer.tokens(input, language: language)
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            XCTAssertFalse(tokens.isEmpty, name)
-            XCTAssertLessThan(elapsed, budgetSeconds, "\(name) took \(elapsed)s")
+        for (name, language, builder) in scalingCases {
+            let small = builder(400)
+            let large = builder(1_600)
+            let smallTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(small, language: language) }
+            let largeTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(large, language: language) }
+            let ratio = largeTime / max(smallTime, 1e-6)
+            XCTAssertLessThan(
+                ratio, 8.0,
+                "\(name) scaled superlinearly: \(smallTime)s -> \(largeTime)s (ratio \(ratio))")
         }
+
+        let large512Cases: [(String, PreviewLanguage, String)] = [
+            ("heredoc-512k", .shell, Self.make512KiB("x<<A ")),
+            ("swift-512k", .swift, Self.make512KiB("struct Box { let n: Int = 42 // note\n  let s = \"hi\"\n}\n")),
+            ("unclosed-nested-512k", .swift, String(repeating: "/*", count: 256 * 1024)),
+        ]
+        for (name, language, input) in large512Cases {
+            let tokens = try PreviewTokenizer.tokens(input, language: language)
+            if name == "heredoc-512k" {
+                XCTAssertTrue(tokens.isEmpty, name)
+            } else {
+                XCTAssertFalse(tokens.isEmpty, name)
+            }
+        }
+    }
+
+    private func assertNoSurrogateSplits(
+        in text: String, tokens: [PreviewToken], file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let units = Array(text.utf16)
+        for token in tokens {
+            let start = token.range.location
+            let end = token.range.location + token.range.length
+            XCTAssertGreaterThanOrEqual(start, 0, file: file, line: line)
+            XCTAssertLessThanOrEqual(end, units.count, file: file, line: line)
+            if start < units.count {
+                XCTAssertFalse(
+                    UTF16.isTrailSurrogate(units[start]),
+                    "Token starts on trail surrogate at \(start)", file: file, line: line)
+            }
+            if end > 0, end < units.count {
+                XCTAssertFalse(
+                    UTF16.isLeadSurrogate(units[end - 1]) && UTF16.isTrailSurrogate(units[end]),
+                    "Token ends inside surrogate pair at \(end)", file: file, line: line)
+            }
+        }
+    }
+
+    private func minimumElapsed(_ body: () throws -> Void) throws -> Double {
+        var best = Double.greatestFiniteMagnitude
+        for _ in 0..<3 {
+            let start = CFAbsoluteTimeGetCurrent()
+            try body()
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            if elapsed < best { best = elapsed }
+        }
+        return best
     }
 
     private func resolvedAlpha(of color: NSColor, in appearanceName: NSAppearance.Name) -> CGFloat {
