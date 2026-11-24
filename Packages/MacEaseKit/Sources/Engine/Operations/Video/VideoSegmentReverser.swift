@@ -253,7 +253,7 @@ public enum VideoSegmentReverser {
         guard !frameRanges.isEmpty else { throw EngineError.decodeFailed("no frame in selected segment") }
         let frames = try ReverseFrameSource(
             input: input, index: index, frameRanges: frameRanges, duration: range.upperBound - range.lowerBound,
-            hdr: hdr?.configuration, directory: stagingDirectory)
+            outputSize: outputSize, hdr: hdr?.configuration, directory: stagingDirectory)
         var encoding = VideoEncoding(
             codec: .hevc, width: outputSize.width, height: outputSize.height,
             frameDuration: input.frameDuration, bitrate: nil)
@@ -394,7 +394,7 @@ public enum VideoSegmentReverser {
 
         init(
             input: MediaInput, index: EditorFrameIndex, frameRanges: [Range<Int64>], duration: Int64,
-            hdr: VideoHDRConfiguration?, directory: URL
+            outputSize: PixelSize, hdr: VideoHDRConfiguration?, directory: URL
         ) throws {
             self.input = input
             self.index = index
@@ -441,12 +441,20 @@ public enum VideoSegmentReverser {
                     return Int64(
                         (Double(duration) / Double(Nanoseconds.perSecond) * rate * Double(channels) * 4).rounded(.up))
                 } ?? 0
+            let outputRowBytes =
+                ((outputSize.width * pixelBytes + Self.rowAlignment - 1)
+                    / Self.rowAlignment) * Self.rowAlignment
+            let outputRows =
+                nativePixels || hdr != nil
+                ? outputSize.height + (outputSize.height + 1) / 2 : outputSize.height
+            let outputFrameBytes = Int64(outputRowBytes) * Int64(outputRows) + Int64(Self.frameOverhead)
+            let outputBytes = Int64(frameRanges.count) * outputFrameBytes
             let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityKey])
             guard let available = values.volumeAvailableCapacity else {
                 throw EngineError.encodeFailed("Cannot determine free space for reverse staging.")
             }
             try VideoSegmentReverser.requireCapacity(
-                required: spillBytes + audioBytes + Self.outputReserve, available: Int64(available))
+                required: spillBytes + audioBytes + outputBytes + Self.outputReserve, available: Int64(available))
         }
 
         func image(at position: Int) async throws -> CVPixelBuffer {
