@@ -11,9 +11,8 @@ extension MediaEditorModel {
     func frameRange(at seconds: Double, segment: VideoSegment, source: VideoEditorSource) async throws
         -> ClosedRange<Double>
     {
-        let sourceDuration = values.sources[segment.sourceIndex].duration
-        let next = try await source.adjacentFrameTime(to: seconds, forward: true)
-        let end = min(segment.end, next > seconds ? next : sourceDuration)
+        let next = try await nextFrameTimeOrEnd(after: seconds, sourceIndex: segment.sourceIndex, source: source)
+        let end = min(segment.end, next)
         let start = max(segment.start, try await source.adjacentFrameTime(to: end, forward: false))
         return start...end
     }

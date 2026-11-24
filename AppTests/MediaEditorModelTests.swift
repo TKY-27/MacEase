@@ -2819,6 +2819,35 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertFalse(model.hasPendingBoundaryInput)
     }
 
+    func testEndAtOrBeforeLastFrameStartClampsToSourceDuration() async throws {
+        let model = try await videoModel()
+        let segment = try XCTUnwrap(model.values.segments.first)
+        let lastFrame = 47.0 / 24
+
+        let startToken = model.beginInteraction()
+        model.setVideoBoundary(1.96, start: true, in: startToken)
+        await model.finishBoundaryInput()
+        model.endInteraction(startToken)
+        XCTAssertEqual(model.values.start, lastFrame, accuracy: 0.000_001)
+
+        let endToken = model.beginInteraction()
+        model.setVideoBoundary(1.0, start: false, in: endToken)
+        await model.finishBoundaryInput()
+        model.endInteraction(endToken)
+        XCTAssertEqual(model.values.start, lastFrame, accuracy: 0.000_001)
+        XCTAssertEqual(model.values.end, model.duration, accuracy: 0.000_001)
+        XCTAssertGreaterThan(model.values.end, model.values.start)
+        XCTAssertNotNil(model.timeline)
+
+        model.beginTimelineTrim(segment.id, start: false)
+        model.updateTimelineTrim(to: 0.5)
+        await model.endTimelineTrim()
+        XCTAssertEqual(model.values.start, lastFrame, accuracy: 0.000_001)
+        XCTAssertEqual(model.values.end, model.duration, accuracy: 0.000_001)
+        XCTAssertGreaterThan(model.values.end, model.values.start)
+        XCTAssertNotNil(model.timeline)
+    }
+
     private func japanese(_ key: String) -> String {
         let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
         return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"

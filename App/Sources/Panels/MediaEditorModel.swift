@@ -553,6 +553,15 @@ final class MediaEditorModel {
         }
     }
 
+    func nextFrameTimeOrEnd(
+        after seconds: Double, sourceIndex: Int, source: VideoEditorSource
+    ) async throws -> Double {
+        let sourceDuration =
+            values.sources.indices.contains(sourceIndex) ? values.sources[sourceIndex].duration : duration
+        let next = try await source.adjacentFrameTime(to: seconds, forward: true)
+        return next > seconds ? next : sourceDuration
+    }
+
     private func snappedVideoBoundary(_ requested: Double, segment: VideoSegment, start: Bool) async throws -> Double? {
         guard let actor = source(for: segment) else { return nil }
         let sourceDuration =
@@ -563,7 +572,7 @@ final class MediaEditorModel {
         let target = min(upper, max(lower, requested))
         if !start, target == sourceDuration { return sourceDuration }
         if !start, target == lower {
-            return try await actor.adjacentFrameTime(to: segment.start, forward: true)
+            return try await nextFrameTimeOrEnd(after: segment.start, sourceIndex: segment.sourceIndex, source: actor)
         }
         return try await actor.nearestFrameTime(to: target, within: lower..<upper)
     }
