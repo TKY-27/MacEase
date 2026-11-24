@@ -1971,7 +1971,7 @@ private enum FallbackFixtures {
             _ = try await MediaToolProcess().runTyped(
                 executable: noisyStub, arguments: [], directory: folder, tools: tools,
                 captureOutput: false, includeTLSCertificate: false,
-                noProgressTimeout: .milliseconds(500),
+                noProgressTimeout: .seconds(2),
                 watchdogReset: MediaToolProcess.WatchdogReset(
                     matches: StagedMediaFallback.makeProgressWatchdogReset()))
             Issue.record("expected noisy non-advancing child to time out")
