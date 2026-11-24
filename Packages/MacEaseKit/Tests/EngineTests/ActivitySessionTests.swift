@@ -504,6 +504,64 @@ struct ActivitySessionTests {
         }
     }
 
+    @Test func consentToOmitStreamsCoversOnlyTheKindsEachFileReported() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = try await timecodedClip(named: "first.mov", in: folder)
+        let second = try await timecodedClip(named: "second.mov", in: folder)
+        let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .newFile
+        let options = try #require(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
+        let request = OperationRequest(op: .videoRotate, options: options, inputs: [first, second])
+        let initial = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
+            _ in
+        }
+        let reported = BatchOutcome(
+            batchID: initial.batchID, operation: initial.operation, inputs: initial.inputs,
+            outcomes: [
+                .failed(.invalidInput(.unpreservedStreams([.timecode]))),
+                .failed(.invalidInput(.unpreservedStreams([.subtitle]))),
+            ],
+            clipboardText: nil, reportText: nil, record: nil, historyFailed: false, details: initial.details)
+        var session = ActivitySession(request: request, settings: settings, outcome: reported)
+        let retry = try session.beginRetry(omittingStreams: Set(session.unpreservedStreams))
+        #expect(retry.omittedStreams == [.timecode, .subtitle])
+        let batch = session.retryBatch(for: retry)
+        #expect(batch.items.map(\.omittedStreams) == [[.timecode], [.subtitle]])
+
+        let outcome = await engine.run(batch, settings: settings) { _ in }
+        guard case .succeeded(_, let warnings) = outcome.outcomes.first else {
+            Issue.record("expected the timecode consent to succeed, got \(outcome.outcomes)")
+            return
+        }
+        #expect(warnings.contains(.streamsOmitted([.timecode])))
+        #expect(outcome.outcomes.last == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+    }
+
+    @Test func plainRetrySkipsItemsAwaitingStreamConsent() async throws {
+        let folder = try TestVolume.makeFolder()
+        let clip = try await timecodedClip(named: "clip.mov", in: folder)
+        let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let options = try #require(OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: settings))
+        let request = OperationRequest(op: .videoConvert, options: options, inputs: [clip])
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
+            _ in
+        }
+        let session = ActivitySession(request: request, settings: settings, outcome: outcome)
+        #expect(session.supportsRetry)
+        #expect(session.unpreservedStreamIndices == [0])
+        #expect(session.failedIndices.isEmpty)
+        #expect(!session.canRetry)
+        #expect(session.canRetryOmittingStreams)
+        #expect(session.replacesOriginals)
+    }
+
     private func timecodedClip(named name: String, in folder: URL) async throws -> URL {
         let source = try #require(
             Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))

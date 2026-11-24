@@ -276,16 +276,21 @@ public enum MediaEditing {
         return Batch(operation: .imageEdit, items: work)
     }
 
-    public static func video(url: URL, edit: VideoEdit, settings: Settings) -> Batch {
+    public static func video(
+        url: URL, edit: VideoEdit, settings: Settings, omittedStreams: Set<UnpreservedStream> = []
+    ) -> Batch {
         if (edit.sources?.count ?? 0) <= 1 {
             return OperationPlanner.batch(
-                for: OperationRequest(op: .videoEdit, options: .video(.edit(edit)), inputs: [url]), settings: settings)
+                for: OperationRequest(
+                    op: .videoEdit, options: .video(.edit(edit)), inputs: [url], omittedStreams: omittedStreams),
+                settings: settings)
         }
         let inputs = edit.sources?.map(\.url) ?? [url]
-        let work = WorkItem(inputs: inputs, lane: .hardwareVideo) { context in
+        var work = WorkItem(inputs: inputs, lane: .hardwareVideo) { context in
             for input in inputs { try OperationPlanner.validateInput(input) }
             return try await VideoEdits.run(.edit(edit), url: url, context: context)
         }
+        work.omittedStreams = omittedStreams
         return Batch(operation: .videoEdit, items: [work])
     }
 }

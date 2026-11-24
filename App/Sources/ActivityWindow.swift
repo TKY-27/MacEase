@@ -41,6 +41,12 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         }
         let names = jobs.downloadSessions[outcome.batchID]?.request.selections.map(\.source.title)
         let result = ActivityResult(outcome, fileNames: names)
+        // Only this window offers the choice.
+        let awaitsStreamConsent = jobs.canContinueWithoutStreams(outcome.batchID)
+        if awaitsStreamConsent {
+            log.rows[index].dismissed = false
+            present()
+        }
         let wasVisible = panel?.isVisible == true
         if wasVisible {
             let operation = MenuStrings.operationName(batch.operation)
@@ -49,7 +55,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
             ).post()
         }
         log.rows[index].result = result
-        if log.rows[index].dismissed || closesAutomatically(result) {
+        if !awaitsStreamConsent, log.rows[index].dismissed || closesAutomatically(result) {
             discard(batch.id, removesNotification: false)
             hideIfEmpty()
         }
@@ -320,6 +326,42 @@ private struct ActivityProblemView: View {
     }
 }
 
+private struct StreamOmissionOffer: View {
+    let session: ActivitySession
+    let continued: Bool
+    let enabled: Bool
+    let proceed: () -> Void
+
+    var body: some View {
+        let streams = session.unpreservedStreams
+        Group {
+            if continued {
+                Label(UserMessages.continuedWithout(streams), systemImage: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(
+                        UserMessages.streamOmissionConsequence(
+                            streams,
+                            files: session.unpreservedStreamIndices.map {
+                                session.outcome.inputs[$0].first?.lastPathComponent ?? ""
+                            },
+                            replacesOriginals: session.replacesOriginals)
+                    )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    Button(UserMessages.continueWithout(streams), action: proceed)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!enabled)
+                }
+            }
+        }
+        .font(.callout)
+    }
+}
+
 private struct ActivityView: View {
     let log: ActivityLog
     let jobs: JobCenter
@@ -570,6 +612,12 @@ private struct ActivityRowView: View {
                 }
             }
             .font(.callout)
+        }
+        if let session = jobs.sessions[row.batchID], !session.unpreservedStreamIndices.isEmpty {
+            StreamOmissionOffer(
+                session: session, continued: jobs.continuedWithoutStreams.contains(row.batchID),
+                enabled: jobs.canContinueWithoutStreams(row.batchID)
+            ) { jobs.continueWithoutStreams(row.batchID) }
         }
         notes(result.warnings.map(\.summary), count: result.noteCount)
         if let session = jobs.sessions[row.batchID] {

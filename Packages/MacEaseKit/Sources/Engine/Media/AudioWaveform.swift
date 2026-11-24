@@ -76,7 +76,8 @@ public enum AudioWaveform {
         update: @Sendable (AudioWaveformSnapshot) -> Void
     ) throws -> AudioWaveformSnapshot {
         let stamp = try MediaSourceStamp(url: url)
-        let input = try AudioInput(url: url)
+        // Previews decode only the first stream.
+        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         guard let duration = input.duration, duration > 0, bins > 0, bins <= maximumBins else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
@@ -134,9 +135,13 @@ public actor AudioPreviewSource {
     private var directory: URL?
     private var closed = false
 
-    public static func open(_ url: URL, staging: StagingArea) async throws -> AudioPreviewSource {
+    public static func open(
+        _ url: URL, staging: StagingArea, omittedStreams: Set<UnpreservedStream> = []
+    ) async throws -> AudioPreviewSource {
         let stamp = try MediaSourceStamp(url: url)
-        let input = try AudioInput(url: url)
+        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
+        let unconsented = try await AudioJob.unpreservedStreams(in: input).filter { !omittedStreams.contains($0) }
+        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
         guard let duration = input.duration, duration > 0 else {
             throw EngineError.decodeFailed("unknown audio duration")
         }
