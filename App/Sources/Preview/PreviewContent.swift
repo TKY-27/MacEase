@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -108,10 +109,37 @@ struct PreviewContent: View {
     let url: URL
     let kind: PreviewKind
     let trust: PreviewTrust
+    let detected: DetectedContent?
     let settings: FinderPreviewSettings
     @Binding var scriptConsent: Set<String>
 
     var body: some View {
+        switch detected.map({ PreviewContentMatch.evaluate(kind: kind, detected: $0) }) ?? .matches {
+        case .empty:
+            refused(Text("This file is empty."))
+        case .binaryWithTextExtension(let name):
+            refused(Text("This file doesn't look like text, so it isn't shown."))
+                .environment(\.previewMismatch, Self.localized(name))
+        case .mismatch(let name):
+            viewer.environment(\.previewMismatch, Self.localized(name))
+        case .matches:
+            viewer
+        }
+    }
+
+    // Engine format names are English.
+    private static func localized(_ name: String) -> String {
+        Bundle.main.localizedString(forKey: name, value: name, table: nil)
+    }
+
+    private func refused(_ message: Text) -> some View {
+        VStack(spacing: 0) {
+            PreviewToolbar {}
+            PreviewFailure(message: message)
+        }
+    }
+
+    @ViewBuilder private var viewer: some View {
         switch kind {
         case .text, .html, .markdown, .json, .propertyList:
             PreviewTextViewer(url: url, kind: kind, trust: trust, settings: settings, scriptConsent: $scriptConsent)
@@ -167,12 +195,14 @@ struct PreviewNote: View {
 
 extension EnvironmentValues {
     @Entry var previewBarTrailingInset: CGFloat = 0
+    @Entry var previewMismatch: String?
 }
 
 // Leaves room for the panel's trailing controls.
 struct PreviewToolbar<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(\.previewBarTrailingInset) private var trailingInset
+    @Environment(\.previewMismatch) private var mismatch
 
     var body: some View {
         VStack(spacing: 0) {
@@ -185,6 +215,12 @@ struct PreviewToolbar<Content: View>: View {
             .padding(.trailing, PreviewLayout.margin + trailingInset)
             .frame(maxWidth: .infinity, minHeight: PreviewLayout.barHeight)
             Divider()
+            if let mismatch {
+                PreviewNote(
+                    symbol: "exclamationmark.triangle.fill",
+                    text: Text("The content looks like \(mismatch), which doesn't match the file name."),
+                    shortText: Text("Content looks like \(mismatch)"), tint: .yellow)
+            }
         }
     }
 }

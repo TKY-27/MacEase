@@ -331,6 +331,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         state.selectedIndex = 0
         state.kind = nil
         state.trust = nil
+        state.detected = nil
         state.fileFailure = nil
     }
 
@@ -340,6 +341,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         state.selectedIndex = index
         state.kind = nil
         state.trust = nil
+        state.detected = nil
         state.fileFailure = nil
         guard let url = state.selectedURL else { return }
         let requestedGeneration = generation
@@ -347,14 +349,15 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         let trustedFolders = settings.finderPreview.trustedFolders
         kindTask = Task { [weak self] in
             do {
-                let (kind, trust) = try await Task.detached(priority: .userInitiated) {
-                    (
-                        try PreviewKind.inspect(url, disabled: disabledKinds),
-                        PreviewTrust.evaluate(url, trustedFolders: trustedFolders)
-                    )
+                let (kind, trust, detected) = try await Task.detached(priority: .userInitiated) {
+                    let kind = try PreviewKind.inspect(url, disabled: disabledKinds)
+                    // Quick Look handles folders and unknown types.
+                    let detected = kind == .quickLook ? nil : try ContentSniffer.identify(url)
+                    return (kind, PreviewTrust.evaluate(url, trustedFolders: trustedFolders), detected)
                 }.value
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 state.trust = trust
+                state.detected = detected
                 state.kind = kind
             } catch {
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }

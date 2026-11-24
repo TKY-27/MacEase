@@ -18599,6 +18599,430 @@
           }
         }
       }
+    },
+    "This file is empty.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは空です。"
+          }
+        }
+      }
+    },
+    "This file doesn't look like text, so it isn't shown.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはテキストではないようなので、表示しません。"
+          }
+        }
+      }
+    },
+    "The content looks like %@, which doesn't match the file name.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容は%@のようです。ファイル名と一致しません。"
+          }
+        }
+      }
+    },
+    "Content looks like %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容は%@のようです"
+          }
+        }
+      }
+    },
+    "3GP video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3GP動画"
+          }
+        }
+      }
+    },
+    "7-Zip archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7-Zipアーカイブ"
+          }
+        }
+      }
+    },
+    "AAC audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AACオーディオ"
+          }
+        }
+      }
+    },
+    "Binary Property List": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリプロパティリスト"
+          }
+        }
+      }
+    },
+    "Binary file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリファイル"
+          }
+        }
+      }
+    },
+    "Bzip2 archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2アーカイブ"
+          }
+        }
+      }
+    },
+    "CAF audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAFオーディオ"
+          }
+        }
+      }
+    },
+    "ELF executable": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ELF実行ファイル"
+          }
+        }
+      }
+    },
+    "Empty file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のファイル"
+          }
+        }
+      }
+    },
+    "Font collection": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントコレクション"
+          }
+        }
+      }
+    },
+    "Gzip archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gzipアーカイブ"
+          }
+        }
+      }
+    },
+    "Java class file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Javaクラスファイル"
+          }
+        }
+      }
+    },
+    "M4V video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4V動画"
+          }
+        }
+      }
+    },
+    "MPEG transport stream": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEGトランスポートストリーム"
+          }
+        }
+      }
+    },
+    "MPEG video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEG動画"
+          }
+        }
+      }
+    },
+    "MPEG-4 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEG-4オーディオ"
+          }
+        }
+      }
+    },
+    "Mach-O executable": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach-O実行ファイル"
+          }
+        }
+      }
+    },
+    "Mach-O universal binary": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach-Oユニバーサルバイナリ"
+          }
+        }
+      }
+    },
+    "Matroska video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska動画"
+          }
+        }
+      }
+    },
+    "Ogg audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oggオーディオ"
+          }
+        }
+      }
+    },
+    "Ogg video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogg動画"
+          }
+        }
+      }
+    },
+    "OpenType font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenTypeフォント"
+          }
+        }
+      }
+    },
+    "Photoshop image": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photoshop画像"
+          }
+        }
+      }
+    },
+    "QuickTime movie": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QuickTimeムービー"
+          }
+        }
+      }
+    },
+    "RAR archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RARアーカイブ"
+          }
+        }
+      }
+    },
+    "RAW image": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW画像"
+          }
+        }
+      }
+    },
+    "TAR archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TARアーカイブ"
+          }
+        }
+      }
+    },
+    "TrueType font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrueTypeフォント"
+          }
+        }
+      }
+    },
+    "WOFF font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WOFFフォント"
+          }
+        }
+      }
+    },
+    "WOFF2 font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WOFF2フォント"
+          }
+        }
+      }
+    },
+    "XZ archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XZアーカイブ"
+          }
+        }
+      }
+    },
+    "ZIP archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPアーカイブ"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

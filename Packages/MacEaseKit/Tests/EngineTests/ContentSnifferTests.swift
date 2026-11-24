@@ -41,6 +41,45 @@ import Testing
         #expect(try ContentSniffer.identify(rawBinary) == DetectedContent(family: .binary, displayName: "Binary file"))
     }
 
+    @Test func signaturesInsideTextDoNotMakeItBinary() throws {
+        let folder = try temporaryFolder()
+        let source = try write(
+            "Signature.swift", bytes: Array("// Checks headers.\nlet signature = \"%PDF-1.7\"\n".utf8), in: folder)
+        #expect(try ContentSniffer.identify(source) == DetectedContent(family: .text, displayName: "Text"))
+
+        let pdf = try write("doc.pdf", bytes: Array("%PDF-1.7\n%\u{00E2}\n1 0 obj\n".utf8), in: folder)
+        #expect(try ContentSniffer.identify(pdf).family == .pdf)
+    }
+
+    @Test func textDecisionFollowsDecodableEncodings() throws {
+        let folder = try temporaryFolder()
+        let littleEndian = try write(
+            "le.txt", bytes: Array("Hello, world.\n".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }), in: folder)
+        #expect(try ContentSniffer.identify(littleEndian) == DetectedContent(family: .text, displayName: "Text"))
+
+        let bigEndian = try write(
+            "be.txt", bytes: Array("日本語のテキスト。\n".utf16.flatMap { [UInt8($0 >> 8), UInt8($0 & 0xFF)] }), in: folder)
+        #expect(try ContentSniffer.identify(bigEndian) == DetectedContent(family: .text, displayName: "Text"))
+
+        let shortLittleEndian = try write("ab.txt", bytes: [0x41, 0x00, 0x42, 0x00], in: folder)
+        #expect(try ContentSniffer.identify(shortLittleEndian) == DetectedContent(family: .text, displayName: "Text"))
+
+        let controls = try write("controls.txt", bytes: [0x01, 0x02, 0x03, 0x04], in: folder)
+        #expect(try ContentSniffer.identify(controls) == DetectedContent(family: .binary, displayName: "Binary file"))
+
+        let shiftJIS = try write("sjis.txt", bytes: [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA, 0x0A], in: folder)
+        #expect(try ContentSniffer.identify(shiftJIS) == DetectedContent(family: .text, displayName: "Text"))
+
+        let tabsAndEscapes = try write(
+            "iso2022.txt", bytes: [0x09, 0x1B, 0x24, 0x42, 0x46, 0x7C, 0x1B, 0x28, 0x42, 0x0D, 0x0A, 0x0C], in: folder)
+        #expect(try ContentSniffer.identify(tabsAndEscapes) == DetectedContent(family: .text, displayName: "Text"))
+
+        var random = SystemRandomNumberGenerator()
+        let noise = try write(
+            "noise.bin", bytes: (0..<4096).map { _ in UInt8.random(in: 0...255, using: &random) }, in: folder)
+        #expect(try ContentSniffer.identify(noise).family == .binary)
+    }
+
     @Test func identifiesMachOAndUniversalFatHeadersWithoutConfusingJavaClass() throws {
         let folder = try temporaryFolder()
         let machOHeaders: [[UInt8]] = [

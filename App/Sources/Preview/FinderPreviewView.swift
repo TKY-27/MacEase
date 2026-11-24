@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import Observation
 import Quartz
 import SwiftUI
@@ -17,6 +18,7 @@ final class FinderPreviewState {
     var notice: Notice?
     var kind: PreviewKind?
     var trust: PreviewTrust?
+    var detected: DetectedContent?
     // Script consent for this session.
     var scriptConsent: Set<String> = []
     var fileFailure: String?
@@ -125,7 +127,7 @@ struct FinderPreviewView: View {
             if let kind = state.kind, let trust = state.trust {
                 @Bindable var state = state
                 PreviewContent(
-                    url: url, kind: kind, trust: trust, settings: settings.finderPreview,
+                    url: url, kind: kind, trust: trust, detected: state.detected, settings: settings.finderPreview,
                     scriptConsent: $state.scriptConsent
                 )
                 .id(state.generation)

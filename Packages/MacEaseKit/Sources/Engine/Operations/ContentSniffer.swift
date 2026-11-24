@@ -47,7 +47,8 @@ public enum ContentSniffer {
         if starts(header, with: ascii("bplist00")) {
             return DetectedContent(family: .binaryPropertyList, displayName: "Binary Property List")
         }
-        if isPDF(header) { return DetectedContent(family: .pdf, displayName: "PDF") }
+        // Text may quote it; require offset zero.
+        if starts(header, with: ascii("%PDF-")) { return DetectedContent(family: .pdf, displayName: "PDF") }
         if let font = identifyFont(header) { return font }
         if let iso = identifyISOBaseMedia(header) { return iso }
         if let image = identifyImage(header) { return image }
@@ -58,10 +59,13 @@ public enum ContentSniffer {
             return DetectedContent(family: .text, displayName: "Text")
         }
         if let mpegAudio = identifyMPEGAudio(header) { return mpegAudio }
-        if !header.contains(0) {
+        if isPlainText(header) {
             return isSVGRoot(header)
                 ? DetectedContent(family: .svg, displayName: "SVG")
                 : DetectedContent(family: .text, displayName: "Text")
+        }
+        if isUTF16Text(header, littleEndian: true) || isUTF16Text(header, littleEndian: false) {
+            return DetectedContent(family: .text, displayName: "Text")
         }
         if let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
             (CGImageSourceGetType(source) as String?) == "com.truevision.tga-image"
@@ -182,6 +186,57 @@ public enum ContentSniffer {
         return window.indices.contains { index in
             index + marker.count <= window.endIndex && Array(window[index..<index + marker.count]) == marker
         }
+    }
+
+    // Tab, line breaks, form feed, ISO-2022 escape.
+    private static let textControlBytes: Set<UInt8> = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1B]
+    private static let firstPrintableByte: UInt8 = 0x20
+    private static let minimumReadableUTF16Share = 0.95
+    private static let unreadableCategories: Set<Unicode.GeneralCategory> = [
+        .control, .privateUse, .surrogate, .unassigned,
+    ]
+    // Binary noise decodes as rare scripts.
+    private static let latin1Limit: UInt32 = 0xFF
+    private static let eastAsianTextRanges: [ClosedRange<UInt32>] = [
+        0x3000...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xAC00...0xD7AF, 0xFF00...0xFFEF,
+    ]
+
+    private static func isPlainText(_ header: [UInt8]) -> Bool {
+        !header.contains { $0 < firstPrintableByte && !textControlBytes.contains($0) }
+    }
+
+    // BOM-less UTF-16 the viewer can decode.
+    private static func isUTF16Text(_ header: [UInt8], littleEndian: Bool) -> Bool {
+        var units = stride(from: 0, to: header.count - 1, by: 2).map { offset in
+            littleEndian
+                ? UInt16(header[offset]) | UInt16(header[offset + 1]) << 8
+                : UInt16(header[offset]) << 8 | UInt16(header[offset + 1])
+        }
+        if let last = units.last, UTF16.isLeadSurrogate(last) { units.removeLast() }
+        var iterator = units.makeIterator()
+        var decoder = UTF16()
+        var scalars = 0
+        var readable = 0
+        while true {
+            switch decoder.decode(&iterator) {
+            case .scalarValue(let scalar):
+                scalars += 1
+                if scalar.value < UInt32(firstPrintableByte) && !textControlBytes.contains(UInt8(scalar.value)) {
+                    return false
+                }
+                if isReadableUTF16(scalar) { readable += 1 }
+            case .emptyInput:
+                return scalars > 0 && Double(readable) >= Double(scalars) * minimumReadableUTF16Share
+            case .error:
+                return false
+            }
+        }
+    }
+
+    private static func isReadableUTF16(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar.properties.isWhitespace { return true }
+        guard !unreadableCategories.contains(scalar.properties.generalCategory) else { return false }
+        return scalar.value <= latin1Limit || eastAsianTextRanges.contains { $0.contains(scalar.value) }
     }
 
     private static func isText(_ header: [UInt8]) -> Bool {
