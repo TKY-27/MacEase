@@ -71,7 +71,7 @@ import Testing
             #expect(abs(levels.decibels[index] - expectedToneDecibels) < 0.2)
         }
 
-        let ranges = levels.silentRanges(SilenceRule())
+        let ranges = try levels.silentRanges(SilenceRule())
         try #require(ranges.count == 1)
         #expect(abs(ranges[0].lowerBound - 1.12) < 1e-6)
         #expect(abs(ranges[0].upperBound - 1.88) < 1e-6)
@@ -81,7 +81,7 @@ import Testing
         let aacLevels = try await AudioWaveform.levels(videoAt: bundledAAC)
         #expect(!aacLevels.decibels.isEmpty)
         #expect(abs(aacLevels.duration - 2) < 0.1)
-        #expect(aacLevels.silentRanges(SilenceRule()).isEmpty)
+        #expect(try aacLevels.silentRanges(SilenceRule()).isEmpty)
 
         let silentVideo = try #require(
             Bundle.module.url(forResource: "x265-hlg.mov", withExtension: nil, subdirectory: "Resources"))
@@ -99,19 +99,19 @@ import Testing
         let rule = SilenceRule()
 
         let leading = Self.makeLevels(duration: 2.0, silent: [0.0..<1.0])
-        let leadingRanges = leading.silentRanges(rule)
+        let leadingRanges = try leading.silentRanges(rule)
         try #require(leadingRanges.count == 1)
         #expect(leadingRanges[0].lowerBound == 0)
         #expect(abs(leadingRanges[0].upperBound - 0.88) < 1e-9)
 
         let trailing = Self.makeLevels(duration: 2.0, silent: [1.0..<2.0])
-        let trailingRanges = trailing.silentRanges(rule)
+        let trailingRanges = try trailing.silentRanges(rule)
         try #require(trailingRanges.count == 1)
         #expect(abs(trailingRanges[0].lowerBound - 1.12) < 1e-9)
         #expect(trailingRanges[0].upperBound == 2.0)
 
         let bothEnds = Self.makeLevels(duration: 3.0, silent: [0.0..<1.0, 2.0..<3.0])
-        let bothRanges = bothEnds.silentRanges(rule)
+        let bothRanges = try bothEnds.silentRanges(rule)
         try #require(bothRanges.count == 2)
         #expect(bothRanges[0].lowerBound == 0)
         #expect(abs(bothRanges[0].upperBound - 0.88) < 1e-9)
@@ -119,26 +119,26 @@ import Testing
         #expect(bothRanges[1].upperBound == 3.0)
 
         let roundedTail = AudioLevels(decibels: [Double](repeating: -.infinity, count: 30), window: 0.03, duration: 0.9)
-        #expect(roundedTail.silentRanges(rule) == [0.0..<0.9])
+        #expect(try roundedTail.silentRanges(rule) == [0.0..<0.9])
     }
 
     @Test func silentRangesRespectMinimumDurationBoundaries() throws {
         let defaultRule = SilenceRule()
         let underDefault = Self.makeLevels(duration: 3.0, silent: [1.0..<1.74])
-        #expect(underDefault.silentRanges(defaultRule).isEmpty)
+        #expect(try underDefault.silentRanges(defaultRule).isEmpty)
 
         let overDefault = Self.makeLevels(duration: 3.0, silent: [1.0..<1.76])
-        let overRanges = overDefault.silentRanges(defaultRule)
+        let overRanges = try overDefault.silentRanges(defaultRule)
         try #require(overRanges.count == 1)
         #expect(abs(overRanges[0].lowerBound - 1.12) < 1e-9)
         #expect(abs(overRanges[0].upperBound - 1.64) < 1e-9)
 
         let shortRule = SilenceRule(threshold: -40, minimumDuration: 0.3)
         let underShort = Self.makeLevels(duration: 2.0, silent: [1.1..<1.38])
-        #expect(underShort.silentRanges(shortRule).isEmpty)
+        #expect(try underShort.silentRanges(shortRule).isEmpty)
 
         let exactShort = Self.makeLevels(duration: 2.0, silent: [1.1..<1.4])
-        let exactRanges = exactShort.silentRanges(shortRule)
+        let exactRanges = try exactShort.silentRanges(shortRule)
         try #require(exactRanges.count == 1)
         #expect(abs(exactRanges[0].lowerBound - 1.22) < 1e-9)
         #expect(abs(exactRanges[0].upperBound - 1.28) < 1e-9)
@@ -148,10 +148,10 @@ import Testing
         let shortRule = SilenceRule(threshold: -40, minimumDuration: 0.3)
 
         let narrowGap = Self.makeLevels(duration: 2.0, silent: [1.0..<1.16])
-        #expect(narrowGap.silentRanges(shortRule).isEmpty)
+        #expect(try narrowGap.silentRanges(shortRule).isEmpty)
 
         let shortBurst = Self.makeLevels(duration: 4.1, silent: [1.0..<2.0, 2.06..<3.06])
-        let burstRanges = shortBurst.silentRanges(SilenceRule())
+        let burstRanges = try shortBurst.silentRanges(SilenceRule())
         try #require(burstRanges.count == 2)
         #expect(abs(burstRanges[0].lowerBound - 1.12) < 1e-9)
         #expect(abs(burstRanges[0].upperBound - 1.88) < 1e-9)
@@ -225,7 +225,7 @@ import Testing
 
     @Test func fullySilentInputThrowsInsteadOfReturningEmptyTimeline() throws {
         let silentLevels = Self.makeLevels(duration: 3.0, silent: [0.0..<3.0])
-        let silences = silentLevels.silentRanges(SilenceRule())
+        let silences = try silentLevels.silentRanges(SilenceRule())
         #expect(silences == [0.0..<3.0])
 
         let segment = VideoSegment(start: 0, end: 3.0)
@@ -242,6 +242,55 @@ import Testing
             #expect(throws: EngineError.invalidInput(.invalidNumericParameter)) {
                 try SilenceRemoval.segments([segment], silences: [:], minimumKept: badMinimum)
             }
+        }
+    }
+
+    @Test func invalidAnalysisInputsThrowInsteadOfReportingNoSilence() throws {
+        let valid = AudioLevels(decibels: [-80, -80], window: 0.5, duration: 1)
+        #expect(throws: EngineError.invalidInput(.invalidNumericParameter)) {
+            try valid.silentRanges(SilenceRule(threshold: .nan))
+        }
+        for levels in [
+            AudioLevels(decibels: [], window: 0.02, duration: 1),
+            AudioLevels(decibels: [-80], window: 0, duration: 1),
+            AudioLevels(decibels: [-80], window: .nan, duration: 1),
+            AudioLevels(decibels: [-80], window: 1, duration: .infinity),
+            AudioLevels(decibels: [.nan], window: 1, duration: 1),
+            AudioLevels(decibels: [.infinity], window: 1, duration: 1),
+            AudioLevels(decibels: [-80], window: 0.5, duration: 1),
+            AudioLevels(decibels: [-80, -80, -80], window: 0.5, duration: 1),
+        ] {
+            #expect(throws: EngineError.invalidInput(.invalidNumericParameter)) {
+                try levels.silentRanges(SilenceRule())
+            }
+        }
+    }
+
+    @Test func freezeStaysIntactAndReversedCutsUseStagedSourceTime() throws {
+        let freeze = VideoSegment(start: 0.5, end: 0.54, volume: 0, freezeDuration: 30)
+        var reversed = VideoSegment(
+            start: 0.2, end: 1.8, sourceIndex: 1,
+            reversedOrigin: ReversedSegmentOrigin(sourceIndex: 0, start: 10, end: 12))
+        reversed.fadeIn = 0.1
+        reversed.fadeOut = 0.2
+        let kept = try SilenceRemoval.segments(
+            [freeze, reversed], silences: [0: [0..<20], 1: [0.6..<1.2]], minimumKept: 2 * Self.frameDuration)
+        try #require(kept.count == 3)
+        #expect(kept[0] == freeze)
+        #expect(kept[1].start == 0.2 && kept[1].end == 0.6)
+        #expect(kept[2].start == 1.2 && kept[2].end == 1.8)
+        #expect(kept[1].fadeIn == 0.1 && kept[1].fadeOut == 0)
+        #expect(kept[2].fadeIn == 0 && kept[2].fadeOut == 0.2)
+        for piece in kept.dropFirst() {
+            #expect(piece.sourceIndex == 1 && piece.reversedOrigin == reversed.reversedOrigin)
+            #expect(piece.id != reversed.id)
+        }
+    }
+
+    @Test func rawSegmentBoundaryRejectsInvalidNumbers() {
+        let invalid = VideoSegment(start: .nan, end: 2)
+        #expect(throws: EngineError.invalidInput(.invalidNumericParameter)) {
+            try SilenceRemoval.segments([invalid], silences: [:], minimumKept: 0)
         }
     }
 

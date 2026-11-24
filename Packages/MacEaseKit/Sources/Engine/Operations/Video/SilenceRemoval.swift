@@ -42,11 +42,13 @@ public struct AudioLevels: Hashable, Sendable {
         self.duration = duration
     }
 
-    public func silentRanges(_ rule: SilenceRule) -> [Range<Double>] {
-        guard window.isFinite, window > 0, duration.isFinite, duration > 0, !decibels.isEmpty else { return [] }
-        guard rule.threshold.isFinite, SilenceRule.thresholdRange.contains(rule.threshold),
-            rule.minimumDuration.isFinite, SilenceRule.minimumDurationRange.contains(rule.minimumDuration)
-        else { return [] }
+    public func silentRanges(_ rule: SilenceRule) throws -> [Range<Double>] {
+        try rule.validate()
+        guard window.isFinite, window > 0, duration.isFinite, duration > 0, !decibels.isEmpty,
+            decibels.allSatisfy({ $0.isFinite || $0 == -.infinity }),
+            Double(decibels.count - 1) * window < duration,
+            Double(decibels.count) * window >= duration - Self.durationTolerance
+        else { throw EngineError.invalidInput(.invalidNumericParameter) }
         var ranges: [Range<Double>] = []
         var runStart: Int?
         for index in 0...decibels.count {
@@ -90,7 +92,7 @@ public enum SilenceRemoval {
             else {
                 throw EngineError.invalidInput(.invalidNumericParameter)
             }
-            if segment.volume == 0 {
+            if segment.isFreeze || segment.volume == 0 {
                 result.append(segment)
                 continue
             }
