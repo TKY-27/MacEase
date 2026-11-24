@@ -4,9 +4,16 @@ import Foundation
 enum ZIPDirectoryBounds {
     static let maximumEntries = 100_000
     static let maximumMetadataBytes = 32 * 1024 * 1024
-    private static let maximumEOCDSearch = 16 * 1024
+    private static let minimumEOCDBytes = 22
+    private static let maximumCommentBytes = 65_535
+    private static let maximumEOCDSearch = minimumEOCDBytes + maximumCommentBytes
     private static let centralHeaderBytes = 46
-    private static let maximumSignatureBytes = 6 + 65_535
+    private static let maximumSignatureBytes = 6 + maximumCommentBytes
+
+    struct Validated {
+        let entries: Int
+        let eocdEnd: Int64
+    }
 
     private struct Directory {
         let offset: Int64
@@ -14,16 +21,16 @@ enum ZIPDirectoryBounds {
         let entries: Int
     }
 
-    static func validate(descriptor: Int32, size: Int64, check: () throws -> Void) throws -> Int {
-        guard size >= 22 else { throw ZIPBrowserError.invalidZIP }
+    static func validate(descriptor: Int32, size: Int64, check: () throws -> Void) throws -> Validated {
+        guard size >= Int64(minimumEOCDBytes) else { throw ZIPBrowserError.invalidZIP }
         let tailSize = min(Int(size), maximumEOCDSearch)
         let tail = try read(descriptor, at: size - Int64(tailSize), count: tailSize, fileSize: size, check: check)
         guard
-            let index = stride(from: tail.count - 22, through: 0, by: -1).first(where: { candidate in
+            let index = stride(from: tail.count - minimumEOCDBytes, through: 0, by: -1).first(where: { candidate in
                 UInt32(littleEndian: tail, at: candidate) == 0x06054b50
             })
         else { throw ZIPBrowserError.invalidZIP }
-        guard index + 22 + Int(UInt16(littleEndian: tail, at: index + 20)) == tail.count else {
+        guard index + minimumEOCDBytes + Int(UInt16(littleEndian: tail, at: index + 20)) == tail.count else {
             throw ZIPBrowserError.invalidZIP
         }
         try check()
@@ -36,7 +43,7 @@ enum ZIPDirectoryBounds {
         let classicSize = UInt32(littleEndian: tail, at: index + 12)
         let classicOffset = UInt32(littleEndian: tail, at: index + 16)
         let directory: Directory
-        if index >= 20 {
+        if endOffset >= 20 {
             let locator = try read(descriptor, at: endOffset - 20, count: 20, fileSize: size, check: check)
             if UInt32(littleEndian: locator, at: 0) == 0x07064b50 {
                 directory = try zip64(
@@ -52,7 +59,7 @@ enum ZIPDirectoryBounds {
                 count: classicCount, size: classicSize, offset: classicOffset, endOffset: endOffset)
         }
         try scan(directory, descriptor: descriptor, fileSize: size, check: check)
-        return directory.entries
+        return Validated(entries: directory.entries, eocdEnd: endOffset + Int64(minimumEOCDBytes))
     }
 
     private static func classic(count: UInt16, size: UInt32, offset: UInt32, endOffset: Int64) throws -> Directory {

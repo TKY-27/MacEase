@@ -188,4 +188,19 @@ import Testing
         #expect(contents.entries.map(\.path) == ["server.log"])
         #expect(contents.entries.first?.isDirectory == false)
     }
+
+    @Test func longZIPCommentListsInPreview() throws {
+        let archive = try folder().appending(path: "commented.zip")
+        try run(
+            "/usr/bin/python3",
+            [
+                "-c",
+                "import sys, zipfile\nwith zipfile.ZipFile(sys.argv[1], 'w') as archive:\n"
+                    + "    archive.writestr('note.txt', b'hello')\n    archive.comment = b'c' * 60000\n",
+                archive.path,
+            ])
+        let contents = try ArchiveContents.list(archive)
+        #expect(contents.ending == .complete)
+        #expect(contents.entries.map(\.path) == ["note.txt"])
+    }
 }
