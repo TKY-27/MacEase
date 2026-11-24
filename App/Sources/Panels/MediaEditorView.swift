@@ -220,6 +220,9 @@ struct MediaEditorView: View {
                             if model.category == .crop && !model.original {
                                 EditorCropOverlay(model: model)
                             }
+                            if model.category == .markup && !model.original {
+                                EditorMarkupOverlay(model: model)
+                            }
                         }
                         .frame(width: size.width, height: size.height)
                         .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
@@ -251,7 +254,8 @@ struct MediaEditorView: View {
     }
 
     private var inspector: some View {
-        let needsSegment = model.isVideo && !model.hasSelection && model.category != .crop
+        let needsSegment =
+            model.isVideo && !model.hasSelection && model.category != .crop && model.category != .markup
         return VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
@@ -266,6 +270,7 @@ struct MediaEditorView: View {
                         case .adjust: adjustmentControls
                         case .styles: styleControls
                         case .crop: cropControls
+                        case .markup: EditorMarkupInspector(model: model)
                         }
                     }
                     .disabled(needsSegment && model.category != .video)
@@ -318,7 +323,7 @@ struct MediaEditorView: View {
             if let failure = model.saveFailure ?? model.failure {
                 ProblemLabel(text: failure)
             }
-            if !model.invalidFields.isEmpty {
+            if model.invalidFields.contains(where: { $0 != MediaEditorModel.overlayTextField }) {
                 ProblemLabel(text: String(localized: "Enter a valid number within the allowed range."))
             }
             if let note = model.omittedStreamsNote {
@@ -339,7 +344,7 @@ struct MediaEditorView: View {
                 Text(reason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -681,7 +686,7 @@ private struct CropAspectOption {
     ]
 }
 
-private struct ToolTileLabelStyle: LabelStyle {
+struct ToolTileLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         VStack(spacing: 4) {
             configuration.icon.font(.title3)
@@ -734,7 +739,7 @@ private struct LabeledSlider: View {
     }
 }
 
-private struct EditorNumberField: View {
+struct EditorNumberField: View {
     @Bindable var model: MediaEditorModel
     let title: Text
     let id: String
@@ -897,6 +902,7 @@ extension EditorCategory {
         case .adjust: "slider.horizontal.3"
         case .styles: "camera.filters"
         case .crop: "crop.rotate"
+        case .markup: "pencil.tip.crop.circle"
         }
     }
 }

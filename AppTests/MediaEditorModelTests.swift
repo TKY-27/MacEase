@@ -587,6 +587,190 @@ final class MediaEditorModelTests: XCTestCase {
         (view as? NSTextField).map { [$0] } ?? view.subviews.flatMap { textFields(in: $0) }
     }
 
+    func testMarkupEditsAreSingleUndoStepsWithSelection() async throws {
+        let model = try await photoModel()
+        let rect = EditCrop(x: 0.1, y: 0.1, width: 0.3, height: 0.2)
+        let id = try XCTUnwrap(model.addOverlay(.redaction(rect: rect, style: .mosaic)))
+        XCTAssertEqual(model.values.selectedOverlayID, id)
+        XCTAssertEqual(model.markupOverlays.map(\.id), [id])
+        XCTAssertTrue(model.changesColor)
+
+        model.beginInteraction()
+        for x in [0.2, 0.3, 0.4] {
+            model.updateOverlay(id, .redaction(rect: EditCrop(x: x, y: 0.1, width: 0.3, height: 0.2), style: .mosaic))
+        }
+        model.endInteraction()
+        model.updateOverlay(id, .redaction(rect: EditCrop(x: 0.4, y: 0.1, width: 0.3, height: 0.2), style: .solid))
+        model.deleteOverlay(id)
+        XCTAssertTrue(model.markupOverlays.isEmpty)
+        XCTAssertNil(model.values.selectedOverlayID)
+
+        model.undo()
+        XCTAssertEqual(
+            model.selectedOverlay?.mark,
+            .redaction(rect: EditCrop(x: 0.4, y: 0.1, width: 0.3, height: 0.2), style: .solid))
+        model.undo()
+        XCTAssertEqual(
+            model.selectedOverlay?.mark,
+            .redaction(rect: EditCrop(x: 0.4, y: 0.1, width: 0.3, height: 0.2), style: .mosaic))
+        model.undo()
+        XCTAssertEqual(model.selectedOverlay?.mark, .redaction(rect: rect, style: .mosaic), "one step per drag")
+        model.undo()
+        XCTAssertTrue(model.markupOverlays.isEmpty)
+        XCTAssertFalse(model.canUndo)
+
+        XCTAssertNil(model.addOverlay(.text("  ", at: EditPoint(x: 0.5, y: 0.5), color: .red, size: .small)))
+        XCTAssertNil(model.addOverlay(.arrow(from: EditPoint(), to: EditPoint(x: 0.001), color: .red, size: .small)))
+        XCTAssertTrue(model.markupOverlays.isEmpty, "invalid marks are never added")
+        for index in 0..<EditOverlay.maximumCount {
+            let x = Double(index % 10) / 10
+            XCTAssertNotNil(
+                model.addOverlay(
+                    .box(rect: EditCrop(x: x, y: 0, width: 0.05, height: 0.05), color: .blue, size: .small)))
+        }
+        XCTAssertFalse(model.canAddOverlay)
+        XCTAssertNil(model.addOverlay(.box(rect: rect, color: .blue, size: .small)))
+    }
+
+    func testMarkupCoordinatesFollowCropRotationFlipAndStraighten() async throws {
+        let model = try await photoModel()
+        model.change {
+            $0.photo.geometry.quarterTurns = 1
+            $0.photo.geometry.flipHorizontal = true
+            $0.photo.geometry.straighten = 12
+            $0.photo.geometry.crop = EditCrop(x: 0.1, y: 0.2, width: 0.7, height: 0.6)
+        }
+        for point in [CGPoint(x: 0.3, y: 0.7), CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.9, y: 0.15)] {
+            let output = model.outputPoint(model.canvasPoint(point, clamped: false))
+            XCTAssertEqual(output.x, point.x, accuracy: 1e-9)
+            XCTAssertEqual(output.y, point.y, accuracy: 1e-9)
+        }
+
+        let dragged = CGRect(x: 0.2, y: 0.3, width: 0.4, height: 0.25)
+        let mark = try XCTUnwrap(model.newMark(.redact, outputRect: dragged))
+        guard case .redaction(let rect, _) = mark else { return XCTFail("expected a redaction") }
+        for corner in [
+            CGPoint(x: dragged.minX, y: dragged.minY), CGPoint(x: dragged.maxX, y: dragged.minY),
+            CGPoint(x: dragged.maxX, y: dragged.maxY), CGPoint(x: dragged.minX, y: dragged.maxY),
+        ] {
+            let canvas = model.canvasPoint(corner)
+            XCTAssertTrue(
+                canvas.x >= rect.x - 1e-9 && canvas.x <= rect.x + rect.width + 1e-9
+                    && canvas.y >= rect.y - 1e-9 && canvas.y <= rect.y + rect.height + 1e-9,
+                "a straightened redaction covers the whole dragged area")
+        }
+
+        let id = try XCTUnwrap(
+            model.addOverlay(.text("Name", at: model.canvasPoint(CGPoint(x: 0.5, y: 0.5)), color: .white, size: .large))
+        )
+        model.nudgeOverlay(id, dx: MediaEditorModel.overlayNudge, dy: 0)
+        guard case .text(_, let at, _, _) = model.selectedOverlay?.mark else { return XCTFail("expected text") }
+        let moved = model.outputPoint(at)
+        XCTAssertEqual(moved.x, 0.5 + MediaEditorModel.overlayNudge, accuracy: 1e-9, "nudges follow the screen")
+        XCTAssertEqual(moved.y, 0.5, accuracy: 1e-9)
+    }
+
+    func testVideoOverlayRangeSnapsToPlayheadFramesAndAppearsWhereverItsFramesPlay() async throws {
+        let model = try await videoModel()
+        model.category = .markup
+        model.seek(0.5)
+        let id = try XCTUnwrap(
+            model.addOverlay(.redaction(rect: EditCrop(x: 0, y: 0, width: 0.5, height: 1), style: .blur)))
+        let added = try XCTUnwrap(model.selectedTimedOverlay)
+        XCTAssertEqual(added.sourceIndex, 0)
+        XCTAssertEqual(added.start, 0)
+        XCTAssertEqual(added.end, model.values.sources[0].duration)
+
+        model.seek(0.51)
+        await model.setOverlayBoundaryAtPlayhead(start: true)
+        model.seek(1.01)
+        await model.setOverlayBoundaryAtPlayhead(start: false)
+        let ranged = try XCTUnwrap(model.selectedTimedOverlay)
+        XCTAssertEqual(ranged.start, 12.0 / 24, accuracy: 1e-6, "includes the frame at the playhead")
+        XCTAssertEqual(ranged.end, 25.0 / 24, accuracy: 1e-6)
+        let timeline = try XCTUnwrap(model.timeline)
+        XCTAssertEqual(timeline.overlays(at: 0.5).map(\.id), [id])
+        XCTAssertEqual(timeline.overlays(at: 1.03).map(\.id), [id])
+        XCTAssertTrue(timeline.overlays(at: 0.45).isEmpty)
+        XCTAssertTrue(timeline.overlays(at: 1.05).isEmpty)
+
+        model.seek(1.5)
+        await model.setOverlayBoundaryAtPlayhead(start: true)
+        XCTAssertEqual(model.selectedTimedOverlay?.start ?? 0, 36.0 / 24, accuracy: 1e-6)
+        XCTAssertEqual(model.selectedTimedOverlay?.end ?? 0, 2, accuracy: 1e-6, "a start after the end reopens it")
+        model.undo()
+        XCTAssertEqual(model.selectedTimedOverlay, ranged)
+
+        let original = try XCTUnwrap(model.values.segments.first)
+        model.change {
+            var left = original
+            left.end = 1
+            var right = original
+            right.id = UUID()
+            right.start = 1
+            $0.segments = [right, left]
+        }
+        let ranges = try XCTUnwrap(model.timeline).outputRanges(of: ranged)
+        XCTAssertEqual(ranges.count, 2, "split and reordered frames appear in two places")
+        XCTAssertEqual(ranges[0].lowerBound, 0, accuracy: 1e-6)
+        XCTAssertEqual(ranges[0].upperBound, 1.0 / 24, accuracy: 1e-6)
+        XCTAssertEqual(ranges[1].lowerBound, 1.5, accuracy: 1e-6)
+        XCTAssertEqual(ranges[1].upperBound, 2, accuracy: 1e-6)
+
+        model.selectOverlay(nil)
+        model.seek(0.2)
+        model.selectOverlay(id)
+        XCTAssertEqual(model.position, 0, accuracy: 1e-6, "selecting a hidden overlay shows its first frame")
+    }
+
+    func testMarkupOnHDRPhotoExplainsTheSDRCopy() async throws {
+        let model = try await photoModel(hdr: true)
+        XCTAssertNil(model.newFileReason)
+        model.addOverlay(.box(rect: EditCrop(x: 0.1, y: 0.1, width: 0.5, height: 0.5), color: .yellow, size: .medium))
+        XCTAssertEqual(model.newFileReason, String(localized: "Markup on HDR media saves a new SDR file."))
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertTrue(model.convertsToSDR)
+    }
+
+    func testSavedPhotoAndVideoCarryTheirRedactions() async throws {
+        for model in [try await photoModel(), try await videoModel()] {
+            model.addOverlay(.redaction(rect: EditCrop(x: 0, y: 0, width: 0.5, height: 1), style: .solid))
+            try await eventually { model.canSave || model.failure != nil }
+            XCTAssertNil(model.failure)
+            let planned = try model.makeSave(replacingOriginal: false)
+            let engine = try JobEngine(supportDirectory: try workspace(), concurrency: 1)
+            let result = await engine.run(planned.batch, settings: planned.settings) { _ in }
+            guard case .succeeded(let outputs, _) = result.outcomes.first, let output = outputs.first else {
+                return XCTFail("save failed: \(result.outcomes)")
+            }
+            let image: CGImage
+            if model.isVideo {
+                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: output))
+                generator.requestedTimeToleranceBefore = .zero
+                generator.requestedTimeToleranceAfter = .zero
+                image = try await generator.image(at: CMTime(value: 1, timescale: 1)).image
+            } else {
+                let source = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+                image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            }
+            let left = try rgb(image, x: image.width / 4, y: image.height / 2)
+            let right = try rgb(image, x: image.width * 3 / 4, y: image.height / 2)
+            XCTAssertLessThan(left.max() ?? 1, 0.06, "\(model.isVideo ? "video" : "photo") redaction is saved")
+            XCTAssertGreaterThan(right.max() ?? 0, 0.2, "outside the redaction stays visible")
+        }
+    }
+
+    private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(
+            CGContext(
+                data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: -x, y: y - image.height + 1, width: image.width, height: image.height))
+        return pixel.prefix(3).map { Double($0) / 255 }
+    }
+
     private func photoModel(
         hdr: Bool = false, svg: Bool = false, additionalPhoto: Bool = false,
         settings: Engine.Settings = Engine.Settings()

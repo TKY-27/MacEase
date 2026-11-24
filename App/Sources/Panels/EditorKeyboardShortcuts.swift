@@ -42,6 +42,9 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                         return self.audioShortcut(event, modifiers: modifiers, audio: audio)
                     }
                     guard let model = self.model, model.ready, model.savingBatchID == nil else { return false }
+                    if model.category == .markup, self.markupShortcut(event, modifiers: modifiers, model: model) {
+                        return true
+                    }
                     if modifiers == .command, event.charactersIgnoringModifiers == "b", model.isVideo {
                         model.split(); return true
                     }
@@ -78,6 +81,37 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                 }
                 return consumed ? nil : event
             }
+        }
+
+        /// Falls through to the editor's keys when unhandled.
+        private func markupShortcut(
+            _ event: NSEvent, modifiers: NSEvent.ModifierFlags, model: MediaEditorModel
+        ) -> Bool {
+            let selected = model.values.selectedOverlayID
+            if modifiers.isEmpty || modifiers == .shift, let selected {
+                let step = modifiers == .shift ? MediaEditorModel.overlayLargeNudge : MediaEditorModel.overlayNudge
+                switch event.keyCode {
+                case 123: model.nudgeOverlay(selected, dx: -step, dy: 0); return true
+                case 124: model.nudgeOverlay(selected, dx: step, dy: 0); return true
+                case 126: model.nudgeOverlay(selected, dx: 0, dy: -step); return true
+                case 125: model.nudgeOverlay(selected, dx: 0, dy: step); return true
+                default: break
+                }
+            }
+            guard modifiers.isEmpty else { return false }
+            switch event.keyCode {
+            case 51, 117:
+                if let selected { model.deleteOverlay(selected) }
+                return true
+            case 34 where model.isVideo && selected != nil:
+                Task { await model.setOverlayBoundaryAtPlayhead(start: true) }
+            case 31 where model.isVideo && selected != nil:
+                Task { await model.setOverlayBoundaryAtPlayhead(start: false) }
+            case 53 where selected != nil: model.selectOverlay(nil)
+            case 53 where model.markupTool != .select: model.markupTool = .select
+            default: return false
+            }
+            return true
         }
 
         private func audioShortcut(_ event: NSEvent, modifiers: NSEvent.ModifierFlags, audio: AudioTrimModel) -> Bool {

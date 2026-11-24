@@ -157,9 +157,14 @@ struct EditorTimeline: View {
                     case .right: model.moveSelection(1)
                     case .delete: model.deleteSelection()
                     }
-                }, viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } }
+                }, viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } },
+                overlays: overlayMarks, showsOverlayLane: showsOverlayLane,
+                selectOverlay: { id in
+                    model.category = .markup
+                    model.selectOverlay(id)
+                }
             )
-            .frame(height: MediaTimeline.height)
+            .frame(height: MediaTimeline.height + (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0))
             .accessibilityLabel(Text("Timeline"))
         }
         .padding(.horizontal, 16)
@@ -175,6 +180,20 @@ struct EditorTimeline: View {
             Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
                 .disabled(model.values.selectedIndex == model.values.segments.count - 1)
+        }
+    }
+
+    private var showsOverlayLane: Bool { model.category == .markup || !model.values.overlays.isEmpty }
+
+    private var overlayMarks: [TimelineOverlayMark] {
+        guard let timeline = model.timeline else { return [] }
+        return model.values.overlays.map { timed in
+            let color = timed.overlay.mark.color
+            return TimelineOverlayMark(
+                id: timed.id, ranges: timeline.outputRanges(of: timed), label: model.overlayName(timed.overlay),
+                fill: color.flatMap { NSColor(cgColor: $0.cgColor) } ?? .systemGray,
+                text: color.flatMap { NSColor(cgColor: $0.strokeColor) } ?? .white,
+                selected: model.values.selectedOverlayID == timed.id)
         }
     }
 

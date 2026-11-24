@@ -6,7 +6,7 @@ import SwiftUI
 import os
 
 enum EditorCategory: String, CaseIterable {
-    case video, adjust, styles, crop
+    case video, adjust, styles, crop, markup
 
     var title: String {
         switch self {
@@ -14,6 +14,7 @@ enum EditorCategory: String, CaseIterable {
         case .adjust: String(localized: "Adjust")
         case .styles: String(localized: "Styles")
         case .crop: String(localized: "Crop")
+        case .markup: String(localized: "Markup")
         }
     }
 }
@@ -32,6 +33,8 @@ struct EditorValues: Equatable {
     var resolution = 0
     var segments: [VideoSegment] = []
     var selectedID: UUID?
+    var overlays: [TimedOverlay] = []
+    var selectedOverlayID: UUID?
 
     var selectedIndex: Int? { segments.firstIndex { $0.id == selectedID } }
     var start: Double {
@@ -69,6 +72,7 @@ struct EditorValues: Equatable {
         edit.segments = segments
         edit.sources = sources.isEmpty ? nil : sources
         edit.sourceStamp = photo.sourceStamp
+        edit.overlays = overlays
         return edit
     }
 }
@@ -90,6 +94,11 @@ final class MediaEditorModel {
     var hoverPosition: Double?
     var cropAspect = 0.0
     var cropPortrait = false
+    var markupTool = MarkupTool.select
+    var redactionStyle = RedactionStyle.mosaic
+    var markColor = MarkColor.red
+    var markSize = MarkSize.medium
+    var overlayTextFocusRequest: UUID?
     var position = 0.0
     var duration = 0.0
     var frameDuration = 1.0 / 30
@@ -197,7 +206,7 @@ final class MediaEditorModel {
         else { return frameDuration }
         return videoDetails[values.sources[values.segments[index].sourceIndex].url]?.frameDuration ?? frameDuration
     }
-    private func source(for segment: VideoSegment) -> VideoEditorSource? {
+    func source(for segment: VideoSegment) -> VideoEditorSource? {
         guard values.sources.indices.contains(segment.sourceIndex) else { return videoSource }
         return videoSources[values.sources[segment.sourceIndex].url]
     }
@@ -235,9 +244,7 @@ final class MediaEditorModel {
     var hasSelection: Bool { values.selectedIndex != nil }
     var canUndo: Bool { !undoValues.isEmpty }
     var canRedo: Bool { !redoValues.isEmpty }
-    var changesColor: Bool {
-        isVideo ? values.segments.contains { !$0.adjustments.isIdentity } : values.photo.changesColor
-    }
+    var changesColor: Bool { isVideo ? values.video.changesColor : values.photo.changesColor }
     var adjustments: MediaAdjustments { isVideo ? values.videoAdjustments : values.photo.adjustments }
     var convertsToSDR: Bool {
         containsHDR
@@ -252,10 +259,12 @@ final class MediaEditorModel {
         {
             return String(localized: "This source requires a new file.")
         }
-        if isVideo && containsHDR && changesColor
-            || editedPhotos.contains(where: { photoDetails[$0.key]?.containsHDR == true && $0.value.changesColor })
-        {
-            return String(localized: "HDR color edits require a new SDR file.")
+        let editedHDRPhotos = editedPhotos.filter { photoDetails[$0.key]?.containsHDR == true && $0.value.changesColor }
+        if isVideo && containsHDR && changesColor || !editedHDRPhotos.isEmpty {
+            let marked = isVideo ? !values.overlays.isEmpty : editedHDRPhotos.values.contains { !$0.overlays.isEmpty }
+            return marked
+                ? String(localized: "Markup on HDR media saves a new SDR file.")
+                : String(localized: "HDR color edits require a new SDR file.")
         }
         return nil
     }
@@ -822,6 +831,7 @@ final class MediaEditorModel {
         var edit = values.video
         if original {
             edit.geometry = EditGeometry()
+            edit.overlays = []
             edit.segments = edit.segments?.map { segment in
                 var segment = segment
                 segment.adjustments = MediaAdjustments()
@@ -833,17 +843,7 @@ final class MediaEditorModel {
             edit.geometry.crop = EditCrop()
         }
         if preparedEdit != edit {
-            let playback: VideoEditorPlayback
-            if values.sources.count > 1 {
-                var urls: [URL] = []
-                for source in values.sources {
-                    guard let actor = videoSources[source.url] else { throw CancellationError() }
-                    urls.append(try await actor.playbackURL(sdr: true, normalized: true))
-                }
-                playback = try await VideoEditorPlayback.joined(urls: urls, edit: edit, sourceSize: sourceSize)
-            } else {
-                playback = try await videoSource.playback(edit: edit)
-            }
+            let playback = try await videoSource.playback(edit: edit, omissions: consents)
             try Task.checkCancellation()
             guard generation == revision, !closed else { return }
             let playerItem = AVPlayerItem(asset: playback.asset)
@@ -1096,6 +1096,7 @@ final class MediaEditorModel {
         }
         revision += 1
         loadingPhoto = true
+        if values.selectedPhoto != url { values.selectedOverlayID = nil }
         values.selectedPhoto = url
         invalidFields.removeAll()
         photoSource = nil

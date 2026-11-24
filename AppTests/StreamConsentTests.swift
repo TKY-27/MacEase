@@ -425,6 +425,8 @@ final class StreamConsentTests: XCTestCase {
         model.continueWithoutStreams(request)
         try await eventually { model.values.sources.count == 2 || model.failure != nil }
         XCTAssertNil(model.failure)
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure, "the joined preview keeps the consented omission")
         XCTAssertEqual(try model.makeSave(replacingOriginal: false).batch.items.map(\.omittedStreams), [[.timecode]])
     }
 

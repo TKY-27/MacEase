@@ -15,6 +15,16 @@ struct TimelineClip {
     var fadeOut = 0.0
 }
 
+/// One overlay, possibly shown in several places.
+struct TimelineOverlayMark {
+    let id: UUID
+    let ranges: [ClosedRange<Double>]
+    let label: String
+    let fill: NSColor
+    let text: NSColor
+    let selected: Bool
+}
+
 enum TimelineAction: Int, CaseIterable {
     case setIn, setOut, split, duplicate, left, right, delete
 
@@ -112,6 +122,9 @@ struct MediaTimeline: NSViewRepresentable {
     var visibleRange: ((Range<Double>) -> Void)?
     var action: ((UUID, TimelineAction) -> Void)?
     var viewportChanged: ((Double) -> Void)?
+    var overlays: [TimelineOverlayMark] = []
+    var showsOverlayLane = false
+    var selectOverlay: ((UUID) -> Void)?
 
     func makeNSView(context: Context) -> TimelineScrollView {
         let scroll = TimelineScrollView()
@@ -168,7 +181,9 @@ final class TimelineScrollView: NSScrollView {
         }
         appliedZoom = configuration.zoom
         canvas.frame = CGRect(
-            x: 0, y: 0, width: viewportWidth * configuration.zoom, height: TimelineCanvas.contentHeight)
+            x: 0, y: 0, width: viewportWidth * configuration.zoom,
+            height: TimelineCanvas.contentHeight
+                + (configuration.showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0))
         canvas.configuration = configuration
         if let anchor {
             contentView.scroll(
@@ -227,6 +242,10 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private static let playheadWidth = 2.0
     private static let rulerMinorTicks = 4
     private static let waveformLaneHeight = 18.0
+    static let overlayLaneHeight = 24.0
+    private static let overlayRowLimit = 3
+    private static let overlayRowGap = 2.0
+    private static let overlayLabelMinimumWidth = 36.0
 
     var configuration: MediaTimeline?
     private(set) var pointerInViewport: CGPoint?
@@ -312,8 +331,72 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             outline.stroke()
             if let selection = clip.selection { drawSelection(selection, duration: configuration.duration) }
         }
+        if configuration.showsOverlayLane { drawOverlayLane(configuration) }
         if !configuration.playing, let hoverTime { drawSkimmer(hoverTime, configuration: configuration) }
         drawPlayhead(configuration.position, configuration: configuration)
+    }
+
+    private var overlayLane: CGRect {
+        CGRect(
+            x: 0, y: Self.rulerHeight + Self.clipHeight + 6, width: bounds.width, height: Self.overlayLaneHeight - 4)
+    }
+
+    /// Packs overlapping overlays into a few rows.
+    private func overlayBars(_ configuration: MediaTimeline) -> [(mark: TimelineOverlayMark, rect: CGRect)] {
+        var rows: [[ClosedRange<Double>]] = []
+        var placed: [(TimelineOverlayMark, Int)] = []
+        for mark in configuration.overlays where !mark.ranges.isEmpty {
+            let free = rows.firstIndex { row in
+                !row.contains { used in mark.ranges.contains { $0.overlaps(used) } }
+            }
+            let row = free ?? (rows.count < Self.overlayRowLimit ? rows.count : rows.count - 1)
+            if row == rows.count { rows.append([]) }
+            rows[row] += mark.ranges
+            placed.append((mark, row))
+        }
+        let lane = overlayLane
+        let count = Double(max(1, rows.count))
+        let height = (lane.height - Self.overlayRowGap * (count - 1)) / count
+        return placed.flatMap { mark, row in
+            mark.ranges.map { range in
+                let rect = rectangle(range, duration: configuration.duration)
+                return (
+                    mark,
+                    CGRect(
+                        x: rect.minX, y: lane.minY + Double(row) * (height + Self.overlayRowGap),
+                        width: max(2, rect.width), height: height)
+                )
+            }
+        }
+    }
+
+    private func drawOverlayLane(_ configuration: MediaTimeline) {
+        let lane = overlayLane
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.5).setFill()
+        NSBezierPath(roundedRect: lane, xRadius: 4, yRadius: 4).fill()
+        let bars = overlayBars(configuration)
+        for (mark, rect) in bars.sorted(by: { !$0.mark.selected && $1.mark.selected }) {
+            let radius = min(3, rect.height / 2)
+            let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            mark.fill.withAlphaComponent(0.9).setFill()
+            shape.fill()
+            if mark.selected {
+                let frame = NSBezierPath(
+                    roundedRect: rect.insetBy(dx: -1, dy: -1), xRadius: radius + 1, yRadius: radius + 1)
+                frame.lineWidth = 2
+                NSColor.systemYellow.setStroke()
+                frame.stroke()
+            }
+            guard rect.width >= Self.overlayLabelMinimumWidth, rect.height >= 11 else { continue }
+            let label = NSAttributedString(
+                string: mark.label,
+                attributes: [.font: NSFont.systemFont(ofSize: 9, weight: .semibold), .foregroundColor: mark.text])
+            let size = label.size()
+            label.draw(
+                with: CGRect(
+                    x: rect.minX + 5, y: rect.midY - size.height / 2, width: rect.width - 10, height: size.height),
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        }
     }
 
     private func drawLabel(_ text: String, in rect: CGRect) {
@@ -478,7 +561,8 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let x = min(max(actual, knobHalfWidth), bounds.width - knobHalfWidth)
         let line = CGRect(
             x: min(max(actual - Self.playheadWidth / 2, 0), bounds.width - Self.playheadWidth),
-            y: Self.rulerHeight - 6, width: Self.playheadWidth, height: Self.clipHeight + 12)
+            y: Self.rulerHeight - 6, width: Self.playheadWidth,
+            height: Self.clipHeight + 12 + (configuration.showsOverlayLane ? Self.overlayLaneHeight - 4 : 0))
         NSColor.black.withAlphaComponent(0.5).setFill()
         line.insetBy(dx: -0.5, dy: 0).fill()
         NSColor.white.setFill()
@@ -553,6 +637,13 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let location = convert(event.locationInWindow, from: nil)
         mouseOrigin = location
         leave()
+        if configuration.showsOverlayLane, overlayLane.contains(location) {
+            if let bar = overlayBars(configuration).last(where: { $0.rect.insetBy(dx: -2, dy: 0).contains(location) }) {
+                configuration.selectOverlay?(bar.mark.id)
+            }
+            configuration.seek(seconds(at: location.x))
+            return
+        }
         for clip in configuration.clips where location.y >= Self.rulerHeight {
             if let selection = clip.selection {
                 let rect = rectangle(selection, duration: configuration.duration)
