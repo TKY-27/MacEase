@@ -149,7 +149,7 @@ extension MediaEditorView {
                 }
             }
             Text(
-                "Joined videos use the first video's canvas and frame rate. Other sizes fit with black borders. HDR becomes SDR; transparency is flattened. Originals are kept. Metadata may be removed."
+                "Joined videos use the first video’s size and frame rate. Other sizes fit with black borders. HDR becomes SDR, and transparency is filled in. Originals are kept. Metadata may be removed."
             )
             .font(.caption).foregroundStyle(.secondary)
         }

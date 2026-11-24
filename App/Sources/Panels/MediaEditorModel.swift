@@ -349,21 +349,21 @@ final class MediaEditorModel {
 
     var newFileReason: String? {
         if originalSources.count > 1, !values.segments.contains(where: \.isReversed) {
-            return String(localized: "Multiple videos require a new file.")
+            return String(localized: "Joined videos can only be saved as a new file.")
         }
         if let notice = values.video.joinedExportNotice { return notice }
         let editedPhotos = values.photoEdits.filter { !$0.value.isIdentity }
         if isVideo && requiresNewFile
             || editedPhotos.keys.contains(where: { photoDetails[$0]?.requiresNewFile == true })
         {
-            return String(localized: "This source requires a new file.")
+            return String(localized: "This file can only be saved as a new file.")
         }
         let editedHDRPhotos = editedPhotos.filter { photoDetails[$0.key]?.containsHDR == true && $0.value.changesColor }
         if isVideo && containsHDR && changesColor || !editedHDRPhotos.isEmpty {
             let marked = isVideo ? !values.overlays.isEmpty : editedHDRPhotos.values.contains { !$0.overlays.isEmpty }
             return marked
                 ? String(localized: "Markup on HDR media saves a new SDR file.")
-                : String(localized: "HDR color edits require a new SDR file.")
+                : String(localized: "HDR color edits can only be saved as a new SDR file.")
         }
         return nil
     }

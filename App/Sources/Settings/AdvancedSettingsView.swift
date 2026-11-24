@@ -28,15 +28,15 @@ struct AdvancedSettingsView: View {
                     }
                 } label: {
                     Text("Files processed at once")
-                    Text("Lower values keep your Mac more responsive.")
+                    Text("Lower numbers leave more of your Mac free for other work.")
                 }
             }
             Section("Security") {
                 LabeledContent {
-                    Button("Rotate Token", action: rotate)
+                    Button("Create New Token", action: rotate)
                 } label: {
                     Text("Finder menu token")
-                    Text("Creates a new secret shared with the Finder extension.")
+                    Text("Replaces the secret that the Finder extension uses to talk to MacEase.")
                 }
             }
             Section("History") {
@@ -44,14 +44,14 @@ struct AdvancedSettingsView: View {
                     Button("Clear History…", role: .destructive) { confirmsClearHistory = true }
                 } label: {
                     Text("Undo history")
-                    Text("Clearing removes the ability to undo past batches.")
+                    Text("After clearing, past operations can’t be undone.")
                 }
             }
             Section {
                 LabeledContent {
                     Button("Reset All Settings…", role: .destructive) { confirmsReset = true }
                 } label: {
-                    Text("History and edited presets are kept.")
+                    Text("Undo history and edited presets are kept.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -63,7 +63,7 @@ struct AdvancedSettingsView: View {
                     Button("Copy Diagnostics", action: copyDiagnostics)
                 } label: {
                     Text("Diagnostics")
-                    Text("Versions and recent log lines, for a bug report.")
+                    Text("Copies version information and recent logs for a bug report.")
                 }
             }
             if let status {
@@ -74,17 +74,17 @@ struct AdvancedSettingsView: View {
         .confirmationDialog("Clear the undo history?", isPresented: $confirmsClearHistory) {
             Button("Clear History", role: .destructive, action: clearHistory)
         } message: {
-            Text("Past batches can no longer be undone. Files already in the Trash stay there.")
+            Text("Past operations can no longer be undone. Items in the Trash stay there.")
         }
         .confirmationDialog("Reset all settings?", isPresented: $confirmsReset) {
             Button("Reset", role: .destructive) {
                 store.resetAll()
-                status = String(localized: "Settings were reset.")
+                status = String(localized: "All settings were reset.")
             }
         } message: {
-            Text("Every setting and Finder menu choice returns to its default.")
+            Text("All settings, including the Finder menu layout, return to their defaults.")
         }
-        .alert("Something went wrong", isPresented: isPresent($failure), presenting: failure) { _ in
+        .alert("The action couldn’t be completed.", isPresented: isPresent($failure), presenting: failure) { _ in
             Button("OK") {}
         } message: { text in
             Text(text)
@@ -103,7 +103,7 @@ struct AdvancedSettingsView: View {
     private func rotate() {
         do {
             try rotateToken()
-            status = String(localized: "The Finder menu now uses a new token.")
+            status = String(localized: "A new token was created.")
         } catch {
             failure = error.localizedDescription
         }
@@ -123,7 +123,7 @@ struct AdvancedSettingsView: View {
 
     private func openConsole() {
         guard let console = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.consoleBundleID) else {
-            failure = String(localized: "Console could not be found.")
+            failure = String(localized: "Console can’t be found.")
             return
         }
         NSWorkspace.shared.openApplication(at: console, configuration: NSWorkspace.OpenConfiguration())

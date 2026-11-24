@@ -143,7 +143,7 @@ struct PreviewContent: View {
         case .empty:
             refused(Text("This file is empty."))
         case .binaryWithTextExtension(let name):
-            refused(Text("This file doesn't look like text, so it isn't shown."))
+            refused(Text("This file doesn’t appear to be text."))
                 .environment(\.previewMismatch, Self.localized(name))
         case .mismatch(let name):
             viewer.environment(\.previewMismatch, Self.localized(name))
@@ -247,8 +247,8 @@ struct PreviewToolbar<Content: View>: View {
             if let mismatch {
                 PreviewNote(
                     symbol: "exclamationmark.triangle.fill",
-                    text: Text("The file name doesn't match its content (\(mismatch))."),
-                    shortText: Text("Name doesn't match content (\(mismatch))"), tint: .yellow)
+                    text: Text("The file name doesn’t match its content (\(mismatch))."),
+                    shortText: Text("Name doesn’t match content (\(mismatch))"), tint: .yellow)
             }
         }
     }

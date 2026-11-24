@@ -335,7 +335,7 @@ import Testing
                 try await plan.verify(original: source, output: output)
                 Issue.record("expected changed source failure")
             } catch EngineError.invalidInput(.malformed(let message)) {
-                #expect(message.contains("original changed"))
+                #expect(message.contains("file changed while it was being processed"))
             }
         }
     }
@@ -490,7 +490,7 @@ import Testing
             }
             Issue.record("expected source-change failure")
         } catch EngineError.invalidInput(.malformed(let message)) {
-            #expect(message.contains("original changed"))
+            #expect(message.contains("file changed while it was being processed"))
         }
         #expect(changed.withLock { $0 })
         #expect(mutationFailures.withLock { $0.isEmpty })

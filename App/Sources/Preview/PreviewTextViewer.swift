@@ -253,14 +253,15 @@ struct PreviewTextViewer: View {
                 PreviewNote(
                     symbol: "shield.lefthalf.filled",
                     text: Text(
-                        "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled."
+                        "This file is from the internet. The preview is view-only, and scripts, external content and access to other files are turned off."
                     ),
                     shortText: Text("From the internet: view-only preview"))
             } else {
                 PreviewNote(
                     symbol: "shield.lefthalf.filled",
                     text: Text(
-                        "This file is from the internet. Scripts, external content and other files are disabled."),
+                        "This file is from the internet. Scripts, external content and access to other files are turned off."
+                    ),
                     shortText: Text("From the internet: limited preview"))
             }
         } else if kind == .html, rich, let activePolicy {
@@ -371,10 +372,10 @@ struct PreviewTextViewer: View {
         switch failure {
         case .tooLarge(let limitBytes):
             let size = ByteCountFormatter.string(fromByteCount: limitBytes, countStyle: .memory)
-            if tableFormat != nil { return Text("Files larger than \(size) can't be shown as a table.") }
+            if tableFormat != nil { return Text("Files larger than \(size) can’t be shown as a table.") }
             return formats
-                ? Text("Files larger than \(size) can't be formatted.")
-                : Text("Files larger than \(size) can't be previewed here.")
+                ? Text("Files larger than \(size) can’t be formatted.")
+                : Text("Files larger than \(size) can’t be previewed here.")
         case .unreadable where rich && kind != .text:
             return formats ? Text("This file could not be formatted.") : Text("This preview could not be displayed.")
         case .unreadable:

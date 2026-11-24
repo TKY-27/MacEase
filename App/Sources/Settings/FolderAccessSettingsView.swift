@@ -15,8 +15,10 @@ struct FolderAccessSettingsView: View {
                     Text(extensionEnabled ? String(localized: "On") : String(localized: "Off"))
                     Button("Extension Settings…") { FIFinderSyncController.showExtensionManagementInterface() }
                 }
-                Text("MacEase registers all local and mounted locations. Access still depends on macOS permissions.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "The MacEase menu is available in all local and connected locations. macOS permissions still apply."
+                )
+                .foregroundStyle(.secondary)
             }
             Section {
                 ForEach(folders.locations) { location in
@@ -50,20 +52,20 @@ struct FolderAccessSettingsView: View {
                 Button("Add Folder…", action: folders.addFolder)
                     .disabled(!folders.canSave)
             } header: {
-                Text("Registered Folders")
+                Text("Locations")
             } footer: {
                 Text(
-                    "Removing a folder only removes its explicit registration. It does not revoke macOS permissions or block MacEase there."
+                    "Removing a folder from this list doesn’t change its macOS permissions."
                 )
             }
             Section("Access and Availability") {
-                Text("Readable confirms folder listing only. Write access is checked when saving a result.")
+                Text("Readable means MacEase can list the folder. Write access is checked when a result is saved.")
                 Text(
-                    "If macOS keeps an access request waiting, select that folder with Add Folder, then restart MacEase and retry."
+                    "If access stays pending, add the folder with Add Folder, then quit and reopen MacEase."
                 )
-                Text("For cloud folders without a MacEase menu, use Services → MacEase… in Finder.")
+                Text("If the MacEase menu doesn’t appear in a cloud folder, right-click and choose Services > MacEase.")
                 HStack {
-                    Button("Files and Folders…") { SystemSettingsPane.open(SystemSettingsPane.filesAndFolders) }
+                    Button("Files & Folders…") { SystemSettingsPane.open(SystemSettingsPane.filesAndFolders) }
                     Button("Full Disk Access…") { SystemSettingsPane.open(SystemSettingsPane.fullDiskAccess) }
                     Button("Refresh", action: refresh)
                 }

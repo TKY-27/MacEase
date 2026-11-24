@@ -57,7 +57,7 @@ struct PasswordPanel: View {
             .fixedSize(horizontal: false, vertical: true)
             SecureField("Password", text: $password)
             if archives.count > 1 {
-                Toggle("Use for all \(archives.count) archives in this batch", isOn: $forAll)
+                Toggle("Use for all \(archives.count) archives", isOn: $forAll)
             }
         }
     }
@@ -129,7 +129,8 @@ struct EncodingPanel: View {
         guard let sample else { return "" }
         return String(data: sample, encoding: encoding.foundationEncoding)
             ?? String(
-                localized: "This encoding does not fit the file.", comment: "Encoding panel preview")
+                localized: "This encoding can’t read the file correctly. Choose another encoding.",
+                comment: "Encoding panel preview")
     }
 }
 

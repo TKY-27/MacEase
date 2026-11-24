@@ -64,7 +64,7 @@ final class FolderAccessStore {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Add Folder")
-        panel.message = String(localized: "Choose folders to register with MacEase.")
+        panel.message = String(localized: "Choose folders to add to the list.")
         guard panel.runModal() == .OK else { return }
         do {
             var updated = saved

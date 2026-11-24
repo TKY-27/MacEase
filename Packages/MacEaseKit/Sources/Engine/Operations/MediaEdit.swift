@@ -18,7 +18,7 @@ public struct MediaSourceStamp: Codable, Hashable, Sendable {
                     message
                         ?? String(
                             localized:
-                                "The original changed while editing. Close the editor and reopen the file.")))
+                                "The original changed while it was open. Close the editor and open the file again.")))
         }
     }
 }

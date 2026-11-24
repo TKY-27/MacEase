@@ -65,7 +65,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "Multiple videos require a new file."))))
+                .invalidInput(.malformed(String(localized: "Joined videos can only be saved as a new file."))))
         }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -81,7 +81,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "This source requires a new file."))))
+                .invalidInput(.malformed(String(localized: "This file can only be saved as a new file."))))
         }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -105,7 +105,8 @@ final class MediaEditorModelTests: XCTestCase {
             XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
                 XCTAssertEqual(
                     error as? EngineError,
-                    .invalidInput(.malformed(String(localized: "HDR color edits require a new SDR file."))))
+                    .invalidInput(.malformed(String(localized: "HDR color edits can only be saved as a new SDR file.")))
+                )
             }
             let planned = try model.makeSave(replacingOriginal: false)
             XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -125,7 +126,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "HDR color edits require a new SDR file."))))
+                .invalidInput(.malformed(String(localized: "HDR color edits can only be saved as a new SDR file."))))
         }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -158,7 +159,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "This source requires a new file."))))
+                .invalidInput(.malformed(String(localized: "This file can only be saved as a new file."))))
         }
         let derived = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(derived.settings.outputMode, .newFile)
@@ -1182,10 +1183,10 @@ final class MediaEditorModelTests: XCTestCase {
 
         XCTAssertEqual(String(localized: "Removes \(1) pauses (\("0:01.0"))"), "Removes 1 pause (0:01.0)")
         XCTAssertEqual(String(localized: "Removes \(14) pauses (\("0:42.0"))"), "Removes 14 pauses (0:42.0)")
-        XCTAssertEqual(japanese("Removes %lld pauses (%@)"), "%lldか所の間を削除（%@）")
+        XCTAssertEqual(japanese("Removes %lld pauses (%@)"), "%lldか所の無音を削除（%@）")
         XCTAssertEqual(
             japanese("Nothing would be left. Choose a lower threshold or a longer pause."),
-            "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。")
+            "何も残らなくなります。無音とみなす音量を下げるか、対象にする無音を長くしてください。")
         XCTAssertEqual(
             japanese("There’s no audible sound to analyze in this video."), "この動画には分析できる音がありません。")
     }

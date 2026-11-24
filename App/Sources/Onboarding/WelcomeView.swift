@@ -64,7 +64,7 @@ struct WelcomeView: View {
                 .resizable()
                 .frame(width: Self.iconSize, height: Self.iconSize)
                 .accessibilityHidden(true)
-            Text("Right-click and done.", comment: "Welcome headline")
+            Text("Set Up MacEase", comment: "Welcome headline")
                 .font(.title.bold())
                 .accessibilityAddTraits(.isHeader)
             Text(
@@ -101,7 +101,7 @@ struct WelcomeView: View {
             )
             : String(
                 localized:
-                    "MacEase works best from the Applications folder. Quit MacEase, drag it into Applications, then open it from there."
+                    "Quit MacEase, drag it to the Applications folder, then open it from there."
             )
     }
 
@@ -115,35 +115,35 @@ struct WelcomeView: View {
                 }
             } label: {
                 Text("Finder extension")
-                Text("Adds MacEase to Finder's right-click menu.")
+                Text("Adds MacEase to the Finder menu.")
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Finder extension"))
-            .accessibilityHint(Text("Adds MacEase to Finder's right-click menu."))
+            .accessibilityHint(Text("Adds MacEase to the Finder menu."))
             LabeledContent {
                 notificationControl
             } label: {
                 Text("Notifications")
-                Text("Results with Undo when a batch finishes.")
+                Text("Shows results with Undo when an operation finishes.")
             }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Notifications"))
-            .accessibilityHint(Text("Results with Undo when a batch finishes."))
+            .accessibilityHint(Text("Shows results with Undo when an operation finishes."))
             LabeledContent("Folder access") {
                 Button("Add Folder…", action: folders.addFolder)
             }
             if let failure = folders.failure { ProblemLabel(text: failure) }
             Toggle(isOn: $launchesAtLogin) {
-                Text("Launch at login")
-                Text("Keeps the Finder menu instant.")
+                Text("Open at login")
+                Text("Finder menu actions start without delay.")
             }
             .toggleStyle(.switch)
-            .accessibilityLabel(Text("Launch at login"))
-            .accessibilityHint(Text("Keeps the Finder menu instant."))
+            .accessibilityLabel(Text("Open at login"))
+            .accessibilityHint(Text("Finder menu actions start without delay."))
         } footer: {
             HStack(alignment: .firstTextBaseline) {
                 Text(
-                    "macOS asks once per protected folder, like Desktop or Downloads, the first time MacEase works there.",
+                    "macOS asks once for each protected folder, such as Desktop or Downloads.",
                     comment: "Welcome folder access note"
                 )
                 .foregroundStyle(.secondary)
@@ -172,7 +172,7 @@ struct WelcomeView: View {
                 try LoginItem.setEnabled(launchesAtLogin)
             }
         } catch {
-            failure = String(localized: "Launch at login could not be changed: \(error.localizedDescription)")
+            failure = String(localized: "“Open at login” couldn’t be changed: \(error.localizedDescription)")
             return
         }
         finish()

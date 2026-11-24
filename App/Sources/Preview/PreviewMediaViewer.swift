@@ -121,7 +121,7 @@ final class PreviewPlayback {
             phase = .message(
                 String(
                     localized:
-                        "This file is from the internet, so MacEase doesn't convert it. Open it in a media player."))
+                        "This file is from the internet, so MacEase doesn’t convert it. Open it in a media player."))
         case .refused(.contentMismatch), .refused(.emptyFile): fail("content does not match the file kind")
         }
     }
@@ -291,7 +291,7 @@ struct PreviewMediaViewer: View {
 
     private var convertible: some View {
         VStack(spacing: 12) {
-            Text("This format can't be played directly.").font(.callout).foregroundStyle(.secondary)
+            Text("This format can’t be played directly.").font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button("Convert and Play") { playback.convert(url) }
         }

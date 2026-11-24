@@ -22,7 +22,7 @@ extension MediaEditorModelTests {
             "This segment is already reversed. Restore forward playback first.", "Timeline Zoom", "Unmute",
             "Unmute Preview", "Zoom", "Zoom is unavailable while cropping", "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)",
             "“%@” at %@, %@",
-            "Joined videos use the first video's canvas and frame rate. Other sizes fit with black borders. HDR becomes SDR; transparency is flattened. Originals are kept. Metadata may be removed.",
+            "Joined videos use the first video’s size and frame rate. Other sizes fit with black borders. HDR becomes SDR, and transparency is filled in. Originals are kept. Metadata may be removed.",
         ]
         let audioTrimKeys = [
             "Waveform", "Go to In Point", "Go to Out Point", "Play", "Pause", "Pause (Space)",
@@ -61,7 +61,7 @@ extension MediaEditorModelTests {
         XCTAssertEqual(japanese("Mute Preview"), "プレビューを消音")
         XCTAssertEqual(japanese("Unmute Preview"), "プレビューの消音を解除")
         XCTAssertEqual(japanese("editor.silence.analyze"), "分析")
-        XCTAssertEqual(japanese("Segment %lld of %lld, %@"), "セグメント %1$lld / %2$lld、%3$@")
+        XCTAssertEqual(japanese("Segment %lld of %lld, %@"), "セグメント%1$lld / %2$lld、%3$@")
 
         let downloadAnalysisKeys = [
             "Analyze", "Analyze Links (⌘R)", "Stop Analysis", "Analyzing…", "URLs that could not be analyzed",

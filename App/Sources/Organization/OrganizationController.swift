@@ -190,7 +190,7 @@ final class OrganizationController {
     func preview() {
         guard let id = selectedRoot, !isScanning, !isApplying, canSave else { return }
         guard !processingRoots.contains(id) else {
-            status = String(localized: "Wait for this folder's current organization to finish")
+            status = String(localized: "Wait for this folder’s current organization to finish")
             return
         }
         scanTask = Task {
