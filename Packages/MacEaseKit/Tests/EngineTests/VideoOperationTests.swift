@@ -231,7 +231,7 @@ import Testing
         #expect(try await run(.videoRemoveAudio, preset: nil, on: result) == .skipped(.nothingToRemove))
     }
 
-    @Test func replacementsCarryOrRefuseMatroskaSubtitleByContainerSupport() async throws {
+    @Test func replacementsRefuseMatroskaSubtitleWithoutChangingOriginal() async throws {
         let source = URL(filePath: #filePath).deletingLastPathComponent()
             .appending(path: "../FormatsTests/Resources/ffmpeg-mpeg4-ac3-srt.mkv")
         let url = try TestVolume.makeFolder().appending(path: "subtitled.mkv")
@@ -239,51 +239,15 @@ import Testing
         let original = try Data(contentsOf: url)
         let input = try await MediaInput.open(url)
         #expect(input.skippedStreams.contains(.track(3, kind: .subtitle)))
-        #expect(
-            try await run(.videoConvert, preset: "avi", on: url)
-                == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
-        #expect(try Data(contentsOf: url) == original)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).count == 1)
-
         for (operation, preset) in [
-            (OperationID.videoRemoveAudio, Optional<String>.none)
+            (OperationID.videoRemoveAudio, nil), (.videoConvert, "mp4"), (.videoCompress, "quality-high"),
         ] {
-            let copy = try TestVolume.makeFolder().appending(path: "subtitled-carry.mkv")
-            try FileManager.default.copyItem(at: source, to: copy)
-            let outcome = try await run(operation, preset: preset, on: copy, outputMode: .newFile)
-            guard case .succeeded(let outputs, let warnings) = outcome, let output = outputs.first else {
-                Issue.record("expected subtitle carry for \(operation): \(outcome)")
-                return
-            }
-            #expect(warnings.isEmpty)
-            let reopened = try await MediaInput.open(output)
-            #expect(MediaInput.unpreservedStreams(from: reopened.skippedStreams).contains(.subtitle))
+            #expect(
+                try await run(operation, preset: preset, on: url)
+                    == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
+            #expect(try Data(contentsOf: url) == original)
         }
-        let compressCopy = try TestVolume.makeFolder().appending(path: "subtitled-compress.mkv")
-        let tools = try MediaDownloadTools.resolved()
-        _ = try await MediaToolProcess().run(
-            executable: tools.ffmpeg,
-            arguments: [
-                "-v", "error", "-nostdin", "-i", source.path, "-map", "0", "-map_metadata", "-1",
-                "-c:v", "copy", "-c:a", "pcm_s16le", "-c:s", "copy", compressCopy.path,
-            ],
-            directory: compressCopy.deletingLastPathComponent(), tools: tools)
-        let originalCompression = try Data(contentsOf: compressCopy)
-        var preset = try #require(
-            PresetLibrary(supportDirectory: compressCopy.deletingLastPathComponent()).bundled.first {
-                $0.id == "discord"
-            })
-        preset.video?.formats = ["mkv"]
-        preset.video?.maxBytes = nil
-        let compressOutcome = try await run(
-            .videoCompress, options: .video(.compress(VideoCompression(goal: .platform(preset)))), on: compressCopy,
-            outputMode: .newFile)
-        let compressed = try output(compressOutcome)
-        let reopened = try await MediaInput.open(compressed)
-        #expect(reopened.video?.codec == .h264)
-        #expect(reopened.audio?.codec == .aac)
-        #expect(MediaInput.unpreservedStreams(from: reopened.skippedStreams) == [.subtitle])
-        #expect(try Data(contentsOf: compressCopy) == originalCompression)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).count == 1)
     }
 
     @Test(arguments: [SkippedMediaStream.chapter, .attachment, .unknown])
@@ -568,7 +532,7 @@ import Testing
     private func videoWithExtraTracks(
         includeTimecode: Bool = false, includeChapter: Bool = false, includeMetadata: Bool = false,
         includeClosedCaption: Bool = false, sourceURL: URL? = nil, timecodeRate: Int32 = 24, leadingSeconds: Double = 0,
-        timecodeDuration: CMTime? = nil
+        timecodeDuration: CMTime? = nil, associateTimecode: Bool = true
     ) async throws -> URL {
         let source = try sourceURL ?? fixture("ffmpeg-h264-aac.mp4")
         let asset = AVURLAsset(url: source)
@@ -605,9 +569,17 @@ import Testing
             let tcFormat = try #require(timecodeFormat)
             let timecodeIn = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: tcFormat)
             timecodeIn.mediaTimeScale = timecodeDuration?.timescale ?? timecodeRate
+            timecodeIn.languageCode = "jpn"
+            timecodeIn.extendedLanguageTag = "ja-JP"
+            timecodeIn.marksOutputTrackAsEnabled = false
+            let title = AVMutableMetadataItem()
+            title.identifier = .commonIdentifierTitle
+            title.value = "Camera timecode" as NSString
+            timecodeIn.metadata = [title]
             writer.add(timecodeIn)
-            if videoIn.canAddTrackAssociation(
-                withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
+            if associateTimecode,
+                videoIn.canAddTrackAssociation(
+                    withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
             {
                 videoIn.addTrackAssociation(
                     withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
@@ -792,6 +764,23 @@ import Testing
         }
     }
 
+    @Test(arguments: [true, false])
+    func timecodeRetainsSourceAssociationAndTrackProperties(associated: Bool) async throws {
+        let source = try await videoWithExtraTracks(includeTimecode: true, associateTimecode: associated)
+        let result = try output(try await run(.videoRotate, preset: "right-90", on: source, outputMode: .newFile))
+        let asset = AVURLAsset(url: result)
+        let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let tracks = try await asset.loadTracks(withMediaType: .timecode)
+        let timecode = try #require(tracks.first)
+        #expect(try await video.loadAssociatedTracks(ofType: .timecode).count == (associated ? 1 : 0))
+        #expect(try await timecode.load(.languageCode) == "jpn")
+        #expect(try await timecode.load(.extendedLanguageTag) == "ja-JP")
+        #expect(try await timecode.load(.isEnabled) == false)
+        let metadata = try await timecode.load(.metadata)
+        #expect(metadata.count == 1)
+        #expect(try await metadata.first?.load(.stringValue) == "Camera timecode")
+    }
+
     @Test func timecodeKeepsFractionalTrackEndWithoutMovieScaleRounding() async throws {
         let duration = CMTime(value: 120_084, timescale: 60_000)
         let source = try await videoWithExtraTracks(includeTimecode: true, timecodeRate: 30, timecodeDuration: duration)
@@ -816,7 +805,7 @@ import Testing
         try "WEBVTT\n\n00:00:00.000 --> 00:00:00.500\nAlpha caption\n".write(
             to: subtitle, atomically: true, encoding: .utf8)
         let subtitled = folder.appending(path: "alpha-subtitled.webm")
-        let tools = try MediaDownloadTools.resolved()
+        let tools = try mediaFixtureTools()
         _ = try await MediaToolProcess().run(
             executable: tools.ffmpeg,
             arguments: [
@@ -827,9 +816,9 @@ import Testing
         let opened = try await MediaInput.open(subtitled)
         #expect(MediaInput.unpreservedStreams(from: opened.skippedStreams) == [.subtitle])
         #expect(opened.video?.hasAlpha == true)
-        let plan = try await StreamRemuxer.plan(for: opened, destination: .mkv, preservesTiming: true)
-        #expect(plan.carriedKinds.isEmpty)
-        #expect(plan.uncarriableKinds == [.subtitle])
+        let plan = try await NativeTimecodePlan.make(for: opened, destination: .mkv, preservesTiming: true)
+        #expect(!plan.carriesTimecode)
+        #expect(plan.omittedKinds == [.subtitle])
     }
 
     private func appendExtraSample(
@@ -889,7 +878,7 @@ import Testing
         if mode == .newFile { #expect(try Data(contentsOf: input) == original) }
     }
 
-    @Test func timecodeTrackRequiresConsentWhenUncarriableAndCarriesInMOV() async throws {
+    @Test func unpreservableTimecodeRequiresVersionedOmissionConsent() async throws {
         let input = try await videoWithExtraTracks(includeTimecode: true)
         let original = try Data(contentsOf: input)
         let folder = input.deletingLastPathComponent()
@@ -903,8 +892,8 @@ import Testing
         #expect(try Data(contentsOf: input) == original)
         #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
 
-        let carriedMP4 = try await run(.videoConvert, preset: "mp4", on: input, outputMode: .newFile)
-        #expect(carriedMP4 == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+        let mp4Outcome = try await run(.videoConvert, preset: "mp4", on: input, outputMode: .newFile)
+        #expect(mp4Outcome == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
 
         let editorStaging = StagingArea(supportDirectory: folder)
         await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
@@ -963,20 +952,20 @@ import Testing
         let original = try Data(contentsOf: combined)
 
         #expect(
-            try await run(.videoConvert, preset: "avi", on: combined)
+            try await run(.videoConvert, preset: "mp4", on: combined)
                 == .failed(.invalidInput(.unpreservedStreams([.timecode, .chapter]))))
         #expect(
-            try await run(.videoConvert, preset: "avi", on: combined, omittedStreams: [.timecode])
+            try await run(.videoConvert, preset: "mp4", on: combined, omittedStreams: [.timecode])
                 == .failed(.invalidInput(.unpreservedStreams([.chapter]))))
         #expect(try Data(contentsOf: combined) == original)
 
         let consented = try await run(
-            .videoConvert, preset: "avi", on: combined, omittedStreams: [.timecode, .chapter], outputMode: .newFile)
+            .videoConvert, preset: "mp4", on: combined, omittedStreams: [.timecode, .chapter], outputMode: .newFile)
         guard case .succeeded(let outputs, let warnings) = consented else {
             Issue.record("expected fully consented convert to succeed, got \(consented)")
             return
         }
-        #expect(outputs.first?.pathExtension == "avi")
+        #expect(outputs.first?.pathExtension == "mp4")
         #expect(warnings.contains(.streamsOmitted([.timecode, .chapter])))
     }
 
@@ -988,17 +977,17 @@ import Testing
         let original = try Data(contentsOf: url)
 
         #expect(
-            try await run(.videoConvert, preset: "avi", on: url, omittedStreams: [.timecode])
+            try await run(.videoConvert, preset: "mp4", on: url, omittedStreams: [.timecode])
                 == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
         #expect(try Data(contentsOf: url) == original)
 
         let consented = try await run(
-            .videoConvert, preset: "avi", on: url, omittedStreams: [.subtitle], outputMode: .newFile)
+            .videoConvert, preset: "mp4", on: url, omittedStreams: [.subtitle], outputMode: .newFile)
         guard case .succeeded(let outputs, let warnings) = consented else {
             Issue.record("expected consented subtitle convert to succeed, got \(consented)")
             return
         }
-        #expect(outputs.first?.pathExtension == "avi")
+        #expect(outputs.first?.pathExtension == "mp4")
         #expect(warnings.contains(.streamsOmitted([.subtitle])))
     }
 

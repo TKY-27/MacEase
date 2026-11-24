@@ -114,9 +114,6 @@ enum AudioJob {
             let kept = Set([audioTracks.first?.trackID].compactMap { $0 })
             let skipped = try await MediaInput.skippedStreams(in: asset, keeping: kept)
             found.formUnion(MediaInput.unpreservedStreams(from: skipped))
-            if try await asset.load(.metadata).contains(where: { $0.identifier?.rawValue == "uiso/chpl" }) {
-                found.insert(.chapter)
-            }
         }
         if input.container == .mp3 || input.container == .flac {
             found.formUnion(try unpreservedID3Streams(input.url))

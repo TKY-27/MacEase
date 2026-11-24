@@ -14,12 +14,6 @@ enum VideoCompressor {
     private static let minimumTargetShare = 0.92
     private static let h264HighProfile: UInt8 = 100
 
-    private struct Candidate {
-        let url: URL
-        let bytes: Int64
-        let carryPlan: StreamCarryPlan
-    }
-
     private struct Destination {
         let container: OutputContainer
         let codec: VideoEncoding.Codec
@@ -38,8 +32,9 @@ enum VideoCompressor {
             throw EngineError.invalidInput(.malformed("video must have a positive duration"))
         }
         let destination = try destination(compression.goal, input: input)
-        let carryPlan = try await StreamRemuxer.plan(
-            for: input, destination: destination.container, preservesTiming: true)
+        let carryPlan = try await NativeTimecodePlan.make(
+            for: input, destination: destination.container, preservesTiming: preservesTiming(compression),
+            omitting: context.omittedStreams)
         try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
         if case .bytes(let target) = compression.goal, target > 0 {
             guard let originalBytes = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
@@ -71,7 +66,7 @@ enum VideoCompressor {
                 guard output.bytes < Int64(originalBytes) else { return .skipped(.outputNotSmaller) }
             }
             return try await finish(
-                output, input: input, name: name, context: context, target: destination.target
+                output.url, input: input, carryPlan: carryPlan, name: name
             )
         }
         guard target > 0 else { throw EngineError.invalidInput(.malformed("target bytes must be positive")) }
@@ -79,24 +74,24 @@ enum VideoCompressor {
             input: input, destination: destination, carryPlan: carryPlan, context: context, name: name, target: target)
         if let copied = try await search.copyIfPossible(edit: edit) {
             return try await finish(
-                copied, input: input, name: name, context: context, target: destination.target)
+                copied, input: input, carryPlan: carryPlan, name: name)
         }
         let output = try await search.encode(compression, encoding: encoding, edit: &edit)
         return try await finish(
-            output, input: input, name: name, context: context, target: destination.target)
+            output, input: input, carryPlan: carryPlan, name: name)
     }
 
     private struct TargetSearch {
         let input: MediaInput
         let destination: Destination
-        let carryPlan: StreamCarryPlan
+        let carryPlan: NativeTimecodePlan
         let context: ItemContext
         let name: String
         let target: Int64
         private var smallest = Int64.max
 
         init(
-            input: MediaInput, destination: Destination, carryPlan: StreamCarryPlan,
+            input: MediaInput, destination: Destination, carryPlan: NativeTimecodePlan,
             context: ItemContext, name: String, target: Int64
         ) {
             self.input = input
@@ -107,7 +102,7 @@ enum VideoCompressor {
             self.target = target
         }
 
-        mutating func copyIfPossible(edit: FrameEdit) async throws -> Candidate? {
+        mutating func copyIfPossible(edit: FrameEdit) async throws -> URL? {
             guard input.video?.codec == destination.mediaCodec, edit.size == input.displaySize, edit.aspect == nil,
                 input.transform == .identity || destination.container.fileType != nil
             else { return nil }
@@ -147,7 +142,7 @@ enum VideoCompressor {
         }
 
         mutating func encode(_ compression: VideoCompression, encoding initial: VideoEncoding, edit: inout FrameEdit)
-            async throws -> Candidate
+            async throws -> URL
         {
             let seconds = Double(input.duration) / Double(Nanoseconds.perSecond)
             let audioBitrate = input.audio == nil ? 0 : audioKilobits[audioKilobits.count - 1] * 1_000
@@ -169,7 +164,7 @@ enum VideoCompressor {
         }
 
         private mutating func encodeAndCorrect(_ encoding: VideoEncoding, edit: FrameEdit, audioBitrate: Int)
-            async throws -> Candidate?
+            async throws -> URL?
         {
             let audio: TranscodePlan.Audio? =
                 input.audio == nil
@@ -177,7 +172,7 @@ enum VideoCompressor {
             let plan = TranscodePlan(container: destination.container, video: .encode(encoding, edit), audio: audio)
             let first = try await attempt(input, plan: plan, carryPlan: carryPlan, name: name, context: context)
             smallest = min(smallest, first.bytes)
-            if first.bytes <= target, Double(first.bytes) >= Double(target) * minimumTargetShare { return first }
+            if first.bytes <= target, Double(first.bytes) >= Double(target) * minimumTargetShare { return first.url }
             let underTarget = first.bytes <= target
             if !underTarget { try FileManager.default.removeItem(at: first.url) }
             let ratio = Double(target) * correctionAim / Double(first.bytes)
@@ -191,7 +186,7 @@ enum VideoCompressor {
                 if underTarget { try FileManager.default.removeItem(at: first.url) }
                 return output
             }
-            return underTarget ? first : nil
+            return underTarget ? first.url : nil
         }
 
         private func belowPixelBudget(_ encoding: VideoEncoding) -> Bool {
@@ -200,10 +195,10 @@ enum VideoCompressor {
             return Double(encoding.bitrate ?? 0) / pixelsPerSecond < minimumBitsPerPixelFrame
         }
 
-        private mutating func accepted(_ plan: TranscodePlan) async throws -> Candidate? {
+        private mutating func accepted(_ plan: TranscodePlan) async throws -> URL? {
             let output = try await attempt(input, plan: plan, carryPlan: carryPlan, name: name, context: context)
             smallest = min(smallest, output.bytes)
-            if output.bytes <= target { return output }
+            if output.bytes <= target { return output.url }
             try FileManager.default.removeItem(at: output.url)
             return nil
         }
@@ -296,22 +291,13 @@ enum VideoCompressor {
     }
 
     private static func attempt(
-        _ input: MediaInput, plan: TranscodePlan, carryPlan: StreamCarryPlan, name: String, context: ItemContext
+        _ input: MediaInput, plan: TranscodePlan, carryPlan: NativeTimecodePlan, name: String, context: ItemContext
     )
-        async throws -> Candidate
+        async throws -> (url: URL, bytes: Int64)
     {
         try Task.checkCancellation()
-        var effectiveCarry = carryPlan
-        if case .encode(let encoding, _) = plan.video, encoding.frameDuration != input.frameDuration {
-            effectiveCarry = .none(
-                container: plan.container,
-                uncarriable: UnpreservedStream.allCases.filter {
-                    carryPlan.carriedKinds.contains($0) || carryPlan.uncarriableKinds.contains($0)
-                })
-            try effectiveCarry.requireConsent(omitting: context.omittedStreams, context: context)
-        }
         var plan = try await VideoProperties.prepare(plan, input: input, context: context, allowsCodecChange: false)
-        plan.carriesTimecode = effectiveCarry.carriesNativeTimecode
+        plan.carriesTimecode = carryPlan.carriesTimecode
         let output = try context.stagingURL(for: input.url, name: name)
         context.phase(.encoding)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
@@ -321,19 +307,22 @@ enum VideoCompressor {
         guard let bytes = attributes.fileSize, bytes > 0 else {
             throw EngineError.encodeFailed("empty compression output")
         }
-        return Candidate(url: output, bytes: Int64(bytes), carryPlan: effectiveCarry)
+        return (output, Int64(bytes))
+    }
+
+    static func preservesTiming(_ compression: VideoCompression) -> Bool {
+        guard compression.allowsFrameRateReduction else { return true }
+        switch compression.goal {
+        case .quality: return true
+        case .bytes: return false
+        case .platform(let preset): return preset.video?.targetBytes == nil
+        }
     }
 
     private static func finish(
-        _ candidate: Candidate, input: MediaInput, name: String, context: ItemContext, target: Int64?
+        _ output: URL, input: MediaInput, carryPlan: NativeTimecodePlan, name: String
     ) async throws -> ItemResult {
-        let output = candidate.url
-        try await StreamRemuxer.apply(
-            candidate.carryPlan, to: output, original: input.url, hasVideo: true,
-            hasAudio: input.audio != nil, context: context)
-        if let target, let bytes = try output.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes > target {
-            throw EngineError.targetUnreachable(smallestBytes: Int64(bytes))
-        }
+        try await carryPlan.verify(original: input.url, output: output)
         return .replace(original: input.url, output: StagedFile(url: output, name: name, check: .media))
     }
 }

@@ -24,18 +24,17 @@ enum VideoEdits {
         } catch let skip as SkipError {
             return .skipped(skip.reason)
         }
-        let carryPlan = try await StreamRemuxer.plan(
-            for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation))
+        let carryPlan = try await NativeTimecodePlan.make(
+            for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation),
+            omitting: context.omittedStreams)
         try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
         plan = try await VideoProperties.prepare(plan, input: input, context: context)
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         context.phase(.encoding)
-        plan.carriesTimecode = carryPlan.carriesNativeTimecode
+        plan.carriesTimecode = carryPlan.carriesTimecode
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
-        try await StreamRemuxer.apply(
-            carryPlan, to: output, original: url, hasVideo: plan.video != nil,
-            hasAudio: plan.audio != nil && input.audio != nil, context: context)
+        try await carryPlan.verify(original: url, output: output)
         context.phase(.verifying)
         try await VideoProperties.verify(plan, output: output, context: context)
         if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }

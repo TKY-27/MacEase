@@ -3,30 +3,47 @@ import CoreMedia
 import Foundation
 
 final class NativeTimecode {
+    private struct Track {
+        let reader: AssetTrackReader
+        let input: AVAssetWriterInput
+        let associated: Bool
+        var pending: [CMSampleBuffer]
+    }
+
     private let movieTimeScale: CMTimeScale
-    private let reader: AVAssetReader
-    private var tracks: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)] = []
+    private var tracks: [Track] = []
 
     init(asset: AVURLAsset) async throws {
         movieTimeScale = try await asset.load(.duration).timescale
-        reader = try AVAssetReader(asset: asset)
+        let video = try await asset.loadTracks(withMediaType: .video).first
+        let associated = Set(try await video?.loadAssociatedTracks(ofType: .timecode).map(\.trackID) ?? [])
         for track in try await asset.loadTracks(withMediaType: .timecode) {
             guard let format = try await track.load(.formatDescriptions).first else {
                 throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
             }
-            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-            output.alwaysCopiesSampleData = false
-            guard reader.canAdd(output) else {
-                throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
-            }
-            reader.add(output)
+            let reader = try AssetTrackReader(asset: asset, track: track, number: Int(track.trackID), mode: .packets)
             let input = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: format)
             input.mediaTimeScale = try await track.load(.naturalTimeScale)
             input.metadata = try await track.load(.metadata)
             input.languageCode = try await track.load(.languageCode)
             input.extendedLanguageTag = try await track.load(.extendedLanguageTag)
             input.marksOutputTrackAsEnabled = try await track.load(.isEnabled)
-            tracks.append((output, input))
+            var pending: [CMSampleBuffer] = []
+            while let sample = try await reader.nextSample() {
+                pending.append(sample)
+                let count = CMSampleBufferGetNumSamples(sample)
+                guard count > 0 else { continue }
+                let subtype = CMFormatDescriptionGetMediaSubType(format)
+                let width =
+                    subtype == kCMTimeCodeFormatType_TimeCode32 ? MemoryLayout<Int32>.size : MemoryLayout<Int64>.size
+                guard (subtype == kCMTimeCodeFormatType_TimeCode32 || subtype == kCMTimeCodeFormatType_TimeCode64),
+                    CMSampleBufferGetTotalSampleSize(sample) / count == width,
+                    CMSampleBufferGetTotalSampleSize(sample).isMultiple(of: count)
+                else { throw EngineError.invalidInput(.unpreservedStreams([.timecode])) }
+                break
+            }
+            tracks.append(
+                Track(reader: reader, input: input, associated: associated.contains(track.trackID), pending: pending))
         }
         guard !tracks.isEmpty else { throw EngineError.invalidInput(.unpreservedStreams([.timecode])) }
     }
@@ -35,44 +52,52 @@ final class NativeTimecode {
         guard let video else { throw EngineError.invalidInput(.unpreservedStreams([.timecode])) }
         writer.movieTimeScale = movieTimeScale
         let association = AVAssetTrack.AssociationType.timecode.rawValue
-        for (_, input) in tracks {
-            guard writer.canAdd(input), video.canAddTrackAssociation(withTrackOf: input, type: association) else {
+        for track in tracks {
+            let input = track.input
+            guard writer.canAdd(input),
+                !track.associated || video.canAddTrackAssociation(withTrackOf: input, type: association)
+            else {
                 throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
             }
             writer.add(input)
-            video.addTrackAssociation(withTrackOf: input, type: association)
-        }
-        guard reader.startReading() else {
-            throw EngineError.decodeFailed(reader.error.map { "\($0)" } ?? "timecode reader did not start")
+            if track.associated { video.addTrackAssociation(withTrackOf: input, type: association) }
         }
     }
 
     var isFinished: Bool { tracks.isEmpty }
 
-    func appendReady() throws {
-        var remaining: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)] = []
-        for (output, input) in tracks {
+    func appendReady() async throws {
+        var remaining: [Track] = []
+        for var track in tracks {
+            let input = track.input
             var finished = false
             while input.isReadyForMoreMediaData {
                 try Task.checkCancellation()
-                guard let sample = output.copyNextSampleBuffer() else {
-                    if reader.status == .failed {
-                        throw EngineError.decodeFailed(reader.error.map { "\($0)" } ?? "timecode read failed")
+                let sample: CMSampleBuffer?
+                do {
+                    if !track.pending.isEmpty {
+                        sample = track.pending.removeFirst()
+                    } else {
+                        sample = try await track.reader.nextSample()
                     }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
+                }
+                guard let sample else {
                     input.markAsFinished()
                     finished = true
                     break
                 }
-                guard input.append(sample) else { throw EngineError.encodeFailed("timecode append failed") }
+                guard input.append(sample) else { throw EngineError.invalidInput(.unpreservedStreams([.timecode])) }
             }
-            if !finished { remaining.append((output, input)) }
+            if !finished { remaining.append(track) }
         }
         tracks = remaining
     }
 
-    func cancel() { reader.cancelReading() }
-
-    deinit { reader.cancelReading() }
+    func cancel() { tracks = [] }
 
     static func verify(original: URL, output: URL) async throws {
         let sourceAsset = AVURLAsset(url: original)
@@ -82,11 +107,23 @@ final class NativeTimecode {
         guard !sourceTracks.isEmpty, sourceTracks.count == outputTracks.count,
             let video = try await outputAsset.loadTracks(withMediaType: .video).first
         else { throw EngineError.encodeFailed("timecode track missing") }
+        guard let sourceVideo = try await sourceAsset.loadTracks(withMediaType: .video).first else {
+            throw EngineError.encodeFailed("timecode source video missing")
+        }
+        let sourceAssociated = Set(try await sourceVideo.loadAssociatedTracks(ofType: .timecode).map(\.trackID))
+        let expectedAssociated = Set(
+            zip(sourceTracks, outputTracks).filter { sourceAssociated.contains($0.0.trackID) }.map { $0.1.trackID })
         let associated = try await video.loadAssociatedTracks(ofType: .timecode)
-        guard Set(associated.map(\.trackID)) == Set(outputTracks.map(\.trackID)) else {
+        guard Set(associated.map(\.trackID)) == expectedAssociated else {
             throw EngineError.encodeFailed("timecode association missing")
         }
+        let metadata = try await VideoMetadata.load(from: MediaInput.open(original))
         for (source, written) in zip(sourceTracks, outputTracks) {
+            guard try await source.load(.isEnabled) == written.load(.isEnabled),
+                try await source.load(.languageCode) == written.load(.languageCode),
+                try await source.load(.extendedLanguageTag) == written.load(.extendedLanguageTag),
+                try await metadata.preserves(source.load(.metadata), in: written.load(.metadata), container: .mov)
+            else { throw EngineError.encodeFailed("timecode track properties changed") }
             guard CMTimeRangeEqual(try await source.load(.timeRange), try await written.load(.timeRange))
             else {
                 throw EngineError.encodeFailed("timecode timeline changed")

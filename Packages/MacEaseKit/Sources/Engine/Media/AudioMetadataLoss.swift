@@ -13,7 +13,6 @@ enum AudioMetadataLoss {
     private static let streamKinds: [AVMetadataIdentifier: UnpreservedStream] = [
         AVMetadataIdentifier(rawValue: "id3/CHAP"): .chapter,
         AVMetadataIdentifier(rawValue: "id3/CTOC"): .chapter,
-        AVMetadataIdentifier(rawValue: "uiso/chpl"): .chapter,
         .id3MetadataGeneralEncapsulatedObject: .attachment,
         .id3MetadataSynchronizedLyric: .subtitle,
         .id3MetadataEventTimingCodes: .data,

@@ -24,16 +24,21 @@ public enum RecipePlanner {
 
     /// Videos whose recompressed copies would leave streams out.
     public static func streamOmissions(recipe: Recipe, inputs: [URL]) async throws -> [URL: StreamOmission] {
-        let targets = recipe.variants.compactMap { $0.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) }
-        guard !targets.isEmpty else { return [:] }
+        let variants = recipe.variants.filter { $0.output.videoFormat != nil }
+        guard !variants.isEmpty else { return [:] }
         var omissions: [URL: StreamOmission] = [:]
         for input in inputs where FileKind(fileURL: input) == .video {
             let stamp = try MediaSourceStamp(url: input)
             let opened = try await MediaInput.open(input)
             var omitted: Set<UnpreservedStream> = []
-            for target in Set(targets) {
-                let carryPlan = try await StreamRemuxer.plan(for: opened, destination: target, preservesTiming: true)
-                omitted.formUnion(carryPlan.uncarriableKinds)
+            for variant in variants {
+                guard let target = variant.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) else { continue }
+                let compression = VideoCompression(
+                    goal: .platform(preset(variant, target: variant.targetBytes ?? recipe.totalBytes)))
+                let carryPlan = try await NativeTimecodePlan.make(
+                    for: opened, destination: target,
+                    preservesTiming: VideoCompressor.preservesTiming(compression))
+                omitted.formUnion(carryPlan.omittedKinds)
             }
             if !omitted.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: omitted) }
         }
@@ -89,6 +94,14 @@ public enum RecipePlanner {
             uniqueKeysWithValues: Set(inputs).map { ($0, try FileStamp(of: $0, includingIdentity: true)) })
         for (input, omission) in omissions where stamps[input] != omission.stamp.fileStamp {
             throw RecipeError.sourceChanged(input.lastPathComponent)
+        }
+        let required = try await streamOmissions(recipe: execution.recipe, inputs: inputs)
+        for (source, omission) in required {
+            let unconsented = omission.streams.subtracting(omissions[source]?.streams ?? [])
+            if !unconsented.isEmpty {
+                throw EngineError.invalidInput(
+                    .unpreservedStreams(UnpreservedStream.allCases.filter(unconsented.contains)))
+            }
         }
         let workspace = try context.stagingDirectory(for: destination)
         let sources = try clone(inputs, into: workspace)

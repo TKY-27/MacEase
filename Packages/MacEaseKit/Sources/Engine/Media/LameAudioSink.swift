@@ -21,7 +21,14 @@ final class LameAudioSink: AudioSink {
         }
         self.channels = channels
         outputURL = url
-        let tools = try MediaDownloadTools.resolved()
+        let tools: MediaDownloadTools
+        if let directory = ProcessInfo.processInfo.environment["MACEASE_MEDIA_TOOLS"],
+            Bundle.main.bundleIdentifier?.hasPrefix("io.github.tky27.MacEase") != true
+        {
+            tools = try MediaDownloadTools(directory: URL(filePath: directory))
+        } else {
+            tools = try MediaDownloadTools.bundled()
+        }
         var arguments = [
             "-hide_banner", "-nostdin", "-v", "error", "-n", "-protocol_whitelist", "file,pipe",
             "-f", "f32le", "-ar", String(sampleRate), "-ac", String(channels), "-i", "pipe:0",

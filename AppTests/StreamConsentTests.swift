@@ -102,7 +102,7 @@ final class StreamConsentTests: XCTestCase {
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.settings.outputMode = .newFile
         let options = try XCTUnwrap(
-            OperationPlanner.options(for: .videoConvert, preset: "mkv", settings: store.planning))
+            OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: store.planning))
         let outcome = await jobs.run(
             OperationRequest(op: .videoConvert, options: options, inputs: [broken, timecoded])
         ).value

@@ -197,7 +197,7 @@ struct VideoMetadata {
         return unsupported
     }
 
-    private func preserves(
+    func preserves(
         _ source: [AVMetadataItem], in output: [AVMetadataItem], container: OutputContainer
     ) async throws -> Bool {
         var remaining = output

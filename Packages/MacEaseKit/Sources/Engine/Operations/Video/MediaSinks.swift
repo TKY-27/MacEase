@@ -59,7 +59,7 @@ struct OutputTrack {
 protocol PacketSink {
     /// AVAssetWriter interleaves; muxers take anything.
     func accepts(track: Int) -> Bool
-    func checkHealth() throws
+    func checkHealth() async throws
     mutating func cancel()
     /// Stops AVAssetWriter waiting on a drained stream.
     func endTrack(_ track: Int)
@@ -98,7 +98,7 @@ struct MuxerSink: PacketSink {
 
     func accepts(track: Int) -> Bool { true }
 
-    func checkHealth() throws {}
+    func checkHealth() async throws {}
 
     mutating func cancel() {}
 
@@ -187,11 +187,11 @@ final class AssetWriterSink: PacketSink {
         inputs[track]?.input.isReadyForMoreMediaData ?? true
     }
 
-    func checkHealth() throws {
+    func checkHealth() async throws {
         if writer.status == .failed || writer.status == .cancelled {
             throw EngineError.encodeFailed(Self.describe(writer.error))
         }
-        try timecode?.appendReady()
+        try await timecode?.appendReady()
     }
 
     func cancel() {
@@ -211,7 +211,7 @@ final class AssetWriterSink: PacketSink {
             throw EngineError.unsupportedCodec(codec.displayName)
         }
         while !input.isReadyForMoreMediaData {
-            try checkHealth()
+            try await checkHealth()
             try Task.checkCancellation()
             try await Task.sleep(for: Self.readinessPoll)
         }
@@ -223,7 +223,7 @@ final class AssetWriterSink: PacketSink {
         for (input, _, _) in inputs.values { input.markAsFinished() }
         inputs = [:]
         while let timecode, !timecode.isFinished {
-            try checkHealth()
+            try await checkHealth()
             try Task.checkCancellation()
             if !timecode.isFinished { try await Task.sleep(for: Self.readinessPoll) }
         }
