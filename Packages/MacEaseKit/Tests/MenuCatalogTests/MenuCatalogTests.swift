@@ -507,3 +507,83 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(!RequestToken.matches("", token))
     }
 }
+
+@Suite struct MenuFileIntegrityTests {
+    private func tampered(_ change: (inout [String: Any]) throws -> Void) throws -> Data {
+        var encoded = try #require(JSONSerialization.jsonObject(with: menuFile().encoded()) as? [String: Any])
+        try change(&encoded)
+        return try JSONSerialization.data(withJSONObject: encoded)
+    }
+
+    @Test func untouchedFilesLoad() throws {
+        #expect(try MenuFile(json: try tampered { _ in }) == menuFile())
+    }
+
+    @Test func reorderedEntriesUnderTheOldVersionAreRejected() throws {
+        let json = try tampered { encoded in
+            var entries = try #require(encoded["entries"] as? [Any])
+            entries.swapAt(0, 1)
+            encoded["entries"] = entries
+        }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: json) }
+    }
+
+    @Test func editedTitlesAndCommandsUnderTheOldVersionAreRejected() throws {
+        let retitled = try tampered { $0["moreTitle"] = "Other" }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: retitled) }
+        let commandless = try tampered { $0["commands"] = [] }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: commandless) }
+    }
+}
+
+@Suite struct MenuBuildsTests {
+    private let shown = menuFile()
+    private let rewritten: MenuFile = {
+        var arrangement = MenuArrangement()
+        var image = arrangement.resolved(.image)
+        image.move([MenuGroupID(rawValue: "image.convert")], to: .more)
+        arrangement.set(image)
+        return MenuFile(
+            token: "rotated", hostAvailable: true, visibleOperations: OperationID.allCases, titles: titles,
+            arrangement: arrangement)
+    }()
+
+    @Test func clicksSendTheVersionTheirMenuWasBuiltFrom() {
+        #expect(shown.catalogVersion != rewritten.catalogVersion)
+        var builds = MenuBuilds()
+        let open = MenuBuilds.tag(build: builds.record(shown), entryIndex: 3)
+        let later = MenuBuilds.tag(build: builds.record(rewritten), entryIndex: 3)
+        #expect(
+            builds.request(tag: open, paths: ["/a.png"])
+                == RunRequest(
+                    catalogVersion: shown.catalogVersion, entryIndex: 3, token: shown.token, paths: ["/a.png"]))
+        #expect(
+            builds.request(tag: later, paths: ["/a.png"])
+                == RunRequest(
+                    catalogVersion: rewritten.catalogVersion, entryIndex: 3, token: "rotated", paths: ["/a.png"]))
+    }
+
+    @Test func replacedBuildsAndForeignTagsYieldNoRequest() {
+        var builds = MenuBuilds()
+        let oldest = MenuBuilds.tag(build: builds.record(shown), entryIndex: 0)
+        for _ in 0..<MenuBuilds.retainedCount {
+            #expect(builds.request(tag: oldest, paths: ["/a"]) != nil)
+            _ = builds.record(rewritten)
+        }
+        #expect(builds.request(tag: oldest, paths: ["/a"]) == nil)
+        #expect(builds.request(tag: -1, paths: ["/a"]) == nil)
+        for _ in 0..<MenuBuilds.idCount {
+            let tag = MenuBuilds.tag(build: builds.record(shown), entryIndex: 7)
+            #expect(builds.request(tag: tag, paths: ["/a"])?.catalogVersion == shown.catalogVersion)
+        }
+    }
+
+    @Test func tagsKeepLargeIndicesWithin31Bits() {
+        var builds = MenuBuilds()
+        let entryIndex = 1_000_000
+        let tag = MenuBuilds.tag(build: MenuBuilds.idCount - 1, entryIndex: entryIndex)
+        #expect(tag <= Int(Int32.max))
+        for _ in 0..<MenuBuilds.idCount { _ = builds.record(shown) }
+        #expect(builds.request(tag: tag, paths: ["/a"])?.entryIndex == entryIndex)
+    }
+}

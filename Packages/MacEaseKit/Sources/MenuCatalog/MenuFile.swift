@@ -189,7 +189,11 @@ public struct MenuFile: Codable, Equatable, Sendable {
         let decoder = JSONDecoder()
         let schema = try decoder.decode(MenuSchema.self, from: json).schema
         guard schema == Self.currentSchema else { throw MenuFileError.unsupportedSchema(schema) }
-        self = try decoder.decode(MenuFile.self, from: json)
+        let file = try decoder.decode(MenuFile.self, from: json)
+        // Mismatched indices would run another operation.
+        guard file.catalogVersion == Self.version(of: file.entries, moreTitle: file.moreTitle, commands: file.commands)
+        else { throw MenuFileError.catalogMismatch }
+        self = file
     }
 }
 
@@ -217,6 +221,7 @@ public struct MenuTitles: Sendable {
 
 public enum MenuFileError: Error, Equatable, Sendable {
     case unsupportedSchema(Int)
+    case catalogMismatch
 }
 
 private struct MenuSchema: Decodable {
