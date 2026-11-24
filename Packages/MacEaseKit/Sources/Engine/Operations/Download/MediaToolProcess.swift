@@ -17,7 +17,7 @@ final class MediaToolProcess: Sendable {
 
     func run(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
-        captureOutput: Bool = true, input: FileHandle? = nil,
+        captureOutput: Bool = true, input: FileHandle? = nil, includeTLSCertificate: Bool = true,
         line: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> MediaToolResult {
         try await withTaskCancellationHandler {
@@ -27,16 +27,21 @@ final class MediaToolProcess: Sendable {
                         with: Result {
                             try self.execute(
                                 executable: executable, arguments: arguments, directory: directory, tools: tools,
-                                captureOutput: captureOutput, input: input, line: line)
+                                captureOutput: captureOutput, input: input,
+                                includeTLSCertificate: includeTLSCertificate, line: line)
                         })
                 }
             }
         } onCancel: {
-            self.state.withLock {
-                $0.cancelled = true
-                if let child = $0.child, child.isRunning {
-                    Self.stop(child)
-                }
+            self.cancel()
+        }
+    }
+
+    func cancel() {
+        state.withLock {
+            $0.cancelled = true
+            if let child = $0.child, child.isRunning {
+                Self.stop(child)
             }
         }
     }
@@ -49,17 +54,22 @@ final class MediaToolProcess: Sendable {
 
     private func execute(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
-        captureOutput: Bool, input: FileHandle?, line: @escaping @Sendable (String) -> Void
+        captureOutput: Bool, input: FileHandle?, includeTLSCertificate: Bool,
+        line: @escaping @Sendable (String) -> Void
     ) throws -> MediaToolResult {
         let child = Process()
         child.executableURL = executable
         child.arguments = arguments
         child.standardInput = input ?? FileHandle.nullDevice
         child.currentDirectoryURL = directory
-        child.environment = [
-            "HOME": directory.path, "TMPDIR": directory.path, "LANG": "en_US.UTF-8",
-            "PATH": tools.directory.path + ":/usr/bin:/bin", "SSL_CERT_FILE": "/etc/ssl/cert.pem",
+        var environment = [
+            "HOME": directory.path, "TMPDIR": directory.path, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8",
+            "PATH": includeTLSCertificate ? tools.directory.path + ":/usr/bin:/bin" : "/usr/bin:/bin",
         ]
+        if includeTLSCertificate {
+            environment["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        }
+        child.environment = environment
         let standardOutput = Pipe()
         let standardError = Pipe()
         child.standardOutput = standardOutput
