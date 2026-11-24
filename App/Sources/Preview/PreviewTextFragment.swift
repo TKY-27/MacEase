@@ -34,17 +34,26 @@ final class PreviewTextDecorations: NSObject, NSTextLayoutManagerDelegate, Senda
 }
 
 final class PreviewTextFragment: NSTextLayoutFragment {
-    static let maximumDrawnMarks = 1_000
-    // Locating a glyphless character scans its line.
-    static let maximumScannedUnits = 4_000_000
+    // Risky characters are never capped.
+    static let maximumQuietMarksPerLine = 100
     private static let markWidth: CGFloat = 2
     private static let markHeadWidth: CGFloat = 6
     private static let markHeadHeight: CGFloat = 3
+
+    struct PlacedMark {
+        // Zero width, at the caret position.
+        let rect: CGRect
+        let mark: PreviewInvisibleCharacter
+        // Quiet marks cut after this one.
+        var omittedAfter = 0
+    }
 
     private let rowTint: PreviewTextDecorations.RowTint?
     // Ranges are relative to the paragraph.
     private let marks: [PreviewInvisibleCharacter]
     private let decorations: PreviewTextDecorations
+    // Relayout replaces line objects, resetting this.
+    private var caretCache: (lines: [NSTextLineFragment], positions: [ObjectIdentifier: [CGFloat?]]) = ([], [:])
 
     init(
         textElement: NSTextElement, range: NSTextRange, rowTint: PreviewTextDecorations.RowTint?,
@@ -65,25 +74,77 @@ final class PreviewTextFragment: NSTextLayoutFragment {
         return surface.union(rowRect)
     }
 
-    // Zero-width rects at each mark's caret position.
-    func markRects(within clip: CGRect) -> [(rect: CGRect, mark: PreviewInvisibleCharacter)] {
-        var placed: [(rect: CGRect, mark: PreviewInvisibleCharacter)] = []
-        var budget = Self.maximumScannedUnits
+    func placedMarks(within clip: CGRect) -> [PlacedMark] {
+        var placed: [PlacedMark] = []
+        let reach = clip.insetBy(dx: -Self.markHeadWidth, dy: 0)
         for line in textLineFragments {
             let bounds = line.typographicBounds
             guard bounds.maxY >= clip.minY, bounds.minY <= clip.maxY else { continue }
-            let lineEnd = NSMaxRange(line.characterRange)
-            let lookupCost = max(1, line.characterRange.length)
-            var index = marks.firstIndex(atOrAfter: line.characterRange.location)
-            while index < marks.endIndex, marks[index].range.location < lineEnd {
-                guard placed.count < Self.maximumDrawnMarks, budget >= lookupCost else { return placed }
-                budget -= lookupCost
-                let x = bounds.minX + line.locationForCharacter(at: marks[index].range.location).x
-                placed.append((CGRect(x: x, y: bounds.minY, width: 0, height: bounds.height), marks[index]))
-                index += 1
+            let lineMarks = marks[
+                marks.firstIndex(
+                    atOrAfter: line.characterRange.location)..<marks.firstIndex(
+                        atOrAfter: NSMaxRange(line.characterRange))]
+            guard !lineMarks.isEmpty else { continue }
+            var quietCount = 0
+            var omitted = 0
+            var lastQuiet: Int?
+            for (mark, x) in zip(lineMarks, cachedCaretPositions(of: lineMarks, in: line)) {
+                guard let x, x >= reach.minX, x <= reach.maxX else { continue }
+                if !PreviewInvisibleScanner.altersReading(mark.scalar) {
+                    guard quietCount < Self.maximumQuietMarksPerLine else {
+                        omitted += 1
+                        continue
+                    }
+                    quietCount += 1
+                    lastQuiet = placed.count
+                }
+                placed.append(
+                    PlacedMark(rect: CGRect(x: x, y: bounds.minY, width: 0, height: bounds.height), mark: mark))
             }
+            if let lastQuiet, omitted > 0 { placed[lastQuiet].omittedAfter = omitted }
         }
         return placed
+    }
+
+    private func cachedCaretPositions(
+        of lineMarks: ArraySlice<PreviewInvisibleCharacter>, in line: NSTextLineFragment
+    ) -> [CGFloat?] {
+        let lines = textLineFragments
+        if !caretCache.lines.elementsEqual(lines, by: ===) { caretCache = (lines, [:]) }
+        if let cached = caretCache.positions[ObjectIdentifier(line)] { return cached }
+        let positions = caretPositions(of: lineMarks, in: line)
+        caretCache.positions[ObjectIdentifier(line)] = positions
+        return positions
+    }
+
+    // One caret pass per line.
+    private func caretPositions(
+        of lineMarks: ArraySlice<PreviewInvisibleCharacter>, in line: NSTextLineFragment
+    ) -> [CGFloat?] {
+        let start = rangeInElement.location
+        guard let layout = textLayoutManager,
+            let lineStart = layout.location(start, offsetBy: line.characterRange.location)
+        else { return [] }
+        var leading: [Int: CGFloat] = [:]
+        var trailing: [(offset: Int, x: CGFloat)] = []
+        layout.enumerateCaretOffsetsInLineFragment(at: lineStart) { x, location, isLeading, _ in
+            let offset = layout.offset(from: start, to: location)
+            if !isLeading {
+                trailing.append((offset, x))
+            } else if leading[offset] == nil {
+                leading[offset] = x
+            }
+        }
+        trailing.sort { $0.offset < $1.offset }
+        let originX = layoutFragmentFrame.minX
+        var cursor = 0
+        return lineMarks.map { mark in
+            let offset = mark.range.location
+            if let x = leading[offset] { return x - originX }
+            // Clusters report edges at their last character.
+            while cursor < trailing.count, trailing[cursor].offset < offset { cursor += 1 }
+            return cursor < trailing.count ? trailing[cursor].x - originX : nil
+        }
     }
 
     override func draw(at point: CGPoint, in context: CGContext) {
@@ -94,7 +155,10 @@ final class PreviewTextFragment: NSTextLayoutFragment {
         context.saveGState()
         defer { context.restoreGState() }
         context.setFillColor(PreviewTextView.invisibleMarkColor.cgColor)
-        for (rect, _) in markRects(within: clip) {
+        var previous: CGRect?
+        for placed in placedMarks(within: clip) where placed.rect != previous {
+            previous = placed.rect
+            let rect = placed.rect
             let x = point.x + rect.minX
             let top = point.y + rect.minY
             context.fill(CGRect(x: x - Self.markWidth / 2, y: top, width: Self.markWidth, height: rect.height))

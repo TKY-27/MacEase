@@ -22536,6 +22536,34 @@
           }
         }
       }
+    },
+    "%lld more hidden characters on this line aren't marked.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden character on this line isn't marked."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden characters on this line aren't marked."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この行には、マークしていない見えない文字がほかに%lld個あります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -85,7 +85,7 @@ struct PreviewTextRendering: Sendable {
     let decodedAs: PreviewEncoding?
     let invisibleCharacters: [PreviewInvisibleCharacter]
     let altersReading: Bool
-    // Text past the highlight limit is unscanned.
+    // The file or its text was cut.
     let scannedPartially: Bool
 
     static func make(
@@ -141,7 +141,7 @@ struct PreviewTextRendering: Sendable {
             text: text, tokens: tokens, lineStarts: lineStarts, html: html, decodedAs: decodedAs,
             invisibleCharacters: invisible,
             altersReading: invisible.contains { PreviewInvisibleScanner.altersReading($0.scalar) },
-            scannedPartially: text.utf8.count > PreviewTextSource.highlightBytes)
+            scannedPartially: source.truncated || text.utf8.count > PreviewTextSource.highlightBytes)
     }
 
     // An image element never runs SVG scripts.
@@ -290,7 +290,8 @@ struct PreviewTextViewer: View {
                 EmptyView()
             }
         }
-        if let rendering, rendering.altersReading, failure == nil {
+        // Table cells already replace these characters.
+        if let rendering, rendering.altersReading, failure == nil, !(tableFormat != nil && rich) {
             hiddenCharactersNote(rendering)
         }
         if source?.truncated == true && failure == nil && !(kind == .html && rich) {
@@ -640,9 +641,14 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
                 break
             }
         }
-        let decorations = PreviewTextDecorations(marks: rendering.invisibleCharacters, rowTints: rowTints)
-        decorations.rowSpan.withLock { $0 = rowSpan }
-        self.decorations = decorations
+        // Plain fragments when nothing is decorated.
+        if rendering.invisibleCharacters.isEmpty && rowTints.isEmpty {
+            decorations = nil
+        } else {
+            let decorations = PreviewTextDecorations(marks: rendering.invisibleCharacters, rowTints: rowTints)
+            decorations.rowSpan.withLock { $0 = rowSpan }
+            self.decorations = decorations
+        }
         textLayoutManager?.delegate = decorations
         textStorage?.setAttributedString(styled)
         self.font = font
@@ -664,47 +670,52 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         decorations?.rowSpan.withLock { $0 = span }
     }
 
+    // Resizes, rewraps and new text lay out.
+    override func layout() {
+        super.layout()
+        refreshMarkToolTips()
+    }
+
     override func prepareContent(in rect: NSRect) {
         super.prepareContent(in: rect)
         refreshMarkToolTips()
     }
 
-    // Tooltips cover the prepared area only.
+    // Rebuilt whole; no tag outlives its mark.
     private func refreshMarkToolTips() {
-        for tag in markToolTips.labels.keys { removeToolTip(tag) }
-        markToolTips.labels = [:]
+        for tag in markToolTips.entries.keys { removeToolTip(tag) }
+        markToolTips.entries = [:]
         guard let decorations, !decorations.marks.isEmpty, let layout = textLayoutManager else { return }
         let visible = preparedContentRect.union(visibleRect)
         let origin = textContainerOrigin
         let top = CGPoint(x: 0, y: max(0, visible.minY - origin.y))
         let start = layout.textLayoutFragment(for: top)?.rangeInElement.location ?? layout.documentRange.location
-        var stacks: [(rect: CGRect, marks: [PreviewInvisibleCharacter])] = []
+        var stacks: [(rect: CGRect, marks: [PreviewInvisibleCharacter], omitted: Int)] = []
         layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
             let frame = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
-            guard frame.minY <= visible.maxY, stacks.count < PreviewTextFragment.maximumDrawnMarks else {
-                return false
-            }
+            guard frame.minY <= visible.maxY else { return false }
             guard let fragment = fragment as? PreviewTextFragment else { return true }
             let clip = visible.offsetBy(dx: -frame.minX, dy: -frame.minY)
-            for (rect, mark) in fragment.markRects(within: clip) {
-                let placed = rect.offsetBy(dx: frame.minX, dy: frame.minY)
-                if let last = stacks.indices.last, stacks[last].rect == placed {
-                    stacks[last].marks.append(mark)
+            for placed in fragment.placedMarks(within: clip) {
+                let rect = placed.rect.offsetBy(dx: frame.minX, dy: frame.minY)
+                if let last = stacks.indices.last, stacks[last].rect == rect {
+                    stacks[last].marks.append(placed.mark)
+                    stacks[last].omitted += placed.omittedAfter
                 } else {
-                    stacks.append((placed, [mark]))
+                    stacks.append((rect, [placed.mark], placed.omittedAfter))
                 }
             }
             return true
         }
         for stack in stacks {
-            let tag = addToolTip(
-                stack.rect.insetBy(dx: -Self.markHitWidth / 2, dy: 0), owner: markToolTips, userData: nil)
-            markToolTips.labels[tag] = Self.toolTip(for: stack.marks)
+            let area = stack.rect.insetBy(dx: -Self.markHitWidth / 2, dy: 0)
+            let tag = addToolTip(area, owner: markToolTips, userData: nil)
+            markToolTips.entries[tag] = (area, Self.toolTip(for: stack.marks, omitted: stack.omitted))
         }
     }
 
     // Stacked zero-width marks share one tooltip.
-    static func toolTip(for marks: [PreviewInvisibleCharacter]) -> String {
+    static func toolTip(for marks: [PreviewInvisibleCharacter], omitted: Int = 0) -> String {
         var lines: [String] = []
         var index = marks.startIndex
         while index < marks.endIndex, lines.count < maximumToolTipLines {
@@ -715,6 +726,9 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
             index = next
         }
         if index < marks.endIndex { lines.append("…") }
+        if omitted > 0 {
+            lines.append(String(localized: "\(omitted) more hidden characters on this line aren't marked."))
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -851,12 +865,12 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
 }
 
 final class PreviewMarkToolTips: NSObject, NSViewToolTipOwner {
-    var labels: [NSView.ToolTipTag: String] = [:]
+    var entries: [NSView.ToolTipTag: (area: CGRect, label: String)] = [:]
 
     func view(
-        _ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?
+        _ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData _: UnsafeMutableRawPointer?
     ) -> String {
-        labels[tag] ?? ""
+        entries[tag]?.label ?? ""
     }
 }
 
