@@ -151,7 +151,6 @@ struct EditorTimeline: View {
                 actionBar.labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
-            .disabled(model.reverseProgress != nil)
             MediaTimeline(
                 duration: max(model.timelineDuration, model.frameDuration), position: model.position,
                 clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,

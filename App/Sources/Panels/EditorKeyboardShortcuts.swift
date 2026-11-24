@@ -62,104 +62,113 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
             stopMonitoring()
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                let consumed = MainActor.assumeIsolated {
-                    guard let self, event.window === self.window,
-                        !(self.window?.firstResponder is NSTextView), !(self.window?.firstResponder is NSTextField)
-                    else { return false }
-                    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                        .subtracting([.capsLock, .numericPad, .function])
-                    if let audio = self.audio, audio.ready {
-                        return self.audioShortcut(event, modifiers: modifiers, audio: audio)
-                    }
-                    guard let model = self.model else { return false }
-                    let character = event.charactersIgnoringModifiers?.lowercased()
-                    if modifiers.isEmpty, character == "\u{1b}" {
-                        if model.showsSilencePreview {
-                            model.cancelSilenceAnalysis()
-                            model.showsSilencePreview = false
-                        } else if !model.editingLocked, model.category == .markup, model.values.selectedOverlayID != nil
-                        {
-                            model.selectOverlay(nil)
-                        } else if !model.editingLocked, model.category == .markup, model.markupTool != .select {
-                            model.markupTool = .select
-                        } else {
-                            self.close?()
-                        }
-                        return true
-                    }
-                    guard model.ready, !model.editingLocked else { return false }
-                    if model.category == .markup, self.markupShortcut(event, modifiers: modifiers, model: model) {
-                        return true
-                    }
-                    if modifiers == .command, character == "b", model.isVideo {
-                        model.split(); return true
-                    }
-                    if modifiers == .option, character == "f", model.isVideo {
-                        model.insertFreezeFrame(); return true
-                    }
-                    if modifiers == .command, character == "z" { model.undo(); return true }
-                    if modifiers == [.command, .shift], character == "z" { model.redo(); return true }
-                    if modifiers == [.command, .shift], character == "s", model.canSaveFrame {
-                        self.saveFrame?(); return true
-                    }
-                    if modifiers.isEmpty, character == "\r" {
-                        if model.showsSilencePreview {
-                            if model.canApplySilence { model.removeSilence(model.silenceRule) }
-                            return true
-                        }
-                        if model.canSave { self.save?(); return true }
-                    }
-                    if modifiers == .command || modifiers == [.command, .shift] {
-                        switch character {
-                        case "=", "+":
-                            if model.isVideo {
-                                model.zoomTimeline(by: 2)
-                            } else if model.category != .crop {
-                                model.setPhotoZoom(model.zoom * 2)
-                            } else {
-                                return false
-                            }
-                        case "-" where modifiers == .command:
-                            if model.isVideo {
-                                model.zoomTimeline(by: 0.5)
-                            } else if model.category != .crop {
-                                model.setPhotoZoom(model.zoom / 2)
-                            } else {
-                                return false
-                            }
-                        case "0" where modifiers == .command && !model.isVideo && model.category != .crop:
-                            model.setPhotoZoom(1)
-                        default: return false
-                        }
-                        return true
-                    }
-                    if modifiers == .shift, character == "z", model.isVideo {
-                        model.timelineZoom = 1; return true
-                    }
-                    guard modifiers.isEmpty else { return false }
-                    switch character {
-                    case "i" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: true)
-                    case "o" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: false)
-                    case "m": model.original.toggle()
-                    case " " where model.isVideo: model.play()
-                    case "j" where model.isVideo: model.shuttle(-1)
-                    case "k" where model.isVideo: model.shuttle(0)
-                    case "l" where model.isVideo: model.shuttle(1)
-                    case "\u{7f}" where model.isVideo, "\u{f728}" where model.isVideo: model.deleteSelection()
-                    default:
-                        guard model.isVideo, model.category != .crop else { return false }
-                        switch event.keyCode {
-                        case ArrowKey.left: model.stepFrame(-1)
-                        case ArrowKey.right: model.stepFrame(1)
-                        case ArrowKey.up: model.jumpToSegmentBoundary(forward: false)
-                        case ArrowKey.down: model.jumpToSegmentBoundary(forward: true)
-                        default: return false
-                        }
-                    }
-                    return true
-                }
+                let consumed = MainActor.assumeIsolated { self?.handleKeyDown(event) ?? false }
                 return consumed ? nil : event
             }
+        }
+
+        private func handleKeyDown(_ event: NSEvent) -> Bool {
+            guard event.window === window,
+                !(window?.firstResponder is NSTextView), !(window?.firstResponder is NSTextField)
+            else { return false }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .subtracting([.capsLock, .numericPad, .function])
+            if let audio, audio.ready { return audioShortcut(event, modifiers: modifiers, audio: audio) }
+            guard let model else { return false }
+            let character = event.charactersIgnoringModifiers?.lowercased()
+            if modifiers.isEmpty, character == "\u{1b}" {
+                handleEscape(model: model)
+                return true
+            }
+            guard model.ready, !model.editingLocked else { return false }
+            if model.category == .markup, markupShortcut(event, modifiers: modifiers, model: model) {
+                return true
+            }
+            if modifiers == .command, character == "b", model.isVideo { model.split(); return true }
+            if modifiers == .option, character == "f", model.isVideo { model.insertFreezeFrame(); return true }
+            if modifiers == .command, character == "z" { model.undo(); return true }
+            if modifiers == [.command, .shift], character == "z" { model.redo(); return true }
+            if modifiers == [.command, .shift], character == "s", model.canSaveFrame {
+                saveFrame?(); return true
+            }
+            if modifiers.isEmpty, character == "\r" {
+                if model.showsSilencePreview {
+                    if model.canApplySilence { model.removeSilence(model.silenceRule) }
+                    return true
+                }
+                if model.canSave { save?(); return true }
+            }
+            if zoomShortcut(character, modifiers: modifiers, model: model) { return true }
+            guard modifiers.isEmpty else { return false }
+            return plainShortcut(event, character: character, model: model)
+        }
+
+        private func handleEscape(model: MediaEditorModel) {
+            if model.showsSilencePreview {
+                model.cancelSilenceAnalysis()
+                model.showsSilencePreview = false
+            } else if !model.editingLocked, model.category == .markup, model.values.selectedOverlayID != nil {
+                model.selectOverlay(nil)
+            } else if !model.editingLocked, model.category == .markup, model.markupTool != .select {
+                model.markupTool = .select
+            } else {
+                close?()
+            }
+        }
+
+        private func zoomShortcut(
+            _ character: String?, modifiers: NSEvent.ModifierFlags, model: MediaEditorModel
+        ) -> Bool {
+            if modifiers == .shift, character == "z", model.isVideo {
+                model.timelineZoom = 1
+                return true
+            }
+            guard modifiers == .command || modifiers == [.command, .shift] else { return false }
+            switch character {
+            case "=", "+":
+                if model.isVideo {
+                    model.zoomTimeline(by: 2)
+                } else if model.category != .crop {
+                    model.setPhotoZoom(model.zoom * 2)
+                } else {
+                    return false
+                }
+            case "-" where modifiers == .command:
+                if model.isVideo {
+                    model.zoomTimeline(by: 0.5)
+                } else if model.category != .crop {
+                    model.setPhotoZoom(model.zoom / 2)
+                } else {
+                    return false
+                }
+            case "0" where modifiers == .command && !model.isVideo && model.category != .crop:
+                model.setPhotoZoom(1)
+            default: return false
+            }
+            return true
+        }
+
+        private func plainShortcut(_ event: NSEvent, character: String?, model: MediaEditorModel) -> Bool {
+            switch character {
+            case "i" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: true)
+            case "o" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: false)
+            case "m": model.original.toggle()
+            case " " where model.isVideo: model.play()
+            case "j" where model.isVideo: model.shuttle(-1)
+            case "k" where model.isVideo: model.shuttle(0)
+            case "l" where model.isVideo: model.shuttle(1)
+            case "\u{7f}" where model.isVideo, "\u{f728}" where model.isVideo: model.deleteSelection()
+            default:
+                guard model.isVideo, model.category != .crop else { return false }
+                switch event.keyCode {
+                case ArrowKey.left: model.stepFrame(-1)
+                case ArrowKey.right: model.stepFrame(1)
+                case ArrowKey.up: model.jumpToSegmentBoundary(forward: false)
+                case ArrowKey.down: model.jumpToSegmentBoundary(forward: true)
+                default: return false
+                }
+            }
+            return true
         }
 
         /// Unhandled keys reach the editor shortcuts.

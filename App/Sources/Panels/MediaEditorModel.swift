@@ -1035,6 +1035,22 @@ final class MediaEditorModel {
             preparingPlayback = false
             return
         }
+        let edit = previewVideoEdit()
+        if preparedEdit != edit {
+            let playback = try await videoSource.playback(edit: edit, omissions: consents)
+            try Task.checkCancellation()
+            guard generation == revision, !closed else { return }
+            installPlayback(playback, for: edit)
+        }
+        guard generation == revision, !closed else { return }
+        preparingPlayback = false
+        requestSeek()
+        loadWaveforms()
+        await seekTask?.value
+        loadThumbnails()
+    }
+
+    private func previewVideoEdit() -> VideoEdit {
         var edit = values.video
         if original {
             edit.geometry = EditGeometry()
@@ -1049,78 +1065,73 @@ final class MediaEditorModel {
         } else if category == .crop {
             edit.geometry.crop = EditCrop()
         }
-        if preparedEdit != edit {
-            let playback = try await videoSource.playback(edit: edit, omissions: consents)
-            try Task.checkCancellation()
-            guard generation == revision, !closed else { return }
-            let playerItem = AVPlayerItem(asset: playback.asset)
-            playerItem.videoComposition = playback.videoComposition
-            playerItem.audioMix = playback.audioMix
-            playerItem.audioTimePitchAlgorithm = .timeDomain
-            if player == nil {
-                let player = AVPlayer()
-                player.automaticallyWaitsToMinimizeStalling = false
-                self.player = player
-                timeObserver = player.addPeriodicTimeObserver(
-                    forInterval: CMTime(seconds: 1.0 / 30, preferredTimescale: 600), queue: .main
-                ) { [weak self] time in
-                    MainActor.assumeIsolated { self?.playbackAdvanced(time) }
-                }
+        return edit
+    }
+
+    private func installPlayback(_ playback: VideoEditorPlayback, for edit: VideoEdit) {
+        let playerItem = AVPlayerItem(asset: playback.asset)
+        playerItem.videoComposition = playback.videoComposition
+        playerItem.audioMix = playback.audioMix
+        playerItem.audioTimePitchAlgorithm = .timeDomain
+        if player == nil {
+            let player = AVPlayer()
+            player.automaticallyWaitsToMinimizeStalling = false
+            self.player = player
+            timeObserver = player.addPeriodicTimeObserver(
+                forInterval: CMTime(seconds: 1.0 / 30, preferredTimescale: 600), queue: .main
+            ) { [weak self] time in
+                MainActor.assumeIsolated { self?.playbackAdvanced(time) }
             }
-            playerReady = false
-            if let playbackEndObserver { NotificationCenter.default.removeObserver(playbackEndObserver) }
-            let identifier = ObjectIdentifier(playerItem)
-            playbackEndObserver = NotificationCenter.default.addObserver(
-                forName: AVPlayerItem.didPlayToEndTimeNotification, object: playerItem, queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, let current = self.player?.currentItem, ObjectIdentifier(current) == identifier
-                    else { return }
-                    self.position = self.outputDuration
-                    self.finishPlayback()
-                }
-            }
-            player?.replaceCurrentItem(with: playerItem)
-            player?.isMuted = muted
-            preparedEdit = edit
-            desiredSeek = position
         }
-        guard generation == revision, !closed else { return }
-        preparingPlayback = false
-        requestSeek()
-        loadWaveforms()
-        await seekTask?.value
-        if thumbnailTask == nil {
-            let selectedSource = values.selectedIndex.map { values.segments[$0].sourceIndex } ?? 0
-            let indices = [selectedSource] + Array(values.sources.indices)
-            var scheduled = Set<URL>()
-            let prioritized = indices.compactMap { index -> VideoEditSource? in
-                guard values.sources.indices.contains(index) else { return nil }
-                let source = values.sources[index]
-                return scheduled.insert(source.url).inserted ? source : nil
-            }.prefix(Self.maximumCachedVideoSources)
-            let missing = prioritized.filter { sourceThumbnails[$0.url] == nil }
-            if !missing.isEmpty {
-                thumbnailTask = Task {
-                    defer { thumbnailTask = nil }
-                    do {
-                        for source in missing {
-                            guard let actor = videoSources[source.url] else { continue }
-                            let times = (0..<20).map { source.duration * (Double($0) + 0.5) / 20 }
-                            let frames = try await actor.frames(at: times, width: 96)
-                            try Task.checkCancellation()
-                            guard !closed else { return }
-                            sourceThumbnails[source.url] = frames
-                            thumbnailOrder.removeAll { $0 == source.url }
-                            thumbnailOrder.append(source.url)
-                            while thumbnailOrder.count > Self.maximumCachedVideoSources {
-                                sourceThumbnails.removeValue(forKey: thumbnailOrder.removeFirst())
-                            }
-                            if source.url == initialURLs[0] { thumbnails = frames }
-                        }
-                    } catch is CancellationError { return } catch { if !closed { report(error) } }
-                }
+        playerReady = false
+        if let playbackEndObserver { NotificationCenter.default.removeObserver(playbackEndObserver) }
+        let identifier = ObjectIdentifier(playerItem)
+        playbackEndObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification, object: playerItem, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let current = self.player?.currentItem, ObjectIdentifier(current) == identifier
+                else { return }
+                self.position = self.outputDuration
+                self.finishPlayback()
             }
+        }
+        player?.replaceCurrentItem(with: playerItem)
+        player?.isMuted = muted
+        preparedEdit = edit
+        desiredSeek = position
+    }
+
+    private func loadThumbnails() {
+        guard thumbnailTask == nil else { return }
+        let selectedSource = values.selectedIndex.map { values.segments[$0].sourceIndex } ?? 0
+        let indices = [selectedSource] + Array(values.sources.indices)
+        var scheduled = Set<URL>()
+        let prioritized = indices.compactMap { index -> VideoEditSource? in
+            guard values.sources.indices.contains(index) else { return nil }
+            let source = values.sources[index]
+            return scheduled.insert(source.url).inserted ? source : nil
+        }.prefix(Self.maximumCachedVideoSources)
+        let missing = prioritized.filter { sourceThumbnails[$0.url] == nil }
+        guard !missing.isEmpty else { return }
+        thumbnailTask = Task {
+            defer { thumbnailTask = nil }
+            do {
+                for source in missing {
+                    guard let actor = videoSources[source.url] else { continue }
+                    let times = (0..<20).map { source.duration * (Double($0) + 0.5) / 20 }
+                    let frames = try await actor.frames(at: times, width: 96)
+                    try Task.checkCancellation()
+                    guard !closed else { return }
+                    sourceThumbnails[source.url] = frames
+                    thumbnailOrder.removeAll { $0 == source.url }
+                    thumbnailOrder.append(source.url)
+                    while thumbnailOrder.count > Self.maximumCachedVideoSources {
+                        sourceThumbnails.removeValue(forKey: thumbnailOrder.removeFirst())
+                    }
+                    if source.url == initialURLs[0] { thumbnails = frames }
+                }
+            } catch is CancellationError { return } catch { if !closed { report(error) } }
         }
     }
 
@@ -1417,7 +1428,6 @@ final class MediaEditorModel {
     }
 
     func importVideos(_ urls: [URL]) {
-        guard !editingLocked else { return }
         guard !editingLocked, !importing else { return }
         importing = true
         selectionTask = Task {
