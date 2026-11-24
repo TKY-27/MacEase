@@ -712,7 +712,8 @@ final class MediaEditorModel {
         let reported = OSAllocatedUnfairLock(initialState: 0.0)
         reverseTask = Task {
             do {
-                let reversed = try await videoSource.reverse(segmentID: segment.id, in: edit) { fraction in
+                let reversed = try await videoSource.reverse(segmentID: segment.id, in: edit, omissions: consents) {
+                    fraction in
                     // Per-frame callbacks would flood the main actor.
                     let advanced = reported.withLock { last in
                         guard fraction - last >= Self.reverseProgressStep else { return false }
@@ -1277,7 +1278,7 @@ final class MediaEditorModel {
         if isVideo {
             batch = MediaEditing.video(
                 url: initialURLs[0], edit: values.video, settings: settings,
-                omittedStreams: Set(omittedSourceStreams))
+                omissions: consents)
         } else {
             batch = MediaEditing.photos(
                 photoURLs.compactMap { url in
@@ -1346,7 +1347,7 @@ final class MediaEditorModel {
         }
         pause()
         let batch = MediaEditing.frame(
-            url: initialURLs[0], edit: values.video, outputSeconds: position, settings: settings)
+            url: initialURLs[0], edit: values.video, outputSeconds: position, settings: settings, omissions: consents)
         frameBatchID = batch.id
         let task = run(batch, settings)
         frameTask = task
