@@ -70,6 +70,41 @@ final class PreviewFontFaceTests: XCTestCase {
         }
     }
 
+    func testFontBoundsRejectOversizedFilesExcessFacesAndCancellation() async throws {
+        let directory = try PreviewFixtures.directory(self)
+        let ttf = URL(fileURLWithPath: "/System/Library/Fonts/Geneva.ttf")
+        let ttfSize = Int64(try XCTUnwrap(try ttf.resourceValues(forKeys: [.fileSizeKey]).fileSize))
+        XCTAssertThrowsError(try PreviewFontFace.load(ttf, maximumFileBytes: ttfSize - 1)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooLarge)
+        }
+
+        // Huge TTC header fails before Core Text.
+        let hugeCollection = directory.appendingPathComponent("huge.ttc")
+        var header = Data("ttcf".utf8)
+        Self.appendUInt32BE(&header, 0x0001_0000)
+        Self.appendUInt32BE(&header, 100)
+        try header.write(to: hugeCollection)
+        XCTAssertThrowsError(try PreviewFontFace.load(hugeCollection)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooManyFaces)
+        }
+
+        let menlo = URL(fileURLWithPath: "/System/Library/Fonts/Menlo.ttc")
+        XCTAssertThrowsError(try PreviewFontFace.load(menlo, maximumFaceCount: 1)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooManyFaces)
+        }
+
+        let cancelled = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try PreviewFontFace.load(ttf)
+        }
+        do {
+            _ = try await cancelled.value
+            XCTFail("expected cancellation")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
     func testWidenedExtensionMapAndTokenizerLanguageMapping() throws {
         let textCases: [(String, PreviewLanguage)] = [
             ("env", .shell), ("ini", .plain), ("cfg", .plain), ("conf", .plain), ("properties", .plain),

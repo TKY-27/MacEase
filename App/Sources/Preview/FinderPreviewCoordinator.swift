@@ -352,16 +352,20 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         let trustedFolders = settings.finderPreview.trustedFolders
         kindTask = Task { [weak self] in
             do {
-                let (kind, trust, detected) = try await Task.detached(priority: .userInitiated) {
+                let (kind, trust, detected) = try await offMain {
+                    try Task.checkCancellation()
                     let kind = try PreviewKind.inspect(url, disabled: disabledKinds)
+                    try Task.checkCancellation()
                     // Quick Look handles folders and unknown types.
                     let detected = kind == .quickLook ? nil : try ContentSniffer.identify(url)
+                    try Task.checkCancellation()
                     return (kind, PreviewTrust.evaluate(url, trustedFolders: trustedFolders), detected)
-                }.value
+                }
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 state.trust = trust
                 state.detected = detected
                 state.kind = kind
+            } catch is CancellationError {
             } catch {
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 logger.error("Preview file inspection failed: \(error.localizedDescription, privacy: .private)")

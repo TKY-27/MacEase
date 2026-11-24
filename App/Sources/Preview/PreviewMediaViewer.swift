@@ -66,6 +66,13 @@ final class PreviewPlayback {
         case video(VideoEditorSource)
         case audio(AudioPreviewSource)
 
+        func duration() async -> Double {
+            switch self {
+            case .video(let source): await source.details.duration
+            case .audio(let source): await source.duration
+            }
+        }
+
         func playbackURL(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
             switch self {
             case .video(let source):
@@ -84,10 +91,15 @@ final class PreviewPlayback {
 
     private(set) var phase = Phase.loading
     private(set) var player: AVPlayer?
+    private let limits: PreviewConversionLimits
     private var statusObservation: NSKeyValueObservation?
     private var source: Source?
     private var conversion: Task<Void, Never>?
     private let logger = Logger(category: "finder-preview")
+
+    init(limits: PreviewConversionLimits = .default) {
+        self.limits = limits
+    }
 
     func load(_ url: URL, audioOnly: Bool, detected: DetectedContent?, restricted: Bool, staging: StagingArea) async {
         let playability: PreviewMediaAsset.Playability
@@ -126,13 +138,32 @@ final class PreviewPlayback {
     }
 
     // Surfaces unsupported codecs before offering conversion.
-    private func prepareConversion(_ url: URL, audioOnly: Bool, staging: StagingArea) async {
+    func prepareConversion(_ url: URL, audioOnly: Bool, staging: StagingArea) async {
         do {
-            let opened: Source =
+            let fileSize = try await offMain { [url] () -> Int64 in
+                try Task.checkCancellation()
+                let values = try url.resolvingSymlinksInPath().resourceValues(forKeys: [.fileSizeKey])
+                guard let size = values.fileSize else { throw CocoaError(.fileReadUnknown) }
+                return Int64(size)
+            }
+            guard !Task.isCancelled else { return }
+            guard limits.allowsFileSize(fileSize) else {
+                phase = .message(PreviewConversionLimits.fileTooLargeMessage)
+                return
+            }
+            let opened: Source = try await offMain {
                 audioOnly
-                ? .audio(try await AudioPreviewSource.openForPreviewPlayback(url, staging: staging))
-                : .video(try await VideoEditorSource.openForPreviewPlayback(url, staging: staging))
+                    ? .audio(try await AudioPreviewSource.openForPreviewPlayback(url, staging: staging))
+                    : .video(try await VideoEditorSource.openForPreviewPlayback(url, staging: staging))
+            }
             guard !Task.isCancelled else { return await opened.close() }
+            let duration = await opened.duration()
+            guard !Task.isCancelled else { return await opened.close() }
+            guard limits.allowsDuration(duration, audioOnly: audioOnly) else {
+                await opened.close()
+                phase = .message(PreviewConversionLimits.fileTooLongMessage)
+                return
+            }
             source = opened
             phase = .convertible
         } catch is CancellationError {
@@ -205,12 +236,28 @@ final class PreviewPlayback {
 
     // The staged copy goes with the selection.
     func stop() {
-        conversion?.cancel()
+        let activeConversion = conversion
         conversion = nil
+        activeConversion?.cancel()
         stopPlayer()
-        guard let source else { return }
-        self.source = nil
-        Task { await source.close() }
+        let activeSource = source
+        source = nil
+        guard activeConversion != nil || activeSource != nil else { return }
+        Task {
+            await activeConversion?.value
+            await activeSource?.close()
+        }
+    }
+
+    func stopAndWait() async {
+        let activeConversion = conversion
+        conversion = nil
+        activeConversion?.cancel()
+        stopPlayer()
+        let activeSource = source
+        source = nil
+        await activeConversion?.value
+        await activeSource?.close()
     }
 }
 

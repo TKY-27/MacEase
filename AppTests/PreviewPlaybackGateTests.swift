@@ -132,6 +132,64 @@ final class PreviewPlaybackGateTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testConversionLimitsRefuseOversizedAndOverlongMediaAndCancellationCleansUp() async throws {
+        let directory = try PreviewFixtures.directory(self)
+        let ogg = directory.appendingPathComponent("clip.ogg")
+        try await Self.writeSineOgg(to: ogg, seconds: 2)
+        let oggSize = Int64(try XCTUnwrap(try ogg.resourceValues(forKeys: [.fileSizeKey]).fileSize))
+        let detected = try ContentSniffer.identify(ogg)
+        XCTAssertEqual(detected.family, .audio)
+
+        let stagingRoot = directory.appendingPathComponent("staging")
+        try FileManager.default.createDirectory(at: stagingRoot, withIntermediateDirectories: false)
+        let staging = StagingArea(supportDirectory: stagingRoot)
+
+        let sizeLimited = PreviewPlayback(
+            limits: PreviewConversionLimits(
+                maximumAudioDuration: 60, maximumVideoDuration: 60, maximumInputBytes: oggSize - 1))
+        await sizeLimited.prepareConversion(ogg, audioOnly: true, staging: staging)
+        XCTAssertEqual(sizeLimited.phase, .message(PreviewConversionLimits.fileTooLargeMessage))
+        await sizeLimited.stopAndWait()
+
+        let durationLimited = PreviewPlayback(
+            limits: PreviewConversionLimits(
+                maximumAudioDuration: 1, maximumVideoDuration: 1, maximumInputBytes: oggSize * 2))
+        await durationLimited.prepareConversion(ogg, audioOnly: true, staging: staging)
+        XCTAssertEqual(durationLimited.phase, .message(PreviewConversionLimits.fileTooLongMessage))
+        await durationLimited.stopAndWait()
+
+        let allowed = PreviewPlayback(
+            limits: PreviewConversionLimits(
+                maximumAudioDuration: 10, maximumVideoDuration: 10, maximumInputBytes: oggSize * 2))
+        await allowed.prepareConversion(ogg, audioOnly: true, staging: staging)
+        XCTAssertEqual(allowed.phase, .convertible)
+        allowed.convert(ogg)
+        await allowed.stopAndWait()
+
+        // No staged playback files remain after cancellation.
+        let stagingContents =
+            (try? FileManager.default.subpathsOfDirectory(atPath: stagingRoot.path))?
+            .filter { $0.hasSuffix(".m4a") || $0.hasSuffix(".wav") || $0.hasSuffix(".mp4") } ?? []
+        XCTAssertTrue(stagingContents.isEmpty, "leftover staged media: \(stagingContents)")
+    }
+
+    private static func writeSineOgg(to url: URL, seconds: Int) async throws {
+        let rate = 48_000.0
+        let channels = 2
+        let frames = Int(rate) * seconds
+        var samples = [Float](repeating: 0, count: frames * channels)
+        for index in 0..<frames {
+            let value = Float(sin(2 * Double.pi * 440 * Double(index) / rate) * 0.25)
+            samples[index * channels] = value
+            samples[index * channels + 1] = value
+        }
+        let encoder = try AudioFileEncoder(
+            url: url, target: AudioTarget(format: .ogg, kilobits: 128), sampleRate: rate, channels: channels)
+        try await encoder.write(samples)
+        try await encoder.finish()
+    }
+
     private static func makeQuickTimeReferenceMovie(referencing relativeTarget: String) -> Data {
         func atom(_ type: String, _ payload: Data) -> Data {
             var data = Data()

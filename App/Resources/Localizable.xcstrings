@@ -19803,6 +19803,46 @@
           }
         }
       }
+    },
+    "This file is too large to convert for preview. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは大きすぎるためプレビュー用に変換できません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
+    },
+    "This file is too long to convert for preview. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは長すぎるためプレビュー用に変換できません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
+    },
+    "This font file is too large to preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォントファイルは大きすぎるためプレビューできません。"
+          }
+        }
+      }
+    },
+    "This font collection has too many faces to preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォントコレクションは含まれる書体が多すぎるためプレビューできません。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

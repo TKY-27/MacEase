@@ -6,12 +6,15 @@ struct PreviewFontViewer: View {
     let sample: String
     @State private var face: PreviewFontFace?
     @State private var unreadable = false
+    @State private var refusalMessage: String?
     private static let specimenSpacing: CGFloat = 20
 
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar {}
-            if unreadable {
+            if let refusalMessage {
+                PreviewFailure(message: Text(refusalMessage))
+            } else if unreadable {
                 QuickLookPreview(url: url)
             } else if let face {
                 specimen(face)
@@ -48,13 +51,19 @@ struct PreviewFontViewer: View {
     }
 
     private func load() async {
-        let result = await Task.detached(priority: .userInitiated) { [url] in
-            Result { () throws(PreviewFontError) in try PreviewFontFace.load(url) }
-        }.value
-        guard !Task.isCancelled else { return }
-        switch result {
-        case .success(let loaded): face = loaded
-        case .failure(.unreadable):
+        do {
+            let loaded = try await offMain { [url] in try PreviewFontFace.load(url) }
+            guard !Task.isCancelled else { return }
+            face = loaded
+        } catch is CancellationError {
+        } catch PreviewFontError.tooLarge {
+            guard !Task.isCancelled else { return }
+            refusalMessage = String(localized: "This font file is too large to preview.")
+        } catch PreviewFontError.tooManyFaces {
+            guard !Task.isCancelled else { return }
+            refusalMessage = String(localized: "This font collection has too many faces to preview.")
+        } catch {
+            guard !Task.isCancelled else { return }
             Logger(category: "finder-preview").notice("Core Text could not load the font; using Quick Look")
             unreadable = true
         }

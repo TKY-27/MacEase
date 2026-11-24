@@ -102,6 +102,37 @@ import Testing
         #expect(try await AVURLAsset(url: try await source.playbackURL()).load(.isPlayable))
         await source.close()
     }
+
+    @Test func audioPreviewPlaybackUsesCompactAACInsteadOfFloatWAV() async throws {
+        let folder = try TestVolume.makeFolder()
+        let flac = folder.appending(path: "clip.flac")
+        let rate = 48_000.0
+        let channels = 2
+        let frames = Int(rate * 2)
+        var samples = [Float](repeating: 0, count: frames * channels)
+        for index in 0..<frames {
+            let value = Float(sin(2 * Double.pi * 440 * Double(index) / rate) * 0.25)
+            samples[index * channels] = value
+            samples[index * channels + 1] = value
+        }
+        let encoder = try AudioFileEncoder(
+            url: flac, target: AudioTarget(format: .flac, kilobits: 0), sampleRate: rate, channels: channels,
+            bitDepth: 16)
+        try await encoder.write(samples)
+        try await encoder.finish()
+
+        let support = try TestVolume.makeFolder()
+        let staging = StagingArea(supportDirectory: support)
+        let source = try await AudioPreviewSource.openForPreviewPlayback(flac, staging: staging)
+        let playback = try await source.playbackURL()
+        #expect(playback.pathExtension == "m4a")
+        #expect(try await AVURLAsset(url: playback).load(.isPlayable))
+        let size = try #require(try playback.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        let float32WAVBytes = frames * channels * 4
+        #expect(size < float32WAVBytes / 4)
+        await source.close()
+        #expect(!FileManager.default.fileExists(atPath: playback.path))
+    }
 }
 
 private final class ProgressLog: @unchecked Sendable {
