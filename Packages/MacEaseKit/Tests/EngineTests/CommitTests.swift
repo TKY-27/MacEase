@@ -703,7 +703,7 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
             await committer.undo(
                 .replaced(
                     original: original.path, trashed: trashed.url.path, output: replaced.output.path,
-                    stamp: replacementStamp, trashStamp: trashed.stamp))
+                    stamp: replacementStamp, trashStamp: trashed.stamp), staging: StagingArea(supportDirectory: folder))
                 == .skipped(.undoOutputChanged, path: replaced.output.path))
         #expect(try read(replaced.output) == "edited replacement after commit")
 
@@ -716,7 +716,9 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         try write("edited derived after commit", to: derived.output)
         #expect(!derivedStamp.matches(derived.output.path))
         #expect(
-            await committer.undo(.derived(output: derived.output.path, stamp: derivedStamp))
+            await committer.undo(
+                .derived(output: derived.output.path, stamp: derivedStamp),
+                staging: StagingArea(supportDirectory: folder))
                 == .skipped(.undoOutputChanged, path: derived.output.path))
         #expect(try read(derived.output) == "edited derived after commit")
 
@@ -726,7 +728,9 @@ private func replacing(_ original: URL, name: String, text: String) -> WorkItem 
         try write("edited rename after commit", to: renamed.output)
         #expect(!renameStamp.matches(renamed.output.path))
         #expect(
-            await committer.undo(.renamed(from: derived.output.path, to: renamed.output.path, stamp: renameStamp))
+            await committer.undo(
+                .renamed(from: derived.output.path, to: renamed.output.path, stamp: renameStamp),
+                staging: StagingArea(supportDirectory: folder))
                 == .skipped(.undoOutputChanged, path: renamed.output.path))
         #expect(try read(renamed.output) == "edited rename after commit")
     }

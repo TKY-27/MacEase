@@ -50,6 +50,10 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
         "xcarchive", "xcassets", "mlpackage", "pkg", "mpkg", "lpdf",
     ]
 
+    public static func isPackageExtension(_ pathExtension: String) -> Bool {
+        packageExtensions.contains(pathExtension.lowercased())
+    }
+
     /// `nil`: only All Files operations apply.
     public init?(pathExtension: String, isFolder: Bool) {
         if isFolder {

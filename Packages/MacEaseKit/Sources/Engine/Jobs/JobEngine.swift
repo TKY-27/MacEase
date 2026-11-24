@@ -50,7 +50,7 @@ public final class JobEngine: Sendable {
     public init(supportDirectory: URL, concurrency: Int, hatchExtractions: HatchExtractionStore? = nil) throws {
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         history = HistoryStore(supportDirectory: supportDirectory)
-        staging = StagingArea(supportDirectory: supportDirectory)
+        staging = history.staging
         self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: supportDirectory)
         cpuGate = LaneGate(width: concurrency)
     }
@@ -180,8 +180,9 @@ public final class JobEngine: Sendable {
                         try ActivitySession.validate(input, stamp: stamp)
                     }
                 }
-                if !workItem.durableArchive { try Self.downloadIfNeeded(workItem.inputs) }
-                for input in workItem.inputs where !workItem.durableArchive && workItem.requiredInputStamps == nil {
+                let scansInputs = !workItem.durableArchive && !workItem.managesInputStamps
+                if scansInputs { try Self.downloadIfNeeded(workItem.inputs) }
+                for input in workItem.inputs where scansInputs && workItem.requiredInputStamps == nil {
                     var metadata = stat()
                     guard lstat(input.path, &metadata) == 0 else {
                         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -402,6 +403,17 @@ public final class JobEngine: Sendable {
                         stamp: renamed.stamp))
                 outputs.append(renamed.output)
                 recordOutput(renamed.output, stamp: renamed.stamp, context: context)
+                await recordCommits(&records, batch: batch, tracker: tracker)
+            }
+        case .move(let entry, let destination):
+            try await history.checkAcceptingCommits()
+            switch try committer.move(entry, to: destination, staging: staging, phase: { context.phase($0) }) {
+            case .alreadyInDestination:
+                return (.skipped(.alreadyDone), nil)
+            case .moved(let moved):
+                records.append(.renamed(from: entry.url.path, to: moved.output.path, stamp: moved.stamp))
+                outputs.append(moved.output)
+                recordOutput(moved.output, stamp: moved.stamp, context: context)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
         case .trash(let urls, let permanently, let condition):

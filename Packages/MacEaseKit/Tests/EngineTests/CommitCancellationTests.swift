@@ -153,7 +153,8 @@ import Testing
         let ready = AsyncStream<Void>.makeStream()
         let undoing = Task.detached {
             for await _ in ready.stream { break }
-            return await FileCommitter().undo(.derived(output: output.path, stamp: stamp))
+            return await FileCommitter().undo(
+                .derived(output: output.path, stamp: stamp), staging: StagingArea(supportDirectory: root))
         }
         pending.withLock { $0 = undoing }
         ready.continuation.yield(())
@@ -187,6 +188,79 @@ import Testing
         #expect(await store.records.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: output.path))
     }
+    @Test(arguments: [false, true])
+    func movePublicationCollisionRetriesWithoutOverwriting(crossVolume: Bool) async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseMoveRace-\(UUID().uuidString)")
+        TestTemporaryFolders.register(root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let destination = crossVolume ? try TestVolume.makeFolder() : root.appending(path: "destination")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let source = root.appending(path: "report.txt")
+        try Data("original".utf8).write(to: source)
+        let collision = destination.appending(path: "report.txt")
+        let occupied = Mutex(false)
+        let presenter = CommitCancellationPresenter(url: source) {
+            occupied.withLock { created in
+                if !created {
+                    #expect(throws: Never.self) {
+                        try Data("concurrent".utf8).write(to: collision, options: .withoutOverwriting)
+                    }
+                    created = true
+                }
+            }
+        }
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+        let engine = try JobEngine(supportDirectory: root.appending(path: "support"), concurrency: 1)
+        let entry = try MoveItem.capture(source)
+        let request = OperationRequest(
+            op: .filesMove, options: .move(MovePlan(items: [entry], destination: destination)), inputs: [source])
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        { _ in }
+        let numbered = destination.appending(path: "report (2).txt")
+        #expect(outcome.outcomes == [.succeeded(outputs: [numbered], warnings: [])])
+        #expect(presenter.relinquished.withLock { $0 })
+        #expect(try String(contentsOf: collision, encoding: .utf8) == "concurrent")
+        #expect(try String(contentsOf: numbered, encoding: .utf8) == "original")
+        NSFileCoordinator.removeFilePresenter(presenter)
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
+        #expect(try String(contentsOf: source, encoding: .utf8) == "original")
+    }
+
+    @Test func cancelledCrossVolumeUndoKeepsMovedCopyAndHistoryRetryable() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseUndoMove-\(UUID().uuidString)")
+        TestTemporaryFolders.register(root)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let destination = try TestVolume.makeFolder()
+        let source = root.appending(path: "original.txt")
+        try Data("original".utf8).write(to: source)
+        let entry = try MoveItem.capture(source)
+        let engine = try JobEngine(supportDirectory: root.appending(path: "support"), concurrency: 1)
+        let request = OperationRequest(
+            op: .filesMove, options: .move(MovePlan(items: [entry], destination: destination)), inputs: [source])
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        { _ in }
+        let record = try #require(outcome.record)
+        let moved = destination.appending(path: "original.txt")
+        let pending = Mutex<Task<[UndoOutcome], any Error>?>(nil)
+        let presenter = CommitCancellationPresenter(url: moved) { pending.withLock { $0?.cancel() } }
+        NSFileCoordinator.addFilePresenter(presenter)
+        let ready = AsyncStream<Void>.makeStream()
+        let undoing = Task {
+            for await _ in ready.stream { break }
+            return try await engine.undo(record.id)
+        }
+        pending.withLock { $0 = undoing }
+        ready.continuation.yield(())
+        ready.continuation.finish()
+        #expect(try await undoing.value == [.failed(.cancelled, path: moved.path)])
+        NSFileCoordinator.removeFilePresenter(presenter)
+        #expect(try String(contentsOf: moved, encoding: .utf8) == "original")
+        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(try await engine.undo(record.id) == [.restored])
+        #expect(try String(contentsOf: source, encoding: .utf8) == "original")
+    }
+
 }
 
 private final class CommitCancellationPresenter: NSObject, NSFilePresenter, Sendable {
