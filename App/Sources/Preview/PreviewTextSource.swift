@@ -5,7 +5,23 @@ import Foundation
 
 enum PreviewEncoding: String, CaseIterable, Sendable {
     case automatic, utf8, utf16, utf16LE, utf16BE, utf32, utf32LE, utf32BE, shiftJIS, eucJP, iso2022JP,
-        windows1252, latin1
+        gb18030, big5, eucKR, windows1252, latin1
+
+    init(detected: DetectedTextEncoding) {
+        switch detected {
+        case .utf8: self = .utf8
+        case .utf16LE: self = .utf16LE
+        case .utf16BE: self = .utf16BE
+        case .utf32LE: self = .utf32LE
+        case .utf32BE: self = .utf32BE
+        case .gb18030: self = .gb18030
+        case .shiftJIS: self = .shiftJIS
+        case .eucJP: self = .eucJP
+        case .iso2022JP: self = .iso2022JP
+        case .windows1252: self = .windows1252
+        case .latin1: self = .latin1
+        }
+    }
 
     var title: String {
         switch self {
@@ -20,6 +36,9 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
         case .shiftJIS: String(localized: "Shift_JIS")
         case .eucJP: String(localized: "EUC-JP")
         case .iso2022JP: String(localized: "ISO-2022-JP")
+        case .gb18030: String(localized: "GB18030")
+        case .big5: String(localized: "Big5")
+        case .eucKR: String(localized: "EUC-KR")
         case .windows1252: String(localized: "Windows-1252")
         case .latin1: String(localized: "ISO-8859-1")
         }
@@ -46,6 +65,18 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
                     CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
         case .eucJP: return .japaneseEUC
         case .iso2022JP: return .iso2022JP
+        case .gb18030:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        case .big5:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.big5_HKSCS_1999.rawValue)))
+        case .eucKR:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.dosKorean.rawValue)))
         case .windows1252: return .windowsCP1252
         case .latin1: return .isoLatin1
         }
@@ -75,6 +106,7 @@ struct PreviewTextSource: Sendable {
     let truncated: Bool
     let parentDirectory: PreviewDirectoryDescriptor?
     let trust: PreviewTrust?
+    let detectedEncoding: PreviewEncoding?
 
     init(
         bytes: Data, truncated: Bool, parentDirectory: PreviewDirectoryDescriptor? = nil, trust: PreviewTrust? = nil
@@ -83,6 +115,9 @@ struct PreviewTextSource: Sendable {
         self.truncated = truncated
         self.parentDirectory = parentDirectory
         self.trust = trust
+        self.detectedEncoding = (try? TextEncoding.detect(from: bytes, truncated: truncated)).map {
+            PreviewEncoding(detected: $0.encoding)
+        }
     }
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
@@ -162,9 +197,11 @@ struct PreviewTextSource: Sendable {
         } else {
             selected = encoding
         }
-        if [.shiftJIS, .eucJP, .iso2022JP].contains(selected) {
+        if [.shiftJIS, .eucJP, .iso2022JP, .gb18030, .big5, .eucKR].contains(selected) {
             do { return try selected.decode(bytes) } catch {
-                return try selected.decode(bytes.dropLast(incompleteSuffixLength(encoding: selected)))
+                let omitted = incompleteSuffixLength(encoding: selected)
+                guard omitted > 0 else { throw error }
+                return try selected.decode(bytes.dropLast(omitted))
             }
         }
         let omitted = incompleteSuffixLength(encoding: selected)
@@ -223,6 +260,21 @@ struct PreviewTextSource: Sendable {
                 (0x21...0x7E).contains(last)
             else { return 0 }
             return (bytes.endIndex - escape - 3) % 2
+        case .gb18030:
+            let tail = Array(bytes.suffix(3))
+            if tail.count == 3, (0x81...0xFE).contains(tail[0]), (0x30...0x39).contains(tail[1]),
+                (0x81...0xFE).contains(tail[2])
+            {
+                return 3
+            }
+            if tail.count >= 2, (0x81...0xFE).contains(tail[tail.count - 2]),
+                (0x30...0x39).contains(tail[tail.count - 1])
+            {
+                return 2
+            }
+            return (0x81...0xFE).contains(last) ? 1 : 0
+        case .big5, .eucKR:
+            return (0x81...0xFE).contains(last) ? 1 : 0
         case .utf32LE, .utf32BE:
             return bytes.count % 4
         case .automatic, .utf16, .utf32, .windows1252, .latin1: return 0

@@ -371,6 +371,36 @@
         }
       }
     },
+    "GB18030": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GB18030"
+          }
+        }
+      }
+    },
+    "Big5": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Big5"
+          }
+        }
+      }
+    },
+    "EUC-KR": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EUC-KR"
+          }
+        }
+      }
+    },
     "Windows-1252": {
       "localizations": {
         "ja": {

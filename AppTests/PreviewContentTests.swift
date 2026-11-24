@@ -89,6 +89,56 @@ final class PreviewContentTests: XCTestCase {
         XCTAssertEqual(try PreviewTextSource(bytes: mixedBE, truncated: false).decoded(as: .automatic), mixed)
     }
 
+    func testCJKEncodingsDecodeManuallyAndExposeDetectedEncoding() throws {
+        XCTAssertTrue(PreviewEncoding.allCases.contains(.gb18030))
+        XCTAssertTrue(PreviewEncoding.allCases.contains(.big5))
+        XCTAssertTrue(PreviewEncoding.allCases.contains(.eucKR))
+        XCTAssertEqual(PreviewEncoding.gb18030.title, "GB18030")
+        XCTAssertEqual(PreviewEncoding.big5.title, "Big5")
+        XCTAssertEqual(PreviewEncoding.eucKR.title, "EUC-KR")
+
+        let simplified = "简体中文😀"
+        let gbBytes = try XCTUnwrap(simplified.data(using: PreviewEncoding.gb18030.foundation))
+        XCTAssertEqual(try PreviewTextSource(bytes: gbBytes, truncated: false).decoded(as: .gb18030), simplified)
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: gbBytes.dropLast(1), truncated: true).decoded(as: .gb18030), "简体中文")
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: gbBytes.dropLast(2), truncated: true).decoded(as: .gb18030), "简体中文")
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: gbBytes.dropLast(3), truncated: true).decoded(as: .gb18030), "简体中文")
+        XCTAssertThrowsError(try PreviewTextSource(bytes: gbBytes.dropLast(1), truncated: false).decoded(as: .gb18030))
+        XCTAssertThrowsError(
+            try PreviewTextSource(bytes: Data([0x41, 0xFF]), truncated: true).decoded(as: .gb18030))
+
+        let traditional = "繁體中文邨"
+        let big5Bytes = try XCTUnwrap(traditional.data(using: PreviewEncoding.big5.foundation))
+        XCTAssertEqual(try PreviewTextSource(bytes: big5Bytes, truncated: false).decoded(as: .big5), traditional)
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: big5Bytes.dropLast(1), truncated: true).decoded(as: .big5), "繁體中文")
+        XCTAssertThrowsError(try PreviewTextSource(bytes: big5Bytes.dropLast(1), truncated: false).decoded(as: .big5))
+
+        let korean = "한국어 똠"
+        let eucKRBytes = try XCTUnwrap(korean.data(using: PreviewEncoding.eucKR.foundation))
+        XCTAssertEqual(try PreviewTextSource(bytes: eucKRBytes, truncated: false).decoded(as: .eucKR), korean)
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: eucKRBytes.dropLast(1), truncated: true).decoded(as: .eucKR), "한국어 ")
+        XCTAssertThrowsError(
+            try PreviewTextSource(bytes: eucKRBytes.dropLast(1), truncated: false).decoded(as: .eucKR))
+
+        let gbWithBOM = PreviewTextSource(bytes: Data([0x84, 0x31, 0x95, 0x33]) + gbBytes, truncated: false)
+        XCTAssertEqual(gbWithBOM.detectedEncoding, .gb18030)
+        XCTAssertEqual(try gbWithBOM.decoded(as: .automatic), simplified)
+
+        XCTAssertEqual(PreviewTextSource(bytes: Data("Hello".utf8), truncated: false).detectedEncoding, .utf8)
+        XCTAssertEqual(
+            PreviewTextSource(bytes: Data([0x93, 0xFA, 0x96, 0x7B]), truncated: false).detectedEncoding, .shiftJIS)
+        XCTAssertEqual(
+            PreviewTextSource(bytes: Data([0xFF, 0xFE, 0x41, 0x00]), truncated: false).detectedEncoding, .utf16LE)
+        let bplist = try PropertyListSerialization.data(
+            fromPropertyList: ["enabled": true], format: .binary, options: 0)
+        XCTAssertNil(PreviewTextSource(bytes: bplist, truncated: false).detectedEncoding)
+    }
+
     func testTokenizerRecognizesSmallSamplesForEverySupportedLanguage() throws {
         let cases: [(PreviewLanguage, String, String, PreviewToken.Kind)] = [
             (.swift, "let count = 12 // note", "let", .keyword),
