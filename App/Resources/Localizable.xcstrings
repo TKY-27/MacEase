@@ -21129,7 +21129,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@”が見つかりません。別のアプリを選択してください。"
+            "value": "“%@”が見つかりません。別のアプリケーションを選択してください。"
           }
         }
       }
@@ -21176,12 +21176,12 @@
         }
       }
     },
-    "Applies to subtitles, chapters and similar content. Originals stay unchanged, and MacEase always asks before replacing one.": {
+    "Applies to subtitles, chapters and similar content in new files. Replacing an original always asks.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "字幕やチャプターなどが対象です。元のファイルは変更されません。元のファイルを置き換える場合は必ず確認します。"
+            "value": "新しいファイルの字幕やチャプタなどに適用されます。元のファイルを置き換える場合は必ず確認します。"
           }
         }
       }

@@ -66,7 +66,15 @@ final class FinderCommandsTests: XCTestCase {
 
     func testTerminalChoicesListEachDetectedAppOnceAndReportAMissingSavedApp() throws {
         let fixture = try fixture()
-        let iTerm = fixture.root.appending(path: "iTerm.app")
+        let iTerm = fixture.root.appending(path: "iTerm.app", directoryHint: .isDirectory)
+        let executableFolder = iTerm.appending(path: "Contents/MacOS")
+        try FileManager.default.createDirectory(at: executableFolder, withIntermediateDirectories: true)
+        let executable = executableFolder.appending(path: "iTerm")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let bundleProperties = ["CFBundleExecutable": "iTerm", "CFBundleIdentifier": "test.iTerm"]
+        try PropertyListSerialization.data(fromPropertyList: bundleProperties, format: .xml, options: 0)
+            .write(to: iTerm.appending(path: "Contents/Info.plist"))
         var asked: [String] = []
         let locate: (String) -> URL? = { identifier in
             asked.append(identifier)
@@ -85,6 +93,7 @@ final class FinderCommandsTests: XCTestCase {
         fixture.settings.terminalApplicationURL = iTerm
         let reloaded = SettingsStore(defaults: fixture.defaults)
         XCTAssertEqual(reloaded.terminalApplicationURL, iTerm, "the choice persists")
+        try FileManager.default.removeItem(at: iTerm)
         let missing = TerminalApplications(saved: reloaded.terminalApplicationURL, locate: locate)
         XCTAssertEqual(missing.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path, iTerm.path])
         XCTAssertEqual(missing.missing, iTerm, "a deleted app is reported, not hidden")
@@ -94,6 +103,30 @@ final class FinderCommandsTests: XCTestCase {
         let other = TerminalApplications(saved: custom, locate: locate)
         XCTAssertEqual(other.choices.last, custom, "an app chosen with Other… stays listed")
         XCTAssertNil(other.missing)
+    }
+
+    func testTerminalChoicesExcludeDetectedAppsThatCannotBeOpened() throws {
+        let fixture = try fixture()
+        let unavailable = fixture.root.appending(path: "Unavailable.app")
+        let choices = TerminalApplications(saved: SettingsStore.defaultTerminalApplicationURL) { identifier in
+            identifier == "com.googlecode.iterm2" ? unavailable : nil
+        }
+        XCTAssertEqual(choices.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path])
+        XCTAssertNil(choices.missing)
+    }
+
+    func testOpenWithUsesTheSameMacOSTermInItsMissingApplicationMessage() throws {
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        XCTAssertEqual(japanese.localizedString(forKey: "Open with", value: nil, table: nil), "このアプリケーションで開く")
+        XCTAssertEqual(
+            japanese.localizedString(forKey: "“%@” can’t be found. Choose another app.", value: nil, table: nil),
+            "“%@”が見つかりません。別のアプリケーションを選択してください。")
+        XCTAssertEqual(
+            japanese.localizedString(
+                forKey:
+                    "Applies to subtitles, chapters and similar content in new files. Replacing an original always asks.",
+                value: nil, table: nil),
+            "新しいファイルの字幕やチャプタなどに適用されます。元のファイルを置き換える場合は必ず確認します。")
     }
 
     func testTurningOffEveryTemplateRemovesNewFileFromThePublishedMenu() throws {

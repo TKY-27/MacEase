@@ -40,15 +40,15 @@ enum MenuGroupOptions: String, Identifiable {
 
     fileprivate var title: String {
         let scope: String
-        let item: String
+        let actionTitle: String
         if let operation {
             scope = MenuStrings.kind(operation.kind)
-            item = MenuStrings.operationName(operation)
+            actionTitle = MenuStrings.operationName(operation)
         } else {
             scope = MenuScope.commands.title
-            item = MenuStrings.command(self == .newFile ? .newFile : .openTerminal)
+            actionTitle = MenuStrings.command(self == .newFile ? .newFile : .openTerminal)
         }
-        return String(localized: "\(scope) ▸ \(item)", comment: "Menu value row: kind and operation")
+        return String(localized: "\(scope) ▸ \(actionTitle)", comment: "Menu value row: kind and operation")
     }
 
     /// Adjacent slots sharing a unit.
@@ -187,7 +187,7 @@ struct MenuOptionsSheet: View {
         case .newFile:
             return store.enabledNewFileTemplates == Set(NewFileTemplate.BuiltIn.allCases)
         case .terminal:
-            return store.terminalApplicationURL == SettingsStore.defaultTerminalApplicationURL
+            return store.terminalApplicationURL.path == SettingsStore.defaultTerminalApplicationURL.path
         }
     }
 
@@ -318,11 +318,12 @@ struct TerminalApplications {
     ) {
         var choices = [SettingsStore.defaultTerminalApplicationURL]
         for application in Self.bundleIdentifiers.compactMap(locate) + [saved]
-        where !choices.contains(where: { $0.path == application.path }) {
+        where FinderCommands.canOpenTerminal(application) && !choices.contains(where: { $0.path == application.path }) {
             choices.append(application)
         }
-        self.choices = choices
         missing = FinderCommands.canOpenTerminal(saved) ? nil : saved
+        if missing != nil, !choices.contains(where: { $0.path == saved.path }) { choices.append(saved) }
+        self.choices = choices
     }
 
     static func name(of application: URL) -> String {

@@ -17,7 +17,7 @@ struct GeneralSettingsView: View {
 
     private static let exitPollSeconds = 0.2
     private static let unpreservedStreamsCaption: LocalizedStringKey =
-        "Applies to subtitles, chapters and similar content. Originals stay unchanged, and MacEase always asks before replacing one."
+        "Applies to subtitles, chapters and similar content in new files. Replacing an original always asks."
 
     var body: some View {
         Form {
