@@ -548,7 +548,10 @@ enum UserMessages {
         case .tooFewFiles(let minimum):
             String(localized: "Select at least \(minimum) files for this operation.")
         case .malformed(let detail):
-            String(localized: "Couldn’t process “\(file)”: \(detail). Check the input and settings, then retry.")
+            String(
+                localized:
+                    "Couldn’t process “\(file)”: \(detail.hasSuffix(".") ? String(detail.dropLast()) : detail). Check the input and settings, then retry."
+            )
         case .passwordRequired:
             String(
                 localized: "Couldn’t extract “\(file)”: a password is required. Enter the archive password."

@@ -728,7 +728,7 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         }
         if index < marks.endIndex { lines.append("…") }
         if omitted > 0 {
-            lines.append(String(localized: "\(omitted) more hidden characters on this line aren't marked."))
+            lines.append(String(localized: "\(omitted) more hidden characters on this line aren’t marked."))
         }
         return lines.joined(separator: "\n")
     }
