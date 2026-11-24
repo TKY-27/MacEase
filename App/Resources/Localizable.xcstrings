@@ -18687,6 +18687,190 @@
           }
         }
       }
+    },
+    "Continue Without %@": {
+      "comment": "Runs an operation again, dropping the named streams",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を省略して続行"
+          }
+        }
+      }
+    },
+    "If you continue, “%@” is replaced by a version without %@. The original moves to the Trash, and you can undo this.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると、“%1$@” は%2$@を含まないファイルに置き換えられます。元のファイルはゴミ箱へ移動し、取り消すこともできます。"
+          }
+        }
+      }
+    },
+    "If you continue, the %lld originals are replaced by versions without %@. The originals move to the Trash, and you can undo this.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると、元の %1$lld 個のファイルは%2$@を含まないファイルに置き換えられます。元のファイルはゴミ箱へ移動し、取り消すこともできます。"
+          }
+        }
+      }
+    },
+    "If you continue, “%@” stays as it is and the new file won’t include %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると、“%1$@” はそのまま残り、新しいファイルには%2$@が含まれません。"
+          }
+        }
+      }
+    },
+    "If you continue, the %lld originals stay as they are and the new files won’t include %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると、元の %1$lld 個のファイルはそのまま残り、新しいファイルには%2$@が含まれません。"
+          }
+        }
+      }
+    },
+    "Continued without %@. The new result appears below.": {
+      "comment": "Activity note after the user agreed to drop streams",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を省略して続行しました。新しい結果は下に表示されます。"
+          }
+        }
+      }
+    },
+    "Open “%@” without %@?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@を省略して “%1$@” を開きますか？"
+          }
+        }
+      }
+    },
+    "Open %lld videos without the streams MacEase can’t keep?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持できないストリームを省略して %lld 個の動画を開きますか？"
+          }
+        }
+      }
+    },
+    "Add “%@” without %@?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@を省略して “%1$@” を追加しますか？"
+          }
+        }
+      }
+    },
+    "Add %lld videos without the streams MacEase can’t keep?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持できないストリームを省略して %lld 個の動画を追加しますか？"
+          }
+        }
+      }
+    },
+    "MacEase can’t keep %@ in an edited file, so the file you save won’t include them. Opening doesn’t change “%@”.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase は編集したファイルに%1$@を保持できないため、保存するファイルには含まれません。開いても “%2$@” は変更されません。"
+          }
+        }
+      }
+    },
+    "MacEase can’t keep %@ in an edited file, so the file you save won’t include them. Adding doesn’t change “%@”.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase は編集したファイルに%1$@を保持できないため、保存するファイルには含まれません。追加しても “%2$@” は変更されません。"
+          }
+        }
+      }
+    },
+    "MacEase can’t keep these streams in an edited file, so the file you save won’t include them:": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase は編集したファイルに次のストリームを保持できないため、保存するファイルには含まれません："
+          }
+        }
+      }
+    },
+    "Opening doesn’t change the originals.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いても元のファイルは変更されません。"
+          }
+        }
+      }
+    },
+    "Adding doesn’t change the originals.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加しても元のファイルは変更されません。"
+          }
+        }
+      }
+    },
+    "Open Without %@": {
+      "comment": "Opens media, dropping the named streams",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を省略して開く"
+          }
+        }
+      }
+    },
+    "Add Without %@": {
+      "comment": "Adds media, dropping the named streams",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を省略して追加"
+          }
+        }
+      }
+    },
+    "The saved file won’t include %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存するファイルには%@が含まれません。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

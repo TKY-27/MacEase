@@ -23,6 +23,8 @@ final class AudioTrimModel {
     var fadeOut = 0.0 { didSet { updatePreviewMix() } }
     var ready = false
     var failure: String?
+    var streamConsent: StreamConsentRequest?
+    private(set) var omittedStreams: Set<UnpreservedStream> = []
     var waveform: AudioWaveformSnapshot?
     var detailWaveform: AudioWaveformSnapshot?
     private var source: AudioPreviewSource?
@@ -62,7 +64,7 @@ final class AudioTrimModel {
 
     func load() async {
         do {
-            let source = try await AudioPreviewSource.open(url, staging: staging)
+            let source = try await AudioPreviewSource.open(url, staging: staging, omittedStreams: omittedStreams)
             self.source = source
             duration = await source.duration
             sampleRate = await source.sampleRate
@@ -121,7 +123,21 @@ final class AudioTrimModel {
             ready = true
             updatePreviewMix()
             seek(start)
-        } catch is CancellationError { await source?.close() } catch { report(error) }
+        } catch is CancellationError {
+            await source?.close()
+        } catch {
+            if let streams = StreamConsentRequest.blockedStreams(in: error, at: url) {
+                streamConsent = StreamConsentRequest(purpose: .open, files: [.init(url: url, streams: streams)])
+            } else {
+                report(error)
+            }
+        }
+    }
+
+    func continueWithoutStreams(_ request: StreamConsentRequest) {
+        for file in request.files where file.url == url { omittedStreams.formUnion(file.streams) }
+        streamConsent = nil
+        Task { await load() }
     }
 
     func refineWaveform(_ range: Range<Double>) {
@@ -371,7 +387,9 @@ struct AudioTrimPanel: View {
             .frame(height: MediaTimeline.height)
             .accessibilityLabel(Text("Waveform"))
             .overlay {
-                if !model.ready, model.failure == nil { ProgressView().controlSize(.small) }
+                if !model.ready, model.failure == nil, model.streamConsent == nil {
+                    ProgressView().controlSize(.small)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 14)
@@ -386,6 +404,7 @@ struct AudioTrimPanel: View {
         .preferredColorScheme(.dark)
         .background(EditorKeyboardShortcuts(audio: model).frame(width: 0, height: 0))
         .task { await model.load() }
+        .streamConsentAlert($model.streamConsent, accept: model.continueWithoutStreams) { _ in cancel() }
     }
 
     private var transport: some View {

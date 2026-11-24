@@ -22,8 +22,10 @@ struct MediaEditorView: View {
                 } actions: {
                     Button("Close", action: close)
                 }
-            } else {
+            } else if model.streamConsent == nil {
                 ProgressView("Opening…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Color.clear
             }
         }
         .frame(minWidth: 960, minHeight: 600)
@@ -31,6 +33,9 @@ struct MediaEditorView: View {
         .preferredColorScheme(.dark)
         .toolbar { toolbar }
         .task { model.load() }
+        .streamConsentAlert($model.streamConsent, accept: model.continueWithoutStreams) { declined in
+            if declined.purpose == .open { close() }
+        }
         .background(EditorKeyboardShortcuts(model: model).frame(width: 0, height: 0))
         .onChange(of: model.category) { _, _ in
             model.pause(); model.refresh()
@@ -315,6 +320,12 @@ struct MediaEditorView: View {
             }
             if !model.invalidFields.isEmpty {
                 ProblemLabel(text: String(localized: "Enter a valid number within the allowed range."))
+            }
+            if let note = model.omittedStreamsNote {
+                Label(note, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 6) {
                 Text("\(Int(model.outputSize.width)) × \(Int(model.outputSize.height))")

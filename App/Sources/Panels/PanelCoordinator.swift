@@ -305,7 +305,11 @@ final class PanelCoordinator {
         ) { close in
             AudioTrimPanel(model: model, cancel: close) { start, end, fadeIn, fadeOut in
                 close()
-                self.launch(.audioTrim, .audio(.trim(start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut)), [file])
+                self.jobs.run(
+                    OperationRequest(
+                        op: .audioTrim,
+                        options: .audio(.trim(start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut)),
+                        inputs: [file], omittedStreams: model.omittedStreams))
             }
         }
     }

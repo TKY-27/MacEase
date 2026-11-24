@@ -80,20 +80,65 @@ enum UserMessages {
         }.formatted(.list(type: .and))
     }
 
-    private static func unpreservedStreams(_ streams: [UnpreservedStream]) -> String {
+    static func unpreservedStreams(
+        _ streams: [UnpreservedStream], joinedBy conjunction: ListFormatStyle<StringStyle, [String]>.ListType = .and,
+        titleCase: Bool = false
+    ) -> String {
         streams.map { stream in
-            switch stream {
-            case .video: String(localized: "extra video tracks")
-            case .audio: String(localized: "extra audio tracks")
-            case .subtitle: String(localized: "subtitle tracks")
-            case .closedCaption: String(localized: "closed captions")
-            case .timecode: String(localized: "timecode tracks")
-            case .chapter: String(localized: "chapters")
-            case .attachment: String(localized: "attachments")
-            case .metadata: String(localized: "timed metadata tracks")
-            case .data: String(localized: "other data streams")
-            }
-        }.formatted(.list(type: .and))
+            let name =
+                switch stream {
+                case .video: String(localized: "extra video tracks")
+                case .audio: String(localized: "extra audio tracks")
+                case .subtitle: String(localized: "subtitle tracks")
+                case .closedCaption: String(localized: "closed captions")
+                case .timecode: String(localized: "timecode tracks")
+                case .chapter: String(localized: "chapters")
+                case .attachment: String(localized: "attachments")
+                case .metadata: String(localized: "timed metadata tracks")
+                case .data: String(localized: "other data streams")
+                }
+            return titleCase ? name.localizedCapitalized : name
+        }.formatted(.list(type: conjunction))
+    }
+
+    static func continueWithout(_ streams: [UnpreservedStream]) -> String {
+        String(
+            localized: "Continue Without \(unpreservedStreams(streams, titleCase: true))",
+            comment: "Runs an operation again, dropping the named streams")
+    }
+
+    static func streamOmissionConsequence(
+        _ streams: [UnpreservedStream], files: [String], replacesOriginals: Bool
+    ) -> String {
+        let omitted = unpreservedStreams(streams, joinedBy: .or)
+        switch (replacesOriginals, files.count == 1 ? files.first : nil) {
+        case (true, let file?):
+            return String(
+                localized:
+                    "If you continue, “\(file)” is replaced by a version without \(omitted). The original moves to the Trash, and you can undo this."
+            )
+        case (true, nil):
+            return String(
+                localized:
+                    "If you continue, the \(files.count) originals are replaced by versions without \(omitted). The originals move to the Trash, and you can undo this."
+            )
+        case (false, let file?):
+            return String(
+                localized:
+                    "If you continue, “\(file)” stays as it is and the new file won’t include \(omitted).")
+        case (false, nil):
+            return String(
+                localized:
+                    "If you continue, the \(files.count) originals stay as they are and the new files won’t include \(omitted)."
+            )
+        }
+    }
+
+    static func continuedWithout(_ streams: [UnpreservedStream]) -> String {
+        String(
+            localized:
+                "Continued without \(unpreservedStreams(streams, joinedBy: .or)). The new result appears below.",
+            comment: "Activity note after the user agreed to drop streams")
     }
 
     private static func metadataClasses(_ fields: [MetadataField]) -> String {

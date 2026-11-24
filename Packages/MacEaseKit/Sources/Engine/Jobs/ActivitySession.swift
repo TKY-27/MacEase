@@ -67,11 +67,13 @@ public struct ActivitySession: Sendable {
             .contains(request.op)
     }
 
+    /// Excludes items awaiting consent to omit streams.
     public var failedIndices: [Int] {
         guard supportsRetry else { return [] }
+        let awaitingConsent = Set(unpreservedStreamIndices)
         return outcome.outcomes.indices.filter {
-            if case .failed(let error) = outcome.outcomes[$0] { return error != .cancelled }
-            return false
+            guard !awaitingConsent.contains($0), case .failed(let error) = outcome.outcomes[$0] else { return false }
+            return error != .cancelled
         }
     }
 
@@ -94,6 +96,11 @@ public struct ActivitySession: Sendable {
     }
 
     public var canRetry: Bool { !retrying && !failedIndices.isEmpty }
+
+    /// Derived outputs never replace their source.
+    public var replacesOriginals: Bool {
+        settings.outputMode == .replace && NewFileNaming(options: request.options) != nil
+    }
 
     public var canRetryOmittingStreams: Bool { !retrying && !unpreservedStreamIndices.isEmpty }
 
@@ -133,6 +140,7 @@ public struct ActivitySession: Sendable {
                 return WorkItem(inputs: work.inputs) { _ in throw ActivityAvailability.unavailable }
             }
             var expected: [URL: FileStamp] = [:]
+            var shownStreams: Set<UnpreservedStream> = []
             for input in work.inputs {
                 guard let index = retryIndices.first(where: { outcome.inputs[$0].contains(input) }),
                     let stamp = outcome.details[index].inputStamps[input]
@@ -140,9 +148,12 @@ public struct ActivitySession: Sendable {
                     return WorkItem(inputs: work.inputs) { _ in throw ActivityAvailability.unavailable }
                 }
                 expected[input] = stamp
+                shownStreams.formUnion(unpreservedStreamsByItem[index] ?? [])
             }
             var checked = work
             checked.requiredInputStamps = expected
+            // Consent covers only kinds this file reported.
+            checked.omittedStreams = request.omittedStreams.union(retry.omittedStreams.intersection(shownStreams))
             return checked
         }
         return Batch(operation: planned.operation, items: checked)
