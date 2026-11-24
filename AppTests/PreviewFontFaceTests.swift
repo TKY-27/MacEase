@@ -3,6 +3,7 @@ import CoreText
 import Foundation
 import UniformTypeIdentifiers
 import XCTest
+import zlib
 
 @testable import MacEase
 
@@ -103,6 +104,109 @@ final class PreviewFontFaceTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is CancellationError)
         }
+    }
+
+    func testCompressedFontBoundsRejectDeclaredAndDecompressedExpansionBombs() throws {
+        let directory = try PreviewFixtures.directory(self)
+        let limit: Int64 = 128 * 1024
+
+        // WOFF1 claiming an oversized SFNT fails upfront.
+        var woff1Claim = Data("wOFF".utf8)
+        Self.appendUInt32BE(&woff1Claim, 0x0001_0000)
+        Self.appendUInt32BE(&woff1Claim, 44)
+        Self.appendUInt16BE(&woff1Claim, 0)
+        Self.appendUInt16BE(&woff1Claim, 0)
+        Self.appendUInt32BE(&woff1Claim, UInt32(limit + 1))
+        Self.appendUInt16BE(&woff1Claim, 1)
+        Self.appendUInt16BE(&woff1Claim, 0)
+        for _ in 0..<5 { Self.appendUInt32BE(&woff1Claim, 0) }
+        let woff1ClaimURL = directory.appendingPathComponent("claim.woff")
+        try woff1Claim.write(to: woff1ClaimURL)
+        XCTAssertThrowsError(try PreviewFontFace.load(woff1ClaimURL, maximumFileBytes: limit)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooLarge)
+        }
+
+        // WOFF1 zlib bomb with lying header fails.
+        let bombPayload = Data(repeating: 0, count: Int(limit) + 4096)
+        let zlibBomb = try Self.zlibCompress(bombPayload)
+        XCTAssertLessThan(Int64(zlibBomb.count), limit)
+        var woff1Bomb = Data("wOFF".utf8)
+        Self.appendUInt32BE(&woff1Bomb, 0x0001_0000)
+        Self.appendUInt32BE(&woff1Bomb, UInt32(44 + 20 + zlibBomb.count))
+        Self.appendUInt16BE(&woff1Bomb, 1)
+        Self.appendUInt16BE(&woff1Bomb, 0)
+        Self.appendUInt32BE(&woff1Bomb, 4096)
+        Self.appendUInt16BE(&woff1Bomb, 1)
+        Self.appendUInt16BE(&woff1Bomb, 0)
+        for _ in 0..<5 { Self.appendUInt32BE(&woff1Bomb, 0) }
+        woff1Bomb.append(contentsOf: "head".utf8)
+        Self.appendUInt32BE(&woff1Bomb, 64)
+        Self.appendUInt32BE(&woff1Bomb, UInt32(zlibBomb.count))
+        Self.appendUInt32BE(&woff1Bomb, 4096)
+        Self.appendUInt32BE(&woff1Bomb, 0)
+        woff1Bomb.append(zlibBomb)
+        let woff1BombURL = directory.appendingPathComponent("bomb.woff")
+        try woff1Bomb.write(to: woff1BombURL)
+        XCTAssertThrowsError(try PreviewFontFace.load(woff1BombURL, maximumFileBytes: limit)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooLarge)
+        }
+
+        // WOFF2 claiming an oversized SFNT fails upfront.
+        var woff2Claim = Data("wOF2".utf8)
+        Self.appendUInt32BE(&woff2Claim, 0x4F54_544F)
+        Self.appendUInt32BE(&woff2Claim, 48)
+        Self.appendUInt16BE(&woff2Claim, 0)
+        Self.appendUInt16BE(&woff2Claim, 0)
+        Self.appendUInt32BE(&woff2Claim, UInt32(limit + 1))
+        Self.appendUInt32BE(&woff2Claim, 0)
+        Self.appendUInt16BE(&woff2Claim, 1)
+        Self.appendUInt16BE(&woff2Claim, 0)
+        for _ in 0..<5 { Self.appendUInt32BE(&woff2Claim, 0) }
+        let woff2ClaimURL = directory.appendingPathComponent("claim.woff2")
+        try woff2Claim.write(to: woff2ClaimURL)
+        XCTAssertThrowsError(try PreviewFontFace.load(woff2ClaimURL, maximumFileBytes: limit)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooLarge)
+        }
+
+        // WOFF2 Brotli bomb with lying header fails.
+        let brotliBomb = try Self.brotliCompress(bombPayload)
+        XCTAssertLessThan(Int64(brotliBomb.count), limit)
+        var tableDir = Data([63])
+        tableDir.append(contentsOf: "head".utf8)
+        Self.appendBase128(&tableDir, 64)
+        var woff2Bomb = Data("wOF2".utf8)
+        Self.appendUInt32BE(&woff2Bomb, 0x4F54_544F)
+        Self.appendUInt32BE(&woff2Bomb, UInt32(48 + tableDir.count + brotliBomb.count))
+        Self.appendUInt16BE(&woff2Bomb, 1)
+        Self.appendUInt16BE(&woff2Bomb, 0)
+        Self.appendUInt32BE(&woff2Bomb, 4096)
+        Self.appendUInt32BE(&woff2Bomb, UInt32(brotliBomb.count))
+        Self.appendUInt16BE(&woff2Bomb, 1)
+        Self.appendUInt16BE(&woff2Bomb, 0)
+        for _ in 0..<5 { Self.appendUInt32BE(&woff2Bomb, 0) }
+        woff2Bomb.append(tableDir)
+        woff2Bomb.append(brotliBomb)
+        let woff2BombURL = directory.appendingPathComponent("bomb.woff2")
+        try woff2Bomb.write(to: woff2BombURL)
+        XCTAssertThrowsError(try PreviewFontFace.load(woff2BombURL, maximumFileBytes: limit)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .tooLarge)
+        }
+    }
+
+    private static func zlibCompress(_ source: Data) throws -> Data {
+        var capacity = uLongf(compressBound(uLong(source.count)))
+        var output = Data(count: Int(capacity))
+        let status: Int32 = output.withUnsafeMutableBytes { dst in
+            source.withUnsafeBytes { src in
+                guard let dstBase = dst.baseAddress?.assumingMemoryBound(to: Bytef.self),
+                    let srcBase = src.baseAddress?.assumingMemoryBound(to: Bytef.self)
+                else { return Z_MEM_ERROR }
+                return compress2(dstBase, &capacity, srcBase, uLong(source.count), Z_BEST_COMPRESSION)
+            }
+        }
+        guard status == Z_OK else { throw CocoaError(.coderInvalidValue) }
+        output.count = Int(capacity)
+        return output
     }
 
     func testWidenedExtensionMapAndTokenizerLanguageMapping() throws {

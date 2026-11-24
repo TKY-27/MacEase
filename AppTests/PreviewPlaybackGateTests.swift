@@ -159,19 +159,58 @@ final class PreviewPlaybackGateTests: XCTestCase {
         XCTAssertEqual(durationLimited.phase, .message(PreviewConversionLimits.fileTooLongMessage))
         await durationLimited.stopAndWait()
 
+        // Longer FLAC ensures cancellation interrupts active encoding.
+        let longFLAC = directory.appendingPathComponent("long.flac")
+        try await Self.writeSineFLAC(to: longFLAC, seconds: 120)
+        let flacSize = Int64(try XCTUnwrap(try longFLAC.resourceValues(forKeys: [.fileSizeKey]).fileSize))
+
         let allowed = PreviewPlayback(
             limits: PreviewConversionLimits(
-                maximumAudioDuration: 10, maximumVideoDuration: 10, maximumInputBytes: oggSize * 2))
-        await allowed.prepareConversion(ogg, audioOnly: true, staging: staging)
+                maximumAudioDuration: 180, maximumVideoDuration: 180, maximumInputBytes: flacSize * 2))
+        await allowed.prepareConversion(longFLAC, audioOnly: true, staging: staging)
         XCTAssertEqual(allowed.phase, .convertible)
-        allowed.convert(ogg)
-        await allowed.stopAndWait()
+        allowed.convert(longFLAC)
 
-        // No staged playback files remain after cancellation.
-        let stagingContents =
-            (try? FileManager.default.subpathsOfDirectory(atPath: stagingRoot.path))?
-            .filter { $0.hasSuffix(".m4a") || $0.hasSuffix(".wav") || $0.hasSuffix(".mp4") } ?? []
-        XCTAssertTrue(stagingContents.isEmpty, "leftover staged media: \(stagingContents)")
+        // Wait for active staging before cancelling.
+        let registryURL = stagingRoot.appendingPathComponent("staging.json")
+        var activeStagingPath: String?
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if let data = try? Data(contentsOf: registryURL),
+                let paths = try? JSONDecoder().decode([String].self, from: data),
+                let first = paths.first,
+                FileManager.default.fileExists(atPath: first)
+            {
+                activeStagingPath = first
+                break
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let trackedPath = try XCTUnwrap(
+            activeStagingPath, "expected conversion to create a staged directory before cancellation")
+        await allowed.stopAndWait()
+        XCTAssertNotEqual(allowed.phase, .playing)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: trackedPath))
+        let remainingPaths =
+            (try? Data(contentsOf: registryURL)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
+        XCTAssertTrue(remainingPaths.isEmpty, "leftover tracked staging paths: \(remainingPaths)")
+    }
+
+    private static func writeSineFLAC(to url: URL, seconds: Int) async throws {
+        let rate = 48_000.0
+        let channels = 2
+        let frames = Int(rate) * seconds
+        var samples = [Float](repeating: 0, count: frames * channels)
+        for index in 0..<frames {
+            let value = Float(sin(2 * Double.pi * 440 * Double(index) / rate) * 0.25)
+            samples[index * channels] = value
+            samples[index * channels + 1] = value
+        }
+        let encoder = try AudioFileEncoder(
+            url: url, target: AudioTarget(format: .flac, kilobits: 0), sampleRate: rate, channels: channels,
+            bitDepth: 16)
+        try await encoder.write(samples)
+        try await encoder.finish()
     }
 
     private static func writeSineOgg(to url: URL, seconds: Int) async throws {
