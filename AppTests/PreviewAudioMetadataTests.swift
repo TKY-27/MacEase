@@ -55,8 +55,13 @@ final class PreviewAudioMetadataTests: XCTestCase {
         XCTAssertNil(metadata.artwork)
     }
 
-    func testArtworkExceedingByteLimitIsRefused() {
-        let oversized = Data(count: PreviewAudioMetadata.artworkByteLimit + 1)
+    func testArtworkExceedingByteLimitIsRefused() throws {
+        let validImage = try PreviewImageFixtures.solid(width: 16, height: 16, gray: 0.5)
+        var oversized = try XCTUnwrap(
+            NSBitmapImageRep(cgImage: validImage).representation(using: .png, properties: [:]))
+        XCTAssertNotNil(PreviewAudioMetadata.decodeArtwork(oversized))
+        oversized.append(Data(count: PreviewAudioMetadata.artworkByteLimit))
+        XCTAssertGreaterThan(oversized.count, PreviewAudioMetadata.artworkByteLimit)
         XCTAssertNil(PreviewAudioMetadata.decodeArtwork(oversized))
     }
 
@@ -96,6 +101,16 @@ final class PreviewAudioMetadataTests: XCTestCase {
         XCTAssertNil(metadata.title)
         XCTAssertNil(metadata.artist)
         XCTAssertNil(metadata.artwork)
+
+        let detailsTask = Task { @MainActor in
+            try await PreviewAudioControls.loadDetails(asset: asset)
+        }
+        detailsTask.cancel()
+        do {
+            _ = try await detailsTask.value
+            XCTFail("Expected cancelled loadDetails to throw CancellationError")
+        } catch is CancellationError {
+        }
     }
 
     func testAudioControlsLoadFileIconOnceDuringPlayback() async throws {

@@ -497,21 +497,38 @@ struct PreviewAudioControls: View {
     private func loadDetails() async {
         guard !Task.isCancelled, let asset = player.currentItem?.asset else { return }
         do {
-            let loaded = try await asset.load(.duration).seconds
-            try Task.checkCancellation()
-            if loaded.isFinite, loaded >= 0 { duration = Self.clampedDurationSeconds(loaded) }
+            let loaded = try await Self.loadDetails(asset: asset)
+            guard !Task.isCancelled else { return }
+            if let loadedDuration = loaded.duration { duration = loadedDuration }
+            if loaded.metadata.artwork == nil { fileIcon = loadFileIcon(url) }
+            metadata = loaded.metadata
         } catch is CancellationError {
-            return
         } catch {
             guard !Task.isCancelled else { return }
             Logger(category: "finder-preview").error(
+                "Preview audio details failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    @MainActor
+    static func loadDetails(asset: AVAsset) async throws -> (duration: Double?, metadata: PreviewAudioMetadata) {
+        try Task.checkCancellation()
+        var loadedDuration: Double?
+        do {
+            let seconds = try await asset.load(.duration).seconds
+            try Task.checkCancellation()
+            if seconds.isFinite, seconds >= 0 { loadedDuration = clampedDurationSeconds(seconds) }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            Logger(category: "finder-preview").error(
                 "Preview audio duration failed: \(error.localizedDescription, privacy: .private)")
         }
-        guard !Task.isCancelled else { return }
+        try Task.checkCancellation()
         let loadedMetadata = await PreviewAudioMetadata.load(asset)
-        guard !Task.isCancelled else { return }
-        if loadedMetadata.artwork == nil { fileIcon = loadFileIcon(url) }
-        metadata = loadedMetadata
+        try Task.checkCancellation()
+        return (loadedDuration, loadedMetadata)
     }
 
     static func clampedDurationSeconds(_ seconds: Double) -> Double {

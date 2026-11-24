@@ -251,26 +251,29 @@ final class PreviewImageViewerTests: XCTestCase {
         model.stop()
     }
 
+    private final class OcclusionTestWindow: NSWindow {
+        var simulatedOcclusion: NSWindow.OcclusionState = .visible
+
+        override var occlusionState: NSWindow.OcclusionState { simulatedOcclusion }
+    }
+
     func testScrollViewObservesWindowOcclusionNotifications() async throws {
         let scroll = PreviewImageScroll(pixelSize: CGSize(width: 64, height: 64))
         var states: [Bool] = []
         scroll.occlusionChanged = { states.append($0) }
-        let window = NSWindow(
+        let window = OcclusionTestWindow(
             contentRect: NSRect(x: -5_000, y: 0, width: 200, height: 200), styleMask: [.borderless], backing: .buffered,
             defer: false)
         window.contentView = scroll
-        defer { window.orderOut(nil) }
-        try await waitUntilCondition { !states.isEmpty }
-        let initial = try XCTUnwrap(states.last)
+        try await waitUntilCondition { states == [true] }
 
-        window.orderFrontRegardless()
+        window.simulatedOcclusion = []
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        XCTAssertEqual(states.last, window.occlusionState.contains(.visible))
-        if initial == window.occlusionState.contains(.visible) {
-            window.orderOut(nil)
-            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            XCTAssertEqual(states.last, false)
-        }
+        XCTAssertEqual(states, [true, false])
+
+        window.simulatedOcclusion = .visible
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        XCTAssertEqual(states, [true, false, true])
     }
 
     func testFrameCacheStaysWithinItsBudget() async throws {
