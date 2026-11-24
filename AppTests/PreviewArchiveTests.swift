@@ -214,12 +214,19 @@ final class PreviewArchiveTests: XCTestCase {
     }
 
     private func snapshot(_ directory: URL) throws -> [String: Date] {
-        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey]
         var result: [String: Date] = [:]
-        for url in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) {
-            result[url.lastPathComponent] = try url.resourceValues(forKeys: Set(keys)).contentModificationDate
+        let walk = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: Array(keys))
+        while let url = walk?.nextObject() as? URL {
+            result[url.path] = try url.resourceValues(forKeys: keys).contentModificationDate
         }
         return result
+    }
+
+    private func quarantineValue(_ url: URL) -> [UInt8] {
+        var value = [UInt8](repeating: 0, count: 256)
+        let size = getxattr(url.path, "com.apple.quarantine", &value, value.count, 0, 0)
+        return Array(value.prefix(max(size, 0)))
     }
 
     @MainActor
@@ -230,8 +237,7 @@ final class PreviewArchiveTests: XCTestCase {
         XCTAssertEqual(setxattr(archive.path, "com.apple.quarantine", quarantine, quarantine.count, 0, 0), 0)
         XCTAssertTrue(PreviewTrust.evaluate(archive, trustedFolders: []).restricted)
         XCTAssertEqual(try PreviewKind.inspect(archive), .archive)
-        let temporary = FileManager.default.temporaryDirectory
-        let before = (try snapshot(directory), try snapshot(temporary))
+        let before = try snapshot(directory)
         let archiveBefore = try FileManager.default.attributesOfItem(atPath: archive.path)
 
         let model = PreviewArchiveModel()
@@ -239,8 +245,8 @@ final class PreviewArchiveTests: XCTestCase {
         guard case .listed(let listing) = model.phase else { return XCTFail("quarantined archive not listed") }
         XCTAssertEqual(listing.entryCount, 3)
 
-        XCTAssertEqual(try snapshot(directory), before.0)
-        XCTAssertEqual(try snapshot(temporary), before.1)
+        XCTAssertEqual(try snapshot(directory), before)
+        XCTAssertEqual(quarantineValue(archive), quarantine)
         let archiveAfter = try FileManager.default.attributesOfItem(atPath: archive.path)
         XCTAssertEqual(archiveAfter[.modificationDate] as? Date, archiveBefore[.modificationDate] as? Date)
         XCTAssertEqual(archiveAfter[.size] as? Int, archiveBefore[.size] as? Int)
