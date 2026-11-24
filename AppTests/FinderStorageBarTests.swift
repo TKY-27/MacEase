@@ -100,19 +100,68 @@ final class StorageVolumeTests: XCTestCase {
         let cases = [
             ("/Users/someone/Documents/Private", "/"),
             ("/Volumes/USB/Photos/a.jpg", "/Volumes/USB"),
-            ("/Volumes/USB2/a.jpg", "/"),
             ("/Volumes/USB/Nested", "/Volumes/USB/Nested"),
+            ("/Volumes/USB/Nested2/a.jpg", "/Volumes/USB"),
             ("/Volumes/USB/./Photos/../a.jpg", "/Volumes/USB"),
         ]
         for (location, expected) in cases {
             XCTAssertEqual(
                 StorageVolume.root(of: URL(fileURLWithPath: location), among: volumes)?.path, expected, location)
         }
+        // Ejected /Volumes mounts fall back as unknown.
+        XCTAssertNil(StorageVolume.root(of: URL(fileURLWithPath: "/Volumes/USB2/a.jpg"), among: volumes))
+        XCTAssertNil(
+            StorageVolume.root(
+                of: URL(fileURLWithPath: "/Volumes/USB/Photos/a.jpg"), among: [URL(fileURLWithPath: "/")]))
         XCTAssertNil(StorageVolume.root(of: URL(fileURLWithPath: "/Users"), among: []))
     }
 
+    func testUnstandardizedMountPointsCompareStandardizedDepth() {
+        let volumes = [
+            URL(fileURLWithPath: "/Volumes/USB/././", isDirectory: true),
+            URL(fileURLWithPath: "/Volumes/USB/Nested", isDirectory: true),
+        ]
+        let matched = StorageVolume.root(of: URL(fileURLWithPath: "/Volumes/USB/Nested/a.txt"), among: volumes)
+        XCTAssertEqual(matched?.standardized.path, "/Volumes/USB/Nested")
+    }
+
+    func testNonStartupVolumesUseMountTableWithoutTouchingVolumeFiles() throws {
+        var startupCalls = 0
+        let startup = StorageVolume(
+            name: "Macintosh HD", total: 1_000_000, available: 400_000, availableForImportantUsage: 500_000)
+        let mounted = [
+            StorageVolume.MountedVolume(
+                root: URL(fileURLWithPath: "/"), totalBytes: 1_000_000, availableBytes: 400_000),
+            StorageVolume.MountedVolume(
+                root: URL(fileURLWithPath: "/Volumes/Camera Card"), totalBytes: 64_000_000_000,
+                availableBytes: 12_000_000_000),
+        ]
+        let external = try FinderStorageBarModel.readVolumeSync(
+            for: URL(fileURLWithPath: "/Volumes/Camera Card/DCIM/IMG_0001.JPG"),
+            mounted: mounted,
+            readStartup: {
+                startupCalls += 1
+                return startup
+            })
+        XCTAssertEqual(startupCalls, 0)
+        XCTAssertFalse(external.startupDisk)
+        XCTAssertEqual(external.volume.name, "Camera Card")
+        XCTAssertEqual(external.volume.capacity, .init(total: 64_000_000_000, available: 12_000_000_000))
+
+        let ejected = try FinderStorageBarModel.readVolumeSync(
+            for: URL(fileURLWithPath: "/Volumes/Gone/Photos"),
+            mounted: [mounted[0]],
+            readStartup: {
+                startupCalls += 1
+                return startup
+            })
+        XCTAssertEqual(startupCalls, 1)
+        XCTAssertTrue(ejected.startupDisk)
+        XCTAssertEqual(ejected.volume, startup)
+    }
+
     func testStartupDiskReadsItsNameAndCapacity() throws {
-        let volumes = try XCTUnwrap(FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil))
+        let volumes = StorageVolume.mountedVolumes().map(\.root)
         let root = try XCTUnwrap(StorageVolume.root(of: URL(fileURLWithPath: NSHomeDirectory()), among: volumes))
         let volume = try StorageVolume.read(volume: root)
         XCTAssertFalse(volume.name.isEmpty)
@@ -192,6 +241,65 @@ final class FinderStorageBarModelTests: XCTestCase {
         model.update(selectionCount: nil, folder: nil)
         try await waitUntil { model.showsStartupDisk }
     }
+
+    func testSlowVolumeReadFromPreviousWindowIsDropped() async throws {
+        let folderA = URL(fileURLWithPath: "/Volumes/DriveA/Work")
+        let folderB = URL(fileURLWithPath: "/Volumes/DriveB/Work")
+        let volumeA = StorageVolume(name: "DriveA", total: 100, available: 50, availableForImportantUsage: nil)
+        let volumeB = StorageVolume(name: "DriveB", total: 200, available: 150, availableForImportantUsage: nil)
+        let gate = AsyncGate<FinderStorageBarModel.VolumeSnapshot>()
+        let model = FinderStorageBarModel { target in
+            if target == folderA {
+                return try await gate.wait()
+            }
+            return .init(volume: volumeB, startupDisk: false, mountRoot: URL(fileURLWithPath: "/Volumes/DriveB"))
+        }
+
+        model.update(selectionCount: 1, folder: folderA)
+        try await waitUntil { gate.isWaiting }
+
+        model.forgetLocation()
+        model.update(selectionCount: 2, folder: folderB)
+        gate.resume(
+            returning: .init(volume: volumeA, startupDisk: false, mountRoot: URL(fileURLWithPath: "/Volumes/DriveA")))
+
+        try await waitUntil { model.volume == volumeB }
+        XCTAssertEqual(model.volume, volumeB)
+        XCTAssertFalse(model.showsStartupDisk)
+        XCTAssertEqual(model.selectionCount, 2)
+    }
+
+    func testEjectedVolumeFallsBackToLabelledStartupDisk() async throws {
+        let startup = StorageVolume(
+            name: "Macintosh HD", total: 1_000, available: 500, availableForImportantUsage: 600)
+        let usbMount = StorageVolume.MountedVolume(
+            root: URL(fileURLWithPath: "/Volumes/USB"), totalBytes: 500, availableBytes: 250)
+        let customMount = StorageVolume.MountedVolume(
+            root: URL(fileURLWithPath: "/mnt/Scratch"), totalBytes: 400, availableBytes: 100)
+        let rootMount = StorageVolume.MountedVolume(
+            root: URL(fileURLWithPath: "/"), totalBytes: 1_000, availableBytes: 500)
+        var mounted = [rootMount, usbMount, customMount]
+
+        let model = FinderStorageBarModel { target in
+            let current = await MainActor.run { mounted }
+            return try FinderStorageBarModel.readVolumeSync(for: target, mounted: current) { startup }
+        }
+
+        model.update(selectionCount: 0, folder: URL(fileURLWithPath: "/Volumes/USB/Photos"))
+        try await waitUntil { model.volume?.name == "USB" }
+        XCTAssertFalse(model.showsStartupDisk)
+
+        mounted = [rootMount, customMount]
+        model.refreshVolume()
+        try await waitUntil { model.volume == startup && model.showsStartupDisk }
+
+        model.update(selectionCount: 0, folder: URL(fileURLWithPath: "/mnt/Scratch/Sub"))
+        try await waitUntil { model.volume?.name == "Scratch" && !model.showsStartupDisk }
+
+        mounted = [rootMount]
+        model.refreshVolume()
+        try await waitUntil { model.volume == startup && model.showsStartupDisk }
+    }
 }
 
 @MainActor
@@ -208,10 +316,13 @@ final class FinderStorageBarPresenceTests: XCTestCase {
         bar.follow(window)
         try await waitUntil { bar.isVisible }
         let panel = try XCTUnwrap(NSApp.windows.compactMap { $0 as? FinderStorageBarPanel }.first { $0.isVisible })
-        XCTAssertEqual(panel.frame, CGRect(x: 120, y: 140, width: 820, height: 20))
+        XCTAssertEqual(
+            panel.frame,
+            CGRect(x: 120, y: 140, width: 820, height: FinderStorageBarGeometry.Calibration.statusBarHeight))
         XCTAssertTrue(panel.ignoresMouseEvents)
         XCTAssertFalse(panel.canBecomeKey)
         XCTAssertFalse(panel.canBecomeMain)
+        XCTAssertTrue(panel.collectionBehavior.contains(.transient))
 
         bar.follow(nil)
         XCTAssertFalse(bar.isVisible)
@@ -240,6 +351,40 @@ final class FinderStorageBarPresenceTests: XCTestCase {
         bar.follow(window)
         XCTAssertFalse(bar.isVisible)
         XCTAssertFalse(bar.wantsSelection)
+    }
+
+    func testHidingCancelsPendingVolumeWorkAndSkipsRefresh() async throws {
+        var reads = 0
+        var statusBarShown = true
+        let gate = AsyncGate<FinderStorageBarModel.VolumeSnapshot>()
+        let sample = StorageVolume(name: "Disk", total: 100, available: 40, availableForImportantUsage: nil)
+        let model = FinderStorageBarModel { _ in
+            await MainActor.run { reads += 1 }
+            return try await gate.wait()
+        }
+        let bar = FinderStorageBar(model: model, readsStatusBar: { statusBarShown })
+        bar.start()
+        addTeardownBlock { @MainActor in bar.stop() }
+
+        bar.follow(window)
+        bar.model.update(selectionCount: 0, folder: URL(fileURLWithPath: "/Users"))
+        try await waitUntil { gate.isWaiting && reads == 1 }
+
+        bar.follow(nil)
+        gate.resume(returning: .init(volume: sample, startupDisk: false, mountRoot: URL(fileURLWithPath: "/")))
+        bar.refresh()
+        XCTAssertEqual(reads, 1)
+        XCTAssertNil(bar.model.volume)
+
+        statusBarShown = false
+        bar.follow(window)
+        bar.refresh()
+        XCTAssertEqual(reads, 1)
+
+        statusBarShown = true
+        bar.follow(.init(id: 0, frame: CGRect(x: 0, y: 0, width: 100, height: 400), preview: nil))
+        bar.refresh()
+        XCTAssertEqual(reads, 1)
     }
 }
 
@@ -352,6 +497,40 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         FinderPreviewCoordinator(
             settings: store, staging: StagingArea(supportDirectory: directory),
             storageBar: FinderStorageBar(readsStatusBar: { true }), isTrusted: { false })
+    }
+}
+
+@MainActor
+private final class AsyncGate<Value: Sendable> {
+    private var continuation: CheckedContinuation<Value, any Error>?
+    private var pending: Result<Value, any Error>?
+
+    var isWaiting: Bool { continuation != nil }
+
+    func wait() async throws -> Value {
+        if let pending {
+            self.pending = nil
+            return try pending.get()
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.continuation?.resume(throwing: CancellationError())
+                self.continuation = nil
+            }
+        }
+    }
+
+    func resume(returning value: Value) {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(returning: value)
+        } else {
+            pending = .success(value)
+        }
     }
 }
 

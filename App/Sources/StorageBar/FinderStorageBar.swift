@@ -24,7 +24,13 @@ final class FinderStorageBar {
 
     var isVisible: Bool { panel?.isVisible == true }
     // Visible once the first figures arrive.
-    var wantsSelection: Bool { window != nil && statusBarShown }
+    var wantsSelection: Bool { activePlacement != nil }
+
+    private var activePlacement: FinderStorageBarGeometry.Placement? {
+        guard let window else { return nil }
+        return FinderStorageBarGeometry.placement(
+            window: window.frame, preview: window.preview, statusBarShown: statusBarShown)
+    }
 
     init(
         model: FinderStorageBarModel = FinderStorageBarModel(),
@@ -69,12 +75,13 @@ final class FinderStorageBar {
         place()
     }
 
-    private func refresh() {
+    func refresh() {
         let shown = readsStatusBar()
         if shown != statusBarShown {
             statusBarShown = shown
             place()
         }
+        guard activePlacement != nil else { return }
         model.refreshVolume()
     }
 
@@ -90,10 +97,12 @@ final class FinderStorageBar {
     }
 
     private func place() {
-        guard let window, model.volume != nil,
-            let placement = FinderStorageBarGeometry.placement(
-                window: window.frame, preview: window.preview, statusBarShown: statusBarShown)
-        else {
+        guard let window, let placement = activePlacement else {
+            panel?.orderOut(nil)
+            model.cancelPendingWork()
+            return
+        }
+        guard model.volume != nil else {
             panel?.orderOut(nil)
             return
         }
@@ -127,7 +136,7 @@ final class FinderStorageBarPanel: NSPanel {
         animationBehavior = .none
         // Display only; clicks reach Finder's own bar.
         ignoresMouseEvents = true
-        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle, .transient]
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
