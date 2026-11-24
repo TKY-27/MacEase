@@ -400,6 +400,17 @@ public final class JobEngine: Sendable {
                 recordOutput(renamed.output, stamp: renamed.stamp, context: context)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
+        case .move(let entry, let destination):
+            try await history.checkAcceptingCommits()
+            switch try committer.move(entry, to: destination, staging: staging) {
+            case .alreadyInDestination:
+                return (.skipped(.alreadyDone), nil)
+            case .moved(let moved):
+                records.append(.renamed(from: entry.url.path, to: moved.output.path, stamp: moved.stamp))
+                outputs.append(moved.output)
+                recordOutput(moved.output, stamp: moved.stamp, context: context)
+                await recordCommits(&records, batch: batch, tracker: tracker)
+            }
         case .trash(let urls, let permanently, let condition):
             for url in urls {
                 try await history.checkAcceptingCommits()

@@ -130,6 +130,7 @@ public enum ItemResult: Sendable {
     case exported(
         from: URL, stamp: FileStamp, to: URL, outputs: [StagedFile], preservingAttributes: Bool = true)
     case rename([RenamePlan])
+    case move(MoveItem, to: URL)
     case text(String, TextDestination)
     case trash([URL], permanently: Bool, condition: RemovalCondition? = nil)
     case trashDuplicates([DuplicateRemoval])

@@ -81,6 +81,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case anyFindRelated = "any.findRelated"
     case anyProtect = "any.protect"
     case filesFinish = "files.finish"
+    case filesMove = "files.move"
 
     public var kind: FileKind {
         switch rawValue.prefix(while: { $0 != "." }) {

@@ -71,7 +71,7 @@ enum NewFileNaming: Sendable {
                 }
             case .convert: return nil
             }
-        case .checksum, .rename, .folder, .archive, .jar, .document, .plistToJSON: return nil
+        case .checksum, .rename, .move, .folder, .archive, .jar, .document, .plistToJSON: return nil
         }
     }
 

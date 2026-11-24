@@ -60,7 +60,7 @@ public enum OperationPlanner {
         let inputs: [URL]
         let usesResolvedInputs: Bool
         switch request.options {
-        case .rename(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
+        case .rename(_), .move(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
             .folder(.exportAnalysis(_, _)):
             inputs = targeted(request.inputs, kind: request.op.kind)
             usesResolvedInputs = true
@@ -111,6 +111,8 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items)
+        case .move(let plan):
+            return MovePlanner.batch(plan, op: request.op)
         case .video(let operation):
             let batch = VideoPlanner.batch(operation, op: request.op, inputs: inputs)
             guard case .extractAudio(let format, let kilobits?) = operation, format.isLossy else { return batch }

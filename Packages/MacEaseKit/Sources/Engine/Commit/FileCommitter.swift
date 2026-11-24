@@ -30,6 +30,11 @@ struct FileCommitter: Sendable {
         let stamp: FileStamp?
     }
 
+    enum MoveOutcome: Sendable {
+        case moved(Committed)
+        case alreadyInDestination
+    }
+
     private let logger = Logger(category: "commit")
 
     func replace(
@@ -435,6 +440,277 @@ struct FileCommitter: Sendable {
         }
     }
 
+    func move(_ entry: MoveItem, to destination: URL, staging: StagingArea) throws -> MoveOutcome {
+        try Self.namingLock.withLock { _ in
+            try Task.checkCancellation()
+            guard entry.url.isFileURL, destination.isFileURL else {
+                throw EngineError.invalidInput(.malformed("Move paths must be file URLs"))
+            }
+            let destinationStat = try Self.entryMetadata(of: destination)
+            guard destinationStat.st_mode & S_IFMT == S_IFDIR,
+                try destination.resourceValues(forKeys: [.isPackageKey]).isPackage != true
+            else {
+                throw EngineError.invalidInput(.malformed("Move destination is not a folder"))
+            }
+            let sourceStat: stat
+            do {
+                sourceStat = try Self.entryMetadata(of: entry.url)
+            } catch let error as POSIXError where error.code == .ENOENT {
+                throw Failure.changedSinceScan
+            }
+            let canonicalDestination = try Self.canonicalDirectory(destination)
+            let canonicalSourceParent = try Self.canonicalDirectory(entry.url.deletingLastPathComponent())
+            if sourceStat.st_mode & S_IFMT == S_IFDIR,
+                try Self.isSameOrDescendant(
+                    canonicalDestination, ofDevice: sourceStat.st_dev, inode: sourceStat.st_ino)
+            {
+                throw EngineError.invalidInput(.malformed("Cannot move a folder into itself or a subfolder"))
+            }
+            guard entry.stamp.matchesIdentity(entry.url.path) else { throw Failure.changedSinceScan }
+            let sourceParentStat = try Self.entryMetadata(of: canonicalSourceParent)
+            if sourceParentStat.st_dev == destinationStat.st_dev && sourceParentStat.st_ino == destinationStat.st_ino {
+                return .alreadyInDestination
+            }
+            guard access(canonicalDestination.path, W_OK | X_OK) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EACCES)
+            }
+            guard access(canonicalSourceParent.path, W_OK | X_OK) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EACCES)
+            }
+            if sourceStat.st_dev == destinationStat.st_dev {
+                do {
+                    return .moved(
+                        try moveOnSameVolume(
+                            source: entry.url, sourceStat: sourceStat, expectedStamp: entry.stamp,
+                            destination: destination, canonicalDestination: canonicalDestination))
+                } catch let error as POSIXError where error.code == .EXDEV {
+                    // Crosses a volume or firmlink boundary.
+                }
+            }
+            return .moved(
+                try moveAcrossVolumes(
+                    source: entry.url, sourceStat: sourceStat, expectedStamp: entry.stamp,
+                    destination: destination, canonicalDestination: canonicalDestination, staging: staging))
+        }
+    }
+
+    private func moveOnSameVolume(
+        source: URL, sourceStat: stat, expectedStamp: FileStamp, destination: URL, canonicalDestination: URL
+    ) throws -> Committed {
+        var nextCandidate = 1
+        while true {
+            try Task.checkCancellation()
+            let target = try AvailableName.url(
+                for: source.lastPathComponent, in: destination, nextCandidate: &nextCandidate)
+            do {
+                return try coordinate(replacing: source, destination: target, sourceOptions: .forMoving) { from, to in
+                    try Task.checkCancellation()
+                    guard expectedStamp.matchesIdentity(from.path) else { throw Failure.changedSinceScan }
+                    if sourceStat.st_mode & S_IFMT == S_IFDIR,
+                        try Self.isSameOrDescendant(
+                            canonicalDestination, ofDevice: sourceStat.st_dev, inode: sourceStat.st_ino)
+                    {
+                        throw EngineError.invalidInput(.malformed("Cannot move a folder into itself or a subfolder"))
+                    }
+                    guard renamex_np(from.path, to.path, UInt32(RENAME_EXCL)) == 0 else {
+                        if errno == EEXIST { throw Failure.destinationOccupied }
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    return Committed(output: to, stamp: outputStamp(of: to, includingIdentity: true))
+                }
+            } catch Failure.destinationOccupied {
+                continue
+            }
+        }
+    }
+
+    private func moveAcrossVolumes(
+        source: URL, sourceStat: stat, expectedStamp: FileStamp, destination: URL, canonicalDestination: URL,
+        staging: StagingArea
+    ) throws -> Committed {
+        let stagingDirectory = try staging.makeDirectory(for: destination)
+        defer { staging.remove(stagingDirectory) }
+        let stagedCopy = stagingDirectory.appending(path: source.lastPathComponent)
+        try Self.copyEntryNoFollow(source, to: stagedCopy)
+        try Self.verifyCopiedItem(source: source, copy: stagedCopy)
+        var nextCandidate = 1
+        while true {
+            try Task.checkCancellation()
+            let target = try AvailableName.url(
+                for: source.lastPathComponent, in: destination, nextCandidate: &nextCandidate)
+            do {
+                return try coordinate(replacing: source, destination: target, sourceOptions: .forMoving) { from, to in
+                    try Task.checkCancellation()
+                    guard expectedStamp.matchesIdentity(from.path) else { throw Failure.changedSinceScan }
+                    if sourceStat.st_mode & S_IFMT == S_IFDIR,
+                        try Self.isSameOrDescendant(
+                            canonicalDestination, ofDevice: sourceStat.st_dev, inode: sourceStat.st_ino)
+                    {
+                        throw EngineError.invalidInput(.malformed("Cannot move a folder into itself or a subfolder"))
+                    }
+                    guard renamex_np(stagedCopy.path, to.path, UInt32(RENAME_EXCL)) == 0 else {
+                        if errno == EEXIST { throw Failure.destinationOccupied }
+                        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                    }
+                    let movedStamp = outputStamp(of: to, includingIdentity: true)
+                    do {
+                        try Self.removeEntryNoFollow(from)
+                    } catch {
+                        if movedStamp?.matchesIdentity(to.path) == true {
+                            do {
+                                try Self.removeEntryNoFollow(to)
+                            } catch {
+                                logger.error(
+                                    "Cross-volume move rollback failed: \(error.localizedDescription, privacy: .private)"
+                                )
+                            }
+                        }
+                        throw error
+                    }
+                    return Committed(output: to, stamp: movedStamp)
+                }
+            } catch Failure.destinationOccupied {
+                continue
+            }
+        }
+    }
+
+    private func restoreMovedItem(from moved: URL, to original: URL, caseOnly: Bool) throws {
+        let movedStat = try Self.entryMetadata(of: moved)
+        let originalParent = original.deletingLastPathComponent()
+        let parentStat = try Self.entryMetadata(of: originalParent)
+        if movedStat.st_dev == parentStat.st_dev {
+            if caseOnly {
+                try FileManager.default.moveItem(at: moved, to: original)
+                return
+            }
+            if renamex_np(moved.path, original.path, UInt32(RENAME_EXCL)) == 0 { return }
+            if errno != EXDEV { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        }
+        let stagingDirectory = try FileManager.default.url(
+            for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: originalParent, create: true)
+        defer {
+            do {
+                try FileManager.default.removeItem(at: stagingDirectory)
+            } catch {
+                logger.error("Undo staging cleanup failed: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        let stagedCopy = stagingDirectory.appending(path: original.lastPathComponent)
+        try Self.copyEntryNoFollow(moved, to: stagedCopy)
+        try Self.verifyCopiedItem(source: moved, copy: stagedCopy)
+        guard renamex_np(stagedCopy.path, original.path, UInt32(RENAME_EXCL)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let restoredStamp = outputStamp(of: original, includingIdentity: true)
+        do {
+            try Self.removeEntryNoFollow(moved)
+        } catch {
+            if restoredStamp?.matchesIdentity(original.path) == true {
+                do {
+                    try Self.removeEntryNoFollow(original)
+                } catch {
+                    logger.error("Cross-volume undo rollback failed: \(error.localizedDescription, privacy: .private)")
+                }
+            }
+            throw error
+        }
+    }
+
+    private static func entryMetadata(of url: URL) throws -> stat {
+        var metadata = stat()
+        guard lstat(url.path, &metadata) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        return metadata
+    }
+
+    private static func entryExistsNoFollow(_ path: String) throws -> Bool {
+        var metadata = stat()
+        if lstat(path, &metadata) == 0 { return true }
+        if errno == ENOENT { return false }
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    private static func canonicalDirectory(_ url: URL) throws -> URL {
+        guard let resolved = realpath(url.path, nil) else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { free(resolved) }
+        let path = FileManager.default.string(withFileSystemRepresentation: resolved, length: strlen(resolved))
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private static func isSameOrDescendant(_ folder: URL, ofDevice device: dev_t, inode: UInt64) throws -> Bool {
+        var current = folder
+        while true {
+            let status = try entryMetadata(of: current)
+            if status.st_dev == device && status.st_ino == inode { return true }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path { return false }
+            current = parent
+        }
+    }
+
+    private static func copyEntryNoFollow(_ source: URL, to destination: URL) throws {
+        let status = try entryMetadata(of: source)
+        switch status.st_mode & S_IFMT {
+        case S_IFLNK:
+            let linkTarget = try FileManager.default.destinationOfSymbolicLink(atPath: source.path)
+            guard symlink(linkTarget, destination.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        case S_IFREG, S_IFDIR:
+            try FileManager.default.copyItem(at: source, to: destination)
+        default:
+            throw EngineError.invalidInput(.unsupportedFileType)
+        }
+    }
+
+    private static func verifyCopiedItem(source: URL, copy: URL) throws {
+        try Task.checkCancellation()
+        let sourceStat = try entryMetadata(of: source)
+        let copyStat = try entryMetadata(of: copy)
+        let sourceKind = sourceStat.st_mode & S_IFMT
+        guard sourceKind == copyStat.st_mode & S_IFMT else {
+            throw EngineError.commitFailed("Copied item type mismatch")
+        }
+        switch sourceKind {
+        case S_IFLNK:
+            let sourceTarget = try FileManager.default.destinationOfSymbolicLink(atPath: source.path)
+            let copyTarget = try FileManager.default.destinationOfSymbolicLink(atPath: copy.path)
+            guard sourceTarget == copyTarget else {
+                throw EngineError.commitFailed("Copied symbolic link target mismatch")
+            }
+        case S_IFREG:
+            guard sourceStat.st_size == copyStat.st_size, try StreamingText.equalContents(source, copy) else {
+                throw EngineError.commitFailed("Copied file content mismatch")
+            }
+        case S_IFDIR:
+            let sourceEntries = try FileManager.default.contentsOfDirectory(atPath: source.path).sorted()
+            let copyEntries = try FileManager.default.contentsOfDirectory(atPath: copy.path).sorted()
+            guard sourceEntries == copyEntries else {
+                throw EngineError.commitFailed("Copied folder entries mismatch")
+            }
+            for name in sourceEntries {
+                try verifyCopiedItem(source: source.appending(path: name), copy: copy.appending(path: name))
+            }
+        default:
+            throw EngineError.invalidInput(.unsupportedFileType)
+        }
+    }
+
+    private static func removeEntryNoFollow(_ url: URL) throws {
+        let status = try entryMetadata(of: url)
+        if status.st_mode & S_IFMT == S_IFLNK {
+            guard unlink(url.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return
+        }
+        try FileManager.default.removeItem(at: url)
+    }
+
     /// `nil` after a permanent delete.
     func remove(_ url: URL, permanently: Bool, condition: RemovalCondition? = nil) throws -> Trashed? {
         try Self.namingLock.withLock { _ in
@@ -599,11 +875,11 @@ struct FileCommitter: Sendable {
                         }
                         let caseOnly = try Self.isCaseOnlyChange(
                             from: urls[0].path, to: urls[1].path, in: urls[0].deletingLastPathComponent())
-                        guard caseOnly || !FileManager.default.fileExists(atPath: urls[0].path) else {
+                        if !caseOnly, try Self.entryExistsNoFollow(urls[0].path) {
                             return .skipped(.undoOriginalOccupied, path: from)
                         }
                         try checkCancellation()
-                        try FileManager.default.moveItem(at: urls[1], to: urls[0])
+                        try self.restoreMovedItem(from: urls[1], to: urls[0], caseOnly: caseOnly)
                         return .restored
                     }
                 case .removed(let original, let trashed, let trashStamp):
