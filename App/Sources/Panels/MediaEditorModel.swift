@@ -100,9 +100,21 @@ final class MediaEditorModel {
     var initialVideoRange: ClosedRange<Double>?
     var category: EditorCategory
     var original = false
-    var zoom = 1.0
+    var photoZoom: PhotoZoomState = .fit
+    var zoom: Double {
+        get {
+            switch photoZoom {
+            case .fit: Self.photoZoomRange.lowerBound
+            case .magnification(let level): level / (photoFitScale ?? 1)
+            }
+        }
+        set { setPhotoZoom(newValue) }
+    }
+    /// Real magnification at Fit, from the preview.
+    private(set) var photoFitScale: Double?
     var timelineZoom = 1.0
     var timelineViewportWidth = 600.0
+    var playheadRevealRequest: UUID?
     var hoverPosition: Double?
     var cropAspect = 0.0
     var cropPortrait = false
@@ -255,24 +267,44 @@ final class MediaEditorModel {
     }
     var trimming: Bool { trimSegment != nil }
 
-    func timelineRange(for segment: VideoSegment) -> ClosedRange<Double> {
-        let reference = trimBaseline ?? timeline
-        guard let reference,
-            let original = reference.segments.first(where: { $0.id == segment.id }),
-            let start = reference.outputTime(for: original.start, segmentID: segment.id)
-        else { return 0...0 }
-        let left = start + (segment.start - original.start) / segment.speed
-        let right =
-            segment.isFreeze ? start + segment.outputDuration : start + (segment.end - original.start) / segment.speed
-        return left...max(left, right)
+    func timelineRanges() -> [ClosedRange<Double>] {
+        guard let reference = trimBaseline ?? timeline else { return [] }
+        var ranges: [ClosedRange<Double>] = []
+        ranges.reserveCapacity(values.segments.count)
+        var cursor = 0.0
+        for (segment, original) in zip(values.segments, reference.segments) {
+            let left = cursor + (segment.start - original.start) / segment.speed
+            let right =
+                segment.isFreeze
+                ? cursor + segment.outputDuration
+                : cursor + (segment.end - original.start) / segment.speed
+            ranges.append(left...max(left, right))
+            cursor += original.outputDuration
+        }
+        return ranges
     }
 
     static let photoZoomRange = 1.0...8.0
+    private static let photoFitSnapTolerance = 1e-9
 
     func setPhotoZoom(_ value: Double) {
-        guard !editingLocked else { return }
-        guard value.isFinite else { return }
-        zoom = min(Self.photoZoomRange.upperBound, max(Self.photoZoomRange.lowerBound, value))
+        guard !editingLocked, value.isFinite else { return }
+        let clamped = clampedPhotoZoom(value)
+        let fit = photoFitScale ?? 1
+        if fit <= 1, abs(clamped - Self.photoZoomRange.lowerBound) <= Self.photoFitSnapTolerance {
+            photoZoom = .fit
+        } else {
+            photoZoom = .magnification(clamped * fit)
+        }
+    }
+
+    /// Resizing keeps a chosen percentage, like Preview.
+    func updatePhotoFitScale(_ fit: Double) {
+        guard fit.isFinite, fit > 0, fit != photoFitScale else { return }
+        photoFitScale = fit
+        if case .magnification(let level) = photoZoom {
+            photoZoom = .magnification(clampedPhotoMagnification(level, fit: fit))
+        }
     }
 
     func zoomTimeline(by factor: Double) {
@@ -364,7 +396,7 @@ final class MediaEditorModel {
     var canSplit: Bool { values.selectedID.map(canSplitSegment) ?? false }
 
     func canSplitSegment(_ id: UUID) -> Bool {
-        guard !editingLocked, !splitting, let timeline, !values.segments.isEmpty else { return false }
+        guard !editingLocked, !splitting, !trimming, let timeline, !values.segments.isEmpty else { return false }
         let segment = timeline.segment(at: position)
         guard segment.id == id else { return false }
         let source = timeline.sourceTime(at: position)
@@ -503,11 +535,23 @@ final class MediaEditorModel {
     }
 
     func selectSegment(_ id: UUID) {
-        guard !editingLocked else { return }
+        guard !editingLocked, let segment = values.segments.first(where: { $0.id == id }) else { return }
         closeInteraction()
         values.selectedID = id
         invalidFields.removeAll()
-        if let segment = values.segments.first(where: { $0.id == id }), thumbnails(for: segment).isEmpty { refresh() }
+        if thumbnails(for: segment).isEmpty { refresh() }
+    }
+
+    func selectMusic() {
+        guard !editingLocked, values.music != nil else { return }
+        category = .video
+        musicRevealRequest = UUID()
+    }
+
+    /// The C key, like Final Cut Pro.
+    func selectSegmentAtPlayhead() {
+        guard let timeline, !values.segments.isEmpty else { return }
+        selectSegment(timeline.segment(at: position).id)
     }
 
     func beginTimelineTrim(_ id: UUID, start: Bool) {
@@ -680,7 +724,7 @@ final class MediaEditorModel {
     }
 
     func deleteSelection() {
-        guard !editingLocked, let index = values.selectedIndex else { return }
+        guard !editingLocked, !trimming, let index = values.selectedIndex else { return }
         let segment = values.segments[index]
         let start = timeline?.outputTime(for: segment.start, segmentID: segment.id) ?? 0
         let removedDuration = segment.outputDuration
@@ -694,7 +738,7 @@ final class MediaEditorModel {
     }
 
     func duplicateSelection() {
-        guard !editingLocked else { return }
+        guard !editingLocked, !trimming else { return }
         guard let index = values.selectedIndex else { return }
         change {
             var duplicate = $0.segments[index]
@@ -705,13 +749,13 @@ final class MediaEditorModel {
     }
 
     func moveSelection(_ offset: Int) {
-        guard !editingLocked else { return }
+        guard !editingLocked, !trimming else { return }
         guard let index = values.selectedIndex else { return }
         moveSegment(values.segments[index].id, to: index + offset)
     }
 
     func moveSegment(_ id: UUID, to destination: Int) {
-        guard !editingLocked else { return }
+        guard !editingLocked, !trimming else { return }
         guard let index = values.segments.firstIndex(where: { $0.id == id }),
             values.segments.indices.contains(destination),
             index != destination
@@ -809,6 +853,7 @@ final class MediaEditorModel {
 
     func reset() {
         guard !editingLocked else { return }
+        endPendingInteraction()
         change { $0 = baseline }
         restore()
         cropAspect = 0
@@ -820,6 +865,7 @@ final class MediaEditorModel {
         hoverPosition = nil
         player?.isMuted = muted
         position = min(max(0, seconds), lastPlayablePosition)
+        playheadRevealRequest = UUID()
         requestSeek()
     }
 
@@ -945,7 +991,7 @@ final class MediaEditorModel {
 
     func play() {
         if playing { pause(); return }
-        start(rate: 1)
+        start(rate: 1, reveal: false, revealOnWrap: true)
     }
 
     /// J/K/L; repeated presses double the rate.
@@ -964,19 +1010,24 @@ final class MediaEditorModel {
             stepFrame(-1)
             return
         }
-        start(rate: rate)
+        start(rate: rate, reveal: true, revealOnWrap: true)
     }
 
     private static let maximumShuttleRate: Float = 8
     private static let audibleShuttleRate: Float = 2
 
-    private func start(rate: Float) {
+    private func start(rate: Float, reveal: Bool, revealOnWrap: Bool) {
         guard canPlay, let player else { return }
         hoverPosition = nil
         player.isMuted = muted || abs(rate) > Self.audibleShuttleRate
         if !playing { requestSeek() }
-        if rate > 0, position >= lastPlayablePosition { position = 0; requestSeek() }
+        if rate > 0, position >= lastPlayablePosition {
+            position = 0
+            if revealOnWrap { playheadRevealRequest = UUID() }
+            requestSeek()
+        }
         if rate < 0, position <= 0 { return }
+        if reveal { playheadRevealRequest = UUID() }
         playing = true
         playbackRate = rate
         playbackTask?.cancel()
@@ -990,7 +1041,7 @@ final class MediaEditorModel {
     private func finishPlayback() {
         let reverse = playbackRate < 0
         pause()
-        if loops, !reverse { start(rate: 1) }
+        if loops, !reverse { start(rate: 1, reveal: false, revealOnWrap: false) }
     }
 
     func refresh() {
@@ -1009,7 +1060,7 @@ final class MediaEditorModel {
                         try await renderVideo(generation: generation)
                     } else if let photoSource {
                         let edit = original ? ImageEdit() : values.photo
-                        let maximum = activeInteraction == nil ? Int(min(4096, 1600 * zoom)) : 960
+                        let maximum = activeInteraction == nil ? photoRenderDimension : 960
                         let cropPreview = category == .crop
                         let rendered = try await photoSource.render(
                             edit, maximumDimension: maximum, cropPreview: cropPreview,

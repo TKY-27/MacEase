@@ -81,6 +81,7 @@ extension MediaEditorView {
         InspectorSection(String(localized: "Direction")) {
             Toggle("Play Backward", isOn: model.reversedBinding)
                 .disabled(!model.canToggleReverse)
+                .help(model.reverseUnavailableReason ?? "")
             Text(
                 model.reverseUnavailableReason
                     ?? String(
@@ -108,15 +109,17 @@ extension MediaEditorView {
                 .buttonStyle(.borderless)
                 .frame(width: 22)
                 EditorSlider(
-                    model: model, title: String(localized: "Volume"), value: model.values.volume, range: 0...1
+                    model: model, title: String(localized: "Volume"), value: model.values.volume, range: 0...1,
+                    spokenValue: model.values.volume.formatted(.percent.precision(.fractionLength(0)))
                 ) { volume, interaction in
                     model.change(in: interaction) { $0.volume = volume }
                 }
-                Text("\(Int((model.values.volume * 100).rounded()))%")
+                Text(model.values.volume.formatted(.percent.precision(.fractionLength(0))))
                     .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
             }
         }
         .disabled(!model.selectedHasAudio || freeze)
+        .help(model.segmentVolumeUnavailableReason ?? "")
     }
 
     private var fadeSection: some View {

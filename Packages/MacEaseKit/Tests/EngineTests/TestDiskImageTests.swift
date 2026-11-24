@@ -12,7 +12,8 @@ struct TestDiskImageTests {
 
     @Test func imageCreationLockTimesOutAndReclaimsItsDirectory() throws {
         let temporary = FileManager.default.temporaryDirectory
-        let lock = temporary.appending(path: "MacEaseTests-Engine-images.lock")
+        let lock = temporary.appending(path: "MacEaseTests-Lock-\(getpid())-\(UUID().uuidString).lock")
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: lock) } }
         let descriptor = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
         try #require(descriptor >= 0)
         defer { Darwin.close(descriptor) }
@@ -20,7 +21,9 @@ struct TestDiskImageTests {
         let before = try Set(FileManager.default.contentsOfDirectory(atPath: temporary.path))
         let acquisitionTimeout: TimeInterval = 0.05
         let started = ContinuousClock.now
-        #expect(throws: POSIXError(.ETIMEDOUT)) { _ = try TestDiskImage(lockTimeout: acquisitionTimeout) }
+        #expect(throws: POSIXError(.ETIMEDOUT)) {
+            _ = try TestDiskImage(lockTimeout: acquisitionTimeout, lockURL: lock)
+        }
         #expect(started.duration(to: .now) < .seconds(5))
         let after = try Set(FileManager.default.contentsOfDirectory(atPath: temporary.path))
         let ownerPrefix = "\(TestDiskImage.familyPrefix)\(getpid())-"

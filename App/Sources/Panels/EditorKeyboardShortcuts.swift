@@ -142,7 +142,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     return false
                 }
             case "0" where modifiers == .command && !model.isVideo && model.category != .crop:
-                model.setPhotoZoom(1)
+                model.setPhotoZoomStep(.fit)
             default: return false
             }
             return true
@@ -153,6 +153,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
             case "i" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: true)
             case "o" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: false)
             case "m": model.original.toggle()
+            case "c" where model.isVideo: model.selectSegmentAtPlayhead()
             case " " where model.isVideo: model.play()
             case "j" where model.isVideo: model.shuttle(-1)
             case "k" where model.isVideo: model.shuttle(0)
