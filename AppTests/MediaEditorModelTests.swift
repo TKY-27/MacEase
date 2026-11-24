@@ -2848,6 +2848,67 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertNotNil(model.timeline)
     }
 
+    func testSilencePopoverDeduplicatesErrorsNamesFailingJoinedSourceAndHidesInertControls() async throws {
+        let directory = try workspace()
+        let first = directory.appending(path: "first-clip.mov")
+        let second = directory.appending(path: "second-clip.mov")
+        let template = try pausedSpeechFixture(in: directory)
+        try FileManager.default.copyItem(at: template, to: first)
+        try FileManager.default.copyItem(at: template, to: second)
+
+        let model = MediaEditorModel(
+            urls: [first, second], isVideo: true, settings: Engine.Settings(),
+            staging: StagingArea(supportDirectory: directory.appending(path: "support")))
+        addTeardownBlock { await model.close() }
+        model.load()
+        try await eventually { model.ready || model.failure != nil }
+        XCTAssertNil(model.failure)
+
+        let popover = EditorSilencePopover(model: model)
+        let host = NSHostingView(rootView: popover)
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 320), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        try await eventually { window.isVisible && model.hasSilenceAnalysis && model.silenceTask == nil }
+        XCTAssertTrue(popover.showsControls)
+        XCTAssertNil(popover.problemMessage(for: Result { try model.silencePreview(model.silenceRule) }))
+
+        model.silenceLevels.removeAll()
+        model.analyzeSilence()
+        model.cancelSilenceAnalysis()
+        try await eventually { model.silenceTask == nil }
+        XCTAssertFalse(model.hasSilenceAnalysis)
+        XCTAssertFalse(popover.showsControls)
+
+        model.analyzeSilence()
+        try await eventually { model.hasSilenceAnalysis && model.silenceTask == nil }
+        XCTAssertTrue(popover.showsControls)
+
+        try Data(count: 4_096).write(to: second)
+        let previewWhileOpen = Result { try model.silencePreview(model.silenceRule) }
+        let previewProblem = try XCTUnwrap(popover.problemMessage(for: previewWhileOpen))
+        XCTAssertTrue(previewProblem.contains("second-clip.mov"), previewProblem)
+        XCTAssertFalse(previewProblem.contains("first-clip.mov"), previewProblem)
+
+        model.removeSilence(SilenceRule())
+        let applyFailure = try XCTUnwrap(model.silenceFailure)
+        XCTAssertTrue(applyFailure.contains("second-clip.mov"), applyFailure)
+        XCTAssertFalse(applyFailure.contains("first-clip.mov"), applyFailure)
+        XCTAssertEqual(popover.problemMessage(for: previewWhileOpen), applyFailure)
+
+        model.analyzeSilence()
+        let reopenFailure = try XCTUnwrap(model.silenceFailure)
+        XCTAssertTrue(reopenFailure.contains("second-clip.mov"), reopenFailure)
+        XCTAssertFalse(reopenFailure.contains("first-clip.mov"), reopenFailure)
+        XCTAssertFalse(model.hasSilenceAnalysis)
+        XCTAssertFalse(popover.showsControls)
+        XCTAssertEqual(popover.problemMessage(for: nil), reopenFailure)
+    }
+
     private func japanese(_ key: String) -> String {
         let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
         return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"
