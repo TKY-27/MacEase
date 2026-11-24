@@ -161,7 +161,7 @@ struct EditorMarkupInspector: View {
                 GridRow {
                     Text("Start").foregroundStyle(.secondary)
                     EditorNumberField(
-                        model: model, title: Text("Start"), id: "overlay-start",
+                        model: model, title: String(localized: "Start"), id: "overlay-start",
                         value: Binding(
                             get: { timed.start },
                             set: { model.setOverlayRange(timed.id, start: $0, end: timed.end) }),
@@ -171,7 +171,7 @@ struct EditorMarkupInspector: View {
                 GridRow {
                     Text("End").foregroundStyle(.secondary)
                     EditorNumberField(
-                        model: model, title: Text("End"), id: "overlay-end",
+                        model: model, title: String(localized: "End"), id: "overlay-end",
                         value: Binding(
                             get: { timed.end },
                             set: { model.setOverlayRange(timed.id, start: timed.start, end: $0) }),
@@ -266,36 +266,42 @@ private struct EditorMarkupPosition: View {
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 switch overlay.mark {
                 case .redaction(let rect, _), .box(let rect, _, _):
-                    row("Left", "left", rect.x) {
+                    row(String(localized: "Left"), "left", rect.x) {
                         rectMark(
                             EditCrop(x: min($0, 1 - rect.width), y: rect.y, width: rect.width, height: rect.height))
                     }
-                    row("Top", "top", rect.y) {
+                    row(String(localized: "Top"), "top", rect.y) {
                         rectMark(
                             EditCrop(x: rect.x, y: min($0, 1 - rect.height), width: rect.width, height: rect.height))
                     }
-                    row("Width", "width", rect.width, minimum: MediaEditorModel.minimumOverlaySide) {
+                    row(String(localized: "Width"), "width", rect.width, minimum: MediaEditorModel.minimumOverlaySide) {
                         rectMark(EditCrop(x: rect.x, y: rect.y, width: min($0, 1 - rect.x), height: rect.height))
                     }
-                    row("Height", "height", rect.height, minimum: MediaEditorModel.minimumOverlaySide) {
+                    row(
+                        String(localized: "Height"), "height", rect.height, minimum: MediaEditorModel.minimumOverlaySide
+                    ) {
                         rectMark(EditCrop(x: rect.x, y: rect.y, width: rect.width, height: min($0, 1 - rect.y)))
                     }
                 case .arrow(let from, let to, let color, let size):
-                    row("Start X", "start-x", from.x) {
+                    row(String(localized: "Start X"), "start-x", from.x) {
                         .arrow(from: EditPoint(x: $0, y: from.y), to: to, color: color, size: size)
                     }
-                    row("Start Y", "start-y", from.y) {
+                    row(String(localized: "Start Y"), "start-y", from.y) {
                         .arrow(from: EditPoint(x: from.x, y: $0), to: to, color: color, size: size)
                     }
-                    row("End X", "end-x", to.x) {
+                    row(String(localized: "End X"), "end-x", to.x) {
                         .arrow(from: from, to: EditPoint(x: $0, y: to.y), color: color, size: size)
                     }
-                    row("End Y", "end-y", to.y) {
+                    row(String(localized: "End Y"), "end-y", to.y) {
                         .arrow(from: from, to: EditPoint(x: to.x, y: $0), color: color, size: size)
                     }
                 case .text(let text, let at, let color, let size):
-                    row("X", "x", at.x) { .text(text, at: EditPoint(x: $0, y: at.y), color: color, size: size) }
-                    row("Y", "y", at.y) { .text(text, at: EditPoint(x: at.x, y: $0), color: color, size: size) }
+                    row(String(localized: "X"), "x", at.x) {
+                        .text(text, at: EditPoint(x: $0, y: at.y), color: color, size: size)
+                    }
+                    row(String(localized: "Y"), "y", at.y) {
+                        .text(text, at: EditPoint(x: at.x, y: $0), color: color, size: size)
+                    }
                 }
             }
             if !model.values.photo.geometry.isIdentity {
@@ -316,13 +322,13 @@ private struct EditorMarkupPosition: View {
     }
 
     private func row(
-        _ title: LocalizedStringKey, _ key: String, _ value: Double, minimum: Double = 0,
+        _ title: String, _ key: String, _ value: Double, minimum: Double = 0,
         mark: @escaping (Double) -> EditMark
     ) -> some View {
         GridRow {
             Text(title).foregroundStyle(.secondary)
             EditorNumberField(
-                model: model, title: Text(title), id: "overlay-\(key)",
+                model: model, title: title, id: "overlay-\(key)",
                 value: Binding(
                     get: { value * 100 },
                     set: { model.updateOverlay(overlay.id, mark($0 / 100)) }),

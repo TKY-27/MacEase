@@ -417,6 +417,44 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertFalse(model.canUndo)
     }
 
+    func testFastFrameSnappingAndBlurKeepDraftAndSingleUndo() async throws {
+        let model = try await videoModel()
+        model.setVideoBoundary(0, start: true)
+        await model.finishBoundaryInput()
+        let host = NSHostingView(
+            rootView: MediaEditorView(
+                model: model, close: {}, save: { _, _ in Task { nil } }, progress: { _ in nil }))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1_280, height: 720), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await eventually { self.textFields(in: host).contains { $0.isEditable && $0.stringValue == "0:00.000" } }
+        let field = try XCTUnwrap(textFields(in: host).first { $0.isEditable && $0.stringValue == "0:00.000" })
+        XCTAssertGreaterThan(field.frame.width, 50)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        field.selectText(nil)
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.insertText("0.1", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values.start, 2.0 / 24, accuracy: 0.000_001)
+        XCTAssertEqual(editor.string, "0.1")
+        editor.insertText("0.16", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        try await eventually { field.stringValue == "0:00.167" && !model.hasPendingBoundaryInput }
+        XCTAssertEqual(model.values.start, 4.0 / 24, accuracy: 0.000_001)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values.start, 4.0 / 24, accuracy: 0.000_001)
+        model.undo()
+        XCTAssertEqual(model.values.start, 0)
+        XCTAssertFalse(model.canUndo)
+        try await eventually { field.stringValue == "0:00.000" }
+    }
+
     func testNaturalVideoPlaybackEndRestoresPausedSkimming() async throws {
         let model = try await videoModel()
         model.seek(1.8)

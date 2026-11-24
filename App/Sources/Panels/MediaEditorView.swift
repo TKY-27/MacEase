@@ -478,10 +478,10 @@ struct MediaEditorView: View {
             }
             DisclosureGroup("Exact Selection (%)") {
                 VStack(spacing: 8) {
-                    cropField("Left", keyPath: \.x)
-                    cropField("Top", keyPath: \.y)
-                    cropField("Width", keyPath: \.width)
-                    cropField("Height", keyPath: \.height)
+                    cropField(String(localized: "Left"), keyPath: \.x)
+                    cropField(String(localized: "Top"), keyPath: \.y)
+                    cropField(String(localized: "Width"), keyPath: \.width)
+                    cropField(String(localized: "Height"), keyPath: \.height)
                 }
                 .padding(.top, 6)
             }
@@ -492,10 +492,10 @@ struct MediaEditorView: View {
         }
     }
 
-    private func cropField(_ title: LocalizedStringKey, keyPath: WritableKeyPath<EditCrop, Double>) -> some View {
+    private func cropField(_ title: String, keyPath: WritableKeyPath<EditCrop, Double>) -> some View {
         LabeledContent(title) {
             EditorNumberField(
-                model: model, title: Text(title), id: "crop-\(keyPath)",
+                model: model, title: title, id: "crop-\(keyPath)",
                 value: Binding(
                     get: { model.values.photo.geometry.crop[keyPath: keyPath] * 100 },
                     set: { model.setCropPercentage($0, keyPath: keyPath) }), range: 0...100, precision: 1
@@ -511,7 +511,7 @@ struct MediaEditorView: View {
                     GridRow {
                         Text("Start").foregroundStyle(.secondary)
                         EditorNumberField(
-                            model: model, title: Text("Start"), id: "start",
+                            model: model, title: String(localized: "Start"), id: "start",
                             value: model.videoBoundaryBinding(start: true),
                             range: 0...max(0, model.values.end - model.sourceFrameDuration),
                             precision: Self.timecodeDigits, timecode: true
@@ -520,7 +520,7 @@ struct MediaEditorView: View {
                     GridRow {
                         Text("End").foregroundStyle(.secondary)
                         EditorNumberField(
-                            model: model, title: Text("End"), id: "end",
+                            model: model, title: String(localized: "End"), id: "end",
                             value: model.videoBoundaryBinding(start: false),
                             range: min(
                                 model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
@@ -558,7 +558,7 @@ struct MediaEditorView: View {
                     Text("Custom").foregroundStyle(.secondary)
                     Spacer()
                     EditorNumberField(
-                        model: model, title: Text("Custom speed"), id: "speed",
+                        model: model, title: String(localized: "Custom speed"), id: "speed",
                         value: model.binding(\.speed), range: VideoEdit.speedRange, precision: 2
                     ).frame(width: 58)
                     Text(verbatim: "×").foregroundStyle(.secondary).accessibilityHidden(true)
@@ -741,17 +741,39 @@ private struct LabeledSlider: View {
 
 struct EditorNumberField: View {
     @Bindable var model: MediaEditorModel
-    let title: Text
+    let title: String
     let id: String
     @Binding var value: Double
     let range: ClosedRange<Double>
     let precision: Int
     var timecode = false
-    @State private var draft = ""
-    @FocusState private var focused: Bool
 
-    private var parsed: Double? {
-        let normalized = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    var body: some View {
+        EditorNumberControl(
+            model: model, title: title, id: id, current: value, value: $value,
+            range: range, precision: precision, timecode: timecode)
+    }
+}
+
+// AppKit delegate avoids delayed SwiftUI FocusState updates.
+private struct EditorNumberControl: NSViewRepresentable {
+    let model: MediaEditorModel
+    let title: String
+    let id: String
+    let current: Double
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let precision: Int
+    let timecode: Bool
+
+    var formattedValue: String {
+        timecode
+            ? Timecode.string(value, fractionDigits: precision)
+            : value.formatted(.number.grouping(.never).precision(.fractionLength(precision)))
+    }
+
+    func parse(_ text: String) -> Double? {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: Locale.current.decimalSeparator ?? ".", with: ".")
         guard let amount = timecode ? TimecodeField.parse(normalized) : Double(normalized), amount.isFinite,
             range.contains(amount)
@@ -759,49 +781,142 @@ struct EditorNumberField: View {
         return amount
     }
 
-    private func synchronize() {
-        draft =
-            timecode
-            ? Timecode.string(value, fractionDigits: precision)
-            : value.formatted(.number.grouping(.never).precision(.fractionLength(precision)))
-        model.invalidFields.remove(id)
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        let controlSize = Self.controlSize(context.environment.controlSize)
+        field.isEditable = true
+        field.isSelectable = true
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.alignment = .right
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.cell?.isScrollable = true
+        field.controlSize = controlSize
+        field.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: controlSize), weight: .regular)
+        field.isEnabled = context.environment.isEnabled
+        field.setAccessibilityLabel(title)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.required, for: .vertical)
+        field.setContentCompressionResistancePriority(.required, for: .vertical)
+        field.stringValue = formattedValue
+        field.delegate = context.coordinator
+        return field
     }
 
-    var body: some View {
-        TextField(
-            text: Binding(
-                get: { draft },
-                set: { entered in
-                    draft = entered
-                    if let amount = parsed {
-                        model.invalidFields.remove(id)
-                        if amount != value { value = amount }
-                    } else {
-                        model.invalidFields.insert(id)
-                    }
-                })
-        ) { title }.labelsHidden().textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing).monospacedDigit().focused($focused)
-            .onAppear { synchronize() }
-            .onDisappear {
-                model.invalidFields.remove(id); if focused { model.endInteraction() }
+    func updateNSView(_ view: NSTextField, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.parent = self
+        let controlSize = Self.controlSize(context.environment.controlSize)
+        if view.controlSize != controlSize {
+            view.controlSize = controlSize
+            view.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize(for: controlSize), weight: .regular)
+        }
+        if view.isEnabled != context.environment.isEnabled { view.isEnabled = context.environment.isEnabled }
+        if view.accessibilityLabel() != title { view.setAccessibilityLabel(title) }
+        guard !coordinator.editing, view.currentEditor() == nil else { return }
+        let formatted = formattedValue
+        if view.stringValue != formatted { view.stringValue = formatted }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+        let fitting = nsView.fittingSize
+        let width = proposal.width ?? max(Self.minimumIdealWidth, fitting.width)
+        return CGSize(width: width, height: fitting.height)
+    }
+
+    static func dismantleNSView(_ view: NSTextField, coordinator: Coordinator) {
+        view.delegate = nil
+        coordinator.teardown()
+    }
+
+    private static let minimumIdealWidth: CGFloat = 52
+
+    private static func controlSize(_ size: ControlSize) -> NSControl.ControlSize {
+        switch size {
+        case .mini: .mini
+        case .small: .small
+        case .regular: .regular
+        case .large: .large
+        case .extraLarge: .extraLarge
+        @unknown default: .regular
+        }
+    }
+
+    @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: EditorNumberControl
+        var editing = false
+        private var session = 0
+
+        init(parent: EditorNumberControl) { self.parent = parent }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { beginEditing() }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            beginEditing()
+            if let amount = parent.parse(field.stringValue) {
+                parent.model.invalidFields.remove(parent.id)
+                if amount != parent.value { parent.value = amount }
+            } else {
+                parent.model.invalidFields.insert(parent.id)
             }
-            .onChange(of: value) { _, _ in
-                if !focused, parsed != value { synchronize() }
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard editing else { return }
+            let field = notification.object as? NSTextField
+            let session = self.session
+            guard parent.model.hasPendingBoundaryInput else {
+                finishEditing(field)
+                return
             }
-            .onChange(of: focused) { _, focused in
-                if focused {
-                    model.beginInteraction()
-                } else {
-                    Task { @MainActor in
-                        await model.finishBoundaryInput()
-                        guard !self.focused else { return }
-                        synchronize()
-                        model.endInteraction()
-                    }
-                }
+            Task { @MainActor [weak self, weak field] in
+                guard let self else { return }
+                await self.parent.model.finishBoundaryInput()
+                guard self.session == session, field?.currentEditor() == nil else { return }
+                self.finishEditing(field)
             }
-            .onSubmit { focused = false }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            control.window?.makeFirstResponder(nil)
+            return true
+        }
+
+        func teardown() {
+            let model = parent.model
+            let id = parent.id
+            let wasEditing = editing
+            editing = false
+            session += 1
+            guard wasEditing || model.invalidFields.contains(id) else { return }
+            Task { @MainActor in
+                model.invalidFields.remove(id)
+                if wasEditing { model.endInteraction() }
+            }
+        }
+
+        private func beginEditing() {
+            guard !editing else { return }
+            editing = true
+            session += 1
+            parent.model.beginInteraction()
+        }
+
+        private func finishEditing(_ field: NSTextField?) {
+            editing = false
+            if let field {
+                let formatted = parent.formattedValue
+                if field.stringValue != formatted { field.stringValue = formatted }
+            }
+            parent.model.invalidFields.remove(parent.id)
+            parent.model.endInteraction()
+        }
     }
 }
 
@@ -877,7 +992,7 @@ private struct EditorAdjustmentRow: View {
                 .disabled(value.wrappedValue == 0)
                 .accessibilityLabel(Text("Reset \(adjustment.editorTitle)"))
                 EditorNumberField(
-                    model: model, title: Text(adjustment.editorTitle), id: adjustment.rawValue,
+                    model: model, title: adjustment.editorTitle, id: adjustment.rawValue,
                     value: value, range: adjustment.range, precision: 2
                 )
                 .controlSize(.small)

@@ -507,3 +507,153 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(!RequestToken.matches("", token))
     }
 }
+
+@Suite struct MenuFileIntegrityTests {
+    private func tampered(_ change: (inout [String: Any]) throws -> Void) throws -> Data {
+        var encoded = try #require(JSONSerialization.jsonObject(with: menuFile().encoded()) as? [String: Any])
+        try change(&encoded)
+        return try JSONSerialization.data(withJSONObject: encoded)
+    }
+
+    @Test func untouchedFilesLoad() throws {
+        #expect(try MenuFile(json: try tampered { _ in }) == menuFile())
+    }
+
+    @Test func reorderedEntriesUnderTheOldVersionAreRejected() throws {
+        let json = try tampered { encoded in
+            var entries = try #require(encoded["entries"] as? [Any])
+            entries.swapAt(0, 1)
+            encoded["entries"] = entries
+        }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: json) }
+    }
+
+    @Test func editedTitlesAndCommandsUnderTheOldVersionAreRejected() throws {
+        let retitled = try tampered { $0["moreTitle"] = "Other" }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: retitled) }
+        let commandless = try tampered { $0["commands"] = [] }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: commandless) }
+    }
+
+    @Test func titlesCannotForgeEntryBoundaries() throws {
+        let file = menuFile()
+        let swallowed = file.entries[1]
+        let forged = try tampered { encoded in
+            var entries = try #require(encoded["entries"] as? [[String: Any]])
+            var path = try #require(entries[0]["path"] as? [String])
+            path[path.count - 1] += "\u{1E}" + separatorJoined(swallowed)
+            entries[0]["path"] = path
+            entries.remove(at: 1)
+            encoded["entries"] = entries
+        }
+        #expect(throws: MenuFileError.catalogMismatch) { try MenuFile(json: forged) }
+    }
+
+    @Test func separatorCharactersAndAbsentFieldsStayDistinct() {
+        func entry(_ preset: String?, _ path: [String], group: String? = nil) -> MenuEntry {
+            MenuEntry(op: .imageRotate, preset: preset, path: path, groupID: group)
+        }
+        let command = MenuCommandItem(group: MenuGroupID(.update), title: "Update", placement: .primary)
+        let versions = [
+            MenuFile.version(of: [entry("90", ["Rotate", "90"])]),
+            MenuFile.version(of: [entry("90", ["Rotate\u{1F}90"])]),
+            MenuFile.version(of: [entry("90", ["Rotate", "90"]), entry("90", ["Rotate", "90"])]),
+            MenuFile.version(of: [entry("90", ["Rotate", "90\u{1E}imageRotate"])]),
+            MenuFile.version(of: [entry(nil, ["Rotate"])]),
+            MenuFile.version(of: [entry("", ["Rotate"])]),
+            MenuFile.version(of: [entry(nil, ["Rotate"], group: "")]),
+            MenuFile.version(of: [], moreTitle: "More"),
+            MenuFile.version(of: [], moreTitle: ""),
+            MenuFile.version(of: []),
+            MenuFile.version(of: [], commands: [command]),
+            MenuFile.version(of: [], moreTitle: "\u{1E}command\u{1F}update\u{1F}Update\u{1F}primary"),
+            MenuFile.version(of: [], moreTitle: "\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}\u{0}"),
+        ]
+        #expect(Set(versions).count == versions.count)
+    }
+
+    /// The pre-fix encoding, to replay its collision.
+    private func separatorJoined(_ entry: MenuEntry) -> String {
+        let fields: [String] = [
+            entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue, entry.groupID ?? "",
+            entry.placement.rawValue, String(entry.separatorBefore), String(entry.operationSeparatorBefore),
+            entry.targetBytes.map { String($0) } ?? "", entry.resizeValue.map { String($0) } ?? "",
+            entry.parameterVersion ?? "", String(entry.minimumSelection),
+            entry.maximumSelection.map { String($0) } ?? "",
+            entry.sourceFormats.map { $0.sorted().joined(separator: ",") } ?? "",
+            entry.targetFormat ?? "", String(entry.requiresSingleSourceFormat),
+            entry.rotationDegrees.map { String($0) } ?? "", entry.frameRate.map { String($0) } ?? "",
+            entry.targetLoudness.map { String($0) } ?? "", entry.recipeID?.uuidString ?? "",
+            entry.recipeRevision ?? "",
+            entry.acceptedKinds.map { $0.map(\.rawValue).sorted().joined(separator: ",") } ?? "",
+        ]
+        return (fields + entry.path).joined(separator: "\u{1F}")
+    }
+}
+
+@Suite struct MenuBuildsTests {
+    private let shown = menuFile()
+    private let rewritten: MenuFile = {
+        var arrangement = MenuArrangement()
+        var image = arrangement.resolved(.image)
+        image.move([MenuGroupID(rawValue: "image.convert")], to: .more)
+        arrangement.set(image)
+        return MenuFile(
+            token: "rotated", hostAvailable: true, visibleOperations: OperationID.allCases, titles: titles,
+            arrangement: arrangement)
+    }()
+
+    @Test func clicksSendTheVersionTheirMenuWasBuiltFrom() throws {
+        #expect(shown.catalogVersion != rewritten.catalogVersion)
+        var builds = MenuBuilds()
+        let openStart = builds.record(shown)
+        let open = try #require(openStart) + 3
+        let laterStart = builds.record(rewritten)
+        let later = try #require(laterStart) + 3
+        #expect(
+            builds.request(tag: open, paths: ["/a.png"])
+                == RunRequest(
+                    catalogVersion: shown.catalogVersion, entryIndex: 3, token: shown.token, paths: ["/a.png"]))
+        #expect(
+            builds.request(tag: later, paths: ["/a.png"])
+                == RunRequest(
+                    catalogVersion: rewritten.catalogVersion, entryIndex: 3, token: "rotated", paths: ["/a.png"]))
+    }
+
+    @Test func evictedTagsNeverResolveToLaterBuilds() throws {
+        var builds = MenuBuilds()
+        let oldestStart = builds.record(shown)
+        let oldest = try #require(oldestStart) + 7
+        for _ in 0..<MenuBuilds.retainedCount {
+            #expect(builds.request(tag: oldest, paths: ["/a"])?.catalogVersion == shown.catalogVersion)
+            _ = builds.record(rewritten)
+        }
+        // Old IDs wrapped after 2,048 menus.
+        for _ in 0..<5_000 {
+            #expect(builds.request(tag: oldest, paths: ["/a"]) == nil)
+            _ = builds.record(rewritten)
+        }
+        #expect(builds.request(tag: -1, paths: ["/a"]) == nil)
+    }
+
+    @Test func restartedExtensionsIgnoreEarlierTags() throws {
+        var before = MenuBuilds()
+        var after = MenuBuilds()
+        let staleStart = before.record(shown)
+        let stale = try #require(staleStart) + 2
+        #expect(after.record(rewritten) != nil)
+        #expect(after.request(tag: stale, paths: ["/a"]) == nil)
+    }
+
+    @Test func tagsStayWithin31BitsAndRunOutRatherThanWrap() throws {
+        let last = MenuBuilds.tagLimit - shown.entries.count
+        var builds = MenuBuilds(firstTag: last)
+        let recorded = builds.record(shown)
+        let firstTag = try #require(recorded)
+        let lastTag = firstTag + shown.entries.count - 1
+        #expect(lastTag < Int(Int32.max))
+        #expect(builds.request(tag: lastTag, paths: ["/a"])?.entryIndex == shown.entries.count - 1)
+        #expect(builds.record(shown) == nil)
+        #expect(builds.request(tag: lastTag, paths: ["/a"])?.catalogVersion == shown.catalogVersion)
+    }
+}

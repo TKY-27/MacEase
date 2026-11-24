@@ -264,6 +264,26 @@ private func id(_ name: String) -> MenuGroupID {
         #expect(scope[.more] == ids("c", "d"))
     }
 
+    @Test func selectedGroupsStepTogetherAndStopAtTheEnds() {
+        var scope = catalog.defaultArrangement(.image)
+        scope.moveUp(ids("c", "a"))
+        #expect(scope[.menu] == ids("a", "b", "c"))
+        #expect(scope[.more] == ids("d"))
+        scope.moveUp(ids("a", "c"))
+        #expect(scope[.menu] == ids("a", "c", "b"))
+        scope.moveDown(ids("b", "d"))
+        #expect(scope[.more] == ids("b"))
+        #expect(scope[.hidden] == ids("d"))
+        scope.moveDown(ids("b", "d"))
+        #expect(scope[.more].isEmpty)
+        #expect(scope[.hidden] == ids("b", "d"))
+        scope.moveDown(ids("b", "d"))
+        #expect(scope[.hidden] == ids("b", "d"))
+        scope.moveUp(ids("b", "d"))
+        #expect(scope[.more] == ids("b", "d"))
+        #expect(scope[.hidden].isEmpty)
+    }
+
     @Test func moveToSectionAndShowUseExplicitPositions() {
         var scope = catalog.defaultArrangement(.commands)
         scope.move(ids("z", "x"), to: .menu, at: 0)

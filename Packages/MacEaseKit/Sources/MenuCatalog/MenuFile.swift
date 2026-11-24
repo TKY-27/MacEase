@@ -148,31 +148,29 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public static func version(
         of entries: [MenuEntry], moreTitle: String? = nil, commands: [MenuCommandItem] = []
     ) -> String {
-        let unitSeparator = "\u{1F}"
-        let canonical = entries.map { entry in
-            let constraints: [String] = [
-                entry.groupID ?? "", entry.placement.rawValue,
-                String(entry.separatorBefore), String(entry.operationSeparatorBefore),
-                entry.targetBytes.map { String($0) } ?? "", entry.resizeValue.map { String($0) } ?? "",
-                entry.parameterVersion ?? "",
-                String(entry.minimumSelection),
-                entry.maximumSelection.map { String($0) } ?? "",
-                entry.sourceFormats.map { $0.sorted().joined(separator: ",") } ?? "",
-                entry.targetFormat ?? "", String(entry.requiresSingleSourceFormat),
-                entry.rotationDegrees.map { String($0) } ?? "",
-                entry.frameRate.map { String($0) } ?? "", entry.targetLoudness.map { String($0) } ?? "",
-                entry.recipeID?.uuidString ?? "", entry.recipeRevision ?? "",
-                entry.acceptedKinds.map { $0.map(\.rawValue).sorted().joined(separator: ",") } ?? "",
-            ]
-            return ([entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue] + constraints + entry.path)
-                .joined(separator: unitSeparator)
-        }.joined(separator: "\u{1E}")
-        let localized = moreTitle.map { canonical + "\u{1E}" + $0 } ?? canonical
-        let withCommands = commands.reduce(localized) { hashed, item in
-            hashed + "\u{1E}command\u{1F}"
-                + [item.group.rawValue, item.title, item.placement.rawValue].joined(separator: unitSeparator)
+        var hash = CanonicalHash()
+        hash.add(count: entries.count)
+        for entry in entries {
+            hash.add(entry.op.rawValue, entry.preset, entry.kind.rawValue)
+            hash.add(list: entry.path)
+            hash.add(String(entry.separatorBefore), String(entry.operationSeparatorBefore))
+            hash.add(entry.targetBytes.map { String($0) }, entry.resizeValue.map { String($0) })
+            hash.add(entry.parameterVersion, String(entry.minimumSelection))
+            hash.add(entry.maximumSelection.map { String($0) })
+            hash.add(list: entry.sourceFormats?.sorted())
+            hash.add(entry.targetFormat, String(entry.requiresSingleSourceFormat))
+            hash.add(entry.rotationDegrees.map { String($0) }, entry.frameRate.map { String($0) })
+            hash.add(entry.targetLoudness.map { String($0) })
+            hash.add(entry.recipeID?.uuidString, entry.recipeRevision)
+            hash.add(list: entry.acceptedKinds?.map(\.rawValue).sorted())
+            hash.add(entry.groupID, entry.placement.rawValue)
         }
-        return SHA256.hash(data: Data(withCommands.utf8)).hexEncoded
+        hash.add(moreTitle)
+        hash.add(count: commands.count)
+        for item in commands {
+            hash.add(item.group.rawValue, item.title, item.placement.rawValue)
+        }
+        return hash.finalized
     }
 
     public func kindTitle(_ kind: FileKind) -> String {
@@ -189,7 +187,11 @@ public struct MenuFile: Codable, Equatable, Sendable {
         let decoder = JSONDecoder()
         let schema = try decoder.decode(MenuSchema.self, from: json).schema
         guard schema == Self.currentSchema else { throw MenuFileError.unsupportedSchema(schema) }
-        self = try decoder.decode(MenuFile.self, from: json)
+        let file = try decoder.decode(MenuFile.self, from: json)
+        // Mismatched indices would run another operation.
+        guard file.catalogVersion == Self.version(of: file.entries, moreTitle: file.moreTitle, commands: file.commands)
+        else { throw MenuFileError.catalogMismatch }
+        self = file
     }
 }
 
@@ -215,8 +217,40 @@ public struct MenuTitles: Sendable {
     }
 }
 
+/// Length-prefixed, so titles cannot forge field boundaries.
+private struct CanonicalHash {
+    private static let absent = -1
+
+    private var sha = SHA256()
+
+    mutating func add(_ fields: String?...) {
+        for field in fields {
+            guard let field else {
+                add(count: Self.absent)
+                continue
+            }
+            let bytes = Data(field.utf8)
+            add(count: bytes.count)
+            sha.update(data: bytes)
+        }
+    }
+
+    mutating func add(list: [String]?) {
+        guard let list else { return add(count: Self.absent) }
+        add(count: list.count)
+        for field in list { add(field) }
+    }
+
+    mutating func add(count: Int) {
+        withUnsafeBytes(of: Int64(count).bigEndian) { sha.update(bufferPointer: $0) }
+    }
+
+    var finalized: String { sha.finalize().hexEncoded }
+}
+
 public enum MenuFileError: Error, Equatable, Sendable {
     case unsupportedSchema(Int)
+    case catalogMismatch
 }
 
 private struct MenuSchema: Decodable {

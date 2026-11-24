@@ -488,7 +488,11 @@ final class MediaEditorModel {
         }
     }
 
-    func finishBoundaryInput() async { await boundaryInputTask?.value }
+    var hasPendingBoundaryInput: Bool { boundaryInputTask != nil }
+
+    func finishBoundaryInput() async {
+        while let task = boundaryInputTask { await task.value }
+    }
 
     func endTimelineTrim() async {
         await trimTask?.value
