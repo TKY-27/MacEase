@@ -941,3 +941,15 @@ panel directly above that window in the on-screen order.
 
 Visual seams, full screen, Spaces, Finder tabs and keyboard focus inside the
 panel were not observed in this run.
+
+## Freeze-frame composition scaling (2026-11-24)
+
+Environment: macOS 27, Apple Silicon, Swift 6.4. Verified with a 30 fps H.264/AAC
+MOV fixture with distinct per-frame colors through `VideoEditorPlayback`,
+`AVAssetImageGenerator`, and `AVPlayer` with `AVPlayerItemVideoOutput`.
+
+| Question | Result |
+| --- | --- |
+| Does `insertTimeRange` + `scaleTimeRange` hold a single frame in `AVPlayer`? | Yes, for both 2 s and 30 s freezes, including transitions from normal segments before and after the freeze. |
+| What happens when `start..<end` spans one frame duration from a non-frame-aligned `start`? | `insertTimeRange` captures both the frame covering `start` and the following frame, so `scaleTimeRange` flips to the next frame partway through the freeze. Inserting a 1-nanosecond slice at `start` (`min(1 ns, end - start)`) and scaling it to `freezeDuration` isolates strictly the single frame covering `start`. |
+| Does `AVVideoComposition(applyingFiltersTo:)` animate fades during `AVPlayer.play()` over a scaled freeze? | Not with defaults: `filtered.frameDuration` reflects the scaled sample duration and `sourceTrackIDForFrameTiming` tracks the single video sample, freezing filter output across playback. Setting `frameDuration = 1/30 s` and `sourceTrackIDForFrameTiming = kCMPersistentTrackID_Invalid` when the timeline contains a freeze segment makes real playback animate fades identically to export. |

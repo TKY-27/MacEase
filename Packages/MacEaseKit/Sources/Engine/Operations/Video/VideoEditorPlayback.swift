@@ -5,6 +5,8 @@ import Foundation
 
 // Immutable snapshots cross the actor boundary.
 public struct VideoEditorPlayback: @unchecked Sendable {
+    private static let freezePreviewFrameRate: CMTimeScale = 30
+
     public let asset: AVAsset
     public let videoComposition: AVVideoComposition?
     public let audioMix: AVAudioMix?
@@ -66,37 +68,50 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             }
             let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
             let audioRange = try await sourceAudio?.load(.timeRange)
-            let sourceRange = CMTimeRange(start: time(segment.start), end: time(segment.end))
+            let sourceRange: CMTimeRange
+            if segment.freezeDuration != nil {
+                // One tick isolates a single source frame.
+                let tick = CMTime(value: 1, timescale: SampleBuffers.nanosecondScale)
+                let sliceDuration = CMTimeMinimum(tick, time(segment.end) - time(segment.start))
+                sourceRange = CMTimeRange(start: time(segment.start), duration: sliceDuration)
+            } else {
+                sourceRange = CMTimeRange(start: time(segment.start), end: time(segment.end))
+            }
             let outputStart = time(timeline.outputStart(at: index))
             let outputDuration = time(timeline.outputEnd(at: index)) - outputStart
             let insertedRange = CMTimeRange(start: outputStart, duration: sourceRange.duration)
             try video.insertTimeRange(sourceRange, of: sourceVideo, at: outputStart)
             video.scaleTimeRange(insertedRange, toDuration: outputDuration)
             if let audio {
-                audio.insertEmptyTimeRange(insertedRange)
-                if let sourceAudio, let audioRange {
-                    let intersection = CMTimeRangeGetIntersection(sourceRange, otherRange: audioRange)
-                    if intersection.isValid, intersection.duration > .zero {
-                        let start = outputStart + intersection.start - sourceRange.start
-                        audio.removeTimeRange(CMTimeRange(start: start, duration: intersection.duration))
-                        try audio.insertTimeRange(intersection, of: sourceAudio, at: start)
-                    }
-                }
-                audio.scaleTimeRange(insertedRange, toDuration: outputDuration)
-                let fade = timeline.fade(at: index)
-                let volume = Float(segment.volume)
-                if fade.fadeIn > 0 {
-                    parameters?.setVolumeRamp(
-                        fromStartVolume: 0, toEndVolume: volume,
-                        timeRange: CMTimeRange(start: outputStart, duration: time(fade.fadeIn)))
+                if segment.freezeDuration != nil {
+                    audio.insertEmptyTimeRange(CMTimeRange(start: outputStart, duration: outputDuration))
+                    parameters?.setVolume(0, at: outputStart)
                 } else {
-                    parameters?.setVolume(volume, at: outputStart)
-                }
-                if fade.fadeOut > 0 {
-                    parameters?.setVolumeRamp(
-                        fromStartVolume: volume, toEndVolume: 0,
-                        timeRange: CMTimeRange(
-                            start: outputStart + outputDuration - time(fade.fadeOut), duration: time(fade.fadeOut)))
+                    audio.insertEmptyTimeRange(insertedRange)
+                    if let sourceAudio, let audioRange {
+                        let intersection = CMTimeRangeGetIntersection(sourceRange, otherRange: audioRange)
+                        if intersection.isValid, intersection.duration > .zero {
+                            let start = outputStart + intersection.start - sourceRange.start
+                            audio.removeTimeRange(CMTimeRange(start: start, duration: intersection.duration))
+                            try audio.insertTimeRange(intersection, of: sourceAudio, at: start)
+                        }
+                    }
+                    audio.scaleTimeRange(insertedRange, toDuration: outputDuration)
+                    let fade = timeline.fade(at: index)
+                    let volume = Float(segment.volume)
+                    if fade.fadeIn > 0 {
+                        parameters?.setVolumeRamp(
+                            fromStartVolume: 0, toEndVolume: volume,
+                            timeRange: CMTimeRange(start: outputStart, duration: time(fade.fadeIn)))
+                    } else {
+                        parameters?.setVolume(volume, at: outputStart)
+                    }
+                    if fade.fadeOut > 0 {
+                        parameters?.setVolumeRamp(
+                            fromStartVolume: volume, toEndVolume: 0,
+                            timeRange: CMTimeRange(
+                                start: outputStart + outputDuration - time(fade.fadeOut), duration: time(fade.fadeOut)))
+                    }
                 }
             }
         }
@@ -182,14 +197,19 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             return AVCIImageFilteringResult(
                 resultImage: CIImage(cgImage: rendered, options: [.colorSpace: NSNull()]), ciContext: presentation)
         }
+        // Scaled freeze samples otherwise pause fades.
+        let hasFreeze = timeline.segments.contains(where: \.isFreeze)
+        let frameDuration =
+            hasFreeze ? CMTime(value: 1, timescale: Self.freezePreviewFrameRate) : filtered.frameDuration
         var configuration = AVVideoComposition.Configuration(
             colorPrimaries: filtered.colorPrimaries,
             colorTransferFunction: filtered.colorTransferFunction,
             colorYCbCrMatrix: filtered.colorYCbCrMatrix,
             customVideoCompositorClass: filtered.customVideoCompositorClass,
-            frameDuration: filtered.frameDuration, instructions: filtered.instructions,
+            frameDuration: frameDuration, instructions: filtered.instructions,
             renderSize: CGSize(width: size.width, height: size.height))
-        configuration.sourceTrackIDForFrameTiming = filtered.sourceTrackIDForFrameTiming
+        configuration.sourceTrackIDForFrameTiming =
+            hasFreeze ? kCMPersistentTrackID_Invalid : filtered.sourceTrackIDForFrameTiming
         return AVVideoComposition(configuration: configuration)
     }
 

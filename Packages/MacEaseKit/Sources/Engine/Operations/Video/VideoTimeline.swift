@@ -14,6 +14,8 @@ public struct VideoEditSource: Codable, Hashable, Sendable {
 }
 
 public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
+    public static let freezeDurationRange = 0.1...30.0
+
     public var id: UUID
     public var sourceIndex: Int
     public var start: Double
@@ -24,10 +26,18 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     /// Output seconds.
     public var fadeIn = 0.0
     public var fadeOut = 0.0
+    public var freezeDuration: Double?
+
+    public var isFreeze: Bool { freezeDuration != nil }
+
+    public var outputDuration: Double {
+        freezeDuration ?? (end - start) / speed
+    }
 
     public init(
         id: UUID = UUID(), start: Double, end: Double, speed: Double = 1,
-        volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments(), sourceIndex: Int = 0
+        volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments(), sourceIndex: Int = 0,
+        freezeDuration: Double? = nil
     ) {
         self.id = id
         self.sourceIndex = sourceIndex
@@ -36,9 +46,10 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         self.speed = speed
         self.volume = volume
         self.adjustments = adjustments
+        self.freezeDuration = freezeDuration
     }
     private enum CodingKeys: String, CodingKey {
-        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut
+        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut, freezeDuration
     }
 
     public init(from decoder: Decoder) throws {
@@ -52,6 +63,7 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         adjustments = try values.decode(MediaAdjustments.self, forKey: .adjustments)
         fadeIn = try values.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
         fadeOut = try values.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
+        freezeDuration = try values.decodeIfPresent(Double.self, forKey: .freezeDuration)
     }
 }
 
@@ -96,11 +108,16 @@ public struct VideoTimeline: Hashable, Sendable {
             else { throw EngineError.invalidInput(.invalidNumericParameter) }
             try segment.adjustments.validate()
             try FadeRamp.validate(fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
+            if let freezeDuration = segment.freezeDuration {
+                guard freezeDuration.isFinite, VideoSegment.freezeDurationRange.contains(freezeDuration),
+                    segment.speed == 1, segment.volume == 0
+                else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            }
             let start = try Nanoseconds.from(seconds: segment.start)
             let end = try Nanoseconds.from(seconds: segment.end)
             guard end > start else { throw EngineError.invalidInput(.invalidNumericParameter) }
             starts.append(duration)
-            duration += (segment.end - segment.start) / segment.speed
+            duration += segment.outputDuration
         }
         guard try Nanoseconds.from(seconds: duration) > 0 else {
             throw EngineError.invalidInput(.invalidNumericParameter)
@@ -138,11 +155,19 @@ public struct VideoTimeline: Hashable, Sendable {
         var ranges: [ClosedRange<Double>] = []
         for (index, segment) in segments.enumerated() {
             guard segment.sourceIndex == overlay.sourceIndex else { continue }
-            let lower = max(segment.start, overlay.start)
-            let upper = min(segment.end, overlay.end)
-            guard lower < upper else { continue }
-            let outStart = starts[index] + (lower - segment.start) / segment.speed
-            let outEnd = starts[index] + (upper - segment.start) / segment.speed
+            let outStart: Double
+            let outEnd: Double
+            if segment.freezeDuration != nil {
+                guard segment.start >= overlay.start, segment.start < overlay.end else { continue }
+                outStart = starts[index]
+                outEnd = starts[index] + segment.outputDuration
+            } else {
+                let lower = max(segment.start, overlay.start)
+                let upper = min(segment.end, overlay.end)
+                guard lower < upper else { continue }
+                outStart = starts[index] + (lower - segment.start) / segment.speed
+                outEnd = starts[index] + (upper - segment.start) / segment.speed
+            }
             if let previous = ranges.last, outStart <= previous.upperBound + Self.rangeMergeTolerance {
                 ranges[ranges.count - 1] = previous.lowerBound...max(previous.upperBound, outEnd)
             } else {
@@ -159,6 +184,7 @@ public struct VideoTimeline: Hashable, Sendable {
     public func sourceTime(at outputSeconds: Double) -> Double {
         let index = index(at: outputSeconds)
         let segment = segments[index]
+        if segment.freezeDuration != nil { return segment.start }
         let time = outputSeconds.isFinite ? min(max(0, outputSeconds), duration) : 0
         return min(segment.end, segment.start + max(0, time - starts[index]) * segment.speed)
     }
@@ -169,6 +195,7 @@ public struct VideoTimeline: Hashable, Sendable {
         }
         let segment = segments[index]
         guard (segment.start...segment.end).contains(sourceSeconds) else { return nil }
+        if segment.freezeDuration != nil { return starts[index] }
         return starts[index] + (sourceSeconds - segment.start) / segment.speed
     }
 
