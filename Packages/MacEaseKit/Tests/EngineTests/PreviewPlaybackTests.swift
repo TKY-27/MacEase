@@ -195,6 +195,27 @@ import Testing
         await ordinary.close()
     }
 
+    @Test func rejectExternalReferencesPropagatesNonReferenceErrors() async throws {
+        let folder = try TestVolume.makeFolder()
+        let missing = folder.appending(path: "missing.m4a")
+        await #expect(throws: (any Error).self) {
+            try await UntrustedMediaAsset.rejectExternalReferences(in: missing)
+        }
+
+        let unreadable = folder.appending(path: "unreadable.m4a")
+        try Data("data".utf8).write(to: unreadable)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: unreadable.path) }
+        await #expect(throws: (any Error).self) {
+            try await UntrustedMediaAsset.rejectExternalReferences(in: unreadable)
+        }
+
+        // Non-AVFoundation containers return false without throwing.
+        let ogg = folder.appending(path: "sample.ogg")
+        try Data("OggS\0\u{02}1234567890".utf8).write(to: ogg)
+        try await UntrustedMediaAsset.rejectExternalReferences(in: ogg)
+    }
+
     private static func makeQuickTimeReferenceMovie(referencing relativeTarget: String) -> Data {
         func appendUInt32BE(_ buffer: inout Data, _ value: UInt32) {
             buffer.append(contentsOf: [

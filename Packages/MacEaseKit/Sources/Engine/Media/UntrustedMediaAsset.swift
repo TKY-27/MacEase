@@ -35,12 +35,11 @@ public enum UntrustedMediaAsset {
             } onCancel: {
                 asset.cancelLoading()
             }
-        } catch is CancellationError {
-            throw CancellationError()
         } catch {
             if isReferenceForbidden(error) {
                 throw EngineError.invalidInput(.externalMediaReference)
             }
+            throw error
         }
     }
 }
