@@ -8,7 +8,8 @@ enum PreviewMarkdownRenderer {
     static let maximumTotalImageBytes = 32 * 1024 * 1024
 
     static func html(_ markdown: String, markdownURL: URL, directory: Int32? = nil, restricted: Bool) throws -> String {
-        let rendered = try MarkdownConversion.html(markdown, title: markdownURL.lastPathComponent)
+        let rendered = inertExternalLinks(
+            in: try MarkdownConversion.html(markdown, title: markdownURL.lastPathComponent))
         guard !restricted else { return rendered }
         if let directory {
             var embedder = PreviewImageEmbedder(directory: directory)
@@ -24,6 +25,22 @@ enum PreviewMarkdownRenderer {
         defer { close(opened) }
         var embedder = PreviewImageEmbedder(directory: opened)
         return try embedLocalImages(in: rendered, embedder: &embedder)
+    }
+
+    // Raw HTML is off; links are cmark's.
+    private static func inertExternalLinks(in html: String) -> String {
+        let linkStart = #"<a href=""#
+        var output = ""
+        output.reserveCapacity(html.utf8.count)
+        var cursor = html.startIndex
+        while let link = html.range(of: linkStart, range: cursor..<html.endIndex) {
+            output.append(contentsOf: html[cursor..<link.lowerBound])
+            // The URL stays visible as a tooltip.
+            output.append(html[link.upperBound...].hasPrefix("#") ? linkStart : #"<a title=""#)
+            cursor = link.upperBound
+        }
+        output.append(contentsOf: html[cursor...])
+        return output
     }
 
     private static func embedLocalImages(in html: String, embedder: inout PreviewImageEmbedder) throws -> String {

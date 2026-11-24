@@ -65,8 +65,8 @@ enum PreviewWebConfiguration {
         ]
         """
 
-    // Makes links non-actionable for AXPress statically.
-    private static let staticPreviewNeutralizer = """
+    // Isolated world; page content cannot undo it.
+    private static let staticPreviewNeutralizer = #"""
         (() => {
           const neutralize = (root) => {
             for (const el of root.querySelectorAll('a[href], area[href], math[href], math [href]')) {
@@ -75,10 +75,19 @@ enum PreviewWebConfiguration {
               if (!el.style.textDecorationLine && style.textDecorationLine) {
                 el.style.textDecorationLine = style.textDecorationLine;
               }
+              const target = el.getAttribute('href');
+              if (el.localName === 'a' && target.startsWith('#')) {
+                el.dataset.maceaseFragment = target.slice(1);
+                el.tabIndex = 0;
+                el.setAttribute('role', 'link');
+                el.style.cursor = 'pointer';
+              } else {
+                if (!el.title) el.title = el.href || target;
+                el.setAttribute('aria-disabled', 'true');
+              }
               el.removeAttribute('href');
               el.removeAttribute('ping');
               el.removeAttribute('download');
-              el.setAttribute('aria-disabled', 'true');
             }
             for (const el of root.querySelectorAll('a, math, math *')) {
               if (el.hasAttributeNS('http://www.w3.org/1999/xlink', 'href')) {
@@ -93,13 +102,71 @@ enum PreviewWebConfiguration {
               ctrl.removeAttribute('formaction');
               ctrl.disabled = true;
             }
+            for (const el of root.querySelectorAll('[contenteditable]')) {
+              el.removeAttribute('contenteditable');
+            }
             for (const host of root.querySelectorAll('*')) {
               if (host.shadowRoot) neutralize(host.shadowRoot);
             }
           };
           neutralize(document);
         })();
-        """
+        """#
+
+    // Before parsing; covers closed shadow roots.
+    private static let staticPreviewGuard = #"""
+        (() => {
+          const slug = (text) => text.trim().toLowerCase()
+            .replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+          const headingFor = (fragment) => {
+            const seen = new Map();
+            for (const heading of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+              const base = slug(heading.textContent);
+              const count = seen.get(base) ?? 0;
+              seen.set(base, count + 1);
+              if ((count ? `${base}-${count}` : base) === fragment) return heading;
+            }
+            return null;
+          };
+          const scrollToFragment = (encoded) => {
+            let fragment = encoded;
+            try { fragment = decodeURIComponent(encoded); } catch {}
+            if (fragment === '' || fragment.toLowerCase() === 'top') {
+              scrollTo(0, 0);
+              return;
+            }
+            const target = document.getElementById(fragment)
+              ?? document.getElementsByName(fragment)[0] ?? headingFor(fragment.toLowerCase());
+            target?.scrollIntoView({block: 'start'});
+          };
+          const origin = (event) => event.target instanceof Element ? event.target : event.target?.parentElement;
+          const fragmentLink = (event) => origin(event)?.closest('[data-macease-fragment]');
+          addEventListener('click', (event) => {
+            event.preventDefault();
+            const link = fragmentLink(event);
+            if (link) {
+              scrollToFragment(link.dataset.maceaseFragment);
+              return;
+            }
+            const details = origin(event)?.closest('summary')?.parentElement;
+            if (details?.localName === 'details') details.open = !details.open;
+          }, true);
+          addEventListener('auxclick', (event) => event.preventDefault(), true);
+          addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            const link = fragmentLink(event);
+            if (link) scrollToFragment(link.dataset.maceaseFragment);
+          }, true);
+          addEventListener('beforeinput', (event) => event.preventDefault(), true);
+          addEventListener('submit', (event) => event.preventDefault(), true);
+          addEventListener('dragstart', (event) => {
+            if (origin(event)?.closest('a, area, img, picture, svg, video, audio, object, embed')) {
+              event.preventDefault();
+            }
+          }, true);
+        })();
+        """#
 
     private enum Reach {
         case inline, inlineNetwork, localFiles, network
@@ -132,10 +199,14 @@ enum PreviewWebConfiguration {
         let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: reach.allowsInteractive)
         if !reach.allowsInteractive {
             configuration.websiteDataStore.proxyConfigurations = [failClosedProxy]
-            configuration.userContentController.addUserScript(
-                WKUserScript(
-                    source: staticPreviewNeutralizer, injectionTime: .atDocumentEnd, forMainFrameOnly: false,
-                    in: .defaultClient))
+            for (source, injectionTime) in [
+                (staticPreviewGuard, WKUserScriptInjectionTime.atDocumentStart),
+                (staticPreviewNeutralizer, .atDocumentEnd),
+            ] {
+                configuration.userContentController.addUserScript(
+                    WKUserScript(
+                        source: source, injectionTime: injectionTime, forMainFrameOnly: false, in: .defaultClient))
+            }
         }
         configuration.userContentController.add(rules)
         return configuration
@@ -208,6 +279,7 @@ struct PreviewWebViewer: View {
     }
 
     let page: Page
+    var find: PreviewFind?
     var onStaleFile: (() -> Void)?
     @State private var configuration: WKWebViewConfiguration?
     @State private var failed = false
@@ -217,7 +289,8 @@ struct PreviewWebViewer: View {
             if failed {
                 PreviewFailure()
             } else if let configuration {
-                PreviewBrowser(page: page, configuration: configuration, failed: $failed, onStaleFile: onStaleFile)
+                PreviewBrowser(
+                    page: page, configuration: configuration, find: find, failed: $failed, onStaleFile: onStaleFile)
             } else {
                 ProgressView().controlSize(.small)
             }
@@ -242,6 +315,7 @@ struct PreviewWebViewer: View {
 private struct PreviewBrowser: NSViewRepresentable {
     let page: PreviewWebViewer.Page
     let configuration: WKWebViewConfiguration
+    let find: PreviewFind?
     @Binding var failed: Bool
     let onStaleFile: (() -> Void)?
 
@@ -250,6 +324,8 @@ private struct PreviewBrowser: NSViewRepresentable {
     func makeNSView(context: Context) -> PreviewWebContainerView {
         let container = PreviewWebContainerView(
             frame: .zero, configuration: configuration, interactive: page.allowsInteractive)
+        container.find = find
+        context.coordinator.loaded = { [weak container] in container?.attachFind() }
         container.webView.navigationDelegate = context.coordinator
         container.webView.uiDelegate = context.coordinator
         if !PreviewWebConfiguration.load(page, in: container.webView) {
@@ -269,22 +345,19 @@ private struct PreviewBrowser: NSViewRepresentable {
     }
 }
 
-// AppKit layer enforcing view-only offline previews.
+// Static pages stay selectable but inert.
 @MainActor
-final class PreviewWebContainerView: NSView {
+final class PreviewWebContainerView: NSView, PreviewFindTarget {
     let webView: PreviewWKWebView
-    let inputShield: PreviewInputShieldView
+    weak var find: PreviewFind?
 
     init(frame: NSRect, configuration: WKWebViewConfiguration, interactive: Bool) {
         webView = PreviewWKWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: configuration)
-        inputShield = PreviewInputShieldView(frame: NSRect(origin: .zero, size: frame.size), webView: webView)
         super.init(frame: frame)
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
-        inputShield.autoresizingMask = [.width, .height]
         addSubview(webView)
-        addSubview(inputShield)
         setInteractive(interactive)
     }
 
@@ -293,14 +366,34 @@ final class PreviewWebContainerView: NSView {
 
     func setInteractive(_ interactive: Bool) {
         webView.isInteractive = interactive
-        inputShield.isHidden = interactive
-        if !interactive {
-            webView.unregisterDraggedTypes()
-            if window?.firstResponder === webView { window?.makeFirstResponder(nil) }
+        if !interactive { webView.unregisterDraggedTypes() }
+    }
+
+    func attachFind() { find?.attach(self) }
+
+    // WebKit reports no match count.
+    func find(_ query: String, direction: PreviewFindDirection, restart: Bool) async -> PreviewFindOutcome {
+        let configuration = WKFindConfiguration()
+        configuration.backwards = direction == .backward
+        do {
+            // Typing more keeps the current match.
+            if restart {
+                _ = try await webView.evaluateJavaScript(
+                    "getSelection().isCollapsed || getSelection().collapseToStart(), true", in: nil,
+                    contentWorld: .defaultClient)
+            }
+            return try await PreviewFindOutcome(found: webView.find(query, configuration: configuration).matchFound)
+        } catch {
+            Logger(category: "finder-preview").error(
+                "Preview page find failed: \(error.localizedDescription, privacy: .private)")
+            return .notFound
         }
     }
 
+    func endFind() { window?.makeFirstResponder(webView) }
+
     func tearDown() {
+        find?.detach(self)
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -311,124 +404,49 @@ final class PreviewWebContainerView: NSView {
 
 @MainActor
 final class PreviewWKWebView: WKWebView {
+    // WebKit's identifiers have no public constants.
+    private static let staticMenuItems: Set<String> = [
+        "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierLookUp", "WKMenuItemIdentifierSpeechMenu",
+    ]
+    private static let shareMenuItem = "WKMenuItemIdentifierShareMenu"
+    private static let linkMenuItems: Set<String> = [
+        "WKMenuItemIdentifierOpenLink", "WKMenuItemIdentifierOpenLinkInNewWindow",
+        "WKMenuItemIdentifierDownloadLinkedFile", "WKMenuItemIdentifierCopyLink",
+        "WKMenuItemIdentifierOpenImageInNewWindow", "WKMenuItemIdentifierDownloadImage",
+        "WKMenuItemIdentifierCopyImage", "WKMenuItemIdentifierOpenMediaInNewWindow",
+        "WKMenuItemIdentifierDownloadMedia", "WKMenuItemIdentifierCopyMediaLink",
+    ]
+
     var isInteractive = true
 
-    override var acceptsFirstResponder: Bool { isInteractive && super.acceptsFirstResponder }
+    // Text selection needs key focus.
+    override var needsPanelToBecomeKey: Bool { true }
 
-    override func becomeFirstResponder() -> Bool { isInteractive && super.becomeFirstResponder() }
-
-    override func mouseDown(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.mouseDown(with: event)
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        guard !isInteractive else { return }
+        Self.restrictToSelectionActions(menu)
     }
 
-    override func mouseUp(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.mouseUp(with: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.mouseDragged(with: event)
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.rightMouseDown(with: event)
-    }
-
-    override func rightMouseUp(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.rightMouseUp(with: event)
-    }
-
-    override func rightMouseDragged(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.rightMouseDragged(with: event)
-    }
-
-    override func otherMouseDown(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.otherMouseDown(with: event)
-    }
-
-    override func otherMouseUp(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.otherMouseUp(with: event)
-    }
-
-    override func otherMouseDragged(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.otherMouseDragged(with: event)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.keyDown(with: event)
-    }
-
-    override func keyUp(with event: NSEvent) {
-        guard isInteractive else { return }
-        super.keyUp(with: event)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        isInteractive && super.performKeyEquivalent(with: event)
-    }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        isInteractive ? super.menu(for: event) : nil
+    // Shared links could be fetched elsewhere.
+    static func restrictToSelectionActions(_ menu: NSMenu) {
+        let identifiers = Set(menu.items.compactMap { $0.identifier?.rawValue })
+        var allowed = staticMenuItems
+        if identifiers.isDisjoint(with: linkMenuItems) { allowed.insert(shareMenuItem) }
+        for item in menu.items.reversed() where !item.isSeparatorItem {
+            if !allowed.contains(item.identifier?.rawValue ?? "") { menu.removeItem(item) }
+        }
+        while let first = menu.items.first, first.isSeparatorItem { menu.removeItem(first) }
+        while let last = menu.items.last, last.isSeparatorItem { menu.removeItem(last) }
+        for index in stride(from: menu.items.count - 1, to: 0, by: -1)
+        where menu.items[index].isSeparatorItem && menu.items[index - 1].isSeparatorItem {
+            menu.removeItem(at: index)
+        }
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         isInteractive ? super.draggingEntered(sender) : []
     }
-}
-
-// Forwards only scroll and magnify offline.
-@MainActor
-final class PreviewInputShieldView: NSView {
-    private weak var webView: PreviewWKWebView?
-
-    init(frame: NSRect, webView: PreviewWKWebView) {
-        self.webView = webView
-        super.init(frame: frame)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    override var acceptsFirstResponder: Bool { false }
-
-    override func isAccessibilityElement() -> Bool { false }
-
-    // Keeps VoiceOver reading through the input shield.
-    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
-        webView?.accessibilityHitTest(point)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, frame.contains(point) else { return nil }
-        return self
-    }
-
-    override func scrollWheel(with event: NSEvent) { webView?.scrollWheel(with: event) }
-
-    override func magnify(with event: NSEvent) { webView?.magnify(with: event) }
-
-    override func mouseDown(with event: NSEvent) {}
-    override func mouseUp(with event: NSEvent) {}
-    override func mouseDragged(with event: NSEvent) {}
-    override func rightMouseDown(with event: NSEvent) {}
-    override func rightMouseUp(with event: NSEvent) {}
-    override func rightMouseDragged(with event: NSEvent) {}
-    override func otherMouseDown(with event: NSEvent) {}
-    override func otherMouseUp(with event: NSEvent) {}
-    override func otherMouseDragged(with event: NSEvent) {}
-    override func keyDown(with event: NSEvent) {}
-    override func keyUp(with event: NSEvent) {}
-    override func performKeyEquivalent(with event: NSEvent) -> Bool { false }
-    override func menu(for event: NSEvent) -> NSMenu? { nil }
 }
 
 @MainActor
@@ -438,6 +456,7 @@ final class PreviewWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     let page: PreviewWebViewer.Page
     var failed: Binding<Bool>
+    var loaded: (() -> Void)?
 
     init(page: PreviewWebViewer.Page, failed: Binding<Bool>) {
         self.page = page
@@ -489,6 +508,8 @@ final class PreviewWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
     ) {
         decisionHandler(.deny)
     }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) { loaded?() }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         report(error)

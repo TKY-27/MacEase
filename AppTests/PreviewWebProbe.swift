@@ -91,11 +91,13 @@ final class LoopbackUDPListener: @unchecked Sendable {
 }
 
 @MainActor
-private final class ProbeNavigationObserver: NSObject, WKNavigationDelegate {
+private final class ProbeNavigationObserver: NSObject, WKNavigationDelegate, WKUIDelegate {
     let production: PreviewWebDelegate
     var onFinish: (() -> Void)?
     var onFail: ((any Error) -> Void)?
     private(set) var requestedURLs: [URL] = []
+    private(set) var windowRequests = 0
+    private(set) var downloads = 0
 
     init(production: PreviewWebDelegate) {
         self.production = production
@@ -133,10 +135,66 @@ private final class ProbeNavigationObserver: NSObject, WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         production.webViewWebContentProcessDidTerminate(webView)
     }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        downloads += 1
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        downloads += 1
+    }
+
+    func webView(
+        _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        windowRequests += 1
+        return production.webView(
+            webView, createWebViewWith: configuration, for: navigationAction, windowFeatures: windowFeatures)
+    }
+
+    func webView(
+        _ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        production.webView(
+            webView, runOpenPanelWith: parameters, initiatedByFrame: frame, completionHandler: completionHandler)
+    }
+
+    func webView(
+        _ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+        decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
+    ) {
+        production.webView(
+            webView, requestMediaCapturePermissionFor: origin, initiatedByFrame: frame, type: type,
+            decisionHandler: decisionHandler)
+    }
+}
+
+// Modal menu tracking would block tests.
+@MainActor
+private final class ProbeMenuCanceller: NSObject {
+    private(set) var shown: [[String]] = []
+
+    // Tracking begins before WebKit filters items.
+    @objc func began(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu, menu.supermenu == nil else { return }
+        perform(#selector(capture), with: menu, afterDelay: 0, inModes: [.eventTracking, .default])
+    }
+
+    @objc private func capture(_ menu: NSMenu) {
+        shown.append(menu.items.map { $0.isSeparatorItem ? "" : $0.identifier?.rawValue ?? $0.title })
+        menu.cancelTracking()
+    }
 }
 
 @MainActor
 final class PreviewWebProbe {
+    static let selectionMenuItems: Set<String> = [
+        "", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierLookUp", "WKMenuItemIdentifierSpeechMenu",
+        "WKMenuItemIdentifierShareMenu",
+    ]
     private static let loadTimeout: Duration = .seconds(10)
     let window: NSWindow
     let container: PreviewWebContainerView
@@ -145,6 +203,8 @@ final class PreviewWebProbe {
     private let observer: ProbeNavigationObserver
     private var finished: CheckedContinuation<Void, any Error>?
     private(set) var didFail = false
+    private let menuCanceller = ProbeMenuCanceller()
+    var shownMenuItems: [[String]] { menuCanceller.shown }
 
     private init(page: PreviewWebViewer.Page, configuration: WKWebViewConfiguration) {
         var failed = false
@@ -162,15 +222,20 @@ final class PreviewWebProbe {
         window.orderBack(nil)
         window.layoutIfNeeded()
         browser.navigationDelegate = observer
-        browser.uiDelegate = delegate
+        browser.uiDelegate = observer
         observer.onFinish = { [weak self] in self?.resume() }
         observer.onFail = { [weak self] error in
             self?.didFail = true
             self?.resume(throwing: error)
         }
+        NotificationCenter.default.addObserver(
+            menuCanceller, selector: #selector(ProbeMenuCanceller.began), name: NSMenu.didBeginTrackingNotification,
+            object: nil)
     }
 
     var requestedNavigationURLs: [URL] { observer.requestedURLs }
+    var windowRequests: Int { observer.windowRequests }
+    var downloads: Int { observer.downloads }
 
     deinit {
         MainActor.assumeIsolated {
@@ -193,12 +258,30 @@ final class PreviewWebProbe {
         try await browser.evaluateJavaScript(script)
     }
 
-    func attemptFocusWebView() -> Bool {
-        guard browser.acceptsFirstResponder else {
-            _ = window.makeFirstResponder(browser)
-            return window.firstResponder === browser
-        }
-        return window.makeFirstResponder(browser) && window.firstResponder === browser
+    // Scrolls the element into view first.
+    func center(of selector: String, fromTop: CGFloat? = nil) async throws -> NSPoint {
+        let offset = fromTop.map { "\($0)" } ?? "rect.height / 2"
+        let coordinates = try await evaluate(
+            """
+            (() => {
+              const element = document.querySelector('\(selector)');
+              element.scrollIntoView({block: 'center'});
+              const rect = element.getBoundingClientRect();
+              return [rect.left + Math.min(rect.width / 2, 16), rect.top + \(offset)];
+            })()
+            """)
+        let pair = try XCTUnwrap(coordinates as? [Double])
+        return NSPoint(x: pair[0], y: pair[1])
+    }
+
+    func find(_ text: String, backwards: Bool = false) async throws -> WKFindResult {
+        let configuration = WKFindConfiguration()
+        configuration.backwards = backwards
+        return try await browser.find(text, configuration: configuration)
+    }
+
+    func focusWebView() -> Bool {
+        window.makeFirstResponder(browser) && window.firstResponder === browser
     }
 
     func hitTest(webPoint: NSPoint) -> NSView? {
@@ -216,78 +299,64 @@ final class PreviewWebProbe {
         return container.webView.accessibilityHitTest(screenPoint) as AnyObject?
     }
 
-    func shieldAccessibilityHitTest(webPoint: NSPoint) -> AnyObject? {
-        let screenPoint = window.convertPoint(toScreen: windowPoint(fromWebPoint: webPoint))
-        return container.inputShield.accessibilityHitTest(screenPoint) as AnyObject?
+    private func send(
+        _ type: NSEvent.EventType, at webPoint: NSPoint, clickCount: Int = 1, modifiers: NSEvent.ModifierFlags = []
+    ) throws {
+        let pressed: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged]
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: type, location: windowPoint(fromWebPoint: webPoint), modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: clickCount, pressure: pressed.contains(type) ? 1 : 0))
+        window.sendEvent(event)
     }
 
-    func click(webPoint: NSPoint) throws {
-        let point = windowPoint(fromWebPoint: webPoint)
-        let down = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-        let up = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .leftMouseUp, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
-        window.sendEvent(down)
-        window.sendEvent(up)
+    func click(webPoint: NSPoint, clickCount: Int = 1) throws {
+        for count in 1...clickCount {
+            try send(.leftMouseDown, at: webPoint, clickCount: count)
+            try send(.leftMouseUp, at: webPoint, clickCount: count)
+        }
     }
 
     func rightClick(webPoint: NSPoint) throws {
-        let point = windowPoint(fromWebPoint: webPoint)
-        let down = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .rightMouseDown, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
-        let up = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .rightMouseUp, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 4, clickCount: 1, pressure: 0))
-        window.sendEvent(down)
-        window.sendEvent(up)
+        try send(.rightMouseDown, at: webPoint)
+        try send(.rightMouseUp, at: webPoint)
+    }
+
+    func middleClick(webPoint: NSPoint) throws {
+        try send(.otherMouseDown, at: webPoint)
+        try send(.otherMouseUp, at: webPoint)
     }
 
     func drag(from startWebPoint: NSPoint, to endWebPoint: NSPoint) throws {
-        let start = windowPoint(fromWebPoint: startWebPoint)
-        let end = windowPoint(fromWebPoint: endWebPoint)
-        let down = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown, location: start, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 5, clickCount: 1, pressure: 1))
-        let dragged = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .leftMouseDragged, location: end, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 6, clickCount: 1, pressure: 1))
-        let up = try XCTUnwrap(
-            NSEvent.mouseEvent(
-                with: .leftMouseUp, location: end, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 7, clickCount: 1, pressure: 0))
-        window.sendEvent(down)
-        window.sendEvent(dragged)
-        window.sendEvent(up)
+        try send(.leftMouseDown, at: startWebPoint)
+        let steps = 4
+        for step in 1...steps {
+            let fraction = CGFloat(step) / CGFloat(steps)
+            let point = NSPoint(
+                x: startWebPoint.x + (endWebPoint.x - startWebPoint.x) * fraction,
+                y: startWebPoint.y + (endWebPoint.y - startWebPoint.y) * fraction)
+            try send(.leftMouseDragged, at: point)
+        }
+        try send(.leftMouseUp, at: endWebPoint)
     }
 
-    func pressKey(_ characters: String, keyCode: UInt16) throws {
-        let down = try XCTUnwrap(
-            NSEvent.keyEvent(
-                with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, characters: characters,
-                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
-        let up = try XCTUnwrap(
-            NSEvent.keyEvent(
-                with: .keyUp, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber, context: nil, characters: characters,
-                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
-        window.sendEvent(down)
-        window.sendEvent(up)
+    func pressKey(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) throws {
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            let event = try XCTUnwrap(
+                NSEvent.keyEvent(
+                    with: type, location: .zero, modifierFlags: modifiers,
+                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+                    characters: characters, charactersIgnoringModifiers: characters, isARepeat: false,
+                    keyCode: keyCode))
+            window.sendEvent(event)
+        }
+    }
+
+    func type(_ text: String) throws {
+        for character in text {
+            try pressKey(String(character), keyCode: 0)
+        }
     }
 
     func scroll(deltaY: Int32, at webPoint: NSPoint = NSPoint(x: 100, y: 100)) throws {

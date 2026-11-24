@@ -201,6 +201,9 @@ final class PreviewTrustTests: XCTestCase {
             <a id="extLink" href="http://127.0.0.1:\(tcpPort)/ext" ping="http://127.0.0.1:\(tcpPort)/ping" style="display:block;width:200px;height:40px">External Link</a>
             <math id="mathRoot" href="http://127.0.0.1:\(tcpPort)/math-root"><mrow id="mathLink" href="http://127.0.0.1:\(tcpPort)/math"><mtext>Math Link</mtext></mrow></math>
             <div id="shadowHost"><template shadowrootmode="open"><a id="shadowLink" href="http://127.0.0.1:\(tcpPort)/shadow">Shadow Link</a></template></div>
+            <div id="closedHost"><template shadowrootmode="closed"><a href="http://127.0.0.1:\(tcpPort)/closed" style="display:block;width:200px;height:24px">Closed Link</a><form action="http://127.0.0.1:\(tcpPort)/closed-form"><input name="q" value=""><button>Go</button></form><div contenteditable="true">closed editable</div></template></div>
+            <div id="editable" contenteditable="true">light editable</div>
+            <input id="field" value="">
             <img src="http://127.0.0.1:\(tcpPort)/img.png">
             <video src="http://127.0.0.1:\(tcpPort)/v.mp4" preload="auto"></video>
             <audio src="http://127.0.0.1:\(tcpPort)/a.mp3" preload="auto"></audio>
@@ -255,32 +258,49 @@ final class PreviewTrustTests: XCTestCase {
             let title = try await probe.evaluate("document.title") as? String
             XCTAssertEqual(title, "init")
 
-            // Synthesized AppKit input over links and forms.
-            let point = NSPoint(x: 40, y: 40)
-            XCTAssertTrue(probe.hitTest(webPoint: point) === probe.container.inputShield)
-            XCTAssertFalse(probe.attemptFocusWebView())
-            try probe.click(webPoint: point)
-            try probe.rightClick(webPoint: point)
-            try probe.drag(from: point, to: NSPoint(x: 120, y: 120))
-            try probe.pressKey("\r", keyCode: 36)
-            try probe.pressKey(" ", keyCode: 49)
-            try probe.scroll(deltaY: -80, at: point)
-            try await probe.settle(.milliseconds(400))
+            // Real AppKit input on every activatable element.
+            XCTAssertTrue(probe.focusWebView(), "static pages take focus so text can be selected")
+            let startURL = probe.currentURL
+            let navigationsBeforeInput = probe.requestedNavigationURLs.count
+            for id in ["baseLink", "extLink", "mathLink", "shadowHost", "closedHost", "b", "field", "editable"] {
+                let point = try await probe.center(of: "#\(id)", fromTop: id == "closedHost" ? 12 : nil)
+                try probe.click(webPoint: point)
+                try probe.click(webPoint: point, clickCount: 2)
+                try probe.rightClick(webPoint: point)
+                try probe.middleClick(webPoint: point)
+                try probe.drag(from: point, to: NSPoint(x: point.x + 120, y: point.y + 30))
+                try probe.pressKey("\r", keyCode: 36)
+                try probe.pressKey(" ", keyCode: 49)
+                try probe.pressKey("\t", keyCode: 48)
+                try probe.type("zqx")
+                try probe.scroll(deltaY: -80, at: point)
+            }
+            try await probe.settle(.milliseconds(600))
             XCTAssertEqual(tcp.connectionCount, 0)
             XCTAssertEqual(udp.datagramCount, 0)
+            XCTAssertEqual(
+                probe.requestedNavigationURLs.count, navigationsBeforeInput, "\(probe.requestedNavigationURLs)")
+            XCTAssertEqual(probe.currentURL, startURL)
+            XCTAssertEqual(probe.windowRequests, 0)
+            XCTAssertEqual(probe.downloads, 0)
+            let menuItems = Set(probe.shownMenuItems.joined())
+            XCTAssertTrue(menuItems.isSubset(of: PreviewWebProbe.selectionMenuItems), "\(menuItems)")
+            let afterInput = try await probe.evaluate(
+                "JSON.stringify([Boolean(window.__ran || window.__onload || window.__clicked), document.title])")
+            XCTAssertEqual(afterInput as? String, #"[false,"init"]"#)
+            let typed = try await probe.find("zqx")
+            XCTAssertFalse(typed.matchFound, "typing must not edit the page")
 
-            // Accessibility: shield forwards hit-tests to web view.
+            // Accessibility reaches the page content directly.
             _ = probe.container.webView.accessibilityChildren()
             try await probe.settle(.milliseconds(300))
+            let point = NSPoint(x: 40, y: 40)
             let webViewHit = try XCTUnwrap(probe.webViewAccessibilityHitTest(webPoint: point))
             let windowHit = try XCTUnwrap(probe.accessibilityHitTest(webPoint: point))
-            let shieldHit = try XCTUnwrap(probe.shieldAccessibilityHitTest(webPoint: point))
             XCTAssertTrue(windowHit.isEqual(webViewHit))
-            XCTAssertTrue(shieldHit.isEqual(webViewHit))
             XCTAssertTrue(
                 windowHit === probe.container.webView
                     || NSStringFromClass(type(of: windowHit)) == "NSAccessibilityRemoteUIElement")
-
             let textAndLinks =
                 try await probe.evaluate(
                     """
@@ -334,9 +354,14 @@ final class PreviewTrustTests: XCTestCase {
         try await interactive.settle(.milliseconds(1000))
         let interactiveRan = try await interactive.evaluate("window.__ran") as? Bool
         XCTAssertEqual(interactiveRan, true)
-        XCTAssertTrue(interactive.hitTest(webPoint: NSPoint(x: 40, y: 40)) !== interactive.container.inputShield)
         XCTAssertGreaterThan(tcp.connectionCount, 0, "control: TCP listener observes allowed traffic")
         XCTAssertGreaterThan(udp.datagramCount, 0, "control: UDP listener observes WebRTC STUN")
+        // Control: real clicks activate links here.
+        try interactive.click(webPoint: try await interactive.center(of: "#closedHost", fromTop: 12))
+        try await interactive.settle(.milliseconds(400))
+        XCTAssertTrue(
+            interactive.requestedNavigationURLs.contains { $0.path == "/closed" },
+            "\(interactive.requestedNavigationURLs)")
     }
 
     @MainActor
