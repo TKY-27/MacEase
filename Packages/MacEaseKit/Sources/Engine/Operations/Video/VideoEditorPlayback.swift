@@ -183,7 +183,10 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         return AVVideoComposition(configuration: configuration)
     }
 
+    // Nanosecond timescales overflow CoreMedia audio alignment.
+    private static let compositionTimescale: CMTimeScale = 60_000
+
     private static func time(_ seconds: Double) -> CMTime {
-        CMTime(seconds: seconds, preferredTimescale: SampleBuffers.nanosecondScale)
+        CMTime(seconds: seconds, preferredTimescale: compositionTimescale)
     }
 }

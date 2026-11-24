@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import ImageIO
+import MediaToolbox
 import SwiftUI
 import UniformTypeIdentifiers
 import XCTest
@@ -781,6 +782,67 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.values.segments.map(\.fadeOut), [0, 0.5])
     }
 
+    func testEditedPlaybackKeepsRenderingAudioAcrossReplays() async throws {
+        let directory = try workspace()
+        let source = try synthesizedVideoFixture(in: directory)
+        let support = directory.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let model = MediaEditorModel(
+            urls: [source], isVideo: true, settings: Engine.Settings(),
+            staging: StagingArea(supportDirectory: support))
+        addTeardownBlock { await model.close() }
+        model.load()
+        try await eventually { model.canPlay || model.failure != nil }
+        XCTAssertNil(model.failure)
+
+        model.seek(1.5)
+        try await eventually { model.canSplit }
+        model.split()
+        try await eventually { model.values.segments.count == 2 && !model.preparingPlayback && model.canPlay }
+        model.seek(2.5)
+        try await eventually { model.canSplit }
+        model.split()
+        try await eventually { model.values.segments.count == 3 && !model.preparingPlayback && model.canPlay }
+        model.seek(4.0)
+        try await eventually { model.canSplit }
+        model.split()
+        try await eventually { model.values.segments.count == 4 && !model.preparingPlayback && model.canPlay }
+        model.selectSegment(model.values.segments[3].id)
+        model.deleteSelection()
+        try await eventually { model.values.segments.count == 3 && !model.preparingPlayback && model.canPlay }
+        model.selectSegment(model.values.segments[1].id)
+        model.deleteSelection()
+        try await eventually { model.values.segments.count == 2 && !model.preparingPlayback && model.canPlay }
+
+        model.zoomTimeline(by: 4)
+        model.zoom = 2
+        let player = try XCTUnwrap(model.player)
+        let playerItem = try XCTUnwrap(player.currentItem)
+        try await eventually { playerItem.status == .readyToPlay }
+        let meter = PlaybackAudioMeter()
+        try meter.install(on: playerItem)
+
+        for (attempt, target) in [0.1, 2.0, 0.5, 2.0, 0.2].enumerated() {
+            model.skim(target + 0.15)
+            try await Task.sleep(for: .milliseconds(30))
+            model.skim(nil)
+            model.seek(target)
+            try await Task.sleep(for: .milliseconds(60))
+            meter.reset()
+            model.play()
+            try await eventually { player.rate == 1 && player.timeControlStatus == .playing }
+            try await Task.sleep(for: .milliseconds(300))
+            let peak = meter.peak()
+            XCTAssertFalse(player.isMuted, "play \(attempt + 1) muted")
+            XCTAssertEqual(player.volume, 1, "play \(attempt + 1) volume")
+            XCTAssertNil(playerItem.error, "play \(attempt + 1) item error")
+            XCTAssertEqual(playerItem.status, .readyToPlay, "play \(attempt + 1) item status")
+            XCTAssertGreaterThan(peak, 0.01, "play \(attempt + 1) at \(target)s rendered silence")
+            model.pause()
+            try await Task.sleep(for: .milliseconds(40))
+        }
+    }
+
     func testClipboardSuggestionDetectsLinksBeforeReadingThem() async throws {
         let name = NSPasteboard.Name("MacEaseTests-\(UUID().uuidString)")
         let pasteboard = NSPasteboard(name: name)
@@ -823,9 +885,100 @@ final class MediaEditorModelTests: XCTestCase {
         return url
     }
 
+    private func synthesizedVideoFixture(in directory: URL) throws -> URL {
+        let resources = try XCTUnwrap(Bundle.main.resourceURL)
+        let ffmpeg = resources.appending(path: "media-tools/bin/ffmpeg")
+        let output = directory.appending(path: "tone-video.mp4")
+        let encoding = Process()
+        encoding.executableURL = ffmpeg
+        encoding.arguments = [
+            "-nostdin", "-y", "-v", "error",
+            "-f", "lavfi", "-i", "color=c=blue:s=160x120:r=60000/1001:d=5",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=5",
+            "-ac", "2", "-c:v", "h264_videotoolbox", "-b:v", "400k",
+            "-c:a", "aac", "-b:a", "128k", output.path,
+        ]
+        encoding.standardInput = FileHandle.nullDevice
+        encoding.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        encoding.standardError = stderr
+        try encoding.run()
+        encoding.waitUntilExit()
+        let details = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertEqual(encoding.terminationStatus, 0, details)
+        return output
+    }
+
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(30)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         XCTAssertTrue(condition(), "Timed out waiting for the editor")
+    }
+}
+
+private final class PlaybackAudioMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var maximumPeak: Float = 0
+
+    func reset() {
+        lock.lock()
+        maximumPeak = 0
+        lock.unlock()
+    }
+
+    func peak() -> Float {
+        lock.lock()
+        defer { lock.unlock() }
+        return maximumPeak
+    }
+
+    private func record(_ value: Float) {
+        lock.lock()
+        if value > maximumPeak { maximumPeak = value }
+        lock.unlock()
+    }
+
+    @MainActor
+    func install(on playerItem: AVPlayerItem) throws {
+        let currentMix = try XCTUnwrap(playerItem.audioMix)
+        let mutableMix = try XCTUnwrap(currentMix.mutableCopy() as? AVMutableAudioMix)
+        var callbacks = MTAudioProcessingTapCallbacks(
+            version: kMTAudioProcessingTapCallbacksVersion_0,
+            clientInfo: Unmanaged.passRetained(self).toOpaque(),
+            init: { _, clientInfo, storageOut in storageOut.pointee = clientInfo },
+            finalize: { tap in
+                Unmanaged<PlaybackAudioMeter>.fromOpaque(MTAudioProcessingTapGetStorage(tap)).release()
+            },
+            prepare: { _, _, _ in },
+            unprepare: { _ in },
+            process: { tap, numberFrames, _, bufferListInOut, numberFramesOut, flagsOut in
+                let status = MTAudioProcessingTapGetSourceAudio(
+                    tap, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut)
+                guard status == noErr else { return }
+                let meter = Unmanaged<PlaybackAudioMeter>.fromOpaque(MTAudioProcessingTapGetStorage(tap))
+                    .takeUnretainedValue()
+                var maxAbs: Float = 0
+                for buffer in UnsafeMutableAudioBufferListPointer(bufferListInOut) {
+                    guard let pointer = buffer.mData else { continue }
+                    let count = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
+                    let samples = pointer.assumingMemoryBound(to: Float.self)
+                    for index in 0..<count {
+                        let sample = abs(samples[index])
+                        if sample > maxAbs { maxAbs = sample }
+                    }
+                }
+                meter.record(maxAbs)
+            })
+        var tap: MTAudioProcessingTap?
+        let status = MTAudioProcessingTapCreate(
+            kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
+        XCTAssertEqual(status, noErr)
+        let processor = try XCTUnwrap(tap)
+        mutableMix.inputParameters = mutableMix.inputParameters.map { parameter in
+            guard let editable = parameter.mutableCopy() as? AVMutableAudioMixInputParameters else { return parameter }
+            editable.audioTapProcessor = processor
+            return editable
+        }
+        playerItem.audioMix = mutableMix.copy() as? AVAudioMix
     }
 }
