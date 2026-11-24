@@ -53,13 +53,13 @@ final class FinderService: NSObject {
         if let urls = pasteboard.readObjects(
             forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty
         {
-            return urls
+            let normalized = urls.compactMap { RequestPath.fileURL(for: $0.path) }
+            return normalized.count == urls.count ? normalized : []
         }
         let filenames = NSPasteboard.PasteboardType("NSFilenamesPboardType")
-        guard let paths = pasteboard.propertyList(forType: filenames) as? [String],
-            paths.allSatisfy({ $0.hasPrefix("/") && !$0.utf8.contains(0) })
-        else { return [] }
-        return paths.map { URL(fileURLWithPath: $0) }
+        guard let paths = pasteboard.propertyList(forType: filenames) as? [String] else { return [] }
+        let normalized = paths.compactMap(RequestPath.fileURL)
+        return normalized.count == paths.count ? normalized : []
     }
 }
 

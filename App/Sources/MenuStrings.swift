@@ -7,6 +7,9 @@ import Speech
 enum MenuStrings {
     static func operation(_ op: OperationID) -> String {
         switch op {
+        case .folderNewFile: String(localized: "menu.op.folder.newFile", defaultValue: "New File")
+        case .filesMove: String(localized: "menu.op.files.move", defaultValue: "Move Items")
+        case .anyCopyPath: String(localized: "menu.op.any.copyPath", defaultValue: "Copy Path")
         case .imageEdit: String(localized: "menu.op.image.edit", defaultValue: "Edit Photo…")
         case .imageEnhance: String(localized: "menu.op.image.enhance", defaultValue: "Upscale Photo…")
         case .audioEnhance: String(localized: "menu.op.audio.enhance", defaultValue: "Enhance Audio…")
@@ -55,6 +58,31 @@ enum MenuStrings {
     // Titles replace unreliable Finder Sync checkmarks.
     static func previewTitle(open: Bool) -> String {
         open ? String(localized: "Hide Finder Preview") : String(localized: "Show Finder Preview")
+    }
+
+    static func command(_ command: HostCommand) -> String {
+        switch command {
+        case .update: String(localized: "Update Available")
+        case .preview: String(localized: "Finder Preview")
+        case .newFile: String(localized: "New File")
+        case .cut: String(localized: "Cut")
+        case .moveHere: String(localized: "Move Here")
+        case .copyPath: String(localized: "Copy Path")
+        case .openTerminal: String(localized: "Open Terminal Here")
+        }
+    }
+
+    static func moveHereTitle(count: Int) -> String {
+        count == 1 ? String(localized: "Move 1 Item Here") : String(localized: "Move \(count) Items Here")
+    }
+
+    static func newFileTitle(_ template: NewFileTemplate.BuiltIn) -> String {
+        switch template {
+        case .plainText: String(localized: "Text")
+        case .markdown: String(localized: "Markdown")
+        case .richText: String(localized: "Rich Text")
+        case .wordDocument: String(localized: "Word")
+        }
     }
 
     static func preset(_ op: OperationID, _ preset: String) -> String {

@@ -484,11 +484,10 @@ final class OrganizationController {
                         OrganizationSuppression(path: move.from.path, stamp: move.stamp))
                 }
                 try await persistence.save(registrations)
-                let outcomes = try await jobs.engine.undo(batch.id)
+                let outcomes = try await jobs.undoBatch(batch.id)
                 if outcomes.contains(where: { $0 != .restored }) {
                     status = String(localized: "Some files could not be restored; review Activity")
                 }
-                await jobs.refreshRecent()
                 await refreshRecent()
             } catch { failure = error.localizedDescription }
         }

@@ -11,7 +11,7 @@ public struct MoveItem: Codable, Hashable, Sendable {
     }
 
     public static func capture(_ url: URL) throws -> MoveItem {
-        MoveItem(url: url, stamp: try FileStamp(of: url, includingIdentity: true))
+        MoveItem(url: url, stamp: try FileStamp(of: url, includingIdentity: true, checkCancellation: true))
     }
 }
 

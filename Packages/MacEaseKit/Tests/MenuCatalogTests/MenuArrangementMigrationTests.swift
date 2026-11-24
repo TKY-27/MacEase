@@ -95,7 +95,11 @@ import Testing
         #expect(result.arrangement.resolved(.jar)[.hidden] == ids("jar.decompile"))
         let commands = result.arrangement.resolved(.commands)
         #expect(commands[.hidden] == ids("folder.downloadMedia"))
-        #expect(commands[.menu] == ids("command.update", "command.preview"))
+        #expect(
+            commands[.menu]
+                == ids(
+                    "command.update", "command.preview", "command.newFile", "command.cut", "command.moveHere",
+                    "command.copyPath", "command.openTerminal"))
         #expect(result.hiddenEntries.isEmpty)
     }
 
@@ -105,7 +109,12 @@ import Testing
             extraAngle: true)
         for scope in MenuScope.allCases {
             let resolved = result.arrangement.resolved(scope)
-            #expect(resolved[.menu] == (scope == .commands ? ids("command.update", "command.preview") : []))
+            #expect(
+                resolved[.menu]
+                    == (scope == .commands
+                        ? ids(
+                            "command.update", "command.preview", "command.newFile", "command.cut", "command.moveHere",
+                            "command.copyPath", "command.openTerminal") : []))
             #expect(resolved[.more].isEmpty)
         }
         #expect(result.hiddenEntries == newInstallHidden)

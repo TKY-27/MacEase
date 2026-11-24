@@ -27,6 +27,8 @@ final class SettingsStore {
         static let checksForUpdatesAutomatically = "updates.checksAutomatically"
         static let showsStatusItem = "menuBar.showsStatusItem"
         static let showsRecentOperations = "menuBar.showsRecentOperations"
+        static let terminalApplication = "finderCommands.terminalApplication"
+        static let newFileTemplates = "finderCommands.newFileTemplates"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -104,6 +106,23 @@ final class SettingsStore {
         didSet { defaults.set(showsRecentOperations, forKey: Key.showsRecentOperations) }
     }
 
+    static let defaultTerminalApplicationURL = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+
+    var terminalApplicationURL: URL {
+        didSet {
+            guard terminalApplicationURL != oldValue else { return }
+            defaults.set(terminalApplicationURL.path, forKey: Key.terminalApplication)
+        }
+    }
+
+    var enabledNewFileTemplates: Set<NewFileTemplate.BuiltIn> {
+        didSet {
+            guard enabledNewFileTemplates != oldValue else { return }
+            defaults.set(enabledNewFileTemplates.map(\.rawValue).sorted(), forKey: Key.newFileTemplates)
+            onChange?()
+        }
+    }
+
     var onboardingCompleted: Bool {
         didSet { defaults.set(onboardingCompleted, forKey: Key.onboardingCompleted) }
     }
@@ -165,6 +184,14 @@ final class SettingsStore {
         activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
         activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
+        terminalApplicationURL =
+            defaults.string(forKey: Key.terminalApplication)
+            .flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? Self.defaultTerminalApplicationURL
+        enabledNewFileTemplates =
+            defaults.stringArray(forKey: Key.newFileTemplates).map {
+                Set($0.compactMap(NewFileTemplate.BuiltIn.init(rawValue:)))
+            } ?? Set(NewFileTemplate.BuiltIn.allCases)
         finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
         checksForUpdatesAutomatically = defaults.bool(forKey: Key.checksForUpdatesAutomatically)
         showsStatusItem = defaults.bool(forKey: Key.showsStatusItem)
@@ -239,6 +266,8 @@ final class SettingsStore {
         checksForUpdatesAutomatically = true
         showsStatusItem = true
         showsRecentOperations = true
+        terminalApplicationURL = Self.defaultTerminalApplicationURL
+        enabledNewFileTemplates = Set(NewFileTemplate.BuiltIn.allCases)
     }
 
     /// SPEC 4.4 defaults for new installs.
