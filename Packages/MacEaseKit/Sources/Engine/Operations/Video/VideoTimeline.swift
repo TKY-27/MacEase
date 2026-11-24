@@ -227,7 +227,13 @@ public struct VideoTimeline: Hashable, Sendable {
         at outputSeconds: Double, sourceRange: ClosedRange<Double>? = nil, segmentID: UUID? = nil
     ) -> [EditOverlay] {
         guard !overlays.isEmpty else { return [] }
-        let index = segmentID.flatMap { id in segments.firstIndex { $0.id == id } } ?? index(at: outputSeconds)
+        let index: Int
+        if let segmentID {
+            guard let selected = segments.firstIndex(where: { $0.id == segmentID }) else { return [] }
+            index = selected
+        } else {
+            index = self.index(at: outputSeconds)
+        }
         let segment = segments[index]
         let source = sourceRange?.lowerBound ?? sourceTime(at: outputSeconds)
         let upper = sourceRange?.upperBound ?? source
@@ -355,7 +361,8 @@ public struct VideoTimeline: Hashable, Sendable {
 
 extension VideoEdit {
     func openedSources(
-        primaryURL: URL, omittedStreams: Set<UnpreservedStream> = [], context: ItemContext? = nil
+        primaryURL: URL, omittedStreams: Set<UnpreservedStream> = [],
+        omissions: [URL: StreamOmission] = [:], context: ItemContext? = nil
     ) async throws -> (edit: VideoEdit, inputs: [MediaInput]) {
         try sourceStamp?.validate(primaryURL)
         var resolved = self
@@ -366,7 +373,10 @@ extension VideoEdit {
             for source in sources {
                 try source.stamp.validate(source.url)
                 let input = try await MediaInput.open(source.url)
-                try input.requirePreservableStreams(omitting: omittedStreams, context: context)
+                let consent =
+                    source.url == primaryURL
+                    ? omittedStreams : omissions[source.url]?.streams(covering: source.stamp) ?? []
+                try input.requirePreservableStreams(omitting: consent, context: context)
                 guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
                 inputs.append(input)
                 validated.append(

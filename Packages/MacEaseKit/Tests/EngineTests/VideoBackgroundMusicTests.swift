@@ -816,7 +816,7 @@ private final class OnceFlag: Sendable {
         await editor.close()
     }
 
-    @Test func previewAndExportKeepTheSameSaturatedMixLevel() async throws {
+    @Test func nativePreviewDefersSaturationToOutputDevice() async throws {
         let folder = try TestVolume.makeFolder()
         let source = folder.appending(path: "saturated.mov")
         let signal = tone(frequency: 440, amplitude: 0.8, seconds: 2, sampleRate: Self.sampleRate, channels: 2)
@@ -835,11 +835,16 @@ private final class OnceFlag: Sendable {
         let exported = try await decodeVideoAudio(output)
         let previewLevel = rms(preview, from: 0.2, to: 1.8)
         let exportLevel = rms(exported, from: 0.2, to: 1.8)
-        #expect(abs(previewLevel - exportLevel) < 0.035, "preview \(previewLevel), export \(exportLevel)")
+        #expect(abs(previewLevel - 1.131371) < 0.035)
+        #expect(abs(exportLevel - 0.850146) < 0.035)
+        let clipped = DecodedAudio(
+            samples: preview.samples.map { min(1, max(-1, $0)) },
+            sampleRate: preview.sampleRate, channels: preview.channels)
+        #expect(abs(rms(clipped, from: 0.2, to: 1.8) - exportLevel) < 0.035)
         await editor.close()
     }
 
-    @Test func mixedMusicPreviewIsRemovedOnChangeAndClose() async throws {
+    @Test func nativeMusicEditsAreImmediateAndNeverStageMixedAudio() async throws {
         let folder = try TestVolume.makeFolder()
         let source = folder.appending(path: "cleanup.mov")
         try await writeVideo(to: source, duration: 2, audio: nil)
@@ -852,20 +857,85 @@ private final class OnceFlag: Sendable {
         var edit = VideoEdit()
         edit.segments = [VideoSegment(start: 0, end: 2)]
         edit.music = try BackgroundMusic.load(from: song)
+        edit.music?.volume = 0.25
+        let first = try await renderPreviewAudio(try await editor.playback(edit: edit))
+        var appearance = edit
+        appearance.adjustments[.exposure] = 0.5
+        let unchanged = try await renderPreviewAudio(try await editor.playback(edit: appearance))
+        #expect(abs(rms(first, from: 0.2, to: 0.8) - rms(unchanged, from: 0.2, to: 0.8)) < 0.001)
+        var louder = appearance
+        louder.music?.volume = 0.75
+        let changed = try await renderPreviewAudio(try await editor.playback(edit: louder))
+        #expect(abs(rms(changed, from: 0.2, to: 0.8) / rms(first, from: 0.2, to: 0.8) - 3) < 0.02)
         _ = try await editor.playback(edit: edit)
+        _ = try await editor.playback(edit: louder)
+        let registry = support.appending(path: "staging.json")
+        #expect(!FileManager.default.fileExists(atPath: registry.path))
+        await editor.close()
+    }
+
+    @Test func concurrentNonNativeMusicUsesOneSessionProxyAndCloseRemovesIt() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "cleanup.mov")
+        try await writeVideo(to: source, duration: 2, audio: nil)
+        let song = folder.appending(path: "cleanup.ogg")
+        try await AudioSignals.write(
+            tone(frequency: 440, amplitude: 0.5, seconds: 10, sampleRate: Self.sampleRate, channels: 2),
+            to: song, format: .ogg, sampleRate: Self.sampleRate, channels: 2)
+        let support = try AudioSignals.temporaryFolder()
+        let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0, end: 2)]
+        edit.music = try BackgroundMusic.load(from: song)
+        var other = edit
+        other.music?.volume = 0.75
+        let firstEdit = edit
+        let secondEdit = other
+        async let first = editor.playback(edit: firstEdit)
+        async let second = editor.playback(edit: secondEdit)
+        let (quiet, loud) = try await (first, second)
+        #expect(rms(try await renderPreviewAudio(quiet), from: 0.2, to: 0.8) > 0.05)
+        #expect(rms(try await renderPreviewAudio(loud), from: 0.2, to: 0.8) > 0.2)
         let registry = support.appending(path: "staging.json")
         let paths = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
-        #expect(!paths.isEmpty)
-        for path in paths { #expect(FileManager.default.fileExists(atPath: path)) }
-        var silent = edit
-        silent.music = nil
-        _ = try await editor.playback(edit: silent)
-        for path in paths { #expect(!FileManager.default.fileExists(atPath: path)) }
-        _ = try await editor.playback(edit: edit)
-        let replacement = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
-        #expect(!replacement.isEmpty)
+        #expect(paths.count == 1)
+        var appearance = edit
+        appearance.adjustments[.exposure] = 0.5
+        _ = try await editor.playback(edit: appearance)
+        #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)) == paths)
         await editor.close()
-        for path in replacement { #expect(!FileManager.default.fileExists(atPath: path)) }
+        for path in paths { #expect(!FileManager.default.fileExists(atPath: path)) }
+        #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).isEmpty)
+    }
+
+    @Test func closingDuringNonNativeMusicPreparationRemovesStaging() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "closing.mov")
+        try await writeVideo(to: source, duration: 2, audio: nil)
+        let song = folder.appending(path: "closing.ogg")
+        try await AudioSignals.write(
+            tone(frequency: 440, amplitude: 0.5, seconds: 30, sampleRate: Self.sampleRate, channels: 2),
+            to: song, format: .ogg, sampleRate: Self.sampleRate, channels: 2)
+        let support = try AudioSignals.temporaryFolder()
+        let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0, end: 2)]
+        edit.music = try BackgroundMusic.load(from: song)
+        let snapshot = edit
+        let preparation = Task { try await editor.playback(edit: snapshot) }
+        let registry = support.appending(path: "staging.json")
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !FileManager.default.fileExists(atPath: registry.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let paths = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
+        #expect(paths.count == 1)
+        await editor.close()
+        switch await preparation.result {
+        case .success: break
+        case .failure(let error): #expect(error is CancellationError)
+        }
+        for path in paths { #expect(!FileManager.default.fileExists(atPath: path)) }
         #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).isEmpty)
     }
 

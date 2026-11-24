@@ -6,13 +6,15 @@ import Foundation
 enum VideoEdits {
     private static let defaultQuality = 0.75
 
-    static func run(_ operation: VideoOperation, url: URL, context: ItemContext) async throws -> ItemResult {
+    static func run(
+        _ operation: VideoOperation, url: URL, context: ItemContext, omissions: [URL: StreamOmission] = [:]
+    ) async throws -> ItemResult {
         if case .edit(let edit) = operation {
             try edit.sourceStamp?.validate(url)
             try edit.music?.validateSource()
         }
         if case .edit(let edit) = operation, let sources = edit.sources, sources.count > 1 {
-            return try await joined(edit, sources: sources, url: url, context: context)
+            return try await joined(edit, sources: sources, url: url, context: context, omissions: omissions)
         }
         context.phase(.decoding)
         let input = try await MediaInput.open(url)
@@ -118,12 +120,12 @@ enum VideoEdits {
     }
 
     private static func joined(
-        _ edit: VideoEdit, sources: [VideoEditSource], url: URL, context: ItemContext
+        _ edit: VideoEdit, sources: [VideoEditSource], url: URL, context: ItemContext, omissions: [URL: StreamOmission]
     ) async throws -> ItemResult {
         try edit.geometry.validate()
         context.phase(.decoding)
         let resolved = try await edit.openedSources(
-            primaryURL: url, omittedStreams: context.omittedStreams, context: context)
+            primaryURL: url, omittedStreams: context.omittedStreams, omissions: omissions, context: context)
         let inputs = resolved.inputs
         guard let first = inputs.first, let video = first.video else {
             throw EngineError.invalidInput(.emptyInput)

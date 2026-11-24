@@ -57,6 +57,14 @@ import Testing
         }
     }
 
+    @Test func closedFrameIndexesCannotStartAnotherRead() async throws {
+        let source = try fixture("preview-23976.mp4")
+        let indexes = EditorFrameIndexes()
+        await indexes.close()
+        await #expect(throws: CancellationError.self) { _ = try await indexes.index(for: source) }
+        #expect(await indexes.buildCount == 0)
+    }
+
     @Test func lateContainerReverseDecodesOnlyItsGOPAndKeepsFrames() async throws {
         let source = try fixture("reverse-late-gop.mkv")
         let segment = VideoSegment(start: 58.2, end: 58.8)
@@ -137,6 +145,89 @@ import Testing
         try stamp.validate(source)
         let registry = support.appending(path: "staging.json")
         #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).isEmpty)
+    }
+
+    @Test func unknownOverlaySegmentCannotSelectAnotherSegment() throws {
+        let overlay = EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid))
+        var edit = VideoEdit()
+        let segment = VideoSegment(start: 0, end: 1)
+        edit.segments = [segment]
+        edit.overlays = [TimedOverlay(overlay: overlay, start: 0, end: 1)]
+        let timeline = try VideoTimeline(edit: edit, sourceDuration: 1)
+        #expect(timeline.overlays(at: 0.5, segmentID: segment.id) == [overlay])
+        #expect(timeline.overlays(at: 0.5, segmentID: UUID()).isEmpty)
+    }
+
+    @Test func joinedConsentIsPerSourceAndRecheckedAfterCacheHit() async throws {
+        let primary = try fixture("preview-23976.mp4")
+        let second = try fixture("reverse-timecode.mov")
+        let stamp = try MediaSourceStamp(url: second)
+        var edit = VideoEdit()
+        edit.sources = [
+            VideoEditSource(url: primary, duration: 1, stamp: try MediaSourceStamp(url: primary)),
+            VideoEditSource(url: second, duration: 1, stamp: stamp),
+        ]
+        let segment = VideoSegment(start: 0, end: 0.2, sourceIndex: 1)
+        edit.segments = [segment]
+        let editor = try await VideoEditorSource.open(
+            primary, staging: StagingArea(supportDirectory: try AudioSignals.temporaryFolder()))
+        let omissions = [second: StreamOmission(stamp: stamp, streams: [.timecode])]
+        _ = try await editor.playback(edit: edit, omissions: omissions)
+        _ = try await editor.frames(atOutput: [0.1], width: 80, edit: edit, omissions: omissions)
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
+            _ = try await editor.playback(edit: edit)
+        }
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
+            _ = try await editor.frames(atOutput: [0.1], width: 80, edit: edit)
+        }
+        await editor.close()
+    }
+
+    @Test func joinedExportAndFrameSaveRequireMatchingConsentForEverySource() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = folder.appending(path: "first.mov")
+        let second = folder.appending(path: "second.mov")
+        let original = try fixture("reverse-timecode.mov")
+        try FileManager.default.copyItem(at: original, to: first)
+        try FileManager.default.copyItem(at: original, to: second)
+        let firstStamp = try MediaSourceStamp(url: first)
+        let secondStamp = try MediaSourceStamp(url: second)
+        var edit = VideoEdit()
+        edit.sourceStamp = firstStamp
+        edit.sources = [
+            VideoEditSource(url: first, duration: 1, stamp: firstStamp),
+            VideoEditSource(url: second, duration: 1, stamp: secondStamp),
+        ]
+        edit.segments = [VideoSegment(start: 0, end: 0.2), VideoSegment(start: 0, end: 0.2, sourceIndex: 1)]
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let settings = Settings()
+        let denied = await engine.run(
+            MediaEditing.video(url: first, edit: edit, settings: settings, omittedStreams: [.timecode]),
+            settings: settings
+        ) { _ in }
+        #expect(denied.outcomes.first == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+        var omissions = [
+            first: StreamOmission(stamp: firstStamp, streams: [.timecode]),
+            second: StreamOmission(stamp: firstStamp, streams: [.timecode]),
+        ]
+        let mismatched = await engine.run(
+            MediaEditing.video(url: first, edit: edit, settings: settings, omissions: omissions), settings: settings
+        ) { _ in }
+        #expect(mismatched.outcomes.first == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+        omissions[second] = StreamOmission(stamp: secondStamp, streams: [.timecode])
+        let batches = [
+            MediaEditing.video(url: first, edit: edit, settings: settings, omissions: omissions),
+            MediaEditing.frame(url: first, edit: edit, outputSeconds: 0.3, settings: settings, omissions: omissions),
+        ]
+        for batch in batches {
+            let result = await engine.run(batch, settings: settings) { _ in }
+            guard case .succeeded(let outputs, _) = result.outcomes.first else {
+                Issue.record("matching source consent failed: \(result.outcomes)")
+                continue
+            }
+            #expect(outputs.count == 1)
+            for output in outputs { #expect(FileManager.default.fileExists(atPath: output.path)) }
+        }
     }
 
     private func fixture(_ name: String) throws -> URL {

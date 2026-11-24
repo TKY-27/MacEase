@@ -41,7 +41,7 @@ public struct MediaPreview: Sendable {
         input: MediaInput, at seconds: [Double], width: Int, geometry: EditGeometry,
         adjustments: MediaAdjustments, toneMapToSDR: Bool, exactFrame: Bool,
         overlays: [EditOverlay] = [],
-        overlaySelection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])?
+        overlaySelection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])?, frameIndex: EditorFrameIndex? = nil
     ) async throws -> [CGImage] {
         try geometry.validate()
         try adjustments.validate()
@@ -61,6 +61,14 @@ public struct MediaPreview: Sendable {
             adjustments: adjustments.isIdentity ? nil : adjustments)
         edit.hasOverlays = !overlays.isEmpty || overlaySelection != nil
         edit.annotationSize = edited
+        let selectedIndex: EditorFrameIndex?
+        if let frameIndex {
+            selectedIndex = frameIndex
+        } else if edit.hasOverlays || input.container.fileType == nil {
+            selectedIndex = try await EditorFrameIndex(input: input)
+        } else {
+            selectedIndex = nil
+        }
         var images: [CGImage] = []
         for second in seconds {
             let (lastFrameStart, startOverflow) = input.duration.subtractingReportingOverflow(input.frameDuration)
@@ -72,7 +80,7 @@ public struct MediaPreview: Sendable {
             guard !spanOverflow, !endOverflow else { throw EngineError.decodeFailed("media timestamp out of range") }
             let sampler = try await FrameSampler(
                 input: input, frameDuration: exactFrame ? 1 : input.frameDuration, edit: edit, start: time,
-                end: end, toneMapToSDR: toneMapToSDR)
+                end: end, toneMapToSDR: toneMapToSDR, frameIndex: selectedIndex)
             guard
                 let frame = try await sampler.next(
                     sourceTime: time, timestamp: time, overlays: overlays, overlaySelection: overlaySelection)

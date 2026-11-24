@@ -209,7 +209,7 @@ import Testing
         generator.requestedTimeToleranceAfter = .zero
         let preview = try await generator.image(at: CMTime(seconds: 0.1, preferredTimescale: 60_000)).image
         let fetched = try #require(
-            try await editor.frames(at: [0.1], width: 160, edit: edit, exactFrame: true).first)
+            try await editor.frames(atOutput: [0.1], width: 160, edit: edit, exactFrame: true).first)
         for image in [preview, fetched] {
             #expect(
                 try ImageFixtures.pixel(image, x: image.width / 2, y: image.height / 2).prefix(3).allSatisfy { $0 < 16 }
@@ -244,7 +244,7 @@ import Testing
         generator.requestedTimeToleranceAfter = .zero
         let preview = try await generator.image(at: .zero).image
         let fetched = try #require(
-            try await editor.frames(at: [requested], width: 160, edit: edit, exactFrame: true).first)
+            try await editor.frames(atOutput: [requested], width: 160, edit: edit, exactFrame: true).first)
         for image in [preview, fetched] {
             #expect(
                 try ImageFixtures.pixel(image, x: image.width / 2, y: image.height / 2)

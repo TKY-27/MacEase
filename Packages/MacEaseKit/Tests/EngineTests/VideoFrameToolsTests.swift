@@ -734,7 +734,7 @@ private final class TaskHolder: Sendable {
         var reversed = try await editor.reverse(segmentID: target.id, in: edit)
         let staged = try #require(reversed.sources?.last)
         let inferred = try #require(
-            try await editor.frames(at: [0.3], width: 160, edit: reversed, exactFrame: true).first)
+            try await editor.frames(atOutput: [0.3], width: 160, edit: reversed, exactFrame: true).first)
         #expect(try ImageFixtures.pixel(inferred, x: 60, y: 50).prefix(3).allSatisfy { $0 < 16 })
         var duplicate = try #require(reversed.segments?.first)
         duplicate.id = UUID()
@@ -820,6 +820,23 @@ private final class TaskHolder: Sendable {
         #expect(
             zip(actualPixel, expectedPixel).allSatisfy { abs(Int($0) - Int($1)) < 10 },
             "actual \(actualPixel), expected \(expectedPixel)")
+        for (outputTime, sourceTime, segments) in [
+            (1.25, 0.25, [seg0, seg1]),
+            (0.05, 0.65, [VideoSegment(start: 0.6, end: 0.8, sourceIndex: 1)]),
+        ] {
+            var selection = edit
+            selection.segments = segments
+            let output = try #require(
+                try await editor.frames(atOutput: [outputTime], width: 160, edit: selection, exactFrame: true).first)
+            let selected = try #require(
+                try await reference.frames(
+                    at: [sourceTime], width: 160, exactFrame: true, overlays: edit.overlays.map(\.overlay)
+                ).first)
+            #expect(try ImageFixtures.pixel(output, x: 20, y: 60).prefix(3).allSatisfy { $0 < 10 })
+            let rendered = try ImageFixtures.pixel(output, x: 140, y: 60)
+            let original = try ImageFixtures.pixel(selected, x: 140, y: 60)
+            #expect(zip(rendered, original).allSatisfy { abs(Int($0) - Int($1)) < 10 })
+        }
         await #expect(throws: EngineError.invalidInput(.videoSegmentNotFound)) {
             _ = try await editor.frames(at: [0.5], width: 160, edit: edit, segmentID: UUID())
         }

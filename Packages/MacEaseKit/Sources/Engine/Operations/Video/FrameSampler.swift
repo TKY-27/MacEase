@@ -326,10 +326,12 @@ final class EditorFrameIndex: Sendable {
 }
 
 actor EditorFrameIndexes {
+    private var closed = false
     private(set) var buildCount = 0
     private var indexes: [URL: Task<EditorFrameIndex, any Error>] = [:]
 
     func index(for url: URL) async throws -> EditorFrameIndex {
+        guard !closed else { throw CancellationError() }
         if let existing = indexes[url] { return try await existing.value }
         let task = Task { try await EditorFrameIndex(input: MediaInput.open(url)) }
         buildCount += 1
@@ -343,6 +345,7 @@ actor EditorFrameIndexes {
     }
 
     func close() {
+        closed = true
         for task in indexes.values { task.cancel() }
         indexes.removeAll()
     }

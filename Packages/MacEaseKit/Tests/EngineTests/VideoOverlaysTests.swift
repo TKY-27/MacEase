@@ -359,7 +359,7 @@ import Testing
             let exported = savedResult.image
             let shown = try await preview.image(at: time).image
             let fetched = try #require(
-                try await editor.frames(at: [second], width: 160, edit: edit, exactFrame: true).first)
+                try await editor.frames(atOutput: [second], width: 160, edit: edit, exactFrame: true).first)
             for (label, image) in [("export", exported), ("preview", shown), ("frames", fetched)] {
                 let pixel = try ImageFixtures.pixel(image, x: 80, y: 60)
                 if redacted {
@@ -501,7 +501,8 @@ import Testing
         preview.requestedTimeToleranceBefore = .zero
         preview.requestedTimeToleranceAfter = .zero
         let shown = try await preview.image(at: CMTime(seconds: 1, preferredTimescale: 60_000)).image
-        let fetched = try #require(try await editor.frames(at: [0.5], width: 160, edit: edit, exactFrame: true).first)
+        let fetched = try #require(
+            try await editor.frames(atOutput: [0.5], width: 160, edit: edit, exactFrame: true).first)
         let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
         let outcome = await engine.run(
             MediaEditing.video(url: source, edit: edit, settings: Settings()), settings: Settings()

@@ -333,37 +333,55 @@ public enum MediaEditing {
     }
 
     public static func video(
-        url: URL, edit: VideoEdit, settings: Settings, omittedStreams: Set<UnpreservedStream> = []
+        url: URL, edit: VideoEdit, settings: Settings, omittedStreams: Set<UnpreservedStream> = [],
+        omissions: [URL: StreamOmission] = [:]
     ) -> Batch {
+        let primaryStamp =
+            edit.sourceStamp ?? edit.sources?.first(where: { $0.url == url })?.stamp ?? omissions[url]?.stamp
+        let consent =
+            omissions[url].map { omission in
+                primaryStamp.map { omission.streams(covering: $0) } ?? []
+            } ?? omittedStreams
         if (edit.sources?.count ?? 0) <= 1 {
             return OperationPlanner.batch(
                 for: OperationRequest(
-                    op: .videoEdit, options: .video(.edit(edit)), inputs: [url], omittedStreams: omittedStreams,
-                    inputStamps: edit.sourceStamp.map { [url: $0] } ?? [:]),
+                    op: .videoEdit, options: .video(.edit(edit)), inputs: [url], omittedStreams: consent,
+                    inputStamps: primaryStamp.map { [url: $0] } ?? [:]),
                 settings: settings)
         }
         let inputs = edit.sources?.map(\.url) ?? [url]
         var work = WorkItem(inputs: inputs, lane: .hardwareVideo) { context in
             for input in inputs { try OperationPlanner.validateInput(input) }
-            return try await VideoEdits.run(.edit(edit), url: url, context: context)
+            return try await VideoEdits.run(.edit(edit), url: url, context: context, omissions: omissions)
         }
-        work.omittedStreams = omittedStreams
+        work.omittedStreams = consent
         return Batch(operation: .videoEdit, items: [work])
     }
 
-    public static func frame(url: URL, edit: VideoEdit, outputSeconds: Double, settings: Settings) -> Batch {
+    public static func frame(
+        url: URL, edit: VideoEdit, outputSeconds: Double, settings: Settings, omissions: [URL: StreamOmission] = [:]
+    ) -> Batch {
+        let primaryStamp =
+            edit.sourceStamp ?? edit.sources?.first(where: { $0.url == url })?.stamp ?? omissions[url]?.stamp
+        let consent =
+            omissions[url].map { omission in
+                primaryStamp.map { omission.streams(covering: $0) } ?? []
+            } ?? []
         if (edit.sources?.count ?? 0) <= 1 {
             return OperationPlanner.batch(
                 for: OperationRequest(
                     op: .videoThumbnail, options: .video(.still(.edited(edit, outputSeconds: outputSeconds))),
-                    inputs: [url]),
+                    inputs: [url], omittedStreams: consent,
+                    inputStamps: primaryStamp.map { [url: $0] } ?? [:]),
                 settings: settings)
         }
         let inputs = edit.sources?.map(\.url) ?? [url]
-        let work = WorkItem(inputs: inputs, lane: .cpu) { context in
+        var work = WorkItem(inputs: inputs, lane: .cpu) { context in
             for input in inputs { try OperationPlanner.validateInput(input) }
-            return try await VideoStills.run(.edited(edit, outputSeconds: outputSeconds), url: url, context: context)
+            return try await VideoStills.run(
+                .edited(edit, outputSeconds: outputSeconds), url: url, context: context, omissions: omissions)
         }
+        work.omittedStreams = consent
         return Batch(operation: .videoThumbnail, items: [work])
     }
 }

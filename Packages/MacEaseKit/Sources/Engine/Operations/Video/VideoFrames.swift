@@ -10,9 +10,12 @@ enum VideoStills {
     private static let millisecondsPerMinute = 60_000
     private static let millisecondsPerWholeSecond = 1_000
 
-    static func run(_ still: VideoStill, url: URL, context: ItemContext) async throws -> ItemResult {
+    static func run(
+        _ still: VideoStill, url: URL, context: ItemContext, omissions: [URL: StreamOmission] = [:]
+    ) async throws -> ItemResult {
         if case .edited(let edit, let outputSeconds) = still {
-            return try await edited(edit, outputSeconds: outputSeconds, url: url, context: context)
+            return try await edited(
+                edit, outputSeconds: outputSeconds, url: url, context: context, omissions: omissions)
         }
         let input = try await MediaInput.open(url)
         let metadata = try await VideoMetadata.load(from: input)
@@ -43,7 +46,7 @@ enum VideoStills {
     }
 
     private static func edited(
-        _ edit: VideoEdit, outputSeconds: Double, url: URL, context: ItemContext
+        _ edit: VideoEdit, outputSeconds: Double, url: URL, context: ItemContext, omissions: [URL: StreamOmission]
     ) async throws -> ItemResult {
         try edit.sourceStamp?.validate(url)
         try edit.geometry.validate()
@@ -51,7 +54,7 @@ enum VideoStills {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
         let resolved = try await edit.openedSources(
-            primaryURL: url, omittedStreams: context.omittedStreams, context: context)
+            primaryURL: url, omittedStreams: context.omittedStreams, omissions: omissions, context: context)
         let inputs = resolved.inputs
         let first = inputs[0]
         let sourceDuration = Double(first.duration) / Double(Nanoseconds.perSecond)

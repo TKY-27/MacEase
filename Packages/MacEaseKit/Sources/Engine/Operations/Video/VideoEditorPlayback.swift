@@ -10,8 +10,9 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     public let audioMix: AVAudioMix?
     public let timeline: VideoTimeline
 
-    public static func joined(
-        urls: [URL], edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL? = nil
+    static func joined(
+        urls: [URL], edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL? = nil,
+        frameIndexes: EditorFrameIndexes = EditorFrameIndexes()
     ) async throws -> VideoEditorPlayback {
         guard let first = edit.sources?.first, urls.count == edit.sources?.count,
             sourceSize.width.isFinite, sourceSize.height.isFinite, sourceSize.width > 0, sourceSize.height > 0
@@ -20,18 +21,22 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         let timeline = try VideoTimeline(edit: edit, sourceDuration: first.duration)
         return try await make(
-            urls: urls, timeline: timeline, edit: edit, sourceSize: sourceSize, audioPreviewURL: audioPreviewURL)
+            urls: urls, timeline: timeline, edit: edit, sourceSize: sourceSize, audioPreviewURL: audioPreviewURL,
+            frameIndexes: frameIndexes)
     }
 
     static func make(
-        url: URL, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL? = nil
+        url: URL, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL? = nil,
+        frameIndexes: EditorFrameIndexes = EditorFrameIndexes()
     ) async throws -> VideoEditorPlayback {
         try await make(
-            urls: [url], timeline: timeline, edit: edit, sourceSize: sourceSize, audioPreviewURL: audioPreviewURL)
+            urls: [url], timeline: timeline, edit: edit, sourceSize: sourceSize, audioPreviewURL: audioPreviewURL,
+            frameIndexes: frameIndexes)
     }
 
     private static func make(
-        urls: [URL], timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL?
+        urls: [URL], timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL?,
+        frameIndexes: EditorFrameIndexes
     ) async throws -> VideoEditorPlayback {
         guard let first = urls.first else { throw EngineError.invalidInput(.emptyInput) }
         let source = AVURLAsset(url: first)
@@ -133,21 +138,10 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                 }
             }
         }
-        if timeline.music != nil {
-            guard let audioPreviewURL else {
-                throw EngineError.unexpected("music playback requires a prepared audio mix")
-            }
-            audioParameters = audioTracks.map { track in
-                guard let track else { return nil }
-                let parameters = AVMutableAudioMixInputParameters(track: track)
-                parameters.setVolumeRamp(
-                    fromStartVolume: 0, toEndVolume: 0,
-                    timeRange: CMTimeRange(start: .zero, duration: time(timeline.duration)))
-                return parameters
-            }
+        if let music = timeline.music {
             audioParameters.append(
-                try await addMixedAudioTrack(
-                    audioPreviewURL, to: composition, duration: timeline.duration))
+                try await addMusicTrack(
+                    audioPreviewURL ?? music.url, music: music, to: composition, duration: timeline.duration))
         }
         let mix: AVAudioMix?
         let parameters = audioParameters.compactMap { $0 }
@@ -164,7 +158,8 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         let videoComposition: AVVideoComposition?
         if edit.changesAppearance || urls.count > 1 || timeline.hasFades {
             videoComposition = try await filtered(
-                composition, timeline: timeline, edit: edit, sourceSize: sourceSize, urls: urls)
+                composition, timeline: timeline, edit: edit, sourceSize: sourceSize, urls: urls,
+                frameIndexes: frameIndexes)
         } else {
             videoComposition = nil
         }
@@ -176,7 +171,8 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     }
 
     private static func filtered(
-        _ asset: AVAsset, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, urls: [URL]
+        _ asset: AVAsset, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, urls: [URL],
+        frameIndexes: EditorFrameIndexes
     ) async throws -> AVVideoComposition {
         let geometry = edit.geometry
         let original = geometry.outputSize(sourceSize)
@@ -200,15 +196,14 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             let input = try await MediaInput.open(url)
             if sourceFrameDuration == nil { sourceFrameDuration = input.frameDuration }
             sourceOrientations.append(try input.displayOrientation)
-            guard case .asset(let asset, let track?, _) = input.backend else {
+            guard case .asset(_, _?, _) = input.backend else {
                 throw EngineError.decodeFailed("preview source has no native video track")
             }
             if hasOverlays {
-                let playbackIndex = try await EditorFrameIndex(asset: asset, track: track, end: input.duration)
+                let playbackIndex = try await frameIndexes.index(for: input.url)
                 playbackIndexes.append(playbackIndex)
                 if let original = edit.sources?[index], original.url != url {
-                    let opened = try await MediaInput.open(original.url)
-                    sourceIndexes.append(try await EditorFrameIndex(input: opened))
+                    sourceIndexes.append(try await frameIndexes.index(for: original.url))
                 } else {
                     sourceIndexes.append(playbackIndex)
                 }
@@ -303,20 +298,29 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         return AVVideoComposition(configuration: configuration)
     }
 
-    private static func addMixedAudioTrack(
-        _ url: URL, to composition: AVMutableComposition, duration: Double
+    private static func addMusicTrack(
+        _ url: URL, music: BackgroundMusic, to composition: AVMutableComposition, duration: Double
     ) async throws -> AVMutableAudioMixInputParameters {
         let asset = AVURLAsset(url: url)
         guard let source = try await asset.loadTracks(withMediaType: .audio).first,
             let track = composition.addMutableTrack(
                 withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-        else { throw EngineError.decodeFailed("no mixed preview audio track") }
+        else { throw EngineError.decodeFailed("no music preview audio track") }
         track.naturalTimeScale = compositionTimescale
-        try track.insertTimeRange(CMTimeRange(start: .zero, duration: time(duration)), of: source, at: .zero)
+        let played = music.playDuration(forOutputDuration: duration)
+        try track.insertTimeRange(CMTimeRange(start: time(music.start), duration: time(played)), of: source, at: .zero)
         let parameters = AVMutableAudioMixInputParameters(track: track)
+        let fade = music.fade(forOutputDuration: duration)
+        let hold = played - fade.fadeOut
+        let volume = Float(music.volume)
         parameters.setVolumeRamp(
-            fromStartVolume: 1, toEndVolume: 1,
-            timeRange: CMTimeRange(start: .zero, duration: time(duration)))
+            fromStartVolume: volume, toEndVolume: volume,
+            timeRange: CMTimeRange(start: .zero, duration: time(hold)))
+        if fade.fadeOut > 0 {
+            parameters.setVolumeRamp(
+                fromStartVolume: volume, toEndVolume: 0,
+                timeRange: CMTimeRange(start: time(hold), duration: time(fade.fadeOut)))
+        }
         return parameters
     }
 
