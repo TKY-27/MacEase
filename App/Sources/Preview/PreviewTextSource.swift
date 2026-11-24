@@ -166,19 +166,25 @@ struct PreviewTextSource: Sendable {
 enum PreviewLanguage: Sendable {
     case plain, swift, javascript, python, c, json, markup, css, shell, yaml, markdown
 
-    static func resolve(_ suffix: String) -> Self {
-        switch suffix.lowercased() {
-        case "swift": .swift
-        case "js", "jsx", "ts", "tsx", "mjs", "cjs": .javascript
-        case "py", "pyw": .python
-        case "c", "h", "cpp", "hpp", "cc", "m", "mm", "java", "cs": .c
-        case "json": .json
-        case "html", "htm", "xml", "plist", "svg": .markup
-        case "css", "scss": .css
-        case "sh", "bash", "zsh", "fish": .shell
-        case "yaml", "yml", "toml": .yaml
-        case "md", "markdown": .markdown
-        default: .plain
+    static func resolve(_ suffix: String, fileName: String? = nil) -> Self {
+        let lowered = suffix.lowercased()
+        if lowered.isEmpty, fileName?.lowercased() == ".env" { return .shell }
+        switch lowered {
+        case "swift": return .swift
+        case "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx": return .javascript
+        case "py", "pyw", "pyi": return .python
+        case "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl", "m", "mm",
+            "java", "kt", "kts", "gradle", "groovy", "scala", "cs", "csx", "dart":
+            return .c
+        case "json", "jsonc", "json5": return .json
+        case "html", "htm", "xhtml", "xml", "xaml", "csproj", "vcxproj", "fsproj", "vbproj",
+            "props", "targets", "plist", "manifest", "svg", "vue", "svelte", "astro":
+            return .markup
+        case "css", "scss", "sass", "less": return .css
+        case "sh", "bash", "zsh", "fish", "env": return .shell
+        case "yaml", "yml", "toml": return .yaml
+        case "md", "markdown", "mdx": return .markdown
+        default: return .plain
         }
     }
 
