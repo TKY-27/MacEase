@@ -70,9 +70,10 @@ final class FinderStorageBar {
     /// Nil hides the strip.
     func follow(_ window: Window?) {
         if let window, window.id != windowID {
+            let switchedWindow = windowID != nil
             windowID = window.id
             windowView = .unknown
-            model.forgetLocation()
+            if switchedWindow { model.forgetLocation() }
         }
         self.window = window
         place()

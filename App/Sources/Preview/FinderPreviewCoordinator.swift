@@ -109,7 +109,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         activationObserver.map(NotificationCenter.default.removeObserver)
         activationObserver = nil
-        detach()
+        detach(immediately: true)
     }
 
     func followTrackedWindow(_ window: TrackedWindow?, trusted: Bool = true) {
@@ -252,19 +252,24 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         }
     }
 
-    private func detach() {
+    private func detach(immediately: Bool = false) {
         stopTrustPolling()
         stopTracking()
         state.notice = nil
         mayAskConsent = false
-        dismissPanel()
+        dismissPanel(immediately: immediately)
     }
 
-    private func dismissPanel() {
+    private func dismissPanel(immediately: Bool = false) {
         guard let panel else { return }
         self.panel = nil
         panel.delegate = nil
-        panel.dismiss()
+        if immediately {
+            panel.contentView = nil
+            panel.close()
+        } else {
+            panel.dismiss()
+        }
     }
 
     private func stopTracking() {

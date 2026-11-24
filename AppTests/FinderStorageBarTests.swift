@@ -443,10 +443,10 @@ final class FinderStorageBarModelTests: XCTestCase {
             root: URL(fileURLWithPath: "/mnt/Scratch"), totalBytes: 400, availableBytes: 100)
         let rootMount = StorageVolume.MountedVolume(
             root: URL(fileURLWithPath: "/"), totalBytes: 1_000, availableBytes: 500)
-        var mounted = [rootMount, usbMount, customMount]
+        let mounted = OSAllocatedUnfairLock(initialState: [rootMount, usbMount, customMount])
 
         let model = FinderStorageBarModel { target in
-            let current = await MainActor.run { mounted }
+            let current = mounted.withLock { $0 }
             return try FinderStorageBarModel.readVolumeSync(for: target, mounted: current) { startup }
         }
 
@@ -454,14 +454,14 @@ final class FinderStorageBarModelTests: XCTestCase {
         try await waitUntil { model.volume?.name == "USB" }
         XCTAssertFalse(model.showsStartupDisk)
 
-        mounted = [rootMount, customMount]
+        mounted.withLock { $0 = [rootMount, customMount] }
         model.refreshVolume()
         try await waitUntil { model.volume == startup && model.showsStartupDisk }
 
         model.update(selectionCount: 0, folder: URL(fileURLWithPath: "/mnt/Scratch/Sub"))
         try await waitUntil { model.volume?.name == "Scratch" && !model.showsStartupDisk }
 
-        mounted = [rootMount]
+        mounted.withLock { $0 = [rootMount] }
         model.refreshVolume()
         try await waitUntil { model.volume == startup && model.showsStartupDisk }
     }
@@ -525,37 +525,37 @@ final class FinderStorageBarPresenceTests: XCTestCase {
     }
 
     func testHidingCancelsPendingVolumeWorkAndSkipsRefresh() async throws {
-        var reads = 0
-        var statusBarShown = true
+        let reads = AtomicCounter()
+        let statusBarShown = OSAllocatedUnfairLock(initialState: true)
         let gate = AsyncGate<FinderStorageBarModel.VolumeSnapshot>()
         let sample = StorageVolume(name: "Disk", total: 100, available: 40, availableForImportantUsage: nil)
         let model = FinderStorageBarModel { _ in
-            await MainActor.run { reads += 1 }
+            reads.increment()
             return try await gate.wait()
         }
-        let bar = FinderStorageBar(model: model, readsStatusBar: { statusBarShown })
+        let bar = FinderStorageBar(model: model, readsStatusBar: { statusBarShown.withLock { $0 } })
         bar.start()
         addTeardownBlock { @MainActor in bar.stop() }
 
         bar.follow(window)
         bar.model.update(selectionCount: 0, folder: URL(fileURLWithPath: "/Users"))
-        try await waitUntil { gate.isWaiting && reads == 1 }
+        try await waitUntil { gate.isWaiting && reads.value == 1 }
 
         bar.follow(nil)
         gate.resume(returning: .init(volume: sample, startupDisk: false, mountRoot: URL(fileURLWithPath: "/")))
         bar.refresh()
-        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(reads.value, 1)
         XCTAssertNil(bar.model.volume)
 
-        statusBarShown = false
+        statusBarShown.withLock { $0 = false }
         bar.follow(window)
         bar.refresh()
-        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(reads.value, 1)
 
-        statusBarShown = true
+        statusBarShown.withLock { $0 = true }
         bar.follow(.init(id: 0, frame: CGRect(x: 0, y: 0, width: 100, height: 400), preview: nil))
         bar.refresh()
-        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(reads.value, 1)
     }
 }
 
@@ -685,12 +685,11 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
             reader: reader, isTrusted: { true }, finderIsFrontmost: { true }, frontWindowMatches: { true })
         addTeardownBlock { @MainActor in coordinator.stop() }
         coordinator.storageBar.start()
-        let generationBefore = coordinator.state.generation
-
         coordinator.followTrackedWindow(
             .init(
                 id: 42, frame: CGRect(x: 100, y: 100, width: 900, height: 600),
                 screen: CGRect(x: 0, y: 0, width: 1600, height: 1000), visible: true))
+        let generationAfterTrack = coordinator.state.generation
         try await waitUntil { coordinator.storageBar.model.selectionCount == 1 && coordinator.storageBar.isVisible }
 
         XCTAssertTrue(coordinator.state.urls.isEmpty)
@@ -699,12 +698,11 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.state.detected)
         XCTAssertNil(coordinator.state.fileFailure)
         XCTAssertNil(coordinator.state.notice)
-        XCTAssertEqual(coordinator.state.generation, generationBefore + 1)
+        XCTAssertEqual(coordinator.state.generation, generationAfterTrack)
 
-        let generationAfterSelection = coordinator.state.generation
         store.finderPreview.disabledKinds.insert(.text)
         store.finderPreview.addTrustedFolder(directory)
-        XCTAssertEqual(coordinator.state.generation, generationAfterSelection)
+        XCTAssertEqual(coordinator.state.generation, generationAfterTrack)
         XCTAssertTrue(coordinator.state.urls.isEmpty)
         XCTAssertNil(coordinator.state.kind)
     }
