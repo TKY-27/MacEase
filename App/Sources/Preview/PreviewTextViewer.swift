@@ -569,7 +569,6 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         contentVersion &+= 1
         let styled = NSMutableAttributedString(
             string: rendering.text, attributes: [.font: font, .foregroundColor: NSColor.textColor])
-        let sourceUnits = rendering.text as NSString
         for token in rendering.tokens {
             switch token.kind {
             case .keyword:
@@ -591,16 +590,7 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
                     [.foregroundColor: Self.diffRemovedForeground, .backgroundColor: Self.diffRemovedBackground],
                     range: token.range)
             case .invisible:
-                let code = sourceUnits.character(at: token.range.location)
-                styled.addAttributes(
-                    [
-                        .backgroundColor: Self.invisibleBackground,
-                        .underlineStyle: NSUnderlineStyle.single.rawValue,
-                        .underlineColor: Self.invisibleUnderline,
-                        .kern: Self.invisibleKern,
-                        .toolTip: String(format: "U+%04X", code),
-                    ],
-                    range: token.range)
+                styled.addAttribute(.backgroundColor, value: Self.invisibleBackground, range: token.range)
             }
         }
         textStorage?.setAttributedString(styled)
@@ -614,7 +604,6 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
         .accessibilityHighContrastVibrantLight, .accessibilityHighContrastVibrantDark,
     ]
-    private static let invisibleKern: CGFloat = 4
 
     static func diffBackgroundColor(added: Bool, dark: Bool, highContrast: Bool) -> NSColor {
         switch (added, dark, highContrast) {
@@ -664,12 +653,6 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         lightHighContrast: NSColor(srgbRed: 0.90, green: 0.52, blue: 0.0, alpha: 0.38),
         dark: NSColor(srgbRed: 0.95, green: 0.65, blue: 0.10, alpha: 0.28),
         darkHighContrast: NSColor(srgbRed: 0.98, green: 0.70, blue: 0.15, alpha: 0.42))
-
-    private static let invisibleUnderline = adaptiveColor(
-        light: NSColor(srgbRed: 0.78, green: 0.42, blue: 0.0, alpha: 1),
-        lightHighContrast: NSColor(srgbRed: 0.58, green: 0.28, blue: 0.0, alpha: 1),
-        dark: NSColor(srgbRed: 1.0, green: 0.72, blue: 0.25, alpha: 1),
-        darkHighContrast: NSColor(srgbRed: 1.0, green: 0.84, blue: 0.40, alpha: 1))
 
     private static func adaptiveColor(
         light: NSColor, lightHighContrast: NSColor, dark: NSColor, darkHighContrast: NSColor
