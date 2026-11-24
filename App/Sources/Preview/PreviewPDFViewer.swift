@@ -96,7 +96,7 @@ private struct PreviewPDFUnlock: View {
         rejected = true
         focused = true
         NSAccessibility.post(
-            element: NSApp.mainWindow as Any, notification: .announcementRequested,
+            element: NSApplication.shared, notification: .announcementRequested,
             userInfo: [.announcement: String(localized: "The password is incorrect.")])
     }
 }
