@@ -74,6 +74,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The disk image opens a designed install window: drag MacEase onto
   Applications.
 
+- Finder Preview shows CSV and TSV files as a table, with sorting by column,
+  Find and Copy of selected rows, up to 50,000 rows and 256 columns. **Source**
+  shows the text.
+
+- Finder Preview switches between the faces of a font collection and shows
+  each face's style and glyph count.
+
+- Finder Preview highlights 47 languages, opens `Makefile`, `Dockerfile`,
+  `Gemfile` and similar files by name, and tints added and removed lines of
+  diff and patch files across the whole row.
+
+- Finder Preview marks hidden and direction-changing characters in source
+  text, names them on hover, and warns when a file contains bidirectional
+  control or tag characters.
+
+- Finder Preview lists the contents of ZIP, TAR and compressed TAR archives
+  without extracting them, with search, sorting, Copy Path and a Browse
+  Contents button for ZIPs. **Settings > Finder Windows** has an Archives type.
+
+- Video and audio that MacEase could not decode, such as WMV, MPEG, VOB,
+  RealMedia, MXF, WMA, DTS, WavPack and Monkey's Audio, can be converted,
+  compressed, trimmed and processed through the bundled FFmpeg. The result is
+  always a new file, even in Replace mode, and anything that could not be
+  carried over is reported. **Convert and Play** in Finder Preview covers these
+  formats too.
+
+- The editor timeline works with VoiceOver: the playhead, segments, markup,
+  music and silence ranges are described, and segment edits are available as
+  VoiceOver actions. This was not tested in a VoiceOver session.
+
+- Press C in the editor to select the segment under the playhead.
+
+- Photo zoom in the editor has a 100% step, counts real pixels, and shows the
+  current zoom level.
+
+- **Settings > General > If some content can’t be kept**: choose **Save
+  without it** to skip the question for results saved as new files.
+  Replacing an original always asks.
+
+- **Options…** for **Open Terminal Here** (Terminal, iTerm, Ghostty, Warp,
+  WezTerm, kitty or another app) and **New File** (templates) in
+  **Settings > Finder Menu > Commands**.
+
 ### Changed
 
 - Finder Preview shows only the content under one top bar, without the title,
@@ -121,6 +164,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   child processes. Add host Finder Automation entitlement. Distribution remains
   self-signed and unnotarized; the host remains unsandboxed.
 
+- The editor timeline keeps the playhead in view during playback while it was
+  visible when playback started; scrolling or zooming the timeline yourself
+  stops this.
+
+- Disabled editor controls explain why in their tooltip, and Remove Silence…
+  is disabled when nothing audible remains.
+
+- The Settings sidebar groups its pages; Text is now **Text & PDF**, and
+  Advanced no longer repeats the Full Disk Access row.
+
+- Plain, consistent wording across the app in English and Japanese, including
+  **Open at login**, **Saving Results**, **Show Activity automatically**,
+  **Allow permanent deletion**, **Create New Token** and the Welcome headline
+  **Set Up MacEase**. Japanese uses one term per concept, such as セグメント,
+  再生ヘッド and 取り消す.
+
+- Archive names that are not UTF-8 are read as Japanese Windows (CP932) text
+  when Japanese is one of your preferred languages and every such name in the
+  archive is valid CP932; otherwise ZIP names are read as CP437 as before.
+  Extract with HatchZip sends those CP932 archives through MacEase's own
+  extractor, which keeps the archive and supports Undo. Browse Contents uses
+  the same rule.
+
+- Browse Contents shows control and text-direction characters in entry names
+  as replacement characters and reads ZIP archives with comments up to 65,535
+  bytes.
+
 ### Removed
 
 - Text editing in Finder Preview (Edit, Save, Revert and the unsaved-changes
@@ -133,6 +203,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Menu, replaced by the organizer.
 
 ### Fixed
+
+- Opening a MOV or MP4 whose audio codec macOS cannot decode, such as Vorbis,
+  could stop MacEase; it now reports an error or uses the FFmpeg fallback.
+
+- Archive decompression no longer accepts filters that could start an external
+  program, including inside another compression layer.
+
+- Extract with HatchZip wrote Japanese Windows file names as unreadable
+  characters and could split a name into folders; with Japanese preferred,
+  such archives are now extracted with correct names. TAR archives with names
+  that are neither UTF-8 nor valid CP932 are refused before anything changes.
 
 - Compressing or converting a MOV with a timecode track, as most cameras and
   editing apps write, stopped with a refusal; timing-preserving MOV outputs now
