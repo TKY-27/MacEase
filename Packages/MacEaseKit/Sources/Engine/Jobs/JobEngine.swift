@@ -463,7 +463,7 @@ public final class JobEngine: Sendable {
     }
 
     /// Coordination downloads dataless cloud files.
-    private static func downloadIfNeeded(_ urls: [URL]) throws {
+    static func downloadIfNeeded(_ urls: [URL]) throws {
         for url in urls {
             var metadata = stat()
             guard stat(url.path, &metadata) == 0 else {

@@ -486,14 +486,44 @@ enum UserMessages {
         }
     }
 
+    private static func archiveCompression(_ method: UInt16) -> String {
+        switch method {
+        case 9: String(localized: "Deflate64 compression")
+        case 12: String(localized: "Bzip2 compression")
+        case 93: String(localized: "Zstandard compression")
+        case 95: String(localized: "XZ compression")
+        case 98: String(localized: "PPMd compression")
+        case 6: String(localized: "Implode compression")
+        case 1: String(localized: "Shrink compression")
+        case 2...5: String(localized: "Reduce compression")
+        case 96: String(localized: "JPEG compression inside ZIP")
+        case 97: String(localized: "WavPack compression inside ZIP")
+        case 99: String(localized: "unreadable AES ZIP encryption metadata")
+        default: String(localized: "an unsupported ZIP compression format")
+        }
+    }
+
     private static func archiveFeature(_ feature: ArchiveExtractionFeature) -> String {
         switch feature {
         case .splitVolumes: String(localized: "split archive volumes")
-        case .zipCompression(let method): String(localized: "ZIP compression method \(method)")
-        case .zipStrongEncryption: String(localized: "ZIP strong encryption")
-        case .zipBackslashSeparators: String(localized: "ZIP backslash path separators")
-        case .zipEncryptedLinks: String(localized: "encrypted ZIP links")
-        case .zipLinkCompression(let method): String(localized: "ZIP link compression method \(method)")
+        case .zipCompression(let method): archiveCompression(method)
+        case .zipStrongEncryption: String(localized: "PKWARE Strong Encryption")
+        case .zipBackslashSeparators: String(localized: "Windows-style ZIP path separators")
+        case .zipEncryptedLinks: String(localized: "encrypted symbolic links inside ZIP")
+        case .zipLinkCompression(let method): String(localized: "symbolic links using \(archiveCompression(method))")
+        }
+    }
+
+    private static func archiveInspectionLimit(_ limit: ArchiveInspectionLimit) -> String {
+        switch limit {
+        case .duration: String(localized: "the 10-second inspection time limit")
+        case .entries: String(localized: "the 100,000-entry inspection limit")
+        case .metadata: String(localized: "the 32 MiB name-metadata limit")
+        case .depth: String(localized: "the 256-component path limit")
+        case .volumes: String(localized: "the 10,000-volume inspection limit")
+        case .linkTarget: String(localized: "the 64 KiB ZIP link-target limit")
+        case .compressionLayers: String(localized: "the single outer compression layer limit")
+        case .expansion(let bytes): String(localized: "the \(byteCount(bytes)) expanded-size inspection limit")
         }
     }
 
@@ -552,11 +582,19 @@ enum UserMessages {
                     "Couldn’t extract “\(file)”: entry “\(path)” points outside its folder. Use an archive with safe relative paths."
             )
         case .archiveNameEncodingUnsupported:
-            String(localized: "This archive uses a text encoding for file names that MacEase can’t read.")
-        case .archiveNameInspectionLimit:
             String(
                 localized:
-                    "MacEase couldn’t verify this archive’s file-name encoding within the inspection limits. The original was not changed."
+                    "Couldn’t extract “\(file)”: its file-name encoding is not supported with the current language preferences. Re-create it with UTF-8 file names or use an app that lets you choose the encoding. The original was not changed."
+            )
+        case .archiveNameInspectionLimit(let limit):
+            String(
+                localized:
+                    "Couldn’t inspect “\(file)”: it reached \(archiveInspectionLimit(limit)). Use another archive app or create a smaller archive. The original was not changed."
+            )
+        case .archiveNameCollision(let first, let second):
+            String(
+                localized:
+                    "Couldn’t extract “\(file)”: entries “\(first)” and “\(second)” have the same name on this disk. Re-create the archive with distinct file and folder names. The original was not changed."
             )
         case .wrappedZIPArchive:
             String(
@@ -568,7 +606,7 @@ enum UserMessages {
         case .archiveLegacyFeatureUnsupported(let feature):
             String(
                 localized:
-                    "This archive uses legacy file-name encoding and an unsupported extraction feature: \(archiveFeature(feature)). The original was not changed."
+                    "Couldn’t extract “\(file)”: CP932 file names cannot be combined with \(archiveFeature(feature)). Re-create it as a single ZIP with UTF-8 file names and Deflate compression, or use another archive app. The original was not changed."
             )
         case .archiveExpandsTooMuch(let limit):
             String(

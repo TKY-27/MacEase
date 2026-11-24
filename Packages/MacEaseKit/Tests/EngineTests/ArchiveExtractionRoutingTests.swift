@@ -7,13 +7,13 @@ import Testing
 @testable import Engine
 
 @Suite(.serialized) struct ArchiveExtractionRoutingTests {
-    private var executable: URL {
+    var executable: URL {
         URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Vendor/build/macease-hatchzip")
     }
 
-    private func fixture(
+    func fixture(
         in folder: URL, format: String = "zip", encoding: String = "cp932", encryption: String = "none",
         variant: String = "nested", size: Int = 0
     ) throws -> URL {
@@ -30,7 +30,7 @@ import Testing
         return variant == "split" ? source.appendingPathExtension("001") : source
     }
 
-    private func run(
+    func run(
         _ source: URL, in folder: URL, settings: Settings = Settings(), password: String? = nil,
         native: Bool = false, prefersJapanese: Bool = true, executable: URL? = nil, sessionID: UUID? = nil,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
@@ -48,7 +48,7 @@ import Testing
         return (outcome, engine, store, batch)
     }
 
-    private func output(_ outcome: BatchOutcome) throws -> URL {
+    func output(_ outcome: BatchOutcome) throws -> URL {
         guard case .succeeded(let outputs, _) = try #require(outcome.outcomes.first) else {
             Issue.record("Archive extraction failed: \(outcome.outcomes)")
             throw CocoaError(.fileReadCorruptFile)
@@ -56,7 +56,7 @@ import Testing
         return try #require(outputs.first)
     }
 
-    private func tree(_ root: URL) throws -> [String: Data] {
+    func tree(_ root: URL) throws -> [String: Data] {
         let root = root.resolvingSymlinksInPath()
         let walker = try #require(
             FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey]))
@@ -248,7 +248,7 @@ import Testing
         #expect(try store.sessions().isEmpty)
     }
 
-    private func protocolExecutable(
+    func protocolExecutable(
         in root: URL, output: URL, marker: URL, legacy: Bool = false, resuming: Bool = false
     ) throws -> URL {
         let script = root.appending(path: "protocol.py")
@@ -288,10 +288,11 @@ import Testing
         let proofs = try FileManager.default.contentsOfDirectory(at: store.directory, includingPropertiesForKeys: nil)
         let proof = try #require(proofs.first { $0.pathExtension == "json" })
         let contents = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: proof)) as? [String: Any])
-        #expect(contents["version"] as? Int == 2)
+        #expect(contents["version"] as? Int == 3)
         #expect(contents["input"] as? String == source.path)
         #expect(contents["prefersJapanese"] as? Bool == prefersJapanese)
         #expect(contents["route"] as? String == "hatchzip")
+        #expect(contents["inspectionComplete"] as? Bool == true)
         #expect(try FileManager.default.attributesOfItem(atPath: proof.path)[.posixPermissions] as? Int == 0o600)
     }
 
@@ -388,7 +389,7 @@ import Testing
         let source = try fixture(in: root, encoding: "utf8", variant: "over-budget")
         let original = try Data(contentsOf: source)
         let (outcome, _, store, _) = try await run(source, in: root)
-        #expect(outcome.outcomes == [.failed(.invalidInput(.archiveNameInspectionLimit))])
+        #expect(outcome.outcomes == [.failed(.invalidInput(.archiveNameInspectionLimit(.entries)))])
         #expect(try Data(contentsOf: source) == original)
         #expect(!FileManager.default.fileExists(atPath: store.directory.path))
     }

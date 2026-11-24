@@ -32,7 +32,10 @@ enum ArchivePlanner {
                 items: primaryArchives(archives).map { archive in
                     WorkItem(inputs: [archive], durableArchive: true) { context in
                         let inspection: ArchiveNameInspection?
+                        var inspectedStamp: FileStamp?
                         if sessionID == nil {
+                            try await HatchExtractionStore.validateLocation(archive)
+                            try JobEngine.downloadIfNeeded([archive])
                             let stamp = try FileStamp(of: archive, includingIdentity: true)
                             let inspected = try ArchiveNameInspection.inspect(
                                 archive, password: password, prefersJapanese: prefersJapanese)
@@ -47,13 +50,14 @@ enum ArchivePlanner {
                                     archive, password: password, prefersJapanese: prefersJapanese, context: context)
                             }
                             inspection = inspected
+                            inspectedStamp = stamp
                         } else {
                             inspection = nil
                         }
                         context.phase(.extractingInPlace)
                         let extraction = try await context.hatchExtractions.extract(
                             input: sessionID == nil ? archive : nil, resuming: sessionID, password: password,
-                            inspection: inspection, progress: context.progress)
+                            inspection: inspection, inspectedStamp: inspectedStamp, progress: context.progress)
                         if extraction.paused { context.recordArchivePause(extraction.sessionID) }
                         if extraction.warning != nil { context.warn(.archiveFolderAttributesNotRestored) }
                         return .hatchExtraction(extraction)
@@ -162,7 +166,8 @@ extension ArchivePlanner {
         case .wrongPassword: .invalidInput(.wrongPassword)
         case .unsafePath(let path): .invalidInput(.unsafeArchivePath(path))
         case .unsupportedNameEncoding: .invalidInput(.archiveNameEncodingUnsupported)
-        case .nameInspectionLimit: .invalidInput(.archiveNameInspectionLimit)
+        case .nameInspectionLimit(let limit): .invalidInput(.archiveNameInspectionLimit(limit))
+        case .nameCollision(let first, let second): .invalidInput(.archiveNameCollision(first: first, second: second))
         case .wrappedZIPContainer: .invalidInput(.wrappedZIPArchive)
         case .legacyNameFeatureUnsupported(let feature): .invalidInput(.archiveLegacyFeatureUnsupported(feature))
         case .expandsTooMuch(let limit): .invalidInput(.archiveExpandsTooMuch(limitBytes: limit))

@@ -41,16 +41,17 @@ public enum ArchiveBrowserZIP {
         _ source: URL, prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
         check: () throws -> Void = {}
     ) throws -> [ZIPBrowserEntry] {
-        try ArchiveListing.inUTF8Locale {
-            let reader = try Reader(source: source, prefersJapanese: prefersJapanese, check: check)
+        try mappedZIP {
+            let input = try ArchiveReadSource([source])
+            let reader = try ArchiveZIPReader(
+                source: input, prefersJapanese: prefersJapanese, inspectLinks: false, check: check)
             var entries: [ZIPBrowserEntry] = []
             var nameBytes = 0
             var pointer: OpaquePointer?
             while true {
                 try check()
-                let status = archive_read_next_header(reader.archive, &pointer)
-                if status == ARCHIVE_EOF { break }
-                guard status == ARCHIVE_OK, let pointer else { throw ZIPBrowserError.invalidZIP }
+                pointer = try reader.next()
+                guard let pointer else { break }
                 guard entries.count < ZIPDirectoryBounds.maximumEntries else { throw ZIPBrowserError.tooManyEntries }
                 let path = try checkedPath(pointer, encoding: reader.encoding)
                 let bytes = path.utf8.count
@@ -70,7 +71,7 @@ public enum ArchiveBrowserZIP {
                         id: entries.count, path: path, isDirectory: type == UInt32(S_IFDIR),
                         size: size, isEncrypted: archive_entry_is_encrypted(pointer) != 0))
             }
-            guard entries.count == reader.expectedEntries,
+            guard entries.count == reader.directory.entries,
                 archive_format(reader.archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP
             else {
                 throw ZIPBrowserError.invalidZIP
@@ -98,17 +99,18 @@ public enum ArchiveBrowserZIP {
     ) throws {
         guard limit >= 0 else { throw ZIPBrowserError.selectionTooLarge }
         _ = try list(source, prefersJapanese: prefersJapanese, check: check)
-        try ArchiveListing.inUTF8Locale {
-            let reader = try Reader(source: source, password: password, prefersJapanese: prefersJapanese, check: check)
+        try mappedZIP {
+            let input = try ArchiveReadSource([source])
+            let reader = try ArchiveZIPReader(
+                source: input, password: password, prefersJapanese: prefersJapanese, inspectLinks: false, check: check)
             var pointer: OpaquePointer?
             var index = 0
             var found = 0
             var total: Int64 = 0
             while true {
                 try check()
-                let status = archive_read_next_header(reader.archive, &pointer)
-                if status == ARCHIVE_EOF { break }
-                guard status == ARCHIVE_OK, let pointer else { throw ZIPBrowserError.invalidZIP }
+                pointer = try reader.next()
+                guard let pointer else { break }
                 if let destination = selections[index] {
                     guard archive_entry_filetype(pointer) == UInt32(S_IFREG),
                         archive_entry_symlink(pointer) == nil,
@@ -130,7 +132,7 @@ public enum ArchiveBrowserZIP {
                 }
                 index += 1
             }
-            guard found == selections.count, index == reader.expectedEntries else {
+            guard found == selections.count, index == reader.directory.entries else {
                 throw ZIPBrowserError.invalidZIP
             }
         }
@@ -205,40 +207,22 @@ public enum ArchiveBrowserZIP {
         return meaningful.joined(separator: "/")
     }
 
-    private final class Reader {
-        let archive: OpaquePointer
-        let expectedEntries: Int
-        let encoding: ArchivePathname.LegacyEncoding
-        private let source: ArchiveReadSource
-
-        init(source location: URL, password: String? = nil, prefersJapanese: Bool, check: () throws -> Void) throws {
-            let source: ArchiveReadSource
-            do { source = try ArchiveReadSource([location]) } catch is FormatError { throw ZIPBrowserError.invalidZIP }
-            let directory: (entries: Int, endOffset: Int64)
-            do {
-                directory = try ZIPDirectoryBounds.validate(source: source, check: check)
-            } catch is FormatError { throw ZIPBrowserError.invalidZIP }
-            encoding = try ArchiveNameInspection.zipEncoding(
-                source, location: location, prefersJapanese: prefersJapanese, check: check)
-            guard let archive = archive_read_new() else { throw ZIPBrowserError.invalidZIP }
-            do {
-                try ArchiveReadSupport.enableFilters(archive, compressed: false)
-                guard archive_read_support_format_zip_seekable(archive) == ARCHIVE_OK,
-                    archive_read_set_option(archive, "zip", "mac-ext", nil) == ARCHIVE_OK
-                else { throw ZIPBrowserError.invalidZIP }
-                if let password { archive_read_add_passphrase(archive, password) }
-                // libarchive searches only the final 16 KiB.
-                try source.open(archive, endingAt: directory.endOffset + 22)
-            } catch {
-                archive_read_free(archive)
-                if error is FormatError { throw ZIPBrowserError.invalidZIP }
-                throw error
+    private static func mappedZIP<T>(_ body: () throws -> T) throws -> T {
+        do { return try ArchiveListing.inUTF8Locale(body) } catch let error as ArchiveError {
+            switch error {
+            case .unsupportedNameEncoding: throw ZIPBrowserError.unsupportedNameEncoding
+            case .unsafePath, .nameCollision: throw ZIPBrowserError.unsafeEntry
+            case .passwordRequired: throw ZIPBrowserError.passwordRequired
+            case .wrongPassword: throw ZIPBrowserError.wrongPassword
+            case .nameInspectionLimit(let limit):
+                switch limit {
+                case .entries: throw ZIPBrowserError.tooManyEntries
+                case .metadata: throw ZIPBrowserError.namesTooLarge
+                case .depth: throw ZIPBrowserError.pathTooDeep
+                default: throw ZIPBrowserError.unsupportedEntry
+                }
+            default: throw ZIPBrowserError.invalidZIP
             }
-            self.archive = archive
-            self.source = source
-            expectedEntries = directory.entries
-        }
-
-        deinit { _ = withExtendedLifetime(source) { archive_read_free(archive) } }
+        } catch is FormatError { throw ZIPBrowserError.invalidZIP }
     }
 }

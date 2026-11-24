@@ -12,6 +12,7 @@ final class ArchiveReadSource {
         let size: Int64
     }
 
+    private var replacements: [(offset: Int64, value: UInt8)] = []
     private var parts: [Part] = []
     private var windows: [(offset: Int64, bytes: [UInt8])] = []
     private let buffer = UnsafeMutableRawPointer.allocate(byteCount: blockSize, alignment: 1)
@@ -24,7 +25,7 @@ final class ArchiveReadSource {
 
     init(_ urls: [URL], check: @escaping () throws -> Void = {}) throws {
         self.check = check
-        guard !urls.isEmpty, urls.count <= Self.maximumParts else { throw ArchiveError.nameInspectionLimit }
+        guard !urls.isEmpty, urls.count <= Self.maximumParts else { throw ArchiveError.nameInspectionLimit(.volumes) }
         do {
             for url in urls {
                 try check()
@@ -78,6 +79,13 @@ final class ArchiveReadSource {
         return try readExactly(at: position, count: count, check: check)
     }
 
+    func readHeader(at position: Int64, count: Int, check: () throws -> Void) throws -> [UInt8] {
+        guard position >= 0, count >= 0, position <= size, Int64(count) <= size - position else {
+            throw FormatError.corrupt("invalid archive header range")
+        }
+        return try readExactly(at: position, count: count, check: check)
+    }
+
     private func readExactly(at position: Int64, count: Int, check: () throws -> Void) throws -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: count)
         try bytes.withUnsafeMutableBytes { destination in
@@ -94,7 +102,9 @@ final class ArchiveReadSource {
         return bytes
     }
 
-    private func read(into destination: UnsafeMutableRawPointer, at position: Int64, count: Int) throws -> Int {
+    private func read(into destination: UnsafeMutableRawPointer, at position: Int64, count: Int, patched: Bool = false)
+        throws -> Int
+    {
         try check()
         guard position >= 0, position <= size else { throw FormatError.corrupt("invalid archive offset") }
         guard position < size else { return 0 }
@@ -111,11 +121,29 @@ final class ArchiveReadSource {
             let amount = pread(part.descriptor, destination, request, position - part.offset)
             if amount < 0, errno == EINTR { continue }
             guard amount >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            if patched { applyReplacements(to: destination, at: position, count: amount) }
             return amount
         }
     }
 
+    func replaceByte(at offset: Int64, with value: UInt8) { replacements.append((offset, value)) }
+
+    private func applyReplacements(to destination: UnsafeMutableRawPointer, at position: Int64, count: Int) {
+        var lower = 0
+        var upper = replacements.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if replacements[middle].offset < position { lower = middle + 1 } else { upper = middle }
+        }
+        while lower < replacements.count, replacements[lower].offset < position + Int64(count) {
+            destination.storeBytes(
+                of: replacements[lower].value, toByteOffset: Int(replacements[lower].offset - position), as: UInt8.self)
+            lower += 1
+        }
+    }
+
     func open(_ archive: OpaquePointer, endingAt end: Int64? = nil) throws {
+        replacements.sort { $0.offset < $1.offset }
         logicalSize = end ?? size
         offset = 0
         failure = nil
@@ -125,7 +153,7 @@ final class ArchiveReadSource {
             let source = Unmanaged<ArchiveReadSource>.fromOpaque(context).takeUnretainedValue()
             do {
                 let request = min(Int64(source.streamBlockSize), source.logicalSize - source.offset)
-                let count = try source.read(into: source.buffer, at: source.offset, count: Int(request))
+                let count = try source.read(into: source.buffer, at: source.offset, count: Int(request), patched: true)
                 source.offset += Int64(count)
                 block.pointee = UnsafeRawPointer(source.buffer)
                 return count

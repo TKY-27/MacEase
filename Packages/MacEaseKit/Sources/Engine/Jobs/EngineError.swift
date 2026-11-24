@@ -101,7 +101,8 @@ public enum InvalidInput: Equatable, Sendable {
     case wrongPassword
     case unsafeArchivePath(String)
     case archiveNameEncodingUnsupported
-    case archiveNameInspectionLimit
+    case archiveNameInspectionLimit(ArchiveInspectionLimit)
+    case archiveNameCollision(first: String, second: String)
     case archiveLegacyFeatureUnsupported(ArchiveExtractionFeature)
     case wrappedZIPArchive
     case unsupportedArchive

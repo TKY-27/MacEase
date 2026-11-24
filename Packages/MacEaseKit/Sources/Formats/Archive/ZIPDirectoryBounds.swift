@@ -16,10 +16,10 @@ enum ZIPDirectoryBounds {
     }
 
     static func validate(
-        source: ArchiveReadSource, bounded: Bool = true, inspect: (([UInt8], [UInt8]) throws -> Void)? = nil,
+        source: ArchiveReadSource, bounded: Bool = true, inspect: ((ZIPMember) throws -> Void)? = nil,
         check: () throws -> Void
     ) throws
-        -> (entries: Int, endOffset: Int64)
+        -> ZIPDirectory
     {
         let size = source.size
         guard size >= 22 else { throw ZIPBrowserError.invalidZIP }
@@ -43,7 +43,7 @@ enum ZIPDirectoryBounds {
         let classicSize = UInt32(littleEndian: tail, at: index + 12)
         let classicOffset = UInt32(littleEndian: tail, at: index + 16)
         let directory: Directory
-        if index >= 20 {
+        if endOffset >= 20 {
             let locator = try read(source, at: endOffset - 20, count: 20, fileSize: size, check: check)
             if UInt32(littleEndian: locator, at: 0) == 0x07064b50 {
                 directory = try zip64(
@@ -58,8 +58,12 @@ enum ZIPDirectoryBounds {
             directory = try classic(
                 count: classicCount, size: classicSize, offset: classicOffset, endOffset: endOffset)
         }
-        try scan(directory, source: source, fileSize: size, bounded: bounded, inspect: inspect, check: check)
-        return (directory.entries, endOffset)
+        let members = try scan(
+            directory, source: source, fileSize: size, bounded: bounded, inspect: inspect,
+            check: check)
+        return ZIPDirectory(
+            entries: directory.entries, endOffset: endOffset,
+            members: members.sorted { $0.localOffset < $1.localOffset })
     }
 
     private static func classic(count: UInt16, size: UInt32, offset: UInt32, endOffset: Int64) throws -> Directory {
@@ -109,8 +113,9 @@ enum ZIPDirectoryBounds {
 
     private static func scan(
         _ directory: Directory, source: ArchiveReadSource, fileSize: Int64, bounded: Bool,
-        inspect: (([UInt8], [UInt8]) throws -> Void)?, check: () throws -> Void
-    ) throws {
+        inspect: ((ZIPMember) throws -> Void)?, check: () throws -> Void
+    ) throws -> [ZIPMember] {
+        var members: [ZIPMember] = []
         guard !bounded || directory.entries <= maximumEntries else { throw ZIPBrowserError.tooManyEntries }
         let maximumSize = Int64(maximumMetadataBytes + maximumEntries * centralHeaderBytes + maximumSignatureBytes)
         guard !bounded || directory.size <= maximumSize else { throw ZIPBrowserError.namesTooLarge }
@@ -121,6 +126,7 @@ enum ZIPDirectoryBounds {
         var position = directory.offset
         var count = 0
         var metadataBytes = 0
+        var selectedNameBytes = 0
         while position < end {
             try check()
             guard end - position >= 4 else { throw ZIPBrowserError.invalidZIP }
@@ -158,18 +164,25 @@ enum ZIPDirectoryBounds {
             let extraCount = Int(UInt16(littleEndian: header, at: 30))
             let extras = Array(fields[nameCount..<(nameCount + extraCount)])
             try checkName(Array(fields.prefix(nameCount)), extras: extras)
-            if let inspect {
-                try inspect(header, fields)
-            } else {
-                try checkLocalName(
-                    header, extras: extras, adjustment: directory.offsetAdjustment,
-                    source: source, fileSize: fileSize, check: check)
+            var member = try ZIPMember(header: header, fields: fields, adjustment: directory.offsetAdjustment)
+            try ZIPMember.sanitizeNames(
+                source, raw: member.rawName, extras: extras, flags: member.flags,
+                flagsOffset: position + 8, extrasOffset: position + Int64(centralHeaderBytes + nameCount))
+            if header[5] == 19 { source.replaceByte(at: position + 5, with: 3) }
+            try checkLocalName(&member, source: source, check: check)
+            guard !bounded || member.name.count <= maximumMetadataBytes - selectedNameBytes else {
+                throw ZIPBrowserError.namesTooLarge
             }
+            selectedNameBytes += member.name.count
+            try inspect?(member)
+            members.append(member)
             metadataBytes += variableBytes
             count += 1
             position += Int64(centralHeaderBytes + variableBytes)
         }
         guard position == end, count == directory.entries else { throw ZIPBrowserError.invalidZIP }
+        guard Set(members.map(\.localOffset)).count == members.count else { throw ZIPBrowserError.invalidZIP }
+        return members
     }
 
     private static func checkName(_ name: [UInt8], extras: [UInt8]) throws {
@@ -189,38 +202,21 @@ enum ZIPDirectoryBounds {
     }
 
     private static func checkLocalName(
-        _ central: [UInt8], extras: [UInt8], adjustment: Int64,
-        source: ArchiveReadSource, fileSize: Int64, check: () throws -> Void
+        _ member: inout ZIPMember, source: ArchiveReadSource, check: () throws -> Void
     ) throws {
-        var localOffset = UInt64(UInt32(littleEndian: central, at: 42))
-        if localOffset == UInt64(UInt32.max) {
-            var offset = 0
-            while offset + 4 <= extras.count {
-                let length = Int(UInt16(littleEndian: extras, at: offset + 2))
-                let end = offset + 4 + length
-                guard end <= extras.count else { throw ZIPBrowserError.invalidZIP }
-                if UInt16(littleEndian: extras, at: offset) == 1 {
-                    var position = offset + 4
-                    if UInt32(littleEndian: central, at: 24) == .max { position += 8 }
-                    if UInt32(littleEndian: central, at: 20) == .max { position += 8 }
-                    guard position + 8 <= end else { throw ZIPBrowserError.invalidZIP }
-                    localOffset = little64(extras, at: position)
-                    break
-                }
-                offset = end
-            }
-        }
-        guard localOffset <= UInt64(Int64.max), adjustment >= 0,
-            Int64(localOffset) <= Int64.max - adjustment
-        else { throw ZIPBrowserError.invalidZIP }
-        let position = Int64(localOffset) + adjustment
-        let header = try read(source, at: position, count: 30, fileSize: fileSize, check: check)
+        let position = member.localOffset
+        let header = try source.readHeader(at: position, count: 30, check: check)
         guard UInt32(littleEndian: header, at: 0) == 0x04034b50 else { throw ZIPBrowserError.invalidZIP }
         let nameCount = Int(UInt16(littleEndian: header, at: 26))
         let extraCount = Int(UInt16(littleEndian: header, at: 28))
-        let fields = try read(
-            source, at: position + 30, count: nameCount + extraCount, fileSize: fileSize, check: check)
-        try checkName(Array(fields.prefix(nameCount)), extras: Array(fields.dropFirst(nameCount)))
+        let fields = try source.readHeader(at: position + 30, count: nameCount + extraCount, check: check)
+        let raw = Array(fields.prefix(nameCount))
+        let extras = Array(fields.dropFirst(nameCount))
+        try checkName(raw, extras: extras)
+        try member.useLocalName(raw, extras: extras)
+        try ZIPMember.sanitizeNames(
+            source, raw: raw, extras: extras, flags: UInt16(littleEndian: header, at: 6),
+            flagsOffset: position + 6, extrasOffset: position + 30 + Int64(nameCount))
     }
 
     private static func read(

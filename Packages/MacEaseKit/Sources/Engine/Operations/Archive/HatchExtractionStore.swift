@@ -1,8 +1,10 @@
+import Darwin
 import FileProvider
 import Formats
 import Foundation
 import MenuCatalog
 import Synchronization
+import os
 
 public struct HatchExtractionSession: Identifiable, Sendable {
     public let id: UUID
@@ -46,7 +48,8 @@ public final class HatchExtractionStore: Sendable {
 
     func extract(
         input: URL?, resuming id: UUID? = nil, password: String? = nil,
-        inspection: ArchiveNameInspection? = nil, progress: @escaping @Sendable (Double) -> Void
+        inspection: ArchiveNameInspection? = nil, inspectedStamp: FileStamp? = nil,
+        progress: @escaping @Sendable (Double) -> Void
     ) async throws
         -> HatchExtractionResult
     {
@@ -58,14 +61,14 @@ public final class HatchExtractionStore: Sendable {
         let folder = directory.appending(path: sessionID.uuidString, directoryHint: .isDirectory)
         let proof = directory.appending(path: sessionID.uuidString + ".filenames.json")
         if id == nil {
-            guard let input, let inspection, inspection.source == input.standardizedFileURL,
+            guard let input, let inspection, inspectedStamp != nil, inspection.source == input.standardizedFileURL,
                 !inspection.needsLegacyDecoder
             else { throw EngineError.invalidInput(.archiveNameEncodingUnsupported) }
             let encoded = try JSONEncoder().encode(
                 FilenameProof(
-                    version: 2, input: input.path, prefersJapanese: inspection.prefersJapanese, route: "hatchzip"))
-            try encoded.write(to: proof, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: proof.path)
+                    version: 3, input: input.path, prefersJapanese: inspection.prefersJapanese, route: "hatchzip",
+                    inspectionComplete: inspection.inspectionComplete))
+            try writeProof(encoded, to: proof)
         }
         let request = Request(
             action: id == nil ? "start" : "resume", directory: folder.path, input: input?.path, password: password)
@@ -75,7 +78,12 @@ public final class HatchExtractionStore: Sendable {
             return try await withTaskCancellationHandler {
                 try await Task.detached {
                     try Self.coordinate(input: input ?? self.input(for: sessionID)) {
-                        try execution.run(
+                        if id == nil {
+                            guard let input, let inspectedStamp, inspectedStamp.matches(input.path) else {
+                                throw FileCommitter.Failure.changedSinceScan
+                            }
+                        }
+                        return try execution.run(
                             executable: executableURL, request: requestBytes, sessionID: sessionID, progress: progress)
                     }
                 }.value
@@ -84,13 +92,46 @@ public final class HatchExtractionStore: Sendable {
             }
         } catch {
             if id == nil, !FileManager.default.fileExists(atPath: folder.appending(path: "manifest.json").path) {
-                try FileManager.default.removeItem(at: proof)
+                Self.removeProof(proof)
             }
             throw error
         }
     }
 
-    private static func validateLocation(_ source: URL) async throws {
+    private func writeProof(_ encoded: Data, to destination: URL) throws {
+        let partial = directory.appending(path: ".proof-\(UUID().uuidString)")
+        let descriptor = Darwin.open(partial.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(descriptor) }
+        do {
+            guard fchmod(descriptor, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            try encoded.withUnsafeBytes { bytes in
+                guard let base = bytes.baseAddress else { return }
+                var completed = 0
+                while completed < bytes.count {
+                    let count = Darwin.write(descriptor, base.advanced(by: completed), bytes.count - completed)
+                    if count < 0, errno == EINTR { continue }
+                    guard count > 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+                    completed += count
+                }
+            }
+            guard fsync(descriptor) == 0, rename(partial.path, destination.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } catch {
+            Self.removeProof(partial)
+            throw error
+        }
+    }
+
+    private static func removeProof(_ proof: URL) {
+        do { try FileManager.default.removeItem(at: proof) } catch CocoaError.fileNoSuchFile {} catch {
+            Logger(category: "archive").error(
+                "Archive proof cleanup failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    static func validateLocation(_ source: URL) async throws {
         var path = source.resolvingSymlinksInPath().standardizedFileURL.path
         while true {
             let candidate = URL(fileURLWithPath: path)
@@ -151,6 +192,7 @@ public final class HatchExtractionStore: Sendable {
         let input: String
         let prefersJapanese: Bool
         let route: String
+        let inspectionComplete: Bool
     }
 
     private struct Manifest: Decodable {

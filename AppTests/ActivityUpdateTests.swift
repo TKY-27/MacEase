@@ -1,5 +1,6 @@
 import AppKit
 import Engine
+import Formats
 import MenuCatalog
 import XCTest
 
@@ -141,19 +142,44 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertEqual(
             UserMessages.describeResult(.invalidInput(.wrappedZIPArchive), file: "bundle.zip.gz"),
             "ZIP archives wrapped in another compression format can’t be extracted. Decompress the outer layer first.")
-        XCTAssertEqual(
-            UserMessages.describeResult(
-                .invalidInput(.archiveLegacyFeatureUnsupported(.zipCompression(9))), file: "bundle.zip"),
-            "This archive uses legacy file-name encoding and an unsupported extraction feature: ZIP compression method 9. The original was not changed."
-        )
+        let feature = UserMessages.describeResult(
+            .invalidInput(.archiveLegacyFeatureUnsupported(.zipCompression(9))), file: "bundle.zip")
+        XCTAssertTrue(feature.contains("bundle.zip"))
+        XCTAssertTrue(feature.contains("Deflate64"))
+        XCTAssertTrue(feature.contains("UTF-8"))
+        XCTAssertTrue(feature.contains("The original was not changed."))
     }
 
     func testArchiveFilenameEncodingMessageExplainsTheRefusal() {
-        let expected = "This archive uses a text encoding for file names that MacEase can’t read."
+        let message = UserMessages.describeResult(.invalidInput(.archiveNameEncodingUnsupported), file: "legacy.tar")
+        XCTAssertTrue(message.contains("legacy.tar"))
+        XCTAssertTrue(message.contains("language preferences"))
+        XCTAssertTrue(message.contains("UTF-8"))
+        XCTAssertTrue(message.contains("choose the encoding"))
         XCTAssertEqual(
-            UserMessages.describeResult(.invalidInput(.archiveNameEncodingUnsupported), file: "legacy.zip"),
-            expected)
-        XCTAssertEqual(ArchiveBrowserError.zip(.unsupportedNameEncoding).localizedDescription, expected)
+            ArchiveBrowserError.zip(.unsupportedNameEncoding).localizedDescription,
+            "This archive uses a text encoding for file names that MacEase can’t read.")
+    }
+
+    func testArchiveLimitsAndCollisionsNameTheFileAndNextStep() {
+        let limits: [(ArchiveInspectionLimit, String)] = [
+            (.duration, "10-second"), (.entries, "100,000"), (.metadata, "32 MiB"), (.depth, "256"),
+            (.volumes, "10,000"), (.linkTarget, "64 KiB"), (.compressionLayers, "single outer"),
+            (.expansion(limitBytes: 1 << 30), "expanded-size"),
+        ]
+        for (limit, expected) in limits {
+            let message = UserMessages.describeResult(
+                .invalidInput(.archiveNameInspectionLimit(limit)), file: "bundle.zip")
+            XCTAssertTrue(message.contains("bundle.zip"))
+            XCTAssertTrue(message.contains(expected))
+            XCTAssertTrue(message.contains("another archive app"))
+        }
+        let collision = UserMessages.describeResult(
+            .invalidInput(.archiveNameCollision(first: "1: Readme.txt", second: "2: readme.txt")), file: "bundle.zip")
+        XCTAssertTrue(collision.contains("bundle.zip"))
+        XCTAssertTrue(collision.contains("1: Readme.txt"))
+        XCTAssertTrue(collision.contains("2: readme.txt"))
+        XCTAssertTrue(collision.contains("distinct file and folder names"))
     }
 
     func testMalformedToolDiagnosticStaysOutOfNotifications() async throws {

@@ -18,7 +18,8 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case expandsTooMuch(limitBytes: Int64)
     case duplicateRootName(String)
     case unsupportedNameEncoding
-    case nameInspectionLimit
+    case nameInspectionLimit(ArchiveInspectionLimit)
+    case nameCollision(first: String, second: String)
     case wrappedZIPContainer
     case legacyNameFeatureUnsupported(ArchiveExtractionFeature)
 }
@@ -49,27 +50,55 @@ public enum ExtractedLayout: Sendable {
 }
 
 public enum ArchiveExtractor {
-    private static let blockSize = 64 * 1024
     private static let macMetadataFolder = "__MACOSX"
     // Absolute prefixes exclude NOABSOLUTEPATHS; see `checked`.
     private static let diskFlags =
         ARCHIVE_EXTRACT_TIME | ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_SECURE_NODOTDOT
-        | ARCHIVE_EXTRACT_SECURE_SYMLINKS
+        | ARCHIVE_EXTRACT_SECURE_SYMLINKS | ARCHIVE_EXTRACT_NO_OVERWRITE
 
     private final class Reader {
         let archive: OpaquePointer
         let disk: OpaquePointer
+        let source: ArchiveReadSource
+        let zip: ArchiveZIPReader?
 
-        init() throws {
-            guard let archive = archive_read_new(), let disk = archive_write_disk_new() else {
-                throw FormatError.io("libarchive allocation")
+        init(source location: URL, password: String?, prefersJapanese: Bool) throws {
+            let source = try ArchiveReadSource([location])
+            let zip: ArchiveZIPReader?
+            let archive: OpaquePointer
+            if try ArchiveZIPReader.recognizes(source) {
+                do {
+                    zip = try ArchiveZIPReader(
+                        source: source, password: password, prefersJapanese: prefersJapanese, bounded: false)
+                } catch { throw ArchiveZIPReader.archiveError(error) }
+                guard let zip else { throw FormatError.io("ZIP reader unavailable") }
+                archive = zip.archive
+            } else {
+                zip = nil
+                guard let allocated = archive_read_new() else { throw FormatError.io("libarchive allocation") }
+                archive = allocated
+                do {
+                    try ArchiveReadSupport.enableFilters(archive)
+                    try ArchiveReadSupport.enableFormats(archive)
+                    guard archive_read_support_format_raw(archive) == ARCHIVE_OK else {
+                        throw FormatError.unsupported(ArchiveListing.message(archive))
+                    }
+                    if let password { archive_read_add_passphrase(archive, password) }
+                    try source.open(archive)
+                } catch { archive_read_free(archive); throw error }
             }
+            guard let disk = archive_write_disk_new() else {
+                if zip == nil { archive_read_free(archive) }
+                throw FormatError.io("libarchive disk allocation")
+            }
+            self.source = source
+            self.zip = zip
             self.archive = archive
             self.disk = disk
         }
 
         deinit {
-            archive_read_free(archive)
+            if zip == nil { _ = withExtendedLifetime(source) { archive_read_free(archive) } }
             archive_write_free(disk)
         }
     }
@@ -84,43 +113,50 @@ public enum ArchiveExtractor {
         limits: ExtractionLimits = .standard,
         progress: (Double) -> Void
     ) throws -> ExtractedLayout {
-        guard let size = try source.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
-            throw FormatError.io("archive size")
-        }
-        let archiveBytes = Int64(size)
-        let limit = limits.limit(forArchiveBytes: archiveBytes)
+        let source = source.resolvingSymlinksInPath().standardizedFileURL
         return try ArchiveListing.inUTF8Locale {
-            let reader = try Reader()
-            try ArchiveReadSupport.enableFilters(reader.archive)
-            try ArchiveReadSupport.enableFormats(reader.archive)
-            guard archive_read_support_format_raw(reader.archive) == ARCHIVE_OK else {
-                throw FormatError.unsupported(ArchiveListing.message(reader.archive))
-            }
-            if let password { archive_read_add_passphrase(reader.archive, password) }
+            let reader = try Reader(source: source, password: password, prefersJapanese: prefersJapanese)
+            let archiveBytes = reader.source.size
+            let limit = limits.limit(forArchiveBytes: archiveBytes)
             archive_write_disk_set_options(reader.disk, Int32(diskFlags))
-            guard archive_read_open_filename(reader.archive, source.path, blockSize) == ARCHIVE_OK else {
-                throw failure(reader.archive, entry: nil, password: password)
+            if let zip = reader.zip {
+                let names = try zip.directory.members.map { member in
+                    (
+                        path: try ArchivePathname.decode(member.name, encoding: zip.encoding),
+                        directory: member.isDirectory
+                    )
+                }
+                try ArchivePathCollisionCheck.verify(names, beside: directory)
             }
+            let collisions = ArchivePathCollisionCheck(root: directory)
+            var ordinal = 0
             var logicalBytes: Int64 = 0
             var entry: OpaquePointer?
-            var checkedZIPNames = false
-            var encoding: ArchivePathname.LegacyEncoding = prefersJapanese ? .cp932 : .utf8Only
+            let encoding: ArchivePathname.LegacyEncoding =
+                reader.zip?.encoding ?? (prefersJapanese ? .cp932 : .utf8Only)
             while true {
                 try Task.checkCancellation()
-                let status = archive_read_next_header(reader.archive, &entry)
-                if status == ARCHIVE_EOF { break }
-                guard status >= ARCHIVE_WARN, let entry else {
-                    throw failure(reader.archive, entry: nil, password: password)
+                if let zip = reader.zip {
+                    entry = try zip.next()
+                    if entry == nil { break }
+                } else {
+                    let status = archive_read_next_header(reader.archive, &entry)
+                    if let failure = reader.source.failure { throw failure }
+                    if status == ARCHIVE_EOF { break }
+                    guard status >= ARCHIVE_WARN else {
+                        throw failure(reader.archive, entry: entry, password: password)
+                    }
+                    if isZip(reader.archive) { throw ArchiveError.wrappedZIPContainer }
                 }
-                if isZip(reader.archive), !checkedZIPNames {
-                    encoding = try ArchiveListing.verifiedEncoding(source, prefersJapanese: prefersJapanese)
-                    checkedZIPNames = true
-                }
+                guard let entry else { throw FormatError.corrupt("archive entry unavailable") }
+                ordinal += 1
                 guard
                     let name = try destinationName(of: entry, in: reader.archive, rawName: rawName, encoding: encoding)
                 else {
                     continue
                 }
+                try collisions.check(
+                    name, directory: archive_entry_filetype(entry) == UInt32(S_IFDIR), ordinal: ordinal)
                 archive_entry_set_pathname_utf8(entry, directory.path + "/" + name)
                 if let link = try ArchivePathname.hardlink(entry, encoding: encoding) {
                     archive_entry_set_hardlink_utf8(entry, directory.path + "/" + (try checked(link)))
@@ -133,7 +169,9 @@ public enum ArchiveExtractor {
                 guard declaredSize >= 0 else { throw FormatError.corrupt("negative archive entry size") }
                 var memberBytes: Int64 = 0
                 try charge(declaredSize, from: &memberBytes, total: &logicalBytes, limit: limit)
-                try copyData(reader, entry: entry, password: password) { bytes, offset in
+                try copyData(
+                    reader, entry: entry, password: password, didWriteHeader: { try collisions.didWrite(name) }
+                ) { bytes, offset in
                     guard offset >= 0 else { throw FormatError.corrupt("negative archive data offset") }
                     let (end, overflow) = offset.addingReportingOverflow(Int64(bytes))
                     guard !overflow else { throw ArchiveError.expandsTooMuch(limitBytes: limit) }
@@ -167,7 +205,7 @@ public enum ArchiveExtractor {
         return name
     }
 
-    private static func checked(_ path: String) throws -> String {
+    static func checked(_ path: String) throws -> String {
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
         guard !path.hasPrefix("/"), !path.utf8.contains(0), !components.contains("..") else {
             throw ArchiveError.unsafePath(path)
@@ -206,6 +244,7 @@ public enum ArchiveExtractor {
         _ reader: Reader,
         entry: OpaquePointer,
         password: String?,
+        didWriteHeader: () throws -> Void,
         wrote: (Int, Int64) throws -> Void
     ) throws {
         var buffer: UnsafeRawPointer?
@@ -220,9 +259,14 @@ public enum ArchiveExtractor {
                 if archive_format(reader.archive) == ARCHIVE_FORMAT_RAW {
                     try ArchiveReadSupport.checkRawPrefix(UnsafeRawBufferPointer(start: buffer, count: size))
                 }
+                let options =
+                    archive_entry_filetype(entry) == UInt32(S_IFDIR)
+                    ? diskFlags & ~ARCHIVE_EXTRACT_NO_OVERWRITE : diskFlags
+                archive_write_disk_set_options(reader.disk, Int32(options))
                 guard archive_write_header(reader.disk, entry) >= ARCHIVE_WARN else {
                     throw FormatError.corrupt(ArchiveListing.message(reader.disk))
                 }
+                try didWriteHeader()
                 headerWritten = true
             }
             if status == ARCHIVE_EOF { break }

@@ -2,7 +2,6 @@ import CArchive
 import Foundation
 
 public enum ArchiveListing {
-    private static let blockSize = 64 * 1024
 
     public static func verify(
         _ url: URL, prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages)
@@ -11,55 +10,41 @@ public enum ArchiveListing {
     }
 
     static func verifiedEncoding(_ url: URL, prefersJapanese: Bool) throws -> ArchivePathname.LegacyEncoding {
-        try inUTF8Locale {
+        let url = url.resolvingSymlinksInPath().standardizedFileURL
+        return try inUTF8Locale {
+            let source = try ArchiveReadSource([url])
+            if try ArchiveZIPReader.recognizes(source) {
+                let reader: ArchiveZIPReader
+                do {
+                    reader = try ArchiveZIPReader(source: source, prefersJapanese: prefersJapanese, bounded: false)
+                } catch { throw ArchiveZIPReader.archiveError(error) }
+                var count = 0
+                while try reader.next() != nil { try Task.checkCancellation(); count += 1 }
+                guard count > 0 else { throw FormatError.corrupt("archive has no entries") }
+                return reader.encoding
+            }
             guard let archive = archive_read_new() else { throw FormatError.io("libarchive allocation") }
-            defer { archive_read_free(archive) }
+            defer { _ = withExtendedLifetime(source) { archive_read_free(archive) } }
             try ArchiveReadSupport.enableFilters(archive)
             try ArchiveReadSupport.enableFormats(archive)
-            guard archive_read_open_filename(archive, url.path, blockSize) == ARCHIVE_OK else {
-                throw FormatError.corrupt(message(archive))
-            }
+            try source.open(archive)
             var entry: OpaquePointer?
             var count = 0
-            var checkedZIPNames = false
-            var encoding: ArchivePathname.LegacyEncoding = prefersJapanese ? .cp932 : .utf8Only
+            let encoding: ArchivePathname.LegacyEncoding = prefersJapanese ? .cp932 : .utf8Only
             while true {
+                try Task.checkCancellation()
                 let status = archive_read_next_header(archive, &entry)
+                if let failure = source.failure { throw failure }
                 if status == ARCHIVE_EOF { break }
-                guard status == ARCHIVE_OK || status == ARCHIVE_WARN, let entry else {
-                    throw FormatError.corrupt(message(archive))
-                }
-                if archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP, !checkedZIPNames {
-                    guard archive_filter_count(archive) == 1 else {
-                        throw ArchiveError.wrappedZIPContainer
-                    }
-                    encoding = try checkZIPNames(url, prefersJapanese: prefersJapanese)
-                    checkedZIPNames = true
+                guard status >= ARCHIVE_WARN, let entry else { throw FormatError.corrupt(message(archive)) }
+                if archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP {
+                    throw ArchiveError.wrappedZIPContainer
                 }
                 _ = try ArchivePathname.decode(entry, encoding: encoding)
                 count += 1
             }
             guard count > 0 else { throw FormatError.corrupt("archive has no entries") }
             return encoding
-        }
-    }
-
-    private static func checkZIPNames(_ location: URL, prefersJapanese: Bool) throws -> ArchivePathname.LegacyEncoding {
-        let source = try ArchiveReadSource([location])
-        do {
-            let encoding = try ArchiveNameInspection.zipEncoding(
-                source, location: location, prefersJapanese: prefersJapanese
-            ) {
-                try Task.checkCancellation()
-            }
-            _ = try ZIPDirectoryBounds.validate(source: source, bounded: false) {
-                try Task.checkCancellation()
-            }
-            return encoding
-        } catch ZIPBrowserError.unsafeEntry {
-            throw ArchiveError.unsafePath("ZIP filename contains NUL")
-        } catch is ZIPBrowserError {
-            throw FormatError.corrupt("invalid ZIP directory")
         }
     }
 
