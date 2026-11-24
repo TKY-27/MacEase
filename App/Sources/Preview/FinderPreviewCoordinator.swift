@@ -354,10 +354,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             do {
                 let (kind, trust, detected) = try await offMain {
                     try Task.checkCancellation()
-                    let kind = try PreviewKind.inspect(url, disabled: disabledKinds)
-                    try Task.checkCancellation()
-                    // Quick Look handles folders and unknown types.
-                    let detected = kind == .quickLook ? nil : try ContentSniffer.identify(url)
+                    let (kind, detected) = try PreviewKind.inspectContent(url, disabled: disabledKinds)
                     try Task.checkCancellation()
                     return (kind, PreviewTrust.evaluate(url, trustedFolders: trustedFolders), detected)
                 }

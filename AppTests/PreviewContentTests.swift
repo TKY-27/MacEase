@@ -177,6 +177,50 @@ final class PreviewContentTests: XCTestCase {
             ["'a'"])
     }
 
+    func testMPEGTransportStreamRoutesToMediaWhileTypeScriptStaysText() throws {
+        let directory = try PreviewFixtures.directory(self)
+        var tsBytes = [UInt8](repeating: 0, count: 377)
+        tsBytes[0] = 0x47
+        tsBytes[188] = 0x47
+        tsBytes[376] = 0x47
+        var mtsBytes = [UInt8](repeating: 0, count: 389)
+        mtsBytes[4] = 0x47
+        mtsBytes[196] = 0x47
+        mtsBytes[388] = 0x47
+
+        let tsVideo = directory.appendingPathComponent("clip.ts")
+        try Data(tsBytes).write(to: tsVideo)
+        let mtsVideo = directory.appendingPathComponent("camera.mts")
+        try Data(mtsBytes).write(to: mtsVideo)
+        let typeScript = directory.appendingPathComponent("app.ts")
+        try Data("export const answer: number = 42;\n".utf8).write(to: typeScript)
+        let fakeTS = directory.appendingPathComponent("spoof.ts")
+        try PreviewFixtures.png().write(to: fakeTS)
+
+        let tsResult = try PreviewKind.inspectContent(tsVideo)
+        XCTAssertEqual(tsResult.kind, .media)
+        XCTAssertEqual(tsResult.detected?.family, .video)
+        XCTAssertEqual(
+            PreviewContentMatch.evaluate(kind: tsResult.kind, detected: try XCTUnwrap(tsResult.detected)), .matches)
+
+        let mtsResult = try PreviewKind.inspectContent(mtsVideo)
+        XCTAssertEqual(mtsResult.kind, .media)
+        XCTAssertEqual(mtsResult.detected?.family, .video)
+        XCTAssertEqual(try PreviewKind.inspect(mtsVideo, disabled: [.text]), .media)
+        XCTAssertEqual(try PreviewKind.inspect(mtsVideo, disabled: [.video]), .quickLook)
+
+        let scriptResult = try PreviewKind.inspectContent(typeScript)
+        XCTAssertEqual(scriptResult.kind, .text)
+        XCTAssertEqual(scriptResult.detected?.family, .text)
+        XCTAssertEqual(try PreviewKind.inspect(typeScript, disabled: [.text]), .quickLook)
+
+        let fakeResult = try PreviewKind.inspectContent(fakeTS)
+        XCTAssertEqual(fakeResult.kind, .text)
+        XCTAssertEqual(
+            PreviewContentMatch.evaluate(kind: fakeResult.kind, detected: try XCTUnwrap(fakeResult.detected)),
+            .binaryWithTextExtension(detectedName: "PNG"))
+    }
+
     func testHighlightingStopsAt512KiBWithoutTruncatingSource() throws {
         let text = String(repeating: " ", count: 512 * 1024) + "let untouched = 42"
         XCTAssertEqual(try PreviewTokenizer.tokens(text, language: .swift), [])
