@@ -153,7 +153,7 @@ final class PreviewContentTests: XCTestCase {
     func testNavigationRejectsExternalHostsSchemesAndSiblingFiles() throws {
         let source = URL(fileURLWithPath: "/tmp/example/index.html")
         let page = PreviewWebViewer.Page.file(
-            source,
+            source, readAccess: source.deletingLastPathComponent(),
             PreviewWebPolicy(trust: PreviewTrust(level: .standard, resolvedPath: source.path), scriptsConsented: false))
         XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, page: page))
         for address in [

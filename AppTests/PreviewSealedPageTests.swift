@@ -21,8 +21,16 @@ final class PreviewSealedPageTests: XCTestCase {
             """
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
               width="40" height="20" onload="top.document.title='ran'">
+            <style>@import url("http://127.0.0.1:\(port)/svg.css");</style>
             <script>top.document.title = "ran";</script>
             <image href="http://127.0.0.1:\(port)/remote.png" width="10" height="10"/>
+            <use href="http://127.0.0.1:\(port)/ext.svg#shape"/>
+            <foreignObject width="20" height="20">
+              <body xmlns="http://www.w3.org/1999/xhtml">
+                <img src="http://127.0.0.1:\(port)/fo.png"/>
+                <script>top.document.title = "fo";</script>
+              </body>
+            </foreignObject>
             <rect width="40" height="20" fill="teal"/></svg>
             """.utf8
         ).write(to: svg)

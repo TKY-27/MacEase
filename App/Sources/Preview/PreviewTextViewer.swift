@@ -33,11 +33,11 @@ struct PreviewTextRendering: Sendable {
 
     static func make(
         source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
-        restricted: Bool
+        restricted: Bool, inlineHTML: Bool = false
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
-        let html = rich && (kind == .markdown || kind == .svg || (kind == .html && restricted))
+        let html = rich && (kind == .markdown || kind == .svg || (kind == .html && (restricted || inlineHTML)))
         var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
@@ -127,19 +127,23 @@ struct PreviewTextViewer: View {
                         "This file is from the internet. Scripts, external content and other files are disabled."),
                     shortText: Text("From the internet: limited preview"))
             }
-            if source?.truncated == true && !fileBackedPage {
+            if source?.truncated == true && fileBackedPage == nil {
                 PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
             }
             Group {
-                if fileBackedPage {
-                    PreviewWebViewer(page: .file(url, policy)).id(policy)
+                if let filePage = fileBackedPage {
+                    PreviewWebViewer(page: filePage).id(policy)
                 } else if failed {
                     Text("The text could not be decoded or formatted. Try Source or another encoding.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .padding(PreviewLayout.margin)
                 } else if let rendering {
                     if rendering.html {
-                        PreviewWebViewer(page: .generated(rendering.text)).id(rendering.text)
+                        if inlineHTMLPage {
+                            PreviewWebViewer(page: .inline(rendering.text, policy)).id(policy)
+                        } else {
+                            PreviewWebViewer(page: .generated(rendering.text)).id(rendering.text)
+                        }
                     } else {
                         PreviewCodeView(
                             text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts,
@@ -168,7 +172,7 @@ struct PreviewTextViewer: View {
             }
         }
         if kind == .html && rich {
-            if fileBackedPage {
+            if !trust.restricted {
                 ViewThatFits(in: .horizontal) {
                     webPermissions.labelStyle(.titleOnly)
                     webPermissions.labelStyle(.iconOnly)
@@ -188,8 +192,20 @@ struct PreviewTextViewer: View {
         }
     }
 
-    // Downloaded HTML renders sealed, from its text.
-    private var fileBackedPage: Bool { kind == .html && rich && !trust.restricted }
+    private var folderReadAccess: URL? {
+        guard kind == .html, !trust.restricted else { return nil }
+        return PreviewWebConfiguration.folderReadAccess(for: url)
+    }
+
+    // Downloaded HTML and home-folder HTML render inline.
+    private var fileBackedPage: PreviewWebViewer.Page? {
+        guard kind == .html, rich, let readAccess = folderReadAccess else { return nil }
+        return .file(url.resolvingSymlinksInPath().standardizedFileURL, readAccess: readAccess, policy)
+    }
+
+    private var inlineHTMLPage: Bool {
+        kind == .html && rich && !trust.restricted && folderReadAccess == nil
+    }
 
     private var modePicker: some View {
         Picker("View", selection: $rich) {
@@ -255,13 +271,15 @@ struct PreviewTextViewer: View {
         guard let source else { return }
         rendering = nil
         failed = false
-        guard !fileBackedPage else { return }
+        guard fileBackedPage == nil else { return }
         let encoding = encoding
         let rich = rich
+        let inlineHTML = inlineHTMLPage
         do {
             let rendered = try await offMain { [kind, url, restricted = trust.restricted] in
                 try PreviewTextRendering.make(
-                    source: source, encoding: encoding, rich: rich, kind: kind, url: url, restricted: restricted)
+                    source: source, encoding: encoding, rich: rich, kind: kind, url: url, restricted: restricted,
+                    inlineHTML: inlineHTML)
             }
             try Task.checkCancellation()
             rendering = rendered

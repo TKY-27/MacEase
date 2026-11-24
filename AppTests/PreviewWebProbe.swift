@@ -1,14 +1,15 @@
 import AppKit
 import Network
+import SwiftUI
 import WebKit
 import XCTest
 
 @testable import MacEase
 
-// Proves WebKit stayed offline.
+// Proves WebKit stayed offline over TCP.
 final class LoopbackListener: @unchecked Sendable {
     private let listener: NWListener
-    private let queue = DispatchQueue(label: "preview-loopback")
+    private let queue = DispatchQueue(label: "preview-loopback-tcp")
     private let lock = NSLock()
     private var connections = 0
 
@@ -44,24 +45,83 @@ final class LoopbackListener: @unchecked Sendable {
     func stop() { listener.cancel() }
 }
 
-@MainActor
-final class PreviewWebProbe: NSObject, WKNavigationDelegate {
-    private static let loadTimeout: Duration = .seconds(10)
-    private let browser: WKWebView
-    private var finished: CheckedContinuation<Void, any Error>?
+// Proves WebKit stayed offline over UDP.
+final class LoopbackUDPListener: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "preview-loopback-udp")
+    private let lock = NSLock()
+    private var datagrams = 0
 
-    private init(configuration: WKWebViewConfiguration) {
-        browser = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
-        super.init()
-        browser.navigationDelegate = self
+    init() throws {
+        let parameters = NWParameters.udp
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let listenerSelf = self else { return }
+            connection.start(queue: listenerSelf.queue)
+            connection.receiveMessage { data, _, _, _ in
+                if let data, !data.isEmpty {
+                    listenerSelf.lock.withLock { listenerSelf.datagrams += 1 }
+                }
+                connection.cancel()
+            }
+        }
     }
 
-    // Uses the production configuration and load path.
+    func start() async throws -> UInt16 {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UInt16, any Error>) in
+            listener.stateUpdateHandler = { [listener] state in
+                switch state {
+                case .ready:
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(returning: listener.port?.rawValue ?? 0)
+                case .failed(let error):
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(throwing: error)
+                default: break
+                }
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    var datagramCount: Int { lock.withLock { datagrams } }
+
+    func stop() { listener.cancel() }
+}
+
+@MainActor
+final class PreviewWebProbe {
+    private static let loadTimeout: Duration = .seconds(10)
+    private let browser: WKWebView
+    private let delegate: PreviewWebDelegate
+    private var finished: CheckedContinuation<Void, any Error>?
+    private(set) var didFail = false
+
+    private init(page: PreviewWebViewer.Page, configuration: WKWebViewConfiguration) {
+        var failed = false
+        let binding = Binding(get: { failed }, set: { failed = $0 })
+        delegate = PreviewWebDelegate(page: page, failed: binding)
+        browser = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        browser.navigationDelegate = delegate
+        browser.uiDelegate = delegate
+        browser.allowsBackForwardNavigationGestures = false
+        browser.allowsLinkPreview = false
+        delegate.onFinishNavigation = { [weak self] in self?.resume() }
+        delegate.onFailNavigation = { [weak self] error in
+            self?.didFail = true
+            self?.resume(throwing: error)
+        }
+    }
+
+    // Uses production configuration, delegates and load path.
     static func loading(_ page: PreviewWebViewer.Page) async throws -> PreviewWebProbe {
-        let probe = PreviewWebProbe(configuration: try await PreviewWebConfiguration.make(for: page))
+        let probe = PreviewWebProbe(page: page, configuration: try await PreviewWebConfiguration.make(for: page))
         try await probe.waitForLoad { PreviewWebConfiguration.load(page, in: $0) }
         return probe
     }
+
+    var currentURL: URL? { browser.url }
 
     // App-injected; works with page scripts off.
     func evaluate(_ script: String) async throws -> Any? {
@@ -69,8 +129,8 @@ final class PreviewWebProbe: NSObject, WKNavigationDelegate {
     }
 
     // Lets late subresource requests reach the listener.
-    func settle() async throws {
-        try await Task.sleep(for: .milliseconds(500))
+    func settle(_ duration: Duration = .milliseconds(500)) async throws {
+        try await Task.sleep(for: duration)
     }
 
     private func waitForLoad(_ start: (WKWebView) -> Void) async throws {
@@ -89,18 +149,6 @@ final class PreviewWebProbe: NSObject, WKNavigationDelegate {
         guard let finished else { return }
         self.finished = nil
         if let error { finished.resume(throwing: error) } else { finished.resume() }
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) { resume() }
-
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
-        resume(throwing: error)
-    }
-
-    func webView(
-        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error
-    ) {
-        resume(throwing: error)
     }
 }
 
