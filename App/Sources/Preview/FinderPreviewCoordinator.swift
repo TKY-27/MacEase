@@ -28,6 +28,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private static let selectionInterval: TimeInterval = 0.25
     private static let trustInterval: TimeInterval = 1
     private static let failureBackoff: TimeInterval = 2
+    // Surface transient failures after three polls.
+    static let transientFailureThreshold = 3
 
     private let settings: SettingsStore
     private let staging: StagingArea
@@ -35,7 +37,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private let logger = Logger(category: "finder-preview")
     private var tracker: FinderWindowTracker?
     private var panel: FinderPreviewPanel?
-    private var state = FinderPreviewState()
+    private(set) var state = FinderPreviewState()
     private var pollTimer: Timer?
     private var trustTimer: Timer?
     private var kindTask: Task<Void, Never>?
@@ -49,7 +51,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var needsSlide = false
     // Consent prompts follow only a user action.
     private var mayAskConsent = false
-    private var retryAfter = Date.distantPast
+    private var consecutiveSelectionFailures = 0
+    private(set) var retryAfter = Date.distantPast
     var enabledChanged: (() -> Void)?
 
     init(settings: SettingsStore, staging: StagingArea) {
@@ -146,6 +149,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         tracker = nil
         targetID = nil
         placement = nil
+        consecutiveSelectionFailures = 0
         clearSelection()
     }
 
@@ -191,6 +195,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             return attach(prompting: false)
         }
         state.notice = nil
+        consecutiveSelectionFailures = 0
         retryAfter = .distantPast
         readSelection(immediate: true)
     }
@@ -206,6 +211,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func hide() {
+        consecutiveSelectionFailures = 0
         clearSelection()
         placement = nil
         guard let panel else { return }
@@ -219,6 +225,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     }
 
     private func showNotice(_ notice: FinderPreviewState.Notice) {
+        consecutiveSelectionFailures = 0
         clearSelection()
         placement = nil
         state.notice = notice
@@ -276,6 +283,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         let windowID = tracker?.target?.windowID
         let changedWindow = windowID != nil && windowID != targetID
         if changedWindow {
+            consecutiveSelectionFailures = 0
             clearSelection()
             targetID = windowID
             if state.notice != .automation { state.notice = nil }
@@ -299,24 +307,42 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             }
         ) { [weak self] result in
             guard let self else { return }
-            switch result {
-            case .success(let selection):
-                guard selection.windowID == targetID else {
-                    logger.error("Finder selection did not match the tracked window")
-                    selectionFailed(.unavailable)
-                    return
-                }
-                state.notice = nil
-                guard selection.urls != state.urls else { return }
-                let previous = state.selectedURL
-                state.urls = selection.urls
-                select(previous.flatMap { selection.urls.firstIndex(of: $0) } ?? 0)
-            case .failure(let failure): selectionFailed(failure)
+            applySelectionResult(result, trackedWindowID: targetID)
+        }
+    }
+
+    func applySelectionResult(
+        _ result: Result<FinderSelectionReader.Selection, FinderSelectionReader.Failure>,
+        trackedWindowID: CGWindowID?
+    ) {
+        switch result {
+        case .success(let selection):
+            guard selection.windowID == trackedWindowID else {
+                logger.error("Finder selection did not match the tracked window")
+                selectionFailed(.unavailable)
+                return
             }
+            consecutiveSelectionFailures = 0
+            state.notice = nil
+            guard selection.urls != state.urls else { return }
+            let previous = state.selectedURL
+            state.urls = selection.urls
+            select(previous.flatMap { selection.urls.firstIndex(of: $0) } ?? 0)
+        case .failure(let failure):
+            selectionFailed(failure)
         }
     }
 
     private func selectionFailed(_ failure: FinderSelectionReader.Failure) {
+        if failure == .automationDenied {
+            consecutiveSelectionFailures = 0
+            clearSelection()
+            state.notice = .automation
+            retryAfter = Date().addingTimeInterval(Self.failureBackoff)
+            return
+        }
+        consecutiveSelectionFailures += 1
+        guard consecutiveSelectionFailures >= Self.transientFailureThreshold else { return }
         clearSelection()
         switch failure {
         case .automationDenied: state.notice = .automation

@@ -121,4 +121,66 @@ final class FinderPreviewToggleTests: XCTestCase {
         XCTAssertEqual(panel.displayedWidth, 500)
         XCTAssertEqual(panel.previewWidth, 500)
     }
+
+    func testTransientSelectionFailuresKeepPreviewUntilThresholdIsReached() async throws {
+        let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let directory = try PreviewFixtures.directory(self)
+        let note = directory.appendingPathComponent("note.txt")
+        let other = directory.appendingPathComponent("other.txt")
+        try Data("hello".utf8).write(to: note)
+        try Data("world".utf8).write(to: other)
+
+        let store = SettingsStore(defaults: defaults)
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: directory))
+        coordinator.applySelectionResult(.success(.init(windowID: 42, urls: [note])), trackedWindowID: 42)
+        try await waitUntil { coordinator.state.kind == .text }
+
+        coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
+        XCTAssertEqual(coordinator.state.selectedURL, note)
+        XCTAssertEqual(coordinator.state.kind, .text)
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertEqual(coordinator.retryAfter, .distantPast)
+
+        coordinator.applySelectionResult(.success(.init(windowID: 99, urls: [other])), trackedWindowID: 42)
+        XCTAssertEqual(coordinator.state.selectedURL, note)
+        XCTAssertEqual(coordinator.state.kind, .text)
+        XCTAssertNil(coordinator.state.notice)
+        XCTAssertEqual(coordinator.retryAfter, .distantPast)
+
+        coordinator.applySelectionResult(.success(.init(windowID: 42, urls: [note])), trackedWindowID: 42)
+        coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
+        coordinator.applySelectionResult(.failure(.unavailable), trackedWindowID: 42)
+        XCTAssertEqual(coordinator.state.selectedURL, note)
+        XCTAssertNil(coordinator.state.notice)
+
+        coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
+        XCTAssertNil(coordinator.state.selectedURL)
+        XCTAssertNil(coordinator.state.kind)
+        XCTAssertEqual(coordinator.state.notice, .timedOut)
+        XCTAssertGreaterThan(coordinator.retryAfter, Date())
+
+        coordinator.applySelectionResult(.success(.init(windowID: 42, urls: [note])), trackedWindowID: 42)
+        try await waitUntil { coordinator.state.kind == .text }
+        coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42)
+        XCTAssertNil(coordinator.state.selectedURL)
+        XCTAssertEqual(coordinator.state.notice, .automation)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        condition: @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while !condition() {
+            if clock.now >= deadline {
+                XCTFail("Condition was not met before timeout")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
 }
