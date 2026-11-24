@@ -276,4 +276,23 @@ final class PreviewMarkdownRendererTests: XCTestCase {
         XCTAssertTrue(rendering.text.contains("data:image/png;base64,\(originalImage.base64EncodedString())"))
         XCTAssertFalse(rendering.text.contains("data:image/png;base64,\(outsideImage.base64EncodedString())"))
     }
+
+    func testExternalLinksRenderWithoutANavigableTargetButInPageLinksKeepTheirFragment() throws {
+        let markdownURL = FileManager.default.temporaryDirectory.appendingPathComponent("links.md")
+        let markdown = """
+            [Install](#install), [site](https://example.com/a?b=1&c=2 "Home"), <https://example.org>, \
+            [page](other.md) and `<a href="kept">` in code.
+            """
+        for restricted in [false, true] {
+            let html = try PreviewMarkdownRenderer.html(markdown, markdownURL: markdownURL, restricted: restricted)
+            XCTAssertTrue(html.contains(##"<a href="#install">Install</a>"##), html)
+            XCTAssertTrue(html.contains(#"<a title="https://example.com/a?b=1&amp;c=2""#), html)
+            XCTAssertTrue(html.contains(#"<a title="https://example.com/a?b=1&amp;c=2">site</a>"#), html)
+            XCTAssertFalse(html.contains(#"title="Home""#), html)
+            XCTAssertTrue(html.contains(#"<a title="https://example.org">"#), html)
+            XCTAssertTrue(html.contains(#"<a title="other.md">page</a>"#), html)
+            XCTAssertTrue(html.contains("&lt;a href=&quot;kept&quot;&gt;"), html)
+            XCTAssertEqual(html.components(separatedBy: "<a href=").count, 2, html)
+        }
+    }
 }
