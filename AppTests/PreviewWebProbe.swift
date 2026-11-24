@@ -454,4 +454,53 @@ enum PreviewFixtures {
         }
         return try await condition()
     }
+
+    @MainActor
+    static func withAccessibilityEnabled(_ body: () async throws -> Void) async rethrows {
+        let key = "accessibilityEnhancedUserInterface"
+        let previous = NSApp.value(forKey: key) as? Bool ?? false
+        NSApp.setValue(true, forKey: key)
+        defer { NSApp.setValue(previous, forKey: key) }
+        try await body()
+    }
+
+    @MainActor
+    static func visibleTexts(in root: AnyObject) -> [String] {
+        if let view = root as? NSView {
+            view.window?.layoutIfNeeded()
+            view.layoutSubtreeIfNeeded()
+        }
+        var collected: [String] = []
+        var visited: Set<ObjectIdentifier> = []
+        let textSelectors = [
+            #selector(NSAccessibilityProtocol.accessibilityValue),
+            #selector(NSAccessibilityProtocol.accessibilityTitle),
+            #selector(NSAccessibilityProtocol.accessibilityLabel),
+        ]
+        let childrenSelector = #selector(NSAccessibilityProtocol.accessibilityChildren)
+        func walk(_ node: AnyObject) {
+            guard visited.insert(ObjectIdentifier(node)).inserted else { return }
+            if let field = node as? NSTextField, !field.stringValue.isEmpty {
+                collected.append(field.stringValue)
+            }
+            if let object = node as? NSObject {
+                for selector in textSelectors where object.responds(to: selector) {
+                    if let text = object.perform(selector)?.takeUnretainedValue() as? String, !text.isEmpty {
+                        collected.append(text)
+                    }
+                }
+                if object.responds(to: childrenSelector),
+                    let children = object.perform(childrenSelector)?.takeUnretainedValue() as? [AnyObject]
+                {
+                    for child in children { walk(child) }
+                }
+            }
+            if let view = node as? NSView {
+                for child in view.accessibilityChildren() ?? [] { walk(child as AnyObject) }
+                for child in view.subviews { walk(child) }
+            }
+        }
+        walk(root)
+        return collected
+    }
 }

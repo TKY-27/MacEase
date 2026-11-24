@@ -74,7 +74,9 @@ private struct PreviewPDFUnlock: View {
                 .frame(maxWidth: Self.fieldWidth)
                 .focused($focused)
                 .onSubmit(unlock)
-                .onChange(of: password) { rejected = false }
+                .onChange(of: password) { _, updated in
+                    if !updated.isEmpty { rejected = false }
+                }
             if rejected {
                 Text("The password is incorrect.").font(.callout).foregroundStyle(.red)
             }
@@ -113,11 +115,13 @@ struct PreviewPDFOutlineEntry: Identifiable {
 final class PreviewPDFNavigator {
     // Bounds main-thread work for hostile outlines.
     static let maximumOutlineEntries = 2000
+    private static let actualSizeTolerance: CGFloat = 0.01
 
     private(set) var pageCount = 0
     private(set) var pageNumber = 0
     private(set) var outline: [PreviewPDFOutlineEntry] = []
     private(set) var fitsWidth = true
+    private(set) var isActualSize = false
     @ObservationIgnored private weak var view: PDFView?
 
     func attach(_ view: PDFView) {
@@ -125,6 +129,7 @@ final class PreviewPDFNavigator {
         pageCount = view.document?.pageCount ?? 0
         outline = view.document?.outlineRoot.map(Self.entries) ?? []
         pageChanged()
+        scaleChanged()
     }
 
     func pageChanged() {
@@ -132,11 +137,18 @@ final class PreviewPDFNavigator {
         pageNumber = document.index(for: page) + 1
     }
 
-    func scaleChanged() { fitsWidth = view?.autoScales ?? true }
+    func scaleChanged() {
+        guard let view else { return }
+        fitsWidth = view.autoScales
+        isActualSize = !view.autoScales && abs(view.scaleFactor - 1) < Self.actualSizeTolerance
+    }
 
     func go(toPage number: Int) {
-        guard let view, let page = view.document?.page(at: min(max(number, 1), pageCount) - 1) else { return }
+        guard pageCount > 0, let view, let page = view.document?.page(at: min(max(number, 1), pageCount) - 1) else {
+            return
+        }
         view.go(to: page)
+        pageChanged()
     }
 
     func go(to destination: PDFDestination) { view?.go(to: destination) }
@@ -195,13 +207,13 @@ private struct PreviewPDFControls: View {
         PreviewPDFPageField(navigator: navigator)
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                Button("Fit Width", action: navigator.fitWidth)
-                Button("Actual Size", action: navigator.actualSize)
+                Toggle("Fit Width", isOn: fitWidthBinding).toggleStyle(.button)
+                Toggle("Actual Size", isOn: actualSizeBinding).toggleStyle(.button)
             }
             .fixedSize()
             Menu {
-                Button("Fit Width", action: navigator.fitWidth)
-                Button("Actual Size", action: navigator.actualSize)
+                Toggle("Fit Width", isOn: fitWidthBinding)
+                Toggle("Actual Size", isOn: actualSizeBinding)
             } label: {
                 Image(systemName: "plus.magnifyingglass")
             }
@@ -210,21 +222,32 @@ private struct PreviewPDFControls: View {
             .accessibilityLabel(Text("Zoom"))
         }
     }
+
+    private var fitWidthBinding: Binding<Bool> {
+        Binding(get: { navigator.fitsWidth }, set: { if $0 { navigator.fitWidth() } })
+    }
+
+    private var actualSizeBinding: Binding<Bool> {
+        Binding(get: { navigator.isActualSize }, set: { if $0 { navigator.actualSize() } })
+    }
 }
 
 private struct PreviewPDFPageField: View {
     let navigator: PreviewPDFNavigator
-    @State private var entry = 1
+    @State private var entry = "1"
+    @FocusState private var focused: Bool
     private static let digitWidth: CGFloat = 8
     private static let fieldPadding: CGFloat = 14
 
     var body: some View {
         HStack(spacing: 4) {
-            TextField("Page", value: $entry, format: .number)
+            TextField("Page", text: $entry)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
-                .frame(width: CGFloat(String(navigator.pageCount).count) * Self.digitWidth + Self.fieldPadding)
-                .onSubmit { navigator.go(toPage: entry) }
+                .monospacedDigit()
+                .frame(width: CGFloat(max(1, String(navigator.pageCount).count)) * Self.digitWidth + Self.fieldPadding)
+                .focused($focused)
+                .onSubmit(commit)
                 .accessibilityLabel(Text("Page"))
                 .accessibilityValue(Text("\(navigator.pageNumber) of \(navigator.pageCount)"))
                 .help(Text("Go to Page"))
@@ -232,7 +255,17 @@ private struct PreviewPDFPageField: View {
                 .monospacedDigit().foregroundStyle(.secondary).fixedSize()
                 .accessibilityHidden(true)
         }
-        .onChange(of: navigator.pageNumber, initial: true) { _, page in entry = page }
+        .onChange(of: navigator.pageNumber, initial: true) { _, page in entry = String(page) }
+        .onChange(of: focused) { _, isFocused in
+            if !isFocused { entry = String(navigator.pageNumber) }
+        }
+    }
+
+    private func commit() {
+        if let parsed = Int(entry.trimmingCharacters(in: .whitespaces)) {
+            navigator.go(toPage: parsed)
+        }
+        entry = String(navigator.pageNumber)
     }
 }
 
@@ -279,6 +312,7 @@ private struct PreviewPDFDocument: NSViewRepresentable {
 
     static func dismantleNSView(_ viewer: PreviewPDFView, coordinator: ()) {
         viewer.find?.detach(viewer)
+        viewer.endFind()
         viewer.document?.cancelFindString()
         viewer.document = nil
     }
@@ -287,10 +321,13 @@ private struct PreviewPDFDocument: NSViewRepresentable {
 final class PreviewPDFView: PDFView, PreviewFindTarget {
     weak var navigator: PreviewPDFNavigator? {
         didSet {
-            NotificationCenter.default.removeObserver(self)
-            NotificationCenter.default.addObserver(
+            let center = NotificationCenter.default
+            center.removeObserver(self, name: .PDFViewPageChanged, object: self)
+            center.removeObserver(self, name: .PDFViewScaleChanged, object: self)
+            guard navigator != nil else { return }
+            center.addObserver(
                 self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: self)
-            NotificationCenter.default.addObserver(
+            center.addObserver(
                 self, selector: #selector(scaleChanged), name: .PDFViewScaleChanged, object: self)
         }
     }
@@ -306,19 +343,23 @@ final class PreviewPDFView: PDFView, PreviewFindTarget {
 
     func find(_ query: String, direction: PreviewFindDirection, restart: Bool) async -> PreviewFindOutcome {
         if query != matchedQuery {
-            guard let document else { return .notFound }
+            guard !Task.isCancelled else { return .notFound }
             // PDFKit allows one search per document.
-            await collector?.cancel()
+            while let active = collector, active.isRunning {
+                await active.cancel()
+                guard !Task.isCancelled else { return .notFound }
+            }
+            guard !Task.isCancelled, let document else { return .notFound }
             let started = PreviewPDFMatchCollector(document: document)
             collector = started
             let found = await started.run(query)
-            guard !Task.isCancelled else { return .notFound }
+            guard !Task.isCancelled, collector === started else { return .notFound }
             matches = found
             matchedQuery = query
             matchIndex = nil
             highlightedSelections = matches.isEmpty ? nil : matches
         }
-        guard !matches.isEmpty else { return .notFound }
+        guard !Task.isCancelled, !matches.isEmpty else { return .notFound }
         let index: Int
         if let current = matchIndex, !restart {
             let step = direction == .forward ? 1 : -1
@@ -334,9 +375,11 @@ final class PreviewPDFView: PDFView, PreviewFindTarget {
     }
 
     func endFind() {
-        Task { await collector?.cancel() }
+        collector?.requestCancel()
         highlightedSelections = nil
         matchedQuery = nil
+        matches = []
+        matchIndex = nil
         window?.makeFirstResponder(self)
     }
 
@@ -350,27 +393,37 @@ final class PreviewPDFView: PDFView, PreviewFindTarget {
 private final class PreviewPDFMatchCollector: NSObject {
     private let document: PDFDocument
     private var found: [PDFSelection] = []
-    private var running = false
+    private(set) var isRunning = false
     private var endWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(document: PDFDocument) { self.document = document }
 
     func run(_ query: String) async -> [PDFSelection] {
-        await withTaskCancellationHandler {
+        guard !Task.isCancelled else { return [] }
+        return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                guard !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
                 endWaiters.append(continuation)
-                running = true
+                isRunning = true
                 document.delegate = self
                 document.beginFindString(query, withOptions: [.caseInsensitive, .diacriticInsensitive])
             }
             return found
         } onCancel: {
-            Task { @MainActor in await self.cancel() }
+            Task { @MainActor in self.requestCancel() }
         }
     }
 
+    func requestCancel() {
+        guard isRunning else { return }
+        document.cancelFindString()
+    }
+
     func cancel() async {
-        guard running else { return }
+        guard isRunning else { return }
         await withCheckedContinuation { continuation in
             endWaiters.append(continuation)
             document.cancelFindString()
@@ -382,7 +435,7 @@ extension PreviewPDFMatchCollector: @preconcurrency PDFDocumentDelegate {
     func didMatchString(_ instance: PDFSelection) { found.append(instance) }
 
     func documentDidEndDocumentFind(_ notification: Notification) {
-        running = false
+        isRunning = false
         if document.delegate === self { document.delegate = nil }
         let waiters = endWaiters
         endWaiters = []
