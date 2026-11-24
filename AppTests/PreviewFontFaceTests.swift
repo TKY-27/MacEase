@@ -211,10 +211,12 @@ final class PreviewFontFaceTests: XCTestCase {
 
     func testWidenedExtensionMapAndTokenizerLanguageMapping() throws {
         let textCases: [(String, PreviewLanguage)] = [
-            ("env", .shell), ("ini", .plain), ("cfg", .plain), ("conf", .plain), ("properties", .plain),
-            ("srt", .plain), ("vtt", .plain), ("ass", .plain), ("lrc", .plain), ("diff", .plain), ("patch", .plain),
-            ("tex", .plain), ("rst", .plain), ("nfo", .plain), ("tsv", .plain), ("reg", .plain), ("inf", .plain),
-            ("gitignore", .plain), ("gitattributes", .plain), ("gitmodules", .plain), ("editorconfig", .plain),
+            ("env", .ini), ("ini", .ini), ("cfg", .ini), ("conf", .ini), ("properties", .ini),
+            ("srt", .plain), ("vtt", .plain), ("ass", .plain), ("lrc", .plain), ("diff", .diff), ("patch", .diff),
+            ("tex", .latex), ("sty", .latex), ("cls", .latex), ("rst", .restructuredText),
+            ("adoc", .asciiDoc), ("asciidoc", .asciiDoc),
+            ("nfo", .plain), ("tsv", .plain), ("reg", .ini), ("inf", .ini),
+            ("gitignore", .plain), ("gitattributes", .plain), ("gitmodules", .ini), ("editorconfig", .ini),
             ("jsonc", .json), ("json5", .json),
             ("xaml", .markup), ("csproj", .markup), ("vcxproj", .markup), ("fsproj", .markup), ("vbproj", .markup),
             ("props", .markup), ("targets", .markup), ("manifest", .markup), ("vue", .markup), ("svelte", .markup),
@@ -222,14 +224,16 @@ final class PreviewFontFaceTests: XCTestCase {
             ("sass", .css), ("less", .css),
             ("mts", .javascript), ("cts", .javascript), ("ts", .javascript),
             ("pyi", .python),
-            ("cxx", .c), ("hh", .c), ("hxx", .c), ("inl", .c), ("csx", .c), ("kt", .c), ("kts", .c),
-            ("gradle", .c), ("groovy", .c), ("scala", .c), ("dart", .c),
-            ("rb", .plain), ("php", .plain), ("go", .plain), ("rs", .plain), ("fs", .plain), ("fsx", .plain),
-            ("vb", .plain), ("vbs", .plain), ("lua", .plain), ("pl", .plain), ("pm", .plain), ("r", .plain),
-            ("jl", .plain), ("ex", .plain), ("exs", .plain), ("clj", .plain), ("sql", .plain),
-            ("ps1", .plain), ("psm1", .plain), ("psd1", .plain), ("bat", .plain), ("cmd", .plain),
-            ("dockerfile", .plain), ("cmake", .plain), ("mk", .plain), ("proto", .plain),
-            ("graphql", .plain), ("gql", .plain), ("hcl", .plain), ("tf", .plain), ("sol", .plain), ("sln", .plain),
+            ("cxx", .cpp), ("hh", .cpp), ("hxx", .cpp), ("inl", .cpp), ("csx", .csharp), ("kt", .kotlin),
+            ("kts", .kotlin),
+            ("gradle", .groovy), ("groovy", .groovy), ("scala", .scala), ("dart", .dart),
+            ("rb", .ruby), ("php", .php), ("go", .go), ("rs", .rust), ("fs", .fsharp), ("fsx", .fsharp),
+            ("vb", .vb), ("vbs", .vb), ("lua", .lua), ("pl", .perl), ("pm", .perl), ("r", .r),
+            ("jl", .julia), ("ex", .elixir), ("exs", .elixir), ("clj", .clojure), ("sql", .sql),
+            ("ps1", .powershell), ("psm1", .powershell), ("psd1", .powershell), ("bat", .batch), ("cmd", .batch),
+            ("dockerfile", .dockerfile), ("cmake", .cmake), ("mk", .makefile), ("mak", .makefile), ("make", .makefile),
+            ("proto", .protobuf), ("graphql", .graphql), ("gql", .graphql), ("hcl", .hcl), ("tf", .hcl),
+            ("tfvars", .hcl), ("sol", .solidity), ("sln", .plain),
         ]
         for (suffix, language) in textCases {
             XCTAssertEqual(PreviewKind.resolve(type: nil, extension: suffix), .text, suffix)
@@ -252,13 +256,17 @@ final class PreviewFontFaceTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
-        for name in [".env", ".gitignore", ".gitattributes", ".gitmodules", ".editorconfig", ".dockerfile"] {
+        let dotfileExpectations: [(String, PreviewLanguage)] = [
+            (".env", .ini), (".gitignore", .plain), (".gitattributes", .plain),
+            (".gitmodules", .ini), (".editorconfig", .ini), (".dockerfile", .dockerfile),
+        ]
+        for (name, expected) in dotfileExpectations {
             let dotfile = directory.appendingPathComponent(name)
             try Data("KEY=VALUE\n".utf8).write(to: dotfile)
             XCTAssertEqual(try PreviewKind.inspect(dotfile), .text, name)
             XCTAssertEqual(
                 PreviewLanguage.resolve(dotfile.pathExtension, fileName: dotfile.lastPathComponent),
-                name == ".env" ? .shell : .plain, name)
+                expected, name)
         }
     }
 
