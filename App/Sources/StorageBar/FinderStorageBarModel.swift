@@ -148,7 +148,7 @@ final class FinderStorageBarModel {
     private var volumeRefreshPending = false
     private var locationStale = false
 
-    init(readVolume: @escaping VolumeReader = Self.defaultReadVolume) {
+    init(readVolume: @escaping VolumeReader = FinderStorageBarModel.defaultReadVolume) {
         self.readVolume = readVolume
     }
 
