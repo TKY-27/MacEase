@@ -8,7 +8,7 @@ struct EditorTransportBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            TransportClock(position: model.position, duration: model.outputDuration)
+            TransportClock(position: model.position, duration: model.outputDuration, seek: model.seek)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 18) {
                 Button {
@@ -83,8 +83,50 @@ struct EditorTransportBar: View {
 struct TransportClock: View {
     let position: Double
     let duration: Double
+    /// Makes the playhead time editable.
+    var seek: ((Double) -> Void)?
+    @State private var draft: String?
+    @FocusState private var editing: Bool
 
     var body: some View {
+        if let seek, let draft {
+            TextField("Go to Time", text: Binding(get: { draft }, set: { self.draft = $0 }))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .font(.callout.monospacedDigit())
+                .frame(width: Self.fieldWidth)
+                .focused($editing)
+                .onAppear { editing = true }
+                .onSubmit { commit(draft, seek: seek) }
+                .onExitCommand { self.draft = nil }
+                .onChange(of: editing) { _, focused in if !focused { self.draft = nil } }
+                .help("Type a time such as 1:05.25, then press Return")
+        } else if seek != nil {
+            Button {
+                draft = Timecode.string(position, fractionDigits: Self.editingDigits)
+            } label: {
+                clock
+            }
+            .buttonStyle(.plain)
+            .help("Click to Go to a Time")
+        } else {
+            clock
+        }
+    }
+
+    private func commit(_ text: String, seek: (Double) -> Void) {
+        guard let seconds = TimecodeField.parse(text) else {
+            NSSound.beep()
+            return
+        }
+        seek(min(max(0, seconds), duration))
+        draft = nil
+    }
+
+    private static let fieldWidth: CGFloat = 96
+    private static let editingDigits = 3
+
+    private var clock: some View {
         HStack(spacing: 4) {
             Text(Timecode.string(position)).foregroundStyle(.primary)
             Text(verbatim: "/").foregroundStyle(.tertiary)

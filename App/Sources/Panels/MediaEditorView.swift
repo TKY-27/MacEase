@@ -10,6 +10,13 @@ struct MediaEditorView: View {
     let progress: (UUID) -> JobCenter.ActiveBatch?
 
     private var editable: Bool { model.ready && !model.editingLocked }
+    @State private var showsPreparing = false
+    @GestureState private var pinch = 1.0
+
+    private var preparing: Bool {
+        model.preparingPlayback || model.splitting || model.loadingPhoto
+            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
+    }
 
     var body: some View {
         Group {
@@ -45,7 +52,16 @@ struct MediaEditorView: View {
             model.pause(); model.refresh()
         }
         .onChange(of: model.zoom) { _, _ in model.refresh() }
+        .task(id: preparing) {
+            showsPreparing = false
+            guard preparing else { return }
+            // Quick rebuilds would otherwise flash the indicator.
+            do { try await Task.sleep(for: Self.preparingDelay) } catch { return }
+            showsPreparing = true
+        }
     }
+
+    private static let preparingDelay = Duration.milliseconds(300)
 
     private var workspace: some View {
         VStack(spacing: 0) {
@@ -145,6 +161,7 @@ struct MediaEditorView: View {
         VStack(spacing: 8) {
             List(model.photoURLs, id: \.self, selection: $model.selectedPhotos) { url in
                 HStack {
+                    PhotoListThumbnail(url: url)
                     Text(url.lastPathComponent).lineLimit(2)
                     Spacer()
                     if model.values.photoEdits[url]?.isIdentity == false {
@@ -190,7 +207,7 @@ struct MediaEditorView: View {
             .labelsHidden()
             .fixedSize()
             .disabled(model.category == .crop)
-            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom")
+            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)")
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
@@ -209,7 +226,7 @@ struct MediaEditorView: View {
                             width: model.image?.width ?? 1, height: model.image?.height ?? 1)
                     let scale = min(
                         (proxy.size.width - 48) / imageSize.width, (proxy.size.height - 40) / imageSize.height)
-                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom
+                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom * pinch
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
                         ZStack {
@@ -233,6 +250,11 @@ struct MediaEditorView: View {
                         .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
                     .scrollIndicators(zoom > 1 ? .automatic : .never)
+                    .gesture(
+                        MagnifyGesture()
+                            .updating($pinch) { value, pinch, _ in pinch = value.magnification }
+                            .onEnded { value in model.setPhotoZoom(model.zoom * value.magnification) },
+                        isEnabled: !model.isVideo && model.category != .crop)
                 } else {
                     ProgressView()
                 }
@@ -244,12 +266,15 @@ struct MediaEditorView: View {
                                 .background(.regularMaterial, in: Capsule())
                         }
                         Spacer()
-                        if model.preparingPlayback || model.splitting || model.loadingPhoto
-                            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
-                        {
-                            ProgressView("Preparing preview…").controlSize(.small).padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(.regularMaterial, in: Capsule())
+                        if showsPreparing {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Preparing preview…").font(.callout)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.regularMaterial, in: Capsule())
+                            .accessibilityElement(children: .combine)
                         }
                     }
                     Spacer()
@@ -394,6 +419,21 @@ struct MediaEditorView: View {
         .padding(.vertical, 12)
     }
 
+    @ViewBuilder private func applyToAllSegments(styleOnly: Bool) -> some View {
+        if model.isVideo, model.values.segments.count > 1 {
+            Button {
+                model.applyToAllSegments(styleOnly: styleOnly)
+            } label: {
+                Text(styleOnly ? "Apply Style to All Segments" : "Apply Adjustments to All Segments")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(!model.canApplyToAllSegments(styleOnly: styleOnly))
+            .help(
+                styleOnly
+                    ? "Give every segment this segment’s style" : "Give every segment this segment’s adjustments")
+        }
+    }
+
     private var adjustmentControls: some View {
         Group {
             if !model.isVideo {
@@ -414,6 +454,7 @@ struct MediaEditorView: View {
                     }
                 }
             }
+            applyToAllSegments(styleOnly: false)
         }
     }
 
@@ -446,6 +487,7 @@ struct MediaEditorView: View {
                 display: "\(Int((model.adjustments.styleIntensity * 100).rounded()))%", model: model
             )
             .disabled(model.adjustments.style == .original)
+            applyToAllSegments(styleOnly: true)
         }
     }
 
@@ -719,8 +761,39 @@ struct MediaEditorView: View {
     }
 
     private static let musicSectionID = "music"
-    private static let speedPresets: [Double] = [0.5, 1, 1.5, 2]
+    private static let speedPresets: [Double] = [0.5, 1, 1.5, 2, 4]
     private static let timecodeDigits = 3
+}
+
+/// Original-photo thumbnail beside a file name.
+private struct PhotoListThumbnail: View {
+    let url: URL
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.15)
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFill() }
+        }
+        .frame(width: Self.side, height: Self.side)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .accessibilityHidden(true)
+        .task(id: url) { image = await Task.detached(priority: .utility) { Self.thumbnail(url) }.value }
+    }
+
+    /// Unreadable files keep the placeholder; opening reports them.
+    private nonisolated static func thumbnail(_ url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Self.pixels,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static let side: CGFloat = 36
+    private nonisolated static let pixels = 96
 }
 
 private enum AdjustmentGroup: CaseIterable {

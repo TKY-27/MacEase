@@ -54,6 +54,15 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     if modifiers == [.command, .shift], event.charactersIgnoringModifiers == "+", model.isVideo {
                         model.zoomTimeline(by: 2); return true
                     }
+                    if modifiers == .command, !model.isVideo, model.category != .crop {
+                        switch event.charactersIgnoringModifiers {
+                        case "=", "+": model.setPhotoZoom(model.zoom * 2)
+                        case "-": model.setPhotoZoom(model.zoom / 2)
+                        case "0": model.setPhotoZoom(1)
+                        default: return false
+                        }
+                        return true
+                    }
                     if modifiers == .command, model.isVideo {
                         switch event.charactersIgnoringModifiers {
                         case "=", "+": model.zoomTimeline(by: 2)
@@ -76,6 +85,10 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     case 37 where model.isVideo: model.shuttle(1)
                     case 123 where model.isVideo && model.category != .crop: model.stepFrame(-1)
                     case 124 where model.isVideo && model.category != .crop: model.stepFrame(1)
+                    case 126 where model.isVideo && model.category != .crop:
+                        model.jumpToSegmentBoundary(forward: false)
+                    case 125 where model.isVideo && model.category != .crop:
+                        model.jumpToSegmentBoundary(forward: true)
                     case 51 where model.isVideo, 117 where model.isVideo:
                         model.deleteSelection()
                     default: return false

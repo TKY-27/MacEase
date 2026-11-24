@@ -1147,6 +1147,79 @@ final class MediaEditorModelTests: XCTestCase {
             "編集中に音楽ファイルが変更されました。もう一度選んでください。")
     }
 
+    func testUpAndDownJumpBetweenSegmentBoundaries() async throws {
+        let model = try await videoModel()
+        let segment = try XCTUnwrap(model.values.segments.first)
+        model.change {
+            var left = segment
+            left.end = 0.5
+            var right = segment
+            right.id = UUID()
+            right.start = 0.5
+            right.speed = 2
+            $0.segments = [left, right]
+        }
+        let end = model.outputDuration
+        model.seek(0.2)
+        model.jumpToSegmentBoundary(forward: true)
+        XCTAssertEqual(model.position, 0.5, accuracy: 0.000_001)
+        model.jumpToSegmentBoundary(forward: true)
+        XCTAssertGreaterThan(model.position, end - 0.01, "the last boundary is the end")
+        model.jumpToSegmentBoundary(forward: true)
+        XCTAssertGreaterThan(model.position, end - 0.01)
+        model.jumpToSegmentBoundary(forward: false)
+        XCTAssertEqual(model.position, 0.5, accuracy: 0.000_001)
+        model.jumpToSegmentBoundary(forward: false)
+        XCTAssertEqual(model.position, 0)
+        XCTAssertEqual(model.values.segments.count, 2, "jumping never edits")
+    }
+
+    func testApplyToAllSegmentsCopiesAdjustmentsOrStyleAsOneUndoStep() async throws {
+        let model = try await videoModel()
+        let segment = try XCTUnwrap(model.values.segments.first)
+        model.change {
+            var left = segment
+            left.end = 0.5
+            left.adjustments.style = .warm
+            var right = segment
+            right.id = UUID()
+            right.start = 0.5
+            $0.segments = [left, right]
+            $0.selectedID = right.id
+        }
+        XCTAssertFalse(model.canApplyToAllSegments(styleOnly: false), "nothing differs yet")
+        model.change { $0.videoAdjustments[.exposure] = 0.4 }
+        model.change { $0.videoAdjustments.style = .dramatic }
+        XCTAssertTrue(model.canApplyToAllSegments(styleOnly: false))
+        model.applyToAllSegments(styleOnly: false)
+        XCTAssertEqual(model.values.segments[0].adjustments[.exposure], 0.4)
+        XCTAssertEqual(model.values.segments[0].adjustments.style, .warm, "Adjust keeps each segment's style")
+        model.undo()
+        XCTAssertEqual(model.values.segments[0].adjustments[.exposure], 0, "applying is one Undo step")
+        model.applyToAllSegments(styleOnly: true)
+        XCTAssertEqual(model.values.segments[0].adjustments.style, .dramatic)
+        XCTAssertEqual(model.values.segments[0].adjustments[.exposure], 0, "Styles keep each segment's light")
+        XCTAssertFalse(model.canApplyToAllSegments(styleOnly: true))
+
+        model.change { $0.speed = 4 }
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure, "4x is a valid preset")
+        XCTAssertEqual(japanese("Apply Style to All Segments"), "スタイルをすべてのセグメントに適用")
+        XCTAssertEqual(japanese("Apply Adjustments to All Segments"), "調整をすべてのセグメントに適用")
+    }
+
+    func testPhotoZoomStaysWithinItsRange() async throws {
+        let model = try await photoModel()
+        model.setPhotoZoom(16)
+        XCTAssertEqual(model.zoom, MediaEditorModel.photoZoomRange.upperBound)
+        model.setPhotoZoom(0.2)
+        XCTAssertEqual(model.zoom, 1)
+        model.setPhotoZoom(.nan)
+        XCTAssertEqual(model.zoom, 1)
+        model.setPhotoZoom(2.5)
+        XCTAssertEqual(model.zoom, 2.5)
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))

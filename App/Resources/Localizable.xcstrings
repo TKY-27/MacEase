@@ -20217,6 +20217,86 @@
           }
         }
       }
+    },
+    "Go to Time": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間を指定して移動"
+          }
+        }
+      }
+    },
+    "Type a time such as 1:05.25, then press Return": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1:05.25のように時間を入力してReturnキーを押します"
+          }
+        }
+      }
+    },
+    "Click to Go to a Time": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックして時間を指定"
+          }
+        }
+      }
+    },
+    "Apply Style to All Segments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイルをすべてのセグメントに適用"
+          }
+        }
+      }
+    },
+    "Apply Adjustments to All Segments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整をすべてのセグメントに適用"
+          }
+        }
+      }
+    },
+    "Give every segment this segment’s style": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセグメントのスタイルをすべてのセグメントに適用します"
+          }
+        }
+      }
+    },
+    "Give every segment this segment’s adjustments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセグメントの調整をすべてのセグメントに適用します"
+          }
+        }
+      }
+    },
+    "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの拡大（⌘+、⌘−、⌘0またはピンチ）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

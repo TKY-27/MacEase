@@ -261,6 +261,13 @@ final class MediaEditorModel {
         return left...max(left, right)
     }
 
+    static let photoZoomRange = 1.0...8.0
+
+    func setPhotoZoom(_ value: Double) {
+        guard value.isFinite else { return }
+        zoom = min(Self.photoZoomRange.upperBound, max(Self.photoZoomRange.lowerBound, value))
+    }
+
     func zoomTimeline(by factor: Double) {
         timelineZoom = min(maximumTimelineZoom, max(1, timelineZoom * factor))
     }
@@ -930,6 +937,50 @@ final class MediaEditorModel {
                 seek(output)
             } catch is CancellationError { return } catch { if !closed { report(error) } }
         }
+    }
+
+    /// Up and Down keys.
+    func jumpToSegmentBoundary(forward: Bool) {
+        guard let timeline, !timeline.segments.isEmpty else { return }
+        let boundaries = timeline.segments.reduce(into: [0.0]) { ends, segment in
+            ends.append(ends[ends.count - 1] + segment.outputDuration)
+        }
+        let tolerance = 1e-6
+        let target =
+            forward
+            ? boundaries.first { $0 > position + tolerance }
+            : boundaries.last { $0 < position - tolerance }
+        guard let target, target < outputDuration || position < lastPlayablePosition else { return }
+        seek(target)
+    }
+
+    /// Styles copy only the look.
+    func canApplyToAllSegments(styleOnly: Bool) -> Bool {
+        guard !editingLocked, values.segments.count > 1, hasSelection else { return false }
+        let selected = values.videoAdjustments
+        return values.segments.contains {
+            Self.adjustments(selected, onto: $0.adjustments, styleOnly: styleOnly) != $0.adjustments
+        }
+    }
+
+    func applyToAllSegments(styleOnly: Bool) {
+        guard canApplyToAllSegments(styleOnly: styleOnly) else { return }
+        let selected = values.videoAdjustments
+        change {
+            for index in $0.segments.indices {
+                $0.segments[index].adjustments = Self.adjustments(
+                    selected, onto: $0.segments[index].adjustments, styleOnly: styleOnly)
+            }
+        }
+    }
+
+    private static func adjustments(
+        _ source: MediaAdjustments, onto target: MediaAdjustments, styleOnly: Bool
+    ) -> MediaAdjustments {
+        var result = styleOnly ? target : source
+        result.style = styleOnly ? source.style : target.style
+        result.styleIntensity = styleOnly ? source.styleIntensity : target.styleIntensity
+        return result
     }
 
     func pause() {
