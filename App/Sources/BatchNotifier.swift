@@ -26,11 +26,18 @@ final class BatchNotifier: NSObject {
     var onShow: ((UUID) -> Void)?
     var onDismissBatch: ((UUID) -> Void)?
     var onOpenUpdate: (() -> Void)?
+    private let deliver: (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void
     private let settings: SettingsStore
     private let center = UNUserNotificationCenter.current()
     private let logger = Logger(category: "notifications")
 
-    init(settings: SettingsStore) {
+    init(
+        settings: SettingsStore,
+        deliver: @escaping (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void = {
+            UNUserNotificationCenter.current().add($0, withCompletionHandler: $1)
+        }
+    ) {
+        self.deliver = deliver
         self.settings = settings
         super.init()
         center.delegate = self
@@ -147,7 +154,7 @@ final class BatchNotifier: NSObject {
 
     private func post(_ content: UNMutableNotificationContent, id: String) {
         guard settings.notificationsEnabled else { return }
-        center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { [logger] error in
+        deliver(UNNotificationRequest(identifier: id, content: content, trigger: nil)) { [logger] error in
             if let error {
                 let failure = error as NSError
                 logger.error(

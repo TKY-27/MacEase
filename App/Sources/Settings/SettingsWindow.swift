@@ -39,16 +39,24 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     case finderMenu
     case finderWindows
     case folderAccess
-    case organization
-    case recipes
     case images
     case video
     case audio
-    case folders
     case text
+    case folders
     case intelligence
+    case organization
+    case recipes
     case advanced
     case about
+
+    /// Finder integration, file kinds, automation, maintenance.
+    static let sidebarSections: [[SettingsPage]] = [
+        [.general, .finderMenu, .finderWindows, .folderAccess],
+        [.images, .video, .audio, .text, .folders, .intelligence],
+        [.organization, .recipes],
+        [.advanced, .about],
+    ]
 
     var id: Self { self }
 
@@ -64,7 +72,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .video: String(localized: "Video", comment: "Settings page")
         case .audio: String(localized: "Audio", comment: "Settings page")
         case .folders: String(localized: "Folders", comment: "Settings page")
-        case .text: String(localized: "Text", comment: "Settings page")
+        case .text: String(localized: "Text & PDF", comment: "Settings page")
         case .intelligence: String(localized: "Text Recognition & AI", comment: "Settings page")
         case .advanced: String(localized: "Advanced", comment: "Settings page")
         case .about: String(localized: "About", comment: "Settings page")
@@ -109,8 +117,14 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SettingsPage.allCases, selection: $page) { page in
-                Label(page.title, systemImage: page.symbol)
+            List(selection: $page) {
+                ForEach(SettingsPage.sidebarSections, id: \.self) { pages in
+                    Section {
+                        ForEach(pages) { page in
+                            Label(page.title, systemImage: page.symbol)
+                        }
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(Self.sidebarWidth)
             .frame(minWidth: Self.sidebarWidth)

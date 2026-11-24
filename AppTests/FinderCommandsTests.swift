@@ -64,6 +64,92 @@ final class FinderCommandsTests: XCTestCase {
         XCTAssertEqual(reloaded.terminalApplicationURL, SettingsStore.defaultTerminalApplicationURL)
     }
 
+    func testTerminalChoicesListEachDetectedAppOnceAndReportAMissingSavedApp() throws {
+        let fixture = try fixture()
+        let iTerm = fixture.root.appending(path: "iTerm.app", directoryHint: .isDirectory)
+        let executableFolder = iTerm.appending(path: "Contents/MacOS")
+        try FileManager.default.createDirectory(at: executableFolder, withIntermediateDirectories: true)
+        let executable = executableFolder.appending(path: "iTerm")
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let bundleProperties = ["CFBundleExecutable": "iTerm", "CFBundleIdentifier": "test.iTerm"]
+        try PropertyListSerialization.data(fromPropertyList: bundleProperties, format: .xml, options: 0)
+            .write(to: iTerm.appending(path: "Contents/Info.plist"))
+        var asked: [String] = []
+        let locate: (String) -> URL? = { identifier in
+            asked.append(identifier)
+            return switch identifier {
+            case "com.apple.Terminal": URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app/")
+            case "com.googlecode.iterm2": iTerm
+            default: nil
+            }
+        }
+
+        let standard = TerminalApplications(saved: SettingsStore.defaultTerminalApplicationURL, locate: locate)
+        XCTAssertEqual(asked, TerminalApplications.bundleIdentifiers)
+        XCTAssertEqual(standard.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path, iTerm.path])
+        XCTAssertNil(standard.missing)
+
+        fixture.settings.terminalApplicationURL = iTerm
+        let reloaded = SettingsStore(defaults: fixture.defaults)
+        XCTAssertEqual(reloaded.terminalApplicationURL, iTerm, "the choice persists")
+        try FileManager.default.removeItem(at: iTerm)
+        let missing = TerminalApplications(saved: reloaded.terminalApplicationURL, locate: locate)
+        XCTAssertEqual(missing.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path, iTerm.path])
+        XCTAssertEqual(missing.missing, iTerm, "a deleted app is reported, not hidden")
+        XCTAssertEqual(TerminalApplications.name(of: iTerm), "iTerm")
+
+        let custom = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+        let other = TerminalApplications(saved: custom, locate: locate)
+        XCTAssertEqual(other.choices.last, custom, "an app chosen with Other… stays listed")
+        XCTAssertNil(other.missing)
+    }
+
+    func testTerminalChoicesExcludeDetectedAppsThatCannotBeOpened() throws {
+        let fixture = try fixture()
+        let unavailable = fixture.root.appending(path: "Unavailable.app")
+        let choices = TerminalApplications(saved: SettingsStore.defaultTerminalApplicationURL) { identifier in
+            identifier == "com.googlecode.iterm2" ? unavailable : nil
+        }
+        XCTAssertEqual(choices.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path])
+        XCTAssertNil(choices.missing)
+    }
+
+    func testOpenWithUsesTheSameMacOSTermInItsMissingApplicationMessage() throws {
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        XCTAssertEqual(japanese.localizedString(forKey: "Open with", value: nil, table: nil), "このアプリケーションで開く")
+        XCTAssertEqual(
+            japanese.localizedString(forKey: "“%@” can’t be found. Choose another app.", value: nil, table: nil),
+            "“%@”が見つかりません。別のアプリケーションを選択してください。")
+        XCTAssertEqual(
+            japanese.localizedString(
+                forKey:
+                    "Applies to subtitles, chapters and similar content in new files. Replacing an original always asks.",
+                value: nil, table: nil),
+            "新しいファイルの字幕やチャプターなどに適用されます。元のファイルを置き換える場合は必ず確認します。")
+    }
+
+    func testTurningOffEveryTemplateRemovesNewFileFromThePublishedMenu() throws {
+        let fixture = try fixture()
+        let configuration = HostConfiguration(
+            urlScheme: "macease-test", supportDirectory: fixture.root.appending(path: "menu"))
+        func newFile() throws -> MenuCommandItem? {
+            try MenuFileWriter(configuration: configuration).write(
+                visibleOperations: [], hiddenEntries: [], settings: fixture.settings.settings,
+                newFileTemplates: fixture.settings.enabledNewFileTemplates
+            ).commands.first { $0.command == .newFile }
+        }
+        var changes = 0
+        fixture.settings.onChange = { changes += 1 }
+        fixture.settings.enabledNewFileTemplates.remove(.richText)
+        XCTAssertEqual(try newFile()?.leaves?.map(\.preset), ["txt", "md", "docx"])
+        fixture.settings.enabledNewFileTemplates = []
+        XCTAssertNil(try newFile(), "New File leaves the menu instead of opening an empty submenu")
+        XCTAssertEqual(changes, 2, "each toggle republishes the menu")
+        fixture.settings.enabledNewFileTemplates.insert(.markdown)
+        XCTAssertEqual(try newFile()?.leaves?.map(\.preset), ["md"])
+    }
+
     func testNewFilesUseEngineHistoryAndRevealOnlyCreatedOutputs() async throws {
         let fixture = try fixture()
         var revealed: [[URL]] = []
@@ -450,8 +536,9 @@ extension FinderCommandsTests {
 
         let keys: [(String, String, String)] = [
             (
-                "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options.",
-                "Settings > Finder Menu > New File options", "Finder メニュー"
+                "This New File template is no longer enabled. Enable it in Settings > Finder Menu > Commands > New File > Options.",
+                "Settings > Finder Menu > Commands > New File > Options",
+                "「設定」>「Finderメニュー」>「コマンド」>「新規ファイル」>「オプション」"
             ),
             (
                 "There are no cut items to move. Cut the items again, then choose Move Here.",

@@ -18,7 +18,7 @@ final class FinderCommands {
             case .invalidTemplate:
                 String(
                     localized:
-                        "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options."
+                        "This New File template is no longer enabled. Enable it in Settings > Finder Menu > Commands > New File > Options."
                 )
             case .nothingCut:
                 String(localized: "There are no cut items to move. Cut the items again, then choose Move Here.")
@@ -330,9 +330,7 @@ final class FinderCommands {
         let directory = URL(fileURLWithPath: selected.path, isDirectory: isDirectory && !isPackage)
         guard let folder = FinderPaths.terminalDirectory(for: [directory]) else { throw Failure.invalidSelection }
         let application = settings.terminalApplicationURL
-        guard application.isFileURL, let executable = Bundle(url: application)?.executableURL,
-            FileManager.default.isExecutableFile(atPath: executable.path)
-        else { throw Failure.missingTerminal(application) }
+        guard Self.canOpenTerminal(application) else { throw Failure.missingTerminal(application) }
         do {
             try await openTerminal(folder, application)
         } catch let failure as Failure {
@@ -340,6 +338,11 @@ final class FinderCommands {
         } catch {
             throw Self.mapItemError(error, for: folder)
         }
+    }
+
+    nonisolated static func canOpenTerminal(_ application: URL) -> Bool {
+        guard application.isFileURL, let executable = Bundle(url: application)?.executableURL else { return false }
+        return FileManager.default.isExecutableFile(atPath: executable.path)
     }
 
     private nonisolated static func captureSelection(_ urls: [URL]) async throws -> [MoveItem] {
