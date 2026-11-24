@@ -157,23 +157,13 @@ public final class JobEngine: Sendable {
             return try await workItem.body(context)
         } catch EngineError.invalidInput(.unpreservedStreams(let streams)) {
             guard workItem.unpreservedStreams.permitsAutomaticOmission,
-                !streams.isEmpty, context.canContinueBeforeEncoding,
-                try await workItem.savesNewFile(context: context)
+                !streams.isEmpty, context.canContinueBeforeEncoding
             else { throw EngineError.invalidInput(.unpreservedStreams(streams)) }
             let stamps = context.details.inputStamps
-            do {
-                for input in workItem.inputs {
-                    guard let stamp = stamps[input] else { throw ActivityAvailability.unavailable }
-                    try ActivitySession.validate(input, stamp: stamp)
-                }
-            } catch ActivityAvailability.changed {
-                context.removeStaging()
-                var inspected: [URL: FileStamp] = [:]
-                for input in workItem.inputs { inspected[input] = try FileStamp(of: input, includingIdentity: true) }
-                context.recordInputs(inspected)
-                _ = try await workItem.body(context)
-                throw FileCommitter.Failure.changedSinceScan
-            }
+            try validateContinuationInputs(workItem, stamps: stamps)
+            let savesNewFile = await workItem.savesNewFile(context: context)
+            try validateContinuationInputs(workItem, stamps: stamps)
+            guard savesNewFile else { throw EngineError.invalidInput(.unpreservedStreams(streams)) }
             context.omitStreams(Set(streams))
             let result = try await workItem.body(context)
             if case .replace = result, workItem.newFileNaming == nil {
@@ -182,6 +172,22 @@ public final class JobEngine: Sendable {
             for (input, stamp) in stamps { try ActivitySession.validate(input, stamp: stamp) }
             context.warnStreamsOmitted(streams)
             return result
+        }
+    }
+
+    private func validateContinuationInputs(_ workItem: WorkItem, stamps: [URL: FileStamp]) throws {
+        try Task.checkCancellation()
+        for input in workItem.inputs {
+            guard let stamp = stamps[input] else { throw ActivityAvailability.unavailable }
+            if try input.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
+                throw FileCommitter.Failure.changedSinceScan
+            }
+            do {
+                try ActivitySession.validate(input, stamp: stamp)
+            } catch ActivityAvailability.changed {
+                try Task.checkCancellation()
+                throw FileCommitter.Failure.changedSinceScan
+            }
         }
     }
 

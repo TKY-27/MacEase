@@ -267,7 +267,7 @@ public final class ItemContext: Sendable {
         }
     }
 
-    /// On `original`'s volume.
+    // Automatic omission consent ends when staging starts.
     public func stagingDirectory(for original: URL) throws -> URL {
         let directory = try staging.makeDirectory(for: original)
         state.withLock { $0.directories.append(directory) }

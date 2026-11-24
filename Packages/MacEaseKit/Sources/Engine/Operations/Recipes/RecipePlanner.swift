@@ -119,7 +119,8 @@ public enum RecipePlanner {
                 .map {
                     VariantRun(
                         source: source, variant: $0,
-                        omittedStreams: (omissions[source.original]?.streams ?? []).union(context.omittedStreams))
+                        omittedStreams: (omissions[source.original]?.streams ?? []).union(
+                            context.omittedStreams.intersection(required[source.original]?.streams ?? [])))
                 }
         }
         var targets: [Int64?] = runs.map { $0.variant.targetBytes }

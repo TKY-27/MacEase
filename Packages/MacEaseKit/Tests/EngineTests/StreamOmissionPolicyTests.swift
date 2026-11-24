@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import MenuCatalog
 import Synchronization
@@ -241,41 +242,163 @@ import Testing
         #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.timecode])))])
     }
 
-    @Test func changedSourceIsReinspectedAndManualConsentUsesItsNewStamp() async throws {
+    enum Replacement: CaseIterable, Sendable { case plain, timecoded, directory }
+
+    @Test(
+        arguments: [Settings.OutputMode.newFile, .replace],
+        Replacement.allCases.flatMap { replacement in [false, true].map { (replacement, $0) } })
+    func changedInputsStopWithoutEncodingOrRestamping(
+        mode: Settings.OutputMode, change: (Replacement, Bool)
+    ) async throws {
+        let (replacement, cancels) = change
         let folder = try TestVolume.makeFolder()
-        let source = folder.appending(path: "source.txt")
-        try Data("first".utf8).write(to: source)
-        let replaced = Mutex(false)
-        var work = WorkItem(inputs: [source]) { context in
-            if context.omittedStreams.isEmpty {
-                if replaced.withLock({ flag in
-                    defer { flag = true }; return !flag
-                }) {
-                    try Data("replacement".utf8).write(to: source, options: .atomic)
-                }
-                throw EngineError.invalidInput(.unpreservedStreams([.data]))
-            }
-            let staged = try context.stagingURL(for: source, name: "output.txt")
-            try Data(contentsOf: source).write(to: staged)
-            return .derived(nextTo: source, outputs: [StagedFile(url: staged, name: "output.txt", check: .text(.utf8))])
+        let source = try await timecodedClip(named: "source.mov", in: folder)
+        let initialStamp = try FileStamp(of: source, includingIdentity: true)
+        let replacementURL: URL
+        switch replacement {
+        case .plain:
+            replacementURL = try #require(
+                Bundle.module.url(
+                    forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+        case .timecoded:
+            replacementURL = try await timecodedClip(named: "replacement.mov", in: TestVolume.makeFolder())
+        case .directory:
+            replacementURL = try TestVolume.makeFolder()
+            try Data("kept".utf8).write(to: replacementURL.appending(path: "nested.txt"))
         }
-        work.derivesOutput = true
+        var settings = Settings()
+        settings.outputMode = mode
+        let request = OperationRequest(
+            op: mode == .newFile ? .videoConvert : .videoEdit,
+            options: .video(mode == .newFile ? .convert(.mp4) : .edit(VideoEdit(speed: 2))),
+            inputs: [source], unpreservedStreams: .omitFromNewFiles)
+        let planned = OperationPlanner.batch(for: request, settings: settings)
+        let original = try #require(planned.items.first)
+        let calls = Mutex(0)
+        var work = WorkItem(inputs: original.inputs, lane: original.lane) { context in
+            calls.withLock { $0 += 1 }
+            do {
+                return try await original.body(context)
+            } catch EngineError.invalidInput(.unpreservedStreams(let streams)) {
+                try FileManager.default.removeItem(at: source)
+                try FileManager.default.copyItem(at: replacementURL, to: source)
+                if cancels { withUnsafeCurrentTask { $0?.cancel() } }
+                throw EngineError.invalidInput(.unpreservedStreams(streams))
+            }
+        }
+        work.newFileNaming = original.newFileNaming
+        work.omissionOptions = original.omissionOptions
+        work.unpreservedStreams = original.unpreservedStreams
+        let support = folder.appending(path: "engine")
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        let phases = Mutex<[ItemPhase]>([])
+        let outcome = await engine.run(Batch(operation: request.op, items: [work]), settings: settings) { progress in
+            phases.withLock { $0.append(contentsOf: progress.itemPhases) }
+        }
+        #expect(outcome.outcomes == (cancels ? [.failed(.cancelled)] : [.skipped(.changedSinceScan)]))
+        #expect(calls.withLock { $0 } == 1)
+        #expect(!phases.withLock { $0.contains(.encoding) || $0.contains(.verifying) })
+        #expect(!FileManager.default.fileExists(atPath: support.appending(path: "staging.json").path))
+        #expect(outcome.details[0].inputStamps[source] == initialStamp)
+        #expect(outcome.record == nil)
+    }
+
+    @Test func undecidableEditorPlanKeepsTheOriginalQuestion() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = try await timecodedClip(named: "source.mov", in: folder)
+        let input = try await MediaInput.open(source)
+        let video = try #require(input.video)
+        #expect(throws: SkipError.self) {
+            _ = try VideoEdits.plan(.edit(VideoEdit()), input: input, source: video, settings: VideoSettings())
+        }
+        var settings = Settings()
+        settings.outputMode = .replace
+        var work = WorkItem(inputs: [source]) { _ in
+            throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
+        }
+        work.omissionOptions = .video(.edit(VideoEdit()))
         work.unpreservedStreams = .omitFromNewFiles
         let engine = try JobEngine(supportDirectory: folder.appending(path: "engine"), concurrency: 1)
-        let request = OperationRequest(op: .videoConvert, options: .video(.convert(.mp4)), inputs: [source])
-        let first = await engine.run(Batch(operation: .videoConvert, items: [work]), settings: Settings()) { _ in }
-        #expect(first.outcomes == [.failed(.invalidInput(.unpreservedStreams([.data])))])
-        #expect(first.record == nil)
-        var session = ActivitySession(request: request, settings: Settings(), outcome: first)
-        let retry = try session.beginRetry(omittingStreams: [.data])
-        #expect(retry.inputs == [source])
-        work.requiredInputStamps = first.details[0].inputStamps
-        work.omittedStreams = retry.omittedStreams
-        let second = await engine.run(Batch(operation: .videoConvert, items: [work]), settings: Settings()) { _ in }
-        guard case .succeeded = second.outcomes.first else {
-            Issue.record("Manual consent must work")
-            return
+        let outcome = await engine.run(Batch(operation: .videoEdit, items: [work]), settings: settings) { _ in }
+        #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.timecode])))])
+        #expect(outcome.record == nil)
+    }
+
+    @Test func metadataRefusalDuringDecisionKeepsTheAskOutcome() async throws {
+        let folder = try TestVolume.makeFolder()
+        let location = AVMutableMetadataItem()
+        location.identifier = .quickTimeMetadataLocationISO6709
+        location.value = "+35.6895+139.6917/" as NSString
+        let tagged = try await VideoOperationTests().videoWithExtraTracks(
+            includeTimecode: true, containerMetadata: [location])
+        let source = folder.appending(path: "tagged.mp4")
+        try FileManager.default.copyItem(at: tagged, to: source)
+        let input = try await MediaInput.open(source)
+        let video = try #require(input.video)
+        let edit = VideoEdit(speed: 2)
+        let plan = try VideoEdits.plan(.edit(edit), input: input, source: video, settings: VideoSettings())
+        var settings = Settings()
+        settings.outputMode = .replace
+        let context = ItemContext(
+            settings: settings, staging: StagingArea(supportDirectory: folder), progress: { _ in })
+        await #expect(throws: EngineError.videoMetadataUnsupported([.descriptiveMetadata])) {
+            _ = try await VideoProperties.prepare(plan, input: input, context: context)
         }
-        #expect(try String(contentsOf: source, encoding: .utf8) == "replacement")
+        for choice in [Settings.UnpreservedStreamsChoice.ask, .omitFromNewFiles] {
+            let request = OperationRequest(
+                op: .videoEdit, options: .video(.edit(edit)), inputs: [source],
+                unpreservedStreams: choice)
+            let engine = try JobEngine(supportDirectory: try TestVolume.makeFolder(), concurrency: 1)
+            let outcome = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings)
+            {
+                _ in
+            }
+            #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.timecode])))])
+            #expect(outcome.record == nil)
+        }
+    }
+
+    @Test func movRecipeKeepsTimecodeForTheInputThatCanCarryIt() async throws {
+        let folder = try TestVolume.makeFolder()
+        let kept = try await timecodedClip(named: "kept.mov", in: folder)
+        // Coprime scales exceed CoreMedia's exact timescale.
+        let incompatibleMovieTimeScale: Int32 = 1_000_000_007
+        let cannotCarry = try await VideoOperationTests().videoWithExtraTracks(
+            includeTimecode: true, movieTimeScale: incompatibleMovieTimeScale)
+        let omitted = folder.appending(path: "omitted.mov")
+        try FileManager.default.copyItem(at: cannotCarry, to: omitted)
+        let recipe = Recipe(name: "Selective timecode", variants: [OutputVariant(output: .videoMOV)])
+        let required = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: [kept, omitted])
+        #expect(required[kept] == nil)
+        #expect(required[omitted]?.streams == [.timecode])
+        let originalBytes = try [kept, omitted].map { try Data(contentsOf: $0) }
+        var settings = Settings()
+        settings.outputMode = .replace
+        let engine = try JobEngine(supportDirectory: folder.appending(path: "engine"), concurrency: 1)
+        var automaticWarnings: [ItemWarning] = []
+        for choice in [Settings.UnpreservedStreamsChoice.omitFromNewFiles, .ask] {
+            let batch = try RecipePlanner.batch(
+                recipe: recipe, inputs: [kept, omitted], destination: folder, settings: settings,
+                omissions: choice == .ask ? required : [:], unpreservedStreams: choice)
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            guard case .succeeded(let packages, let warnings) = outcome.outcomes.first else {
+                Issue.record("Expected a MOV recipe: \(outcome.outcomes)")
+                return
+            }
+            let package = try #require(packages.first)
+            let keptTracks = try await AVURLAsset(url: package.appending(path: "kept.mov"))
+                .loadTracks(withMediaType: .timecode)
+            let omittedTracks = try await AVURLAsset(url: package.appending(path: "omitted.mov"))
+                .loadTracks(withMediaType: .timecode)
+            #expect(keptTracks.count == 1)
+            #expect(omittedTracks.isEmpty)
+            #expect(warnings == [.streamsOmitted([.timecode])])
+            if choice == .omitFromNewFiles {
+                automaticWarnings = warnings
+            } else {
+                #expect(warnings == automaticWarnings)
+            }
+        }
+        #expect(try [kept, omitted].map { try Data(contentsOf: $0) } == originalBytes)
     }
 }
