@@ -195,6 +195,60 @@ import Testing
         await ordinary.close()
     }
 
+    @Test func externalMediaReferenceMovieIsRefusedAcrossEditorTools() async throws {
+        let folder = try TestVolume.makeFolder()
+        let videoSource = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+        let secret = folder.appending(path: "secret.mp4")
+        try FileManager.default.copyItem(at: videoSource, to: secret)
+        let reference = folder.appending(path: "reference.mov")
+        try Self.makeQuickTimeReferenceMovie(referencing: "secret.mp4").write(to: reference)
+
+        let support = try TestVolume.makeFolder()
+        let staging = StagingArea(supportDirectory: support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 2)
+        let settings = Settings()
+
+        let segment = VideoSegment(start: 0, end: 1)
+        var reverseEdit = VideoEdit()
+        reverseEdit.segments = [segment]
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await VideoSegmentReverser.reverse(
+                segmentID: segment.id, in: reverseEdit, primaryURL: reference, staging: staging)
+        }
+
+        let frameBatch = MediaEditing.frame(
+            url: reference, edit: VideoEdit(), outputSeconds: 0, settings: settings)
+        let frameOutcome = await engine.run(frameBatch, settings: settings) { _ in }
+        #expect(frameOutcome.outcomes == [.failed(.invalidInput(.externalMediaReference))])
+
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await BackgroundMusic.load(from: reference)
+        }
+
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await AudioWaveform.levels(videoAt: reference)
+        }
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await AudioWaveform.load(videoURL: reference)
+        }
+
+        let ordinary = try await VideoEditorSource.open(secret, staging: staging)
+        let duration = await ordinary.details.duration
+        var musicEdit = VideoEdit()
+        musicEdit.segments = [VideoSegment(start: 0, end: duration)]
+        musicEdit.music = BackgroundMusic(
+            url: reference, stamp: try MediaSourceStamp(url: reference), duration: duration)
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await ordinary.playback(edit: musicEdit)
+        }
+        await ordinary.close()
+
+        let musicExportBatch = MediaEditing.video(url: secret, edit: musicEdit, settings: settings)
+        let musicExportOutcome = await engine.run(musicExportBatch, settings: settings) { _ in }
+        #expect(musicExportOutcome.outcomes == [.failed(.invalidInput(.externalMediaReference))])
+    }
+
     @Test func rejectExternalReferencesPropagatesNonReferenceErrors() async throws {
         let folder = try TestVolume.makeFolder()
         let missing = folder.appending(path: "missing.m4a")

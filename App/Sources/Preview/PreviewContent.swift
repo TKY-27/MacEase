@@ -17,6 +17,7 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         "mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "wma", "aif", "aiff", "aifc", "caf",
     ]
     private static let typeScriptExtensions: Set<String> = ["ts", "mts", "cts"]
+    private static let mpegTransportStreamExtensions: Set<String> = ["ts", "mts"]
     private static let textExtensions: Set<String> = [
         "txt", "text", "log", "csv", "tsv", "nfo", "srt", "vtt", "ass", "lrc", "diff", "patch", "tex", "rst",
         "ini", "cfg", "conf", "properties", "toml", "reg", "inf", "env", "editorconfig", "gitignore",
@@ -53,16 +54,18 @@ enum PreviewKind: Equatable, Hashable, Sendable {
 
     static func resolve(
         type: UTType?, extension suffix: String, fileName: String? = nil,
-        disabled: Set<FinderPreviewFileType> = []
+        detected: DetectedContent? = nil, disabled: Set<FinderPreviewFileType> = []
     ) -> Self {
-        let resolved = resolveUnfiltered(type: type, extension: suffix, fileName: fileName)
+        let resolved = resolveUnfiltered(type: type, extension: suffix, fileName: fileName, detected: detected)
         if let fileType = resolved.fileType, disabled.contains(fileType) {
             return .quickLook
         }
         return resolved
     }
 
-    private static func resolveUnfiltered(type: UTType?, extension suffix: String, fileName: String?) -> Self {
+    private static func resolveUnfiltered(
+        type: UTType?, extension suffix: String, fileName: String?, detected: DetectedContent?
+    ) -> Self {
         let suffix = suffix.lowercased()
         if type?.conforms(to: .pdf) == true || suffix == "pdf" { return .pdf }
         if type?.conforms(to: .html) == true || htmlExtensions.contains(suffix) { return .html }
@@ -75,6 +78,7 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         if type?.conforms(to: .svg) == true || suffix == "svg" { return .svg }
         if type?.conforms(to: .font) == true || fontExtensions.contains(suffix) { return .font }
         if type?.conforms(to: .image) == true { return .image }
+        if mpegTransportStreamExtensions.contains(suffix), detected?.family == .video { return .media }
         // macOS maps .ts/.mts to MPEG-2 transport streams.
         if typeScriptExtensions.contains(suffix) { return .text }
         if type?.conforms(to: .audio) == true || audioExtensions.contains(suffix) { return .audio }
@@ -90,11 +94,31 @@ enum PreviewKind: Equatable, Hashable, Sendable {
 
     // Folders and packages use the system preview.
     static func inspect(_ url: URL, disabled: Set<FinderPreviewFileType> = []) throws -> Self {
+        try inspectContent(url, disabled: disabled).kind
+    }
+
+    static func inspectContent(
+        _ url: URL, disabled: Set<FinderPreviewFileType> = []
+    ) throws -> (kind: Self, detected: DetectedContent?) {
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .contentTypeKey])
-        if values.isDirectory == true { return .quickLook }
+        if values.isDirectory == true { return (.quickLook, nil) }
         guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
-        return resolve(
-            type: values.contentType, extension: url.pathExtension, fileName: url.lastPathComponent, disabled: disabled)
+        let suffix = url.pathExtension.lowercased()
+        let ambiguousTS = mpegTransportStreamExtensions.contains(suffix)
+        let initial = resolve(
+            type: values.contentType, extension: suffix, fileName: url.lastPathComponent, disabled: disabled)
+        let needsSniff =
+            ambiguousTS
+            ? !(disabled.contains(.text) && disabled.contains(.video))
+            : initial != .quickLook
+        let detected = needsSniff ? try ContentSniffer.identify(url) : nil
+        let resolved =
+            ambiguousTS
+            ? resolve(
+                type: values.contentType, extension: suffix, fileName: url.lastPathComponent,
+                detected: detected, disabled: disabled)
+            : initial
+        return (resolved, resolved == .quickLook ? nil : detected)
     }
 }
 

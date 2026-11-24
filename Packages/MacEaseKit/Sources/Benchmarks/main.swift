@@ -295,7 +295,7 @@ func audioSampleBuffer(_ samples: [Float], format: AVAudioFormat, position: Int)
 }
 
 func verifyClip(at url: URL) async throws {
-    let asset = AVURLAsset(url: url)
+    let asset = UntrustedMediaAsset.make(url)
     let video = try await asset.loadTracks(withMediaType: .video)
     let audio = try await asset.loadTracks(withMediaType: .audio)
     guard video.count == 1, audio.count == 1 else {
@@ -502,7 +502,17 @@ func benchmarkSingle(_ arguments: [String]) async throws {
 
 do {
     let arguments = Array(CommandLine.arguments.dropFirst())
-    if arguments.first?.hasPrefix("feature.") == true {
+    if arguments.first == "editor.photo" {
+        try await benchmarkEditorPhoto()
+    } else if arguments.first == "editor.timeline", arguments.count == 3 {
+        try await benchmarkEditorTimeline(URL(fileURLWithPath: arguments[1]), mode: arguments[2])
+    } else if arguments.first == "editor.reverse", arguments.count == 4,
+        let start = Double(arguments[2]), let seconds = Double(arguments[3])
+    {
+        try await benchmarkReverse(URL(fileURLWithPath: arguments[1]), start: start, seconds: seconds)
+    } else if arguments.first == "editor.reverse", arguments.count == 2 {
+        try await benchmarkReverse(URL(fileURLWithPath: arguments[1]))
+    } else if arguments.first?.hasPrefix("feature.") == true {
         try await FeatureBenchmarks.run(arguments)
     } else if arguments.count >= 2 {
         try await benchmarkSingle(arguments)

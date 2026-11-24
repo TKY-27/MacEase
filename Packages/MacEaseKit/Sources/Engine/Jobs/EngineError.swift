@@ -110,6 +110,9 @@ public enum InvalidInput: Equatable, Sendable {
     case unsupportedFileType
     case frameMemoryExceeded
     case invalidAnimationRange
+    case videoSegmentNotFound
+    case cannotReverseFreeze
+    case segmentAlreadyReversed
     case invalidNumericParameter
     case externalMediaReference
 }

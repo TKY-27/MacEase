@@ -15,6 +15,7 @@ final class FinderPreviewPanel: NSPanel {
     private let defaults: UserDefaults
     private let container = NSView()
     private(set) var previewWidth: CGFloat
+    private(set) var displayedWidth: CGFloat
     let isDocked: Bool
     private var dock = FinderPreviewGeometry.Dock.right
     var resizePreview: (() -> Void)?
@@ -28,6 +29,7 @@ final class FinderPreviewPanel: NSPanel {
         isDocked = docked
         let saved = defaults.double(forKey: Self.widthKey)
         previewWidth = saved.isFinite && saved > 0 ? saved : FinderPreviewGeometry.defaultWidth
+        displayedWidth = previewWidth
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.undockedSize),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -60,12 +62,12 @@ final class FinderPreviewPanel: NSPanel {
 
     func setPreviewWidth(_ width: CGFloat) {
         previewWidth = width
-        resizePreview?()
         defaults.set(previewWidth, forKey: Self.widthKey)
+        resizePreview?()
     }
 
     func dock(_ placement: FinderPreviewGeometry.Placement, above windowID: CGWindowID, animate: Bool) {
-        previewWidth = placement.frame.width
+        displayedWidth = placement.frame.width
         if placement.dock != dock || container.layer?.masksToBounds != true { roundOuterCorners(placement.dock) }
         guard animate else {
             setFrame(placement.frame, display: true)

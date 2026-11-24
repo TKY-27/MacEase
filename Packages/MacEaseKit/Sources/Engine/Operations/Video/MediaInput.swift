@@ -35,7 +35,8 @@ struct MediaInput {
     }
 
     static func openWithFallback(
-        _ originalURL: URL, context: ItemContext, enforceStreamConsent: Bool = true
+        _ originalURL: URL, context: ItemContext, enforceStreamConsent: Bool = true,
+        consentedStreams: Set<UnpreservedStream>? = nil
     ) async throws -> MediaInput {
         let nativeError: EngineError
         do {
@@ -57,7 +58,8 @@ struct MediaInput {
         let staged: StagedMediaFallback.StagedVideo
         do {
             staged = try await StagedMediaFallback.prepareVideo(
-                originalURL, context: context, enforceStreamConsent: enforceStreamConsent)
+                originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
+                consentedStreams: consentedStreams)
         } catch {
             let wrapped = EngineError.wrapping(error, path: originalURL.path)
             if case .unsupportedCodec = nativeError {

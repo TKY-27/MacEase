@@ -126,6 +126,15 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertNil(UserMessages.technicalDetail(.fallbackToolMissing))
     }
 
+    func testReverseCapacityMessageStatesRequiredAndAvailableSpace() {
+        let reason = EngineError.insufficientDiskSpace(
+            requiredBytes: 20_000_000_000, availableBytes: 1_000_000_000)
+        XCTAssertEqual(
+            UserMessages.describe(reason, file: "clip.mov"),
+            "Couldn’t process “clip.mov”: not enough disk space (needs about 20 GB, 1 GB available). Free up space and retry."
+        )
+    }
+
     func testMalformedToolDiagnosticStaysOutOfNotifications() async throws {
         let detail = "java.lang.IllegalArgumentException\n\tat example.Decompiler.run(Decompiler.java:42)"
         let outcome = try await runBatch([{ _ in throw EngineError.invalidInput(.malformed(detail)) }])

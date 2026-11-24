@@ -6,10 +6,15 @@ import Foundation
 enum VideoEdits {
     private static let defaultQuality = 0.75
 
-    static func run(_ operation: VideoOperation, url: URL, context: ItemContext) async throws -> ItemResult {
-        if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
+    static func run(
+        _ operation: VideoOperation, url: URL, context: ItemContext, omissions: [URL: StreamOmission] = [:]
+    ) async throws -> ItemResult {
+        if case .edit(let edit) = operation {
+            try edit.sourceStamp?.validate(url)
+            try edit.music?.validateSource()
+        }
         if case .edit(let edit) = operation, let sources = edit.sources, sources.count > 1 {
-            return try await joined(edit, sources: sources, url: url, context: context)
+            return try await joined(edit, sources: sources, url: url, context: context, omissions: omissions)
         }
         context.phase(.decoding)
         let input = try await MediaInput.openWithFallback(url, context: context)
@@ -37,7 +42,10 @@ enum VideoEdits {
         context.phase(.verifying)
         try await carryPlan.verify(original: url, output: output)
         try await VideoProperties.verify(plan, output: output, context: context)
-        if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
+        if case .edit(let edit) = operation {
+            try edit.sourceStamp?.validate(url)
+            try edit.music?.validateSource()
+        }
         if plan.derived {
             let name = url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
             return .derived(
@@ -131,29 +139,21 @@ enum VideoEdits {
     }
 
     private static func joined(
-        _ edit: VideoEdit, sources: [VideoEditSource], url: URL, context: ItemContext
+        _ edit: VideoEdit, sources: [VideoEditSource], url: URL, context: ItemContext, omissions: [URL: StreamOmission]
     ) async throws -> ItemResult {
         try edit.geometry.validate()
-        var inputs: [MediaInput] = []
-        for source in sources {
-            try source.stamp.validate(source.url)
-            let input = try await MediaInput.openWithFallback(source.url, context: context)
-            try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
-            guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
-            inputs.append(input)
-        }
+        context.phase(.decoding)
+        let resolved = try await edit.openedSources(
+            primaryURL: url, omittedStreams: context.omittedStreams, omissions: omissions, context: context)
+        let inputs = resolved.inputs
         guard let first = inputs.first, let video = first.video else {
             throw EngineError.invalidInput(.emptyInput)
         }
-        var validated = edit
-        validated.sources = zip(sources, inputs).map { source, input in
-            VideoEditSource(
-                url: source.url, duration: Double(input.duration) / Double(Nanoseconds.perSecond), stamp: source.stamp)
-        }
-        let timeline = try VideoTimeline(edit: validated, sourceDuration: sources[0].duration)
+        let timeline = try VideoTimeline(edit: resolved.edit, sourceDuration: sources[0].duration)
         var frame = FrameEdit(displayOrientation: try first.displayOrientation)
         frame.fitCanvas = first.displaySize
         frame.editorGeometry = edit.geometry
+        frame.hasOverlays = !timeline.overlays.isEmpty
         let natural = edit.geometry.outputSize(CGSize(width: first.displaySize.width, height: first.displaySize.height))
         let size =
             try edit.resize?.outputSize(PixelSize(width: Int(natural.width), height: Int(natural.height)))
@@ -169,18 +169,24 @@ enum VideoEdits {
         plan.derived = true
         plan.timeline = timeline
         plan.sourceInputs = inputs
-        if inputs.contains(where: { $0.audio != nil }), timeline.segments.contains(where: { $0.volume > 0 }) {
+        let hasVideoAudio =
+            inputs.contains(where: { $0.audio != nil }) && timeline.segments.contains(where: { $0.volume > 0 })
+        if hasVideoAudio || timeline.music != nil {
             plan.audio = .encode(.aac, kilobits: context.settings.audio.aacBitrate)
         }
         var metadataPlans: [TranscodePlan] = []
         for input in inputs {
             if try await VideoProperties.toneMapsExport(input, context: context) { plan.toneMapToSDR = true }
-            if input.video?.hasAlpha == true { context.warn(.videoTransparencyFlattened) }
+            if input.video?.hasAlpha == true, !context.warnings.contains(.videoTransparencyFlattened) {
+                context.warn(.videoTransparencyFlattened)
+            }
             metadataPlans.append(try await VideoProperties.prepareMetadata(plan, input: input, context: context))
         }
         let name = url.deletingPathExtension().lastPathComponent + "_edited.mp4"
         let output = try context.stagingURL(for: url, name: name)
+        context.phase(.encoding)
         try await Transcoder.run(first, plan: plan, to: output) { context.progress($0) }
+        context.phase(.verifying)
         for metadataPlan in metadataPlans {
             try await VideoProperties.verify(metadataPlan, output: output, context: context)
         }
@@ -189,6 +195,7 @@ enum VideoEdits {
             try source.stamp.validate(source.url)
             stamps[source.url] = source.stamp.fileStamp
         }
+        try edit.music?.validateSource()
         return .groupedDerived(
             destination: url.deletingLastPathComponent().appending(path: name), sources: stamps,
             output: StagedFile(url: output, name: name, check: plan.toneMapToSDR ? .sdrVideo : .media))
@@ -320,9 +327,10 @@ enum VideoEdits {
         audioSettings: AudioSettings
     ) throws -> TranscodePlan {
         try edit.geometry.validate()
-        if edit.segments != nil {
+        if edit.segments != nil || edit.music != nil {
             return try segmented(edit, input: input, source: source, settings: settings, audioSettings: audioSettings)
         }
+        guard edit.overlays.isEmpty else { throw EngineError.invalidInput(.invalidNumericParameter) }
         try edit.adjustments.validate()
         guard edit.volume.isFinite, (0...1).contains(edit.volume) else {
             throw EngineError.invalidInput(.invalidNumericParameter)
@@ -385,11 +393,13 @@ enum VideoEdits {
         var frameEdit = try baked(input)
         if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
         if changesSize { frameEdit.size = size }
+        frameEdit.hasOverlays = !timeline.overlays.isEmpty
         var plan = try reencoded(
             input, source: source, edit: frameEdit, settings: settings, audioSettings: audioSettings)
         plan.timeline = timeline
         plan.startsAtKeyframe = false
-        if input.audio == nil || timeline.segments.allSatisfy({ $0.volume == 0 }) {
+        let hasVideoAudio = input.audio != nil && timeline.segments.contains { $0.volume > 0 }
+        if !hasVideoAudio && timeline.music == nil {
             plan.audio = nil
         } else {
             switch input.container {

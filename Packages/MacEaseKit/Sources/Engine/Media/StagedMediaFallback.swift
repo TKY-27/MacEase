@@ -414,6 +414,7 @@ enum StagedMediaFallback {
         _ originalURL: URL,
         context: ItemContext,
         enforceStreamConsent: Bool = true,
+        consentedStreams: Set<UnpreservedStream>? = nil,
         tools: MediaDownloadTools? = nil,
         availableBytes: ((URL) throws -> Int64)? = nil
     ) async throws -> StagedVideo {
@@ -422,7 +423,7 @@ enum StagedMediaFallback {
         let probed = try await probe(originalURL, workingDirectory: stagingDirectory, tools: resolvedTools)
         let omitted = try videoUnpreservedStreams(in: probed)
         if enforceStreamConsent {
-            try requireConsent(for: omitted, consented: context.omittedStreams)
+            try requireConsent(for: omitted, consented: consentedStreams ?? context.omittedStreams)
         }
         guard let videoStream = probed.videoStreams.first else {
             throw EngineError.decodeFailed("no video track")
