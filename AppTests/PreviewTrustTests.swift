@@ -1,5 +1,8 @@
 import AppKit
+import Darwin
+import Engine
 import Foundation
+import UniformTypeIdentifiers
 import WebKit
 import XCTest
 
@@ -91,7 +94,6 @@ final class PreviewTrustTests: XCTestCase {
         XCTAssertEqual(staticPolicy, .staticPreview)
         XCTAssertFalse(staticPolicy.allowsInteractive)
         XCTAssertTrue(staticPolicy.offersInteractive)
-        XCTAssertFalse(staticPolicy.isRestricted)
 
         let consented = PreviewWebPolicy(trust: standard, interactiveConsented: true)
         XCTAssertEqual(consented, .interactive)
@@ -107,7 +109,6 @@ final class PreviewTrustTests: XCTestCase {
         let restricted = PreviewWebPolicy(
             trust: PreviewTrust(level: .restricted, resolvedPath: "/tmp/page.html"), interactiveConsented: true)
         XCTAssertEqual(restricted, .restricted)
-        XCTAssertTrue(restricted.isRestricted)
         XCTAssertFalse(restricted.allowsInteractive)
         XCTAssertFalse(restricted.offersInteractive)
     }
@@ -154,9 +155,14 @@ final class PreviewTrustTests: XCTestCase {
         XCTAssertEqual(listener.connectionCount, 0)
 
         // Unrestricted static Preview intentionally reads same-folder assets.
-        let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
-        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
-        let standard = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, .staticPreview))
+        let unquarantined = directory.appendingPathComponent("local.html")
+        try FileManager.default.copyItem(at: page, to: unquarantined)
+        removexattr(unquarantined.path, "com.apple.quarantine", 0)
+        let resolvedLocal = unquarantined.resolvingSymlinksInPath().standardizedFileURL
+        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedLocal))
+        let localStamp = try PreviewFileStamp(of: resolvedLocal)
+        let standard = try await PreviewWebProbe.loading(
+            .file(resolvedLocal, readAccess: readAccess, .staticPreview, expectedStamp: localStamp))
         let loadedWidth = try await standard.evaluate("document.getElementById('relative').naturalWidth")
         XCTAssertEqual(loadedWidth as? Int, 8, "intended: unrestricted Preview reads same-folder assets")
         let parentWidth = try await standard.evaluate("document.getElementById('parent').naturalWidth")
@@ -193,6 +199,7 @@ final class PreviewTrustTests: XCTestCase {
             <p id="copy">Readable static text</p>
             <a id="baseLink" href="#go" onclick="window.__clicked = true" style="display:block;width:200px;height:40px">Base Anchor</a>
             <a id="extLink" href="http://127.0.0.1:\(tcpPort)/ext" ping="http://127.0.0.1:\(tcpPort)/ping" style="display:block;width:200px;height:40px">External Link</a>
+            <math id="mathRoot" href="http://127.0.0.1:\(tcpPort)/math-root"><mrow id="mathLink" href="http://127.0.0.1:\(tcpPort)/math"><mtext>Math Link</mtext></mrow></math>
             <div id="shadowHost"><template shadowrootmode="open"><a id="shadowLink" href="http://127.0.0.1:\(tcpPort)/shadow">Shadow Link</a></template></div>
             <img src="http://127.0.0.1:\(tcpPort)/img.png">
             <video src="http://127.0.0.1:\(tcpPort)/v.mp4" preload="auto"></video>
@@ -229,11 +236,12 @@ final class PreviewTrustTests: XCTestCase {
         try Data(html.utf8).write(to: page)
         let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
         let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
+        let pageStamp = try PreviewFileStamp(of: resolvedPage)
 
         // Static states: restricted (.generated) and standard (.staticPreview).
         let staticPages: [PreviewWebViewer.Page] = [
             .generated(html),
-            .file(resolvedPage, readAccess: readAccess, .staticPreview),
+            .file(resolvedPage, readAccess: readAccess, .staticPreview, expectedStamp: pageStamp),
         ]
         for staticPage in staticPages {
             let probe = try await PreviewWebProbe.loading(staticPage)
@@ -261,14 +269,17 @@ final class PreviewTrustTests: XCTestCase {
             XCTAssertEqual(tcp.connectionCount, 0)
             XCTAssertEqual(udp.datagramCount, 0)
 
-            // Accessibility: content stays readable; links are non-actionable.
-            let axChildren = probe.container.accessibilityChildren() as? [AnyObject] ?? []
-            XCTAssertTrue(axChildren.contains { $0 === probe.container.webView })
-            XCTAssertFalse(probe.container.inputShield.isAccessibilityElement())
+            // Accessibility: shield forwards hit-tests to web view.
             _ = probe.container.webView.accessibilityChildren()
             try await probe.settle(.milliseconds(300))
-            let remoteHit = probe.container.accessibilityHitTest(NSPoint(x: 40, y: 40)) as AnyObject?
-            XCTAssertFalse(remoteHit === probe.container.inputShield)
+            let webViewHit = try XCTUnwrap(probe.webViewAccessibilityHitTest(webPoint: point))
+            let windowHit = try XCTUnwrap(probe.accessibilityHitTest(webPoint: point))
+            let shieldHit = try XCTUnwrap(probe.shieldAccessibilityHitTest(webPoint: point))
+            XCTAssertTrue(windowHit.isEqual(webViewHit))
+            XCTAssertTrue(shieldHit.isEqual(webViewHit))
+            XCTAssertTrue(
+                windowHit === probe.container.webView
+                    || NSStringFromClass(type(of: windowHit)) == "NSAccessibilityRemoteUIElement")
 
             let textAndLinks =
                 try await probe.evaluate(
@@ -277,6 +288,9 @@ final class PreviewTrustTests: XCTestCase {
                       text: document.body.innerText,
                       baseHref: document.getElementById('baseLink').getAttribute('href'),
                       extHref: document.getElementById('extLink').getAttribute('href'),
+                      mathRootHref: document.getElementById('mathRoot').getAttribute('href'),
+                      mathHref: document.getElementById('mathLink').getAttribute('href'),
+                      mathAnyLink: document.getElementById('mathLink').matches(':any-link'),
                       shadowHref: document.getElementById('shadowHost').shadowRoot.getElementById('shadowLink').getAttribute('href'),
                       formAction: document.getElementById('f').getAttribute('action'),
                       buttonDisabled: document.getElementById('b').disabled
@@ -286,28 +300,37 @@ final class PreviewTrustTests: XCTestCase {
             let snapshot = try XCTUnwrap(textAndLinks)
             XCTAssertTrue(snapshot.contains("Readable static text"), snapshot)
             XCTAssertTrue(snapshot.contains("External Link"), snapshot)
+            XCTAssertTrue(snapshot.contains("Math Link"), snapshot)
             XCTAssertTrue(snapshot.contains("\"baseHref\":null"), snapshot)
             XCTAssertTrue(snapshot.contains("\"extHref\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"mathRootHref\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"mathHref\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"mathAnyLink\":false"), snapshot)
             XCTAssertTrue(snapshot.contains("\"shadowHref\":null"), snapshot)
             XCTAssertTrue(snapshot.contains("\"formAction\":null"), snapshot)
             XCTAssertTrue(snapshot.contains("\"buttonDisabled\":true"), snapshot)
 
+            let navsBeforeClick = probe.requestedNavigationURLs.count
             // Direct activation (like AXPress) emits zero traffic.
             _ = try await probe.evaluate(
                 """
                 document.getElementById('baseLink').click();
                 document.getElementById('extLink').click();
+                document.getElementById('mathLink').dispatchEvent(
+                  new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
                 document.getElementById('shadowHost').shadowRoot.getElementById('shadowLink').click();
                 document.getElementById('b').click();
                 """
             )
             try await probe.settle(.milliseconds(400))
+            XCTAssertEqual(probe.requestedNavigationURLs.count, navsBeforeClick)
             XCTAssertEqual(tcp.connectionCount, 0)
             XCTAssertEqual(udp.datagramCount, 0)
         }
 
         // Control: interactive mode runs scripts and connects.
-        let interactive = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, .interactive))
+        let interactive = try await PreviewWebProbe.loading(
+            .file(resolvedPage, readAccess: readAccess, .interactive, expectedStamp: pageStamp))
         try await interactive.settle(.milliseconds(1000))
         let interactiveRan = try await interactive.evaluate("window.__ran") as? Bool
         XCTAssertEqual(interactiveRan, true)
@@ -382,7 +405,9 @@ final class PreviewTrustTests: XCTestCase {
 
         let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
         let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
-        let probe = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, .staticPreview))
+        let pageStamp = try PreviewFileStamp(of: resolvedPage)
+        let probe = try await PreviewWebProbe.loading(
+            .file(resolvedPage, readAccess: readAccess, .staticPreview, expectedStamp: pageStamp))
         try await probe.settle()
 
         for id in ["nav", "blank", "dl", "jslink", "remote", "bOther", "bSelf"] {
@@ -512,5 +537,190 @@ final class PreviewTrustTests: XCTestCase {
 
         XCTAssertEqual(PreviewTrust.evaluate(target, trustedFolders: [directory.path]).level, .trusted)
         XCTAssertEqual(PreviewTrust.evaluate(link, trustedFolders: [directory.path]).level, .restricted)
+
+        // Descriptor-based snapshot path checks symlink quarantine too.
+        let prepared = try PreviewHTMLSnapshot.prepare(url: link, trustedFolders: [directory.path], scriptConsent: [])
+        XCTAssertEqual(prepared.trust.level, .restricted)
+        XCTAssertEqual(prepared.policy, .restricted)
+        guard case .generated = prepared.page else {
+            return XCTFail("expected quarantined symlink to render as sealed .generated page")
+        }
+    }
+
+    func testUnreadableQuarantineAttributeFailsClosedAsRestricted() throws {
+        let directory = try PreviewFixtures.directory(self)
+        let lockedFolder = directory.appendingPathComponent("locked")
+        try FileManager.default.createDirectory(at: lockedFolder, withIntermediateDirectories: false)
+        let page = lockedFolder.appendingPathComponent("page.html")
+        try Data("<p>secret</p>".utf8).write(to: page)
+
+        // Path-based EACCES fails closed as restricted.
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lockedFolder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: lockedFolder.path) }
+        XCTAssertEqual(PreviewTrust.evaluate(page, trustedFolders: [directory.path]).level, .restricted)
+
+        // Path-based ENOENT fails closed as restricted.
+        let missing = directory.appendingPathComponent("missing.html")
+        XCTAssertEqual(PreviewTrust.evaluate(missing, trustedFolders: [directory.path]).level, .restricted)
+
+        // Descriptor-based EBADF fails closed as restricted.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: lockedFolder.path)
+        var status = stat()
+        XCTAssertEqual(stat(page.path, &status), 0)
+        let resolved = page.resolvingSymlinksInPath().standardizedFileURL
+        let badDescriptorTrust = PreviewTrust.evaluate(
+            linkURL: page, resolvedURL: resolved, fileDescriptor: -1, status: status,
+            trustedFolders: [directory.path])
+        XCTAssertEqual(badDescriptorTrust.level, .restricted)
+    }
+
+    @MainActor
+    func testInPlaceSameSizeEditWithRestoredMtimeInvalidatesPreviewConsentWithoutChangingEngineFileStamp() async throws
+    {
+        let directory = try PreviewFixtures.directory(self)
+        let page = directory.appendingPathComponent("page.html")
+        let payloadA = Data(
+            "<html><head><title>A</title></head><body><script>document.title='A'</script></body></html>".utf8)
+        let payloadB = Data(
+            "<html><head><title>B</title></head><body><script>document.title='B'</script></body></html>".utf8)
+        XCTAssertEqual(payloadA.count, payloadB.count)
+        try payloadA.write(to: page)
+
+        var originalStatus = stat()
+        XCTAssertEqual(lstat(page.path, &originalStatus), 0)
+        let originalEngineStamp = try FileStamp(of: page, includingIdentity: true)
+        let first = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [])
+        let keyA = try XCTUnwrap(first.trust.consentKey)
+        let consented = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [keyA])
+        XCTAssertEqual(consented.policy, .interactive)
+        let consentedPage = try XCTUnwrap(consented.page)
+
+        // Let ctime advance past creation.
+        try await Task.sleep(for: .milliseconds(20))
+        let fd = open(page.path, O_WRONLY | O_TRUNC)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        payloadB.withUnsafeBytes { raw in
+            XCTAssertEqual(Darwin.write(fd, raw.baseAddress, raw.count), payloadB.count)
+        }
+        close(fd)
+        var times = [originalStatus.st_atimespec, originalStatus.st_mtimespec]
+        XCTAssertEqual(utimensat(AT_FDCWD, page.path, &times, 0), 0)
+
+        // Engine FileStamp stays unchanged; preview consent invalidates.
+        XCTAssertEqual(try FileStamp(of: page, includingIdentity: true), originalEngineStamp)
+        XCTAssertNotEqual(try PreviewFileStamp(of: page), keyA.stamp)
+
+        let reloaded = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [keyA])
+        XCTAssertEqual(reloaded.policy, .staticPreview)
+        let staleConfig = try await PreviewWebConfiguration.make(for: consentedPage)
+        let staleWeb = PreviewWKWebView(frame: .zero, configuration: staleConfig)
+        XCTAssertFalse(PreviewWebConfiguration.load(consentedPage, in: staleWeb))
+    }
+
+    @MainActor
+    func testFailClosedProxyBlocksHostNamedPreconnectOnMissedElement() async throws {
+        let listener = try LoopbackListener()
+        let port = try await listener.start()
+        defer { listener.stop() }
+
+        let directory = try PreviewFixtures.directory(self)
+        let page = directory.appendingPathComponent("proxy-test.html")
+        try Data("<!DOCTYPE html><html><body><p>Ready</p></body></html>".utf8).write(to: page)
+        let resolved = page.resolvingSymlinksInPath().standardizedFileURL
+        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolved))
+        let stamp = try PreviewFileStamp(of: resolved)
+
+        // RFC 6761 subdomain stays local through proxy.
+        let injectAndClick = """
+            (() => {
+              const a = document.createElement('a');
+              a.href = 'https://probe.localhost:\(port)/missed';
+              document.body.appendChild(a);
+              a.click();
+            })();
+            """
+
+        // Static preview installs the fail-closed SOCKS5 proxy.
+        let staticProbe = try await PreviewWebProbe.loading(
+            .file(resolved, readAccess: readAccess, .staticPreview, expectedStamp: stamp))
+        _ = try await staticProbe.evaluate(injectAndClick)
+        try await staticProbe.settle(.milliseconds(500))
+        XCTAssertEqual(listener.connectionCount, 0)
+
+        // Control: interactive mode omits the fail-closed proxy.
+        let interactiveProbe = try await PreviewWebProbe.loading(
+            .file(resolved, readAccess: readAccess, .interactive, expectedStamp: stamp))
+        _ = try await interactiveProbe.evaluate(injectAndClick)
+        try await interactiveProbe.settle(.milliseconds(500))
+        XCTAssertGreaterThan(listener.connectionCount, 0)
+    }
+
+    @MainActor
+    func testXHTMLWithInlineXSLTIsNeutralizedAndStaysOfflineInStaticPreview() async throws {
+        XCTAssertEqual(PreviewKind.resolve(type: nil, extension: "xhtml"), .html)
+        XCTAssertEqual(PreviewKind.resolve(type: .xml, extension: "xml"), .text)
+
+        let tcp = try LoopbackListener()
+        let port = try await tcp.start()
+        defer { tcp.stop() }
+
+        let directory = try PreviewFixtures.directory(self)
+        let xhtml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <?xml-stylesheet type="text/xsl" href="#style"?>
+            <!DOCTYPE doc [<!ATTLIST xsl:stylesheet id ID #IMPLIED>]>
+            <doc>
+              <xsl:stylesheet id="style" version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                <xsl:template match="/">
+                  <html><head><title>XSLT</title></head><body>
+                    <img src="http://127.0.0.1:\(port)/ximg.png"/>
+                    <a id="xl" href="http://127.0.0.1:\(port)/xl">XSLT Link</a>
+                    <math><mrow id="xm" href="http://127.0.0.1:\(port)/xm"><mtext>XSLT Math</mtext></mrow></math>
+                    <form id="xf" action="http://127.0.0.1:\(port)/xf"><button id="xb" type="submit">Go</button></form>
+                    <script>window.__ran = true; document.title = "RAN";</script>
+                  </body></html>
+                </xsl:template>
+              </xsl:stylesheet>
+            </doc>
+            """
+        let file = directory.appendingPathComponent("transformed.xhtml")
+        try Data(xhtml.utf8).write(to: file)
+
+        let prepared = try PreviewHTMLSnapshot.prepare(url: file, trustedFolders: [], scriptConsent: [])
+        XCTAssertEqual(prepared.policy, .staticPreview)
+        let probe = try await PreviewWebProbe.loading(try XCTUnwrap(prepared.page))
+        try await probe.settle(.milliseconds(500))
+
+        let state =
+            try await probe.evaluate(
+                """
+                JSON.stringify({
+                  title: document.title,
+                  xlHref: document.getElementById('xl')?.getAttribute('href'),
+                  xmHref: document.getElementById('xm')?.getAttribute('href'),
+                  xfAction: document.getElementById('xf')?.getAttribute('action'),
+                  xbDisabled: document.getElementById('xb')?.disabled,
+                  ran: Boolean(window.__ran)
+                })
+                """
+            ) as? String
+        let snapshot = try XCTUnwrap(state)
+        XCTAssertTrue(snapshot.contains("\"title\":\"XSLT\""), snapshot)
+        XCTAssertTrue(snapshot.contains("\"xlHref\":null"), snapshot)
+        XCTAssertTrue(snapshot.contains("\"xmHref\":null"), snapshot)
+        XCTAssertTrue(snapshot.contains("\"xfAction\":null"), snapshot)
+        XCTAssertTrue(snapshot.contains("\"xbDisabled\":true"), snapshot)
+        XCTAssertTrue(snapshot.contains("\"ran\":false"), snapshot)
+
+        _ = try await probe.evaluate(
+            """
+            document.getElementById('xl').click();
+            document.getElementById('xm').dispatchEvent(
+              new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
+            document.getElementById('xb').click();
+            """
+        )
+        try await probe.settle(.milliseconds(400))
+        XCTAssertEqual(tcp.connectionCount, 0)
     }
 }

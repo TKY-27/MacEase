@@ -90,6 +90,12 @@ struct PreviewTextSource: Sendable {
     static func read(
         _ url: URL, trustedFolders: [String] = [], keepParentDirectory: Bool = false
     ) throws -> Self {
+        try readSnapshot(url, trustedFolders: trustedFolders, keepParentDirectory: keepParentDirectory).source
+    }
+
+    static func readSnapshot(
+        _ url: URL, trustedFolders: [String] = [], keepParentDirectory: Bool = false
+    ) throws -> (source: Self, trust: PreviewTrust, stamp: PreviewFileStamp) {
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL
         let folderPath = resolved.deletingLastPathComponent().path
         let folderFD = open(folderPath, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
@@ -107,6 +113,7 @@ struct PreviewTextSource: Sendable {
         guard fstat(fileFD, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
             throw CocoaError(.fileReadUnsupportedScheme)
         }
+        let stamp = PreviewFileStamp(fileStatus: status)
         let trust = PreviewTrust.evaluate(
             linkURL: url, resolvedURL: resolved, fileDescriptor: fileFD, status: status,
             trustedFolders: trustedFolders)
@@ -126,9 +133,10 @@ struct PreviewTextSource: Sendable {
             bytes.append(contentsOf: chunk[..<received])
         }
         try Task.checkCancellation()
-        return Self(
+        let source = Self(
             bytes: bytes, truncated: truncated, parentDirectory: keepParentDirectory ? retainedFolder : nil,
             trust: trust)
+        return (source, trust, stamp)
     }
 
     func decoded(as encoding: PreviewEncoding) throws -> String {

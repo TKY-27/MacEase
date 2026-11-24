@@ -91,12 +91,58 @@ final class LoopbackUDPListener: @unchecked Sendable {
 }
 
 @MainActor
+private final class ProbeNavigationObserver: NSObject, WKNavigationDelegate {
+    let production: PreviewWebDelegate
+    var onFinish: (() -> Void)?
+    var onFail: ((any Error) -> Void)?
+    private(set) var requestedURLs: [URL] = []
+
+    init(production: PreviewWebDelegate) {
+        self.production = production
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async
+        -> WKNavigationActionPolicy
+    {
+        if let url = navigationAction.request.url { requestedURLs.append(url) }
+        return await production.webView(webView, decidePolicyFor: navigationAction)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async
+        -> WKNavigationResponsePolicy
+    {
+        await production.webView(webView, decidePolicyFor: navigationResponse)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        onFinish?()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        production.webView(webView, didFail: navigation, withError: error)
+        if production.failed.wrappedValue { onFail?(error) }
+    }
+
+    func webView(
+        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error
+    ) {
+        production.webView(webView, didFailProvisionalNavigation: navigation, withError: error)
+        if production.failed.wrappedValue { onFail?(error) }
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        production.webViewWebContentProcessDidTerminate(webView)
+    }
+}
+
+@MainActor
 final class PreviewWebProbe {
     private static let loadTimeout: Duration = .seconds(10)
-    private let window: NSWindow
+    let window: NSWindow
     let container: PreviewWebContainerView
     private var browser: PreviewWKWebView { container.webView }
     private let delegate: PreviewWebDelegate
+    private let observer: ProbeNavigationObserver
     private var finished: CheckedContinuation<Void, any Error>?
     private(set) var didFail = false
 
@@ -104,6 +150,7 @@ final class PreviewWebProbe {
         var failed = false
         let binding = Binding(get: { failed }, set: { failed = $0 })
         delegate = PreviewWebDelegate(page: page, failed: binding)
+        observer = ProbeNavigationObserver(production: delegate)
         let rect = NSRect(x: -1000, y: -1000, width: 400, height: 300)
         window = NSWindow(
             contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -114,14 +161,16 @@ final class PreviewWebProbe {
         window.contentView = container
         window.orderBack(nil)
         window.layoutIfNeeded()
-        browser.navigationDelegate = delegate
+        browser.navigationDelegate = observer
         browser.uiDelegate = delegate
-        delegate.onFinishNavigation = { [weak self] in self?.resume() }
-        delegate.onFailNavigation = { [weak self] error in
+        observer.onFinish = { [weak self] in self?.resume() }
+        observer.onFail = { [weak self] error in
             self?.didFail = true
             self?.resume(throwing: error)
         }
     }
+
+    var requestedNavigationURLs: [URL] { observer.requestedURLs }
 
     deinit {
         MainActor.assumeIsolated {
@@ -155,6 +204,21 @@ final class PreviewWebProbe {
     func hitTest(webPoint: NSPoint) -> NSView? {
         let windowPoint = windowPoint(fromWebPoint: webPoint)
         return window.contentView?.hitTest(windowPoint)
+    }
+
+    func accessibilityHitTest(webPoint: NSPoint) -> AnyObject? {
+        let screenPoint = window.convertPoint(toScreen: windowPoint(fromWebPoint: webPoint))
+        return window.accessibilityHitTest(screenPoint) as AnyObject?
+    }
+
+    func webViewAccessibilityHitTest(webPoint: NSPoint) -> AnyObject? {
+        let screenPoint = window.convertPoint(toScreen: windowPoint(fromWebPoint: webPoint))
+        return container.webView.accessibilityHitTest(screenPoint) as AnyObject?
+    }
+
+    func shieldAccessibilityHitTest(webPoint: NSPoint) -> AnyObject? {
+        let screenPoint = window.convertPoint(toScreen: windowPoint(fromWebPoint: webPoint))
+        return container.inputShield.accessibilityHitTest(screenPoint) as AnyObject?
     }
 
     func click(webPoint: NSPoint) throws {

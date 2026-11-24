@@ -3,9 +3,30 @@ import Engine
 import Foundation
 import os
 
+// Includes ctime so in-place rewrites invalidate consent.
+struct PreviewFileStamp: Hashable, Sendable {
+    let stamp: FileStamp
+    let statusChangedSeconds: Int
+    let statusChangedNanoseconds: Int
+
+    init(fileStatus status: stat) {
+        stamp = FileStamp(fileStatus: status, includingIdentity: true)
+        statusChangedSeconds = status.st_ctimespec.tv_sec
+        statusChangedNanoseconds = status.st_ctimespec.tv_nsec
+    }
+
+    init(of url: URL) throws {
+        var status = stat()
+        guard lstat(url.path, &status) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        self.init(fileStatus: status)
+    }
+}
+
 struct PreviewScriptConsentKey: Hashable, Sendable {
     let resolvedPath: String
-    let stamp: FileStamp
+    let stamp: PreviewFileStamp
 }
 
 struct PreviewTrust: Equatable, Sendable {
@@ -18,9 +39,9 @@ struct PreviewTrust: Equatable, Sendable {
     let level: Level
     // Consent follows the symlink target.
     let resolvedPath: String
-    let stamp: FileStamp?
+    let stamp: PreviewFileStamp?
 
-    init(level: Level, resolvedPath: String, stamp: FileStamp? = nil) {
+    init(level: Level, resolvedPath: String, stamp: PreviewFileStamp? = nil) {
         self.level = level
         self.resolvedPath = resolvedPath
         self.stamp = stamp
@@ -47,7 +68,7 @@ struct PreviewTrust: Equatable, Sendable {
             } else {
                 .standard
             }
-        let stamp = try? FileStamp(of: resolved, includingIdentity: true)
+        let stamp = try? PreviewFileStamp(of: resolved)
         return Self(level: level, resolvedPath: resolved.path, stamp: stamp)
     }
 
@@ -67,11 +88,11 @@ struct PreviewTrust: Equatable, Sendable {
             } else {
                 .standard
             }
-        let stamp = FileStamp(fileStatus: status, includingIdentity: true)
+        let stamp = PreviewFileStamp(fileStatus: status)
         return Self(level: level, resolvedPath: resolvedURL.path, stamp: stamp)
     }
 
-    static func isUnchangedUnquarantined(_ url: URL, expectedStamp: FileStamp) -> Bool {
+    static func isUnchangedUnquarantined(_ url: URL, expectedStamp: PreviewFileStamp) -> Bool {
         let current = evaluate(url, trustedFolders: [])
         return !current.restricted && current.stamp == expectedStamp
     }

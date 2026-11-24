@@ -27,9 +27,8 @@ enum PreviewHTMLSnapshot {
         encoding: PreviewEncoding = .automatic,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) throws -> Prepared {
-        let source = try PreviewTextSource.read(url, trustedFolders: trustedFolders)
-        let trust = source.trust ?? PreviewTrust.evaluate(url, trustedFolders: trustedFolders)
-        let consented = trust.consentKey.map(scriptConsent.contains) ?? false
+        let (source, trust, stamp) = try PreviewTextSource.readSnapshot(url, trustedFolders: trustedFolders)
+        let consented = scriptConsent.contains(PreviewScriptConsentKey(resolvedPath: trust.resolvedPath, stamp: stamp))
         let policy = PreviewWebPolicy(trust: trust, interactiveConsented: consented)
         if source.truncated {
             return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
@@ -42,7 +41,7 @@ enum PreviewHTMLSnapshot {
         if let readAccess = PreviewWebConfiguration.folderReadAccess(for: resolved, homeDirectory: homeDirectory) {
             return Prepared(
                 id: UUID(), trust: trust, policy: policy,
-                page: .file(resolved, readAccess: readAccess, policy, expectedStamp: trust.stamp),
+                page: .file(resolved, readAccess: readAccess, policy, expectedStamp: stamp),
                 truncated: false)
         }
         let html = try source.decoded(as: encoding)
@@ -74,11 +73,11 @@ struct PreviewTextRendering: Sendable {
 
     static func make(
         source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
-        restricted: Bool, inlineHTML: Bool = false
+        restricted: Bool
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
-        let html = rich && (kind == .markdown || kind == .svg || (kind == .html && (restricted || inlineHTML)))
+        let html = rich && (kind == .markdown || kind == .svg || (kind == .html && restricted))
         var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
@@ -305,7 +304,7 @@ struct PreviewTextViewer: View {
                 } label: {
                     Label("Run Scripts with Network Access", systemImage: "network")
                 }
-                .help(Text("Runs scripts and allows network access until MacEase quits."))
+                .help(Text("Runs scripts and allows network access for this file until it changes or MacEase quits."))
             }
         }
         .fixedSize()

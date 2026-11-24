@@ -145,31 +145,51 @@ final class PreviewContentTests: XCTestCase {
 
     @MainActor
     func testOfflineRulesCompileAndConfigurationDisablesScriptsByDefault() async throws {
-        let configuration = try await PreviewWebConfiguration.make()
+        let directory = try PreviewFixtures.directory(self)
+        let source = directory.appendingPathComponent("index.html")
+        try Data("<p>x</p>".utf8).write(to: source)
+        let stamp = try PreviewFileStamp(of: source)
+
+        let staticPage = PreviewWebViewer.Page.file(
+            source, readAccess: directory, .staticPreview, expectedStamp: stamp)
+        let configuration = try await PreviewWebConfiguration.make(for: staticPage)
         XCTAssertFalse(configuration.websiteDataStore.isPersistent)
         XCTAssertFalse(configuration.defaultWebpagePreferences.allowsContentJavaScript)
         XCTAssertFalse(configuration.preferences.javaScriptCanOpenWindowsAutomatically)
+        XCTAssertFalse(configuration.websiteDataStore.proxyConfigurations.isEmpty)
         let store = try XCTUnwrap(WKContentRuleListStore.default())
         let rules = try await store.contentRuleList(forIdentifier: "MacEasePreviewOffline")
         XCTAssertNotNil(rules)
-        let allowed = try await PreviewWebConfiguration.make(reach: .network)
+
+        let interactivePage = PreviewWebViewer.Page.file(
+            source, readAccess: directory, .interactive, expectedStamp: stamp)
+        let allowed = try await PreviewWebConfiguration.make(for: interactivePage)
         XCTAssertTrue(allowed.defaultWebpagePreferences.allowsContentJavaScript)
         XCTAssertFalse(allowed.websiteDataStore.isPersistent)
-        let reset = try await PreviewWebConfiguration.make()
-        XCTAssertFalse(reset.defaultWebpagePreferences.allowsContentJavaScript)
+        XCTAssertTrue(allowed.websiteDataStore.proxyConfigurations.isEmpty)
+
+        let sealed = try await PreviewWebConfiguration.make(for: .generated("<p>x</p>"))
+        XCTAssertFalse(sealed.defaultWebpagePreferences.allowsContentJavaScript)
+        XCTAssertFalse(sealed.websiteDataStore.proxyConfigurations.isEmpty)
     }
 
     @MainActor
     func testNavigationRejectsExternalHostsSchemesAndSiblingFiles() throws {
-        let source = URL(fileURLWithPath: "/tmp/example/index.html")
+        let directory = try PreviewFixtures.directory(self)
+        let source = directory.appendingPathComponent("index.html")
+        try Data("<p>x</p>".utf8).write(to: source)
+        let stamp = try PreviewFileStamp(of: source)
         let page = PreviewWebViewer.Page.file(
-            source, readAccess: source.deletingLastPathComponent(),
+            source, readAccess: directory,
             PreviewWebPolicy(
-                trust: PreviewTrust(level: .standard, resolvedPath: source.path), interactiveConsented: false))
+                trust: PreviewTrust(level: .standard, resolvedPath: source.path, stamp: stamp),
+                interactiveConsented: false),
+            expectedStamp: stamp)
         XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, page: page))
+        let sibling = directory.appendingPathComponent("other.html").absoluteString
         for address in [
-            "https://example.com", "macease://run", "file:///tmp/example/other.html",
-            "file://remote/tmp/example/index.html", "data:text/html,hi",
+            "https://example.com", "macease://run", sibling,
+            "file://remote\(source.path)", "data:text/html,hi",
         ] {
             let destination = try XCTUnwrap(URL(string: address))
             XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: destination, page: page))

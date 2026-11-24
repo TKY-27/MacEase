@@ -1,5 +1,6 @@
 import AppKit
 import Engine
+import Network
 import SwiftUI
 import WebKit
 import os
@@ -20,7 +21,6 @@ enum PreviewWebPolicy: Hashable, Sendable {
         }
     }
 
-    var isRestricted: Bool { self == .restricted }
     var allowsInteractive: Bool { self == .interactive }
     var offersInteractive: Bool { self == .staticPreview }
 }
@@ -69,7 +69,7 @@ enum PreviewWebConfiguration {
     private static let staticPreviewNeutralizer = """
         (() => {
           const neutralize = (root) => {
-            for (const el of root.querySelectorAll('a[href], area[href]')) {
+            for (const el of root.querySelectorAll('a[href], area[href], math[href], math [href]')) {
               const style = getComputedStyle(el);
               if (!el.style.color && style.color) el.style.color = style.color;
               if (!el.style.textDecorationLine && style.textDecorationLine) {
@@ -80,7 +80,7 @@ enum PreviewWebConfiguration {
               el.removeAttribute('download');
               el.setAttribute('aria-disabled', 'true');
             }
-            for (const el of root.querySelectorAll('a')) {
+            for (const el of root.querySelectorAll('a, math, math *')) {
               if (el.hasAttributeNS('http://www.w3.org/1999/xlink', 'href')) {
                 el.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
                 el.setAttribute('aria-disabled', 'true');
@@ -101,13 +101,22 @@ enum PreviewWebConfiguration {
         })();
         """
 
-    enum Reach {
+    private enum Reach {
         case inline, inlineNetwork, localFiles, network
 
         var allowsInteractive: Bool { self == .network || self == .inlineNetwork }
     }
 
-    static func make(reach: Reach = .localFiles) async throws -> WKWebViewConfiguration {
+    // Blocks host-named preconnects on missed elements.
+    private static var failClosedProxy: ProxyConfiguration {
+        var configuration = ProxyConfiguration(
+            socksv5Proxy: NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any))
+        configuration.allowFailover = false
+        configuration.excludedDomains = []
+        return configuration
+    }
+
+    private static func make(reach: Reach) async throws -> WKWebViewConfiguration {
         let (identifier, encoded) =
             switch reach {
             case .inline: ("MacEasePreviewInline", inlineRules)
@@ -122,6 +131,7 @@ enum PreviewWebConfiguration {
         try Task.checkCancellation()
         let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: reach.allowsInteractive)
         if !reach.allowsInteractive {
+            configuration.websiteDataStore.proxyConfigurations = [failClosedProxy]
             configuration.userContentController.addUserScript(
                 WKUserScript(
                     source: staticPreviewNeutralizer, injectionTime: .atDocumentEnd, forMainFrameOnly: false,
@@ -161,7 +171,7 @@ enum PreviewWebConfiguration {
     static func load(_ page: PreviewWebViewer.Page, in browser: WKWebView) -> Bool {
         switch page {
         case .file(let url, let readAccess, _, let expectedStamp):
-            if let expectedStamp, !PreviewTrust.isUnchangedUnquarantined(url, expectedStamp: expectedStamp) {
+            guard PreviewTrust.isUnchangedUnquarantined(url, expectedStamp: expectedStamp) else {
                 return false
             }
             browser.loadFileURL(url, allowingReadAccessTo: readAccess)
@@ -185,7 +195,7 @@ enum PreviewWebConfiguration {
 struct PreviewWebViewer: View {
     // Generated pages are sealed and scriptless.
     enum Page: Hashable, Sendable {
-        case file(URL, readAccess: URL, PreviewWebPolicy, expectedStamp: FileStamp? = nil)
+        case file(URL, readAccess: URL, PreviewWebPolicy, expectedStamp: PreviewFileStamp)
         case inline(String, PreviewWebPolicy)
         case generated(String)
 
@@ -428,8 +438,6 @@ final class PreviewWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     let page: PreviewWebViewer.Page
     var failed: Binding<Bool>
-    var onFinishNavigation: (() -> Void)?
-    var onFailNavigation: ((any Error) -> Void)?
 
     init(page: PreviewWebViewer.Page, failed: Binding<Bool>) {
         self.page = page
@@ -482,10 +490,6 @@ final class PreviewWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
         decisionHandler(.deny)
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        onFinishNavigation?()
-    }
-
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         report(error)
     }
@@ -506,7 +510,6 @@ final class PreviewWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
             return
         }
         failed.wrappedValue = true
-        onFailNavigation?(error)
         Logger(category: "finder-preview").error(
             "Preview web load failed: \(error.localizedDescription, privacy: .private)")
     }
