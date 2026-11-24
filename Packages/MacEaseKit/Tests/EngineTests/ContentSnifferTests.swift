@@ -80,6 +80,90 @@ import Testing
         #expect(try ContentSniffer.identify(noise).family == .binary)
     }
 
+    @Test func identifiesAllScriptsAcrossSupportedEncodingsAndRejectsUndecodableBinary() throws {
+        let folder = try temporaryFolder()
+        let utf16LE: (String) -> [UInt8] = { text in
+            text.utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }
+        }
+        let utf16BE: (String) -> [UInt8] = { text in
+            text.utf16.flatMap { [UInt8($0 >> 8), UInt8($0 & 0xFF)] }
+        }
+        let utf32LE: (String) -> [UInt8] = { text in
+            text.unicodeScalars.flatMap { scalar in
+                let value = scalar.value
+                return [
+                    UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
+                    UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF),
+                ]
+            }
+        }
+        let utf32BE: (String) -> [UInt8] = { text in
+            text.unicodeScalars.flatMap { scalar in
+                let value = scalar.value
+                return [
+                    UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
+                    UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+                ]
+            }
+        }
+
+        let scripts = [
+            ("cyrillic", "Привет, мир!\nСтрока два.\n"),
+            ("arabic", "مرحبا بالعالم\nسطر ثاني\n"),
+            ("emoji", "Hello 👋🌍🎉😀\n"),
+            ("emoji-only", "👋🌍🎉😀"),
+            ("hebrew", "שלום עולם\n"),
+            ("greek", "Γειά σου κόσμε\n"),
+            ("devanagari", "नमस्ते दुनिया\n"),
+            ("thai", "สวัสดีชาวโลก\n"),
+            ("korean", "한국어 테스트\n"),
+            ("japanese", "日本語のテキスト。\n"),
+        ]
+        for (label, text) in scripts {
+            let variants: [(String, [UInt8])] = [
+                ("\(label)-utf8.txt", Array(text.utf8)),
+                ("\(label)-utf16le.txt", utf16LE(text)),
+                ("\(label)-utf16be.txt", utf16BE(text)),
+                ("\(label)-utf16le-bom.txt", [0xFF, 0xFE] + utf16LE(text)),
+                ("\(label)-utf16be-bom.txt", [0xFE, 0xFF] + utf16BE(text)),
+                ("\(label)-utf32le.txt", utf32LE(text)),
+                ("\(label)-utf32be.txt", utf32BE(text)),
+                ("\(label)-utf32le-bom.txt", [0xFF, 0xFE, 0x00, 0x00] + utf32LE(text)),
+                ("\(label)-utf32be-bom.txt", [0x00, 0x00, 0xFE, 0xFF] + utf32BE(text)),
+            ]
+            for (name, bytes) in variants {
+                let file = try write(name, bytes: bytes, in: folder)
+                #expect(
+                    try ContentSniffer.identify(file) == DetectedContent(family: .text, displayName: "Text"),
+                    "\(name)")
+            }
+        }
+
+        let eucJP = try #require("日本語のテキスト\n".data(using: .japaneseEUC))
+        let iso2022 = try #require("日本語のテキスト\n".data(using: .iso2022JP))
+        let latin1 = try #require("Café résumé naïve\n".data(using: .isoLatin1))
+        let win1252 = try #require("Price: €10 — “ok”\n".data(using: .windowsCP1252))
+        for (name, data) in [
+            ("eucjp.txt", eucJP), ("iso2022.txt", iso2022), ("latin1.txt", latin1), ("cp1252.txt", win1252),
+        ] {
+            let file = try write(name, bytes: [UInt8](data), in: folder)
+            #expect(try ContentSniffer.identify(file) == DetectedContent(family: .text, displayName: "Text"), "\(name)")
+        }
+
+        // Truncated mid-surrogate UTF-16LE emoji stays text.
+        let longEmoji = String(repeating: "👋", count: 1500)
+        let longEmojiFile = try write("long-emoji.txt", bytes: utf16LE(longEmoji), in: folder)
+        #expect(try ContentSniffer.identify(longEmojiFile) == DetectedContent(family: .text, displayName: "Text"))
+
+        // C1 controls and unpaired surrogates stay binary.
+        let c1Controls = try write("c1.bin", bytes: [0x81, 0x8D, 0x8F, 0x90, 0x9D], in: folder)
+        #expect(try ContentSniffer.identify(c1Controls) == DetectedContent(family: .binary, displayName: "Binary file"))
+        let unpairedSurrogate = try write("surrogate.bin", bytes: [0x00, 0xD8, 0x41, 0x00], in: folder)
+        #expect(
+            try ContentSniffer.identify(unpairedSurrogate)
+                == DetectedContent(family: .binary, displayName: "Binary file"))
+    }
+
     @Test func identifiesMachOAndUniversalFatHeadersWithoutConfusingJavaClass() throws {
         let folder = try temporaryFolder()
         let machOHeaders: [[UInt8]] = [

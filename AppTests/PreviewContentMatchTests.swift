@@ -62,17 +62,42 @@ final class PreviewContentMatchTests: XCTestCase {
 
     func testDecodableTextFilesAreNeverRefused() throws {
         let directory = try PreviewFixtures.directory(self)
-        let samples: [(String, [UInt8])] = [
-            ("Signature.swift", Array("let signature = \"%PDF-1.7\"\n".utf8)),
-            ("utf16.txt", [0x41, 0x00, 0x42, 0x00]),
-            ("shift-jis.txt", [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA]),
+        let utf16LE: (String) -> [UInt8] = { $0.utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] } }
+        let utf16BE: (String) -> [UInt8] = { $0.utf16.flatMap { [UInt8($0 >> 8), UInt8($0 & 0xFF)] } }
+        let utf32LE: (String) -> [UInt8] = { text in
+            text.unicodeScalars.flatMap { scalar in
+                let value = scalar.value
+                return [
+                    UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
+                    UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF),
+                ]
+            }
+        }
+        let samples: [(String, [UInt8], PreviewEncoding, String)] = [
+            (
+                "Signature.swift", Array("let signature = \"%PDF-1.7\"\n".utf8), .automatic,
+                "let signature = \"%PDF-1.7\"\n"
+            ),
+            ("utf16.txt", [0x41, 0x00, 0x42, 0x00], .utf16LE, "AB"),
+            ("cyrillic-le.txt", utf16LE("Привет, мир!"), .utf16LE, "Привет, мир!"),
+            ("arabic-le.txt", utf16LE("مرحبا بالعالم"), .utf16LE, "مرحبا بالعالم"),
+            ("emoji-le.txt", utf16LE("Hi 👋🌍"), .utf16LE, "Hi 👋🌍"),
+            ("cyrillic-be.txt", utf16BE("Привет"), .utf16BE, "Привет"),
+            ("utf32-bom.txt", [0xFF, 0xFE, 0x00, 0x00] + utf32LE("Привет 👋"), .automatic, "Привет 👋"),
+            ("utf32-le.txt", utf32LE("مرحبا 👋"), .utf32LE, "مرحبا 👋"),
+            ("shift-jis.txt", [0x93, 0xFA, 0x96, 0x7B, 0x8C, 0xEA], .shiftJIS, "日本語"),
+            ("euc-jp.txt", [UInt8](try XCTUnwrap("日本語".data(using: .japaneseEUC))), .eucJP, "日本語"),
+            ("iso2022.txt", [UInt8](try XCTUnwrap("日本語".data(using: .iso2022JP))), .iso2022JP, "日本語"),
+            ("latin1.txt", [UInt8](try XCTUnwrap("Café naïve".data(using: .isoLatin1))), .latin1, "Café naïve"),
         ]
-        for (name, bytes) in samples {
+        for (name, bytes, encoding, expected) in samples {
             let url = directory.appendingPathComponent(name)
             try Data(bytes).write(to: url)
             let kind = try PreviewKind.inspect(url)
             XCTAssertEqual(
                 PreviewContentMatch.evaluate(kind: kind, detected: try ContentSniffer.identify(url)), .matches, name)
+            let decoded = try PreviewTextSource.read(url).decoded(as: encoding)
+            XCTAssertEqual(decoded, expected, name)
         }
         let image = directory.appendingPathComponent("notes.txt")
         try PreviewFixtures.png().write(to: image)

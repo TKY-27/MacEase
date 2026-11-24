@@ -331,6 +331,36 @@
         }
       }
     },
+    "UTF-32": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-32"
+          }
+        }
+      }
+    },
+    "UTF-32 LE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-32 LE"
+          }
+        }
+      }
+    },
+    "UTF-32 BE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-32 BE"
+          }
+        }
+      }
+    },
     "Shift_JIS": {
       "localizations": {
         "ja": {

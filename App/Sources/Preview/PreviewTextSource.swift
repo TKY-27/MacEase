@@ -3,7 +3,8 @@ import Engine
 import Foundation
 
 enum PreviewEncoding: String, CaseIterable, Sendable {
-    case automatic, utf8, utf16, utf16LE, utf16BE, shiftJIS, eucJP, iso2022JP, windows1252, latin1
+    case automatic, utf8, utf16, utf16LE, utf16BE, utf32, utf32LE, utf32BE, shiftJIS, eucJP, iso2022JP,
+        windows1252, latin1
 
     var title: String {
         switch self {
@@ -12,6 +13,9 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
         case .utf16: String(localized: "UTF-16")
         case .utf16LE: String(localized: "UTF-16 LE")
         case .utf16BE: String(localized: "UTF-16 BE")
+        case .utf32: String(localized: "UTF-32")
+        case .utf32LE: String(localized: "UTF-32 LE")
+        case .utf32BE: String(localized: "UTF-32 BE")
         case .shiftJIS: String(localized: "Shift_JIS")
         case .eucJP: String(localized: "EUC-JP")
         case .iso2022JP: String(localized: "ISO-2022-JP")
@@ -32,6 +36,9 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
         case .utf16: return .utf16
         case .utf16LE: return .utf16LittleEndian
         case .utf16BE: return .utf16BigEndian
+        case .utf32: return .utf32
+        case .utf32LE: return .utf32LittleEndian
+        case .utf32BE: return .utf32BigEndian
         case .shiftJIS:
             return String.Encoding(
                 rawValue: CFStringConvertEncodingToNSStringEncoding(
@@ -81,11 +88,17 @@ struct PreviewTextSource: Sendable {
     func decoded(as encoding: PreviewEncoding) throws -> String {
         guard truncated else { return try encoding.decode(bytes) }
         let selected: PreviewEncoding
-        if encoding == .automatic || encoding == .utf16 {
-            if bytes.starts(with: [0xFF, 0xFE]) {
+        if encoding == .automatic || encoding == .utf16 || encoding == .utf32 {
+            if bytes.starts(with: [0xFF, 0xFE, 0x00, 0x00]) {
+                selected = .utf32LE
+            } else if bytes.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
+                selected = .utf32BE
+            } else if bytes.starts(with: [0xFF, 0xFE]) {
                 selected = .utf16LE
             } else if bytes.starts(with: [0xFE, 0xFF]) {
                 selected = .utf16BE
+            } else if encoding == .utf32 {
+                selected = .utf32BE
             } else {
                 selected = encoding == .automatic ? .utf8 : .utf16BE
             }
@@ -157,7 +170,9 @@ struct PreviewTextSource: Sendable {
                 (0x21...0x7E).contains(last)
             else { return 0 }
             return (bytes.endIndex - escape - 3) % 2
-        case .automatic, .utf16, .windows1252, .latin1: return 0
+        case .utf32LE, .utf32BE:
+            return bytes.count % 4
+        case .automatic, .utf16, .utf32, .windows1252, .latin1: return 0
         }
     }
 

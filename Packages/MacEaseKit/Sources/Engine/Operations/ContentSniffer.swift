@@ -41,8 +41,10 @@ public enum ContentSniffer {
         guard values.isDirectory != true else { throw EngineError.invalidInput(.unsupportedFileType) }
         let reader = try FileHandle(forReadingFrom: url)
         defer { try? reader.close() }
-        let header = [UInt8](try reader.read(upToCount: headerLength) ?? Data())
-        let detected = identify(header: header)
+        let raw = [UInt8](try reader.read(upToCount: headerLength + 1) ?? Data())
+        let truncated = raw.count > headerLength
+        let header = truncated ? Array(raw.prefix(headerLength)) : raw
+        let detected = identify(header: header, truncated: truncated)
         guard detected.family == .binary,
             let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
             (CGImageSourceGetType(source) as String?) == "com.truevision.tga-image"
@@ -52,6 +54,10 @@ public enum ContentSniffer {
 
     /// Unlike `identify(_:)`, never reports TGA.
     public static func identify(header: [UInt8]) -> DetectedContent {
+        identify(header: header, truncated: header.count >= headerLength)
+    }
+
+    private static func identify(header: [UInt8], truncated: Bool) -> DetectedContent {
         if header.isEmpty { return DetectedContent(family: .empty, displayName: "Empty file") }
         if let executable = identifyExecutable(header) { return executable }
         if starts(header, with: ascii("bplist00")) {
@@ -65,17 +71,16 @@ public enum ContentSniffer {
         if let video = identifyVideo(header) { return video }
         if let audio = identifyAudio(header) { return audio }
         if let archive = identifyArchive(header) { return archive }
-        if starts(header, with: [0xFF, 0xFE]) || starts(header, with: [0xFE, 0xFF]) {
-            return DetectedContent(family: .text, displayName: "Text")
-        }
-        if let mpegAudio = identifyMPEGAudio(header) { return mpegAudio }
-        if isPlainText(header) {
-            return isSVGRoot(header)
+        if let decoded = TextEncoding.plausibleBOMText(from: header, truncated: truncated) {
+            return isSVGRoot(decoded)
                 ? DetectedContent(family: .svg, displayName: "SVG")
                 : DetectedContent(family: .text, displayName: "Text")
         }
-        if isUTF16Text(header, littleEndian: true) || isUTF16Text(header, littleEndian: false) {
-            return DetectedContent(family: .text, displayName: "Text")
+        if let mpegAudio = identifyMPEGAudio(header) { return mpegAudio }
+        if let decoded = TextEncoding.plausibleDecodedText(from: header, truncated: truncated) {
+            return isSVGRoot(decoded)
+                ? DetectedContent(family: .svg, displayName: "SVG")
+                : DetectedContent(family: .text, displayName: "Text")
         }
         return DetectedContent(family: .binary, displayName: "Binary file")
     }
@@ -191,57 +196,6 @@ public enum ContentSniffer {
         return window.indices.contains { index in
             index + marker.count <= window.endIndex && Array(window[index..<index + marker.count]) == marker
         }
-    }
-
-    // Tab, line breaks, form feed, ISO-2022 escape.
-    private static let textControlBytes: Set<UInt8> = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1B]
-    private static let firstPrintableByte: UInt8 = 0x20
-    private static let minimumReadableUTF16Share = 0.95
-    private static let unreadableCategories: Set<Unicode.GeneralCategory> = [
-        .control, .privateUse, .surrogate, .unassigned,
-    ]
-    // Binary noise decodes as rare scripts.
-    private static let latin1Limit: UInt32 = 0xFF
-    private static let eastAsianTextRanges: [ClosedRange<UInt32>] = [
-        0x3000...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xAC00...0xD7AF, 0xFF00...0xFFEF,
-    ]
-
-    private static func isPlainText(_ header: [UInt8]) -> Bool {
-        !header.contains { $0 < firstPrintableByte && !textControlBytes.contains($0) }
-    }
-
-    // BOM-less UTF-16 the viewer can decode.
-    private static func isUTF16Text(_ header: [UInt8], littleEndian: Bool) -> Bool {
-        var units = stride(from: 0, to: header.count - 1, by: 2).map { offset in
-            littleEndian
-                ? UInt16(header[offset]) | UInt16(header[offset + 1]) << 8
-                : UInt16(header[offset]) << 8 | UInt16(header[offset + 1])
-        }
-        if let last = units.last, UTF16.isLeadSurrogate(last) { units.removeLast() }
-        var iterator = units.makeIterator()
-        var decoder = UTF16()
-        var scalars = 0
-        var readable = 0
-        while true {
-            switch decoder.decode(&iterator) {
-            case .scalarValue(let scalar):
-                scalars += 1
-                if scalar.value < UInt32(firstPrintableByte) && !textControlBytes.contains(UInt8(scalar.value)) {
-                    return false
-                }
-                if isReadableUTF16(scalar) { readable += 1 }
-            case .emptyInput:
-                return scalars > 0 && Double(readable) >= Double(scalars) * minimumReadableUTF16Share
-            case .error:
-                return false
-            }
-        }
-    }
-
-    private static func isReadableUTF16(_ scalar: Unicode.Scalar) -> Bool {
-        if scalar.properties.isWhitespace { return true }
-        guard !unreadableCategories.contains(scalar.properties.generalCategory) else { return false }
-        return scalar.value <= latin1Limit || eastAsianTextRanges.contains { $0.contains(scalar.value) }
     }
 
     private static func isText(_ header: [UInt8]) -> Bool {
@@ -509,8 +463,8 @@ public enum ContentSniffer {
         return nil
     }
 
-    private static func isSVGRoot(_ header: [UInt8]) -> Bool {
-        var text = String(decoding: header, as: UTF8.self)
+    private static func isSVGRoot(_ sourceText: String) -> Bool {
+        var text = sourceText
         if text.hasPrefix("\u{FEFF}") { text.removeFirst() }
         var cursor = text.startIndex
         while cursor < text.endIndex {
