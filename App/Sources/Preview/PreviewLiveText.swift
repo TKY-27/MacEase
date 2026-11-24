@@ -6,6 +6,10 @@ import os
 @MainActor
 @Observable
 final class PreviewLiveText {
+    enum Phase: Equatable {
+        case idle, waiting, analyzing, finished
+    }
+
     // Skips analysis while arrowing through files.
     static let settleDelay = Duration.milliseconds(350)
     // Text is unreadable after a 4,096-pixel decode.
@@ -13,6 +17,7 @@ final class PreviewLiveText {
     static let minimumEdge = 32.0
 
     private(set) var analysis: ImageAnalysis?
+    private(set) var phase = Phase.idle
     private var work: Task<Void, Never>?
 
     static func isWorthAnalyzing(pixelSize: CGSize, animated: Bool) -> Bool {
@@ -22,15 +27,21 @@ final class PreviewLiveText {
 
     func analyze(_ image: CGImage) {
         cancel()
+        phase = .waiting
         work = Task { [weak self] in
             do {
                 try await Task.sleep(for: Self.settleDelay)
+                try Task.checkCancellation()
+                self?.phase = .analyzing
                 let analysis = try await ImageAnalyzer().analyze(
                     image, orientation: .up, configuration: ImageAnalyzer.Configuration(.text))
                 try Task.checkCancellation()
-                self?.analysis = analysis
+                self?.analysis = analysis.hasResults(for: .text) ? analysis : nil
+                self?.phase = .finished
             } catch is CancellationError {
             } catch {
+                guard !Task.isCancelled else { return }
+                self?.phase = .finished
                 Logger(category: "finder-preview").notice(
                     "Live Text analysis failed: \(error.localizedDescription, privacy: .private)")
             }
@@ -41,6 +52,7 @@ final class PreviewLiveText {
         work?.cancel()
         work = nil
         analysis = nil
+        phase = .idle
     }
 }
 

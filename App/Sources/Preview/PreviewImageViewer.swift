@@ -25,11 +25,13 @@ final class PreviewImageModel {
     private static let detailTolerance = 1.01
     private(set) var phase = Phase.loading
     private(set) var detail: CGImage?
+    private(set) var detailFailed = false
     private(set) var animator: PreviewImageAnimator?
     private(set) var zoom = PreviewZoom(preset: .fit, percent: 100)
     let liveText = PreviewLiveText()
     private let source = PreviewImageSource()
     private var detailWork: Task<Void, Never>?
+    private var windowVisible = true
 
     var opened: PreviewImageOpened? {
         if case .ready(let opened) = phase { opened } else { nil }
@@ -37,10 +39,17 @@ final class PreviewImageModel {
 
     var image: CGImage? { animator?.frame ?? detail ?? opened?.first }
 
+    private var canDecodeFullResolution: Bool { opened?.offersFullResolution == true && !detailFailed }
+
     // Zoomed past the decode with nothing sharper.
     var showsReduced: Bool {
-        guard let opened, detail == nil, !opened.offersFullResolution else { return false }
+        guard let opened, detail == nil, !canDecodeFullResolution else { return false }
         return needsDetail(opened)
+    }
+
+    var reducedSize: CGSize? {
+        guard let opened, detail == nil, !canDecodeFullResolution, opened.decodedScale < 1 else { return nil }
+        return CGSize(width: opened.first.width, height: opened.first.height)
     }
 
     func load(_ url: URL, reduceMotion: Bool) async {
@@ -50,6 +59,7 @@ final class PreviewImageModel {
             phase = .ready(opened)
             if let timing = opened.animation {
                 let animator = PreviewImageAnimator(source: source, first: opened.first, timing: timing)
+                animator.setWindowVisible(windowVisible)
                 self.animator = animator
                 if !reduceMotion { animator.play() }
             } else if PreviewLiveText.isWorthAnalyzing(pixelSize: opened.pixelSize, animated: false) {
@@ -64,9 +74,14 @@ final class PreviewImageModel {
         }
     }
 
+    func setWindowVisible(_ visible: Bool) {
+        windowVisible = visible
+        animator?.setWindowVisible(visible)
+    }
+
     func zoomChanged(_ zoom: PreviewZoom) {
         self.zoom = zoom
-        guard let opened, opened.offersFullResolution, detail == nil, detailWork == nil, needsDetail(opened) else {
+        guard let opened, canDecodeFullResolution, detail == nil, detailWork == nil, needsDetail(opened) else {
             return
         }
         detailWork = Task { [weak self, source] in
@@ -76,6 +91,8 @@ final class PreviewImageModel {
                 self?.detail = detail
             } catch is CancellationError {
             } catch {
+                guard let self, !Task.isCancelled else { return }
+                detailFailed = true
                 Logger(category: "finder-preview").error(
                     "Full-resolution image failed: \(error.localizedDescription, privacy: .private)")
             }
@@ -119,7 +136,7 @@ struct PreviewImageViewer: View {
                     if let image = model.image {
                         PreviewImageCanvas(
                             image: image, opened: opened, analysis: model.liveText.analysis, request: zoomRequest,
-                            zoomChanged: model.zoomChanged)
+                            zoomChanged: model.zoomChanged, occlusionChanged: model.setWindowVisible)
                     }
                 case .loading: ProgressView().controlSize(.small)
                 }
@@ -157,10 +174,7 @@ struct PreviewImageViewer: View {
             .help(Text("Image Info"))
             .accessibilityLabel(Text("Image Info"))
             .popover(isPresented: $showsInfo, arrowEdge: .bottom) {
-                PreviewImageInfoView(
-                    info: opened.info,
-                    reducedSize: opened.offersFullResolution || opened.decodedScale >= 1
-                        ? nil : CGSize(width: opened.first.width, height: opened.first.height))
+                PreviewImageInfoView(metadata: opened.metadata, reducedSize: model.reducedSize)
             }
         }
         .fixedSize()
@@ -214,6 +228,7 @@ private struct PreviewImageCanvas: NSViewRepresentable {
     let analysis: ImageAnalysis?
     let request: PreviewZoomRequest
     let zoomChanged: (PreviewZoom) -> Void
+    let occlusionChanged: (Bool) -> Void
 
     final class Coordinator {
         var overlay: PreviewLiveTextOverlay?
@@ -225,13 +240,15 @@ private struct PreviewImageCanvas: NSViewRepresentable {
         let scroll = PreviewImageScroll(pixelSize: opened.pixelSize)
         scroll.content.showsCheckerboard = opened.hasAlpha
         scroll.handledRequest = request
+        scroll.occlusionChanged = occlusionChanged
         return scroll
     }
 
     func updateNSView(_ scroll: PreviewImageScroll, context: Context) {
         scroll.zoomChanged = zoomChanged
+        scroll.occlusionChanged = occlusionChanged
         scroll.content.image = image
-        if let analysis {
+        if let analysis, analysis.hasResults(for: .text) {
             let overlay = context.coordinator.overlay ?? PreviewLiveTextOverlay(content: scroll.content)
             context.coordinator.overlay = overlay
             scroll.liveText = overlay.view
@@ -254,6 +271,7 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
     let content: PreviewImageLayerView
     var zoomChanged: ((PreviewZoom) -> Void)?
+    var occlusionChanged: ((Bool) -> Void)?
     var handledRequest: PreviewZoomRequest?
     weak var liveText: ImageAnalysisOverlayView?
     // Legacy scrollers would shrink the fit.
@@ -264,6 +282,7 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
         }
     }
     private var reported: PreviewZoom?
+    private var reportedWindowVisible: Bool?
     // Intermediate animation steps keep the target's readout.
     private var zooming = false
 
@@ -313,6 +332,41 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
 
     func toggleZoom(at point: NSPoint, animated: Bool) {
         setZoom(fitting ? .actualSize : .fit, centeredAt: point, animated: animated)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window {
+            NotificationCenter.default.removeObserver(
+                self, name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else {
+            reportWindowVisibility(false, deferred: true)
+            return
+        }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(occlusionDidChange),
+            name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        reportWindowVisibility(window.occlusionState.contains(.visible), deferred: true)
+    }
+
+    @objc private func occlusionDidChange() {
+        guard let window else { return }
+        reportWindowVisibility(window.occlusionState.contains(.visible), deferred: false)
+    }
+
+    private func reportWindowVisibility(_ visible: Bool, deferred: Bool) {
+        guard visible != reportedWindowVisible else { return }
+        reportedWindowVisible = visible
+        if deferred {
+            Task { @MainActor [weak self] in self?.occlusionChanged?(visible) }
+        } else {
+            occlusionChanged?(visible)
+        }
     }
 
     override func layout() {
@@ -382,8 +436,19 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
 }
 
 final class PreviewImageLayerView: NSView {
+    struct CheckerKey: Hashable {
+        let appearance: NSAppearance.Name
+        let squarePoints: Int
+    }
+
     // On-screen size of one checkerboard square.
-    private static let checkerSquare: CGFloat = 8
+    static let checkerSquarePoints: CGFloat = 8
+    static let minimumCheckerSquarePoints: CGFloat = 2
+    static let maximumCheckerSquarePoints: CGFloat = 64
+    private static let supportedAppearances: [NSAppearance.Name] = [
+        .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
+    ]
+    private static var checkerCache: [CheckerKey: CGColor] = [:]
 
     var image: CGImage? {
         didSet {
@@ -398,8 +463,14 @@ final class PreviewImageLayerView: NSView {
     }
 
     var checkerScale: CGFloat = 1 {
-        didSet { if showsCheckerboard && checkerScale != oldValue { needsDisplay = true } }
+        didSet {
+            guard showsCheckerboard else { return }
+            let square = Self.checkerSquarePoints(forScale: checkerScale)
+            if square != currentCheckerSquare { needsDisplay = true }
+        }
     }
+
+    private var currentCheckerSquare: Int?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -416,7 +487,14 @@ final class PreviewImageLayerView: NSView {
 
     override func updateLayer() {
         layer?.contentsGravity = .resize
-        layer?.backgroundColor = showsCheckerboard ? checkerboard().cgColor : nil
+        guard showsCheckerboard else {
+            currentCheckerSquare = nil
+            layer?.backgroundColor = nil
+            return
+        }
+        let square = Self.checkerSquarePoints(forScale: checkerScale)
+        currentCheckerSquare = square
+        layer?.backgroundColor = Self.checkerboardColor(for: checkerAppearanceName, squarePoints: square)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -424,25 +502,49 @@ final class PreviewImageLayerView: NSView {
         needsDisplay = true
     }
 
-    // Constant on-screen square size.
-    private func checkerboard() -> NSColor {
-        let (light, dark) = checkerShades
-        let square = Self.checkerSquare / max(checkerScale, .ulpOfOne)
-        let tile = NSImage(size: NSSize(width: square * 2, height: square * 2), flipped: false) { _ in
-            NSColor(white: light, alpha: 1).setFill()
-            NSRect(x: 0, y: 0, width: square * 2, height: square * 2).fill()
-            NSColor(white: dark, alpha: 1).setFill()
-            NSRect(x: 0, y: 0, width: square, height: square).fill()
-            NSRect(x: square, y: square, width: square, height: square).fill()
-            return true
-        }
-        return NSColor(patternImage: tile)
+    // Quantized and bounded to keep tiles small.
+    static func checkerSquarePoints(forScale scale: CGFloat) -> Int {
+        let raw = checkerSquarePoints / max(scale, .ulpOfOne)
+        let clamped = min(max(raw, minimumCheckerSquarePoints), maximumCheckerSquarePoints)
+        let power = pow(2.0, round(log2(Double(clamped))))
+        return min(max(Int(power), Int(minimumCheckerSquarePoints)), Int(maximumCheckerSquarePoints))
     }
 
-    private var checkerShades: (CGFloat, CGFloat) {
-        switch effectiveAppearance.bestMatch(from: [
-            .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
-        ]) {
+    static func checkerboardColor(for appearance: NSAppearance.Name, squarePoints: Int) -> CGColor {
+        let clampedSquare = min(
+            max(squarePoints, Int(minimumCheckerSquarePoints)), Int(maximumCheckerSquarePoints))
+        let key = CheckerKey(appearance: appearance, squarePoints: clampedSquare)
+        if let cached = checkerCache[key] { return cached }
+        let color = makeCheckerboardColor(for: appearance, squarePoints: clampedSquare)
+        checkerCache[key] = color
+        return color
+    }
+
+    private static func makeCheckerboardColor(for appearance: NSAppearance.Name, squarePoints: Int) -> CGColor {
+        let (light, dark) = checkerShades(for: appearance)
+        let tileEdge = squarePoints * 2
+        let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard
+            let context = CGContext(
+                data: nil, width: tileEdge, height: tileEdge, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return NSColor(white: light, alpha: 1).cgColor }
+        context.setFillColor(CGColor(gray: light, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: tileEdge, height: tileEdge))
+        context.setFillColor(CGColor(gray: dark, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: squarePoints, height: squarePoints))
+        context.fill(CGRect(x: squarePoints, y: squarePoints, width: squarePoints, height: squarePoints))
+        guard let tileImage = context.makeImage() else { return NSColor(white: light, alpha: 1).cgColor }
+        let pattern = NSImage(cgImage: tileImage, size: NSSize(width: tileEdge, height: tileEdge))
+        return NSColor(patternImage: pattern).cgColor
+    }
+
+    private var checkerAppearanceName: NSAppearance.Name {
+        effectiveAppearance.bestMatch(from: Self.supportedAppearances) ?? .aqua
+    }
+
+    private static func checkerShades(for appearance: NSAppearance.Name) -> (CGFloat, CGFloat) {
+        switch appearance {
         case .darkAqua: (0.17, 0.23)
         case .accessibilityHighContrastAqua: (1, 0.78)
         case .accessibilityHighContrastDarkAqua: (0.1, 0.32)

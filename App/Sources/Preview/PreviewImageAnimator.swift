@@ -11,6 +11,8 @@ final class PreviewImageAnimator {
     private let source: PreviewImageSource
     private let timing: PreviewImageTiming
     private var playback: Task<Void, Never>?
+    private var windowVisible = true
+    private var resumeWhenVisible = false
 
     init(source: PreviewImageSource, first: CGImage, timing: PreviewImageTiming) {
         self.source = source
@@ -21,19 +23,45 @@ final class PreviewImageAnimator {
     // Restarts once the loop count is spent.
     func play() {
         guard !isPlaying else { return }
+        guard windowVisible else {
+            resumeWhenVisible = true
+            return
+        }
+        resumeWhenVisible = false
         let restarts = timing.step(after: position) == nil
         isPlaying = true
         playback = Task { [weak self] in await self?.run(restarting: restarts) }
     }
 
     func pause() {
+        resumeWhenVisible = false
+        stopPlayback()
+    }
+
+    func setWindowVisible(_ visible: Bool) {
+        guard visible != windowVisible else { return }
+        windowVisible = visible
+        if visible {
+            if resumeWhenVisible { play() }
+        } else if isPlaying {
+            resumeWhenVisible = true
+            stopPlayback()
+        }
+    }
+
+    private func stopPlayback() {
         playback?.cancel()
         playback = nil
         isPlaying = false
     }
 
     private func run(restarting: Bool) async {
-        defer { if !Task.isCancelled { isPlaying = false } }
+        defer {
+            if !Task.isCancelled {
+                isPlaying = false
+                resumeWhenVisible = false
+            }
+        }
         do {
             if restarting {
                 let first = try await source.frame(0)
@@ -43,7 +71,8 @@ final class PreviewImageAnimator {
             }
             while let next = timing.step(after: position) {
                 async let decoded = source.frame(next.index)
-                try await Task.sleep(for: .seconds(timing.delays[position.index]))
+                let delaySeconds = PreviewImageSource.clampedDelaySeconds(timing.delays[position.index])
+                try await Task.sleep(for: .seconds(delaySeconds))
                 let image = try await decoded
                 try Task.checkCancellation()
                 frame = image

@@ -120,13 +120,13 @@ struct PreviewImageInfo: Sendable, Equatable {
 }
 
 struct PreviewImageInfoView: View {
-    let info: PreviewImageInfo
+    let metadata: PreviewImageInfo
     let reducedSize: CGSize?
     private static let width: CGFloat = 280
 
     var body: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 6) {
-            ForEach(info.rows) { row in
+            ForEach(metadata.rows) { row in
                 GridRow {
                     row.field.label.foregroundStyle(.secondary).gridColumnAlignment(.trailing)
                     Text(verbatim: row.value).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
