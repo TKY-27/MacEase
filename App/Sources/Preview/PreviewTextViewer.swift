@@ -12,6 +12,9 @@ private struct PreviewTextRequest: Equatable {
 
 // Evaluates HTML trust fresh on each load.
 enum PreviewHTMLSnapshot {
+    // File loads stream, skipping the text buffer.
+    static let maximumFileBytes: Int64 = 64 * 1024 * 1024
+
     struct Prepared: Equatable, Sendable {
         let id: UUID
         let trust: PreviewTrust
@@ -30,22 +33,24 @@ enum PreviewHTMLSnapshot {
         let (source, trust, stamp) = try PreviewTextSource.readSnapshot(url, trustedFolders: trustedFolders)
         let consented = scriptConsent.contains(PreviewScriptConsentKey(resolvedPath: trust.resolvedPath, stamp: stamp))
         let policy = PreviewWebPolicy(trust: trust, interactiveConsented: consented)
-        if source.truncated {
-            return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
-        }
         let resolved = URL(fileURLWithPath: trust.resolvedPath).standardizedFileURL
-        if trust.restricted {
-            let html = try source.decoded(as: encoding)
-            return Prepared(id: UUID(), trust: trust, policy: policy, page: .generated(html), truncated: false)
-        }
-        if let readAccess = PreviewWebConfiguration.folderReadAccess(for: resolved, homeDirectory: homeDirectory) {
+        if !trust.restricted,
+            let readAccess = PreviewWebConfiguration.folderReadAccess(for: resolved, homeDirectory: homeDirectory)
+        {
+            guard let size = stamp.stamp.size, size <= maximumFileBytes else {
+                return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
+            }
             return Prepared(
                 id: UUID(), trust: trust, policy: policy,
                 page: .file(resolved, readAccess: readAccess, policy, expectedStamp: stamp),
                 truncated: false)
         }
+        if source.truncated {
+            return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
+        }
         let html = try source.decoded(as: encoding)
-        return Prepared(id: UUID(), trust: trust, policy: policy, page: .inline(html, policy), truncated: false)
+        let page: PreviewWebViewer.Page = trust.restricted ? .generated(html) : .inline(html, policy)
+        return Prepared(id: UUID(), trust: trust, policy: policy, page: page, truncated: false)
     }
 }
 
@@ -63,13 +68,17 @@ struct PreviewTextRendering: Sendable {
         table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: auto; }
         th, td { border: 1px solid #8884; padding: 4px 8px; }
         img { max-width: 100%; }
+        a { color: LinkText; text-decoration: underline; text-underline-offset: .15em; }
         blockquote { margin: 0; padding-left: 1em; border-left: 3px solid #8886; color: #888; }
         </style>
         """
+    let id = UUID()
     let text: String
     let tokens: [PreviewToken]
     let lineStarts: [Int]
     let html: Bool
+    // Nil for converted or rendered text.
+    let decodedAs: PreviewEncoding?
 
     static func make(
         source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
@@ -77,6 +86,7 @@ struct PreviewTextRendering: Sendable {
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
+        var decodedAs: PreviewEncoding?
         let html = rich && (kind == .markdown || kind == .svg || (kind == .html && restricted))
         var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
@@ -88,6 +98,9 @@ struct PreviewTextRendering: Sendable {
             text = svgPage(source.bytes)
         } else {
             let decoded = try source.decoded(as: encoding)
+            if !html {
+                decodedAs = encoding == .automatic ? try detectedEncoding(of: source, decoded: decoded) : encoding
+            }
             if rich && kind == .json {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
                 text = try JSONFormatter.formatted(decoded)
@@ -113,7 +126,20 @@ struct PreviewTextRendering: Sendable {
             }
         }
         try Task.checkCancellation()
-        return Self(text: text, tokens: tokens, lineStarts: lineStarts, html: html)
+        return Self(text: text, tokens: tokens, lineStarts: lineStarts, html: html, decodedAs: decodedAs)
+    }
+
+    // First encoding reproducing the shown text.
+    private static func detectedEncoding(of source: PreviewTextSource, decoded: String) throws -> PreviewEncoding? {
+        for candidate in PreviewEncoding.allCases where candidate != .automatic {
+            try Task.checkCancellation()
+            do {
+                if try source.decoded(as: candidate) == decoded { return candidate }
+            } catch EngineError.invalidInput(.textEncodingUndetected) {
+                continue
+            }
+        }
+        return nil
     }
 
     // An image element never runs SVG scripts.
@@ -130,6 +156,10 @@ struct PreviewTextRendering: Sendable {
     }
 }
 
+private enum PreviewTextFailure: Equatable {
+    case tooLarge, unreadable
+}
+
 struct PreviewTextViewer: View {
     let url: URL
     let kind: PreviewKind
@@ -143,7 +173,8 @@ struct PreviewTextViewer: View {
     @State private var encoding = PreviewEncoding.automatic
     @State private var rich: Bool
     @State private var reloadToken = 0
-    @State private var failed = false
+    @State private var failure: PreviewTextFailure?
+    @State private var find = PreviewFind()
 
     init(
         url: URL, kind: PreviewKind, trust: PreviewTrust, settings: FinderPreviewSettings,
@@ -163,64 +194,26 @@ struct PreviewTextViewer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PreviewToolbar { controls }
-            if effectiveTrust.restricted && (kind == .html || kind == .markdown) {
-                if kind == .html && rich {
-                    PreviewNote(
-                        symbol: "shield.lefthalf.filled",
-                        text: Text(
-                            "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled."
-                        ),
-                        shortText: Text("From the internet: view-only preview"))
-                } else {
-                    PreviewNote(
-                        symbol: "shield.lefthalf.filled",
-                        text: Text(
-                            "This file is from the internet. Scripts, external content and other files are disabled."),
-                        shortText: Text("From the internet: limited preview"))
-                }
-            } else if kind == .html, rich, let activePolicy {
-                switch activePolicy {
-                case .staticPreview:
-                    PreviewNote(
-                        symbol: "eye",
-                        text: Text("Preview is static and view-only. Scripts and network access are off."),
-                        shortText: Text("Static view-only preview"))
-                case .interactive:
-                    PreviewNote(
-                        symbol: "network",
-                        text: Text("Scripts on this page can connect to the internet."),
-                        shortText: Text("Scripts can use the internet"))
-                case .restricted:
-                    EmptyView()
-                }
-            }
-            if source?.truncated == true && !(kind == .html && rich) {
-                PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
-            }
+            PreviewToolbar { HStack(spacing: 8) { controls }.layoutPriority(1) }
+            if find.isPresented { PreviewFindBar(find: find) }
+            notes
             Group {
-                if kind == .html, rich {
-                    if failed {
-                        Text("The text could not be decoded or formatted. Try Source or another encoding.")
-                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                            .padding(PreviewLayout.margin)
-                    } else if let prepared = htmlLoad, let page = prepared.page {
-                        PreviewWebViewer(page: page, onStaleFile: { reloadToken += 1 }).id(prepared.id)
+                if let failure {
+                    failureView(failure)
+                } else if kind == .html, rich {
+                    if let prepared = htmlLoad, let page = prepared.page {
+                        PreviewWebViewer(page: page, find: find, onStaleFile: { reloadToken += 1 }).id(prepared.id)
                     } else {
                         ProgressView().controlSize(.small)
                     }
-                } else if failed {
-                    Text("The text could not be decoded or formatted. Try Source or another encoding.")
-                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        .padding(PreviewLayout.margin)
                 } else if let rendering {
                     if rendering.html {
-                        PreviewWebViewer(page: .generated(rendering.text)).id(rendering.text)
+                        PreviewWebViewer(page: .generated(rendering.text), find: find).id(rendering.id)
                     } else {
                         PreviewCodeView(
-                            text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts,
+                            rendering: rendering,
                             font: PreviewCodeFont.font(family: settings.codeFontFamily, size: settings.codeFontSize),
-                            wrap: settings.wrapLines)
+                            wrap: settings.wrapLines, find: find)
                     }
                 } else {
                     ProgressView().controlSize(.small)
@@ -246,68 +239,144 @@ struct PreviewTextViewer: View {
 
     private var activePolicy: PreviewWebPolicy? { htmlLoad?.policy }
 
+    private var offersModes: Bool { kind != .text && source?.binaryPropertyList != true }
+
+    private var showsEncodingMenu: Bool {
+        source?.binaryPropertyList != true && !(rich && (kind == .html || kind == .markdown || kind == .svg))
+    }
+
+    @ViewBuilder private var notes: some View {
+        if effectiveTrust.restricted && (kind == .html || kind == .markdown) {
+            if kind == .html && rich {
+                PreviewNote(
+                    symbol: "shield.lefthalf.filled",
+                    text: Text(
+                        "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled."
+                    ),
+                    shortText: Text("From the internet: view-only preview"))
+            } else {
+                PreviewNote(
+                    symbol: "shield.lefthalf.filled",
+                    text: Text(
+                        "This file is from the internet. Scripts, external content and other files are disabled."),
+                    shortText: Text("From the internet: limited preview"))
+            }
+        } else if kind == .html, rich, let activePolicy {
+            switch activePolicy {
+            case .staticPreview:
+                PreviewNote(
+                    symbol: "eye",
+                    text: Text("Preview is static and view-only. Scripts and network access are off."),
+                    shortText: Text("Static view-only preview"))
+            case .interactive:
+                PreviewNote(
+                    symbol: "network",
+                    text: Text("Scripts on this page can connect to the internet."),
+                    shortText: Text("Scripts can use the internet"))
+            case .restricted:
+                EmptyView()
+            }
+        }
+        if source?.truncated == true && failure == nil && !(kind == .html && rich) {
+            PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
+        }
+    }
+
     @ViewBuilder private var controls: some View {
-        if kind != .text && source?.binaryPropertyList != true {
+        if offersModes {
             ViewThatFits(in: .horizontal) {
                 modePicker.pickerStyle(.segmented).labelsHidden().fixedSize()
                 modePicker.pickerStyle(.menu).labelsHidden().fixedSize()
             }
         }
         if kind == .html && rich {
-            if let policy = activePolicy, !effectiveTrust.restricted {
+            if let policy = activePolicy, policy.offersInteractive, !effectiveTrust.restricted {
                 ViewThatFits(in: .horizontal) {
-                    webPermissions(for: policy).labelStyle(.titleOnly)
-                    webPermissions(for: policy).labelStyle(.iconOnly)
+                    runScriptsButton.labelStyle(.titleOnly)
+                    runScriptsButton.labelStyle(.iconOnly)
                 }
             }
-        } else if !(rich && (kind == .markdown || kind == .svg)) {
-            if source?.binaryPropertyList != true {
-                Menu {
-                    encodingPicker.pickerStyle(.inline)
-                } label: {
-                    Label("Encoding", systemImage: "textformat")
-                }
-                .labelStyle(.iconOnly).fixedSize()
-                .accessibilityLabel(Text("Encoding"))
-                .help(Text("Encoding"))
-            }
+        } else if showsEncodingMenu {
+            encodingMenu
         }
+        Spacer(minLength: 0)
+        PreviewFindButton(find: find)
     }
 
     private var modePicker: some View {
         Picker("View", selection: $rich) {
-            if kind == .html || kind == .svg {
-                Text("Preview").tag(true)
-            } else if kind == .markdown {
-                Text("Rendered").tag(true)
-            } else {
+            if kind == .json || kind == .propertyList {
                 Text("Formatted").tag(true)
+            } else {
+                Text("Preview").tag(true)
             }
-            Text("Source").tag(false)
+            Text("preview.mode.source").tag(false)
         }
     }
 
-    private var encodingPicker: some View {
-        Picker("Encoding", selection: $encoding) {
-            ForEach(PreviewEncoding.allCases, id: \.self) { choice in
-                Text(verbatim: choice.title).tag(choice)
-            }
+    private var encodingMenu: some View {
+        let shown = rendering?.decodedAs.map { Text(verbatim: $0.title) } ?? Text("Encoding")
+        return ViewThatFits(in: .horizontal) {
+            encodingMenu(label: shown)
+            encodingMenu(label: Image(systemName: "textformat"))
         }
+        .accessibilityLabel(Text("Encoding"))
+        .accessibilityValue(shown)
+        .help(Text("Encoding"))
     }
 
-    private func webPermissions(for policy: PreviewWebPolicy) -> some View {
-        HStack(spacing: 6) {
-            if policy.offersInteractive {
-                Button {
-                    if let key = htmlLoad?.trust.consentKey { scriptConsent.insert(key) }
-                    reloadToken += 1
-                } label: {
-                    Label("Run Scripts with Network Access", systemImage: "network")
+    private func encodingMenu(label: some View) -> some View {
+        Menu {
+            Picker("Encoding", selection: $encoding) {
+                ForEach(PreviewEncoding.allCases, id: \.self) { choice in
+                    Text(verbatim: choice.title).tag(choice)
                 }
-                .help(Text("Runs scripts and allows network access for this file until it changes or MacEase quits."))
             }
+            .pickerStyle(.inline)
+        } label: {
+            label
         }
         .fixedSize()
+    }
+
+    private var runScriptsButton: some View {
+        Button {
+            if let key = htmlLoad?.trust.consentKey { scriptConsent.insert(key) }
+            reloadToken += 1
+        } label: {
+            Label("Run Scripts with Network Access", systemImage: "network")
+        }
+        .help(Text("Runs scripts and allows network access for this file until it changes or MacEase quits."))
+        .fixedSize()
+    }
+
+    private func failureView(_ failure: PreviewTextFailure) -> some View {
+        VStack(spacing: 12) {
+            failureMessage(failure)
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if rich && offersModes {
+                Button("Show Source") { rich = false }
+            }
+        }
+        .padding(PreviewLayout.margin)
+    }
+
+    private func failureMessage(_ failure: PreviewTextFailure) -> Text {
+        let formats = kind == .json || kind == .propertyList
+        switch failure {
+        case .tooLarge:
+            let limit = kind == .html ? PreviewHTMLSnapshot.maximumFileBytes : Int64(PreviewTextSource.maximumBytes)
+            let size = ByteCountFormatter.string(fromByteCount: limit, countStyle: .memory)
+            return formats
+                ? Text("Files larger than \(size) can't be formatted.")
+                : Text("Files larger than \(size) can't be previewed here.")
+        case .unreadable where rich && kind != .text:
+            return formats ? Text("This file could not be formatted.") : Text("This preview could not be displayed.")
+        case .unreadable:
+            return showsEncodingMenu
+                ? Text("The text could not be decoded. Try another encoding.")
+                : Text("The text could not be decoded.")
+        }
     }
 
     private func read() async {
@@ -319,12 +388,13 @@ struct PreviewTextViewer: View {
             }
             try Task.checkCancellation()
             if let freshTrust = loaded.trust { currentTrust = freshTrust }
-            if loaded.truncated && !loaded.binaryPropertyList { rich = false }
+            // HTML Preview may stream the whole file.
+            if loaded.truncated && !loaded.binaryPropertyList && kind != .html { rich = false }
             source = loaded
         } catch is CancellationError {
         } catch {
             guard !Task.isCancelled else { return }
-            failed = true
+            failure = .unreadable
             Logger(category: "finder-preview").error(
                 "Preview text read failed: \(error.localizedDescription, privacy: .private)")
         }
@@ -333,30 +403,9 @@ struct PreviewTextViewer: View {
     private func render() async {
         rendering = nil
         htmlLoad = nil
-        failed = false
+        failure = nil
         if kind == .html, rich {
-            let trustedFolders = settings.trustedFolders
-            let consent = scriptConsent
-            let encoding = encoding
-            do {
-                let prepared = try await offMain { [url] in
-                    try PreviewHTMLSnapshot.prepare(
-                        url: url, trustedFolders: trustedFolders, scriptConsent: consent, encoding: encoding)
-                }
-                try Task.checkCancellation()
-                currentTrust = prepared.trust
-                if prepared.truncated {
-                    rich = false
-                    return
-                }
-                htmlLoad = prepared
-            } catch is CancellationError {
-            } catch {
-                guard !Task.isCancelled else { return }
-                failed = true
-                Logger(category: "finder-preview").error(
-                    "Preview HTML load failed: \(error.localizedDescription, privacy: .private)")
-            }
+            await prepareHTML()
             return
         }
         guard let source else { return }
@@ -384,11 +433,39 @@ struct PreviewTextViewer: View {
             try Task.checkCancellation()
             rendering = rendered
         } catch is CancellationError {
+        } catch CocoaError.fileReadTooLarge {
+            guard !Task.isCancelled else { return }
+            failure = .tooLarge
         } catch {
             guard !Task.isCancelled else { return }
-            failed = true
+            failure = .unreadable
             Logger(category: "finder-preview").error(
                 "Preview text rendering failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    private func prepareHTML() async {
+        let trustedFolders = settings.trustedFolders
+        let consent = scriptConsent
+        let encoding = encoding
+        do {
+            let prepared = try await offMain { [url] in
+                try PreviewHTMLSnapshot.prepare(
+                    url: url, trustedFolders: trustedFolders, scriptConsent: consent, encoding: encoding)
+            }
+            try Task.checkCancellation()
+            currentTrust = prepared.trust
+            if prepared.truncated {
+                failure = .tooLarge
+                return
+            }
+            htmlLoad = prepared
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled else { return }
+            failure = .unreadable
+            Logger(category: "finder-preview").error(
+                "Preview HTML load failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 }
@@ -414,18 +491,24 @@ enum PreviewCodeFont {
 }
 
 private struct PreviewCodeView: NSViewRepresentable {
-    let text: String
-    let tokens: [PreviewToken]
-    let lineStarts: [Int]
+    let rendering: PreviewTextRendering
     let font: NSFont
     let wrap: Bool
+    let find: PreviewFind
+
+    final class Coordinator {
+        var renderingID: UUID?
+        var font: NSFont?
+        weak var find: PreviewFind?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         let textView = PreviewTextView(usingTextLayoutManager: true)
-        textView.usesFindBar = true
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = false
@@ -451,29 +534,17 @@ private struct PreviewCodeView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let textView = scroll.documentView as? NSTextView else { return }
-        if textView.font != font || !textView.string.utf8.elementsEqual(text.utf8) {
-            let styled = NSMutableAttributedString(
-                string: text,
-                attributes: [
-                    .font: font,
-                    .foregroundColor: NSColor.textColor,
-                ])
-            for token in tokens {
-                let color: NSColor
-                switch token.kind {
-                case .keyword: color = .systemPurple
-                case .string: color = .systemRed
-                case .comment: color = .secondaryLabelColor
-                case .number: color = .systemBlue
-                }
-                styled.addAttribute(.foregroundColor, value: color, range: token.range)
-            }
-            textView.textStorage?.setAttributedString(styled)
-            textView.font = font
+        guard let textView = scroll.documentView as? PreviewTextView else { return }
+        context.coordinator.find = find
+        // Identity checks keep large files cheap.
+        if context.coordinator.renderingID != rendering.id || context.coordinator.font != font {
+            context.coordinator.renderingID = rendering.id
+            context.coordinator.font = font
+            textView.show(rendering, font: font)
+            find.attach(textView)
         }
         if let ruler = scroll.verticalRulerView as? PreviewLineRuler {
-            ruler.lineStarts = lineStarts
+            ruler.lineStarts = rendering.lineStarts
             ruler.codeFont = font
         }
         scroll.hasHorizontalScroller = !wrap
@@ -486,20 +557,92 @@ private struct PreviewCodeView: NSViewRepresentable {
         if wrap { textView.setFrameSize(NSSize(width: scroll.contentSize.width, height: textView.frame.height)) }
         scroll.verticalRulerView?.needsDisplay = true
     }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scroll.documentView as? PreviewTextView else { return }
+        coordinator.find?.detach(textView)
+    }
 }
 
-private final class PreviewTextView: NSTextView {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-            event.charactersIgnoringModifiers == "f"
-        {
-            let command = NSMenuItem()
-            command.tag = NSTextFinder.Action.showFindInterface.rawValue
-            performFindPanelAction(command)
-            return true
+final class PreviewTextView: NSTextView, PreviewFindTarget {
+    private var matchedQuery: String?
+    private var matches: [NSRange] = []
+    private var matchIndex: Int?
+
+    func show(_ rendering: PreviewTextRendering, font: NSFont) {
+        let styled = NSMutableAttributedString(
+            string: rendering.text, attributes: [.font: font, .foregroundColor: NSColor.textColor])
+        for token in rendering.tokens {
+            let color: NSColor
+            switch token.kind {
+            case .keyword: color = .systemPurple
+            case .string: color = .systemRed
+            case .comment: color = .secondaryLabelColor
+            case .number: color = .systemBlue
+            }
+            styled.addAttribute(.foregroundColor, value: color, range: token.range)
         }
-        return super.performKeyEquivalent(with: event)
+        textStorage?.setAttributedString(styled)
+        self.font = font
+        matchedQuery = nil
+        matches = []
+        matchIndex = nil
     }
+
+    func find(_ query: String, direction: PreviewFindDirection, restart: Bool) async -> PreviewFindOutcome {
+        if query != matchedQuery {
+            let text = string
+            do {
+                matches = try await offMain { try Self.ranges(of: query, in: text) }
+            } catch is CancellationError {
+                return .notFound
+            } catch {
+                Logger(category: "finder-preview").error(
+                    "Preview text find failed: \(error.localizedDescription, privacy: .private)")
+                return .notFound
+            }
+            matchedQuery = query
+            matchIndex = nil
+        }
+        guard !matches.isEmpty else { return .notFound }
+        let index: Int
+        if let current = matchIndex, !restart {
+            let step = direction == .forward ? 1 : -1
+            index = (current + step + matches.count) % matches.count
+        } else {
+            let anchor = selectedRange().location
+            index =
+                direction == .forward
+                ? matches.firstIndex { $0.location >= anchor } ?? 0
+                : matches.lastIndex { $0.location < anchor } ?? matches.count - 1
+        }
+        matchIndex = index
+        let range = matches[index]
+        setSelectedRange(range)
+        scrollRangeToVisible(range)
+        showFindIndicator(for: range)
+        return PreviewFindOutcome(found: true, current: index + 1, total: matches.count)
+    }
+
+    func endFind() { window?.makeFirstResponder(self) }
+
+    nonisolated private static func ranges(of query: String, in text: String) throws -> [NSRange] {
+        let haystack = text as NSString
+        var found: [NSRange] = []
+        var searchStart = 0
+        while searchStart < haystack.length {
+            if found.count.isMultiple(of: cancellationStride) { try Task.checkCancellation() }
+            let range = haystack.range(
+                of: query, options: [.caseInsensitive, .diacriticInsensitive],
+                range: NSRange(location: searchStart, length: haystack.length - searchStart))
+            guard range.location != NSNotFound else { break }
+            found.append(range)
+            searchStart = range.location + max(range.length, 1)
+        }
+        return found
+    }
+
+    nonisolated private static let cancellationStride = 1024
 }
 
 private final class PreviewLineRuler: NSRulerView {

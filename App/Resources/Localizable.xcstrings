@@ -201,16 +201,6 @@
         }
       }
     },
-    "Rendered": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レンダリング"
-          }
-        }
-      }
-    },
     "Formatted": {
       "localizations": {
         "ja": {
@@ -227,16 +217,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "先頭256 KBを表示しています"
-          }
-        }
-      }
-    },
-    "The text could not be decoded or formatted. Try Source or another encoding.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストの読み込みまたは整形に失敗しました。ソース表示や別の文字コードをお試しください。"
           }
         }
       }
@@ -20336,6 +20316,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ファイル"
+          }
+        }
+      }
+    },
+    "Find Previous": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前を検索"
+          }
+        }
+      }
+    },
+    "Find Next": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次を検索"
+          }
+        }
+      }
+    },
+    "Not found": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該当なし"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can't be formatted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルは整形できません。"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can't be previewed here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルはここではプレビューできません。"
+          }
+        }
+      }
+    },
+    "This file could not be formatted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを整形できませんでした。"
+          }
+        }
+      }
+    },
+    "The text could not be decoded. Try another encoding.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを読み込めませんでした。別のエンコードをお試しください。"
+          }
+        }
+      }
+    },
+    "The text could not be decoded.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "Show Source": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースを表示"
+          }
+        }
+      }
+    },
+    "Table of Contents": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目次"
+          }
+        }
+      }
+    },
+    "Page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ"
+          }
+        }
+      }
+    },
+    "Go to Page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページへ移動"
+          }
+        }
+      }
+    },
+    "Fit Width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幅に合わせる"
+          }
+        }
+      }
+    },
+    "Actual Size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のサイズ"
+          }
+        }
+      }
+    },
+    "Unlock": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロックを解除"
+          }
+        }
+      }
+    },
+    "The password is incorrect.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードが正しくありません。"
+          }
+        }
+      }
+    },
+    "preview.mode.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース"
           }
         }
       }
