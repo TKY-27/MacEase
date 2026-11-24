@@ -520,14 +520,22 @@ public enum ContentSniffer {
     private static func isFallbackVideo(_ header: [UInt8]) -> Bool {
         if starts(header, with: AudioInput.asfSignature) { return true }
         if starts(header, with: [0x00, 0x00, 0x01, 0xBA]) { return true }
-        if (header.count >= 189 && header[0] == 0x47 && header[188] == 0x47)
-            || (header.count >= 197 && header[4] == 0x47 && header[196] == 0x47)
-        {
-            return true
-        }
+        if isMPEGTransportStream(header) { return true }
         if starts(header, with: ascii(".RMF")) || starts(header, with: ascii("OggS")) { return true }
         if starts(header, with: [0x06, 0x0E, 0x2B, 0x34]) { return true }
         return header.count >= 8 && header[0] == 0x1F && header[1] == 0x07 && header[2] == 0x00
+    }
+
+    private static func isMPEGTransportStream(_ header: [UInt8]) -> Bool {
+        let syncByte: UInt8 = 0x47
+        for (start, stride) in [(0, 188), (4, 192)] {
+            let requiredPackets = header.count > start + stride * 3 ? 4 : 3
+            guard header.count > start + stride * (requiredPackets - 1) else { continue }
+            if (0..<requiredPackets).allSatisfy({ header[start + $0 * stride] == syncByte }) {
+                return true
+            }
+        }
+        return false
     }
 
     private static func isFallbackAudio(_ header: [UInt8]) -> Bool {

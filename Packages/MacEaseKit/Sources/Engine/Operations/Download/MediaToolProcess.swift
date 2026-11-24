@@ -7,17 +7,26 @@ struct MediaToolResult: Sendable {
 }
 
 final class MediaToolProcess: Sendable {
+    struct Monitor: Sendable {
+        let interval: Duration
+        let tick: @Sendable () -> Void
+    }
+
     private struct State {
         var child: Process?
         var cancelled = false
+        var timedOut = false
     }
     private let state = Mutex(State())
     private static let captureLimit = 32 * 1_024 * 1_024
     private static let lineLimit = 65_536
+    private static let minimumMonitorInterval = Duration.milliseconds(50)
+    private static let timeoutCheckDivisor: Int64 = 4
 
     func run(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
         captureOutput: Bool = true, input: FileHandle? = nil, includeTLSCertificate: Bool = true,
+        noProgressTimeout: Duration? = nil, monitor: Monitor? = nil,
         line: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> MediaToolResult {
         try await withTaskCancellationHandler {
@@ -28,7 +37,8 @@ final class MediaToolProcess: Sendable {
                             try self.execute(
                                 executable: executable, arguments: arguments, directory: directory, tools: tools,
                                 captureOutput: captureOutput, input: input,
-                                includeTLSCertificate: includeTLSCertificate, line: line)
+                                includeTLSCertificate: includeTLSCertificate, noProgressTimeout: noProgressTimeout,
+                                monitor: monitor, line: line)
                         })
                 }
             }
@@ -46,15 +56,34 @@ final class MediaToolProcess: Sendable {
         }
     }
 
+    private func timeout() {
+        state.withLock {
+            $0.timedOut = true
+            if let child = $0.child, child.isRunning {
+                Self.stop(child)
+            }
+        }
+    }
+
     private static func stop(_ child: Process) {
         let identifier = child.processIdentifier
         if getpgid(identifier) == identifier { kill(-identifier, SIGKILL) }
         kill(identifier, SIGKILL)
     }
 
+    private static func timerInterval(timeout: Duration?, monitor: Duration?) -> Duration {
+        var chosen = monitor ?? Duration.seconds(1)
+        if let timeout {
+            let quarter = timeout / timeoutCheckDivisor
+            chosen = min(chosen, quarter)
+        }
+        return max(minimumMonitorInterval, chosen)
+    }
+
     private func execute(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
         captureOutput: Bool, input: FileHandle?, includeTLSCertificate: Bool,
+        noProgressTimeout: Duration?, monitor: Monitor?,
         line: @escaping @Sendable (String) -> Void
     ) throws -> MediaToolResult {
         let child = Process()
@@ -81,6 +110,28 @@ final class MediaToolProcess: Sendable {
             try child.run()
         }
         try input?.close()
+        let lastActivity = Mutex(ContinuousClock.now)
+        var monitorTimer: DispatchSourceTimer?
+        if noProgressTimeout != nil || monitor != nil {
+            let interval = Self.timerInterval(timeout: noProgressTimeout, monitor: monitor?.interval)
+            let intervalMilliseconds = max(
+                1, Int(interval.components.seconds * 1_000 + interval.components.attoseconds / 1_000_000_000_000_000))
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(
+                deadline: .now() + .milliseconds(intervalMilliseconds),
+                repeating: .milliseconds(intervalMilliseconds))
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                if let noProgressTimeout, ContinuousClock.now - lastActivity.withLock({ $0 }) >= noProgressTimeout {
+                    self.timeout()
+                    return
+                }
+                monitor?.tick()
+            }
+            timer.resume()
+            monitorTimer = timer
+        }
+        defer { monitorTimer?.cancel() }
         let capture = Mutex(Data())
         let overflow = Mutex(false)
         let diagnostics = Mutex(Data())
@@ -93,6 +144,7 @@ final class MediaToolProcess: Sendable {
                 while true {
                     let chunk = pipe.fileHandleForReading.availableData
                     if chunk.isEmpty { break }
+                    lastActivity.withLock { $0 = ContinuousClock.now }
                     if captures && captureOutput {
                         capture.withLock {
                             if $0.count + chunk.count <= Self.captureLimit {
@@ -120,7 +172,9 @@ final class MediaToolProcess: Sendable {
             }
         }
         child.waitUntilExit()
+        monitorTimer?.cancel()
         readers.wait()
+        if state.withLock({ $0.timedOut }) { throw EngineError.decodeFailed("Media tool timed out without progress") }
         if state.withLock({ $0.cancelled }) { throw CancellationError() }
         guard !overflow.withLock({ $0 }) else { throw EngineError.decodeFailed("Media metadata exceeds limit") }
         guard child.terminationReason == .exit, child.terminationStatus == 0 else {
