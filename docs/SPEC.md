@@ -2623,6 +2623,9 @@ features, for downloading, merging, converting and repairing newly downloaded
 media, plus local MP3 encoding under section 23. Their required LGPL dependencies
 share this narrow exception.
 MacEase source remains MIT; third-party executables retain their own licenses.
+Strip debug and local symbols from media/audio native helpers before signing,
+while preserving external symbols and all executable sections. Keep audio model
+files unchanged and hash the signed helpers in their runtime manifest.
 Pin source versions and hashes, provide notices and corresponding source/build
 instructions, sign nested executable code, and update tools with app releases.
 No runtime self-update, arbitrary user arguments, plugins or user configuration.
@@ -3049,6 +3052,9 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-24: Strip debug/local symbols from media/audio helpers before signing,
+  preserving executable sections and exports (ADR 0074).
 
 - 2026-11-24: Omit Python GUI/bootstrap packages, certifi tests and bytecode
   caches while retaining runtime modules and source (ADR 0074).

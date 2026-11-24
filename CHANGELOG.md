@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Strip debug/local symbols from bundled media and audio helpers before signing,
+  retaining dynamic exports and the original offline models.
+
 - Omit unused Python GUI/bootstrap packages, certifi tests and bytecode caches
   from the private download runtime.
 

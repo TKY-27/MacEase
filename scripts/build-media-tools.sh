@@ -204,6 +204,7 @@ while IFS= read -r -d '' executable; do
     if otool -L "$executable" | grep -E '/opt/homebrew|/usr/local|media-tools-work' >/dev/null; then
         echo "error: external dependency in $executable" >&2; exit 1
     fi
+    strip -S -x "$executable"
 done < <(find "$runtime/bin" "$runtime/lib" -type f \( -perm -111 -o -name '*.so' -o -name '*.dylib' \) -print0)
 "$root/scripts/sign-bundled-code.sh" "$runtime" --sign -
 

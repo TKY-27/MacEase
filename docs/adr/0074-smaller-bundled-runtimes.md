@@ -9,6 +9,13 @@ Node occupies about 140 MiB and requires a JIT exception solely for yt-dlp's
 bundled EJS challenge solver. The pinned yt-dlp supports QuickJS-NG. Its small
 interpreter trades longer challenge execution for a substantially smaller app.
 
+The pinned EJS provider supports Deno ≥2.3.0, Node ≥22.0.0,
+QuickJS ≥2023-12-09, every QuickJS-NG release, and deprecated Bun 1.2.11–1.3.14.
+QuickJS 2025-04-26 and QuickJS-NG 0.12.0 are performance recommendations,
+not minimum compatibility versions. These limits agree with the pinned
+`utils/_jsruntime.py` and the Bun/QuickJS providers, as well as the upstream
+[EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+
 ## Decision
 
 Build MIT-licensed QuickJS-NG 0.18.0 from its hash-pinned source. Keep yt-dlp
@@ -24,6 +31,13 @@ on cancellation. Record real-download evidence and solver timing in
 Remove Python GUI/bootstrap packages, certifi tests and bytecode caches. Keep
 all remaining source and extension modules, and retain isolated `-I -B` launches.
 Standard-library test support remains available for runtime verification.
+
+Strip debug and local symbols from media/audio Mach-O files before signing.
+Retain external symbols for dynamic loading; hash audio helpers after signing.
+A section-level comparison and exported-symbol comparison cover all 69 affected
+files. Models and their validation reports remain unchanged. The Release host
+already uses arm64, dead-code stripping and installed-product stripping; applying
+additional local-symbol stripping saved zero bytes.
 
 ## Consequences
 
@@ -45,3 +59,8 @@ The previously examined Spleeter FP16 release fails ONNX validation.
 Deferring all model downloads could remove about 132 MB from installation,
 while introducing first-use network, storage and availability requirements.
 None of these product or quality changes is adopted.
+
+The ad-hoc Release measurement on macOS 27.2.1 was 440,285,471 → 265,012,982
+file bytes for the app and 222,307,969 → 177,087,473 bytes for its ULMO DMG.
+Allocated app bytes were 446,648,320 → 269,783,040. The mounted DMG payload
+matches the archive by component; APFS clone sharing is outside this metric.

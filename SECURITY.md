@@ -38,7 +38,7 @@ Only the host has the Apple Events entitlement for Finder Automation.
 In normal Debug and Release builds, library validation is disabled only for
 the bundled Python, FFmpeg, ffprobe
 and two sherpa audio executables, which load bundled libraries without an
-Apple Team ID. Only Node has the JIT entitlement. The host and extension keep
+Apple Team ID. No bundled executable has a JIT entitlement. The host and extension keep
 library validation. These settings do not provide Apple notarization.
 App-hosted tests use a separate `DebugTests` configuration whose host disables
 library validation for unteamed XCTest/package bundles; this host is not shipped.

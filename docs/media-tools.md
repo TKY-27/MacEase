@@ -27,8 +27,9 @@ QuickJS-NG is built as a static arm64 executable from its MIT-licensed source.
 yt-dlp is installed from its
 Unlicense Python source distribution, rather than its GPL-containing macOS
 standalone executable. The pinned EJS wheel contains offline solver JavaScript;
-its matching source distribution is included. No package manager or external
-Python is required at runtime. Python's TLS verifier uses macOS's
+its matching source distribution is included. Native executables and extensions omit debug and local symbols before signing;
+external symbols remain available for dynamic loading. No package manager or
+external Python is required at runtime. Python's TLS verifier uses macOS's
 `/etc/ssl/cert.pem`; OpenSSL and Python do not need Homebrew libraries.
 
 Python intentionally omits interactive, database, Tk, ctypes, LZMA and Zstandard
