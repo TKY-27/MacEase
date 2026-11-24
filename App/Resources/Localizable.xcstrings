@@ -22894,6 +22894,30 @@
           }
         }
       }
+    },
+    "DTS audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DTSオーディオ"
+          }
+        }
+      }
+    },
+    "AC-3 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AC-3オーディオ"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

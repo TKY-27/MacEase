@@ -1375,8 +1375,15 @@ enum StagedMediaFallback {
             omittedStreams: omitted)
     }
 
+    static func acceptsNativeFailure(_ error: EngineError) -> Bool {
+        switch error {
+        case .decodeFailed, .unsupportedCodec: true
+        default: false
+        }
+    }
+
     // Restore native error only for media rejections.
-    private static func restoringNativeError<T>(
+    static func restoringNativeError<T>(
         _ nativeError: EngineError?, path: String, _ operation: () async throws -> T
     ) async throws -> T {
         do {
