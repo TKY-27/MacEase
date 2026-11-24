@@ -77,6 +77,16 @@ final class PreviewContentTests: XCTestCase {
         XCTAssertThrowsError(try PreviewTextSource(bytes: oddUTF16, truncated: false).decoded(as: .automatic))
         XCTAssertThrowsError(try PreviewTextSource(bytes: oddUTF16, truncated: false).decoded(as: .utf16LE))
         XCTAssertEqual(try PreviewTextSource(bytes: oddUTF16, truncated: true).decoded(as: .automatic), "A")
+
+        // Truncated BOM-less UTF-16LE Cyrillic decodes automatically.
+        let cyrillic = "Привет, мир!\n"
+        let cyrillicLE = Data(cyrillic.utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: cyrillicLE.dropLast(1), truncated: true).decoded(as: .automatic),
+            "Привет, мир!")
+        let mixed = "Hello Привет مرحبا दुनिया"
+        let mixedBE = Data(mixed.utf16.flatMap { [UInt8($0 >> 8), UInt8($0 & 0xFF)] })
+        XCTAssertEqual(try PreviewTextSource(bytes: mixedBE, truncated: false).decoded(as: .automatic), mixed)
     }
 
     func testTokenizerRecognizesSmallSamplesForEverySupportedLanguage() throws {

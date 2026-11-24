@@ -2,14 +2,12 @@ import CoreFoundation
 import Foundation
 
 public enum TextEncoding {
-    public static func detectedString(from bytes: Data) throws -> String {
-        if let text = decodeUTF32BOM(bytes) { return text }
-        do {
-            return try decode(bytes).text
-        } catch EngineError.invalidInput(.textEncodingUndetected) {
-            if let text = detectPreviewFallback(bytes) { return text }
-            throw EngineError.invalidInput(.textEncodingUndetected)
+    public static func detectedString(from bytes: Data, truncated: Bool = false) throws -> String {
+        if bytes.isEmpty { return "" }
+        if let text = plausibleDecodedText(from: [UInt8](bytes), truncated: truncated) {
+            return text
         }
+        throw EngineError.invalidInput(.textEncodingUndetected)
     }
 
     public static func strictString(from bytes: Data, encoding: String.Encoding) throws -> String {
@@ -42,28 +40,64 @@ public enum TextEncoding {
 
     static func plausibleDecodedText(from bytes: [UInt8], truncated: Bool = false) -> String? {
         guard !bytes.isEmpty else { return nil }
-        if let text = decodeBOMText(bytes, truncated: truncated) { return text }
-        if !bytes.contains(where: { $0 < firstPrintableByte && !allowedByteControls.contains($0) }) {
-            if bytes.contains(escapeByte) {
-                if let text = decodeWithSuffixTrim(bytes, encoding: .iso2022JP, maxTrim: truncated ? 3 : 0),
-                    isPlausibleText(text)
-                {
-                    return text
-                }
+        if hasByteOrderMark(bytes) {
+            return decodeBOMText(bytes, truncated: truncated)
+        }
+        if bytes.contains(0) {
+            if let text = chooseUTF32(bytes, truncated: truncated) { return text }
+            let le = decodeUTF16Candidate(bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
+            let be = decodeUTF16Candidate(bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
+            return chooseUTF16(le, be)?.text
+        }
+        let le = decodeUTF16Candidate(bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
+        let be = decodeUTF16Candidate(bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
+        if !bytes.contains(where: isRawControl) {
+            // Alternating 0x09 lane indicates BOM-less Devanagari UTF-16.
+            if bytes.count >= 6, bytes.count.isMultiple(of: 2) {
+                let evenTabs = stride(from: 0, to: bytes.count, by: 2).allSatisfy { bytes[$0] == tabByte }
+                let oddTabs = stride(from: 1, to: bytes.count, by: 2).allSatisfy { bytes[$0] == tabByte }
+                if oddTabs, !evenTabs, let candidate = le { return candidate.text }
+                if evenTabs, !oddTabs, let candidate = be { return candidate.text }
             }
-            for (encoding, maxTrim) in byteOrientedCandidates {
-                if let text = decodeWithSuffixTrim(bytes, encoding: encoding, maxTrim: truncated ? maxTrim : 0),
-                    isPlausibleText(text)
+            if bytes.contains(escapeByte),
+                let text = decodeWithSuffixTrim(bytes, encoding: .iso2022JP, maxTrim: truncated ? 3 : 0),
+                isPlausibleText(text)
+            {
+                return text
+            }
+            if let text = decodeUTF8(bytes, truncated: truncated), isPlausibleText(text) {
+                return text
+            }
+            if let candidate = le, candidate.hasSurrogatePairs, !(be?.hasSurrogatePairs ?? false) {
+                return candidate.text
+            }
+            if let candidate = be, candidate.hasSurrogatePairs, !(le?.hasSurrogatePairs ?? false) {
+                return candidate.text
+            }
+            let cp932Text = decodeWithSuffixTrim(bytes, encoding: cp932, maxTrim: truncated ? 1 : 0)
+                .flatMap { isPlausibleText($0) ? $0 : nil }
+            let eucText = decodeWithSuffixTrim(bytes, encoding: .japaneseEUC, maxTrim: truncated ? 2 : 0)
+                .flatMap { isPlausibleText($0) ? $0 : nil }
+            if let cp932Text, eucText == nil {
+                // Reject halfwidth-katakana CP932 artifacts when UTF-16 matches.
+                if cp932Text.unicodeScalars.contains(where: { (0xFF61...0xFF9F).contains($0.value) }),
+                    let chosen = chooseUTF16(le, be),
+                    chosen.distinctHighBytes * 2 <= chosen.distinctLowBytes
                 {
-                    return text
+                    return chosen.text
                 }
+                return cp932Text
+            }
+            if let eucText, cp932Text == nil { return eucText }
+            if let cp932Text { return cp932Text }
+            if let text = try? strictString(from: Data(bytes), encoding: .windowsCP1252), isPlausibleText(text) {
+                return text
+            }
+            if let text = try? strictString(from: Data(bytes), encoding: .isoLatin1), isPlausibleText(text) {
+                return text
             }
         }
-        if let text = decodeBOMLessUTF32(bytes, littleEndian: true, truncated: truncated) { return text }
-        if let text = decodeBOMLessUTF32(bytes, littleEndian: false, truncated: truncated) { return text }
-        if let text = decodeBOMLessUTF16(bytes, littleEndian: true, truncated: truncated) { return text }
-        if let text = decodeBOMLessUTF16(bytes, littleEndian: false, truncated: truncated) { return text }
-        return nil
+        return chooseUTF16(le, be)?.text
     }
 
     static let cp932 = String.Encoding(
@@ -74,6 +108,7 @@ public enum TextEncoding {
     private static let utf16BigEndianBOM: [UInt8] = [0xFE, 0xFF]
     private static let utf32LittleEndianBOM: [UInt8] = [0xFF, 0xFE, 0x00, 0x00]
     private static let utf32BigEndianBOM: [UInt8] = [0x00, 0x00, 0xFE, 0xFF]
+    private static let tabByte: UInt8 = 0x09
     private static let carriageReturn: UInt8 = 0x0D
     private static let lineFeed: UInt8 = 0x0A
     private static let escapeByte: UInt8 = 0x1B
@@ -83,12 +118,7 @@ public enum TextEncoding {
     private static let disallowedCategories: Set<Unicode.GeneralCategory> = [
         .control, .privateUse, .surrogate, .unassigned,
     ]
-    private static let minimumCoherentScriptShare = 0.85
-    private static let multiBucketScalarThreshold = 4
     private static let legacyCandidates: [SourceTextEncoding] = [.cp932, .eucJP]
-    private static let byteOrientedCandidates: [(String.Encoding, Int)] = [
-        (.utf8, 3), (cp932, 1), (.japaneseEUC, 2), (.windowsCP1252, 0), (.isoLatin1, 0),
-    ]
 
     struct Decoded {
         let text: String
@@ -218,35 +248,22 @@ public enum TextEncoding {
         return output
     }
 
-    private static func decodeUTF32BOM(_ data: Data) -> String? {
-        if data.starts(with: utf32LittleEndianBOM) {
-            return try? strictString(
-                from: Data(data.dropFirst(utf32LittleEndianBOM.count)), encoding: .utf32LittleEndian)
-        }
-        if data.starts(with: utf32BigEndianBOM) {
-            return try? strictString(from: Data(data.dropFirst(utf32BigEndianBOM.count)), encoding: .utf32BigEndian)
-        }
-        return nil
+    private struct UTF16Candidate {
+        let text: String
+        let hasSurrogatePairs: Bool
+        let highNuls: Int
+        let distinctHighBytes: Int
+        let distinctLowBytes: Int
     }
 
-    private static func detectPreviewFallback(_ data: Data) -> String? {
-        let bytes = [UInt8](data)
-        if bytes.contains(escapeByte),
-            !bytes.contains(where: { $0 < firstPrintableByte && !allowedByteControls.contains($0) }),
-            let text = try? strictString(from: data, encoding: .iso2022JP),
-            isPlausibleText(text)
-        {
-            return text
-        }
-        let utf32LE = decodeBOMLessUTF32(bytes, littleEndian: true, truncated: false)
-        let utf32BE = decodeBOMLessUTF32(bytes, littleEndian: false, truncated: false)
-        if let text = utf32LE, utf32BE == nil { return text }
-        if let text = utf32BE, utf32LE == nil { return text }
-        let utf16LE = decodeBOMLessUTF16(bytes, littleEndian: true, truncated: false)
-        let utf16BE = decodeBOMLessUTF16(bytes, littleEndian: false, truncated: false)
-        if let text = utf16LE, utf16BE == nil { return text }
-        if let text = utf16BE, utf16LE == nil { return text }
-        return nil
+    private static func hasByteOrderMark(_ bytes: [UInt8]) -> Bool {
+        bytes.starts(with: utf32LittleEndianBOM) || bytes.starts(with: utf32BigEndianBOM)
+            || bytes.starts(with: utf16LittleEndianBOM) || bytes.starts(with: utf16BigEndianBOM)
+            || bytes.starts(with: utf8BOM)
+    }
+
+    private static func isRawControl(_ byte: UInt8) -> Bool {
+        byte < firstPrintableByte && !allowedByteControls.contains(byte)
     }
 
     private static func decodeBOMText(_ bytes: [UInt8], truncated: Bool) -> String? {
@@ -261,22 +278,52 @@ public enum TextEncoding {
         if bytes.starts(with: utf16LittleEndianBOM) {
             let body = Array(bytes.dropFirst(utf16LittleEndianBOM.count))
             return body.isEmpty
-                ? "" : decodeUTF16Body(body, littleEndian: true, truncated: truncated, requireCoherence: false)
+                ? ""
+                : decodeUTF16Candidate(body, littleEndian: true, truncated: truncated, checkLowControls: false)?.text
         }
         if bytes.starts(with: utf16BigEndianBOM) {
             let body = Array(bytes.dropFirst(utf16BigEndianBOM.count))
             return body.isEmpty
-                ? "" : decodeUTF16Body(body, littleEndian: false, truncated: truncated, requireCoherence: false)
+                ? ""
+                : decodeUTF16Candidate(body, littleEndian: false, truncated: truncated, checkLowControls: false)?.text
         }
         if bytes.starts(with: utf8BOM) {
             let body = Array(bytes.dropFirst(utf8BOM.count))
             guard !body.isEmpty else { return "" }
-            guard let text = decodeWithSuffixTrim(body, encoding: .utf8, maxTrim: truncated ? 3 : 0),
-                isPlausibleText(text)
-            else { return nil }
+            guard let text = decodeUTF8(body, truncated: truncated), isPlausibleText(text) else { return nil }
             return text
         }
         return nil
+    }
+
+    private static func decodeUTF8(_ bytes: [UInt8], truncated: Bool) -> String? {
+        let trim = truncated ? incompleteUTF8SuffixLength(bytes) : 0
+        let slice = trim == 0 ? Data(bytes) : Data(bytes.dropLast(trim))
+        return String(data: slice, encoding: .utf8)
+    }
+
+    private static func incompleteUTF8SuffixLength(_ bytes: [UInt8]) -> Int {
+        let tail = Array(bytes.suffix(4))
+        guard let start = tail.lastIndex(where: { $0 & 0xC0 != 0x80 }) else { return 0 }
+        let lead = tail[start]
+        let required: Int
+        switch lead {
+        case 0xC2...0xDF: required = 2
+        case 0xE0...0xEF: required = 3
+        case 0xF0...0xF4: required = 4
+        default: return 0
+        }
+        let count = tail.count - start
+        guard count < required else { return 0 }
+        if count > 1 {
+            let second = tail[start + 1]
+            if (lead == 0xE0 && second < 0xA0) || (lead == 0xED && second > 0x9F)
+                || (lead == 0xF0 && second < 0x90) || (lead == 0xF4 && second > 0x8F)
+            {
+                return 0
+            }
+        }
+        return count
     }
 
     private static func decodeWithSuffixTrim(_ bytes: [UInt8], encoding: String.Encoding, maxTrim: Int) -> String? {
@@ -289,8 +336,12 @@ public enum TextEncoding {
         return nil
     }
 
-    private static func decodeBOMLessUTF32(_ bytes: [UInt8], littleEndian: Bool, truncated: Bool) -> String? {
-        decodeUTF32Body(bytes, littleEndian: littleEndian, truncated: truncated)
+    private static func chooseUTF32(_ bytes: [UInt8], truncated: Bool) -> String? {
+        let le = decodeUTF32Body(bytes, littleEndian: true, truncated: truncated)
+        let be = decodeUTF32Body(bytes, littleEndian: false, truncated: truncated)
+        if let le, be == nil { return le }
+        if let be, le == nil { return be }
+        return le
     }
 
     private static func decodeUTF32Body(_ bytes: [UInt8], littleEndian: Bool, truncated: Bool) -> String? {
@@ -313,36 +364,69 @@ public enum TextEncoding {
         return String(String.UnicodeScalarView(scalars))
     }
 
-    private static func decodeBOMLessUTF16(_ bytes: [UInt8], littleEndian: Bool, truncated: Bool) -> String? {
-        decodeUTF16Body(bytes, littleEndian: littleEndian, truncated: truncated, requireCoherence: true)
+    private static func chooseUTF16(_ le: UTF16Candidate?, _ be: UTF16Candidate?) -> UTF16Candidate? {
+        switch (le, be) {
+        case (let candidate?, nil): return candidate
+        case (nil, let candidate?): return candidate
+        case (nil, nil): return nil
+        case (let left?, let right?):
+            if left.hasSurrogatePairs != right.hasSurrogatePairs {
+                return left.hasSurrogatePairs ? left : right
+            }
+            if left.highNuls != right.highNuls {
+                return left.highNuls > right.highNuls ? left : right
+            }
+            if left.distinctHighBytes != right.distinctHighBytes {
+                return left.distinctHighBytes < right.distinctHighBytes ? left : right
+            }
+            return nil
+        }
     }
 
-    private static func decodeUTF16Body(
-        _ bytes: [UInt8], littleEndian: Bool, truncated: Bool, requireCoherence: Bool
-    ) -> String? {
+    private static func decodeUTF16Candidate(
+        _ bytes: [UInt8], littleEndian: Bool, truncated: Bool, checkLowControls: Bool
+    ) -> UTF16Candidate? {
         guard bytes.count >= 2 else { return nil }
         guard truncated || bytes.count.isMultiple(of: 2) else { return nil }
         let usable = bytes.count - (bytes.count % 2)
-        var units = stride(from: 0, to: usable, by: 2).map { offset in
-            littleEndian
-                ? UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
-                : UInt16(bytes[offset]) << 8 | UInt16(bytes[offset + 1])
+        let unitCount = usable / 2
+        var units: [UInt16] = []
+        units.reserveCapacity(unitCount)
+        var lowControls = 0
+        var highNuls = 0
+        var distinctHigh: Set<UInt8> = []
+        var distinctLow: Set<UInt8> = []
+        for offset in stride(from: 0, to: usable, by: 2) {
+            let low = littleEndian ? bytes[offset] : bytes[offset + 1]
+            let high = littleEndian ? bytes[offset + 1] : bytes[offset]
+            if isRawControl(low) { lowControls += 1 }
+            if high == 0 { highNuls += 1 }
+            distinctHigh.insert(high)
+            distinctLow.insert(low)
+            units.append(UInt16(low) | (UInt16(high) << 8))
         }
+        if checkLowControls, lowControls * 2 >= unitCount { return nil }
         if truncated, let last = units.last, UTF16.isLeadSurrogate(last) { units.removeLast() }
         guard !units.isEmpty else { return nil }
         var iterator = units.makeIterator()
         var decoder = UTF16()
         var scalars: [Unicode.Scalar] = []
         scalars.reserveCapacity(units.count)
+        var hasSurrogatePairs = false
         while true {
             switch decoder.decode(&iterator) {
             case .scalarValue(let scalar):
                 guard isPlausibleScalar(scalar) else { return nil }
+                if scalar.value > 0xFFFF { hasSurrogatePairs = true }
                 scalars.append(scalar)
             case .emptyInput:
                 guard !scalars.isEmpty else { return nil }
-                if requireCoherence, !hasCoherentScripts(scalars) { return nil }
-                return String(String.UnicodeScalarView(scalars))
+                return UTF16Candidate(
+                    text: String(String.UnicodeScalarView(scalars)),
+                    hasSurrogatePairs: hasSurrogatePairs,
+                    highNuls: highNuls,
+                    distinctHighBytes: distinctHigh.count,
+                    distinctLowBytes: distinctLow.count)
             case .error:
                 return nil
             }
@@ -357,51 +441,6 @@ public enum TextEncoding {
         if allowedTextControls.contains(scalar.value) { return true }
         if scalar.value == 0xFFFD { return false }
         return !disallowedCategories.contains(scalar.properties.generalCategory)
-    }
-
-    // Separates BOM-less UTF-16 scripts from random bytes.
-    private static func hasCoherentScripts(_ scalars: [Unicode.Scalar]) -> Bool {
-        var neutral = 0
-        var buckets: [UInt32: Int] = [:]
-        for scalar in scalars {
-            if isScriptNeutral(scalar) {
-                neutral += 1
-            } else {
-                buckets[scriptBucket(for: scalar), default: 0] += 1
-            }
-        }
-        guard !buckets.isEmpty else { return true }
-        let allowedBuckets = scalars.count < multiBucketScalarThreshold ? 1 : 2
-        let top = buckets.values.sorted(by: >).prefix(allowedBuckets).reduce(0, +)
-        return Double(neutral + top) >= Double(scalars.count) * minimumCoherentScriptShare
-    }
-
-    private static func isScriptNeutral(_ scalar: Unicode.Scalar) -> Bool {
-        let value = scalar.value
-        if value < 0x80 || scalar.properties.isWhitespace || scalar.properties.isEmoji { return true }
-        if (0x2000...0x206F).contains(value) || (0x3000...0x303F).contains(value)
-            || (0xFE00...0xFE0F).contains(value) || (0xFF00...0xFFEF).contains(value)
-        {
-            return true
-        }
-        return scalar.properties.generalCategory == .format
-    }
-
-    private static func scriptBucket(for scalar: Unicode.Scalar) -> UInt32 {
-        let value = scalar.value
-        if (0x0080...0x024F).contains(value) || (0x1E00...0x1EFF).contains(value) { return 0x0080 }
-        if (0x3040...0x30FF).contains(value) || (0x31F0...0x31FF).contains(value)
-            || (0x3400...0x4DBF).contains(value) || (0x4E00...0x9FFF).contains(value)
-            || (0xF900...0xFAFF).contains(value) || (0x20000...0x2FA1F).contains(value)
-        {
-            return 0x4E00
-        }
-        if (0x1100...0x11FF).contains(value) || (0x3130...0x318F).contains(value)
-            || (0xAC00...0xD7AF).contains(value)
-        {
-            return 0xAC00
-        }
-        return value >> 8
     }
 }
 

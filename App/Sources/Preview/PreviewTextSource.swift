@@ -132,9 +132,12 @@ struct PreviewTextSource: Sendable {
     }
 
     func decoded(as encoding: PreviewEncoding) throws -> String {
+        if encoding == .automatic {
+            return try TextEncoding.detectedString(from: bytes, truncated: truncated)
+        }
         guard truncated else { return try encoding.decode(bytes) }
         let selected: PreviewEncoding
-        if encoding == .automatic || encoding == .utf16 || encoding == .utf32 {
+        if encoding == .utf16 || encoding == .utf32 {
             if bytes.starts(with: [0xFF, 0xFE, 0x00, 0x00]) {
                 selected = .utf32LE
             } else if bytes.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
@@ -146,7 +149,7 @@ struct PreviewTextSource: Sendable {
             } else if encoding == .utf32 {
                 selected = .utf32BE
             } else {
-                selected = encoding == .automatic ? .utf8 : .utf16BE
+                selected = .utf16BE
             }
         } else {
             selected = encoding
@@ -158,11 +161,7 @@ struct PreviewTextSource: Sendable {
         }
         let omitted = incompleteSuffixLength(encoding: selected)
         if omitted > 0 {
-            let prefix = bytes.dropLast(omitted)
-            if encoding == .automatic && selected == .utf8 && String(data: prefix, encoding: .utf8) == nil {
-                return try encoding.decode(bytes)
-            }
-            return try selected.decode(prefix)
+            return try selected.decode(bytes.dropLast(omitted))
         }
         return try encoding.decode(bytes)
     }
