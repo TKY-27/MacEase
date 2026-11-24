@@ -578,39 +578,45 @@ enum VideoAudio {
     {
         var bits: Int?
         var float = false
-        switch track.codec {
-        case .pcm(let depth, let floatingPoint, _):
-            bits = depth
-            float = floatingPoint
-        case .alac, .flac:
-            if case .asset(_, _, let audio) = input.backend, let audio {
-                let descriptions = try await audio.load(.formatDescriptions)
-                let depths = descriptions.map { description -> Int? in
-                    guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
-                        return nil
+        if let fallbackOrigin = input.fallbackOrigin {
+            float = fallbackOrigin.isFloat
+            bits = fallbackOrigin.isLosslessAudio ? fallbackOrigin.bitDepth : nil
+        } else {
+            switch track.codec {
+            case .pcm(let depth, let floatingPoint, _):
+                bits = depth
+                float = floatingPoint
+            case .alac, .flac:
+                if case .asset(_, _, let audio) = input.backend, let audio {
+                    let descriptions = try await audio.load(.formatDescriptions)
+                    let depths = descriptions.map { description -> Int? in
+                        guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
+                            return nil
+                        }
+                        if basic.mBitsPerChannel > 0 { return Int(basic.mBitsPerChannel) }
+                        switch basic.mFormatFlags {
+                        case kAppleLosslessFormatFlag_16BitSourceData: return 16
+                        case kAppleLosslessFormatFlag_20BitSourceData: return 20
+                        case kAppleLosslessFormatFlag_24BitSourceData: return 24
+                        case kAppleLosslessFormatFlag_32BitSourceData: return 32
+                        default: return nil
+                        }
                     }
-                    if basic.mBitsPerChannel > 0 { return Int(basic.mBitsPerChannel) }
-                    switch basic.mFormatFlags {
-                    case kAppleLosslessFormatFlag_16BitSourceData: return 16
-                    case kAppleLosslessFormatFlag_20BitSourceData: return 20
-                    case kAppleLosslessFormatFlag_24BitSourceData: return 24
-                    case kAppleLosslessFormatFlag_32BitSourceData: return 32
-                    default: return nil
-                    }
+                    if !depths.isEmpty, depths.allSatisfy({ $0 != nil }) { bits = depths.compactMap { $0 }.max() }
+                } else if track.codec == .flac, validFLACHeader(track.codecPrivate), let header = track.codecPrivate {
+                    let packedDepthOffset = flacMarkerLength + flacBlockHeaderLength + 12
+                    let bytes = [UInt8](header)
+                    bits = Int(bytes[packedDepthOffset] & 1) << 4 | Int(bytes[packedDepthOffset + 1] >> 4)
+                    bits = bits.map { $0 + 1 }
                 }
-                if !depths.isEmpty, depths.allSatisfy({ $0 != nil }) { bits = depths.compactMap { $0 }.max() }
-            } else if track.codec == .flac, validFLACHeader(track.codecPrivate), let header = track.codecPrivate {
-                let packedDepthOffset = flacMarkerLength + flacBlockHeaderLength + 12
-                let bytes = [UInt8](header)
-                bits = Int(bytes[packedDepthOffset] & 1) << 4 | Int(bytes[packedDepthOffset + 1] >> 4)
-                bits = bits.map { $0 + 1 }
+                if bits == nil, !format.isLossy {
+                    throw EngineError.unsupportedCodec(
+                        String(
+                            localized: "Unknown audio bit depth",
+                            comment: "Lossless extraction requires known precision"))
+                }
+            default: break
             }
-            if bits == nil, !format.isLossy {
-                throw EngineError.unsupportedCodec(
-                    String(
-                        localized: "Unknown audio bit depth", comment: "Lossless extraction requires known precision"))
-            }
-        default: break
         }
         let maximumIntegerDepth = 24
         let maximumFloatDepth = 32

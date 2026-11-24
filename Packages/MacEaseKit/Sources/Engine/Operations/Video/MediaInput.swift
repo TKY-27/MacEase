@@ -37,7 +37,11 @@ struct MediaInput {
 
     static func openWithFallback(
         _ originalURL: URL, context: ItemContext, enforceStreamConsent: Bool = true,
-        consentedStreams: Set<UnpreservedStream>? = nil
+        consentedStreams: Set<UnpreservedStream>? = nil,
+        tools: MediaDownloadTools? = nil,
+        availableBytes: (@Sendable (URL) throws -> Int64)? = nil,
+        noProgressTimeout: Duration = StagedMediaFallback.transcodeNoProgressTimeout,
+        probeNoProgressTimeout: Duration = StagedMediaFallback.probeNoProgressTimeout
     ) async throws -> MediaInput {
         let nativeError: EngineError
         do {
@@ -56,24 +60,12 @@ struct MediaInput {
                 throw wrapped
             }
         }
-        let staged: StagedMediaFallback.StagedVideo
-        do {
-            staged = try await StagedMediaFallback.prepareVideo(
-                originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
-                consentedStreams: consentedStreams)
-        } catch {
-            let wrapped = EngineError.wrapping(error, path: originalURL.path)
-            switch wrapped {
-            case .decodeFailed, .unsupportedCodec:
-                throw nativeError
-            default:
-                throw wrapped
-            }
-        }
+        let staged = try await StagedMediaFallback.prepareVideo(
+            originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
+            consentedStreams: consentedStreams, tools: tools, availableBytes: availableBytes,
+            noProgressTimeout: noProgressTimeout, probeNoProgressTimeout: probeNoProgressTimeout,
+            nativeError: nativeError)
         var fallback = try await open(staged.stagedURL)
-        if let expectedSize = staged.origin.codedSize, fallback.codedSize != expectedSize {
-            throw EngineError.decodeFailed("staged dimensions differ from source")
-        }
         fallback.fallbackOrigin = staged.origin
         if var video = fallback.video {
             video.hasAlpha = staged.origin.hasAlpha
@@ -84,6 +76,7 @@ struct MediaInput {
 
     private static let decodabilityProbePacketLimit = 32
     private static let audioProbePacketLimit = 8
+    private static let totalPacketScanLimit = 256
 
     // Catches partial-open traps before transcoding starts.
     func verifyDecodable() async throws {
@@ -107,27 +100,52 @@ struct MediaInput {
         }
     }
 
+    // Synthetic remux-only containers lack full decoder headers.
+    private static func classifyProbeError(_ error: any Error, path: String) throws {
+        if let format = error as? FormatError {
+            switch format {
+            case .unsupported(let name):
+                throw EngineError.unsupportedCodec(name)
+            case .corrupt, .decoderFailure:
+                return
+            case .nonFiniteAudioSample, .frameMemoryExceeded, .inputTooLarge, .encoderFailure, .io:
+                throw EngineError(format)
+            }
+        }
+        let wrapped = EngineError.wrapping(error, path: path)
+        switch wrapped {
+        case .unsupportedCodec:
+            throw wrapped
+        case .decodeFailed:
+            return
+        default:
+            throw wrapped
+        }
+    }
+
     private func verifyContainerVideoDecodable(_ video: MediaTrack) throws {
         var decoder: any VideoFrameDecoder
         do {
             decoder = try VideoDecoders.make(for: video)
         } catch {
-            let wrapped = EngineError.wrapping(error, path: url.path)
-            if case .unsupportedCodec = wrapped { throw wrapped }
+            try Self.classifyProbeError(error, path: url.path)
             return
         }
         guard var packetDemuxer = try demuxer else { return }
         var fed = 0
+        var scanned = 0
         do {
-            while fed < Self.decodabilityProbePacketLimit, let packet = try packetDemuxer.nextPacket() {
+            while fed < Self.decodabilityProbePacketLimit, scanned < Self.totalPacketScanLimit,
+                let packet = try packetDemuxer.nextPacket()
+            {
+                scanned += 1
                 guard packet.track == video.number else { continue }
                 fed += 1
                 if !(try decoder.decode(packet)).isEmpty { return }
             }
             if fed > 0 { _ = try decoder.finish() }
         } catch {
-            let wrapped = EngineError.wrapping(error, path: url.path)
-            if case .unsupportedCodec = wrapped { throw wrapped }
+            try Self.classifyProbeError(error, path: url.path)
         }
     }
 
@@ -136,21 +154,23 @@ struct MediaInput {
         do {
             decoder = try AudioPacketDecoder(track: audio)
         } catch {
-            let wrapped = EngineError.wrapping(error, path: url.path)
-            if case .unsupportedCodec = wrapped { throw wrapped }
+            try Self.classifyProbeError(error, path: url.path)
             return
         }
         guard var packetDemuxer = try demuxer else { return }
         var fed = 0
+        var scanned = 0
         do {
-            while fed < Self.audioProbePacketLimit, let packet = try packetDemuxer.nextPacket() {
+            while fed < Self.audioProbePacketLimit, scanned < Self.totalPacketScanLimit,
+                let packet = try packetDemuxer.nextPacket()
+            {
+                scanned += 1
                 guard packet.track == audio.number else { continue }
                 fed += 1
                 if !(try decoder.decode(packet)).isEmpty { return }
             }
         } catch {
-            let wrapped = EngineError.wrapping(error, path: url.path)
-            if case .unsupportedCodec = wrapped { throw wrapped }
+            try Self.classifyProbeError(error, path: url.path)
         }
     }
 

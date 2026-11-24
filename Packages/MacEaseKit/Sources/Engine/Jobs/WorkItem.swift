@@ -179,6 +179,7 @@ public final class ItemContext: Sendable {
         var directories: [URL] = []
         var warnings: [ItemWarning] = []
         var details = ItemDetails()
+        var usedFallbackInput = false
     }
 
     init(
@@ -216,6 +217,12 @@ public final class ItemContext: Sendable {
     }
 
     var details: ItemDetails { state.withLock { $0.details } }
+
+    var usedFallbackInput: Bool { state.withLock { $0.usedFallbackInput } }
+
+    var savesNewFile: Bool { settings.outputMode == .newFile || usedFallbackInput }
+
+    func markFallbackInputUsed() { state.withLock { $0.usedFallbackInput = true } }
 
     func recordInputs(_ stamps: [URL: FileStamp]) { state.withLock { $0.details.inputStamps = stamps } }
 

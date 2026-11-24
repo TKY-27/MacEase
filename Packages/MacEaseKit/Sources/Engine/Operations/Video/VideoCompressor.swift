@@ -53,18 +53,11 @@ enum VideoCompressor {
             height: edit.size?.height ?? input.displaySize.evened().height,
             frameDuration: input.frameDuration, bitrate: nil)
         encoding.quality = destination.quality
-        let keepsOriginalAsNewFile: Bool
-        if input.isFallback, case .platform = compression.goal {
-            keepsOriginalAsNewFile = false
-        } else {
-            keepsOriginalAsNewFile = input.isFallback
-        }
         let name = url.deletingPathExtension().lastPathComponent + "." + destination.container.fileExtension
         guard let target = destination.target else {
-            var plan = TranscodePlan(
+            let plan = TranscodePlan(
                 container: destination.container, video: .encode(encoding, edit),
                 audio: input.audio == nil ? nil : .encode(destination.audioCodec, kilobits: audioKilobits[0]))
-            plan.derived = keepsOriginalAsNewFile
             let output = try await attempt(
                 input, originalURL: url, plan: plan, carryPlan: carryPlan, name: name, context: context)
             if case .quality = compression.goal {
@@ -73,24 +66,17 @@ enum VideoCompressor {
                 }
                 guard output.bytes < Int64(originalBytes) else { return .skipped(.outputNotSmaller) }
             }
-            return try await finish(
-                output.url, originalURL: url, carryPlan: carryPlan, keepsOriginalAsNewFile: keepsOriginalAsNewFile,
-                context: context, name: name
-            )
+            return try await finish(output.url, originalURL: url, carryPlan: carryPlan, context: context, name: name)
         }
         guard target > 0 else { throw EngineError.invalidInput(.malformed("target bytes must be positive")) }
         var search = TargetSearch(
             input: input, originalURL: url, destination: destination, carryPlan: carryPlan,
-            keepsOriginalAsNewFile: keepsOriginalAsNewFile, context: context, name: name, target: target)
+            context: context, name: name, target: target)
         if let copied = try await search.copyIfPossible(edit: edit) {
-            return try await finish(
-                copied, originalURL: url, carryPlan: carryPlan, keepsOriginalAsNewFile: keepsOriginalAsNewFile,
-                context: context, name: name)
+            return try await finish(copied, originalURL: url, carryPlan: carryPlan, context: context, name: name)
         }
         let output = try await search.encode(compression, encoding: encoding, edit: &edit)
-        return try await finish(
-            output, originalURL: url, carryPlan: carryPlan, keepsOriginalAsNewFile: keepsOriginalAsNewFile,
-            context: context, name: name)
+        return try await finish(output, originalURL: url, carryPlan: carryPlan, context: context, name: name)
     }
 
     private struct TargetSearch {
@@ -98,7 +84,6 @@ enum VideoCompressor {
         let originalURL: URL
         let destination: Destination
         let carryPlan: NativeTimecodePlan
-        let keepsOriginalAsNewFile: Bool
         let context: ItemContext
         let name: String
         let target: Int64
@@ -106,13 +91,12 @@ enum VideoCompressor {
 
         init(
             input: MediaInput, originalURL: URL, destination: Destination, carryPlan: NativeTimecodePlan,
-            keepsOriginalAsNewFile: Bool, context: ItemContext, name: String, target: Int64
+            context: ItemContext, name: String, target: Int64
         ) {
             self.input = input
             self.originalURL = originalURL
             self.destination = destination
             self.carryPlan = carryPlan
-            self.keepsOriginalAsNewFile = keepsOriginalAsNewFile
             self.context = context
             self.name = name
             self.target = target
@@ -186,8 +170,7 @@ enum VideoCompressor {
             let audio: TranscodePlan.Audio? =
                 input.audio == nil
                 ? nil : .encode(destination.audioCodec, kilobits: audioKilobits[audioKilobits.count - 1])
-            var plan = TranscodePlan(container: destination.container, video: .encode(encoding, edit), audio: audio)
-            plan.derived = keepsOriginalAsNewFile
+            let plan = TranscodePlan(container: destination.container, video: .encode(encoding, edit), audio: audio)
             let first = try await attempt(
                 input, originalURL: originalURL, plan: plan, carryPlan: carryPlan, name: name, context: context)
             smallest = min(smallest, first.bytes)
@@ -199,9 +182,8 @@ enum VideoCompressor {
             let correctedRate = (Double(encoding.bitrate ?? 0) + fixedBitrate) * ratio - fixedBitrate
             var corrected = encoding
             corrected.bitrate = max(1, Int(min(Double(Int.max / 2), max(0, correctedRate))))
-            var correction = TranscodePlan(
+            let correction = TranscodePlan(
                 container: destination.container, video: .encode(corrected, edit), audio: audio)
-            correction.derived = keepsOriginalAsNewFile
             if let output = try await accepted(correction) {
                 if underTarget { try FileManager.default.removeItem(at: first.url) }
                 return output
@@ -216,8 +198,6 @@ enum VideoCompressor {
         }
 
         private mutating func accepted(_ plan: TranscodePlan) async throws -> URL? {
-            var plan = plan
-            plan.derived = keepsOriginalAsNewFile
             let output = try await attempt(
                 input, originalURL: originalURL, plan: plan, carryPlan: carryPlan, name: name, context: context)
             smallest = min(smallest, output.bytes)
@@ -344,16 +324,11 @@ enum VideoCompressor {
     }
 
     private static func finish(
-        _ output: URL, originalURL: URL, carryPlan: NativeTimecodePlan, keepsOriginalAsNewFile: Bool,
+        _ output: URL, originalURL: URL, carryPlan: NativeTimecodePlan,
         context: ItemContext, name: String
     ) async throws -> ItemResult {
         context.phase(.verifying)
         try await carryPlan.verify(original: originalURL, output: output)
-        let staged = StagedFile(url: output, name: name, check: .media)
-        if keepsOriginalAsNewFile {
-            if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
-            return .derived(nextTo: originalURL, outputs: [staged])
-        }
-        return .replace(original: originalURL, output: staged)
+        return .replace(original: originalURL, output: StagedFile(url: output, name: name, check: .media))
     }
 }

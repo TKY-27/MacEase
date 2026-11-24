@@ -12,12 +12,17 @@ final class MediaToolProcess: Sendable {
         let tick: @Sendable () -> Void
     }
 
+    struct WatchdogReset: Sendable {
+        let matches: @Sendable (String) -> Bool
+    }
+
     private struct State {
         var child: Process?
         var cancelled = false
         var timedOut = false
     }
     private let state = Mutex(State())
+    static let timedOutMessage = "Media tool timed out without progress"
     private static let captureLimit = 32 * 1_024 * 1_024
     private static let lineLimit = 65_536
     private static let minimumMonitorInterval = Duration.milliseconds(50)
@@ -26,7 +31,8 @@ final class MediaToolProcess: Sendable {
     func run(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
         captureOutput: Bool = true, input: FileHandle? = nil, includeTLSCertificate: Bool = true,
-        noProgressTimeout: Duration? = nil, monitor: Monitor? = nil,
+        noProgressTimeout: Duration? = nil, watchdogReset: WatchdogReset? = nil,
+        monitor: Monitor? = nil,
         line: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> MediaToolResult {
         try await withTaskCancellationHandler {
@@ -38,7 +44,7 @@ final class MediaToolProcess: Sendable {
                                 executable: executable, arguments: arguments, directory: directory, tools: tools,
                                 captureOutput: captureOutput, input: input,
                                 includeTLSCertificate: includeTLSCertificate, noProgressTimeout: noProgressTimeout,
-                                monitor: monitor, line: line)
+                                watchdogReset: watchdogReset, monitor: monitor, line: line)
                         })
                 }
             }
@@ -83,7 +89,7 @@ final class MediaToolProcess: Sendable {
     private func execute(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
         captureOutput: Bool, input: FileHandle?, includeTLSCertificate: Bool,
-        noProgressTimeout: Duration?, monitor: Monitor?,
+        noProgressTimeout: Duration?, watchdogReset: WatchdogReset?, monitor: Monitor?,
         line: @escaping @Sendable (String) -> Void
     ) throws -> MediaToolResult {
         let child = Process()
@@ -144,7 +150,6 @@ final class MediaToolProcess: Sendable {
                 while true {
                     let chunk = pipe.fileHandleForReading.availableData
                     if chunk.isEmpty { break }
-                    lastActivity.withLock { $0 = ContinuousClock.now }
                     if captures && captureOutput {
                         capture.withLock {
                             if $0.count + chunk.count <= Self.captureLimit {
@@ -162,7 +167,11 @@ final class MediaToolProcess: Sendable {
                         pending.append(chunk)
                         while let newline = pending.firstIndex(of: 10) {
                             if newline <= Self.lineLimit {
-                                line(String(decoding: pending[..<newline], as: UTF8.self))
+                                let text = String(decoding: pending[..<newline], as: UTF8.self)
+                                if captures, let watchdogReset, watchdogReset.matches(text) {
+                                    lastActivity.withLock { $0 = ContinuousClock.now }
+                                }
+                                line(text)
                             }
                             pending.removeSubrange(...newline)
                         }
@@ -174,7 +183,7 @@ final class MediaToolProcess: Sendable {
         child.waitUntilExit()
         monitorTimer?.cancel()
         readers.wait()
-        if state.withLock({ $0.timedOut }) { throw EngineError.decodeFailed("Media tool timed out without progress") }
+        if state.withLock({ $0.timedOut }) { throw EngineError.decodeFailed(Self.timedOutMessage) }
         if state.withLock({ $0.cancelled }) { throw CancellationError() }
         guard !overflow.withLock({ $0 }) else { throw EngineError.decodeFailed("Media metadata exceeds limit") }
         guard child.terminationReason == .exit, child.terminationStatus == 0 else {

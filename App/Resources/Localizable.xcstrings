@@ -21692,6 +21692,16 @@
         }
       }
     },
+    "Couldn’t process “%@”: the file couldn’t be converted faithfully. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を処理できませんでした：元の状態を保ったまま変換できませんでした。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
     "Couldn’t read “%@”: the media converter component is missing. Reinstall MacEase and retry.": {
       "localizations": {
         "ja": {

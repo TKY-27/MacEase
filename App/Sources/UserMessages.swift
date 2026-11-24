@@ -10,7 +10,8 @@ enum UserMessages {
     static func technicalDetail(_ error: EngineError) -> String? {
         switch error {
         case .decodeFailed(let detail), .encodeFailed(let detail), .commitFailed(let detail),
-            .unexpected(let detail), .unsupportedCodec(let detail), .invalidInput(.malformed(let detail)):
+            .unexpected(let detail), .unsupportedCodec(let detail), .fallbackConversionUnfaithful(let detail),
+            .invalidInput(.malformed(let detail)):
             detail.isEmpty ? nil : detail
         default: nil
         }
@@ -232,6 +233,11 @@ enum UserMessages {
             String(
                 localized:
                     "Couldn’t read “\(file)”: the media converter component is missing. Reinstall MacEase and retry."
+            )
+        case .fallbackConversionUnfaithful:
+            String(
+                localized:
+                    "Couldn’t process “\(file)”: the file couldn’t be converted faithfully. Nothing was changed."
             )
         case .nonFiniteAudioSample:
             String(

@@ -185,6 +185,7 @@ public enum RecipePlanner {
                 phase: { context.phase($0) }
             ) { context.progress($0) }
             defer {
+                if child.usedFallbackInput { context.markFallbackInputUsed() }
                 for warning in child.warnings where !context.warnings.contains(warning) { context.warn(warning) }
                 child.removeStaging()
             }

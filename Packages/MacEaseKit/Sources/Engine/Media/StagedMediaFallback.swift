@@ -1,3 +1,4 @@
+import AVFoundation
 import Formats
 import Foundation
 import OSLog
@@ -17,12 +18,23 @@ struct FallbackSourceDescription: Sendable {
     let channelLayout: String?
     let pixelFormat: String?
     let hasAlpha: Bool
+    let hasDolbyVision: Bool
     let codedSize: PixelSize?
+    let displaySize: PixelSize?
+    let rotationDegrees: Int
+    let originalFieldOrder: String?
+    let intermediateFieldOrder: String?
+    let videoEnabled: Bool?
+    let audioEnabled: Bool?
+    let videoVolume: Float?
+    let audioVolume: Float?
+    let hasAlternateGroups: Bool
     let videoTags: [String: String]
     let audioTags: [String: String]
     let attachedPictureCount: Int
     let attachedPicture: Artwork?
 
+    private static let interlacedFieldOrders: Set<String> = ["tt", "bb", "tb", "bt"]
     private static let supportedAudioTagKeys: Set<String> = [
         "title", "artist", "album", "cover art (front)",
     ]
@@ -31,6 +43,13 @@ struct FallbackSourceDescription: Sendable {
         "compatible_brands", "major_brand", "minor_version", "duration",
         "handler_name", "vendor_id", "bps", "number_of_frames", "number_of_bytes",
     ]
+
+    var isInterlacedFieldOrderChanged: Bool {
+        guard let original = originalFieldOrder?.lowercased(),
+            Self.interlacedFieldOrders.contains(original)
+        else { return false }
+        return intermediateFieldOrder?.lowercased() != original
+    }
 
     var hasUnsupportedAudioTags: Bool {
         let allTags = formatTags.merging(audioTags) { current, _ in current }
@@ -46,12 +65,14 @@ struct FallbackSourceDescription: Sendable {
 
     var fallbackAudioTags: AudioTags {
         var tags = AudioTags()
-        for (key, value) in formatTags where !value.isEmpty {
-            switch key.lowercased() {
-            case "title" where tags.title == nil: tags.title = value
-            case "artist" where tags.artist == nil: tags.artist = value
-            case "album" where tags.album == nil: tags.album = value
-            default: break
+        for source in [formatTags, audioTags] {
+            for (key, value) in source where !value.isEmpty {
+                switch key.lowercased() {
+                case "title" where tags.title == nil: tags.title = value
+                case "artist" where tags.artist == nil: tags.artist = value
+                case "album" where tags.album == nil: tags.album = value
+                default: break
+                }
             }
         }
         tags.artwork = attachedPicture
@@ -60,6 +81,77 @@ struct FallbackSourceDescription: Sendable {
 }
 
 enum StagedMediaFallback {
+    struct OriginalTrackAttributes: Sendable {
+        var videoEnabled: Bool?
+        var audioEnabled: Bool?
+        var videoVolume: Float?
+        var audioVolume: Float?
+        var hasAlternateGroups = false
+    }
+
+    enum ChromaClass: Int, Comparable, Sendable {
+        case yuv420 = 0
+        case yuv422 = 1
+        case yuv444 = 2
+
+        static func < (lhs: ChromaClass, rhs: ChromaClass) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+
+        var label: String {
+            switch self {
+            case .yuv420: "4:2:0"
+            case .yuv422: "4:2:2"
+            case .yuv444: "4:4:4"
+            }
+        }
+    }
+
+    enum AudioPrecisionClass: String, Equatable, Sendable {
+        case lossy
+        case int16
+        case int24
+        case int32
+        case float32
+        case float64
+
+        func preserves(_ original: AudioPrecisionClass) -> Bool {
+            switch original {
+            case .lossy:
+                return self != .lossy
+            case .int16:
+                return self == .int16 || self == .int24 || self == .int32 || self == .float32 || self == .float64
+            case .int24:
+                return self == .int24 || self == .int32 || self == .float64
+            case .int32:
+                return self == .int32 || self == .float64
+            case .float32:
+                return self == .float32 || self == .float64
+            case .float64:
+                return self == .float64
+            }
+        }
+    }
+
+    enum VerificationKind: Sendable {
+        case video(hasAudio: Bool)
+        case audio
+    }
+
+    enum IntermediateFact: String, CaseIterable, Sendable {
+        case mappedStreams = "mapped streams"
+        case videoDisplayDimensions = "video display dimensions"
+        case videoPixelBitDepth = "video pixel bit depth"
+        case videoChromaClass = "video chroma subsampling"
+        case videoAlpha = "video alpha"
+        case videoDuration = "video duration"
+        case audioChannelCount = "audio channel count"
+        case audioChannelLayout = "audio channel layout"
+        case audioSampleRate = "audio sample rate"
+        case audioPrecisionClass = "audio precision"
+        case audioDuration = "audio duration"
+    }
+
     struct Probe: Decodable, Sendable {
         struct Format: Decodable, Sendable {
             let formatName: String?
@@ -85,6 +177,16 @@ enum StagedMediaFallback {
             }
         }
 
+        struct SideData: Decodable, Sendable {
+            let sideDataType: String?
+            let rotation: Double?
+
+            enum CodingKeys: String, CodingKey {
+                case sideDataType = "side_data_type"
+                case rotation
+            }
+        }
+
         struct Stream: Decodable, Sendable {
             let index: Int
             let codecType: String?
@@ -99,6 +201,9 @@ enum StagedMediaFallback {
             let colorTransfer: String?
             let colorSpace: String?
             let colorRange: String?
+            let fieldOrder: String?
+            let nbFrames: String?
+            let rFrameRate: String?
             let channels: Int?
             let channelLayout: String?
             let sampleFormat: String?
@@ -106,6 +211,42 @@ enum StagedMediaFallback {
             let duration: String?
             let disposition: Disposition?
             let tags: [String: String]?
+            let sideDataList: [SideData]?
+
+            init(
+                index: Int, codecType: String?, codecName: String?, codecTagString: String?,
+                width: Int?, height: Int?, pixelFormat: String?, bitsPerRawSample: String?, bitsPerSample: Int?,
+                colorPrimaries: String?, colorTransfer: String?, colorSpace: String?, colorRange: String?,
+                channels: Int?, channelLayout: String?, sampleFormat: String?, sampleRate: String?, duration: String?,
+                disposition: Disposition?, tags: [String: String]?,
+                fieldOrder: String? = nil, nbFrames: String? = nil, rFrameRate: String? = nil,
+                sideDataList: [SideData]? = nil
+            ) {
+                self.index = index
+                self.codecType = codecType
+                self.codecName = codecName
+                self.codecTagString = codecTagString
+                self.width = width
+                self.height = height
+                self.pixelFormat = pixelFormat
+                self.bitsPerRawSample = bitsPerRawSample
+                self.bitsPerSample = bitsPerSample
+                self.colorPrimaries = colorPrimaries
+                self.colorTransfer = colorTransfer
+                self.colorSpace = colorSpace
+                self.colorRange = colorRange
+                self.fieldOrder = fieldOrder
+                self.nbFrames = nbFrames
+                self.rFrameRate = rFrameRate
+                self.channels = channels
+                self.channelLayout = channelLayout
+                self.sampleFormat = sampleFormat
+                self.sampleRate = sampleRate
+                self.duration = duration
+                self.disposition = disposition
+                self.tags = tags
+                self.sideDataList = sideDataList
+            }
 
             enum CodingKeys: String, CodingKey {
                 case index
@@ -121,6 +262,9 @@ enum StagedMediaFallback {
                 case colorTransfer = "color_transfer"
                 case colorSpace = "color_space"
                 case colorRange = "color_range"
+                case fieldOrder = "field_order"
+                case nbFrames = "nb_frames"
+                case rFrameRate = "r_frame_rate"
                 case channels
                 case channelLayout = "channel_layout"
                 case sampleFormat = "sample_fmt"
@@ -128,6 +272,7 @@ enum StagedMediaFallback {
                 case duration
                 case disposition
                 case tags
+                case sideDataList = "side_data_list"
             }
 
             var isAttachedPicture: Bool {
@@ -147,9 +292,25 @@ enum StagedMediaFallback {
                 hasAlphaPixelFormat || hasAlphaModeTag
             }
 
-            var hasOddDimensions: Bool {
-                guard let width, let height, width > 0, height > 0 else { return false }
-                return width % 2 != 0 || height % 2 != 0
+            var hasDolbyVision: Bool {
+                if let tag = codecTagString?.lowercased(), StagedMediaFallback.dolbyVisionCodecTags.contains(tag) {
+                    return true
+                }
+                return sideDataList?.contains(where: {
+                    ($0.sideDataType ?? "").localizedCaseInsensitiveContains("dovi")
+                }) == true
+            }
+
+            var rotationDegrees: Int {
+                let raw: Double?
+                if let matrixRotation = sideDataList?.first(where: { $0.rotation != nil })?.rotation {
+                    raw = matrixRotation
+                } else {
+                    raw = tags?.first(where: { $0.key.caseInsensitiveCompare("rotate") == .orderedSame })
+                        .flatMap { Double($0.value) }
+                }
+                guard let raw, raw.isFinite else { return 0 }
+                return ((Int(raw.rounded()) % 360) + 360) % 360
             }
 
             var codedSize: PixelSize? {
@@ -157,8 +318,65 @@ enum StagedMediaFallback {
                 return PixelSize(width: width, height: height)
             }
 
+            var displaySize: PixelSize? {
+                guard let coded = codedSize else { return nil }
+                if rotationDegrees == 90 || rotationDegrees == 270 {
+                    return PixelSize(width: coded.height, height: coded.width)
+                }
+                return coded
+            }
+
+            var hasOddDimensions: Bool {
+                guard let size = displaySize else { return false }
+                return size.width % 2 != 0 || size.height % 2 != 0
+            }
+
             var parsedBitsPerRawSample: Int? {
                 bitsPerRawSample.flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
+            }
+
+            var videoBitDepth: Int {
+                if let raw = parsedBitsPerRawSample { return raw }
+                let format = pixelFormat?.lowercased() ?? ""
+                if format.contains("16") { return 16 }
+                if format.contains("14") { return 14 }
+                if format.contains("12") { return 12 }
+                if format.contains("10") { return 10 }
+                return 8
+            }
+
+            var chromaClass: ChromaClass {
+                let format = pixelFormat?.lowercased() ?? ""
+                if StagedMediaFallback.chroma444Prefixes.contains(where: { format.hasPrefix($0) })
+                    || StagedMediaFallback.chroma444AlphaPrefixes.contains(where: { format.hasPrefix($0) })
+                {
+                    return .yuv444
+                }
+                if StagedMediaFallback.chroma422Prefixes.contains(where: { format.hasPrefix($0) }) {
+                    return .yuv422
+                }
+                return .yuv420
+            }
+
+            var parsedFrameCount: Int? {
+                nbFrames.flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
+            }
+
+            var parsedFrameDuration: Double? {
+                guard let rFrameRate else { return nil }
+                let parts = rFrameRate.split(separator: "/")
+                guard parts.count == 2,
+                    let numerator = Double(parts[0]), let denominator = Double(parts[1]),
+                    numerator > 0, denominator > 0
+                else { return nil }
+                return denominator / numerator
+            }
+
+            var parsedDuration: Double? {
+                if let direct = duration.flatMap(Double.init), direct.isFinite, direct > 0 { return direct }
+                guard let tag = tags?.first(where: { $0.key.caseInsensitiveCompare("duration") == .orderedSame })?.value
+                else { return nil }
+                return StagedMediaFallback.parseTimestampDuration(tag)
             }
 
             var effectiveAudioBitDepth: Int? {
@@ -196,11 +414,53 @@ enum StagedMediaFallback {
                 return StagedMediaFallback.floatingSampleFormats.contains(sampleFormat)
             }
 
+            var audioPrecisionClass: AudioPrecisionClass {
+                if isFloatingPointAudioSource {
+                    let codec = codecName?.lowercased() ?? ""
+                    let format = sampleFormat?.lowercased() ?? ""
+                    if effectiveAudioBitDepth == 64 || codec.hasPrefix("pcm_f64") || format == "dbl" || format == "dblp"
+                    {
+                        return .float64
+                    }
+                    return .float32
+                }
+                guard isLosslessAudioCodec else { return .lossy }
+                switch effectiveAudioBitDepth ?? 16 {
+                case ...16: return .int16
+                case 17...24: return .int24
+                default: return .int32
+                }
+            }
+
             var isLowBitDepthIntegerAudio: Bool {
-                guard isLosslessAudioCodec, !isFloatingPointAudioSource else { return false }
-                if let bits = effectiveAudioBitDepth, bits > 16 { return false }
-                guard let sampleFormat = sampleFormat?.lowercased() else { return false }
-                return StagedMediaFallback.sixteenBitOrLessSampleFormats.contains(sampleFormat)
+                audioPrecisionClass == .int16
+            }
+
+            var isALACLayoutExact: Bool {
+                StagedMediaFallback.isALACLayoutExact(channels: channels, channelLayout: channelLayout)
+            }
+
+            var canonicalSpeakerSet: Set<String>? {
+                guard let rawLayout = channelLayout?.trimmingCharacters(in: .whitespacesAndNewlines),
+                    !rawLayout.isEmpty
+                else { return nil }
+                let lowered = rawLayout.lowercased()
+                if let known = StagedMediaFallback.standardSpeakerSets[lowered] {
+                    return known
+                }
+                if let open = rawLayout.firstIndex(of: "("),
+                    let close = rawLayout.lastIndex(of: ")"),
+                    open < close
+                {
+                    let inner = rawLayout[rawLayout.index(after: open)..<close]
+                    let speakers = inner.split(separator: "+").map { $0.uppercased() }
+                    if !speakers.isEmpty { return Set(speakers) }
+                }
+                if rawLayout.contains("+") {
+                    let speakers = rawLayout.split(separator: "+").map { $0.uppercased() }
+                    if !speakers.isEmpty { return Set(speakers) }
+                }
+                return [lowered]
             }
 
             var isM4ACompatibleImage: Bool {
@@ -225,6 +485,12 @@ enum StagedMediaFallback {
             return formatName.split(separator: ",").contains("mov")
         }
 
+        var isMatroskaFamily: Bool {
+            guard let formatName = format?.formatName else { return false }
+            let tokens = formatName.split(separator: ",")
+            return tokens.contains("matroska") || tokens.contains("webm")
+        }
+
         var durationSeconds: Double? {
             let candidates = [format?.duration] + streams.map(\.duration)
             let parsed = candidates.compactMap { $0.flatMap(Double.init) }.filter { $0.isFinite && $0 > 0 }
@@ -243,7 +509,12 @@ enum StagedMediaFallback {
             streams.filter { $0.codecType == "video" && $0.isAttachedPicture }
         }
 
-        func sourceDescription(originalURL: URL, attachedPicture: Artwork? = nil) -> FallbackSourceDescription {
+        func sourceDescription(
+            originalURL: URL,
+            intermediateProbe: Probe? = nil,
+            trackAttributes: OriginalTrackAttributes = OriginalTrackAttributes(),
+            attachedPicture: Artwork? = nil
+        ) -> FallbackSourceDescription {
             let video = videoStreams.first
             let audio = audioStreams.first
             return FallbackSourceDescription(
@@ -260,7 +531,17 @@ enum StagedMediaFallback {
                 channelLayout: audio?.channelLayout,
                 pixelFormat: video?.pixelFormat,
                 hasAlpha: video?.hasAlpha ?? false,
+                hasDolbyVision: video?.hasDolbyVision ?? false,
                 codedSize: video?.codedSize,
+                displaySize: video?.displaySize,
+                rotationDegrees: video?.rotationDegrees ?? 0,
+                originalFieldOrder: video?.fieldOrder,
+                intermediateFieldOrder: intermediateProbe?.videoStreams.first?.fieldOrder,
+                videoEnabled: trackAttributes.videoEnabled,
+                audioEnabled: trackAttributes.audioEnabled,
+                videoVolume: trackAttributes.videoVolume,
+                audioVolume: trackAttributes.audioVolume,
+                hasAlternateGroups: trackAttributes.hasAlternateGroups,
                 videoTags: StagedMediaFallback.userTags(from: video?.tags),
                 audioTags: StagedMediaFallback.userTags(from: audio?.tags),
                 attachedPictureCount: attachedPictureStreams.count,
@@ -281,24 +562,26 @@ enum StagedMediaFallback {
         case pcm24
         case pcm32
         case pcmFloat32
+        case pcmFloat64
         case alacM4A
         case cafPCM24
         case cafPCM32
         case cafPCMFloat32
+        case cafPCMFloat64
 
         var fileExtension: String {
             switch self {
             case .alacM4A: "m4a"
-            case .cafPCM24, .cafPCM32, .cafPCMFloat32: "caf"
-            case .pcm16, .pcm24, .pcm32, .pcmFloat32: "mov"
+            case .cafPCM24, .cafPCM32, .cafPCMFloat32, .cafPCMFloat64: "caf"
+            case .pcm16, .pcm24, .pcm32, .pcmFloat32, .pcmFloat64: "mov"
             }
         }
 
         var muxerFormat: String {
             switch self {
             case .alacM4A: "ipod"
-            case .cafPCM24, .cafPCM32, .cafPCMFloat32: "caf"
-            case .pcm16, .pcm24, .pcm32, .pcmFloat32: "mov"
+            case .cafPCM24, .cafPCM32, .cafPCMFloat32, .cafPCMFloat64: "caf"
+            case .pcm16, .pcm24, .pcm32, .pcmFloat32, .pcmFloat64: "mov"
             }
         }
 
@@ -308,6 +591,7 @@ enum StagedMediaFallback {
             case .pcm24, .cafPCM24: "pcm_s24le"
             case .pcm32, .cafPCM32: "pcm_s32le"
             case .pcmFloat32, .cafPCMFloat32: "pcm_f32le"
+            case .pcmFloat64, .cafPCMFloat64: "pcm_f64le"
             case .alacM4A: "alac"
             }
         }
@@ -317,6 +601,7 @@ enum StagedMediaFallback {
             case .pcm16: 2
             case .pcm24, .cafPCM24, .alacM4A: 3
             case .pcm32, .cafPCM32, .pcmFloat32, .cafPCMFloat32: 4
+            case .pcmFloat64, .cafPCMFloat64: 8
             }
         }
     }
@@ -339,13 +624,17 @@ enum StagedMediaFallback {
 
     private static let logger = Logger(subsystem: "io.github.tky27.MacEase", category: "fallback")
 
+    // Hard wall-clock cap for metadata probe.
     static let probeNoProgressTimeout = Duration.seconds(30)
+    // Max stall between advancing out_time_us.
     static let transcodeNoProgressTimeout = Duration.seconds(60)
+    // Poll staged growth every second.
     static let diskMonitorInterval = Duration.seconds(1)
-    static let maximumALACChannels = 6
     static let maximumALACBitDepth = 24
     static let diskHeadroomBytes: Int64 = 512_000_000
 
+    private static let videoDurationMinimumTolerance = 0.05
+    private static let audioDurationTolerance = 0.1
     private static let quickTimeDemuxers = "mov,mp4,m4a,3gp,3g2,mj2"
     private static let nonQuickTimeDemuxers = [
         "matroska", "webm", "avi", "asf", "mpeg", "mpegts", "flv", "rm",
@@ -380,17 +669,59 @@ enum StagedMediaFallback {
     private static let microsecondsPerSecond = 1_000_000.0
     private static let progressTimePrefix = "out_time_us="
 
+    private static let exactALACLayouts: Set<String> = [
+        "mono", "stereo", "3.0", "4.0", "5.0", "5.1",
+    ]
+
+    static func isALACLayoutExact(channels: Int?, channelLayout: String?) -> Bool {
+        let count = channels ?? defaultAudioChannels
+        if let layout = channelLayout?.lowercased(), !layout.isEmpty {
+            return exactALACLayouts.contains(layout)
+        }
+        return count <= 2
+    }
+    private static let standardSpeakerSets: [String: Set<String>] = [
+        "mono": ["FC"],
+        "stereo": ["FL", "FR"],
+        "2.1": ["FL", "FR", "LFE"],
+        "3.0": ["FL", "FR", "FC"],
+        "3.0(back)": ["FL", "FR", "BC"],
+        "4.0": ["FL", "FR", "FC", "BC"],
+        "quad": ["FL", "FR", "BL", "BR"],
+        "quad(side)": ["FL", "FR", "SL", "SR"],
+        "3.1": ["FL", "FR", "FC", "LFE"],
+        "5.0": ["FL", "FR", "FC", "BL", "BR"],
+        "5.0(side)": ["FL", "FR", "FC", "SL", "SR"],
+        "4.1": ["FL", "FR", "FC", "LFE", "BC"],
+        "5.1": ["FL", "FR", "FC", "LFE", "BL", "BR"],
+        "5.1(side)": ["FL", "FR", "FC", "LFE", "SL", "SR"],
+        "6.0": ["FL", "FR", "FC", "BC", "SL", "SR"],
+        "6.0(front)": ["FL", "FR", "FLC", "FRC", "SL", "SR"],
+        "hexagonal": ["FL", "FR", "FC", "BL", "BR", "BC"],
+        "6.1": ["FL", "FR", "FC", "LFE", "BC", "SL", "SR"],
+        "6.1(back)": ["FL", "FR", "FC", "LFE", "BL", "BR", "BC"],
+        "6.1(front)": ["FL", "FR", "LFE", "FLC", "FRC", "SL", "SR"],
+        "7.0": ["FL", "FR", "FC", "BL", "BR", "SL", "SR"],
+        "7.0(front)": ["FL", "FR", "FC", "FLC", "FRC", "SL", "SR"],
+        "7.1": ["FL", "FR", "FC", "LFE", "BL", "BR", "SL", "SR"],
+        "7.1(wide)": ["FL", "FR", "FC", "LFE", "BL", "BR", "FLC", "FRC"],
+        "7.1(wide-side)": ["FL", "FR", "FC", "LFE", "FLC", "FRC", "SL", "SR"],
+        "octagonal": ["FL", "FR", "FC", "BL", "BR", "BC", "SL", "SR"],
+    ]
+    private static let dolbyVisionCodecTags: Set<String> = ["dvhe", "dvh1", "dvav", "dva1"]
     private static let losslessAudioCodecs: Set<String> = [
         "alac", "flac", "wavpack", "ape", "tta", "tak", "shorten", "mlp", "truehd", "wmalossless", "als", "dst",
     ]
     private static let floatingSampleFormats: Set<String> = ["flt", "fltp", "dbl", "dblp"]
-    private static let sixteenBitOrLessSampleFormats: Set<String> = ["u8", "u8p", "s16", "s16p"]
     private static let closedCaptionCodecs: Set<String> = ["eia_608", "cea_608", "cea_708"]
     private static let alphaPixelFormatPrefixes = [
         "yuva", "rgba", "bgra", "argb", "abgr", "gbrap", "ya8", "ya16", "ayuv", "vuya",
     ]
+    private static let chroma444AlphaPrefixes = [
+        "yuva444", "rgba", "bgra", "argb", "abgr", "gbrap", "ayuv", "vuya",
+    ]
     private static let chroma444Prefixes = [
-        "yuv444", "yuvj444", "gbrp", "rgb24", "bgr24", "rgb48", "bgr48", "0rgb", "rgb0", "0bgr", "bgr0",
+        "yuv444", "yuvj444", "gbrp", "rgb24", "bgr24", "rgb48", "bgr48", "0rgb", "rgb0", "0bgr", "bgr0", "p410", "p416",
     ]
     private static let chroma422Prefixes = ["yuv422", "yuvj422", "uyvy", "yuyv", "p210", "p216", "v210"]
     private static let highBitDepthTokens = ["10", "12", "14", "16", "p010", "p016"]
@@ -398,7 +729,7 @@ enum StagedMediaFallback {
     private static let ignoredMetadataTagKeys: Set<String> = [
         "encoder", "writing_application", "writing_library", "compatible_brands", "major_brand", "minor_version",
         "muxingapp", "writingapp", "duration", "handler_name", "vendor_id", "bps", "number_of_frames",
-        "number_of_bytes", "alpha_mode",
+        "number_of_bytes", "alpha_mode", "rotate",
     ]
     private static let allowedColorPrimaries: Set<String> = [
         "bt709", "bt470m", "bt470bg", "smpte170m", "smpte240m", "film", "bt2020", "smpte428", "smpte431", "smpte432",
@@ -585,18 +916,173 @@ enum StagedMediaFallback {
     }
 
     static func selectVideoAudioProfile(for stream: Probe.Stream) -> AudioProfile {
-        if stream.isFloatingPointAudioSource { return .pcmFloat32 }
-        if let bits = stream.effectiveAudioBitDepth, bits > maximumALACBitDepth { return .pcm32 }
-        if stream.isLowBitDepthIntegerAudio { return .pcm16 }
-        return .pcm24
+        switch stream.audioPrecisionClass {
+        case .float64: return .pcmFloat64
+        case .float32: return .pcmFloat32
+        case .int32: return .pcm32
+        case .int16: return .pcm16
+        case .lossy, .int24: return .pcm24
+        }
     }
 
     static func selectAudioOnlyProfile(for stream: Probe.Stream) -> AudioProfile {
-        let channels = stream.channels ?? defaultAudioChannels
-        if stream.isFloatingPointAudioSource { return .cafPCMFloat32 }
-        if let bits = stream.effectiveAudioBitDepth, bits > maximumALACBitDepth { return .cafPCM32 }
-        if channels > maximumALACChannels { return .cafPCM24 }
-        return .alacM4A
+        switch stream.audioPrecisionClass {
+        case .float64: return .cafPCMFloat64
+        case .float32: return .cafPCMFloat32
+        case .int32: return .cafPCM32
+        case .lossy, .int16, .int24:
+            return stream.isALACLayoutExact ? .alacM4A : .cafPCM24
+        }
+    }
+
+    static func parseTimestampDuration(_ value: String) -> Double? {
+        let parts = value.split(separator: ":")
+        guard parts.count == 3,
+            let hours = Double(parts[0]), let minutes = Double(parts[1]), let seconds = Double(parts[2])
+        else { return nil }
+        let total = hours * 3_600 + minutes * 60 + seconds
+        return total.isFinite && total > 0 ? total : nil
+    }
+
+    static func verifyIntermediate(
+        original: Probe, intermediate: Probe, kind: VerificationKind
+    ) throws {
+        let originalVideo = original.videoStreams.first
+        let intermediateVideo = intermediate.videoStreams.first
+        let originalAudio = original.audioStreams.first
+        let intermediateAudio = intermediate.audioStreams.first
+
+        for fact in IntermediateFact.allCases {
+            switch fact {
+            case .mappedStreams:
+                switch kind {
+                case .video(let hasAudio):
+                    guard intermediate.videoStreams.count == 1,
+                        intermediate.audioStreams.count == (hasAudio ? 1 : 0)
+                    else {
+                        throw EngineError.fallbackConversionUnfaithful(
+                            "\(fact.rawValue): expected 1 video and \(hasAudio ? 1 : 0) audio stream")
+                    }
+                case .audio:
+                    guard intermediate.videoStreams.isEmpty, intermediate.audioStreams.count == 1 else {
+                        throw EngineError.fallbackConversionUnfaithful(
+                            "\(fact.rawValue): expected 1 audio stream")
+                    }
+                }
+            case .videoDisplayDimensions:
+                guard case .video = kind, let originalVideo, let intermediateVideo else { continue }
+                guard let expected = originalVideo.displaySize, let actual = intermediateVideo.displaySize,
+                    expected == actual, intermediateVideo.rotationDegrees == 0
+                else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): original \(originalVideo.displaySize.map { "\($0.width)x\($0.height)" } ?? "unknown") became \(intermediateVideo.displaySize.map { "\($0.width)x\($0.height)" } ?? "unknown") (rotation \(intermediateVideo.rotationDegrees))"
+                    )
+                }
+            case .videoPixelBitDepth:
+                guard case .video = kind, let originalVideo, let intermediateVideo else { continue }
+                guard intermediateVideo.videoBitDepth >= originalVideo.videoBitDepth else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): original \(originalVideo.videoBitDepth)-bit became \(intermediateVideo.videoBitDepth)-bit"
+                    )
+                }
+            case .videoChromaClass:
+                guard case .video = kind, let originalVideo, let intermediateVideo else { continue }
+                guard intermediateVideo.chromaClass >= originalVideo.chromaClass else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): original \(originalVideo.chromaClass.label) became \(intermediateVideo.chromaClass.label)"
+                    )
+                }
+            case .videoAlpha:
+                guard case .video = kind, let originalVideo, let intermediateVideo, originalVideo.hasAlpha else {
+                    continue
+                }
+                guard intermediateVideo.hasAlpha else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): alpha channel lost in intermediate")
+                }
+            case .videoDuration:
+                guard case .video = kind, let originalVideo, let intermediateVideo else { continue }
+                if let expectedFrames = originalVideo.parsedFrameCount,
+                    let actualFrames = intermediateVideo.parsedFrameCount
+                {
+                    guard abs(actualFrames - expectedFrames) <= 1 else {
+                        throw EngineError.fallbackConversionUnfaithful(
+                            "\(fact.rawValue): original \(expectedFrames) frames became \(actualFrames)")
+                    }
+                } else {
+                    let pair =
+                        originalVideo.parsedDuration.flatMap { expected in
+                            intermediateVideo.parsedDuration.map { (expected, $0) }
+                        }
+                        ?? original.durationSeconds.flatMap { expected in
+                            intermediate.durationSeconds.map { (expected, $0) }
+                        }
+                    if let (expected, actual) = pair {
+                        let tolerance = max(originalVideo.parsedFrameDuration ?? 0, videoDurationMinimumTolerance)
+                        guard abs(actual - expected) <= tolerance else {
+                            throw EngineError.fallbackConversionUnfaithful(
+                                "\(fact.rawValue): original \(String(format: "%.3f", expected))s became \(String(format: "%.3f", actual))s"
+                            )
+                        }
+                    }
+                }
+            case .audioChannelCount:
+                guard expectsAudio(kind), let originalAudio, let intermediateAudio else { continue }
+                guard originalAudio.channels == intermediateAudio.channels else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): original \(originalAudio.channels.map(String.init) ?? "unknown") became \(intermediateAudio.channels.map(String.init) ?? "unknown")"
+                    )
+                }
+            case .audioChannelLayout:
+                guard expectsAudio(kind), let originalAudio, let intermediateAudio else { continue }
+                if let expectedSpeakers = originalAudio.canonicalSpeakerSet {
+                    guard let actualSpeakers = intermediateAudio.canonicalSpeakerSet,
+                        actualSpeakers == expectedSpeakers
+                    else {
+                        throw EngineError.fallbackConversionUnfaithful(
+                            "\(fact.rawValue): original \(originalAudio.channelLayout ?? "unknown") became \(intermediateAudio.channelLayout ?? "unknown")"
+                        )
+                    }
+                }
+            case .audioSampleRate:
+                guard expectsAudio(kind), let originalAudio, let intermediateAudio else { continue }
+                guard abs(originalAudio.parsedSampleRate - intermediateAudio.parsedSampleRate) < 1 else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): original \(Int(originalAudio.parsedSampleRate)) Hz became \(Int(intermediateAudio.parsedSampleRate)) Hz"
+                    )
+                }
+            case .audioPrecisionClass:
+                guard expectsAudio(kind), let originalAudio, let intermediateAudio else { continue }
+                guard intermediateAudio.audioPrecisionClass.preserves(originalAudio.audioPrecisionClass) else {
+                    throw EngineError.fallbackConversionUnfaithful(
+                        "\(fact.rawValue): original \(originalAudio.audioPrecisionClass.rawValue) became \(intermediateAudio.audioPrecisionClass.rawValue)"
+                    )
+                }
+            case .audioDuration:
+                guard expectsAudio(kind), let originalAudio, let intermediateAudio else { continue }
+                let pair =
+                    originalAudio.parsedDuration.flatMap { expected in
+                        intermediateAudio.parsedDuration.map { (expected, $0) }
+                    }
+                    ?? original.durationSeconds.flatMap { expected in
+                        intermediate.durationSeconds.map { (expected, $0) }
+                    }
+                if let (expected, actual) = pair {
+                    guard abs(actual - expected) <= audioDurationTolerance else {
+                        throw EngineError.fallbackConversionUnfaithful(
+                            "\(fact.rawValue): original \(String(format: "%.3f", expected))s became \(String(format: "%.3f", actual))s"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private static func expectsAudio(_ kind: VerificationKind) -> Bool {
+        switch kind {
+        case .audio, .video(hasAudio: true): true
+        case .video(hasAudio: false): false
+        }
     }
 
     static func videoUnpreservedStreams(in probe: Probe) throws -> [UnpreservedStream] {
@@ -638,21 +1124,28 @@ enum StagedMediaFallback {
         tools: MediaDownloadTools? = nil,
         availableBytes: (@Sendable (URL) throws -> Int64)? = nil,
         noProgressTimeout: Duration = transcodeNoProgressTimeout,
-        diskMonitorInterval: Duration = Self.diskMonitorInterval
+        probeNoProgressTimeout: Duration = Self.probeNoProgressTimeout,
+        diskMonitorInterval: Duration = Self.diskMonitorInterval,
+        nativeError: EngineError? = nil
     ) async throws -> StagedVideo {
         let resolvedTools = try tools ?? resolveTools()
-        let probed = try await probe(originalURL, tools: resolvedTools)
-        let omitted = try videoUnpreservedStreams(in: probed)
+        let probed = try await restoringNativeError(nativeError) {
+            try await probe(originalURL, tools: resolvedTools, noProgressTimeout: probeNoProgressTimeout)
+        }
+        let omitted = try await restoringNativeError(nativeError) {
+            try videoUnpreservedStreams(in: probed)
+        }
         if enforceStreamConsent {
             try requireConsent(for: omitted, consented: consentedStreams ?? context.omittedStreams)
         }
         guard let videoStream = probed.videoStreams.first else {
-            throw EngineError.decodeFailed("no video track")
+            throw nativeError ?? EngineError.decodeFailed("no video track")
         }
         if videoStream.hasAlphaModeTag, !videoStream.hasAlphaPixelFormat,
             videoStream.preferredAlphaInputDecoder == nil
         {
-            throw EngineError.videoAlphaUnsupported
+            throw EngineError.fallbackConversionUnfaithful(
+                "\(IntermediateFact.videoAlpha.rawValue): \(videoStream.codecName ?? "video") alpha cannot be decoded")
         }
         let audioStream = probed.audioStreams.first
         let videoProfile = selectVideoProfile(for: videoStream)
@@ -669,16 +1162,27 @@ enum StagedMediaFallback {
             for: originalURL, probe: probed, videoStream: videoStream, audioStream: audioStream,
             videoProfile: videoProfile, audioProfile: audioProfile, output: outputURL)
         context.phase(.convertingInput)
-        try await runTranscode(
-            arguments: arguments, duration: probed.durationSeconds, outputURL: outputURL,
-            workingDirectory: stagingDirectory, tools: resolvedTools, spaceBudget: budget,
-            availableBytes: availableBytes, noProgressTimeout: noProgressTimeout,
-            diskMonitorInterval: diskMonitorInterval, progress: context.progress)
+        try await restoringNativeError(nativeError) {
+            try await runTranscode(
+                arguments: arguments, duration: probed.durationSeconds, outputURL: outputURL,
+                workingDirectory: stagingDirectory, tools: resolvedTools, spaceBudget: budget,
+                availableBytes: availableBytes, noProgressTimeout: noProgressTimeout,
+                diskMonitorInterval: diskMonitorInterval, progress: context.progress)
+        }
         try await UntrustedMediaAsset.rejectExternalReferences(in: outputURL)
+        let intermediateProbe = try await probeIntermediate(
+            outputURL, workingDirectory: stagingDirectory, tools: resolvedTools,
+            noProgressTimeout: probeNoProgressTimeout)
+        try verifyIntermediate(
+            original: probed, intermediate: intermediateProbe, kind: .video(hasAudio: audioStream != nil))
+        let trackAttributes = try await inspectOriginalTrackAttributes(originalURL, probe: probed)
+        context.markFallbackInputUsed()
         if enforceStreamConsent, !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
         return StagedVideo(
             originalURL: originalURL, stagedURL: outputURL, profile: videoProfile,
-            origin: probed.sourceDescription(originalURL: originalURL), omittedStreams: omitted)
+            origin: probed.sourceDescription(
+                originalURL: originalURL, intermediateProbe: intermediateProbe, trackAttributes: trackAttributes),
+            omittedStreams: omitted)
     }
 
     static func prepareAudio(
@@ -688,16 +1192,22 @@ enum StagedMediaFallback {
         tools: MediaDownloadTools? = nil,
         availableBytes: (@Sendable (URL) throws -> Int64)? = nil,
         noProgressTimeout: Duration = transcodeNoProgressTimeout,
-        diskMonitorInterval: Duration = Self.diskMonitorInterval
+        probeNoProgressTimeout: Duration = Self.probeNoProgressTimeout,
+        diskMonitorInterval: Duration = Self.diskMonitorInterval,
+        nativeError: EngineError? = nil
     ) async throws -> StagedAudio {
         let resolvedTools = try tools ?? resolveTools()
-        let probed = try await probe(originalURL, tools: resolvedTools)
-        let omitted = try audioUnpreservedStreams(in: probed)
+        let probed = try await restoringNativeError(nativeError) {
+            try await probe(originalURL, tools: resolvedTools, noProgressTimeout: probeNoProgressTimeout)
+        }
+        let omitted = try await restoringNativeError(nativeError) {
+            try audioUnpreservedStreams(in: probed)
+        }
         if enforceStreamConsent {
             try requireConsent(for: omitted, consented: context.omittedStreams)
         }
         guard let audioStream = probed.audioStreams.first else {
-            throw EngineError.decodeFailed("no audio track")
+            throw nativeError ?? EngineError.decodeFailed("no audio track")
         }
         let profile = selectAudioOnlyProfile(for: audioStream)
         let estimatedBytes = try estimateAudioBytes(
@@ -713,23 +1223,93 @@ enum StagedMediaFallback {
             for: originalURL, probe: probed, audioStream: audioStream, attachedPicture: attachedPictureStream,
             profile: profile, output: outputURL)
         context.phase(.convertingInput)
-        try await runTranscode(
-            arguments: arguments, duration: probed.durationSeconds, outputURL: outputURL,
-            workingDirectory: stagingDirectory, tools: resolvedTools, spaceBudget: budget,
-            availableBytes: availableBytes, noProgressTimeout: noProgressTimeout,
-            diskMonitorInterval: diskMonitorInterval, progress: context.progress)
+        try await restoringNativeError(nativeError) {
+            try await runTranscode(
+                arguments: arguments, duration: probed.durationSeconds, outputURL: outputURL,
+                workingDirectory: stagingDirectory, tools: resolvedTools, spaceBudget: budget,
+                availableBytes: availableBytes, noProgressTimeout: noProgressTimeout,
+                diskMonitorInterval: diskMonitorInterval, progress: context.progress)
+        }
         try await UntrustedMediaAsset.rejectExternalReferences(in: outputURL)
+        let intermediateProbe = try await probeIntermediate(
+            outputURL, workingDirectory: stagingDirectory, tools: resolvedTools,
+            noProgressTimeout: probeNoProgressTimeout)
+        try verifyIntermediate(original: probed, intermediate: intermediateProbe, kind: .audio)
         var extractedArtwork: Artwork?
         if profile != .alacM4A, let attachedPictureStream {
             extractedArtwork = try await extractAttachedPicture(
                 from: originalURL, probe: probed, stream: attachedPictureStream,
                 workingDirectory: stagingDirectory, tools: resolvedTools, noProgressTimeout: noProgressTimeout)
         }
+        context.markFallbackInputUsed()
         if enforceStreamConsent, !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
         return StagedAudio(
             originalURL: originalURL, stagedURL: outputURL, profile: profile,
-            origin: probed.sourceDescription(originalURL: originalURL, attachedPicture: extractedArtwork),
+            origin: probed.sourceDescription(
+                originalURL: originalURL, intermediateProbe: intermediateProbe, attachedPicture: extractedArtwork),
             omittedStreams: omitted)
+    }
+
+    // Restore native error only for unreadable inputs.
+    private static func restoringNativeError<T>(
+        _ nativeError: EngineError?, _ operation: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await operation()
+        } catch EngineError.decodeFailed(let detail) where detail != MediaToolProcess.timedOutMessage {
+            throw nativeError ?? EngineError.decodeFailed(detail)
+        }
+    }
+
+    private static func probeIntermediate(
+        _ outputURL: URL, workingDirectory: URL, tools: MediaDownloadTools, noProgressTimeout: Duration
+    ) async throws -> Probe {
+        do {
+            return try await probe(
+                outputURL, workingDirectory: workingDirectory, tools: tools, noProgressTimeout: noProgressTimeout)
+        } catch EngineError.decodeFailed(let detail) where detail != MediaToolProcess.timedOutMessage {
+            throw EngineError.fallbackConversionUnfaithful("intermediate probe failed: \(detail)")
+        }
+    }
+
+    private static func inspectOriginalTrackAttributes(
+        _ originalURL: URL, probe: Probe
+    ) async throws -> OriginalTrackAttributes {
+        var attributes = OriginalTrackAttributes()
+        if probe.isQuickTimeFamily {
+            let asset = UntrustedMediaAsset.make(originalURL)
+            do {
+                if let videoTrack = try await asset.loadTracks(withMediaType: .video).first {
+                    attributes.videoEnabled = try await videoTrack.load(.isEnabled)
+                    attributes.videoVolume = try await videoTrack.load(.preferredVolume)
+                }
+                if let audioTrack = try await asset.loadTracks(withMediaType: .audio).first {
+                    attributes.audioEnabled = try await audioTrack.load(.isEnabled)
+                    attributes.audioVolume = try await audioTrack.load(.preferredVolume)
+                }
+                let groups = try await asset.load(.trackGroups)
+                attributes.hasAlternateGroups = groups.contains { $0.trackIDs.count > 1 }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if UntrustedMediaAsset.isReferenceForbidden(error) {
+                    throw EngineError.invalidInput(.externalMediaReference)
+                }
+            }
+        } else if probe.isMatroskaFamily {
+            do {
+                let demuxer = try MatroskaDemuxer(url: originalURL)
+                if let video = demuxer.tracks.first(where: \.isVideo) {
+                    attributes.videoEnabled = !demuxer.disabledTrackNumbers.contains(video.number)
+                }
+                if let audio = demuxer.tracks.first(where: { !$0.isVideo }) {
+                    attributes.audioEnabled = !demuxer.disabledTrackNumbers.contains(audio.number)
+                }
+            } catch is FormatError {
+                // Non-standard Matroska lacks track-flag metadata.
+            }
+        }
+        return attributes
     }
 
     private static func extractAttachedPicture(
@@ -952,6 +1532,20 @@ enum StagedMediaFallback {
         return DiskSpaceBudget(availableBytes: available, headroomBytes: headroom)
     }
 
+    static func makeProgressWatchdogReset() -> @Sendable (String) -> Bool {
+        let lastOutTime = Mutex<Int64?>(nil)
+        return { line in
+            guard line.hasPrefix(progressTimePrefix),
+                let value = Int64(line.dropFirst(progressTimePrefix.count))
+            else { return false }
+            return lastOutTime.withLock { previous in
+                guard previous.map({ value > $0 }) ?? (value > 0) else { return false }
+                previous = value
+                return true
+            }
+        }
+    }
+
     private static func runTranscode(
         arguments: [String], duration: Double?, outputURL: URL, workingDirectory: URL,
         tools: MediaDownloadTools, spaceBudget: DiskSpaceBudget,
@@ -1003,6 +1597,7 @@ enum StagedMediaFallback {
                 captureOutput: false,
                 includeTLSCertificate: false,
                 noProgressTimeout: noProgressTimeout,
+                watchdogReset: MediaToolProcess.WatchdogReset(matches: makeProgressWatchdogReset()),
                 monitor: MediaToolProcess.Monitor(interval: diskMonitorInterval, tick: checkCapacity)
             ) { line in
                 if line.hasPrefix(progressTimePrefix), let duration, duration > 0,
@@ -1020,7 +1615,7 @@ enum StagedMediaFallback {
         }
         let attributes = try FileManager.default.attributesOfItem(atPath: outputURL.path)
         guard let written = attributes[.size] as? Int64, written > 0 else {
-            throw EngineError.decodeFailed("staged intermediate is empty")
+            throw EngineError.fallbackConversionUnfaithful("staged intermediate is empty")
         }
     }
 

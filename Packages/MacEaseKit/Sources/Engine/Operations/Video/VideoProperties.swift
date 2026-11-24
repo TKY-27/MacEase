@@ -27,7 +27,7 @@ enum VideoProperties {
             adjustsHDR = false
         }
         if adjustsHDR { prepared.derived = true }
-        let keepsOriginal = prepared.derived || context.settings.outputMode == .newFile
+        let keepsOriginal = prepared.derived || context.savesNewFile
         if hdr?.dolbyVision == true {
             guard keepsOriginal else { throw EngineError.videoDolbyVisionUnsupported }
             warn(.dolbyVisionRemoved, context: context)
@@ -108,7 +108,7 @@ enum VideoProperties {
             }
         }
         if !losses.isEmpty {
-            guard prepared.derived || context.settings.outputMode == .newFile else {
+            guard prepared.derived || context.savesNewFile else {
                 throw EngineError.videoMetadataUnsupported(losses)
             }
             warn(.videoMetadataDropped(losses), context: context)
@@ -136,7 +136,7 @@ enum VideoProperties {
             losses.append(.trackMetadata)
         }
         guard !losses.isEmpty else { return }
-        guard plan.derived || context.settings.outputMode == .newFile else {
+        guard plan.derived || context.savesNewFile else {
             throw EngineError.videoMetadataUnsupported(losses)
         }
         warn(.videoMetadataDropped(losses), context: context)
@@ -218,6 +218,10 @@ enum VideoProperties {
             try await track.load(.mediaCharacteristics).contains(.containsHDRVideo)
         {
             throw EngineError.hdrConversionUnsupported
+        }
+        if input.fallbackOrigin?.hasDolbyVision == true {
+            guard let hdr else { throw EngineError.hdrConversionUnsupported }
+            return HDRSource(configuration: hdr.configuration, dolbyVision: true)
         }
         return hdr
     }

@@ -29,14 +29,6 @@ enum VideoEdits {
         } catch let skip as SkipError {
             return .skipped(skip.reason)
         }
-        let keepsOriginalAsNewFile: Bool
-        if input.isFallback, case .convert = operation {
-            keepsOriginalAsNewFile = false
-        } else {
-            keepsOriginalAsNewFile = input.isFallback
-        }
-        let editedDerived = plan.derived
-        if keepsOriginalAsNewFile { plan.derived = true }
         let carryPlan = try await NativeTimecodePlan.make(
             for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation),
             omitting: context.omittedStreams)
@@ -55,13 +47,7 @@ enum VideoEdits {
             try edit.music?.validateSource()
         }
         if plan.derived {
-            if keepsOriginalAsNewFile, context.settings.outputMode == .replace {
-                context.warn(.keptAsNewFileForFormat)
-            }
-            let outputName =
-                editedDerived || !keepsOriginalAsNewFile
-                ? url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
-                : name
+            let outputName = url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
             return .derived(
                 nextTo: url,
                 outputs: [

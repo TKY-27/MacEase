@@ -123,6 +123,12 @@ final class ActivityUpdateTests: XCTestCase {
             UserMessages.describe(.fallbackToolMissing, file: "movie.wmv"),
             "Couldn’t read “movie.wmv”: the media converter component is missing. Reinstall MacEase and retry.")
         XCTAssertEqual(
+            UserMessages.describe(.fallbackConversionUnfaithful("audio channel layout: quad != 5.0"), file: "song.wv"),
+            "Couldn’t process “song.wv”: the file couldn’t be converted faithfully. Nothing was changed.")
+        XCTAssertEqual(
+            UserMessages.technicalDetail(.fallbackConversionUnfaithful("audio channel layout: quad != 5.0")),
+            "audio channel layout: quad != 5.0")
+        XCTAssertEqual(
             UserMessages.describe(ItemWarning.keptAsNewFileForFormat),
             "Saved as a new file: MacEase cannot write the original format.")
         XCTAssertNil(UserMessages.technicalDetail(.insufficientDiskSpace(requiredBytes: 1, availableBytes: 0)))

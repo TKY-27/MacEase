@@ -107,7 +107,11 @@ public struct AudioInput: Sendable {
     }
 
     static func openWithFallback(
-        _ originalURL: URL, context: ItemContext, allowsMultiplexedOgg: Bool = true, enforceStreamConsent: Bool = true
+        _ originalURL: URL, context: ItemContext, allowsMultiplexedOgg: Bool = true, enforceStreamConsent: Bool = true,
+        tools: MediaDownloadTools? = nil,
+        availableBytes: (@Sendable (URL) throws -> Int64)? = nil,
+        noProgressTimeout: Duration = StagedMediaFallback.transcodeNoProgressTimeout,
+        probeNoProgressTimeout: Duration = StagedMediaFallback.probeNoProgressTimeout
     ) async throws -> AudioInput {
         try await UntrustedMediaAsset.rejectExternalReferences(in: originalURL)
         let nativeError: EngineError
@@ -122,19 +126,11 @@ public struct AudioInput: Sendable {
                 throw wrapped
             }
         }
-        let staged: StagedMediaFallback.StagedAudio
-        do {
-            staged = try await StagedMediaFallback.prepareAudio(
-                originalURL, context: context, enforceStreamConsent: enforceStreamConsent)
-        } catch {
-            let wrapped = EngineError.wrapping(error, path: originalURL.path)
-            switch wrapped {
-            case .decodeFailed, .unsupportedCodec:
-                throw nativeError
-            default:
-                throw wrapped
-            }
-        }
+        let staged = try await StagedMediaFallback.prepareAudio(
+            originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
+            tools: tools, availableBytes: availableBytes,
+            noProgressTimeout: noProgressTimeout, probeNoProgressTimeout: probeNoProgressTimeout,
+            nativeError: nativeError)
         return try AudioInput(url: staged.stagedURL, allowsMultiplexedOgg: false, fallbackOrigin: staged.origin)
     }
 

@@ -42,9 +42,9 @@ struct VideoMetadata {
                 audio: input.audio.map { attributes(of: $0, disabledTrackNumbers: input.disabledTrackNumbers) },
                 groups: [])
         }
-        let video: TrackAttributes?
+        var video: TrackAttributes?
         if let videoTrack { video = try await attributes(of: videoTrack, isVideo: true) } else { video = nil }
-        let audio: TrackAttributes?
+        var audio: TrackAttributes?
         if let audioTrack { audio = try await attributes(of: audioTrack, isVideo: false) } else { audio = nil }
         let groups = try await asset.load(.trackGroups).map { $0.trackIDs.map(\.int32Value) }
             .filter { $0.count > 1 }
@@ -62,10 +62,17 @@ struct VideoMetadata {
         }
         var containerMetadata: Set<VideoMetadataProperty> = []
         if let origin = input.fallbackOrigin {
+            if let enabled = origin.videoEnabled { video?.isEnabled = enabled }
+            if let enabled = origin.audioEnabled { audio?.isEnabled = enabled }
+            if let volume = origin.videoVolume { video?.preferredVolume = volume }
+            if let volume = origin.audioVolume { audio?.preferredVolume = volume }
             let creationDate = try await asset.load(.creationDate)
             containerMetadata = try await droppedFallbackMetadata(
                 origin: origin, assetMetadata: metadata, hasCreationDate: creationDate != nil,
                 video: video, audio: audio)
+            if origin.hasAlternateGroups, groups.isEmpty {
+                containerMetadata.insert(.alternateGroups)
+            }
         }
         return VideoMetadata(
             assetMetadata: metadata, mpeg4Metadata: mpeg4Metadata, containerMetadata: containerMetadata,
@@ -84,6 +91,9 @@ struct VideoMetadata {
         }
         if try await hasUnmatchedTags(formatTags, in: assetMetadata) {
             dropped.insert(.descriptiveMetadata)
+        }
+        if origin.isInterlacedFieldOrderChanged {
+            dropped.insert(.trackMetadata)
         }
         for (tags, track) in [(origin.videoTags, video), (origin.audioTags, audio)] {
             var nonLanguage: [String: String] = [:]
@@ -107,19 +117,56 @@ struct VideoMetadata {
         return dropped
     }
 
+    private static let metadataIdentifierKeys: [AVMetadataIdentifier: String] = [
+        .commonIdentifierTitle: "title",
+        .quickTimeUserDataTrackName: "title",
+        .quickTimeMetadataTitle: "title",
+        .iTunesMetadataSongName: "title",
+        .commonIdentifierArtist: "artist",
+        .quickTimeMetadataArtist: "artist",
+        .iTunesMetadataArtist: "artist",
+        .commonIdentifierAlbumName: "album",
+        .quickTimeMetadataAlbum: "album",
+        .iTunesMetadataAlbum: "album",
+        .commonIdentifierDescription: "comment",
+        .quickTimeMetadataDescription: "comment",
+        .quickTimeUserDataComment: "comment",
+        .iTunesMetadataUserComment: "comment",
+        .commonIdentifierCopyrights: "copyright",
+        .quickTimeMetadataCopyright: "copyright",
+        .commonIdentifierCreationDate: "creation_time",
+        .quickTimeMetadataCreationDate: "creation_time",
+        .quickTimeUserDataCreationDate: "creation_time",
+        .commonIdentifierAuthor: "author",
+        .quickTimeMetadataAuthor: "author",
+        .commonIdentifierLocation: "location",
+        .quickTimeMetadataLocationISO6709: "location",
+    ]
+
+    private static func normalizedTagKey(for entry: AVMetadataItem) -> String? {
+        if let identifier = entry.identifier {
+            if let mapped = metadataIdentifierKeys[identifier] { return mapped }
+            if let prefix = identifier.rawValue.split(separator: "/").last {
+                return prefix.lowercased()
+            }
+        }
+        return (entry.key as? String)?.lowercased()
+    }
+
     private static func hasUnmatchedTags(_ expected: [String: String], in preserved: [AVMetadataItem]) async throws
         -> Bool
     {
         guard !expected.isEmpty else { return false }
-        var remainingValues: [String] = []
+        var remaining: [(key: String?, value: String)] = []
         for entry in preserved {
             if let text = try await entry.load(.stringValue), !text.isEmpty {
-                remainingValues.append(text)
+                remaining.append((key: normalizedTagKey(for: entry), value: text))
             }
         }
-        for value in expected.values where !value.isEmpty {
-            if let index = remainingValues.firstIndex(of: value) {
-                remainingValues.remove(at: index)
+        for (expectedKey, expectedValue) in expected where !expectedValue.isEmpty {
+            let loweredKey = expectedKey.lowercased()
+            if let index = remaining.firstIndex(where: { $0.key == loweredKey && $0.value == expectedValue }) {
+                remaining.remove(at: index)
             } else {
                 return true
             }

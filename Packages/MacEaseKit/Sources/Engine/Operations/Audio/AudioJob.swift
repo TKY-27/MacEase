@@ -79,8 +79,7 @@ enum AudioJob {
             return try await replace(url, with: input, target: target, context: context)
         case .compress(.kilobits(let kilobits)):
             let target = AudioTarget(format: try compressedFormat(input, kilobits: kilobits), kilobits: kilobits)
-            let result = try await replace(
-                url, with: input, target: target, keepsOriginalAsNewFile: input.isFallback, context: context)
+            let result = try await replace(url, with: input, target: target, context: context)
             return try isSmaller(result, than: url) ? result : .skipped(.outputNotSmaller)
         case .compress(.targetBytes(let bytes)):
             return try await compress(url, input: input, toBytes: bytes, context: context)
@@ -312,9 +311,7 @@ enum AudioJob {
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         var format = try compressedFormat(input, kilobits: nil)
         try format.validateLayout(input)
-        let keepsOriginalAsNewFile = input.isFallback
-        let keepsOriginal = keepsOriginalAsNewFile || context.settings.outputMode == .newFile
-        let tags = try await tags(of: input, keepsOriginal: keepsOriginal, context: context)
+        let tags = try await tags(of: input, context: context)
         var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         var budget = bytes - tagBytes(tags, format: format)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
@@ -336,12 +333,8 @@ enum AudioJob {
                 input, to: AudioTarget(format: format, kilobits: kilobits), at: staged, tags: tags, context: context)
             let size = try fileSize(staged)
             if size <= bytes {
-                let output = StagedFile(url: staged, name: staged.lastPathComponent, check: .audio)
-                if keepsOriginalAsNewFile {
-                    if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
-                    return .derived(nextTo: url, outputs: [output])
-                }
-                return .replace(original: url, output: output)
+                return .replace(
+                    original: url, output: StagedFile(url: staged, name: staged.lastPathComponent, check: .audio))
             }
             smallest = min(smallest, size)
             try FileManager.default.removeItem(at: staged)
@@ -389,7 +382,7 @@ enum AudioJob {
         }
         return try await replace(
             url, with: input, target: output, gain: Float(pow(10, gain / 20)), progressStart: measureShare,
-            keepsOriginalAsNewFile: input.isFallback, context: context)
+            context: context)
     }
 
     private static func trim(
@@ -412,12 +405,12 @@ enum AudioJob {
         return try await replace(
             url, with: input, target: target, frames: first..<last,
             fade: FadeRamp(duration: duration, fadeIn: fadeIn, fadeOut: fadeOut),
-            keepsOriginalAsNewFile: input.isFallback, context: context)
+            context: context)
     }
 
     private static func replace(
         _ url: URL, with input: AudioInput, target: AudioTarget, frames: Range<Int64>? = nil, gain: Float = 1,
-        fade: FadeRamp? = nil, progressStart: Double = 0, keepsOriginalAsNewFile: Bool = false, context: ItemContext
+        fade: FadeRamp? = nil, progressStart: Double = 0, context: ItemContext
     ) async throws -> ItemResult {
         try await requirePreservableContent(input, context: context)
         try target.format.validateLayout(input)
@@ -428,34 +421,26 @@ enum AudioJob {
                     localized: "audio above 24-bit integer or 32-bit float precision to lossless output",
                     comment: "Refuses source precision loss"))
         }
-        let keepsOriginal = keepsOriginalAsNewFile || context.settings.outputMode == .newFile
-        let tags = try await tags(of: input, keepsOriginal: keepsOriginal, context: context)
+        let tags = try await tags(of: input, context: context)
         if !tags.isEmpty, !target.format.holdsTags {
-            guard keepsOriginal else { throw EngineError.audioMetadataUnsupported }
+            guard context.savesNewFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
         }
         let staged = try context.stagingURL(for: url, name: outputName(for: url, format: target.format))
         try await encode(
             input, to: target, at: staged, tags: tags, frames: frames, gain: gain, fade: fade,
             progressStart: progressStart, context: context)
-        let output = StagedFile(url: staged, name: staged.lastPathComponent, check: .audio)
-        if keepsOriginalAsNewFile {
-            if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
-            return .derived(nextTo: url, outputs: [output])
-        }
-        return .replace(original: url, output: output)
+        return .replace(original: url, output: StagedFile(url: staged, name: staged.lastPathComponent, check: .audio))
     }
 
-    private static func tags(
-        of input: AudioInput, keepsOriginal: Bool, context: ItemContext
-    ) async throws -> AudioTags {
+    private static func tags(of input: AudioInput, context: ItemContext) async throws -> AudioTags {
         let tags: AudioTags
         do {
             tags = try await input.tags()
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            guard keepsOriginal else { throw EngineError.audioMetadataUnsupported }
+            guard context.savesNewFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
             return AudioTags()
         }
@@ -473,7 +458,7 @@ enum AudioJob {
             }
         }
         if losesMetadata {
-            guard keepsOriginal else { throw EngineError.audioMetadataUnsupported }
+            guard context.savesNewFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
         }
         return tags
@@ -540,7 +525,11 @@ extension AudioInput {
     /// What same-format operations write.
     var sameFormat: AudioFormat {
         if isFallback {
-            if isFloat || channels > StagedMediaFallback.maximumALACChannels { return .cafPCM }
+            let layoutExact = StagedMediaFallback.isALACLayoutExact(
+                channels: fallbackOrigin?.channels ?? channels, channelLayout: fallbackOrigin?.channelLayout)
+            if isFloat || (bitDepth ?? 0) > StagedMediaFallback.maximumALACBitDepth || !layoutExact {
+                return .cafPCM
+            }
             return sourceIsLossy ? .m4aAAC : .m4aALAC
         }
         return switch (container, codec) {

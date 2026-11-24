@@ -9,6 +9,7 @@ public enum EngineError: Error, Equatable, Sendable {
     case protectionDiskFull
     case insufficientDiskSpace(requiredBytes: Int64, availableBytes: Int64)
     case fallbackToolMissing
+    case fallbackConversionUnfaithful(String)
     case nonFiniteAudioSample
     case encodeFailed(String)
     case commitFailed(String)

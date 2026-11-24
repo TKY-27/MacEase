@@ -291,6 +291,24 @@ public final class JobEngine: Sendable {
         return error
     }
 
+    private func settleFallback(
+        _ result: ItemResult, newFileNaming: NewFileNaming?, context: ItemContext
+    ) -> ItemResult {
+        guard context.usedFallbackInput else { return result }
+        switch result {
+        case .replace(let original, let output):
+            if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
+            let outputName = newFileNaming?.name(for: original, outputName: output.name) ?? output.name
+            let named = StagedFile(url: output.url, name: outputName, check: output.check)
+            return .derived(nextTo: original, outputs: [named])
+        case .derived, .exported, .groupedDerived:
+            if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
+            return result
+        default:
+            return result
+        }
+    }
+
     private func commit(
         _ result: ItemResult,
         newFileNaming: NewFileNaming?,
@@ -301,12 +319,13 @@ public final class JobEngine: Sendable {
         tracker: BatchTracker,
         records: inout [CommitRecord]
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
+        let settled = settleFallback(result, newFileNaming: newFileNaming, context: context)
         var outputs: [URL] = []
-        switch result {
+        switch settled {
         case .replace, .derived, .created, .exported, .groupedDerived: break
         default: context.phase(.saving)
         }
-        switch result {
+        switch settled {
         case .organize(let plan):
             let output = try await history.organize(plan, batch: batch)
             outputs.append(output)
@@ -325,7 +344,7 @@ public final class JobEngine: Sendable {
             guard let expectedStamp = inputStamps[original] else {
                 throw EngineError.commitFailed("Replacement original was not an input")
             }
-            if let newFileNaming {
+            if context.settings.outputMode == .newFile, let newFileNaming {
                 let named = StagedFile(
                     url: output.url, name: newFileNaming.name(for: original, outputName: output.name),
                     check: output.check)
