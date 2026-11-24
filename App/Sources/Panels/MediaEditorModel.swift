@@ -101,6 +101,8 @@ final class MediaEditorModel {
     var category: EditorCategory
     var original = false
     var zoom = 1.0
+    /// Real magnification at Fit, from the preview.
+    private(set) var photoFitScale: Double?
     var timelineZoom = 1.0
     var timelineViewportWidth = 600.0
     var hoverPosition: Double?
@@ -272,7 +274,15 @@ final class MediaEditorModel {
     func setPhotoZoom(_ value: Double) {
         guard !editingLocked else { return }
         guard value.isFinite else { return }
-        zoom = min(Self.photoZoomRange.upperBound, max(Self.photoZoomRange.lowerBound, value))
+        zoom = min(photoZoomBounds.upperBound, max(photoZoomBounds.lowerBound, value))
+    }
+
+    /// Resizing keeps a chosen percentage, like Preview.
+    func updatePhotoFitScale(_ fit: Double) {
+        guard fit.isFinite, fit > 0, fit != photoFitScale else { return }
+        let kept = zoom == Self.photoZoomRange.lowerBound ? nil : photoMagnification
+        photoFitScale = fit
+        if let kept { zoom = min(photoZoomBounds.upperBound, max(photoZoomBounds.lowerBound, kept / fit)) }
     }
 
     func zoomTimeline(by factor: Double) {
@@ -1015,7 +1025,7 @@ final class MediaEditorModel {
                         try await renderVideo(generation: generation)
                     } else if let photoSource {
                         let edit = original ? ImageEdit() : values.photo
-                        let maximum = activeInteraction == nil ? Int(min(4096, 1600 * zoom)) : 960
+                        let maximum = activeInteraction == nil ? photoRenderDimension : 960
                         let cropPreview = category == .crop
                         let rendered = try await photoSource.render(
                             edit, maximumDimension: maximum, cropPreview: cropPreview,

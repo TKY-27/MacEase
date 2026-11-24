@@ -12,6 +12,7 @@ struct MediaEditorView: View {
     private var editable: Bool { model.ready && !model.editingLocked }
     @State private var showsPreparing = false
     @GestureState private var pinch = 1.0
+    @Environment(\.displayScale) private var displayScale
 
     private var preparing: Bool { model.preparingPreview }
 
@@ -64,6 +65,7 @@ struct MediaEditorView: View {
     }
 
     private static let preparingDelay = Duration.milliseconds(300)
+    private static let previewInset = CGSize(width: 48, height: 40)
 
     private var workspace: some View {
         VStack(spacing: 0) {
@@ -198,25 +200,17 @@ struct MediaEditorView: View {
     }
 
     private var photoBar: some View {
-        HStack {
-            Picker("Zoom", selection: $model.zoom) {
-                Text("Fit").tag(1.0)
-                Text(verbatim: "200%").tag(2.0)
-                Text(verbatim: "400%").tag(4.0)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .disabled(model.category == .crop)
-            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)")
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .frame(height: 44)
+        PhotoZoomControl(model: model, pinch: pinch)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
     }
 
     private var preview: some View {
         GeometryReader { proxy in
+            let fitScale = min(
+                (proxy.size.width - Self.previewInset.width) * displayScale / model.previewSize.width,
+                (proxy.size.height - Self.previewInset.height) * displayScale / model.previewSize.height)
             ZStack {
                 Color.black.opacity(0.55)
                 if model.isVideo || model.image != nil {
@@ -226,7 +220,8 @@ struct MediaEditorView: View {
                         : CGSize(
                             width: model.image?.width ?? 1, height: model.image?.height ?? 1)
                     let scale = min(
-                        (proxy.size.width - 48) / imageSize.width, (proxy.size.height - 40) / imageSize.height)
+                        (proxy.size.width - Self.previewInset.width) / imageSize.width,
+                        (proxy.size.height - Self.previewInset.height) / imageSize.height)
                     let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom * pinch
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
@@ -282,6 +277,9 @@ struct MediaEditorView: View {
                     }
                     Spacer()
                 }.padding(12)
+            }
+            .onChange(of: fitScale, initial: true) { _, fit in
+                if !model.isVideo { model.updatePhotoFitScale(fit) }
             }
         }
     }

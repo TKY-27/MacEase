@@ -21795,6 +21795,16 @@
           }
         }
       }
+    },
+    "Zoom Level": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大率"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
