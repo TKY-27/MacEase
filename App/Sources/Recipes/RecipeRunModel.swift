@@ -34,11 +34,12 @@ import Observation
         defer { busy = false }
         do {
             try RecipePlanner.validate(recipe: recipe, inputs: inputs)
-            let required = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: inputs)
+            let required = try await RecipePlanner.streamOmissions(
+                recipe: recipe, inputs: inputs, unpreservedStreams: settings.unpreservedStreams)
             if required.isEmpty {
                 try await submit(recipe)
             } else {
-                try await requestConsent(required, recipe: recipe)
+                requestConsent(required)
             }
         } catch { showFailure(error) }
     }
@@ -65,9 +66,9 @@ import Observation
     }
 
     private func submit(_ recipe: Recipe) async throws {
-        let stamps = try Dictionary(uniqueKeysWithValues: Set(inputs).map { ($0, try MediaSourceStamp(url: $0)) })
         let batch = try RecipePlanner.batch(
-            recipe: recipe, inputs: inputs, destination: destination, settings: settings, omissions: omissions)
+            recipe: recipe, inputs: inputs, destination: destination, settings: settings, omissions: omissions,
+            unpreservedStreams: settings.unpreservedStreams)
         guard let outcome = await onRun(batch) else { return }
         let refused = Set(
             outcome.outcomes.flatMap { result -> [UnpreservedStream] in
@@ -75,9 +76,16 @@ import Observation
                 return []
             })
         if !refused.isEmpty {
-            for (source, stamp) in stamps { try stamp.validate(source) }
+            let stamps = try Dictionary(
+                uniqueKeysWithValues: Set(inputs).map { source in
+                    guard let stamp = outcome.details.first?.inputStamps[source] else {
+                        throw ActivityAvailability.unavailable
+                    }
+                    return (source, stamp)
+                })
+            for (source, stamp) in stamps { try ActivitySession.validate(source, stamp: stamp) }
             let required = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: inputs, unavailable: refused)
-            for (source, stamp) in stamps { try stamp.validate(source) }
+            for (source, stamp) in stamps { try ActivitySession.validate(source, stamp: stamp) }
             var additional: [URL: StreamOmission] = [:]
             for (source, omission) in required {
                 let unapproved = omission.streams.subtracting(
@@ -87,7 +95,7 @@ import Observation
                 }
             }
             if !additional.isEmpty {
-                try await requestConsent(additional, recipe: recipe)
+                requestConsent(additional)
                 return
             }
         }
@@ -107,17 +115,10 @@ import Observation
             .compactMap { $0 }.joined(separator: "\n")
     }
 
-    /// Recipes keep originals, so the setting may answer.
-    private func requestConsent(_ required: [URL: StreamOmission], recipe: Recipe) async throws {
-        let request = StreamConsentRequest(
+    private func requestConsent(_ required: [URL: StreamOmission]) {
+        streamConsent = StreamConsentRequest(
             purpose: .proceed,
             files: required.map { .init(url: $0.key, omission: $0.value) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
-        guard settings.unpreservedStreams == .omitFromNewFiles else {
-            streamConsent = request
-            return
-        }
-        try approve(request.files)
-        try await submit(recipe)
     }
 }

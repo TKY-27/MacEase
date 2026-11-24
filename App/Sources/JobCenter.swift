@@ -69,7 +69,6 @@ final class JobCenter {
     private(set) var sessions: [UUID: ActivitySession] = [:]
     private(set) var downloadSessions: [UUID: DownloadSession] = [:]
     private var validatingRetries: Set<UUID> = []
-    private(set) var continuedWithoutStreams: Set<UUID> = []
     private var sessionOrder: [UUID] = []
     @ObservationIgnored private let comparisonHost = FeatureWindowHost()
     @ObservationIgnored private let retryHost = PanelHost()
@@ -203,6 +202,10 @@ final class JobCenter {
     @discardableResult
     func run(_ request: OperationRequest, settings suppliedSettings: Settings? = nil) -> Task<BatchOutcome?, Never> {
         let snapshot = suppliedSettings ?? settings.planning
+        let request = OperationRequest(
+            op: request.op, options: request.options, inputs: request.inputs,
+            omittedStreams: request.omittedStreams, inputStamps: request.inputStamps,
+            unpreservedStreams: snapshot.unpreservedStreams)
         return run(settings: snapshot, request: request) {
             await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
         }
@@ -405,7 +408,6 @@ final class JobCenter {
     }
 
     func dismissSession(_ id: UUID) {
-        continuedWithoutStreams.remove(id)
         sessions.removeValue(forKey: id)
         downloadSessions.removeValue(forKey: id)
         sessionOrder.removeAll { $0 == id }
@@ -444,43 +446,22 @@ final class JobCenter {
 
     func canContinueWithoutStreams(_ id: UUID) -> Bool {
         sessions[id]?.canRetryOmittingStreams == true && !validatingRetries.contains(id)
-            && !continuedWithoutStreams.contains(id)
     }
 
     func continueWithoutStreams(_ id: UUID) {
-        guard !terminating, canContinueWithoutStreams(id) else { return }
-        omitShownStreams(id)
-    }
-
-    /// Consent for new files only, never replacements.
-    static func omitsWithoutAsking(_ session: ActivitySession) -> Bool {
-        // Resubmitted runs ask, so refusals never loop.
-        session.settings.unpreservedStreams == .omitFromNewFiles && session.settings.outputMode == .newFile
-            && session.request.omittedStreams.isEmpty && session.canRetryOmittingStreams
-    }
-
-    /// Marked first, so Activity never asks.
-    private func continueWithoutAsking(_ id: UUID) {
-        continuedWithoutStreams.insert(id)
-        omitShownStreams(id) { self.continuedWithoutStreams.remove(id) }
-    }
-
-    /// Resubmits only the files and kinds shown.
-    private func omitShownStreams(_ id: UUID, failed: @escaping () -> Void = {}) {
-        guard let session = sessions[id] else { return }
+        guard !terminating, let session = sessions[id], canContinueWithoutStreams(id) else { return }
         let streams = Set(session.unpreservedStreams)
         let indices = session.unpreservedStreamIndices
         validateRetry(
-            id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }, failed: failed
+            id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }
         ) { _, request in
-            self.continuedWithoutStreams.insert(id)
             self.launchRetry(id, request: request)
         }
     }
 
     private func validateRetry(
         _ id: UUID, beginning: @escaping @Sendable (inout ActivitySession) throws -> OperationRequest,
-        failed: @escaping () -> Void = {}, then launch: @escaping (ActivitySession, OperationRequest) -> Void
+        then launch: @escaping (ActivitySession, OperationRequest) -> Void
     ) {
         guard let session = sessions[id] else { return }
         validatingRetries.insert(id)
@@ -496,7 +477,6 @@ final class JobCenter {
                 sessions[id] = validated.0
                 launch(validated.0, validated.1)
             } catch {
-                failed()
                 presentFailure?(session.request.op, UserMessages.describeActivity(error))
             }
         }
@@ -515,7 +495,8 @@ final class JobCenter {
                         id,
                         request: OperationRequest(
                             op: request.op, options: options, inputs: request.inputs,
-                            omittedStreams: request.omittedStreams))
+                            omittedStreams: request.omittedStreams,
+                            unpreservedStreams: request.unpreservedStreams))
                     close()
                 }
             }
@@ -584,15 +565,10 @@ final class JobCenter {
     }
 
     private func finish(_ outcome: BatchOutcome, request: OperationRequest?, settings: Settings, activeID: UUID) {
-        var resubmitted: Set<Int> = []
         if let request {
             let session = ActivitySession(request: request, settings: settings, outcome: outcome)
             sessions[outcome.batchID] = session
             rememberSession(outcome.batchID)
-            if !terminating, Self.omitsWithoutAsking(session) {
-                resubmitted = Set(session.unpreservedStreamIndices)
-                continueWithoutAsking(outcome.batchID)
-            }
         }
         let batch = active.first { $0.id == activeID }
         forget(activeID)
@@ -621,14 +597,7 @@ final class JobCenter {
         let shownInActivity = batch.map { showsFinished?($0, outcome) ?? false } ?? false
         // Only the banner can open Privacy settings.
         let needsBanner = !shownInActivity || Self.deniedPermission(outcome)
-        // The resubmitted run's banner reports those files.
-        let reportsLater =
-            !resubmitted.isEmpty
-            && outcome.outcomes.indices.allSatisfy { index in
-                if case .succeeded = outcome.outcomes[index] { return true }
-                return resubmitted.contains(index)
-            }
-        if needsBanner, !reportsLater, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
+        if needsBanner, !asked || questions.count < outcome.outcomes.count { notifier.notify(outcome) }
         Task { await refreshRecent() }
     }
 
@@ -636,7 +605,6 @@ final class JobCenter {
         sessionOrder.append(id)
         while sessionOrder.count > Self.sessionCount {
             let expired = sessionOrder.removeFirst()
-            continuedWithoutStreams.remove(expired)
             sessions.removeValue(forKey: expired)
             downloadSessions.removeValue(forKey: expired)
         }
