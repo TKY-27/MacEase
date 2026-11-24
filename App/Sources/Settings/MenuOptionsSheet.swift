@@ -52,11 +52,13 @@ struct MenuOptionsSheet: View {
 
     /// Recreates the fields, dropping invalid drafts.
     @State private var resets = 0
+    @State private var invalidFields: Set<String> = []
     @State private var editsPresets = false
 
     var body: some View {
         ChecklistSheet(resetTitle: "Reset", canReset: !isDefault) {
             reset()
+            invalidFields = []
             resets += 1
         } content: {
             Section {
@@ -79,7 +81,7 @@ struct MenuOptionsSheet: View {
 
     @ViewBuilder private var fields: some View {
         ForEach(options.slotRows, id: \.first?.id) { slots in
-            MenuValueRow(store: store, slots: slots)
+            MenuValueRow(store: store, slots: slots, invalidFields: $invalidFields)
         }
         switch options {
         case .imageCompress, .videoCompress:
@@ -97,12 +99,12 @@ struct MenuOptionsSheet: View {
             .accessibilityLabel(Text("Extra angle"))
             .accessibilityHint(Text("Adds one more angle to Rotate."))
             if store.settings.extraRotationEnabled {
-                ExtraAngleRow(store: store)
+                ExtraAngleRow(store: store, invalidFields: $invalidFields)
             }
         case .frameRate:
-            FrameRateFields(store: store)
+            FrameRateFields(store: store, invalidFields: $invalidFields)
         case .loudness:
-            LoudnessFields(store: store)
+            LoudnessFields(store: store, invalidFields: $invalidFields)
         case .imageResize, .videoResize:
             EmptyView()
         }
@@ -123,6 +125,7 @@ struct MenuOptionsSheet: View {
     }
 
     private var isDefault: Bool {
+        guard invalidFields.isEmpty else { return false }
         let defaults = Settings()
         let slots = options.slotRows.joined()
         switch options {
@@ -163,8 +166,10 @@ struct MenuOptionsSheet: View {
 }
 
 private struct FrameRateFields: View {
+    private static let field = MenuGroupOptions.frameRate.rawValue
+
     @Bindable var store: SettingsStore
-    @State private var rejectedFrameRate = false
+    @Binding var invalidFields: Set<String>
 
     var body: some View {
         TextField(
@@ -179,7 +184,8 @@ private struct FrameRateFields: View {
             String(localized: "Smooth (fps)", comment: "Smooth frame rate slot"),
             value: frameRate(\.frameRateSmooth),
             format: .number.grouping(.never))
-        if rejectedFrameRate || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateFilm)
+        if invalidFields.contains(Self.field)
+            || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateFilm)
             || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateStandard)
             || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateSmooth)
         {
@@ -196,15 +202,18 @@ private struct FrameRateFields: View {
         Binding {
             store.settings.video[keyPath: keyPath]
         } set: { rate in
-            rejectedFrameRate = !VideoSettings.frameRateRange.contains(rate)
-            if !rejectedFrameRate { store.settings.video[keyPath: keyPath] = rate }
+            let isValid = VideoSettings.frameRateRange.contains(rate)
+            invalidFields.mark(Self.field, valid: isValid)
+            if isValid { store.settings.video[keyPath: keyPath] = rate }
         }
     }
 }
 
 private struct LoudnessFields: View {
+    private static let field = MenuGroupOptions.loudness.rawValue
+
     @Bindable var store: SettingsStore
-    @State private var rejectedLoudness = false
+    @Binding var invalidFields: Set<String>
 
     var body: some View {
         TextField(
@@ -216,7 +225,8 @@ private struct LoudnessFields: View {
         TextField(
             String(localized: "Broadcast (LUFS)", comment: "Broadcast loudness preset"),
             value: loudness(\.loudnessBroadcast), format: .number)
-        if rejectedLoudness || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessTarget)
+        if invalidFields.contains(Self.field)
+            || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessTarget)
             || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessStreaming)
             || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessBroadcast)
         {
@@ -233,8 +243,9 @@ private struct LoudnessFields: View {
         Binding {
             store.settings.audio[keyPath: keyPath]
         } set: { target in
-            rejectedLoudness = !AudioSettings.loudnessRange.contains(target)
-            if !rejectedLoudness { store.settings.audio[keyPath: keyPath] = target }
+            let isValid = AudioSettings.loudnessRange.contains(target)
+            invalidFields.mark(Self.field, valid: isValid)
+            if isValid { store.settings.audio[keyPath: keyPath] = target }
         }
     }
 }
@@ -266,6 +277,7 @@ private struct PresetSheet: View {
 private struct MenuValueRow: View {
     @Bindable var store: SettingsStore
     let slots: [MenuValueSlot]
+    @Binding var invalidFields: Set<String>
     /// Typed text per slot, kept while invalid.
     @State private var drafts: [String: String] = [:]
 
@@ -321,6 +333,7 @@ private struct MenuValueRow: View {
             drafts[slot.id] ?? String(store.settings.menuValues.value(for: slot.id) ?? slot.defaultValue)
         } set: { text in
             drafts[slot.id] = text
+            invalidFields.mark(slot.id, valid: isValid(text, for: slot))
             guard isValid(text, for: slot), let value = Int(text) else { return }
             var values = store.settings.menuValues
             do {
@@ -335,6 +348,7 @@ private struct MenuValueRow: View {
 
 private struct ExtraAngleRow: View {
     @Bindable var store: SettingsStore
+    @Binding var invalidFields: Set<String>
     @State private var draft: String?
 
     private static let fieldWidth: CGFloat = 64
@@ -371,7 +385,9 @@ private struct ExtraAngleRow: View {
             draft ?? store.settings.extraRotationDegrees.formatted(.number.grouping(.never))
         } set: { text in
             draft = text
-            if let degrees = Self.degrees(from: text) { store.settings.extraRotationDegrees = degrees }
+            let degrees = Self.degrees(from: text)
+            invalidFields.mark(OperationID.extraAnglePreset, valid: degrees != nil)
+            if let degrees { store.settings.extraRotationDegrees = degrees }
         }
     }
 
@@ -386,5 +402,12 @@ private struct ExtraAngleRow: View {
 extension MenuValueSlot {
     fileprivate var operation: OperationID? {
         id.split(separator: "/").first.flatMap { OperationID(rawValue: String($0)) }
+    }
+}
+
+extension Set<String> {
+    /// Tracks fields showing a rejected value.
+    fileprivate mutating func mark(_ field: String, valid: Bool) {
+        if valid { remove(field) } else { insert(field) }
     }
 }
