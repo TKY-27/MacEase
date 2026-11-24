@@ -141,12 +141,13 @@ struct PreviewContent: View {
 
     @ViewBuilder private var viewer: some View {
         switch kind {
-        case .text, .html, .markdown, .json, .propertyList:
+        case .text, .html, .markdown, .json, .propertyList, .svg:
             PreviewTextViewer(url: url, kind: kind, trust: trust, settings: settings, scriptConsent: $scriptConsent)
         case .image: PreviewImageViewer(url: url)
         case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
         case .pdf: PreviewPDFViewer(url: url)
-        case .svg, .font, .quickLook:
+        case .font: PreviewFontViewer(url: url, sample: settings.effectiveFontSampleText)
+        case .quickLook:
             VStack(spacing: 0) {
                 PreviewToolbar {}
                 QuickLookPreview(url: url)
@@ -218,8 +219,8 @@ struct PreviewToolbar<Content: View>: View {
             if let mismatch {
                 PreviewNote(
                     symbol: "exclamationmark.triangle.fill",
-                    text: Text("The content looks like \(mismatch), which doesn't match the file name."),
-                    shortText: Text("Content looks like \(mismatch)"), tint: .yellow)
+                    text: Text("The file name doesn't match its content (\(mismatch))."),
+                    shortText: Text("Name doesn't match content (\(mismatch))"), tint: .yellow)
             }
         }
     }

@@ -37,12 +37,15 @@ struct PreviewTextRendering: Sendable {
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
-        let html = rich && (kind == .markdown || (kind == .html && restricted))
+        let html = rich && (kind == .markdown || kind == .svg || (kind == .html && restricted))
         var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
             text = try PropertyListConversion.json(from: source.bytes, indent: "  ")
             language = .json
+        } else if html && kind == .svg {
+            guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
+            text = svgPage(source.bytes)
         } else {
             let decoded = try source.decoded(as: encoding)
             if rich && kind == .json {
@@ -69,6 +72,19 @@ struct PreviewTextRendering: Sendable {
         }
         try Task.checkCancellation()
         return Self(text: text, tokens: tokens, lineStarts: lineStarts, html: html)
+    }
+
+    // An image element never runs SVG scripts.
+    static func svgPage(_ svg: Data) -> String {
+        """
+        <!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        :root { color-scheme: light dark; }
+        html, body { margin: 0; height: 100%; }
+        body { box-sizing: border-box; padding: 16px; display: flex; align-items: center; justify-content: center;
+          background: repeating-conic-gradient(#8881 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+        img { width: 100%; height: 100%; object-fit: contain; }
+        </style></head><body><img alt="" src="data:image/svg+xml;base64,\(svg.base64EncodedString())"></body></html>
+        """
     }
 }
 
@@ -158,7 +174,7 @@ struct PreviewTextViewer: View {
                     webPermissions.labelStyle(.iconOnly)
                 }
             }
-        } else if !(rich && kind == .markdown) {
+        } else if !(rich && (kind == .markdown || kind == .svg)) {
             if source?.binaryPropertyList != true {
                 Menu {
                     encodingPicker.pickerStyle(.inline)
@@ -177,7 +193,7 @@ struct PreviewTextViewer: View {
 
     private var modePicker: some View {
         Picker("View", selection: $rich) {
-            if kind == .html {
+            if kind == .html || kind == .svg {
                 Text("Preview").tag(true)
             } else if kind == .markdown {
                 Text("Rendered").tag(true)

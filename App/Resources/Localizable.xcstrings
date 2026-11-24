@@ -18620,26 +18620,6 @@
         }
       }
     },
-    "The content looks like %@, which doesn't match the file name.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "内容は%@のようです。ファイル名と一致しません。"
-          }
-        }
-      }
-    },
-    "Content looks like %@": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "内容は%@のようです"
-          }
-        }
-      }
-    },
     "3GP video": {
       "comment": "Detected file format",
       "extractionState": "manual",
@@ -19020,6 +19000,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "ZIPアーカイブ"
+          }
+        }
+      }
+    },
+    "%lld pt": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
+          }
+        }
+      }
+    },
+    "First of %lld faces": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld個のフェイスの1つ目"
+          }
+        }
+      }
+    },
+    "The file name doesn't match its content (%@).": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名が内容（%@）と一致しません。"
+          }
+        }
+      }
+    },
+    "Name doesn't match content (%@)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前と内容が不一致（%@）"
           }
         }
       }
