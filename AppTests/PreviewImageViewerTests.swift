@@ -1,5 +1,6 @@
 import AppKit
 import ImageIO
+import SwiftUI
 import UniformTypeIdentifiers
 import VisionKit
 import XCTest
@@ -18,7 +19,7 @@ final class PreviewImageViewerTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    func testLoopCountsFollowEachFormat() throws {
+    func testLoopCountsFollowEachFormat() async throws {
         let png = directory.appending(path: "loop.png")
         let frames = try (0..<3).map { try PreviewImageFixtures.solid(width: 8, height: 8, gray: CGFloat($0) / 2) }
         try PreviewImageFixtures.write(
@@ -26,13 +27,156 @@ final class PreviewImageViewerTests: XCTestCase {
             container: [kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGLoopCount: 2]],
             frame: [kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGDelayTime: 0.02]])
 
-        XCTAssertEqual(try plays(PreviewImageFixtures.gif(frames: 3, loopCount: 2, in: directory, name: "two.gif")), 2)
-        XCTAssertEqual(
-            try plays(PreviewImageFixtures.gif(frames: 3, loopCount: nil, in: directory, name: "once.gif")), 1)
-        XCTAssertNil(try plays(PreviewImageFixtures.gif(frames: 3, loopCount: 0, in: directory, name: "forever.gif")))
-        XCTAssertEqual(try plays(png), 2)
-        XCTAssertEqual(PreviewImageSource.plays([kCGImagePropertyWebPDictionary: [:] as [CFString: Any]]), 1)
+        let twoGif = try await PreviewImageSource().open(
+            PreviewImageFixtures.gif(frames: 3, loopCount: 2, in: directory, name: "two.gif"))
+        let onceGif = try await PreviewImageSource().open(
+            PreviewImageFixtures.gif(frames: 3, loopCount: nil, in: directory, name: "once.gif"))
+        let foreverGif = try await PreviewImageSource().open(
+            PreviewImageFixtures.gif(frames: 3, loopCount: 0, in: directory, name: "forever.gif"))
+        let apng = try await PreviewImageSource().open(png)
+        let finiteWebP = try await PreviewImageSource().open(
+            PreviewImageFixtures.animatedWebP(loopCount: 2, delaysMs: [40, 80], in: directory, name: "two.webp"))
+        let foreverWebP = try await PreviewImageSource().open(
+            PreviewImageFixtures.animatedWebP(loopCount: 0, delaysMs: [50, 50], in: directory, name: "forever.webp"))
+
+        XCTAssertEqual(twoGif.animation?.plays, 2)
+        XCTAssertEqual(onceGif.animation?.plays, 1)
+        XCTAssertNil(foreverGif.animation?.plays)
+        XCTAssertEqual(apng.animation?.plays, 2)
+        XCTAssertEqual(finiteWebP.animation?.plays, 2)
+        XCTAssertEqual(finiteWebP.animation?.delays ?? [], [0.04, 0.08])
+        XCTAssertNil(foreverWebP.animation?.plays)
         XCTAssertEqual(PreviewImageSource.plays([:]), 1)
+    }
+
+    func testHEICSReadsAnimationTimingThroughOpen() async throws {
+        let supported = (CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? []
+        try XCTSkipUnless(supported.contains("public.heics"), "HEICS writer unavailable on this Mac")
+        let url = directory.appending(path: "sequence.heics")
+        let frames = try (0..<3).map { try PreviewImageFixtures.solid(width: 16, height: 16, gray: CGFloat($0) / 2) }
+        try PreviewImageFixtures.write(
+            frames, to: url, typeIdentifier: "public.heics",
+            container: [kCGImagePropertyHEICSDictionary: [kCGImagePropertyHEICSLoopCount: 0]],
+            frame: [kCGImagePropertyHEICSDictionary: [kCGImagePropertyHEICSUnclampedDelayTime: 0.04]])
+
+        let opened = try await PreviewImageSource().open(url)
+        let timing = try XCTUnwrap(opened.animation)
+        XCTAssertEqual(timing.delays.count, 3)
+        for delay in timing.delays { XCTAssertEqual(delay, 0.04, accuracy: 0.005) }
+    }
+
+    func testMultiPageTIFFICOAndICNSAreNotAnimated() async throws {
+        let tiffURL = directory.appending(path: "pages.tiff")
+        let widePage = try PreviewImageFixtures.solid(width: 4_500, height: 40, gray: 0.2)
+        let secondPage = try PreviewImageFixtures.solid(width: 200, height: 40, gray: 0.8)
+        try PreviewImageFixtures.write([widePage, secondPage], to: tiffURL, type: .tiff)
+
+        let openedTIFF = try await PreviewImageSource().open(tiffURL)
+        XCTAssertNil(openedTIFF.animation)
+        XCTAssertEqual(openedTIFF.pixelSize, CGSize(width: 4_500, height: 40))
+        XCTAssertTrue(openedTIFF.offersFullResolution)
+        if ImageAnalyzer.isSupported {
+            XCTAssertTrue(PreviewLiveText.isWorthAnalyzing(pixelSize: openedTIFF.pixelSize, animated: false))
+        }
+
+        let icoURL = directory.appending(path: "icon.ico")
+        let iconFrames = [
+            try PreviewImageFixtures.solid(width: 64, height: 64, gray: 0.3),
+            try PreviewImageFixtures.solid(width: 32, height: 32, gray: 0.7),
+        ]
+        try PreviewImageFixtures.write(iconFrames, to: icoURL, typeIdentifier: "com.microsoft.ico")
+        let openedICO = try await PreviewImageSource().open(icoURL)
+        XCTAssertNil(openedICO.animation)
+        XCTAssertEqual(openedICO.pixelSize, CGSize(width: 64, height: 64))
+
+        let icnsURL = directory.appending(path: "icon.icns")
+        let icnsFrames = [
+            try PreviewImageFixtures.solid(width: 128, height: 128, gray: 0.4),
+            try PreviewImageFixtures.solid(width: 32, height: 32, gray: 0.6),
+        ]
+        try PreviewImageFixtures.write(icnsFrames, to: icnsURL, typeIdentifier: "com.apple.icns")
+        let openedICNS = try await PreviewImageSource().open(icnsURL)
+        XCTAssertNil(openedICNS.animation)
+    }
+
+    func testGIFDelaysUnderTwentyMillisecondsPlayAtHundredMilliseconds() async throws {
+        let zeroGIF = try PreviewImageFixtures.gif(frames: 2, loopCount: 0, delay: 0, in: directory, name: "zero.gif")
+        let tenMsGIF = try PreviewImageFixtures.gif(
+            frames: 2, loopCount: 0, delay: 0.01, in: directory, name: "ten.gif")
+        let twentyMsGIF = try PreviewImageFixtures.gif(
+            frames: 2, loopCount: 0, delay: 0.02, in: directory, name: "twenty.gif")
+        let fiftyMsGIF = try PreviewImageFixtures.gif(
+            frames: 2, loopCount: 0, delay: 0.05, in: directory, name: "fifty.gif")
+
+        let openedZero = try await PreviewImageSource().open(zeroGIF)
+        let openedTen = try await PreviewImageSource().open(tenMsGIF)
+        let openedTwenty = try await PreviewImageSource().open(twentyMsGIF)
+        let openedFifty = try await PreviewImageSource().open(fiftyMsGIF)
+
+        XCTAssertEqual(openedZero.animation?.delays, [0.1, 0.1])
+        XCTAssertEqual(openedTen.animation?.delays, [0.1, 0.1])
+        XCTAssertEqual(openedTwenty.animation?.delays, [0.02, 0.02])
+        XCTAssertEqual(openedFifty.animation?.delays, [0.05, 0.05])
+        XCTAssertEqual(
+            PreviewImageSource.clampedDelaySeconds(-0.05), PreviewImageSource.defaultFrameDelaySeconds)
+    }
+
+    func testHostileDelaysAndOverflowingDimensionsDoNotCrash() async throws {
+        XCTAssertEqual(
+            PreviewImageSource.clampedDelaySeconds(1e308), PreviewImageSource.maximumFrameDelaySeconds)
+        XCTAssertEqual(
+            PreviewImageSource.clampedDelaySeconds(.infinity), PreviewImageSource.defaultFrameDelaySeconds)
+        XCTAssertEqual(
+            PreviewImageSource.clampedDelaySeconds(.nan), PreviewImageSource.defaultFrameDelaySeconds)
+        XCTAssertNil(PreviewImageSource.pixelCount(width: 4_000_000_000, height: 4_000_000_000))
+        XCTAssertNil(
+            PreviewImageSource.fullResolutionByteCount(width: 4_000_000_000, height: 4_000_000_000, bitsPerPixel: 32))
+        XCTAssertNil(PreviewImageSource.byteCount(Int.max, 2))
+
+        let hugePNGURL = directory.appending(path: "bomb.png")
+        try PreviewImageFixtures.monochromePNG(width: 25_000, height: 25_000).write(to: hugePNGURL)
+        do {
+            _ = try await PreviewImageSource().open(hugePNGURL)
+            XCTFail("Expected image exceeding maximumSourcePixelCount to be refused")
+        } catch {
+            XCTAssertNotNil(error)
+        }
+
+        let gifURL = try PreviewImageFixtures.gif(frames: 2, size: 16, loopCount: 1, in: directory, name: "huge.gif")
+        let source = PreviewImageSource()
+        let opened = try await source.open(gifURL)
+        let animator = PreviewImageAnimator(
+            source: source, first: opened.first, timing: PreviewImageTiming(delays: [1e308, 1e308], plays: 1))
+        animator.play()
+        await Task.yield()
+        XCTAssertTrue(animator.isPlaying)
+        animator.pause()
+        XCTAssertFalse(animator.isPlaying)
+    }
+
+    func testHundredThousandFrameDeclarationRefusesAnimationAndCancelsPromptly() async throws {
+        let url = try PreviewImageFixtures.manyFrameGIF(frameCount: 100_000, in: directory, name: "100k.gif")
+
+        let opened = try await PreviewImageSource().open(url)
+        XCTAssertNil(opened.animation)
+        XCTAssertEqual(opened.first.width, 1)
+
+        let start = ContinuousClock.now
+        let source = PreviewImageSource(maximumFrameCount: 200_000)
+        let (started, startedContinuation) = AsyncStream<Void>.makeStream()
+        let task = Task.detached {
+            startedContinuation.yield()
+            startedContinuation.finish()
+            return try await source.open(url)
+        }
+        for await _ in started { break }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancelled open to throw CancellationError")
+        } catch is CancellationError {
+        }
+        XCTAssertLessThan(ContinuousClock.now - start, .seconds(2))
     }
 
     func testTimingStopsOnTheLastFrameOfTheLastPlay() throws {
@@ -50,34 +194,83 @@ final class PreviewImageViewerTests: XCTestCase {
         for _ in 0..<1_000 {
             endlessPosition = try XCTUnwrap(endless.step(after: endlessPosition))
         }
+        XCTAssertNil(PreviewImageTiming(delays: [], plays: 1).step(after: position))
     }
 
     func testAnimationStopsAfterItsPlaysAndReplaysFromTheStart() async throws {
         let model = PreviewImageModel()
-        await model.load(try PreviewImageFixtures.gif(frames: 3, loopCount: 1, in: directory), reduceMotion: false)
+        await model.load(
+            try PreviewImageFixtures.gif(frames: 3, loopCount: 1, delay: 0.04, in: directory), reduceMotion: false)
         let animator = try XCTUnwrap(model.animator)
         XCTAssertTrue(animator.isPlaying)
-        try await waitUntil { !animator.isPlaying }
+        try await waitUntilObserved { !animator.isPlaying }
         XCTAssertEqual(animator.position, PreviewImageTiming.Position(index: 2, completedPlays: 0))
 
         animator.play()
-        try await waitUntil { animator.position.index == 0 }
+        try await waitUntilObserved { animator.position.index == 0 }
         XCTAssertTrue(animator.isPlaying)
         animator.pause()
     }
 
     func testReduceMotionShowsTheFirstFrameUntilPlayIsPressed() async throws {
         let model = PreviewImageModel()
-        await model.load(try PreviewImageFixtures.gif(frames: 4, loopCount: 0, in: directory), reduceMotion: true)
+        await model.load(
+            try PreviewImageFixtures.gif(frames: 4, loopCount: 0, delay: 0.03, in: directory), reduceMotion: true)
         let animator = try XCTUnwrap(model.animator)
-        try await Task.sleep(for: .milliseconds(200))
         XCTAssertFalse(animator.isPlaying)
         XCTAssertEqual(animator.position.index, 0)
 
         animator.play()
-        try await waitUntil { animator.position.index > 0 }
+        try await waitUntilObserved { animator.position.index > 0 }
         model.stop()
         XCTAssertFalse(animator.isPlaying)
+    }
+
+    func testAnimationPausesWhenOccludedAndResumesWhenVisible() async throws {
+        let model = PreviewImageModel()
+        await model.load(
+            try PreviewImageFixtures.gif(frames: 4, loopCount: 0, delay: 0.03, in: directory), reduceMotion: false)
+        let animator = try XCTUnwrap(model.animator)
+        try await waitUntilObserved { animator.position.index > 0 }
+
+        model.setWindowVisible(false)
+        XCTAssertFalse(animator.isPlaying)
+        let pausedPosition = animator.position
+        await Task.yield()
+        XCTAssertEqual(animator.position, pausedPosition)
+
+        model.setWindowVisible(true)
+        XCTAssertTrue(animator.isPlaying)
+        try await waitUntilObserved { animator.position != pausedPosition }
+
+        // User pause stays paused after occlusion changes.
+        animator.pause()
+        model.setWindowVisible(false)
+        model.setWindowVisible(true)
+        XCTAssertFalse(animator.isPlaying)
+        model.stop()
+    }
+
+    func testScrollViewObservesWindowOcclusionNotifications() async throws {
+        let scroll = PreviewImageScroll(pixelSize: CGSize(width: 64, height: 64))
+        var states: [Bool] = []
+        scroll.occlusionChanged = { states.append($0) }
+        let window = NSWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 200, height: 200), styleMask: [.borderless], backing: .buffered,
+            defer: false)
+        window.contentView = scroll
+        defer { window.orderOut(nil) }
+        try await waitUntilCondition { !states.isEmpty }
+        let initial = try XCTUnwrap(states.last)
+
+        window.orderFrontRegardless()
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        XCTAssertEqual(states.last, window.occlusionState.contains(.visible))
+        if initial == window.occlusionState.contains(.visible) {
+            window.orderOut(nil)
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            XCTAssertEqual(states.last, false)
+        }
     }
 
     func testFrameCacheStaysWithinItsBudget() async throws {
@@ -100,6 +293,23 @@ final class PreviewImageViewerTests: XCTestCase {
         XCTAssertGreaterThan(roomyCache, frameBytes * 30)
     }
 
+    func testMixedFrameSizesRespectFrameCacheLimit() async throws {
+        let url = try PreviewImageFixtures.gif(frames: 4, size: 16, loopCount: 0, in: directory, name: "mixed.gif")
+        let smallFrameBytes = 16 * 16 * 4
+        let cacheLimit = smallFrameBytes * 6
+        let source = PreviewImageSource(frameCacheLimit: cacheLimit)
+        _ = try await source.open(url)
+        let initialBytes = await source.cachedBytes
+        XCTAssertGreaterThan(initialBytes, 0)
+        XCTAssertLessThanOrEqual(initialBytes, cacheLimit)
+
+        let largeFrame = try PreviewImageFixtures.solid(width: 512, height: 512, gray: 0.5)
+        await source.store(largeFrame, at: 1)
+        let afterLarge = await source.cachedBytes
+        XCTAssertLessThanOrEqual(afterLarge, cacheLimit)
+        XCTAssertEqual(afterLarge, initialBytes)
+    }
+
     func testLiveTextSkipsAnimatedTinyAndOversizedImages() throws {
         try XCTSkipUnless(ImageAnalyzer.isSupported, "Live Text is not supported on this Mac")
         XCTAssertTrue(PreviewLiveText.isWorthAnalyzing(pixelSize: CGSize(width: 2_880, height: 1_800), animated: false))
@@ -109,7 +319,7 @@ final class PreviewImageViewerTests: XCTestCase {
             PreviewLiveText.isWorthAnalyzing(pixelSize: CGSize(width: 12_000, height: 9_000), animated: false))
     }
 
-    func testLiveTextFindsTextAndIsCancelledWhenTheSelectionMoves() async throws {
+    func testLiveTextFindsTextAndCancelsDuringAnalysis() async throws {
         try XCTSkipUnless(ImageAnalyzer.isSupported, "Live Text is not supported on this Mac")
         let url = directory.appending(path: "screenshot.png")
         try PreviewImageFixtures.write(
@@ -117,21 +327,34 @@ final class PreviewImageViewerTests: XCTestCase {
 
         let analysed = PreviewImageModel()
         await analysed.load(url, reduceMotion: false)
-        try await waitUntil(timeout: .seconds(20)) { analysed.liveText.analysis != nil }
+        try await waitUntilObserved(timeout: .seconds(20)) { analysed.liveText.analysis != nil }
         XCTAssertEqual(analysed.liveText.analysis?.hasResults(for: .text), true)
 
         let cancelled = PreviewImageModel()
         await cancelled.load(url, reduceMotion: false)
+        try await waitUntilObserved(timeout: .seconds(5)) { cancelled.liveText.phase == .analyzing }
         cancelled.liveText.cancel()
-        try await Task.sleep(for: PreviewLiveText.settleDelay * 4)
+        XCTAssertEqual(cancelled.liveText.phase, .idle)
         XCTAssertNil(cancelled.liveText.analysis)
+    }
+
+    func testLiveTextDoesNotKeepAnalysisOrMountOverlayWithoutText() async throws {
+        try XCTSkipUnless(ImageAnalyzer.isSupported, "Live Text is not supported on this Mac")
+        let url = directory.appending(path: "blank.png")
+        try PreviewImageFixtures.write(
+            [try PreviewImageFixtures.solid(width: 256, height: 256, gray: 0.5)], to: url, type: .png)
+
+        let model = PreviewImageModel()
+        await model.load(url, reduceMotion: false)
+        try await waitUntilObserved(timeout: .seconds(20)) { model.liveText.phase == .finished }
+        XCTAssertNil(model.liveText.analysis)
     }
 
     func testAnimatedImagesAreNeverAnalysed() async throws {
         let model = PreviewImageModel()
         await model.load(
             try PreviewImageFixtures.gif(frames: 2, size: 200, loopCount: 0, in: directory), reduceMotion: true)
-        try await Task.sleep(for: PreviewLiveText.settleDelay * 3)
+        XCTAssertEqual(model.liveText.phase, .idle)
         XCTAssertNil(model.liveText.analysis)
         model.stop()
     }
@@ -166,6 +389,22 @@ final class PreviewImageViewerTests: XCTestCase {
         XCTAssertEqual(scroll.zoom.preset, .actualSize, "resizing keeps a chosen zoom")
     }
 
+    func testCheckerboardTileIsBoundedAndCached() {
+        let tinyScaleSquare = PreviewImageLayerView.checkerSquarePoints(forScale: 0.01)
+        XCTAssertLessThanOrEqual(tinyScaleSquare, Int(PreviewImageLayerView.maximumCheckerSquarePoints))
+        XCTAssertGreaterThanOrEqual(tinyScaleSquare, Int(PreviewImageLayerView.minimumCheckerSquarePoints))
+
+        let first = PreviewImageLayerView.checkerboardColor(for: .aqua, squarePoints: tinyScaleSquare)
+        let second = PreviewImageLayerView.checkerboardColor(for: .aqua, squarePoints: tinyScaleSquare)
+        XCTAssertTrue(first === second)
+
+        let layerView = PreviewImageLayerView(frame: NSRect(x: 0, y: 0, width: 20_000, height: 20_000))
+        layerView.showsCheckerboard = true
+        layerView.checkerScale = 0.01
+        layerView.updateLayer()
+        XCTAssertTrue(layerView.layer?.backgroundColor === first)
+    }
+
     func testActualSizeOnALargeImageDecodesFullResolution() async throws {
         let url = directory.appending(path: "wide.png")
         try PreviewImageFixtures.write(
@@ -175,16 +414,69 @@ final class PreviewImageViewerTests: XCTestCase {
         let opened = try XCTUnwrap(model.opened)
         XCTAssertEqual(opened.first.width, PreviewImageSource.maximumPreviewEdge)
         XCTAssertTrue(opened.offersFullResolution)
+        XCTAssertNil(model.reducedSize)
 
         model.zoomChanged(PreviewZoom(preset: .fit, percent: 30))
-        try await Task.sleep(for: .milliseconds(100))
         XCTAssertNil(model.detail)
 
         model.zoomChanged(PreviewZoom(preset: .actualSize, percent: 100))
-        try await waitUntil { model.detail != nil }
+        try await waitUntilObserved { model.detail != nil }
         XCTAssertEqual(model.detail?.width, 5_000)
         XCTAssertFalse(model.showsReduced)
+        XCTAssertNil(model.reducedSize)
         model.stop()
+    }
+
+    func testOverLimitImageReportsReducedAndShownAt() async throws {
+        let url = directory.appending(path: "over-limit.png")
+        try PreviewImageFixtures.monochromePNG(width: 20_000, height: 20_000).write(to: url)
+        let model = PreviewImageModel()
+        await model.load(url, reduceMotion: false)
+        let opened = try XCTUnwrap(model.opened)
+        XCTAssertFalse(opened.offersFullResolution)
+        XCTAssertEqual(opened.first.width, PreviewImageSource.maximumPreviewEdge)
+        XCTAssertEqual(model.reducedSize, CGSize(width: opened.first.width, height: opened.first.height))
+
+        model.zoomChanged(PreviewZoom(preset: .actualSize, percent: 100))
+        XCTAssertTrue(model.showsReduced)
+        model.stop()
+    }
+
+    func testFailedFullResolutionDecodeReportsReducedAndShownAt() async throws {
+        let url = directory.appending(path: "vanishing.png")
+        try PreviewImageFixtures.write(
+            [try PreviewImageFixtures.solid(width: 5_000, height: 50, gray: 0.5)], to: url, type: .png)
+        let model = PreviewImageModel()
+        await model.load(url, reduceMotion: false)
+        let opened = try XCTUnwrap(model.opened)
+        XCTAssertTrue(opened.offersFullResolution)
+
+        try FileManager.default.removeItem(at: url)
+        model.zoomChanged(PreviewZoom(preset: .actualSize, percent: 100))
+        try await waitUntilObserved { model.detailFailed }
+        XCTAssertTrue(model.showsReduced)
+        XCTAssertEqual(model.reducedSize, CGSize(width: opened.first.width, height: opened.first.height))
+        model.stop()
+    }
+
+    func testRotatedEXIFOrientationsFiveThroughEightSwapDimensionsAndFullResolution() async throws {
+        let raw = try PreviewImageFixtures.solid(width: 4_500, height: 80, gray: 0.4)
+        for orientation in 5...8 {
+            let url = directory.appending(path: "orient-\(orientation).jpg")
+            try PreviewImageFixtures.write(
+                [raw], to: url, type: .jpeg, frame: [kCGImagePropertyOrientation: orientation])
+            let source = PreviewImageSource()
+            let opened = try await source.open(url)
+            XCTAssertEqual(opened.pixelSize, CGSize(width: 80, height: 4_500), "orientation \(orientation)")
+            XCTAssertEqual(opened.first.height, PreviewImageSource.maximumPreviewEdge)
+            XCTAssertLessThan(opened.first.width, opened.first.height)
+            XCTAssertEqual(
+                opened.metadata.rows.first { $0.field == .dimensions }?.value, "80 × 4500")
+            XCTAssertTrue(opened.offersFullResolution)
+            let full = try await source.fullResolution()
+            XCTAssertEqual(full.width, 80)
+            XCTAssertEqual(full.height, 4_500)
+        }
     }
 
     func testSmallImagesAreNeverReportedAsReduced() async throws {
@@ -196,61 +488,102 @@ final class PreviewImageViewerTests: XCTestCase {
         model.zoomChanged(PreviewZoom(preset: nil, percent: 800))
         XCTAssertFalse(model.showsReduced)
         XCTAssertFalse(try XCTUnwrap(model.opened).offersFullResolution)
+        XCTAssertNil(model.reducedSize)
         model.stop()
     }
 
-    func testInfoShowsOnlyKnownFieldsAndNeverCoordinates() throws {
-        let info = PreviewImageInfo(
-            properties: [
+    func testInfoThroughOpenShowsOnlyKnownFieldsAndNeverCoordinates() async throws {
+        let url = directory.appending(path: "camera.jpg")
+        let photo = try PreviewImageFixtures.solid(width: 320, height: 240, gray: 0.4)
+        try PreviewImageFixtures.write(
+            [photo], to: url, type: .jpeg,
+            frame: [
                 kCGImagePropertyTIFFDictionary: [
                     kCGImagePropertyTIFFMake: "Canon", kCGImagePropertyTIFFModel: "Canon EOS R5",
                 ],
                 kCGImagePropertyExifDictionary: [
-                    kCGImagePropertyExifDateTimeOriginal: "2026:10:03 07:42:18", kCGImagePropertyExifLensModel: "  ",
+                    kCGImagePropertyExifDateTimeOriginal: "2026:10:03 07:42:18",
+                    kCGImagePropertyExifLensModel: "  ",
                 ],
                 kCGImagePropertyGPSDictionary: [
-                    kCGImagePropertyGPSLatitude: 35.6586, kCGImagePropertyGPSLongitude: 139.7454,
+                    kCGImagePropertyGPSLatitude: 35.6586, kCGImagePropertyGPSLatitudeRef: "N",
+                    kCGImagePropertyGPSLongitude: 139.7454, kCGImagePropertyGPSLongitudeRef: "E",
                 ],
-            ],
-            pixelSize: CGSize(width: 8_192, height: 5_464), headroom: 0)
+            ])
 
-        XCTAssertEqual(info.rows.map(\.field), [.dimensions, .camera, .captured, .location])
-        XCTAssertEqual(info.rows.first { $0.field == .camera }?.value, "Canon EOS R5")
-        let location = try XCTUnwrap(info.rows.first { $0.field == .location }?.value)
+        let opened = try await PreviewImageSource().open(url)
+        let metadata = opened.metadata
+        XCTAssertEqual(metadata.rows.first { $0.field == .dimensions }?.value, "320 × 240")
+        XCTAssertEqual(metadata.rows.first { $0.field == .camera }?.value, "Canon EOS R5")
+        XCTAssertNil(metadata.rows.first { $0.field == .lens })
+        XCTAssertNotNil(metadata.rows.first { $0.field == .captured })
+        let location = try XCTUnwrap(metadata.rows.first { $0.field == .location }?.value)
         XCTAssertNil(location.rangeOfCharacter(from: .decimalDigits))
-        for row in info.rows {
+        for row in metadata.rows {
             XCTAssertFalse(row.value.contains("35.6") || row.value.contains("139"), "\(row.field) leaks coordinates")
         }
     }
 
-    func testInfoListsHDRAndProfileDetailsWhenPresent() {
-        let info = PreviewImageInfo(
-            properties: [
-                kCGImagePropertyDPIWidth: 144.0, kCGImagePropertyDPIHeight: 144.0, kCGImagePropertyDepth: 10,
-                kCGImagePropertyProfileName: "Display P3",
+    func testInfoThroughOpenListsProfileResolutionBitDepthAndHDR() async throws {
+        let url = directory.appending(path: "p3.png")
+        let image = try PreviewImageFixtures.solid(
+            width: 200, height: 100, gray: 0.5, bitsPerComponent: 16, colorSpaceName: CGColorSpace.displayP3)
+        try PreviewImageFixtures.write(
+            [image], to: url, type: .png,
+            frame: [
+                kCGImagePropertyDPIWidth: 144.0, kCGImagePropertyDPIHeight: 144.0,
                 kCGImagePropertyTIFFDictionary: [
                     kCGImagePropertyTIFFMake: "Apple", kCGImagePropertyTIFFModel: "iPhone 17",
                 ],
-            ],
-            pixelSize: CGSize(width: 4_032, height: 3_024), headroom: 4)
-        XCTAssertEqual(
-            info.rows.map(\.field), [.dimensions, .resolution, .colorProfile, .bitDepth, .dynamicRange, .camera])
-        XCTAssertEqual(info.rows.first { $0.field == .camera }?.value, "Apple iPhone 17")
+            ])
 
-        let standard = PreviewImageInfo(properties: [:], pixelSize: CGSize(width: 10, height: 10), headroom: 1)
-        XCTAssertEqual(standard.rows.map(\.field), [.dimensions])
+        let opened = try await PreviewImageSource().open(url)
+        let metadata = opened.metadata
+        XCTAssertEqual(metadata.rows.first { $0.field == .dimensions }?.value, "200 × 100")
+        XCTAssertEqual(metadata.rows.first { $0.field == .colorProfile }?.value, "Display P3")
+        XCTAssertNotNil(metadata.rows.first { $0.field == .resolution })
+        XCTAssertNotNil(metadata.rows.first { $0.field == .bitDepth })
+
+        let hdrDetails = PreviewImageInfo(properties: [:], pixelSize: CGSize(width: 10, height: 10), headroom: 4)
+        XCTAssertEqual(hdrDetails.rows.map(\.field), [.dimensions, .dynamicRange])
+        let sdrDetails = PreviewImageInfo(properties: [:], pixelSize: CGSize(width: 10, height: 10), headroom: 1)
+        XCTAssertEqual(sdrDetails.rows.map(\.field), [.dimensions])
     }
 
-    private func plays(_ url: URL) throws -> Int? {
-        let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
-        return PreviewImageSource.plays(CGImageSourceCopyProperties(source, nil) as? [CFString: Any] ?? [:])
+    private func waitUntilObserved(
+        timeout: Duration = .seconds(5), _ condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            let remaining = deadline - ContinuousClock.now
+            guard remaining > .zero else { return XCTFail("condition not met in time") }
+            let changed = AsyncStream<Void> { continuation in
+                withObservationTracking {
+                    _ = condition()
+                } onChange: {
+                    continuation.yield()
+                    continuation.finish()
+                }
+            }
+            if condition() { return }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await _ in changed { break }
+                }
+                group.addTask {
+                    try? await Task.sleep(for: remaining)
+                }
+                await group.next()
+                group.cancelAll()
+            }
+        }
     }
 
-    private func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async throws {
+    private func waitUntilCondition(timeout: Duration = .seconds(5), _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition() {
             guard ContinuousClock.now < deadline else { return XCTFail("condition not met in time") }
-            try await Task.sleep(for: .milliseconds(10))
+            await Task.yield()
         }
     }
 }

@@ -63,20 +63,38 @@ final class FinderPreviewViewTests: XCTestCase {
         let window = NSWindow(
             contentRect: NSRect(x: -5_000, y: 0, width: 420, height: 400), styleMask: [.borderless], backing: .buffered,
             defer: false)
-        window.contentView = NSHostingView(
+        var mounted = false
+        let host = NSHostingView(
             rootView: FinderPreviewView(
                 state: state, settings: settings, staging: staging, close: {}, retry: {},
                 select: { selected.append($0) },
-                resize: { _ in }))
+                resize: { _ in }
+            ).onAppear { mounted = true })
+        window.contentView = host
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitUntil {
+            window.layoutIfNeeded()
+            return mounted && host.fittingSize.width > 0
+        }
+        window.displayIfNeeded()
 
         XCTAssertFalse(window.performKeyEquivalent(with: try arrow(right: true, modifiers: .option)))
         XCTAssertEqual(selected, [], "Option-Arrow stays with text navigation")
         XCTAssertTrue(window.performKeyEquivalent(with: try arrow(right: true, modifiers: [.command, .option])))
         XCTAssertTrue(window.performKeyEquivalent(with: try arrow(right: false, modifiers: [.command, .option])))
         XCTAssertEqual(selected, [2, 0])
+    }
+
+    private func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            guard ContinuousClock.now < deadline else {
+                XCTFail("condition not met in time")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private func arrow(right: Bool, modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
