@@ -2,6 +2,8 @@ import AVFoundation
 import AppKit
 import CoreMedia
 import MenuCatalog
+import Synchronization
+import UserNotifications
 import XCTest
 
 @testable import Engine
@@ -45,8 +47,9 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertEqual(warnings, [.streamsOmitted([.timecode])])
         XCTAssertEqual(outputs.count, 1)
         XCTAssertEqual(try Data(contentsOf: timecoded), original)
+        XCTAssertEqual(jobs.sessions[first.batchID]?.approvedStreamOmission, true)
+        XCTAssertTrue(jobs.active.isEmpty)
         XCTAssertFalse(jobs.canContinueWithoutStreams(first.batchID), "one consent runs once")
-        XCTAssertTrue(jobs.continuedWithoutStreams.contains(first.batchID))
         activity.dismissBatch(first.batchID)
     }
 
@@ -62,7 +65,6 @@ final class StreamConsentTests: XCTestCase {
         activity.dismissBatch(first.batchID)
         XCTAssertFalse(jobs.canContinueWithoutStreams(first.batchID))
         jobs.continueWithoutStreams(first.batchID)
-        try await Task.sleep(for: .milliseconds(500))
         XCTAssertTrue(jobs.active.isEmpty)
         XCTAssertEqual(Set(jobs.sessions.keys), known.subtracting([first.batchID]))
         XCTAssertEqual(try Data(contentsOf: timecoded), original)
@@ -146,6 +148,241 @@ final class StreamConsentTests: XCTestCase {
         let restored = try await AVURLAsset(url: timecoded).loadTracks(withMediaType: .timecode)
         XCTAssertEqual(restored.count, 1)
         activity.dismissBatch(first.batchID)
+    }
+
+    func testSaveWithoutItContinuesNewFilesUnaskedAndReportsLikeAManualConsent() async throws {
+        var reports: [(summary: BatchSummary, warnings: [String])] = []
+        for choice in [Engine.Settings.UnpreservedStreamsChoice.ask, .omitFromNewFiles] {
+            let directory = try workspace()
+            let source = try await timecodedClip(in: directory)
+            let clips = try (1...3).map { index in
+                let clip = directory.appending(path: "clip-\(index).mov")
+                try FileManager.default.copyItem(at: source, to: clip)
+                return clip
+            }
+            let original = try Data(contentsOf: source)
+            try FileManager.default.removeItem(at: source)
+            let (jobs, activity, store) = try makeActivity(in: directory)
+            store.settings.unpreservedStreams = choice
+            let first = try await runSpeed(clips, jobs: jobs, settings: store.planning)
+            let outcome: BatchOutcome
+            if choice == .ask {
+                XCTAssertTrue(jobs.canContinueWithoutStreams(first.batchID))
+                outcome = try await continueAndWait(first.batchID, jobs: jobs).outcome
+            } else {
+                XCTAssertFalse(jobs.canContinueWithoutStreams(first.batchID))
+                XCTAssertEqual(jobs.completed.count, 1)
+                outcome = first
+            }
+            XCTAssertEqual(outcome.inputs, clips.map { [$0] })
+            XCTAssertEqual(outcome.outcomes.count, 3)
+            for (clip, result) in zip(clips, outcome.outcomes) {
+                guard case .succeeded(let outputs, let warnings) = result else {
+                    return XCTFail("expected successful conversion: \(result)")
+                }
+                XCTAssertEqual(outputs.count, 1)
+                XCTAssertEqual(warnings, [.streamsOmitted([.timecode])])
+                XCTAssertEqual(try Data(contentsOf: clip), original)
+            }
+            reports.append((BatchSummary(outcome), ActivityResult(outcome).warnings.map(\.summary)))
+            activity.dismissBatch(first.batchID)
+        }
+        XCTAssertEqual(reports[1].summary.title, reports[0].summary.title)
+        XCTAssertEqual(reports[1].summary.body, reports[0].summary.body)
+        XCTAssertEqual(reports[1].summary.details, reports[0].summary.details)
+        XCTAssertEqual(reports[1].warnings, reports[0].warnings)
+        XCTAssertEqual(reports[1].warnings, ["3 files: Left out, as you confirmed: timecode."])
+    }
+
+    func testMixedAutomaticOmissionIsOneBatchAndOneNotificationDespiteActivityClosing() async throws {
+        let closingChoices = [(false, false, false), (true, false, false), (false, true, false), (false, false, true)]
+        for (success, cancel, failure) in closingChoices {
+            for closesWindow in [false, true] {
+                let directory = try workspace()
+                let timecoded = try await timecodedClip(in: directory)
+                let plain = directory.appending(path: "plain.mov")
+                try FileManager.default.copyItem(at: try fixture(), to: plain)
+                let broken = directory.appending(path: "broken.mov")
+                try (Data([0, 0, 0, 0x14]) + Data("ftypqt  ".utf8) + Data(repeating: 0, count: 2_048)).write(to: broken)
+                var notifications: [UNNotificationRequest] = []
+                let (jobs, activity, store) = try makeActivity(in: directory) { request, completion in
+                    notifications.append(request)
+                    completion(nil)
+                }
+                store.settings.unpreservedStreams = .omitFromNewFiles
+                store.showsActivity = false
+                store.activityClosesAfterSuccess = success
+                store.activityClosesAfterCancel = cancel
+                store.activityClosesAfterFailure = failure
+                var starts = 0
+                var finishes: [ActivityResult] = []
+                jobs.onStart = { batch in
+                    starts += 1
+                    activity.started(batch)
+                    if closesWindow {
+                        activity.show()
+                        if let panel = NSApp.windows.first(where: { $0.title == "MacEase Activity" }) {
+                            XCTAssertFalse(activity.windowShouldClose(panel))
+                        }
+                    }
+                }
+                jobs.showsFinished = { batch, outcome in
+                    finishes.append(ActivityResult(outcome, awaitingConsent: jobs.sessions[outcome.batchID]))
+                    return activity.finished(batch, outcome: outcome)
+                }
+                let finished = await jobs.run(
+                    OperationRequest(
+                        op: .videoConvert, options: .video(.convert(.mp4)), inputs: [plain, timecoded, broken])
+                ).value
+                let outcome = try XCTUnwrap(finished)
+                XCTAssertEqual(starts, 1)
+                XCTAssertEqual(jobs.completed.count, 1)
+                XCTAssertEqual(finishes.count, 1)
+                XCTAssertEqual(finishes.first?.status, .problems)
+                XCTAssertEqual(finishes.first?.confirmations.count, 0)
+                XCTAssertEqual(finishes.first?.problems.count, 1)
+                XCTAssertEqual(
+                    finishes.first?.warnings.map(\.summary),
+                    ["“timecoded.mov”: Left out, as you confirmed: timecode."])
+                guard case .succeeded(_, []) = outcome.outcomes[0],
+                    case .succeeded(_, [.streamsOmitted([.timecode])]) = outcome.outcomes[1],
+                    case .failed = outcome.outcomes[2]
+                else { return XCTFail("unexpected mixed outcome: \(outcome.outcomes)") }
+                XCTAssertEqual(notifications.count, 1)
+                let notification = try XCTUnwrap(notifications.first)
+                XCTAssertEqual(notification.identifier, outcome.batchID.uuidString)
+                XCTAssertEqual(notification.content.title, BatchSummary(outcome).title)
+                XCTAssertEqual(notification.content.body, BatchSummary(outcome).body)
+                XCTAssertTrue(notification.content.body.hasPrefix("2 done, 1 failed, and 1 note"))
+                XCTAssertEqual(notification.content.categoryIdentifier, "batch")
+                XCTAssertTrue(outcome.record?.canUndo == true)
+                XCTAssertEqual(outcome.record?.items.count, 2)
+                XCTAssertTrue(jobs.sessions.values.allSatisfy { !$0.canRetryOmittingStreams })
+                XCTAssertTrue(jobs.active.isEmpty)
+                activity.show()
+                XCTAssertFalse(jobs.sessions.values.contains { $0.canRetryOmittingStreams })
+                activity.dismissBatch(outcome.batchID)
+            }
+        }
+    }
+
+    func testAutomaticOmissionKeepsSuccessAndSkipCountsInOneNotification() async throws {
+        for skipsPlain in [false, true] {
+            let directory = try workspace()
+            let timecoded = try await timecodedClip(in: directory)
+            let plain = directory.appending(path: skipsPlain ? "plain.mp4" : "plain.mov")
+            try FileManager.default.copyItem(at: try fixture(), to: plain)
+            var notifications: [UNNotificationRequest] = []
+            let (jobs, activity, store) = try makeActivity(in: directory) { request, completion in
+                notifications.append(request)
+                completion(nil)
+            }
+            store.settings.unpreservedStreams = .omitFromNewFiles
+            store.showsActivity = false
+            store.activityClosesAfterSuccess = true
+            let finished = await jobs.run(
+                OperationRequest(
+                    op: .videoConvert, options: .video(.convert(.mp4)), inputs: [plain, timecoded])
+            ).value
+            let outcome = try XCTUnwrap(finished)
+            XCTAssertEqual(jobs.completed.count, 1)
+            XCTAssertEqual(notifications.count, 1)
+            let content = try XCTUnwrap(notifications.first?.content)
+            XCTAssertEqual(content.title, "Convert")
+            XCTAssertEqual(content.categoryIdentifier, "batch")
+            XCTAssertTrue(content.body.hasPrefix(skipsPlain ? "1 done, 1 skipped, and 1 note" : "2 done and 1 note"))
+            XCTAssertEqual(outcome.record?.items.count, skipsPlain ? 1 : 2)
+            XCTAssertEqual(ActivityResult(outcome).confirmations.count, 0)
+            XCTAssertEqual(
+                ActivityResult(outcome).warnings.map(\.summary),
+                ["“timecoded.mov”: Left out, as you confirmed: timecode."])
+            XCTAssertTrue(jobs.sessions.values.allSatisfy { !$0.canRetryOmittingStreams })
+            activity.dismissBatch(outcome.batchID)
+        }
+    }
+
+    func testReplaceAlwaysAsksAndAskKeepsAsking() async throws {
+        let cases: [(Engine.Settings.UnpreservedStreamsChoice, Engine.Settings.OutputMode)] = [
+            (.omitFromNewFiles, .replace), (.ask, .newFile), (.ask, .replace),
+        ]
+        for (choice, mode) in cases {
+            let directory = try workspace()
+            let clip = try await timecodedClip(in: directory)
+            let original = try Data(contentsOf: clip)
+            let (jobs, activity, store) = try makeActivity(in: directory)
+            store.settings.unpreservedStreams = choice
+            store.settings.outputMode = mode
+
+            let first = try await runSpeed([clip], jobs: jobs, settings: store.planning)
+            XCTAssertNotNil(jobs.sessions[first.batchID])
+            XCTAssertTrue(jobs.canContinueWithoutStreams(first.batchID), "\(choice), \(mode) asks")
+            XCTAssertEqual(Array(jobs.sessions.keys), [first.batchID], "nothing was resubmitted")
+            XCTAssertEqual(try Data(contentsOf: clip), original)
+            XCTAssertEqual(try files(in: directory), ["engine", "timecoded.mov"])
+            activity.dismissBatch(first.batchID)
+        }
+    }
+
+    func testChangedInputStopsInJobCenterAndActivityWithoutAskingOrWriting() async throws {
+        for hasTimecode in [false, true] {
+            let directory = try workspace()
+            let clip = try await timecodedClip(in: directory)
+            let replacement = hasTimecode ? try await timecodedClip(in: workspace()) : try fixture()
+            let replacementBytes = try Data(contentsOf: replacement)
+            let (jobs, activity, store) = try makeActivity(in: directory)
+            store.settings.unpreservedStreams = .omitFromNewFiles
+            let request = OperationRequest(
+                op: .videoConvert, options: .video(.convert(.mp4)), inputs: [clip],
+                unpreservedStreams: .omitFromNewFiles)
+            let planned = OperationPlanner.batch(for: request, settings: store.planning)
+            let work = try XCTUnwrap(planned.items.first)
+            let calls = Mutex(0)
+            var intercepted = WorkItem(inputs: work.inputs, lane: work.lane) { context in
+                calls.withLock { $0 += 1 }
+                do {
+                    return try await work.body(context)
+                } catch EngineError.invalidInput(.unpreservedStreams(let streams)) {
+                    try FileManager.default.removeItem(at: clip)
+                    try FileManager.default.copyItem(at: replacement, to: clip)
+                    throw EngineError.invalidInput(.unpreservedStreams(streams))
+                }
+            }
+            intercepted.unpreservedStreams = work.unpreservedStreams
+            intercepted.newFileNaming = work.newFileNaming
+            intercepted.omissionOptions = work.omissionOptions
+            var alerts: [String] = []
+            var shown: [ActivityResult] = []
+            jobs.presentFailure = { _, message in alerts.append(message) }
+            jobs.showsFinished = { batch, outcome in
+                shown.append(ActivityResult(outcome, awaitingConsent: jobs.sessions[outcome.batchID]))
+                return activity.finished(batch, outcome: outcome)
+            }
+            let finished = await jobs.run(
+                batch: Batch(operation: .videoConvert, items: [intercepted]), settings: store.planning
+            ).value
+            let outcome = try XCTUnwrap(finished)
+            XCTAssertEqual(outcome.outcomes, [.skipped(.changedSinceScan)])
+            XCTAssertEqual(calls.withLock { $0 }, 1)
+            XCTAssertEqual(jobs.completed.count, 1)
+            XCTAssertTrue(jobs.active.isEmpty)
+            XCTAssertTrue(alerts.isEmpty)
+            XCTAssertEqual(shown.count, 1)
+            XCTAssertEqual(shown.first?.status, .problems)
+            XCTAssertEqual(shown.first?.statusText, "Finished — 1 skipped.")
+            XCTAssertEqual(shown.first?.skipped, 1)
+            XCTAssertEqual(shown.first?.confirmations.count, 0)
+            XCTAssertEqual(shown.first?.warnings.count, 0)
+            XCTAssertFalse(shown.first?.isFailure == true)
+            XCTAssertFalse(jobs.canContinueWithoutStreams(outcome.batchID))
+            XCTAssertTrue(jobs.sessions.values.allSatisfy { !$0.canRetryOmittingStreams })
+            XCTAssertNil(outcome.record)
+            XCTAssertEqual(try Data(contentsOf: clip), replacementBytes)
+            XCTAssertEqual(try files(in: directory), ["engine", "timecoded.mov"])
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: directory.appending(path: "engine/staging.json").path))
+            activity.show()
+            activity.dismissBatch(outcome.batchID)
+        }
     }
 
     func testEnglishConsentTextIsSpecificAndPlain() throws {
@@ -617,14 +854,17 @@ final class StreamConsentTests: XCTestCase {
         try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { !$0.hasPrefix(".") }.sorted()
     }
 
-    private func makeActivity(in directory: URL) throws -> (JobCenter, ActivityWindow, SettingsStore) {
+    private func makeActivity(
+        in directory: URL,
+        deliver: ((UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void)? = nil
+    ) throws -> (JobCenter, ActivityWindow, SettingsStore) {
         let suite = "MacEaseStreamConsentTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         let store = SettingsStore(defaults: defaults)
-        store.notificationsEnabled = false
+        store.notificationsEnabled = deliver != nil
         let engine = try JobEngine(supportDirectory: directory.appending(path: "engine"), concurrency: 1)
-        let notifier = BatchNotifier(settings: store)
+        let notifier = deliver.map { BatchNotifier(settings: store, deliver: $0) } ?? BatchNotifier(settings: store)
         let jobs = JobCenter(engine: engine, settings: store, notifier: notifier)
         let activity = ActivityWindow(jobs: jobs, settings: store, notifier: notifier)
         jobs.onStart = { [weak activity] in activity?.started($0) }
@@ -683,6 +923,142 @@ final class StreamConsentTests: XCTestCase {
                 $0.pathExtension == "mov"
             })
         let tracks = try await AVURLAsset(url: output).loadTracks(withMediaType: .timecode)
+        XCTAssertTrue(tracks.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    func testRecipeStopsChangedInputAndRunsNormallyWhenSubmittedAgain() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let replacement = try await timecodedClip(in: try workspace())
+        let (jobs, _, store) = try makeActivity(in: directory)
+        store.settings.unpreservedStreams = .omitFromNewFiles
+        let replaced = Mutex(false)
+        var submissions = 0
+        var completed = false
+        var firstOutcome: BatchOutcome?
+        let model = RecipeRunModel(
+            inputs: [source], settings: store.planning,
+            onRun: { batch in
+                submissions += 1
+                guard submissions == 1, let work = batch.items.first else {
+                    return await jobs.run(batch: batch, settings: store.planning).value
+                }
+                var intercepted = WorkItem(inputs: work.inputs, lane: work.lane) { context in
+                    do {
+                        return try await work.body(context)
+                    } catch EngineError.invalidInput(.unpreservedStreams(let streams)) {
+                        if replaced.withLock({ flag in
+                            defer { flag = true }; return !flag
+                        }) {
+                            try FileManager.default.removeItem(at: source)
+                            try FileManager.default.copyItem(at: replacement, to: source)
+                        }
+                        throw EngineError.invalidInput(.unpreservedStreams(streams))
+                    }
+                }
+                intercepted.unpreservedStreams = work.unpreservedStreams
+                intercepted.derivesOutput = work.derivesOutput
+                let outcome = await jobs.run(
+                    batch: Batch(
+                        operation: batch.operation, items: [intercepted], recipeExecution: batch.recipeExecution),
+                    settings: store.planning
+                ).value
+                firstOutcome = outcome
+                return outcome
+            }, onComplete: { completed = true })
+        await model.run(
+            Recipe(name: "Reinspected Recipe", variants: [OutputVariant(output: .videoMP4)]),
+            destination: directory)
+        XCTAssertEqual(submissions, 1)
+        XCTAssertTrue(completed)
+        XCTAssertNil(model.failure)
+        XCTAssertNil(model.streamConsent)
+        XCTAssertEqual(firstOutcome?.outcomes, [.skipped(.changedSinceScan)])
+        XCTAssertNil(firstOutcome?.record)
+        XCTAssertEqual(try files(in: directory), ["engine", "timecoded.mov"])
+        completed = false
+        await model.run(
+            Recipe(name: "Reinspected Recipe", variants: [OutputVariant(output: .videoMP4)]),
+            destination: directory)
+        XCTAssertEqual(submissions, 2)
+        XCTAssertTrue(completed)
+        XCTAssertNil(model.failure)
+        XCTAssertNil(model.streamConsent)
+        XCTAssertEqual(try Data(contentsOf: source), try Data(contentsOf: replacement))
+    }
+
+    func testRecipeAskPresentsBeforeSubmittingARealMP4Refusal() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let original = try Data(contentsOf: source)
+        let (jobs, _, store) = try makeActivity(in: directory)
+        var submissions = 0
+        var completed = false
+        let model = RecipeRunModel(
+            inputs: [source], settings: store.planning,
+            onRun: { batch in
+                submissions += 1
+                return await jobs.run(batch: batch, settings: store.planning).value
+            }, onComplete: { completed = true })
+        await model.run(
+            Recipe(name: "Asked Recipe", variants: [OutputVariant(output: .videoMP4)]), destination: directory)
+        XCTAssertEqual(submissions, 0)
+        XCTAssertTrue(jobs.completed.isEmpty)
+        XCTAssertFalse(completed)
+        let question = try XCTUnwrap(model.streamConsent)
+        XCTAssertEqual(question.files.map(\.url), [source])
+        XCTAssertEqual(question.streams, [.timecode])
+        XCTAssertNil(model.failure)
+        await model.continueWithoutStreams(question)
+        XCTAssertEqual(submissions, 1)
+        XCTAssertTrue(completed)
+        XCTAssertNil(model.streamConsent)
+        XCTAssertNil(model.failure)
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    func testRecipeSaveWithoutItContinuesWithoutAsking() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let original = try Data(contentsOf: source)
+        var notifications: [UNNotificationRequest] = []
+        let (jobs, _, store) = try makeActivity(in: directory) { request, completion in
+            notifications.append(request)
+            completion(nil)
+        }
+        store.settings.unpreservedStreams = .omitFromNewFiles
+        store.settings.outputMode = .replace
+        var attempts = 0
+        var completed = false
+        var lastOutcome: BatchOutcome?
+        let model = RecipeRunModel(
+            inputs: [source], settings: store.planning,
+            onRun: { batch in
+                attempts += 1
+                let outcome = await jobs.run(batch: batch, settings: store.planning).value
+                lastOutcome = outcome
+                return outcome
+            }, onComplete: { completed = true })
+        await model.run(
+            Recipe(name: "Unasked Recipe", variants: [OutputVariant(output: .videoMP4)]), destination: directory)
+        XCTAssertNil(model.streamConsent)
+        XCTAssertNil(model.failure)
+        XCTAssertEqual(attempts, 1)
+        XCTAssertEqual(jobs.completed.count, 1)
+        XCTAssertEqual(notifications.count, 1)
+        XCTAssertEqual(notifications.first?.content.categoryIdentifier, "batch")
+        XCTAssertTrue(completed)
+        guard case .succeeded(let outputs, let warnings) = lastOutcome?.outcomes.first else {
+            return XCTFail("expected an unasked recipe success")
+        }
+        XCTAssertEqual(warnings, [.streamsOmitted([.timecode])])
+        let package = try XCTUnwrap(outputs.first)
+        let exported = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(
+                at: package, includingPropertiesForKeys: nil
+            ).first { $0.pathExtension == "mp4" })
+        let tracks = try await AVURLAsset(url: exported).loadTracks(withMediaType: .timecode)
         XCTAssertTrue(tracks.isEmpty)
         XCTAssertEqual(try Data(contentsOf: source), original)
     }

@@ -15,10 +15,11 @@ right-click menu, without opening another app.
 
 ---
 
-Finder shows a fixed set of primary operations for each file kind. **More**
-contains the remaining operations and All Files actions. In **Settings > Finder
-Menu**, expand a group and use **Show at Top Level** to pin or unpin it;
-visibility remains a separate checkbox. Rotate/Flip and Convert choices move
+Each file kind has its own menu: the operations you use most appear directly
+inside **MacEase**, and the rest are under **More**. In **Settings > Finder
+Menu**, drag groups between **MacEase Menu**, **More** and **Hidden**, put
+commands such as **yt-dlp…** straight into Finder's own menu, reorder them, and
+choose which choices each group shows. Rotate/Flip and Convert choices move
 together. Pruning unavailable operations never fills their places from More.
 
 ## Installation
@@ -45,7 +46,9 @@ You can also [build from source](#build-from-source).
 
 After setup, select files or folders in Finder, right-click, and choose
 **MacEase**. Open **Settings** from the MacEase menu bar icon. Opening MacEase
-again shows Welcome until setup is done, then Settings.
+again shows Welcome until setup is done, then Settings. To hide the icon, turn
+off **Settings > General > Show in menu bar**; open MacEase again to reach
+Settings.
 
 **Settings > Folder Access** lists standard and added folders. Use **Add Folder…**
 here or in Welcome, check access, and open a location in Finder. Registration
@@ -61,26 +64,45 @@ restart MacEase, and retry. This does not require Full Disk Access.
 
 ### Finder Preview
 
-Choose **MacEase > Show Finder Preview** in Finder to attach a light preview
-panel flush against its window; the item reads **Hide Finder Preview** while the
-panel is open, and the panel's × button, Escape or Command-W also close it. Drag
-its outer edge to resize. It shows the file name, kind, size and an Information
-section like Finder's preview pane. It follows selections, offers navigation for
-multiple files, and uses
-native viewers for text, HTML, Markdown, JSON/plists, images, media and PDFs,
-with Quick Look for other formats. HTML scripts and networking default to off.
-Folders show a count and size; photos and videos
-can open in the existing MacEase editor. Allow Accessibility for docking and
-Automation for following Finder selections. Permission messages link to System
-Settings. Text/code, Markdown Source, JSON and XML plists up to 4 MiB support
-Edit (Command-E), Save (Command-S), Revert, buffer Undo and Find (Command-F).
-Saving replaces the original through Trash and history Undo, retaining its
-encoding, BOM and line endings. Unrepresentable characters require explicit
-UTF-8 confirmation; empty buffers cannot be saved. Unsaved edits stay pinned
-when Finder selection changes; closing or quitting asks Save / Discard / Cancel.
-A volume without Trash saves a separate file and keeps the buffer until Discard.
-This upcoming feature still needs native validation; full screen,
-Spaces and Finder tabs are untested.
+Turn on **Finder Preview** from the MacEase menu in Finder, the menu bar menu
+or **Settings > Finder Windows**. A light panel then docks beside the front
+Finder window whenever one is visible, follows the selection, and comes back
+after Finder or MacEase relaunches. The close button or Command-W turns it off
+again; closing a Finder window does not. Drag its outer edge to resize it. With
+several files selected, the arrows in its top bar or Command-Option-Left and
+Command-Option-Right step through them.
+
+The panel shows the file itself. Text and code have line numbers, syntax
+highlighting and an encoding menu (including UTF-16, UTF-32, Shift_JIS, EUC-JP,
+GB18030, Big5 and EUC-KR); HTML, Markdown and SVG switch between **Preview** and
+**Source**; JSON and property lists can be formatted. Images open at **Fit**,
+with **100%**, double-click zoom, Live Text, a transparency checkerboard and an
+**Info** popover; animated images play as often as the file says. PDFs show the
+current page, a table of contents, Fit Width and Actual Size, and an unlock
+field for password-protected files. Fonts show their name and sample text at
+several sizes. Audio shows its artwork, title and artist with a volume control,
+and video uses the system player. Video and audio that macOS cannot play
+directly, such as MKV, WebM, Ogg or FLAC, offer **Convert and Play** for up to
+10 minutes of video or 30 minutes of audio. Folders and other files use Quick
+Look. Press Command-F to find text in text, code, Markdown, HTML and PDF
+previews. Nothing in the panel edits or saves files.
+
+**What the preview does with files from the internet.** HTML opens in Source.
+Its Preview is static and offline: scripts don't run, links and forms do
+nothing, and only files next to it can load. **Run Scripts with Network Access**
+allows both for that file until it changes or MacEase quits. HTML in a folder
+you add under **Trusted Folders** opens with scripts and network access. Files
+macOS marks as downloaded from the internet stay restricted even in a trusted
+folder: their HTML renders sealed from the text alone, Markdown shows no images,
+and media is not converted. A file whose name doesn't match its content gets a
+warning, and binary content with a text name isn't shown.
+
+Finder Preview needs **Accessibility** to place the panel beside Finder windows
+and **Automation** for Finder to follow the selection. macOS asks for them only
+when you turn the preview on; **Settings > Finder Windows** shows both and
+links to System Settings. Each file type can be switched back to the macOS
+preview there, along with the code font, line wrapping and font sample text.
+Full screen, Spaces and Finder tabs are untested.
 
 **Conversions and edits keep originals by default. HatchZip extraction consumes its archive.**
 
@@ -103,11 +125,40 @@ Choosing a preset or format runs it immediately. Items ending in **…** open a
 window for input, review, or confirmation. Image and video menus start with
 **Edit**, **Convert**, **Compress**, then **Resolution**.
 
+### Storage bar
+
+While Finder shows its status bar (**View > Show Status Bar**), MacEase draws a
+thin bar over it in the front Finder window: the disk's name, a capacity bar in
+your accent colour, the space available, and the number of selected items. In
+icon view it leaves Finder's icon-size slider uncovered. It never opens or
+measures the selected files, so it never causes file-access prompts. It uses the
+same Accessibility permission as Finder Preview and Automation for the selection
+count; without Automation it shows capacity only. Turn it off in
+**Settings > Finder Windows**. Its position over Finder's bar is still to be
+checked against a real Finder window.
+
+### Finder commands
+
+The MacEase menu also offers commands for the selection itself:
+
+| Command | What it does |
+| --- | --- |
+| **New File** | Create an empty Text or Markdown file, or a blank Rich Text or Word document, named **Untitled**, in the folder you right-clicked; Undo removes it |
+| **Cut** / **Move Here** | Cut items, then move them into another folder; Undo moves them back |
+| **Copy Path** | Copy the paths, one per line, or **Copy Path for Terminal** with shell quoting |
+| **Open Terminal Here** | Open Terminal in the folder, or in the folder of a selected file |
+
+**Moving to another disk copies the items and keeps the originals** where they
+were; MacEase never deletes them, and Activity says where each original stayed.
+Undo then removes the copy if you haven't changed it. Like any group, these
+commands can be moved to More, into Finder's own menu, or hidden in
+**Settings > Finder Menu**.
+
 ### Images
 
 | Operation | What it does |
 | --- | --- |
-| **Edit Photo…** | Edit one or several photos; apply adjustments to selected photos or all, then refine each separately |
+| **Edit Photo…** | Edit one or several photos; apply adjustments to selected photos or all, then refine each separately; add redactions, boxes, arrows and text |
 | **Convert** | PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF, BMP, TGA, ICO, ICNS, SVG, or PDF; **SDR** for supported HDR images |
 | **Compress** | Platform presets, quality levels, or a **Custom Size…** target |
 | **Resolution** | Scale by percentage or long edge, including 720, 480 and 360 px, or enter a **Custom Size…**; low-resolution presets never enlarge |
@@ -146,6 +197,10 @@ enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
 Styles are independent presets, not Apple's Photographic Styles.
+**Markup** adds mosaic, blur or solid redaction, boxes, arrows and one-line text
+to photos and videos, up to 50 items. Redactions stay on the covered content
+when you crop or rotate later; mosaic and blur can sometimes be partly reversed,
+solid cannot. Markup on HDR media saves a new SDR file.
 For several photos, use the file list to switch sources. **Copy Edits to Selected**
 or **Copy Edits to All Photos** copies the current photo's edits, then change each independently. Auto Enhance analyzes every
 photo separately. Each source retains its own preservation policy.
@@ -160,7 +215,7 @@ are saved in a writable format while retaining the RAW source.
 
 | Operation | What it does |
 | --- | --- |
-| **Edit Video…** | Join several videos; split, delete, duplicate and reorder segments, with segment adjustments and global geometry |
+| **Edit Video…** | Join several videos; split, delete, duplicate, reorder, freeze and reverse segments, remove silent pauses, add background music and markup, with segment adjustments and global geometry |
 | **Convert** | MP4, MOV, M4V, MKV, WebM, AVI, or FLV; GIF, animated WebP, or APNG; **SDR** for supported HDR video |
 | **Compress** | Discord, X, Instagram Reels, LINE, and Email presets, fixed size targets, quality levels, or a **Custom Size…** |
 | **Resolution** | Scale by percentage or to a 2160p/1080p/720p/480p/360p short edge; **Custom Size…** fits a box |
@@ -176,7 +231,7 @@ are saved in a writable format while retaining the RAW source.
 Edit one or several source videos as an ordered sequence of segments. Use
 **Add Videos…** in the timeline bar to append sources. Segment Start, End and
 Length use the same m:ss.sss timecode as the timeline; typed seconds are also
-accepted. Speed uses 0.5×, 1×, 1.5× and 2× presets or a custom value from
+accepted. Speed uses 0.5×, 1×, 1.5×, 2× and 4× presets or a custom value from
 0.5–4×. Export resolution sits in its own section at the bottom of the
 inspector. Split at the playhead
 with **Command-B**, delete a selected segment with **Backspace** to close the gap,
@@ -189,6 +244,20 @@ resolution apply to the whole output. Joined videos always save a new MP4
 other sizes fit with black borders. Silent sources contribute silence. Review
 the HDR, transparency and metadata disclosure before saving. Multiple tracks
 and transitions are outside this editor's scope.
+
+**Save Frame** (Shift-Command-S) saves the edited frame at the playhead as an
+image next to the video. **Freeze Frame** (Option-F) holds the frame at the
+playhead for two seconds; set 0.1–30 seconds in the inspector. **Reverse** plays
+a segment backwards; **segments up to one minute can be reversed**, so split a
+longer one first. Reversing renders a temporary copy, which can take a while and
+needs free disk space, and an edit with a reversed segment always saves a new
+H.264 MP4 (SDR, opaque). **Remove Silence…** finds pauses below a level you set
+and longer than a length you set, shows them on the timeline, and removes them
+in one step. **Add Music…** plays one song from the start of the video under its
+own sound, with volume and a start position in the song, and fades it out over
+the last second; MP3, AAC/M4A, WAV, AIFF, CAF, FLAC, Ogg and Opus are accepted.
+Up and Down Arrow jump between segment boundaries, and clicking the time display
+lets you type a position.
 
 Video and audio trimming share a yellow selection with draggable ends. Zoom with
 Command-scroll, a trackpad pinch, the zoom slider or Command-plus/minus; use
@@ -473,6 +542,14 @@ file sizes, dimensions and disclosed palette or resolution reductions.
 Replacement originals are read from their recorded Trash locations. Changed
 or missing files cannot be compared.
 
+When a file holds content MacEase can't carry over, such as timecode,
+subtitles or chapters, Activity names the file and the content, explains what
+leaving it out means and what happens to the original, and offers **Continue
+Without …**. Nothing is written until you choose it, and it applies only to that
+file as it was when you saw the question. Activity appears for such a question
+even when the progress window is turned off. The editor, Audio Trim, Finishing
+Recipes and Audio Enhancement ask the same question in a sheet before they run.
+
 **Retry Failed…** retries only failed image, video and audio compression or
 conversion and PDF compression, using the original settings. Target-size
 compression lets you change the limit before retrying. Successful, unchanged
@@ -501,8 +578,10 @@ appears when the result is not already retained there, if notifications are
 enabled. Successful banners include only the summary and any note count, without
 note text or raw diagnostics. Use **Show in Finder** or **Undo** where available. Recent batches
 also appear in the menu bar with available actions such as **Undo** and
-**Show in Finder**. HatchZip extraction has no Undo. Available updates show a
-menu bar indicator and update action, with a notification once per day.
+**Show in Finder**; turn off **Show recent operations** in Settings > General to
+hide them. **Finder Preview** in the menu bar menu turns the preview on or off.
+HatchZip extraction has no Undo. Available updates show a menu bar indicator and
+update action, with a notification once per day.
 
 ### Updates
 
@@ -520,7 +599,10 @@ or **Later** to close the window.
    > Finder**. Allow folder and privacy access again when macOS asks.
 
 The update window's **Open Extension Settings** button opens Finder extension
-settings. MacEase does not download or install updates automatically.
+settings. MacEase checks GitHub for a newer version at launch and once a day;
+turn off **Settings > General > Check for updates automatically** to stop that,
+and use **Check for Updates** in the menu bar menu whenever you want. MacEase
+does not download or install updates automatically.
 
 <img src="docs/images/menubar-en.png" width="318" alt="The MacEase menu bar menu with Results, a Recent list of batches where one is expanded to Undo and Show in Finder, then Settings, Check for Updates, and Quit MacEase">
 
@@ -583,8 +665,11 @@ the chosen background or tone-map to SDR and report a warning. Image edits and
 format conversions in Replace mode refuse unrequested transparency or HDR loss.
 Explicit **Convert > SDR** follows the selected output mode, checks the content,
 and skips SDR inputs. Video edits in either output mode refuse multiple video
-or audio tracks and streams they cannot preserve. Explicit exports keep the
-source and report omitted streams.
+or audio tracks. When a file holds content the output can't carry over, such as
+subtitles, chapters or timecode in an MP4 output, MacEase names it and asks
+before leaving it out. Timing-preserving MOV outputs keep timecode. Reference
+movies that point to media in other files are refused; export a self-contained
+copy first. Explicit exports keep the source and report omitted streams.
 
 </details>
 
@@ -599,12 +684,18 @@ Open **Settings** from the menu bar icon. Changes apply immediately.
 
 <img src="docs/images/settings-general-en.png" width="640" alt="MacEase Settings, General page, with Language, Launch at login, Notifications, the choice between Save as new file and Replace original, progress window options, Allow permanent delete, and Show Welcome Window">
 
-- **General** – Language, launch at login, notifications, **Save as new file**
-  or **Replace original**, the Activity window and when it closes, permanent
+- **General** – Language, launch at login, notifications, automatic update
+  checks, **Save as new file** or **Replace original**, the Activity window and
+  when it closes, the menu bar icon and its recent operations, permanent
   deletion, and the Welcome window.
-- **Finder Menu** – Show or hide each kind, operation, preset, and format, and
-  edit resize and compression values, an extra rotation angle, and platform
-  presets. Some formats and utilities are hidden by default.
+- **Finder Menu** – Arrange each menu: drag groups between MacEase Menu, More
+  and Hidden (and Finder's own menu for commands), check the choices each group
+  shows, and edit sizes, compression targets, the extra rotation angle, frame
+  rates, loudness targets and platform presets in **Options…**. Some formats and
+  utilities are hidden by default.
+- **Finder Windows** – Finder Preview and the storage bar, their Accessibility
+  and Automation status, preview file types, code font and wrapping, font sample
+  text, and Trusted Folders.
 - **Images**, **Video**, **Audio**, **Folders**, **Text**, and **Text
   Recognition & AI** – Quality, background, animation, audio, subtitle, OCR,
   PDF, folder, and text defaults, including duplicate matching and exclusion
@@ -626,9 +717,12 @@ Open **Settings** from the menu bar icon. Changes apply immediately.
 | **Apple Intelligence** | Enabled with its on-device model available, only for Apple Intelligence rename and organization features. Local upscaling and audio enhancement do not require it. |
 | **Speech and Translation assets** | Supported, installed Speech language assets for transcription and Translation models for translated subtitles. MacEase reports missing assets. |
 | **Java runtime** | Discoverable by macOS, only for JAR decompilation |
+| **Accessibility** | Only for Finder Preview and the storage bar, to place them on Finder windows. Asked when you turn Finder Preview on |
+| **Automation (Finder)** | Only for Finder Preview and the storage bar, to read the Finder selection. Asked after you turn Finder Preview on or choose Try Again |
 
-Processing runs on your Mac. The app checks GitHub for updates. Some Apple
-features require installed language assets or models.
+Processing runs on your Mac. Automatic update checks contact GitHub once a day
+and can be turned off in Settings > General. Some Apple features require
+installed language assets or models.
 
 VoiceOver is not a supported interaction mode.
 
@@ -683,9 +777,11 @@ Follow steps 3 and 4 of [Installation](#installation), or build from source.
 
 Processing runs on your Mac. Downloads contact the requested sites; QR sharing
 serves only selected files to devices with the temporary link on your private
-network. It uses unencrypted HTTP. The app checks GitHub for updates, and macOS
-may download Speech, Translation, or Apple Intelligence assets that those
-features require.
+network. It uses unencrypted HTTP. The app checks GitHub for updates unless you
+turn that off, and macOS may download Speech, Translation, or Apple Intelligence
+assets that those features require. Finder Preview lets an HTML page reach the
+network only after you choose **Run Scripts with Network Access** for it or trust
+its folder.
 
 </details>
 

@@ -34,11 +34,12 @@ import Observation
         defer { busy = false }
         do {
             try RecipePlanner.validate(recipe: recipe, inputs: inputs)
-            let required = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: inputs)
+            let required = try await RecipePlanner.streamOmissions(
+                recipe: recipe, inputs: inputs, unpreservedStreams: settings.unpreservedStreams)
             if required.isEmpty {
                 try await submit(recipe)
             } else {
-                showConsent(required)
+                requestConsent(required)
             }
         } catch { showFailure(error) }
     }
@@ -50,20 +51,24 @@ import Observation
         streamConsent = nil
         defer { busy = false }
         do {
-            for file in request.files {
-                try file.omission.stamp.validate(file.url)
-                let previous = omissions[file.url]?.streams(covering: file.omission.stamp) ?? []
-                omissions[file.url] = StreamOmission(
-                    stamp: file.omission.stamp, streams: previous.union(file.omission.streams))
-            }
+            try approve(request.files)
             try await submit(recipe)
         } catch { showFailure(error) }
     }
 
+    private func approve(_ files: [StreamConsentRequest.File]) throws {
+        for file in files {
+            try file.omission.stamp.validate(file.url)
+            let previous = omissions[file.url]?.streams(covering: file.omission.stamp) ?? []
+            omissions[file.url] = StreamOmission(
+                stamp: file.omission.stamp, streams: previous.union(file.omission.streams))
+        }
+    }
+
     private func submit(_ recipe: Recipe) async throws {
-        let stamps = try Dictionary(uniqueKeysWithValues: Set(inputs).map { ($0, try MediaSourceStamp(url: $0)) })
         let batch = try RecipePlanner.batch(
-            recipe: recipe, inputs: inputs, destination: destination, settings: settings, omissions: omissions)
+            recipe: recipe, inputs: inputs, destination: destination, settings: settings, omissions: omissions,
+            unpreservedStreams: settings.unpreservedStreams)
         guard let outcome = await onRun(batch) else { return }
         let refused = Set(
             outcome.outcomes.flatMap { result -> [UnpreservedStream] in
@@ -71,9 +76,16 @@ import Observation
                 return []
             })
         if !refused.isEmpty {
-            for (source, stamp) in stamps { try stamp.validate(source) }
+            let stamps = try Dictionary(
+                uniqueKeysWithValues: Set(inputs).map { source in
+                    guard let stamp = outcome.details.first?.inputStamps[source] else {
+                        throw ActivityAvailability.unavailable
+                    }
+                    return (source, stamp)
+                })
+            for (source, stamp) in stamps { try ActivitySession.validate(source, stamp: stamp) }
             let required = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: inputs, unavailable: refused)
-            for (source, stamp) in stamps { try stamp.validate(source) }
+            for (source, stamp) in stamps { try ActivitySession.validate(source, stamp: stamp) }
             var additional: [URL: StreamOmission] = [:]
             for (source, omission) in required {
                 let unapproved = omission.streams.subtracting(
@@ -83,7 +95,7 @@ import Observation
                 }
             }
             if !additional.isEmpty {
-                showConsent(additional)
+                requestConsent(additional)
                 return
             }
         }
@@ -103,7 +115,7 @@ import Observation
             .compactMap { $0 }.joined(separator: "\n")
     }
 
-    private func showConsent(_ required: [URL: StreamOmission]) {
+    private func requestConsent(_ required: [URL: StreamOmission]) {
         streamConsent = StreamConsentRequest(
             purpose: .proceed,
             files: required.map { .init(url: $0.key, omission: $0.value) }
