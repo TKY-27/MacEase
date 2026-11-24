@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MenuCatalog
 import Testing
 
 @testable import Engine
@@ -132,6 +133,93 @@ import Testing
         #expect(size < float32WAVBytes / 4)
         await source.close()
         #expect(!FileManager.default.fileExists(atPath: playback.path))
+    }
+
+    @Test func externalMediaReferenceMovieIsRefusedAcrossEngineOperations() async throws {
+        let folder = try TestVolume.makeFolder()
+        let videoSource = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+        let secret = folder.appending(path: "secret.mp4")
+        try FileManager.default.copyItem(at: videoSource, to: secret)
+        let reference = folder.appending(path: "reference.mov")
+        try Self.makeQuickTimeReferenceMovie(referencing: "secret.mp4").write(to: reference)
+
+        // Control: unrestricted AVURLAsset resolves the sibling media.
+        #expect(try await AVURLAsset(url: reference).load(.isPlayable))
+
+        let support = try TestVolume.makeFolder()
+        let staging = StagingArea(supportDirectory: support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 2)
+        let settings = Settings()
+
+        let operations: [(OperationID, OperationOptions)] = [
+            (
+                .videoConvert,
+                try #require(OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: settings))
+            ),
+            (
+                .videoCompress,
+                try #require(OperationPlanner.options(for: .videoCompress, preset: "mb-10", settings: settings))
+            ),
+            (.videoThumbnail, .video(.still(.first))),
+            (.videoToGIF, .video(.gif(AnimationRendering(width: 320, framesPerSecond: 10)))),
+        ]
+        for (op, options) in operations {
+            let batch = OperationPlanner.batch(
+                for: OperationRequest(op: op, options: options, inputs: [reference]), settings: settings)
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            #expect(
+                outcome.outcomes == [.failed(.invalidInput(.externalMediaReference))],
+                "expected externalMediaReference for \(op)")
+        }
+
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await VideoEditorSource.open(reference, staging: staging)
+        }
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await VideoEditorSource.openForPreviewPlayback(reference, staging: staging)
+        }
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await AudioPreviewSource.open(reference, staging: staging)
+        }
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await AudioPreviewSource.openForPreviewPlayback(reference, staging: staging)
+        }
+        await #expect(throws: EngineError.invalidInput(.externalMediaReference)) {
+            _ = try await AudioWaveform.load(url: reference)
+        }
+
+        // Control: ordinary self-contained video still opens cleanly.
+        let ordinary = try await VideoEditorSource.open(secret, staging: staging)
+        #expect(await ordinary.details.duration > 0)
+        await ordinary.close()
+    }
+
+    private static func makeQuickTimeReferenceMovie(referencing relativeTarget: String) -> Data {
+        func appendUInt32BE(_ buffer: inout Data, _ value: UInt32) {
+            buffer.append(contentsOf: [
+                UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
+                UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+            ])
+        }
+        func atom(_ type: String, _ payload: Data) -> Data {
+            var data = Data()
+            appendUInt32BE(&data, UInt32(8 + payload.count))
+            data.append(contentsOf: type.utf8)
+            data.append(payload)
+            return data
+        }
+        var rdrf = Data([0, 0, 0, 0])
+        rdrf.append(contentsOf: "url ".utf8)
+        var target = Data(relativeTarget.utf8)
+        target.append(0)
+        appendUInt32BE(&rdrf, UInt32(target.count))
+        rdrf.append(target)
+        let moov = atom("moov", atom("rmra", atom("rmda", atom("rdrf", rdrf))))
+        var ftyp = Data("qt  ".utf8)
+        ftyp.append(contentsOf: [0x20, 0x05, 0x03, 0x00])
+        ftyp.append(contentsOf: "qt  ".utf8)
+        return atom("ftyp", ftyp) + moov
     }
 }
 

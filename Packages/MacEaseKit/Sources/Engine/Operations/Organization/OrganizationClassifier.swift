@@ -285,7 +285,7 @@ public actor OrganizationClassifier {
     }
 
     private static func mediaEvidence(_ url: URL) async throws -> String {
-        let asset = AVURLAsset(url: url)
+        let asset = UntrustedMediaAsset.make(url)
         let metadata = try await asset.load(.commonMetadata)
         var facts: [String] = []
         for entry in metadata.prefix(maximumMetadata) {

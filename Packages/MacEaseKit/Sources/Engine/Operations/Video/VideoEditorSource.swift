@@ -204,7 +204,7 @@ public actor VideoEditorSource {
 
     private nonisolated static func canPlay(_ url: URL) async throws -> Bool {
         guard ["mov", "mp4", "m4v"].contains(url.pathExtension.lowercased()) else { return false }
-        return try await AVURLAsset(url: url).load(.isPlayable)
+        return try await UntrustedMediaAsset.make(url).load(.isPlayable)
     }
 
     private nonisolated static func makePreview(

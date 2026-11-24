@@ -109,6 +109,7 @@ public enum InvalidInput: Equatable, Sendable {
     case frameMemoryExceeded
     case invalidAnimationRange
     case invalidNumericParameter
+    case externalMediaReference
 }
 
 public enum Capability: String, Equatable, Sendable {
@@ -173,6 +174,9 @@ extension EngineError {
         if let archiveError = error as? ArchiveError { return ArchivePlanner.engineError(archiveError) }
         if let format = error as? FormatError { return EngineError(format) }
         if error is CancellationError { return .cancelled }
+        if UntrustedMediaAsset.isReferenceForbidden(error) {
+            return .invalidInput(.externalMediaReference)
+        }
         let nsError = error as NSError
         if isPermissionError(nsError)
             || (nsError.userInfo[NSUnderlyingErrorKey] as? NSError).map(isPermissionError) == true

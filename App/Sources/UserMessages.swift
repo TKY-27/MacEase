@@ -580,6 +580,11 @@ enum UserMessages {
             )
         case .invalidNumericParameter:
             String(localized: "Choose finite numeric values within the supported range.")
+        case .externalMediaReference:
+            String(
+                localized:
+                    "This file refers to media in another file, so MacEase can't open it. Export a self-contained copy in the app that made it."
+            )
         }
     }
 

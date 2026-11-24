@@ -22,7 +22,7 @@ enum AudioMetadataLoss {
     ]
 
     static func hasUnsupportedTags(_ url: URL, omitting streams: Set<UnpreservedStream> = []) async throws -> Bool {
-        for entry in try await AVURLAsset(url: url).load(.metadata) {
+        for entry in try await UntrustedMediaAsset.make(url).load(.metadata) {
             try Task.checkCancellation()
             switch entry.commonKey {
             case .commonKeyTitle, .commonKeyArtist, .commonKeyAlbumName, .commonKeyArtwork, .commonKeySoftware: continue

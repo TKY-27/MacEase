@@ -11,14 +11,12 @@ enum PreviewMediaAsset {
     }
 
     static var forbiddenReferenceMessage: String {
-        String(localized: "This file references external media, so MacEase won't open it.")
+        UserMessages.describe(.invalidInput(.externalMediaReference), file: "")
     }
 
     // Blocks QuickTime reference movies reading other files.
     static func make(_ url: URL) -> AVURLAsset {
-        AVURLAsset(
-            url: url,
-            options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
+        UntrustedMediaAsset.make(url)
     }
 
     static func checkPlayability(_ url: URL) async throws -> Playability {
@@ -39,16 +37,7 @@ enum PreviewMediaAsset {
     }
 
     static func isReferenceForbidden(_ error: (any Error)?) -> Bool {
-        var current = error as NSError?
-        while let candidate = current {
-            if candidate.domain == AVFoundationErrorDomain,
-                candidate.code == AVError.Code.referenceForbiddenByReferencePolicy.rawValue
-            {
-                return true
-            }
-            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
-        }
-        return false
+        UntrustedMediaAsset.isReferenceForbidden(error)
     }
 }
 

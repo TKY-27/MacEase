@@ -92,7 +92,7 @@ final class AudioTrimModel {
             let address = try await source.playbackURL()
             try Task.checkCancellation()
             guard !closed else { await source.close(); return }
-            let playerItem = AVPlayerItem(url: address)
+            let playerItem = AVPlayerItem(asset: UntrustedMediaAsset.make(address))
             audioTrack = try await playerItem.asset.loadTracks(withMediaType: .audio).first
             try Task.checkCancellation()
             guard !closed else { await source.close(); return }

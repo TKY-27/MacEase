@@ -92,28 +92,35 @@ struct MediaInput {
     }
 
     private static func openAsset(_ url: URL) async throws -> MediaInput {
-        let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
-        let videoTracks = try await asset.loadTracks(withMediaType: .video)
-        let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        let keptTrackIDs = Set([videoTracks.first?.trackID, audioTracks.first?.trackID].compactMap { $0 })
-        let skippedStreams = try await skippedStreams(in: asset, keeping: keptTrackIDs)
-        let videoTrack = videoTracks.first
-        let audioTrack = audioTracks.first
-        let duration = SampleBuffers.nanoseconds(try await asset.load(.duration))
-        var video: MediaTrack?
-        var transform = CGAffineTransform.identity
-        if let videoTrack {
-            video = try await AssetTracks.describe(videoTrack, number: 1)
-            transform = try await videoTrack.load(.preferredTransform)
-            _ = try VideoDisplayOrientation(transform)
+        let asset = UntrustedMediaAsset.make(url, preciseTiming: true)
+        do {
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            let keptTrackIDs = Set([videoTracks.first?.trackID, audioTracks.first?.trackID].compactMap { $0 })
+            let skippedStreams = try await skippedStreams(in: asset, keeping: keptTrackIDs)
+            let videoTrack = videoTracks.first
+            let audioTrack = audioTracks.first
+            let duration = SampleBuffers.nanoseconds(try await asset.load(.duration))
+            var video: MediaTrack?
+            var transform = CGAffineTransform.identity
+            if let videoTrack {
+                video = try await AssetTracks.describe(videoTrack, number: 1)
+                transform = try await videoTrack.load(.preferredTransform)
+                _ = try VideoDisplayOrientation(transform)
+            }
+            var audio: MediaTrack?
+            if let audioTrack { audio = try await AssetTracks.describe(audioTrack, number: 2) }
+            return MediaInput(
+                url: url, backend: .asset(asset, video: videoTrack, audio: audioTrack), video: video, audio: audio,
+                hasMultipleTracks: videoTracks.count > 1 || audioTracks.count > 1, skippedStreams: skippedStreams,
+                duration: duration, hasContainerDescriptiveMetadata: false, hasContainerTrackMetadata: false,
+                transform: transform)
+        } catch {
+            if UntrustedMediaAsset.isReferenceForbidden(error) {
+                throw EngineError.invalidInput(.externalMediaReference)
+            }
+            throw error
         }
-        var audio: MediaTrack?
-        if let audioTrack { audio = try await AssetTracks.describe(audioTrack, number: 2) }
-        return MediaInput(
-            url: url, backend: .asset(asset, video: videoTrack, audio: audioTrack), video: video, audio: audio,
-            hasMultipleTracks: videoTracks.count > 1 || audioTracks.count > 1, skippedStreams: skippedStreams,
-            duration: duration, hasContainerDescriptiveMetadata: false, hasContainerTrackMetadata: false,
-            transform: transform)
     }
 
     static func skippedStreams(

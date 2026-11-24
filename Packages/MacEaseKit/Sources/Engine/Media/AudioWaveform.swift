@@ -24,6 +24,7 @@ public enum AudioWaveform {
         url: URL, range: Range<Double>? = nil, bins: Int = 4_096,
         update: @escaping @Sendable (AudioWaveformSnapshot) -> Void = { _ in }
     ) async throws -> AudioWaveformSnapshot {
+        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
         let task = Task.detached(priority: .utility) {
             try read(url: url, range: range, bins: bins, update: update)
         }
@@ -159,6 +160,7 @@ public actor AudioPreviewSource {
         validate: (AudioInput, MediaSourceStamp) async throws -> Void
     ) async throws -> AudioPreviewSource {
         let stamp = try MediaSourceStamp(url: url)
+        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
         let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         try await validate(input, stamp)
         guard let duration = input.duration, duration > 0 else {
@@ -189,7 +191,7 @@ public actor AudioPreviewSource {
         guard !closed else { throw CancellationError() }
         try stamp.validate(input.url)
         if input.container != .ogg, input.container != .flac,
-            try await AVURLAsset(url: input.url).load(.isPlayable)
+            try await UntrustedMediaAsset.make(input.url).load(.isPlayable)
         {
             return input.url
         }

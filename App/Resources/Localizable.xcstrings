@@ -12987,12 +12987,12 @@
         }
       }
     },
-    "This file references external media, so MacEase won't open it.": {
+    "This file refers to media in another file, so MacEase can't open it. Export a self-contained copy in the app that made it.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルは外部メディアを参照しているため、MacEaseでは開けません。"
+            "value": "このファイルは別のファイル内のメディアを参照しているため、MacEaseでは開けません。作成したアプリで自己完結型のコピーを書き出してください。"
           }
         }
       }

@@ -30,7 +30,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         -> VideoEditorPlayback
     {
         guard let first = urls.first else { throw EngineError.invalidInput(.emptyInput) }
-        let source = AVURLAsset(url: first)
+        let source = UntrustedMediaAsset.make(first)
         guard let sourceVideo = try await source.loadTracks(withMediaType: .video).first else {
             throw EngineError.decodeFailed("no playback video track")
         }
@@ -44,7 +44,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         let audio: AVMutableCompositionTrack?
         var anyAudio = sourceAudio != nil
         for url in urls.dropFirst() {
-            if try await !AVURLAsset(url: url).loadTracks(withMediaType: .audio).isEmpty { anyAudio = true }
+            if try await !UntrustedMediaAsset.make(url).loadTracks(withMediaType: .audio).isEmpty { anyAudio = true }
         }
         if anyAudio {
             guard
@@ -60,7 +60,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         parameters?.audioTimePitchAlgorithm = .timeDomain
         for (index, segment) in timeline.segments.enumerated() {
             try Task.checkCancellation()
-            let asset = AVURLAsset(url: urls[segment.sourceIndex])
+            let asset = UntrustedMediaAsset.make(urls[segment.sourceIndex])
             guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else {
                 throw EngineError.decodeFailed("no playback video track")
             }
