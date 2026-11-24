@@ -50,32 +50,39 @@ public struct RunRequest: Equatable, Sendable {
 
 /// Ties item tags to their menu's file.
 public struct MenuBuilds: Sendable {
-    /// Keeps tags within 31 bits.
-    static let idCount = 1 << 11
+    /// Finder round-trips tags; stay within 31 bits.
+    public static let tagLimit = Int(Int32.max)
     static let retainedCount = 8
 
-    private var files: [Int: MenuFile] = [:]
-    private var nextID = 0
-
-    public init() {}
-
-    public mutating func record(_ file: MenuFile) -> Int {
-        let id = nextID
-        nextID = (nextID + 1) % Self.idCount
-        files[(id - Self.retainedCount + Self.idCount) % Self.idCount] = nil
-        files[id] = file
-        return id
+    private struct Build {
+        let tags: Range<Int>
+        let file: MenuFile
     }
 
-    public static func tag(build: Int, entryIndex: Int) -> Int {
-        entryIndex * idCount + build
+    private var builds: [Build] = []
+    private var nextTag: Int
+
+    /// Random starts separate restarted extensions' tags.
+    public init(firstTag: Int = Int.random(in: 1...tagLimit / 2)) {
+        nextTag = firstTag
+    }
+
+    /// Entry zero's tag, or nil when exhausted.
+    public mutating func record(_ file: MenuFile) -> Int? {
+        guard file.entries.count <= Self.tagLimit - nextTag else { return nil }
+        let tags = nextTag..<nextTag + file.entries.count
+        nextTag = tags.upperBound
+        builds.append(Build(tags: tags, file: file))
+        if builds.count > Self.retainedCount { builds.removeFirst() }
+        return tags.lowerBound
     }
 
     /// Nil once newer menus replaced the build.
     public func request(tag: Int, paths: [String]) -> RunRequest? {
-        guard tag >= 0, let file = files[tag % Self.idCount] else { return nil }
+        guard let build = builds.first(where: { $0.tags.contains(tag) }) else { return nil }
         return RunRequest(
-            catalogVersion: file.catalogVersion, entryIndex: tag / Self.idCount, token: file.token, paths: paths)
+            catalogVersion: build.file.catalogVersion, entryIndex: tag - build.tags.lowerBound,
+            token: build.file.token, paths: paths)
     }
 }
 
