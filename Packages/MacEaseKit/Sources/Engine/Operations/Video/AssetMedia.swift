@@ -245,10 +245,18 @@ final class AssetTrackReader: @unchecked Sendable {
         }
     }
 
-    func nextPackets() async throws -> [MediaPacket]? {
+    func nextPackets(preservingVideoPresentation: Bool = false) async throws -> [MediaPacket]? {
         guard let sample = try await nextSample() else { return nil }
         guard CMSampleBufferGetNumSamples(sample) > 0 else { return [] }
-        return try SampleBuffers.packets(from: sample, track: number)
+        var packets = try SampleBuffers.packets(from: sample, track: number)
+        if preservingVideoPresentation {
+            let offset = sample.outputPresentationTimeStamp - sample.presentationTimeStamp
+            for index in packets.indices {
+                packets[index].outputTimestamp = SampleBuffers.nanoseconds(
+                    CMTime(value: packets[index].timestamp, timescale: SampleBuffers.nanosecondScale) + offset)
+            }
+        }
+        return packets
     }
 
     func nextFrame() async throws -> DecodedFrame? {

@@ -5,7 +5,23 @@ import Foundation
 
 enum PreviewEncoding: String, CaseIterable, Sendable {
     case automatic, utf8, utf16, utf16LE, utf16BE, utf32, utf32LE, utf32BE, shiftJIS, eucJP, iso2022JP,
-        windows1252, latin1
+        gb18030, big5, eucKR, windows1252, latin1
+
+    init(detected: DetectedTextEncoding) {
+        switch detected {
+        case .utf8: self = .utf8
+        case .utf16LE: self = .utf16LE
+        case .utf16BE: self = .utf16BE
+        case .utf32LE: self = .utf32LE
+        case .utf32BE: self = .utf32BE
+        case .gb18030: self = .gb18030
+        case .shiftJIS: self = .shiftJIS
+        case .eucJP: self = .eucJP
+        case .iso2022JP: self = .iso2022JP
+        case .windows1252: self = .windows1252
+        case .latin1: self = .latin1
+        }
+    }
 
     var title: String {
         switch self {
@@ -20,6 +36,9 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
         case .shiftJIS: String(localized: "Shift_JIS")
         case .eucJP: String(localized: "EUC-JP")
         case .iso2022JP: String(localized: "ISO-2022-JP")
+        case .gb18030: String(localized: "GB18030")
+        case .big5: String(localized: "Big5")
+        case .eucKR: String(localized: "EUC-KR")
         case .windows1252: String(localized: "Windows-1252")
         case .latin1: String(localized: "ISO-8859-1")
         }
@@ -46,6 +65,18 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
                     CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
         case .eucJP: return .japaneseEUC
         case .iso2022JP: return .iso2022JP
+        case .gb18030:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        case .big5:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.big5_HKSCS_1999.rawValue)))
+        case .eucKR:
+            return String.Encoding(
+                rawValue: CFStringConvertEncodingToNSStringEncoding(
+                    CFStringEncoding(CFStringEncodings.dosKorean.rawValue)))
         case .windows1252: return .windowsCP1252
         case .latin1: return .isoLatin1
         }
@@ -75,6 +106,7 @@ struct PreviewTextSource: Sendable {
     let truncated: Bool
     let parentDirectory: PreviewDirectoryDescriptor?
     let trust: PreviewTrust?
+    let detectedEncoding: PreviewEncoding?
 
     init(
         bytes: Data, truncated: Bool, parentDirectory: PreviewDirectoryDescriptor? = nil, trust: PreviewTrust? = nil
@@ -83,6 +115,9 @@ struct PreviewTextSource: Sendable {
         self.truncated = truncated
         self.parentDirectory = parentDirectory
         self.trust = trust
+        self.detectedEncoding = (try? TextEncoding.detect(from: bytes, truncated: truncated)).map {
+            PreviewEncoding(detected: $0.encoding)
+        }
     }
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
@@ -162,9 +197,11 @@ struct PreviewTextSource: Sendable {
         } else {
             selected = encoding
         }
-        if [.shiftJIS, .eucJP, .iso2022JP].contains(selected) {
+        if [.shiftJIS, .eucJP, .iso2022JP, .gb18030, .big5, .eucKR].contains(selected) {
             do { return try selected.decode(bytes) } catch {
-                return try selected.decode(bytes.dropLast(incompleteSuffixLength(encoding: selected)))
+                let omitted = incompleteSuffixLength(encoding: selected)
+                guard omitted > 0 else { throw error }
+                return try selected.decode(bytes.dropLast(omitted))
             }
         }
         let omitted = incompleteSuffixLength(encoding: selected)
@@ -223,6 +260,21 @@ struct PreviewTextSource: Sendable {
                 (0x21...0x7E).contains(last)
             else { return 0 }
             return (bytes.endIndex - escape - 3) % 2
+        case .gb18030:
+            let tail = Array(bytes.suffix(3))
+            if tail.count == 3, (0x81...0xFE).contains(tail[0]), (0x30...0x39).contains(tail[1]),
+                (0x81...0xFE).contains(tail[2])
+            {
+                return 3
+            }
+            if tail.count >= 2, (0x81...0xFE).contains(tail[tail.count - 2]),
+                (0x30...0x39).contains(tail[tail.count - 1])
+            {
+                return 2
+            }
+            return (0x81...0xFE).contains(last) ? 1 : 0
+        case .big5, .eucKR:
+            return (0x81...0xFE).contains(last) ? 1 : 0
         case .utf32LE, .utf32BE:
             return bytes.count % 4
         case .automatic, .utf16, .utf32, .windows1252, .latin1: return 0
@@ -280,6 +332,36 @@ enum PreviewLanguage: Sendable {
         }
         return Set(words.split(separator: " ").map(String.init))
     }
+
+    func startsString(quote: UInt16, previous: UInt16?, inMarkupTag: Bool) -> Bool {
+        switch self {
+        case .plain:
+            return false
+        case .swift, .json:
+            return quote == Self.doubleQuote
+        case .javascript, .shell:
+            return quote == Self.doubleQuote || quote == Self.singleQuote || quote == Self.backtick
+        case .python, .css:
+            return quote == Self.doubleQuote || quote == Self.singleQuote
+        case .c:
+            return quote == Self.doubleQuote
+                || (quote == Self.singleQuote && !(previous.map { Self.digitRange.contains($0) } ?? false))
+        case .markup:
+            return inMarkupTag && (quote == Self.doubleQuote || quote == Self.singleQuote)
+        case .yaml:
+            guard quote == Self.doubleQuote || quote == Self.singleQuote else { return false }
+            guard let previous else { return true }
+            return Self.yamlQuotePreceders.contains(previous)
+        case .markdown:
+            return quote == Self.backtick
+        }
+    }
+
+    private static let doubleQuote: UInt16 = 34
+    private static let singleQuote: UInt16 = 39
+    private static let backtick: UInt16 = 96
+    private static let digitRange: ClosedRange<UInt16> = 48...57
+    private static let yamlQuotePreceders: Set<UInt16> = [9, 10, 13, 32, 44, 58, 61, 91, 123]
 }
 
 struct PreviewToken: Equatable, Sendable {
@@ -289,12 +371,18 @@ struct PreviewToken: Equatable, Sendable {
 }
 
 enum PreviewTokenizer {
+    private static let singleQuote: UInt16 = 39
+    private static let lessThan: UInt16 = 60
+    private static let greaterThan: UInt16 = 62
+    private static let markupDirectiveLeaders: Set<UInt16> = [33, 63]
+
     static func tokens(_ text: String, language: PreviewLanguage) throws -> [PreviewToken] {
         guard language != .plain else { return [] }
         let prefix = String(decoding: text.utf8.prefix(PreviewTextSource.highlightBytes), as: UTF8.self)
         let units = Array(prefix.utf16)
         let keywords = language.keywords
         var cursor = 0
+        var inMarkupTag = false
         var result: [PreviewToken] = []
         func matches(_ literal: String) -> Bool {
             units[cursor...].starts(with: literal.utf16)
@@ -308,6 +396,7 @@ enum PreviewTokenizer {
             try Task.checkCancellation()
             let start = cursor
             let unit = units[cursor]
+            let previous = cursor > 0 ? units[cursor - 1] : nil
             var kind: PreviewToken.Kind?
             if [.markup, .markdown].contains(language) && matches("<!--") {
                 cursor += 4
@@ -332,14 +421,22 @@ enum PreviewTokenizer {
             {
                 cursor = lineEnd()
                 kind = .comment
-            } else if unit == 34 || unit == 39 || (unit == 96 && [.javascript, .shell, .markdown].contains(language)) {
+            } else if language.startsString(quote: unit, previous: previous, inMarkupTag: inMarkupTag) {
                 let triple =
                     (language == .python || language == .swift || language == .markdown)
                     && cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit
                 let delimiter = triple ? 3 : 1
                 cursor += delimiter
                 while cursor < units.count {
-                    if units[cursor] == 92 { cursor = min(units.count, cursor + 2); continue }
+                    if language == .yaml, unit == Self.singleQuote,
+                        cursor + 1 < units.count, units[cursor] == Self.singleQuote,
+                        units[cursor + 1] == Self.singleQuote
+                    {
+                        cursor += 2; continue
+                    }
+                    if !(language == .yaml && unit == Self.singleQuote), units[cursor] == 92 {
+                        cursor = min(units.count, cursor + 2); continue
+                    }
                     if units[cursor] == unit,
                         !triple || (cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit)
                     {
@@ -351,11 +448,20 @@ enum PreviewTokenizer {
             } else if language == .markdown && unit == 35 && (cursor == 0 || units[cursor - 1] == 10) {
                 cursor = lineEnd()
                 kind = .keyword
-            } else if language == .markup && unit == 60 {
+            } else if language == .markup && unit == Self.lessThan {
                 cursor += 1
                 if cursor < units.count, units[cursor] == 47 { cursor += 1 }
+                let nameStart = cursor
                 while cursor < units.count, identifier(units[cursor]) { cursor += 1 }
+                if cursor > nameStart
+                    || (nameStart < units.count && Self.markupDirectiveLeaders.contains(units[nameStart]))
+                {
+                    inMarkupTag = true
+                }
                 kind = .keyword
+            } else if language == .markup && unit == Self.greaterThan {
+                inMarkupTag = false
+                cursor += 1
             } else if (48...57).contains(unit) {
                 cursor += 1
                 while cursor < units.count,

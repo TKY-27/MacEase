@@ -1,13 +1,41 @@
 import CoreFoundation
 import Foundation
 
+public enum DetectedTextEncoding: String, Equatable, Hashable, Sendable {
+    case utf8
+    case utf16LE
+    case utf16BE
+    case utf32LE
+    case utf32BE
+    case gb18030
+    case shiftJIS
+    case eucJP
+    case iso2022JP
+    case windows1252
+    case latin1
+}
+
+public struct DetectedText: Equatable, Sendable {
+    public let text: String
+    public let encoding: DetectedTextEncoding
+
+    public init(text: String, encoding: DetectedTextEncoding) {
+        self.text = text
+        self.encoding = encoding
+    }
+}
+
 public enum TextEncoding {
-    public static func detectedString(from bytes: Data, truncated: Bool = false) throws -> String {
-        if bytes.isEmpty { return "" }
-        if let text = plausibleDecodedText(from: [UInt8](bytes), truncated: truncated) {
-            return text
+    public static func detect(from bytes: Data, truncated: Bool = false) throws -> DetectedText {
+        if bytes.isEmpty { return DetectedText(text: "", encoding: .utf8) }
+        if let detected = plausibleDetectedText(from: [UInt8](bytes), truncated: truncated) {
+            return detected
         }
         throw EngineError.invalidInput(.textEncodingUndetected)
+    }
+
+    public static func detectedString(from bytes: Data, truncated: Bool = false) throws -> String {
+        try detect(from: bytes, truncated: truncated).text
     }
 
     public static func strictString(from bytes: Data, encoding: String.Encoding) throws -> String {
@@ -35,44 +63,58 @@ public enum TextEncoding {
     }
 
     static func plausibleBOMText(from bytes: [UInt8], truncated: Bool = false) -> String? {
-        decodeBOMText(bytes, truncated: truncated)
+        decodeBOMDetectedText(bytes, truncated: truncated)?.text
     }
 
     static func plausibleDecodedText(from bytes: [UInt8], truncated: Bool = false) -> String? {
+        plausibleDetectedText(from: bytes, truncated: truncated)?.text
+    }
+
+    private static func plausibleDetectedText(from bytes: [UInt8], truncated: Bool) -> DetectedText? {
         guard !bytes.isEmpty else { return nil }
         if hasByteOrderMark(bytes) {
-            return decodeBOMText(bytes, truncated: truncated)
+            return decodeBOMDetectedText(bytes, truncated: truncated)
         }
         if bytes.contains(0) {
-            if let text = chooseUTF32(bytes, truncated: truncated) { return text }
+            if let detected = chooseUTF32(bytes, truncated: truncated) { return detected }
             let le = decodeUTF16Candidate(bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
             let be = decodeUTF16Candidate(bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
-            return chooseUTF16(le, be)?.text
+            return chooseUTF16(le, be)?.detected
         }
-        let le = decodeUTF16Candidate(bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
-        let be = decodeUTF16Candidate(bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
         if !bytes.contains(where: isRawControl) {
             // Alternating 0x09 lane indicates BOM-less Devanagari UTF-16.
             if bytes.count >= 6, bytes.count.isMultiple(of: 2) {
                 let evenTabs = stride(from: 0, to: bytes.count, by: 2).allSatisfy { bytes[$0] == tabByte }
                 let oddTabs = stride(from: 1, to: bytes.count, by: 2).allSatisfy { bytes[$0] == tabByte }
-                if oddTabs, !evenTabs, let candidate = le { return candidate.text }
-                if evenTabs, !oddTabs, let candidate = be { return candidate.text }
+                if oddTabs, !evenTabs,
+                    let candidate = decodeUTF16Candidate(
+                        bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
+                {
+                    return candidate.detected
+                }
+                if evenTabs, !oddTabs,
+                    let candidate = decodeUTF16Candidate(
+                        bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
+                {
+                    return candidate.detected
+                }
             }
             if bytes.contains(escapeByte),
                 let text = decodeWithSuffixTrim(bytes, encoding: .iso2022JP, maxTrim: truncated ? 3 : 0),
                 isPlausibleText(text)
             {
-                return text
+                return DetectedText(text: text, encoding: .iso2022JP)
             }
             if let text = decodeUTF8(bytes, truncated: truncated), isPlausibleText(text) {
-                return text
+                return DetectedText(text: text, encoding: .utf8)
             }
+            let le = decodeUTF16Candidate(bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
+            let be = decodeUTF16Candidate(bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
             if let candidate = le, candidate.hasSurrogatePairs, !(be?.hasSurrogatePairs ?? false) {
-                return candidate.text
+                return candidate.detected
             }
             if let candidate = be, candidate.hasSurrogatePairs, !(le?.hasSurrogatePairs ?? false) {
-                return candidate.text
+                return candidate.detected
             }
             let cp932Text = decodeWithSuffixTrim(bytes, encoding: cp932, maxTrim: truncated ? 1 : 0)
                 .flatMap { isPlausibleText($0) ? $0 : nil }
@@ -84,30 +126,36 @@ public enum TextEncoding {
                     let chosen = chooseUTF16(le, be),
                     chosen.distinctHighBytes * 2 <= chosen.distinctLowBytes
                 {
-                    return chosen.text
+                    return chosen.detected
                 }
-                return cp932Text
+                return DetectedText(text: cp932Text, encoding: .shiftJIS)
             }
-            if let eucText, cp932Text == nil { return eucText }
-            if let cp932Text { return cp932Text }
+            if let eucText, cp932Text == nil { return DetectedText(text: eucText, encoding: .eucJP) }
+            if let cp932Text { return DetectedText(text: cp932Text, encoding: .shiftJIS) }
             if let text = try? strictString(from: Data(bytes), encoding: .windowsCP1252), isPlausibleText(text) {
-                return text
+                return DetectedText(text: text, encoding: .windows1252)
             }
             if let text = try? strictString(from: Data(bytes), encoding: .isoLatin1), isPlausibleText(text) {
-                return text
+                return DetectedText(text: text, encoding: .latin1)
             }
+            return chooseUTF16(le, be)?.detected
         }
-        return chooseUTF16(le, be)?.text
+        let le = decodeUTF16Candidate(bytes, littleEndian: true, truncated: truncated, checkLowControls: true)
+        let be = decodeUTF16Candidate(bytes, littleEndian: false, truncated: truncated, checkLowControls: true)
+        return chooseUTF16(le, be)?.detected
     }
 
     static let cp932 = String.Encoding(
         rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
+    static let gb18030 = String.Encoding(
+        rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
 
     private static let utf8BOM: [UInt8] = [0xEF, 0xBB, 0xBF]
     private static let utf16LittleEndianBOM: [UInt8] = [0xFF, 0xFE]
     private static let utf16BigEndianBOM: [UInt8] = [0xFE, 0xFF]
     private static let utf32LittleEndianBOM: [UInt8] = [0xFF, 0xFE, 0x00, 0x00]
     private static let utf32BigEndianBOM: [UInt8] = [0x00, 0x00, 0xFE, 0xFF]
+    private static let gb18030BOM: [UInt8] = [0x84, 0x31, 0x95, 0x33]
     private static let tabByte: UInt8 = 0x09
     private static let carriageReturn: UInt8 = 0x0D
     private static let lineFeed: UInt8 = 0x0A
@@ -250,48 +298,65 @@ public enum TextEncoding {
 
     private struct UTF16Candidate {
         let text: String
+        let littleEndian: Bool
         let hasSurrogatePairs: Bool
         let highNuls: Int
         let distinctHighBytes: Int
         let distinctLowBytes: Int
+
+        var detected: DetectedText {
+            DetectedText(text: text, encoding: littleEndian ? .utf16LE : .utf16BE)
+        }
     }
 
     private static func hasByteOrderMark(_ bytes: [UInt8]) -> Bool {
         bytes.starts(with: utf32LittleEndianBOM) || bytes.starts(with: utf32BigEndianBOM)
             || bytes.starts(with: utf16LittleEndianBOM) || bytes.starts(with: utf16BigEndianBOM)
-            || bytes.starts(with: utf8BOM)
+            || bytes.starts(with: utf8BOM) || bytes.starts(with: gb18030BOM)
     }
 
     private static func isRawControl(_ byte: UInt8) -> Bool {
         byte < firstPrintableByte && !allowedByteControls.contains(byte)
     }
 
-    private static func decodeBOMText(_ bytes: [UInt8], truncated: Bool) -> String? {
+    private static func decodeBOMDetectedText(_ bytes: [UInt8], truncated: Bool) -> DetectedText? {
         if bytes.starts(with: utf32LittleEndianBOM) {
             let body = Array(bytes.dropFirst(utf32LittleEndianBOM.count))
-            return body.isEmpty ? "" : decodeUTF32Body(body, littleEndian: true, truncated: truncated)
+            guard !body.isEmpty else { return DetectedText(text: "", encoding: .utf32LE) }
+            return decodeUTF32Body(body, littleEndian: true, truncated: truncated)
+                .map { DetectedText(text: $0, encoding: .utf32LE) }
         }
         if bytes.starts(with: utf32BigEndianBOM) {
             let body = Array(bytes.dropFirst(utf32BigEndianBOM.count))
-            return body.isEmpty ? "" : decodeUTF32Body(body, littleEndian: false, truncated: truncated)
+            guard !body.isEmpty else { return DetectedText(text: "", encoding: .utf32BE) }
+            return decodeUTF32Body(body, littleEndian: false, truncated: truncated)
+                .map { DetectedText(text: $0, encoding: .utf32BE) }
         }
         if bytes.starts(with: utf16LittleEndianBOM) {
             let body = Array(bytes.dropFirst(utf16LittleEndianBOM.count))
-            return body.isEmpty
-                ? ""
-                : decodeUTF16Candidate(body, littleEndian: true, truncated: truncated, checkLowControls: false)?.text
+            guard !body.isEmpty else { return DetectedText(text: "", encoding: .utf16LE) }
+            return decodeUTF16Candidate(body, littleEndian: true, truncated: truncated, checkLowControls: false)?
+                .detected
         }
         if bytes.starts(with: utf16BigEndianBOM) {
             let body = Array(bytes.dropFirst(utf16BigEndianBOM.count))
-            return body.isEmpty
-                ? ""
-                : decodeUTF16Candidate(body, littleEndian: false, truncated: truncated, checkLowControls: false)?.text
+            guard !body.isEmpty else { return DetectedText(text: "", encoding: .utf16BE) }
+            return decodeUTF16Candidate(body, littleEndian: false, truncated: truncated, checkLowControls: false)?
+                .detected
         }
         if bytes.starts(with: utf8BOM) {
             let body = Array(bytes.dropFirst(utf8BOM.count))
-            guard !body.isEmpty else { return "" }
+            guard !body.isEmpty else { return DetectedText(text: "", encoding: .utf8) }
             guard let text = decodeUTF8(body, truncated: truncated), isPlausibleText(text) else { return nil }
-            return text
+            return DetectedText(text: text, encoding: .utf8)
+        }
+        if bytes.starts(with: gb18030BOM) {
+            let body = Array(bytes.dropFirst(gb18030BOM.count))
+            guard !body.isEmpty else { return DetectedText(text: "", encoding: .gb18030) }
+            guard let text = decodeWithSuffixTrim(body, encoding: gb18030, maxTrim: truncated ? 3 : 0),
+                isPlausibleText(text)
+            else { return nil }
+            return DetectedText(text: text, encoding: .gb18030)
         }
         return nil
     }
@@ -336,9 +401,11 @@ public enum TextEncoding {
         return nil
     }
 
-    private static func chooseUTF32(_ bytes: [UInt8], truncated: Bool) -> String? {
+    private static func chooseUTF32(_ bytes: [UInt8], truncated: Bool) -> DetectedText? {
         let le = decodeUTF32Body(bytes, littleEndian: true, truncated: truncated)
+            .map { DetectedText(text: $0, encoding: .utf32LE) }
         let be = decodeUTF32Body(bytes, littleEndian: false, truncated: truncated)
+            .map { DetectedText(text: $0, encoding: .utf32BE) }
         if let le, be == nil { return le }
         if let be, le == nil { return be }
         return le
@@ -423,6 +490,7 @@ public enum TextEncoding {
                 guard !scalars.isEmpty else { return nil }
                 return UTF16Candidate(
                     text: String(String.UnicodeScalarView(scalars)),
+                    littleEndian: littleEndian,
                     hasSurrogatePairs: hasSurrogatePairs,
                     highNuls: highNuls,
                     distinctHighBytes: distinctHigh.count,

@@ -1,5 +1,61 @@
 # Spikes and Manual Verification
 
+## Native timecode output support (2026-11-24)
+
+Measured on macOS 27.2.1 (26B131), Xcode 27.2 (27B52), macOS 27.2 SDK.
+A native 30 fps `tmcd` format description from a 24 fps MOV was supplied to
+`AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint:)`.
+`AVAssetWriter.canAdd(_:)` returned:
+
+| Writer file type | Accepted timecode |
+| --- | --- |
+| `.mov` | Yes |
+| `.mp4` | No |
+| `.m4v` | No |
+| `.m4a` | No |
+
+MOV accepts timecode samples in the same writer session and supports source
+video/timecode associations. The reader also emits zero-sample marker buffers,
+including leading controls, invalid timestamps and a rounded trailing end marker.
+Never append those markers: they can stretch the preceding sample.
+
+A generated 24 fps, 10-frame FFmpeg MOV has movie timescale 1000, track range
+417/1000, and a real timecode sample of 5120/12288 (exactly 10/24). Appending its
+trailing marker changed that sample duration to 5124/12288. Skipping markers
+alone with writer movieTimeScale 1000 produced track duration 416/1000. Using
+the exact least common multiple of the source movie and timecode media scales
+(1536000 here) retained 5120/12288 and its exact presentation end. The 30 fps,
+31-frame case also passes through compression and MOV recipes.
+
+Verification requires identical timecode payload, sample count, format
+(including frame duration, quanta and flags), PTS/DTS, sample duration, output
+PTS/duration, association membership, enabled state, language and metadata.
+Track start must match exactly. Only track duration may differ by strictly less
+than one source movie tick, `CMTime(value: 1, timescale: sourceMovieScale)`,
+because source movie-level durations already contain rounding. A test rejects
+a difference equal to that bound. The output writer uses the exact common
+scale; scale overflow/rounding is rejected before encoding.
+
+Every material sample is checked before encoding against its own format and
+each declared sample size (four-byte tmcd or eight-byte tc64). Empty tracks,
+multiple format descriptions, multiple nonempty edit segments and clipped sample
+durations require prior omission consent. A direct native replay of two samples
+trimmed from 0.5 to 1.5 seconds changed the final raw duration from 1 to 0.5 s;
+a single clipped sample also shortened the visible range from 1 to 0.5 s.
+Removing markers and using an exact movie scale did not reproduce those edits.
+These cases ask before encoding rather than weakening sample verification.
+Valid tc64 above Int32.max, negative/discontinuous values, two timecode tracks,
+23.976, 29.97/59.94 drop-frame, 25/50/60 fps, HDR-to-SDR and subtitle-only
+omission are covered by native regression tests.
+
+MP4, M4V and M4A require explicit omission consent before encoding. Regenerating
+from a timecode string changes the rate when it differs from the video rate.
+Do not post-remux AVAssetWriter output: packet hashes alone missed HEVC alpha
+sample-description corruption and removal of leading empty edits.
+
+Apple's API contract: [Timecode support](https://developer.apple.com/library/archive/technotes/tn2310/_index.html),
+[pass-through output settings](https://developer.apple.com/documentation/avfoundation/avassetwriterinput/outputsettings).
+
 ## ONNX Runtime document availability (2026-11-24)
 
 An empty worktree-local `Vendor/src/ai-audio` cache reproduced the failure in

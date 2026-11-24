@@ -342,7 +342,7 @@ public enum VideoSegmentReverser {
         _ stages: [any StreamStage], _ queues: [[MediaPacket]], sink: AssetWriterSink
     ) async throws -> Int? {
         while true {
-            try sink.checkHealth()
+            try await sink.checkHealth()
             try Task.checkCancellation()
             var candidates: [(index: Int, time: Int64)] = []
             for index in stages.indices {

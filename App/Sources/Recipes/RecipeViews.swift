@@ -213,16 +213,16 @@ struct RecipeRunView: View {
     let recipeStore: RecipeStore
     var preselectedRecipeID: UUID?
     var expectedRevision: String?
-    let onRun: (Batch) -> Void
+    let onRun: (Batch) async -> BatchOutcome?
+    let onComplete: () -> Void
     let onCancel: () -> Void
     @State private var recipes: [Recipe] = []
     @State private var selectedID: UUID?
     @State private var destination: URL?
     @State private var failure: String?
     @State private var editing: Recipe?
-    @State private var busy = false
+    @State private var runModel: RecipeRunModel?
     @State private var acceptedRevision: Int?
-    @State private var streamConsent: StreamConsentRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -256,7 +256,7 @@ struct RecipeRunView: View {
                 Spacer()
                 Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
                 Button("Finish Files") { run() }
-                    .keyboardShortcut(.defaultAction).disabled(selected == nil || busy)
+                    .keyboardShortcut(.defaultAction).disabled(selected == nil || runModel?.busy == true)
             }
         }
         .padding(24)
@@ -269,7 +269,11 @@ struct RecipeRunView: View {
                 await reload(selecting: saved.id)
             }
         }
-        .streamConsentAlert($streamConsent, accept: continueWithoutStreams) { _ in }
+        .streamConsentAlert(
+            Binding(get: { runModel?.streamConsent }, set: { runModel?.streamConsent = $0 }),
+            accept: { request in Task { await runModel?.continueWithoutStreams(request) } }
+        ) { _ in }
+        .onChange(of: runModel?.failure) { failure = runModel?.failure }
     }
 
     private var selected: Recipe? { recipes.first { $0.id == selectedID } }
@@ -314,35 +318,8 @@ struct RecipeRunView: View {
             chooseDestination()
             guard destination != nil else { return }
         }
-        busy = true
-        Task {
-            do {
-                try RecipePlanner.validate(recipe: selected, inputs: inputs)
-                let omissions = try await RecipePlanner.streamOmissions(recipe: selected, inputs: inputs)
-                if omissions.isEmpty {
-                    try submit(selected, omissions: [:])
-                } else {
-                    streamConsent = StreamConsentRequest(
-                        purpose: .proceed,
-                        files: omissions.map { .init(url: $0.key, omission: $0.value) }
-                            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
-                }
-            } catch { failure = error.localizedDescription }
-            busy = false
-        }
-    }
-
-    private func continueWithoutStreams(_ request: StreamConsentRequest) {
-        guard let selected else { return }
-        do {
-            try submit(
-                selected, omissions: Dictionary(uniqueKeysWithValues: request.files.map { ($0.url, $0.omission) }))
-        } catch { failure = error.localizedDescription }
-    }
-
-    private func submit(_ recipe: Recipe, omissions: [URL: StreamOmission]) throws {
-        onRun(
-            try RecipePlanner.batch(
-                recipe: recipe, inputs: inputs, destination: destination, settings: settings, omissions: omissions))
+        let model = RecipeRunModel(inputs: inputs, settings: settings, onRun: onRun, onComplete: onComplete)
+        runModel = model
+        Task { await model.run(selected, destination: destination) }
     }
 }

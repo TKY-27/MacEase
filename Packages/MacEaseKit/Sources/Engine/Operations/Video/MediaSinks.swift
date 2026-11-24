@@ -59,7 +59,7 @@ struct OutputTrack {
 protocol PacketSink {
     /// AVAssetWriter interleaves; muxers take anything.
     func accepts(track: Int) -> Bool
-    func checkHealth() throws
+    func checkHealth() async throws
     mutating func cancel()
     /// Stops AVAssetWriter waiting on a drained stream.
     func endTrack(_ track: Int)
@@ -70,11 +70,12 @@ protocol PacketSink {
 enum Sinks {
     static func make(
         _ container: OutputContainer, url: URL, tracks: [OutputTrack], transform: CGAffineTransform,
-        metadata: [AVMetadataItem] = []
+        metadata: [AVMetadataItem] = [], timecode: NativeTimecode? = nil
     ) throws -> any PacketSink {
         if let fileType = container.fileType {
             return try AssetWriterSink(
-                url: url, fileType: fileType, tracks: tracks, transform: transform, metadata: metadata)
+                url: url, fileType: fileType, tracks: tracks, transform: transform, metadata: metadata,
+                timecode: timecode)
         }
         let described = tracks.map(\.track)
         switch container {
@@ -97,7 +98,7 @@ struct MuxerSink: PacketSink {
 
     func accepts(track: Int) -> Bool { true }
 
-    func checkHealth() throws {}
+    func checkHealth() async throws {}
 
     mutating func cancel() {}
 
@@ -121,13 +122,15 @@ struct MuxerSink: PacketSink {
 final class AssetWriterSink: PacketSink {
     private static let readinessPoll = Duration.milliseconds(2)
 
+    private let timecode: NativeTimecode?
     private let writer: AVAssetWriter
     private var inputs: [Int: (input: AVAssetWriterInput, format: CMFormatDescription, codec: MediaCodec)] = [:]
 
     init(
         url: URL, fileType: AVFileType, tracks: [OutputTrack], transform: CGAffineTransform,
-        metadata: [AVMetadataItem] = []
+        metadata: [AVMetadataItem] = [], timecode: NativeTimecode? = nil
     ) throws {
+        self.timecode = timecode
         writer = try AVAssetWriter(outputURL: url, fileType: fileType)
         writer.metadata = metadata
         writer.shouldOptimizeForNetworkUse = true
@@ -171,6 +174,7 @@ final class AssetWriterSink: PacketSink {
             }
             writer.add(inputGroup)
         }
+        try timecode?.attach(to: writer, video: inputs.values.first { $0.input.mediaType == .video }?.input)
         guard writer.startWriting() else { throw EngineError.encodeFailed(Self.describe(writer.error)) }
         writer.startSession(atSourceTime: .zero)
     }
@@ -183,13 +187,15 @@ final class AssetWriterSink: PacketSink {
         inputs[track]?.input.isReadyForMoreMediaData ?? true
     }
 
-    func checkHealth() throws {
+    func checkHealth() async throws {
         if writer.status == .failed || writer.status == .cancelled {
             throw EngineError.encodeFailed(Self.describe(writer.error))
         }
+        try timecode?.appendReady(writer: writer)
     }
 
     func cancel() {
+        timecode?.cancel()
         writer.cancelWriting()
     }
 
@@ -205,7 +211,7 @@ final class AssetWriterSink: PacketSink {
             throw EngineError.unsupportedCodec(codec.displayName)
         }
         while !input.isReadyForMoreMediaData {
-            try checkHealth()
+            try await checkHealth()
             try Task.checkCancellation()
             try await Task.sleep(for: Self.readinessPoll)
         }
@@ -216,6 +222,11 @@ final class AssetWriterSink: PacketSink {
     func finish() async throws {
         for (input, _, _) in inputs.values { input.markAsFinished() }
         inputs = [:]
+        while let timecode, !timecode.isFinished {
+            try await checkHealth()
+            try Task.checkCancellation()
+            if !timecode.isFinished { try await Task.sleep(for: Self.readinessPoll) }
+        }
         await writer.finishWriting()
         guard writer.status == .completed else { throw EngineError.encodeFailed(Self.describe(writer.error)) }
     }

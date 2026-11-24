@@ -35,6 +35,7 @@ struct TranscodePlan {
     var copiedDisplayTrack: MediaTrack?
     var copiedDisplayFormat: CMFormatDescription?
     var derived = false
+    var carriesTimecode = false
 }
 
 /// Pulls one output stream in time order.
@@ -72,7 +73,8 @@ enum Transcoder {
                 try await videoStage(
                     video, track: track, input: input, matte: plan.matte, start: start, end: end,
                     toneMapToSDR: plan.toneMapToSDR, destination: plan.container, speed: plan.playbackSpeed,
-                    timeline: plan.timeline, sourceInputs: plan.sourceInputs))
+                    timeline: plan.timeline, sourceInputs: plan.sourceInputs,
+                    preservesVideoPresentation: plan.carriesTimecode && plan.container == .mov))
         }
         let audioInput = plan.sourceInputs?.first(where: { $0.audio != nil }) ?? input
         if let audio = plan.audio {
@@ -137,7 +139,15 @@ enum Transcoder {
         case .copy, .toneMapToSDR: transform = plan.transform ?? input.transform
         default: transform = .identity
         }
-        var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform, metadata: metadata)
+        let timecode: NativeTimecode?
+        if plan.carriesTimecode, case .asset(let asset, _, _) = input.backend {
+            timecode = try await NativeTimecode(asset: asset)
+        } else {
+            timecode = nil
+        }
+        var sink = try Sinks.make(
+            plan.container, url: url, tracks: tracks, transform: transform, metadata: metadata,
+            timecode: timecode)
         var queues = primed
         do {
             while let index = try await earliest(stages, queues, sink: sink) {
@@ -165,7 +175,7 @@ enum Transcoder {
         _ stages: [any StreamStage], _ queues: [[MediaPacket]], sink: any PacketSink
     ) async throws -> Int? {
         while true {
-            try sink.checkHealth()
+            try await sink.checkHealth()
             try Task.checkCancellation()
             var candidates: [(index: Int, time: Int64)] = []
             for index in stages.indices {
@@ -211,12 +221,13 @@ enum Transcoder {
     private static func videoStage(
         _ video: TranscodePlan.Video, track: MediaTrack, input: MediaInput, matte: BackgroundMatte?, start: Int64,
         end: Int64, toneMapToSDR: Bool, destination: OutputContainer, speed: Double, timeline: VideoTimeline?,
-        sourceInputs: [MediaInput]?
+        sourceInputs: [MediaInput]?, preservesVideoPresentation: Bool
     ) async throws -> any StreamStage {
         switch video {
         case .copy:
             return try await PacketCopyStage(
-                input: input, track: track, number: 1, start: start, end: end, destination: destination)
+                input: input, track: track, number: 1, start: start, end: end, destination: destination,
+                preservesVideoPresentation: preservesVideoPresentation)
         case .encode(let encoding, let edit):
             if let timeline {
                 return try TimelineFrameEncodeStage(
@@ -225,7 +236,7 @@ enum Transcoder {
             }
             return try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
-                toneMapToSDR: toneMapToSDR, speed: speed)
+                toneMapToSDR: toneMapToSDR, speed: speed, preservesLeadingEdit: preservesVideoPresentation)
         case .toneMapToSDR(let encoding):
             return try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }
@@ -306,21 +317,23 @@ final class PacketCopyStage: StreamStage {
     private var audibleStart: Int64?
     private var containerShift: Int64?
     private var aacPacketDuration: Int64?
+    private let preservesVideoPresentation: Bool
     private(set) var output: OutputTrack?
 
     init(
         input: MediaInput, track: MediaTrack, number: Int, start: Int64, end: Int64,
-        destination: OutputContainer? = nil
+        destination: OutputContainer? = nil, preservesVideoPresentation: Bool = false
     ) async throws {
         self.number = number
         self.start = start
         self.end = end
         isVideo = track.isVideo
+        self.preservesVideoPresentation = preservesVideoPresentation && track.isVideo
         codec = track.codec
         let matroska = destination == .mkv || destination == .webm
         preservesLacing = destination == nil || matroska
-        usesPresentedAudioTime = (destination == .avi || destination == .flv) && track.codec != .opus
-        usesCodecDelay = matroska && track.codec != .opus
+        usesPresentedAudioTime = !track.isVideo && (destination == .avi || destination == .flv) && track.codec != .opus
+        usesCodecDelay = !track.isVideo && matroska && track.codec != .opus
         var described = track
         described.number = number
         switch input.backend {
@@ -413,7 +426,9 @@ final class PacketCopyStage: StreamStage {
     private func nextRaw() async throws -> MediaPacket? {
         switch source {
         case .asset(let reader):
-            while pendingAsset.isEmpty, let packets = try await reader.nextPackets() { pendingAsset = packets }
+            while pendingAsset.isEmpty,
+                let packets = try await reader.nextPackets(preservingVideoPresentation: preservesVideoPresentation)
+            { pendingAsset = packets }
             return pendingAsset.isEmpty ? nil : pendingAsset.removeFirst()
         case .container(var demuxer, let sourceTrack):
             defer { source = .container(demuxer, sourceTrack: sourceTrack) }
@@ -550,14 +565,20 @@ final class FrameEncodeStage: StreamStage {
 
     init(
         input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, matte: BackgroundMatte?, start: Int64,
-        end: Int64, toneMapToSDR: Bool = false, speed: Double = 1
+        end: Int64, toneMapToSDR: Bool = false, speed: Double = 1, preservesLeadingEdit: Bool = false
     ) async throws {
+        var firstFrame = start
+        if preservesLeadingEdit, start == 0, end == .max, speed == 1, case .asset(_, let video?, _) = input.backend,
+            let segment = try await video.load(.segments).first(where: { !$0.isEmpty })
+        {
+            firstFrame = max(start, SampleBuffers.nanoseconds(segment.timeMapping.target.start))
+        }
         sampler = try await FrameSampler(
-            input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end,
+            input: input, frameDuration: encoding.frameDuration, edit: edit, start: firstFrame, end: end,
             hdr: encoding.hdr, toneMapToSDR: toneMapToSDR, speed: speed)
         encoder = try VideoEncoders.make(encoding, track: 1)
         self.matte = matte
-        upcoming = start
+        upcoming = firstFrame
     }
 
     var output: OutputTrack? {
