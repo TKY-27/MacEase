@@ -77,6 +77,8 @@ struct MediaInput {
     private static let decodabilityProbePacketLimit = 32
     private static let audioProbePacketLimit = 8
     private static let totalPacketScanLimit = 256
+    /// 300 s lead-in at 100 audio packets/s.
+    static let frameRateProbePacketLimit = 30_000
 
     // Catches partial-open traps before transcoding starts.
     func verifyDecodable() async throws {
@@ -205,10 +207,18 @@ struct MediaInput {
         var demuxer = demuxer
         var times: [Int64] = []
         var scanned = 0
-        while times.count < frameRateProbe, scanned < totalPacketScanLimit, let packet = try demuxer.nextPacket() {
+        var reachedEnd = false
+        while times.count < frameRateProbe, scanned < frameRateProbePacketLimit {
             try Task.checkCancellation()
+            guard let packet = try demuxer.nextPacket() else {
+                reachedEnd = true
+                break
+            }
             scanned += 1
             if packet.track == track { times.append(packet.timestamp) }
+        }
+        if !reachedEnd, times.count < 2 {
+            throw EngineError.decodeFailed("video frame rate could not be measured within packet limit")
         }
         times.sort()
         var gaps: [Int64] = []

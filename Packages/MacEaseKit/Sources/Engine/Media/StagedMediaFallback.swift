@@ -37,9 +37,9 @@ struct FallbackSourceDescription: Sendable {
     let attachedPictureCount: Int
     let attachedPicture: Artwork?
     let attachedPictureDropped: Bool
+    let unreadableMetadataBlock: Bool
 
     private static let interlacedFieldOrders: Set<String> = ["tt", "bb", "tb", "bt"]
-    /// Container tags take precedence over stream tags.
     static let supportedAudioTextKeys = ["title", "artist", "album"]
     private static let supportedAudioTagKeys: Set<String> = [
         "title", "artist", "album", "cover art (front)",
@@ -58,7 +58,7 @@ struct FallbackSourceDescription: Sendable {
     }
 
     var hasUnsupportedAudioTags: Bool {
-        if attachedPictureDropped || resolvedAudioTags().droppedDuplicateValues {
+        if attachedPictureDropped || unreadableMetadataBlock || resolvedAudioTags().droppedDuplicateValues {
             return true
         }
         let allTags = formatTags.merging(audioTags) { current, _ in current }
@@ -406,15 +406,28 @@ enum StagedMediaFallback {
                 startTime.flatMap(Double.init).flatMap { $0.isFinite ? $0 : nil }
             }
 
-            var parsedDuration: Double? {
-                if let direct = duration.flatMap(Double.init), direct.isFinite, direct > 0 { return direct }
+            // Matroska DURATION means end or elapsed.
+            var candidateElapsedDurations: [Double] {
+                if let direct = duration.flatMap(Double.init), direct.isFinite, direct > 0 {
+                    return [direct]
+                }
                 guard
                     let tag = tags?.first(where: { $0.key.caseInsensitiveCompare("duration") == .orderedSame })?.value,
-                    let taggedEnd = StagedMediaFallback.parseTimestampDuration(tag)
-                else { return nil }
-                // Matroska DURATION tags record end timestamps.
-                let elapsed = taggedEnd - max(0, parsedStartTime ?? 0)
-                return elapsed > 0 ? elapsed : taggedEnd
+                    let tagged = StagedMediaFallback.parseTimestampDuration(tag)
+                else { return [] }
+                var candidates: [Double] = []
+                if let start = parsedStartTime, start != 0 {
+                    let fromEnd = tagged - start
+                    if fromEnd.isFinite, fromEnd > 0 {
+                        candidates.append(fromEnd)
+                    }
+                }
+                candidates.append(tagged)
+                return candidates
+            }
+
+            var parsedDuration: Double? {
+                candidateElapsedDurations.first
             }
 
             var effectiveAudioBitDepth: Int? {
@@ -553,7 +566,8 @@ enum StagedMediaFallback {
             trackAttributes: OriginalTrackAttributes = OriginalTrackAttributes(),
             hasVariableFrameTiming: Bool = false,
             attachedPicture: Artwork? = nil,
-            attachedPictureDropped: Bool = false
+            attachedPictureDropped: Bool = false,
+            unreadableMetadataBlock: Bool = false
         ) -> FallbackSourceDescription {
             let video = videoStreams.first
             let audio = audioStreams.first
@@ -588,7 +602,8 @@ enum StagedMediaFallback {
                 audioTags: StagedMediaFallback.userTags(from: audio?.tags),
                 attachedPictureCount: attachedPictureStreams.count,
                 attachedPicture: attachedPicture,
-                attachedPictureDropped: attachedPictureDropped)
+                attachedPictureDropped: attachedPictureDropped,
+                unreadableMetadataBlock: unreadableMetadataBlock)
         }
     }
 
@@ -678,6 +693,13 @@ enum StagedMediaFallback {
     static let maximumArtworkBytes = Artwork.maximumBytes
     static let maximumArtworkPixels = Artwork.maximumPixels
     static let maximumArtworkDimension = 16_384
+    /// FFmpeg skips APEv2 tags over 16 MiB.
+    static let ffmpegAPETagSizeLimit: UInt32 = 16 * 1_024 * 1_024
+    private static let apeTagPreamble: [UInt8] = Array("APETAGEX".utf8)
+    private static let apeHeaderFlag: UInt32 = 1 << 29
+    private static let apeFooterLength: UInt64 = 32
+    private static let id3v1TagLength: UInt64 = 128
+    private static let id3v1Preamble: [UInt8] = Array("TAG".utf8)
     /// Relative interval deviation signalling variable timing.
     static let variableFrameTimingTolerance = 0.15
     /// Ignores 1 ms Matroska timestamp quantization.
@@ -865,27 +887,17 @@ enum StagedMediaFallback {
     }
 
     static func audioTranscodeArguments(
-        for input: URL, probe: Probe, audioStream: Probe.Stream, attachedPicture: Probe.Stream? = nil,
+        for input: URL, probe: Probe, audioStream: Probe.Stream,
         profile: AudioProfile, output: URL
     ) -> [String] {
         var arguments = hardenedInputArguments(for: input, isQuickTimeFamily: probe.isQuickTimeFamily)
-        arguments += ["-map", "0:\(audioStream.index)"]
-        if profile == .alacM4A, let attachedPicture {
-            arguments += [
-                "-map", "0:\(attachedPicture.index)", "-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "0",
-                "-max_muxing_queue_size", String(maxMuxingQueueSize),
-                "-c:a", profile.ffmpegCodec,
-                "-c:v", attachedPicture.isM4ACompatibleImage ? "copy" : "png",
-                "-disposition:v:0", "attached_pic",
-            ]
-        } else {
-            arguments += [
-                "-vn", "-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "0",
-                "-max_muxing_queue_size", String(maxMuxingQueueSize),
-                "-c:a", profile.ffmpegCodec,
-            ]
-        }
-        arguments += ["-progress", "pipe:1", "-nostats", "-f", profile.muxerFormat, fileURI(for: output)]
+        arguments += [
+            "-map", "0:\(audioStream.index)",
+            "-vn", "-sn", "-dn", "-map_chapters", "-1", "-map_metadata", "0",
+            "-max_muxing_queue_size", String(maxMuxingQueueSize),
+            "-c:a", profile.ffmpegCodec,
+            "-progress", "pipe:1", "-nostats", "-f", profile.muxerFormat, fileURI(for: output),
+        ]
         return arguments
     }
 
@@ -1090,15 +1102,19 @@ enum StagedMediaFallback {
                             "\(fact.rawValue): original \(expectedFrames) frames became \(actualFrames)")
                     }
                 } else {
-                    let pair =
-                        originalVideo.parsedDuration.flatMap { expected in
-                            intermediateVideo.parsedDuration.map { (expected, $0) }
+                    let tolerance = max(originalVideo.parsedFrameDuration ?? 0, videoDurationMinimumTolerance)
+                    if !originalVideo.candidateElapsedDurations.isEmpty,
+                        let actual = intermediateVideo.parsedDuration
+                    {
+                        guard
+                            originalVideo.candidateElapsedDurations.contains(where: { abs(actual - $0) <= tolerance })
+                        else {
+                            let expected = originalVideo.candidateElapsedDurations[0]
+                            throw EngineError.fallbackConversionUnfaithful(
+                                "\(fact.rawValue): original \(String(format: "%.3f", expected))s became \(String(format: "%.3f", actual))s"
+                            )
                         }
-                        ?? original.durationSeconds.flatMap { expected in
-                            intermediate.durationSeconds.map { (expected, $0) }
-                        }
-                    if let (expected, actual) = pair {
-                        let tolerance = max(originalVideo.parsedFrameDuration ?? 0, videoDurationMinimumTolerance)
+                    } else if let expected = original.durationSeconds, let actual = intermediate.durationSeconds {
                         guard abs(actual - expected) <= tolerance else {
                             throw EngineError.fallbackConversionUnfaithful(
                                 "\(fact.rawValue): original \(String(format: "%.3f", expected))s became \(String(format: "%.3f", actual))s"
@@ -1140,14 +1156,20 @@ enum StagedMediaFallback {
                 }
             case .audioDuration:
                 guard expectsAudio(kind), let originalAudio, let intermediateAudio else { continue }
-                let pair =
-                    originalAudio.parsedDuration.flatMap { expected in
-                        intermediateAudio.parsedDuration.map { (expected, $0) }
+                if !originalAudio.candidateElapsedDurations.isEmpty,
+                    let actual = intermediateAudio.parsedDuration
+                {
+                    guard
+                        originalAudio.candidateElapsedDurations.contains(where: {
+                            abs(actual - $0) <= audioDurationTolerance
+                        })
+                    else {
+                        let expected = originalAudio.candidateElapsedDurations[0]
+                        throw EngineError.fallbackConversionUnfaithful(
+                            "\(fact.rawValue): original \(String(format: "%.3f", expected))s became \(String(format: "%.3f", actual))s"
+                        )
                     }
-                    ?? original.durationSeconds.flatMap { expected in
-                        intermediate.durationSeconds.map { (expected, $0) }
-                    }
-                if let (expected, actual) = pair {
+                } else if let expected = original.durationSeconds, let actual = intermediate.durationSeconds {
                     guard abs(actual - expected) <= audioDurationTolerance else {
                         throw EngineError.fallbackConversionUnfaithful(
                             "\(fact.rawValue): original \(String(format: "%.3f", expected))s became \(String(format: "%.3f", actual))s"
@@ -1165,14 +1187,18 @@ enum StagedMediaFallback {
         }
     }
 
-    static func videoUnpreservedStreams(in probe: Probe) throws -> [UnpreservedStream] {
+    static func videoUnpreservedStreams(
+        in probe: Probe, allowMultipleTracks: Bool = false
+    ) throws -> [UnpreservedStream] {
         guard !probe.videoStreams.isEmpty else {
             throw EngineError.decodeFailed("no video track")
         }
-        if probe.videoStreams.count > 1 || probe.audioStreams.count > 1 {
+        if !allowMultipleTracks, probe.videoStreams.count > 1 || probe.audioStreams.count > 1 {
             throw EngineError.invalidInput(.multipleTracks)
         }
         var found: Set<UnpreservedStream> = []
+        if probe.videoStreams.count > 1 { found.insert(.video) }
+        if probe.audioStreams.count > 1 { found.insert(.audio) }
         if !probe.attachedPictureStreams.isEmpty { found.insert(.attachment) }
         if !(probe.chapters ?? []).isEmpty { found.insert(.chapter) }
         for stream in probe.streams where stream.codecType != "video" && stream.codecType != "audio" {
@@ -1213,7 +1239,7 @@ enum StagedMediaFallback {
             try await probe(originalURL, tools: resolvedTools, noProgressTimeout: probeNoProgressTimeout)
         }
         let omitted = try await restoringNativeError(nativeError, path: originalURL.path) {
-            try videoUnpreservedStreams(in: probed)
+            try videoUnpreservedStreams(in: probed, allowMultipleTracks: !enforceStreamConsent)
         }
         context.markFallbackInputUsed()
         if enforceStreamConsent {
@@ -1312,8 +1338,7 @@ enum StagedMediaFallback {
             attachedPictureDropped = true
         }
         let arguments = audioTranscodeArguments(
-            for: originalURL, probe: probed, audioStream: audioStream, attachedPicture: attachedPictureStream,
-            profile: profile, output: outputURL)
+            for: originalURL, probe: probed, audioStream: audioStream, profile: profile, output: outputURL)
         context.phase(.convertingInput)
         try await restoringNativeError(nativeError, path: originalURL.path) {
             try await runTranscode(
@@ -1329,37 +1354,24 @@ enum StagedMediaFallback {
         try verifyIntermediate(original: probed, intermediate: intermediateProbe, kind: .audio)
         var extractedArtwork: Artwork?
         if let attachedPictureStream {
-            if profile == .alacM4A {
-                if let intermediatePicture = intermediateProbe.attachedPictureStreams.first,
-                    let width = intermediatePicture.width, let height = intermediatePicture.height,
-                    !artworkFitsPixelLimit(width: width, height: height, maximumPixels: maximumArtworkPixels)
-                {
-                    attachedPictureDropped = true
-                } else if let entry = try await UntrustedMediaAsset.make(outputURL).load(.commonMetadata).first(
-                    where: { $0.commonKey == .commonKeyArtwork }),
-                    let bytes = try await entry.load(.dataValue),
-                    !artworkFitsLimits(bytes, maximumBytes: maximumArtworkBytes, maximumPixels: maximumArtworkPixels)
-                {
-                    attachedPictureDropped = true
-                }
-            } else {
-                extractedArtwork = try await extractAttachedPicture(
-                    from: originalURL, probe: probed, stream: attachedPictureStream,
-                    workingDirectory: stagingDirectory, tools: resolvedTools,
-                    availableBytes: availableBytes, noProgressTimeout: noProgressTimeout,
-                    diskMonitorInterval: diskMonitorInterval,
-                    maximumBytes: maximumArtworkBytes, maximumPixels: maximumArtworkPixels)
-                if extractedArtwork == nil {
-                    attachedPictureDropped = true
-                }
+            extractedArtwork = try await extractAttachedPicture(
+                from: originalURL, probe: probed, stream: attachedPictureStream,
+                workingDirectory: stagingDirectory, tools: resolvedTools,
+                availableBytes: availableBytes, noProgressTimeout: noProgressTimeout,
+                diskMonitorInterval: diskMonitorInterval,
+                maximumBytes: maximumArtworkBytes, maximumPixels: maximumArtworkPixels)
+            if extractedArtwork == nil {
+                attachedPictureDropped = true
             }
         }
+        let unreadableMetadataBlock = try hasUnreadableAPETag(in: originalURL, probe: probed)
         if !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
         return StagedAudio(
             originalURL: originalURL, stagedURL: outputURL, profile: profile,
             origin: probed.sourceDescription(
                 originalURL: originalURL, intermediateProbe: intermediateProbe,
-                attachedPicture: extractedArtwork, attachedPictureDropped: attachedPictureDropped),
+                attachedPicture: extractedArtwork, attachedPictureDropped: attachedPictureDropped,
+                unreadableMetadataBlock: unreadableMetadataBlock),
             omittedStreams: omitted)
     }
 
@@ -1601,18 +1613,76 @@ enum StagedMediaFallback {
             }
             if exceededArtwork.withLock({ $0 }) { return nil }
             throw CancellationError()
+        } catch MediaToolProcess.Failure.exited {
+            // Drop undecodable covers instead of failing conversion.
+            return nil
         } catch let failure as MediaToolProcess.Failure {
             throw failure.engineError(path: input.path)
         }
+        guard FileManager.default.fileExists(atPath: coverURL.path) else { return nil }
         let attributes = try FileManager.default.attributesOfItem(atPath: coverURL.path)
-        guard let written = attributes[.size] as? Int64, written > 0 else {
-            throw EngineError.decodeFailed("extracted cover artwork is empty")
+        guard let written = attributes[.size] as? Int64, written > 0, written <= Int64(maximumBytes) else {
+            return nil
         }
-        guard written <= Int64(maximumBytes) else { return nil }
         let bytes = try Data(contentsOf: coverURL)
         guard artworkFitsLimits(bytes, maximumBytes: maximumBytes, maximumPixels: maximumPixels) else { return nil }
-        let mimeType = bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
+        let mimeType: String
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+            mimeType = "image/png"
+        } else if bytes.starts(with: [0xFF, 0xD8, 0xFF]) {
+            mimeType = "image/jpeg"
+        } else {
+            return nil
+        }
         return Artwork(data: bytes, mimeType: mimeType)
+    }
+
+    static func hasUnreadableAPETag(in url: URL, probe: Probe) throws -> Bool {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer {
+            do {
+                try reader.close()
+            } catch {
+                logger.error("APE tag probe close failed: \(error.localizedDescription, privacy: .private)")
+            }
+        }
+        let fileSize = try reader.seekToEnd()
+        guard fileSize >= apeFooterLength else { return false }
+        let readLength = min(fileSize, apeFooterLength + id3v1TagLength)
+        try reader.seek(toOffset: fileSize - readLength)
+        guard let tailBytes = try reader.read(upToCount: Int(readLength)),
+            tailBytes.count >= Int(apeFooterLength)
+        else { return false }
+        var footerOffsets = [tailBytes.count - Int(apeFooterLength)]
+        if tailBytes.count >= Int(apeFooterLength + id3v1TagLength) {
+            let id3Start = tailBytes.count - Int(id3v1TagLength)
+            if tailBytes[id3Start..<(id3Start + id3v1Preamble.count)].elementsEqual(id3v1Preamble) {
+                footerOffsets.append(id3Start - Int(apeFooterLength))
+            }
+        }
+        let probeHasNoMetadata = (probe.format?.tags ?? [:]).isEmpty && probe.attachedPictureStreams.isEmpty
+        for offset in footerOffsets {
+            let footer = tailBytes[offset..<(offset + Int(apeFooterLength))]
+            guard footer.starts(with: apeTagPreamble) else { continue }
+            let version = readLittleEndianUInt32(footer, at: 8)
+            guard version == 1_000 || version == 2_000 else { continue }
+            let tagSize = readLittleEndianUInt32(footer, at: 12)
+            let itemCount = readLittleEndianUInt32(footer, at: 16)
+            let flags = readLittleEndianUInt32(footer, at: 20)
+            guard (flags & apeHeaderFlag) == 0, tagSize >= UInt32(apeFooterLength) else { continue }
+            if tagSize > ffmpegAPETagSizeLimit || (itemCount > 0 && probeHasNoMetadata) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func readLittleEndianUInt32(_ slice: Data, at relativeOffset: Int) -> UInt32 {
+        let base = slice.startIndex + relativeOffset
+        return UInt32(slice[base])
+            | (UInt32(slice[base + 1]) << 8)
+            | (UInt32(slice[base + 2]) << 16)
+            | (UInt32(slice[base + 3]) << 24)
     }
 
     // Shared hardened prefix for fallback ffmpeg.

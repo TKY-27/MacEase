@@ -40,6 +40,20 @@ final class MediaToolProcess: Sendable {
                 .decodeFailed(reason)
             }
         }
+
+        // Legacy callers expect decodeFailed with specific messages.
+        var legacyEngineError: EngineError {
+            switch self {
+            case .timedOut:
+                .decodeFailed(MediaToolProcess.timedOutMessage)
+            case .outputLimitExceeded:
+                .decodeFailed("Media metadata exceeds limit")
+            case .diskFull(let detail), .permissionDenied(let detail), .exited(_, let detail):
+                .decodeFailed(detail)
+            case .signalled(let signal):
+                .decodeFailed("Media tool failed (exit \(signal))")
+            }
+        }
     }
 
     private struct State {
@@ -67,7 +81,7 @@ final class MediaToolProcess: Sendable {
                 captureOutput: captureOutput, input: input, includeTLSCertificate: includeTLSCertificate,
                 noProgressTimeout: noProgressTimeout, watchdogReset: watchdogReset, monitor: monitor, line: line)
         } catch let failure as Failure {
-            throw failure.engineError(path: directory.path)
+            throw failure.legacyEngineError
         }
     }
 
@@ -233,29 +247,76 @@ final class MediaToolProcess: Sendable {
             throw Failure.signalled(child.terminationStatus)
         }
         guard child.terminationStatus == 0 else {
-            let message = String(decoding: diagnostics.withLock { $0 }, as: UTF8.self).lowercased()
-            if message.contains("no space left") {
-                throw Failure.diskFull("There is not enough disk space for this operation")
-            }
-            if message.contains("permission denied") || message.contains("operation not permitted") {
-                throw Failure.permissionDenied("The destination or media tool is not accessible")
-            }
-            let reason: String
-            if message.contains("sign in") || message.contains("login") || message.contains("private video") {
-                reason = "This media requires login; only public media is supported"
-            } else if message.contains("403") || message.contains("429") {
-                reason = "The website refused the request or applied a rate limit"
-            } else if message.contains("unsupported url") {
-                reason = "This website or URL is unsupported"
-            } else if message.contains("timed out") || message.contains("unable to download") {
-                reason = "The network transfer failed; retry when the connection is available"
-            } else if message.contains("requested format") {
-                reason = "The selected format or resolution is unavailable"
-            } else {
-                reason = "Media tool failed (exit \(child.terminationStatus))"
-            }
-            throw Failure.exited(status: child.terminationStatus, reason: reason)
+            let diagnosticsText = String(decoding: diagnostics.withLock { $0 }, as: UTF8.self)
+            throw Self.classifyExitFailure(diagnostics: diagnosticsText, status: child.terminationStatus)
         }
         return MediaToolResult(stdout: capture.withLock { $0 })
+    }
+
+    // Match errno suffixes only; never filenames.
+    static func classifyExitFailure(diagnostics: String, status: Int32) -> Failure {
+        let reasons = errorLineReasons(in: diagnostics)
+        if reasons.contains(where: { isDiskFullReason($0) }) {
+            return .diskFull("There is not enough disk space for this operation")
+        }
+        if reasons.contains(where: { isPermissionDeniedReason($0) }) {
+            return .permissionDenied("The destination or media tool is not accessible")
+        }
+        let message = diagnostics.lowercased()
+        let reason: String
+        if message.contains("sign in") || message.contains("login") || message.contains("private video") {
+            reason = "This media requires login; only public media is supported"
+        } else if message.contains("403") || message.contains("429") {
+            reason = "The website refused the request or applied a rate limit"
+        } else if message.contains("unsupported url") {
+            reason = "This website or URL is unsupported"
+        } else if message.contains("timed out") || message.contains("unable to download") {
+            reason = "The network transfer failed; retry when the connection is available"
+        } else if message.contains("requested format") {
+            reason = "The selected format or resolution is unavailable"
+        } else {
+            reason = "Media tool failed (exit \(status))"
+        }
+        return .exited(status: status, reason: reason)
+    }
+
+    private static func errorLineReasons(in diagnostics: String) -> [String] {
+        var collected: [String] = []
+        for rawLine in diagnostics.split(whereSeparator: \.isNewline) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !trimmed.isEmpty else { continue }
+            if let lastSeparator = trimmed.range(of: ": ", options: .backwards) {
+                let tail = String(trimmed[lastSeparator.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if !tail.isEmpty { collected.append(tail) }
+                // Handle Python "[Errno N] Message: '/path'" format.
+                if !trimmed.hasPrefix("file:"), !trimmed.hasPrefix("/") {
+                    let prefix = trimmed[..<lastSeparator.lowerBound]
+                    if let previous = prefix.range(of: ": ", options: .backwards) {
+                        let candidate = String(prefix[previous.upperBound...]).trimmingCharacters(in: .whitespaces)
+                        if candidate.hasPrefix("[errno ") { collected.append(candidate) }
+                    } else if prefix.hasPrefix("[errno ") {
+                        collected.append(String(prefix))
+                    }
+                }
+            } else {
+                collected.append(trimmed)
+            }
+        }
+        return collected
+    }
+
+    private static func isDiskFullReason(_ reason: String) -> Bool {
+        let normalized = strippingErrnoPrefix(reason)
+        return normalized == "no space left on device" || normalized == "no space left"
+    }
+
+    private static func isPermissionDeniedReason(_ reason: String) -> Bool {
+        let normalized = strippingErrnoPrefix(reason)
+        return normalized == "permission denied" || normalized == "operation not permitted"
+    }
+
+    private static func strippingErrnoPrefix(_ reason: String) -> String {
+        guard reason.hasPrefix("[errno "), let close = reason.firstIndex(of: "]") else { return reason }
+        return reason[reason.index(after: close)...].trimmingCharacters(in: .whitespaces)
     }
 }
