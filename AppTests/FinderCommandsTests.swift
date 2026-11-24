@@ -126,7 +126,7 @@ final class FinderCommandsTests: XCTestCase {
                 forKey:
                     "Applies to subtitles, chapters and similar content in new files. Replacing an original always asks.",
                 value: nil, table: nil),
-            "新しいファイルの字幕やチャプタなどに適用されます。元のファイルを置き換える場合は必ず確認します。")
+            "新しいファイルの字幕やチャプターなどに適用されます。元のファイルを置き換える場合は必ず確認します。")
     }
 
     func testTurningOffEveryTemplateRemovesNewFileFromThePublishedMenu() throws {
