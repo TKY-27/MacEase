@@ -5,8 +5,13 @@ import Synchronization
 final class TestDiskImage: Sendable {
     static let familyPrefix = "MacEaseTests-Engine-"
     static let staleAge: TimeInterval = 15 * 60
+    static let defaultLockURL = FileManager.default.temporaryDirectory.appending(
+        path: "MacEaseTests-Engine-images.lock")
     private static let lockTimeout: TimeInterval = 90
     private static let lockPollInterval: TimeInterval = 0.05
+    private static let detachBusyRetries = 5
+    private static let detachBackoffStep: TimeInterval = 0.2
+    private static let busyExitStatus: Int32 = 16
     private static let commandTimeout: TimeInterval = 60
     private static let terminationTimeout: TimeInterval = 5
     private static let hdiutil = URL(fileURLWithPath: "/usr/bin/hdiutil")
@@ -53,7 +58,10 @@ final class TestDiskImage: Sendable {
     private let image: URL
     private let closed = Mutex(false)
 
-    init(filesystem: String = "APFS", lockTimeout: TimeInterval = TestDiskImage.lockTimeout) throws {
+    init(
+        filesystem: String = "APFS", lockTimeout: TimeInterval = TestDiskImage.lockTimeout,
+        lockURL: URL = TestDiskImage.defaultLockURL
+    ) throws {
         directory = FileManager.default.temporaryDirectory.appending(
             path: "\(Self.familyPrefix)\(getpid())-\(UUID().uuidString)")
         mount = directory.appending(path: "mount")
@@ -62,8 +70,7 @@ final class TestDiskImage: Sendable {
             at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         Self.register(directory)
         do {
-            let lock = FileManager.default.temporaryDirectory.appending(path: "MacEaseTests-Engine-images.lock")
-            let descriptor = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            let descriptor = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
             guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             defer { Darwin.close(descriptor) }
             let deadline = Date().addingTimeInterval(lockTimeout)
@@ -125,7 +132,7 @@ final class TestDiskImage: Sendable {
     }
 
     func unmount() throws {
-        _ = try Self.run(["detach", mount.path], in: directory)
+        try Self.detachTarget(mount.path, in: directory, forceOnBusy: true)
         try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
     }
 
@@ -158,7 +165,7 @@ final class TestDiskImage: Sendable {
             }
             guard let created, Date().timeIntervalSince(created) >= staleAge else { continue }
             do {
-                try detach(attached, in: directory)
+                try detach(attached, in: directory, forceOnBusy: false)
             } catch { log(error) }
         }
     }
@@ -196,16 +203,40 @@ final class TestDiskImage: Sendable {
         let attached = try snapshot(in: root).images.first {
             $0.imagePath.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath() == backing } == true
         }
-        if let attached { try detach(attached, in: root) }
+        if let attached { try detach(attached, in: root, forceOnBusy: true) }
         try FileManager.default.removeItem(at: root)
         exitState.withLock { _ = $0.roots.remove(root) }
     }
 
-    private static func detach(_ attached: Snapshot.Image, in directory: URL) throws {
+    private static func detach(_ attached: Snapshot.Image, in directory: URL, forceOnBusy: Bool) throws {
         guard let device = attached.entities?.compactMap(\.device).first else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        _ = try run(["detach", device], in: directory)
+        try detachTarget(device, in: directory, forceOnBusy: forceOnBusy)
+    }
+
+    private static func isBusyDetach(_ failure: CommandFailure) -> Bool {
+        failure.exitStatus == busyExitStatus
+            || failure.diagnostic.localizedCaseInsensitiveContains("busy")
+    }
+
+    private static func detachTarget(_ target: String, in directory: URL, forceOnBusy: Bool) throws {
+        var attempt = 0
+        while true {
+            do {
+                _ = try run(["detach", target], in: directory)
+                return
+            } catch let failure as CommandFailure where isBusyDetach(failure) {
+                attempt += 1
+                if attempt <= detachBusyRetries {
+                    Thread.sleep(forTimeInterval: detachBackoffStep * Double(attempt))
+                    continue
+                }
+                guard forceOnBusy else { throw failure }
+                _ = try run(["detach", "-force", target], in: directory)
+                return
+            }
+        }
     }
 
     private static func snapshot(in directory: URL) throws -> Snapshot {
