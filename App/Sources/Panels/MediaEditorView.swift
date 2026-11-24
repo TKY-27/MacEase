@@ -528,42 +528,43 @@ struct MediaEditorView: View {
         }
     }
 
-    private var videoControls: some View {
+    private var freezeControls: some View {
         Group {
-            InspectorSection(String(localized: "Selected Segment")) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Start").foregroundStyle(.secondary)
-                        EditorNumberField(
-                            model: model, title: String(localized: "Start"), id: "start",
-                            value: model.videoBoundaryBinding(start: true),
-                            range: 0...max(0, model.values.end - model.sourceFrameDuration),
-                            precision: Self.timecodeDigits, timecode: true
-                        )
-                    }
-                    GridRow {
-                        Text("End").foregroundStyle(.secondary)
-                        EditorNumberField(
-                            model: model, title: String(localized: "End"), id: "end",
-                            value: model.videoBoundaryBinding(start: false),
-                            range: min(
-                                model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
-                                .sourceDuration,
-                            precision: Self.timecodeDigits, timecode: true
-                        )
-                    }
-                    GridRow {
-                        Text("Length").foregroundStyle(.secondary)
-                        Text(
-                            Timecode.string(
-                                (model.values.end - model.values.start) / model.values.speed,
-                                fractionDigits: Self.timecodeDigits)
-                        )
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    Text("Frame").foregroundStyle(.secondary)
+                    Text(Timecode.string(model.values.start, fractionDigits: Self.timecodeDigits))
                         .monospacedDigit()
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                GridRow {
+                    Text("Freeze Duration").foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        EditorNumberField(
+                            model: model, title: String(localized: "Freeze Duration"), id: "freeze",
+                            value: model.binding(\.freezeDuration), range: VideoSegment.freezeDurationRange,
+                            precision: 1)
+                        Text("sec").foregroundStyle(.secondary).accessibilityHidden(true)
                     }
                 }
-                .disabled(!model.hasSelection)
+            }
+            Label(
+                "A freeze frame holds one picture without sound, so trimming, splitting, speed and volume don’t apply.",
+                systemImage: "snowflake"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var videoControls: some View {
+        let freeze = model.selectedSegment?.isFreeze == true
+        return Group {
+            if freeze {
+                InspectorSection(String(localized: "Freeze Frame")) { freezeControls }
+            } else {
+                InspectorSection(String(localized: "Selected Segment")) { segmentRange }
             }
             InspectorSection(String(localized: "Speed")) {
                 Picker(
@@ -589,7 +590,7 @@ struct MediaEditorView: View {
                 }
                 Text("Pitch is preserved.").font(.caption).foregroundStyle(.secondary)
             }
-            .disabled(!model.hasSelection)
+            .disabled(!model.hasSelection || freeze)
             InspectorSection(String(localized: "Volume")) {
                 HStack(spacing: 10) {
                     Button {
@@ -612,7 +613,7 @@ struct MediaEditorView: View {
                         .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                 }
             }
-            .disabled(!model.selectedHasAudio)
+            .disabled(!model.selectedHasAudio || freeze)
             InspectorSection(String(localized: "Fade")) {
                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                     GridRow {
@@ -643,6 +644,41 @@ struct MediaEditorView: View {
                 }
             }
         }
+    }
+
+    private var segmentRange: some View {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+            GridRow {
+                Text("Start").foregroundStyle(.secondary)
+                EditorNumberField(
+                    model: model, title: String(localized: "Start"), id: "start",
+                    value: model.videoBoundaryBinding(start: true),
+                    range: 0...max(0, model.values.end - model.sourceFrameDuration),
+                    precision: Self.timecodeDigits, timecode: true
+                )
+            }
+            GridRow {
+                Text("End").foregroundStyle(.secondary)
+                EditorNumberField(
+                    model: model, title: String(localized: "End"), id: "end",
+                    value: model.videoBoundaryBinding(start: false),
+                    range: min(
+                        model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
+                        .sourceDuration,
+                    precision: Self.timecodeDigits, timecode: true
+                )
+            }
+            GridRow {
+                Text("Length").foregroundStyle(.secondary)
+                Text(
+                    Timecode.string(
+                        model.selectedSegment?.outputDuration ?? 0, fractionDigits: Self.timecodeDigits)
+                )
+                .monospacedDigit()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .disabled(!model.hasSelection)
     }
 
     private static let speedPresets: [Double] = [0.5, 1, 1.5, 2]

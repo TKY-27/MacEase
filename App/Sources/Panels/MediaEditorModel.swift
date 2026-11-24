@@ -66,6 +66,12 @@ struct EditorValues: Equatable {
         get { selectedIndex.map { segments[$0].fadeOut } ?? 0 }
         set { if let selectedIndex { segments[selectedIndex].fadeOut = newValue } }
     }
+    var freezeDuration: Double {
+        get { selectedIndex.flatMap { segments[$0].freezeDuration } ?? 0 }
+        set {
+            if let selectedIndex, segments[selectedIndex].isFreeze { segments[selectedIndex].freezeDuration = newValue }
+        }
+    }
     var videoAdjustments: MediaAdjustments {
         get { selectedIndex.map { segments[$0].adjustments } ?? MediaAdjustments() }
         set { if let selectedIndex { segments[selectedIndex].adjustments = newValue } }
@@ -237,7 +243,8 @@ final class MediaEditorModel {
             let start = reference.outputTime(for: original.start, segmentID: segment.id)
         else { return 0...0 }
         let left = start + (segment.start - original.start) / segment.speed
-        let right = start + (segment.end - original.start) / segment.speed
+        let right =
+            segment.isFreeze ? start + segment.outputDuration : start + (segment.end - original.start) / segment.speed
         return left...max(left, right)
     }
 
@@ -250,6 +257,7 @@ final class MediaEditorModel {
         return max(0, (end - tick).seconds)
     }
     var hasSelection: Bool { values.selectedIndex != nil }
+    var selectedSegment: VideoSegment? { values.selectedIndex.map { values.segments[$0] } }
     var canUndo: Bool { !undoValues.isEmpty }
     var canRedo: Bool { !redoValues.isEmpty }
     var changesColor: Bool { isVideo ? values.video.changesColor : values.photo.changesColor }
@@ -415,7 +423,7 @@ final class MediaEditorModel {
 
     func beginTimelineTrim(_ id: UUID, start: Bool) {
         guard savingBatchID == nil, !trimming, let timeline,
-            let segment = values.segments.first(where: { $0.id == id })
+            let segment = values.segments.first(where: { $0.id == id }), !segment.isFreeze
         else { return }
         selectSegment(id)
         beginInteraction()
@@ -476,7 +484,9 @@ final class MediaEditorModel {
     }
 
     func setVideoBoundary(_ seconds: Double, start: Bool) {
-        guard savingBatchID == nil, seconds.isFinite, let index = values.selectedIndex else { return }
+        guard savingBatchID == nil, seconds.isFinite, let index = values.selectedIndex,
+            !values.segments[index].isFreeze
+        else { return }
         let segment = values.segments[index]
         boundaryInputTask?.cancel()
         boundaryInputGeneration += 1
@@ -513,7 +523,8 @@ final class MediaEditorModel {
     }
 
     func setTrimBoundaryAtPlayhead(start: Bool) {
-        guard savingBatchID == nil, !trimming, let id = values.selectedID else { return }
+        guard savingBatchID == nil, !trimming, let id = values.selectedID, selectedSegment?.isFreeze == false
+        else { return }
         let boundary = position
         beginTimelineTrim(id, start: start)
         updateTimelineTrim(to: boundary)
@@ -560,11 +571,70 @@ final class MediaEditorModel {
         }
     }
 
+    var canInsertFreezeFrame: Bool {
+        guard savingBatchID == nil, !splitting, let timeline, !values.segments.isEmpty else { return false }
+        return !timeline.segment(at: position).isFreeze
+    }
+
+    /// Splits at the playhead; one Undo step.
+    func insertFreezeFrame() {
+        guard canInsertFreezeFrame, let timeline else { return }
+        let segment = timeline.segment(at: position)
+        guard let videoSource = source(for: segment) else { return }
+        pause()
+        let requestedPosition = position
+        let generation = revision
+        let seconds = timeline.sourceTime(at: position)
+        let sourceDuration =
+            values.sources.indices.contains(segment.sourceIndex)
+            ? values.sources[segment.sourceIndex].duration : duration
+        splitTask?.cancel()
+        splitting = true
+        splitTask = Task {
+            defer { splitting = false }
+            do {
+                let next = try await videoSource.adjacentFrameTime(to: seconds, forward: true)
+                let frameEnd = min(segment.end, next > seconds ? next : sourceDuration)
+                let frameStart = max(
+                    segment.start, try await videoSource.adjacentFrameTime(to: frameEnd, forward: false))
+                try Task.checkCancellation()
+                guard !closed, revision == generation, position == requestedPosition, frameStart < frameEnd,
+                    let index = values.segments.firstIndex(where: { $0.id == segment.id }),
+                    let freezeStart = timeline.outputTime(for: frameStart, segmentID: segment.id)
+                else { return }
+                let freeze = VideoSegment(
+                    start: frameStart, end: frameEnd, volume: 0, adjustments: segment.adjustments,
+                    sourceIndex: segment.sourceIndex, freezeDuration: Self.defaultFreezeSeconds)
+                change {
+                    var insertion = index
+                    if frameStart > segment.start {
+                        var right = segment
+                        right.id = UUID()
+                        right.start = frameStart
+                        right.fadeIn = 0
+                        $0.segments[index].end = frameStart
+                        $0.segments[index].fadeOut = 0
+                        $0.segments.insert(right, at: index + 1)
+                        insertion = index + 1
+                    }
+                    $0.segments.insert(freeze, at: insertion)
+                    $0.selectedID = freeze.id
+                }
+                position = freezeStart
+                requestSeek()
+            } catch is CancellationError { return } catch {
+                if !closed, revision == generation, position == requestedPosition { report(error) }
+            }
+        }
+    }
+
+    static let defaultFreezeSeconds = 2.0
+
     func deleteSelection() {
         guard savingBatchID == nil, let index = values.selectedIndex else { return }
         let segment = values.segments[index]
         let start = timeline?.outputTime(for: segment.start, segmentID: segment.id) ?? 0
-        let removedDuration = (segment.end - segment.start) / segment.speed
+        let removedDuration = segment.outputDuration
         let nextPosition = position < start ? position : max(start, position - removedDuration)
         change {
             $0.segments.remove(at: index)
@@ -931,7 +1001,7 @@ final class MediaEditorModel {
 
     /// Segment peaks in timeline seconds.
     func waveform(for segment: VideoSegment, in range: ClosedRange<Double>) -> AudioWaveformSnapshot? {
-        guard values.sources.indices.contains(segment.sourceIndex),
+        guard !segment.isFreeze, values.sources.indices.contains(segment.sourceIndex),
             let source = sourceWaveforms[values.sources[segment.sourceIndex].url], source.duration > 0,
             range.upperBound > range.lowerBound
         else { return nil }

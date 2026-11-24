@@ -853,6 +853,60 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(japanese("Saved “%@”"), "“%@”を保存しました")
     }
 
+    func testFreezeFrameSplitsAtThePlayheadAsOneUndoStepAndLocksTrimming() async throws {
+        let model = try await videoModel()
+        let before = model.outputDuration
+        model.seek(1)
+        XCTAssertTrue(model.canInsertFreezeFrame)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 3 }
+        let segments = model.values.segments
+        let freeze = segments[1]
+        XCTAssertEqual(freeze.freezeDuration, MediaEditorModel.defaultFreezeSeconds)
+        XCTAssertEqual(freeze.volume, 0)
+        XCTAssertEqual(freeze.speed, 1)
+        XCTAssertEqual(freeze.end - freeze.start, model.frameDuration, accuracy: 0.002, "holds one source frame")
+        XCTAssertLessThanOrEqual(freeze.start, 1)
+        XCTAssertGreaterThan(freeze.end, 1)
+        XCTAssertEqual(segments[0].end, freeze.start)
+        XCTAssertEqual(segments[2].start, freeze.start, "the clip continues from the held frame")
+        XCTAssertEqual(model.values.selectedID, freeze.id)
+        XCTAssertEqual(model.position, freeze.start, accuracy: 0.000_001)
+        XCTAssertEqual(model.outputDuration, before + 2, accuracy: 0.000_001)
+        XCTAssertEqual(
+            model.timelineRange(for: freeze).upperBound - model.timelineRange(for: freeze).lowerBound, 2,
+            accuracy: 0.000_001)
+
+        XCTAssertFalse(model.canInsertFreezeFrame, "a freeze cannot be frozen again")
+        XCTAssertFalse(model.canSplit)
+        model.beginTimelineTrim(freeze.id, start: true)
+        XCTAssertFalse(model.trimming, "freeze frames have no trim handles")
+        model.setTrimBoundaryAtPlayhead(start: false)
+        model.setVideoBoundary(0.5, start: true)
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values.segments, segments)
+
+        model.binding(\.freezeDuration).wrappedValue = 4.5
+        XCTAssertEqual(model.values.segments[1].freezeDuration, 4.5)
+        XCTAssertEqual(model.outputDuration, before + 4.5, accuracy: 0.000_001)
+        model.undo()
+        XCTAssertEqual(model.values.segments, segments)
+        model.undo()
+        XCTAssertEqual(model.values.segments.count, 1, "inserting is one Undo step")
+        XCTAssertEqual(model.outputDuration, before, accuracy: 0.000_001)
+
+        model.seek(0)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 2 }
+        XCTAssertTrue(model.values.segments[0].isFreeze, "no empty piece before the first frame")
+        XCTAssertEqual(model.values.segments[1].start, model.values.segments[0].start)
+        XCTAssertEqual(japanese("Insert Freeze Frame at Playhead"), "再生ヘッドにフリーズフレームを挿入")
+        XCTAssertEqual(
+            japanese(
+                "A freeze frame holds one picture without sound, so trimming, splitting, speed and volume don’t apply."),
+            "フリーズフレームは1枚の画像を無音で表示するため、トリミング、分割、速度、音量は使えません。")
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))

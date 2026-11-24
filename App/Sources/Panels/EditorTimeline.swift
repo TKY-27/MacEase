@@ -102,50 +102,10 @@ struct EditorTimeline: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 14) {
-                Button {
-                    model.split()
-                } label: {
-                    Label("Split", systemImage: "scissors")
-                }
-                .help("Split at Playhead (⌘B)").disabled(!model.canSplit)
-                Button {
-                    model.duplicateSelection()
-                } label: {
-                    Label("Duplicate", systemImage: "plus.square.on.square")
-                }
-                .help("Duplicate Segment").disabled(!model.hasSelection)
-                Button(role: .destructive) {
-                    model.deleteSelection()
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-                .help("Delete Segment (⌫)").disabled(!model.hasSelection)
-                Menu {
-                    segmentActions
-                } label: {
-                    Label("Segment Actions", systemImage: "ellipsis.circle")
-                }
-                .labelStyle(.iconOnly)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("More Segment Actions")
-                .disabled(!model.hasSelection)
-                Spacer(minLength: 8)
-                Button {
-                    let panel = NSOpenPanel()
-                    panel.allowsMultipleSelection = true
-                    panel.canChooseDirectories = false
-                    panel.allowedContentTypes = [.movie, .video]
-                    if panel.runModal() == .OK { model.importVideos(panel.urls) }
-                } label: {
-                    Label("Add Videos…", systemImage: "plus")
-                }
-                .help("Add videos to the end of the timeline")
-                .disabled(model.importing)
-                TimelineZoomControls(zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom)
+            ViewThatFits(in: .horizontal) {
+                actionBar.labelStyle(.titleAndIcon)
+                actionBar.labelStyle(.iconOnly)
             }
-            .labelStyle(.titleAndIcon)
             .buttonStyle(.borderless)
             MediaTimeline(
                 duration: max(model.timelineDuration, model.frameDuration), position: model.position,
@@ -159,12 +119,15 @@ struct EditorTimeline: View {
                     case .setIn: model.setTrimBoundaryAtPlayhead(start: true)
                     case .setOut: model.setTrimBoundaryAtPlayhead(start: false)
                     case .split: model.split()
+                    case .freeze: model.insertFreezeFrame()
                     case .duplicate: model.duplicateSelection()
                     case .left: model.moveSelection(-1)
                     case .right: model.moveSelection(1)
                     case .delete: model.deleteSelection()
                     }
-                }, viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } },
+                },
+                actionAvailable: available,
+                viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } },
                 overlays: overlayMarks, showsOverlayLane: showsOverlayLane,
                 selectOverlay: { id in
                     model.category = .markup
@@ -179,14 +142,84 @@ struct EditorTimeline: View {
         .padding(.bottom, 6)
     }
 
+    private var actionBar: some View {
+        HStack(spacing: 14) {
+            Button {
+                model.split()
+            } label: {
+                Label("Split", systemImage: "scissors")
+            }
+            .help("Split at Playhead (⌘B)").disabled(!model.canSplit)
+            Button {
+                model.insertFreezeFrame()
+            } label: {
+                Label("Freeze Frame", systemImage: "snowflake")
+            }
+            .help("Insert a Freeze Frame at the Playhead (⌥F)").disabled(!model.canInsertFreezeFrame)
+            Button {
+                model.duplicateSelection()
+            } label: {
+                Label("Duplicate", systemImage: "plus.square.on.square")
+            }
+            .help("Duplicate Segment").disabled(!model.hasSelection)
+            Button(role: .destructive) {
+                model.deleteSelection()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .help("Delete Segment (⌫)").disabled(!model.hasSelection)
+            Menu {
+                segmentActions
+            } label: {
+                Label("Segment Actions", systemImage: "ellipsis.circle")
+            }
+            .labelStyle(.iconOnly)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More Segment Actions")
+            .disabled(!model.hasSelection)
+            Spacer(minLength: 8)
+            Button {
+                let panel = NSOpenPanel()
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = false
+                panel.allowedContentTypes = [.movie, .video]
+                if panel.runModal() == .OK { model.importVideos(panel.urls) }
+            } label: {
+                Label("Add Videos…", systemImage: "plus")
+            }
+            .help("Add videos to the end of the timeline")
+            .disabled(model.importing)
+            TimelineZoomControls(zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom)
+        }
+    }
+
     private var segmentActions: some View {
         Group {
             Button("Set In Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: true) }
+                .disabled(model.selectedSegment?.isFreeze == true)
             Button("Set Out Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: false) }
+                .disabled(model.selectedSegment?.isFreeze == true)
+            Button("Insert Freeze Frame at Playhead") { model.insertFreezeFrame() }
+                .keyboardShortcut("f", modifiers: .option)
+                .disabled(!model.canInsertFreezeFrame)
             Divider()
             Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
                 .disabled(model.values.selectedIndex == model.values.segments.count - 1)
+        }
+    }
+
+    private func available(_ id: UUID, _ action: TimelineAction) -> Bool {
+        guard let index = model.values.segments.firstIndex(where: { $0.id == id }) else { return false }
+        let segment = model.values.segments[index]
+        switch action {
+        case .setIn, .setOut: return !segment.isFreeze
+        case .split: return model.canSplitSegment(id)
+        case .freeze: return model.canInsertFreezeFrame && model.timeline?.segment(at: model.position).id == id
+        case .left: return index > 0
+        case .right: return index < model.values.segments.count - 1
+        case .duplicate, .delete: return true
         }
     }
 
@@ -213,11 +246,16 @@ struct EditorTimeline: View {
                 ? model.values.sources[segment.sourceIndex].url.lastPathComponent : model.url.lastPathComponent
             let fade = FadeRamp(
                 duration: range.upperBound - range.lowerBound, fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
+            var badges: [TimelineBadge] = []
+            if segment.isFreeze {
+                badges.append(TimelineBadge(symbol: "snowflake", title: String(localized: "Freeze")))
+            }
             return TimelineClip(
                 id: segment.id, range: range,
                 selection: model.values.selectedID == segment.id ? range : nil,
                 label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment),
-                waveform: model.waveform(for: segment, in: range), fadeIn: fade.fadeIn, fadeOut: fade.fadeOut)
+                waveform: model.waveform(for: segment, in: range), fadeIn: fade.fadeIn, fadeOut: fade.fadeOut,
+                freeze: segment.isFreeze, badges: badges)
         }
     }
 

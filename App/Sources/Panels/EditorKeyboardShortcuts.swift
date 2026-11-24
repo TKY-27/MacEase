@@ -48,6 +48,9 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     if modifiers == .command, event.charactersIgnoringModifiers == "b", model.isVideo {
                         model.split(); return true
                     }
+                    if modifiers == .option, event.keyCode == 3, model.isVideo {
+                        model.insertFreezeFrame(); return true
+                    }
                     if modifiers == [.command, .shift], event.charactersIgnoringModifiers == "+", model.isVideo {
                         model.zoomTimeline(by: 2); return true
                     }

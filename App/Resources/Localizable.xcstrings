@@ -19769,6 +19769,86 @@
           }
         }
       }
+    },
+    "Insert Freeze Frame at Playhead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドにフリーズフレームを挿入"
+          }
+        }
+      }
+    },
+    "Freeze Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレーム"
+          }
+        }
+      }
+    },
+    "Insert a Freeze Frame at the Playhead (⌥F)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドにフリーズフレームを挿入（⌥F）"
+          }
+        }
+      }
+    },
+    "Freeze": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズ"
+          }
+        }
+      }
+    },
+    "Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレーム"
+          }
+        }
+      }
+    },
+    "Freeze Duration": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズの長さ"
+          }
+        }
+      }
+    },
+    "A freeze frame holds one picture without sound, so trimming, splitting, speed and volume don’t apply.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームは1枚の画像を無音で表示するため、トリミング、分割、速度、音量は使えません。"
+          }
+        }
+      }
+    },
+    "sec": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
