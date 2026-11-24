@@ -65,6 +65,7 @@ public struct AudioInput: Sendable {
                 frameCount = reader.frameCount
                 multiplexedOggStreams = reader.multiplexedStreams
             } else {
+                try Self.validateAudioToolbox(url)
                 let file: AVAudioFile
                 do {
                     file = try AVAudioFile(forReading: url)
@@ -207,6 +208,54 @@ public struct AudioInput: Sendable {
     private static func mimeType(of image: Data) -> String {
         image.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
     }
+
+    // AVAudioFile raises NSException on undecodable tracks.
+    static func validateAudioToolbox(_ url: URL) throws {
+        var audioFile: ExtAudioFileRef?
+        let openStatus = ExtAudioFileOpenURL(url as CFURL, &audioFile)
+        guard openStatus == noErr, let audioFile else {
+            throw EngineError.decodeFailed("AudioToolbox cannot open the file: \(openStatus)")
+        }
+        defer { ExtAudioFileDispose(audioFile) }
+        var fileFormat = AudioStreamBasicDescription()
+        var formatSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let formatStatus = ExtAudioFileGetProperty(
+            audioFile, kExtAudioFileProperty_FileDataFormat, &formatSize, &fileFormat)
+        guard formatStatus == noErr else {
+            throw EngineError.decodeFailed("AudioToolbox cannot read the format: \(formatStatus)")
+        }
+        guard fileFormat.mChannelsPerFrame > 0, fileFormat.mSampleRate.isFinite, fileFormat.mSampleRate > 0 else {
+            throw EngineError.decodeFailed("AudioToolbox reported invalid audio parameters")
+        }
+        let sampleBytes = UInt32(MemoryLayout<Float>.size)
+        let frameBytes = fileFormat.mChannelsPerFrame * sampleBytes
+        var clientFormat = AudioStreamBasicDescription(
+            mSampleRate: fileFormat.mSampleRate, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: frameBytes,
+            mFramesPerPacket: 1, mBytesPerFrame: frameBytes, mChannelsPerFrame: fileFormat.mChannelsPerFrame,
+            mBitsPerChannel: sampleBytes * 8, mReserved: 0)
+        let clientStatus = ExtAudioFileSetProperty(
+            audioFile, kExtAudioFileProperty_ClientDataFormat,
+            UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &clientFormat)
+        guard clientStatus == noErr else {
+            if case .other(let name) = codec(fileFormat.mFormatID) {
+                throw EngineError.unsupportedCodec(name)
+            }
+            throw EngineError.decodeFailed("AudioToolbox cannot decode the file: \(clientStatus)")
+        }
+        var frameLength: Int64 = 0
+        var lengthSize = UInt32(MemoryLayout<Int64>.size)
+        let lengthStatus = ExtAudioFileGetProperty(
+            audioFile, kExtAudioFileProperty_FileLengthFrames, &lengthSize, &frameLength)
+        guard lengthStatus == noErr else {
+            throw EngineError.decodeFailed("AudioToolbox cannot read the file length: \(lengthStatus)")
+        }
+        var position: Int64 = 0
+        let tellStatus = ExtAudioFileTell(audioFile, &position)
+        guard tellStatus == noErr else {
+            throw EngineError.decodeFailed("AudioToolbox cannot seek the file: \(tellStatus)")
+        }
+    }
 }
 
 /// `AVAudioFile` decoding, in WAV channel order.
@@ -221,6 +270,7 @@ final class AudioFileReader: PCMSource {
     let channels: Int
 
     init(url: URL) throws {
+        try AudioInput.validateAudioToolbox(url)
         file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: true)
         let format = file.processingFormat
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: Self.chunkFrames) else {

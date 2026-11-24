@@ -55,6 +55,7 @@ enum UserMessages {
         switch phase {
         case .queued: String(localized: "Queued")
         case .preparing: String(localized: "Preparing")
+        case .convertingInput: String(localized: "Converting input")
         case .decoding: String(localized: "Decoding")
         case .searching: String(localized: "Finding target size")
         case .encoding: String(localized: "Encoding")
@@ -222,6 +223,16 @@ enum UserMessages {
             )
         case .protectionDiskFull:
             String(localized: "Couldn’t protect “\(file)”: there is not enough disk space. Free up space, then retry.")
+        case .insufficientDiskSpace(let required, let available):
+            String(
+                localized:
+                    "Couldn’t process “\(file)”: not enough disk space (needs about \(byteCount(required)), \(byteCount(available)) available). Free up space and retry."
+            )
+        case .fallbackToolMissing:
+            String(
+                localized:
+                    "Couldn’t read “\(file)”: the media converter component is missing. Reinstall MacEase and retry."
+            )
         case .nonFiniteAudioSample:
             String(
                 localized:

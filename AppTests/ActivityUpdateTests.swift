@@ -111,6 +111,21 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertEqual(UserMessages.noteCount(1), String(localized: "1 note"))
     }
 
+    func testFallbackErrorsAndPhaseMessages() {
+        XCTAssertEqual(UserMessages.describe(ItemPhase.convertingInput), "Converting input")
+        XCTAssertEqual(
+            UserMessages.describe(
+                .insufficientDiskSpace(requiredBytes: 500_000_000, availableBytes: 100_000_000),
+                file: "movie.wmv"),
+            "Couldn’t process “movie.wmv”: not enough disk space (needs about 500 MB, 100 MB available). Free up space and retry."
+        )
+        XCTAssertEqual(
+            UserMessages.describe(.fallbackToolMissing, file: "movie.wmv"),
+            "Couldn’t read “movie.wmv”: the media converter component is missing. Reinstall MacEase and retry.")
+        XCTAssertNil(UserMessages.technicalDetail(.insufficientDiskSpace(requiredBytes: 1, availableBytes: 0)))
+        XCTAssertNil(UserMessages.technicalDetail(.fallbackToolMissing))
+    }
+
     func testMalformedToolDiagnosticStaysOutOfNotifications() async throws {
         let detail = "java.lang.IllegalArgumentException\n\tat example.Decompiler.run(Decompiler.java:42)"
         let outcome = try await runBatch([{ _ in throw EngineError.invalidInput(.malformed(detail)) }])

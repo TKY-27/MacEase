@@ -20339,6 +20339,42 @@
           }
         }
       }
+    },
+    "Converting input": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converting input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力を変換中"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: not enough disk space (needs about %@, %@ available). Free up space and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」を処理できませんでした：ディスクの空き容量が不足しています（約%2$@必要、空き%3$@）。容量を確保して再試行してください。"
+          }
+        }
+      }
+    },
+    "Couldn’t read “%@”: the media converter component is missing. Reinstall MacEase and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を読み込めませんでした：メディア変換コンポーネントが見つかりません。MacEaseを再インストールして再試行してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

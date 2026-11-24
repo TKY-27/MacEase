@@ -7,6 +7,8 @@ public enum EngineError: Error, Equatable, Sendable {
     case decodeFailed(String)
     case protectionAuthenticationFailed
     case protectionDiskFull
+    case insufficientDiskSpace(requiredBytes: Int64, availableBytes: Int64)
+    case fallbackToolMissing
     case nonFiniteAudioSample
     case encodeFailed(String)
     case commitFailed(String)
