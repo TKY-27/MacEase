@@ -64,6 +64,59 @@ final class FinderCommandsTests: XCTestCase {
         XCTAssertEqual(reloaded.terminalApplicationURL, SettingsStore.defaultTerminalApplicationURL)
     }
 
+    func testTerminalChoicesListEachDetectedAppOnceAndReportAMissingSavedApp() throws {
+        let fixture = try fixture()
+        let iTerm = fixture.root.appending(path: "iTerm.app")
+        var asked: [String] = []
+        let locate: (String) -> URL? = { identifier in
+            asked.append(identifier)
+            return switch identifier {
+            case "com.apple.Terminal": URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app/")
+            case "com.googlecode.iterm2": iTerm
+            default: nil
+            }
+        }
+
+        let standard = TerminalApplications(saved: SettingsStore.defaultTerminalApplicationURL, locate: locate)
+        XCTAssertEqual(asked, TerminalApplications.bundleIdentifiers)
+        XCTAssertEqual(standard.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path, iTerm.path])
+        XCTAssertNil(standard.missing)
+
+        fixture.settings.terminalApplicationURL = iTerm
+        let reloaded = SettingsStore(defaults: fixture.defaults)
+        XCTAssertEqual(reloaded.terminalApplicationURL, iTerm, "the choice persists")
+        let missing = TerminalApplications(saved: reloaded.terminalApplicationURL, locate: locate)
+        XCTAssertEqual(missing.choices.map(\.path), [SettingsStore.defaultTerminalApplicationURL.path, iTerm.path])
+        XCTAssertEqual(missing.missing, iTerm, "a deleted app is reported, not hidden")
+        XCTAssertEqual(TerminalApplications.name(of: iTerm), "iTerm")
+
+        let custom = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+        let other = TerminalApplications(saved: custom, locate: locate)
+        XCTAssertEqual(other.choices.last, custom, "an app chosen with Other… stays listed")
+        XCTAssertNil(other.missing)
+    }
+
+    func testTurningOffEveryTemplateRemovesNewFileFromThePublishedMenu() throws {
+        let fixture = try fixture()
+        let configuration = HostConfiguration(
+            urlScheme: "macease-test", supportDirectory: fixture.root.appending(path: "menu"))
+        func newFile() throws -> MenuCommandItem? {
+            try MenuFileWriter(configuration: configuration).write(
+                visibleOperations: [], hiddenEntries: [], settings: fixture.settings.settings,
+                newFileTemplates: fixture.settings.enabledNewFileTemplates
+            ).commands.first { $0.command == .newFile }
+        }
+        var changes = 0
+        fixture.settings.onChange = { changes += 1 }
+        fixture.settings.enabledNewFileTemplates.remove(.richText)
+        XCTAssertEqual(try newFile()?.leaves?.map(\.preset), ["txt", "md", "docx"])
+        fixture.settings.enabledNewFileTemplates = []
+        XCTAssertNil(try newFile(), "New File leaves the menu instead of opening an empty submenu")
+        XCTAssertEqual(changes, 2, "each toggle republishes the menu")
+        fixture.settings.enabledNewFileTemplates.insert(.markdown)
+        XCTAssertEqual(try newFile()?.leaves?.map(\.preset), ["md"])
+    }
+
     func testNewFilesUseEngineHistoryAndRevealOnlyCreatedOutputs() async throws {
         let fixture = try fixture()
         var revealed: [[URL]] = []
@@ -450,8 +503,9 @@ extension FinderCommandsTests {
 
         let keys: [(String, String, String)] = [
             (
-                "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options.",
-                "Settings > Finder Menu > New File options", "Finder メニュー"
+                "This New File template is no longer enabled. Enable it in Settings > Finder Menu > Commands > New File > Options.",
+                "Settings > Finder Menu > Commands > New File > Options",
+                "「設定」>「Finderメニュー」>「コマンド」>「新規ファイル」>「オプション」"
             ),
             (
                 "There are no cut items to move. Cut the items again, then choose Move Here.",

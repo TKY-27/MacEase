@@ -141,6 +141,9 @@ struct FinderMenuSettingsView: View {
         if group == MenuGroupID(.update) {
             return String(localized: "Appears when an update is available.")
         }
+        if group == MenuGroupID(.newFile), store.enabledNewFileTemplates.isEmpty {
+            return String(localized: "No templates selected", comment: "Menu item visibility note")
+        }
         if group.rawValue == OperationID.folderDownloadMedia.menuGroupID(preset: nil) {
             return String(localized: "Folder background only.")
         }
@@ -331,7 +334,7 @@ private struct MenuGroupContent {
 }
 
 extension MenuScope {
-    fileprivate var title: String {
+    var title: String {
         if let kind = FileKind.menuOrder.first(where: { MenuScope($0) == self }) { return MenuStrings.kind(kind) }
         return String(localized: "Commands", comment: "Finder menu organizer scope")
     }

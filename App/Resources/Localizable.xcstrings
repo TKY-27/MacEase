@@ -3286,7 +3286,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder メニュー"
+            "value": "Finderメニュー"
           }
         }
       }
@@ -20266,23 +20266,6 @@
         }
       }
     },
-    "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この新規ファイルのテンプレートは無効になっています。「設定」＞「Finder メニュー」の「新規ファイル」オプションで有効にしてください。"
-          }
-        }
-      }
-    },
     "Untitled": {
       "extractionState": "manual",
       "localizations": {
@@ -20385,6 +20368,78 @@
           "stringUnit": {
             "state": "translated",
             "value": "セキュリティ"
+          }
+        }
+      }
+    },
+    "Templates": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレート"
+          }
+        }
+      }
+    },
+    "New File doesn’t appear in the Finder menu until you select a template.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートを選択するまで、Finderメニューに「新規ファイル」は表示されません。"
+          }
+        }
+      }
+    },
+    "No templates selected": {
+      "comment": "Menu item visibility note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートが選択されていません"
+          }
+        }
+      }
+    },
+    "Open with": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリケーションで開く"
+          }
+        }
+      }
+    },
+    "Other…": {
+      "comment": "Chooses an app that is not listed",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他…"
+          }
+        }
+      }
+    },
+    "“%@” can’t be found. Choose another app.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”が見つかりません。別のアプリを選択してください。"
+          }
+        }
+      }
+    },
+    "This New File template is no longer enabled. Enable it in Settings > Finder Menu > Commands > New File > Options.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この新規ファイルのテンプレートは無効になっています。「設定」>「Finderメニュー」>「コマンド」>「新規ファイル」>「オプション」で有効にしてください。"
           }
         }
       }
