@@ -21685,6 +21685,188 @@
           }
         }
       }
+    },
+    "storageBar.startupDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Startup Disk)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（起動ディスク）"
+          }
+        }
+      }
+    },
+    "storageBar.noCapacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capacity unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量を取得できません"
+          }
+        }
+      }
+    },
+    "storageBar.available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ available of %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@中%1$@空き"
+          }
+        }
+      }
+    },
+    "storageBar.selectionSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld selected, %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld項目を選択、%2$@"
+          }
+        }
+      }
+    },
+    "storageBar.calculating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld selected, Calculating…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目を選択、計算中…"
+          }
+        }
+      }
+    },
+    "storageBar.selection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目を選択"
+          }
+        }
+      }
+    },
+    "Storage": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストレージ"
+          }
+        }
+      }
+    },
+    "Storage Bar": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストレージバー"
+          }
+        }
+      }
+    },
+    "Show storage bar in Finder windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウにストレージバーを表示"
+          }
+        }
+      }
+    },
+    "Shows available space and the size of selected items at the bottom of Finder windows.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウの下端に、空き容量と選択した項目のサイズを表示します。"
+          }
+        }
+      }
+    },
+    "To see it, choose View > Show Status Bar in Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示するには、Finderで「表示」＞「ステータスバーを表示」を選択してください。"
+          }
+        }
+      }
+    },
+    "Permissions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス許可"
+          }
+        }
+      }
+    },
+    "Places the preview and the storage bar on Finder windows.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューとストレージバーをFinderウインドウに表示します。"
+          }
+        }
+      }
+    },
+    "Lets the preview and the storage bar follow the selection in Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで選択した項目をプレビューとストレージバーに反映します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

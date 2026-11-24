@@ -24,6 +24,7 @@ final class SettingsStore {
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
         static let finderPreviewEnabled = "finderPreview.enabled"
+        static let finderStorageBarEnabled = "finderStorageBar.enabled"
         static let checksForUpdatesAutomatically = "updates.checksAutomatically"
         static let showsStatusItem = "menuBar.showsStatusItem"
         static let showsRecentOperations = "menuBar.showsRecentOperations"
@@ -96,6 +97,10 @@ final class SettingsStore {
         didSet { defaults.set(finderPreviewEnabled, forKey: Key.finderPreviewEnabled) }
     }
 
+    var finderStorageBarEnabled: Bool {
+        didSet { defaults.set(finderStorageBarEnabled, forKey: Key.finderStorageBarEnabled) }
+    }
+
     var checksForUpdatesAutomatically: Bool {
         didSet { defaults.set(checksForUpdatesAutomatically, forKey: Key.checksForUpdatesAutomatically) }
     }
@@ -153,6 +158,7 @@ final class SettingsStore {
             Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
             Key.checksForUpdatesAutomatically: true, Key.showsStatusItem: true, Key.showsRecentOperations: true,
+            Key.finderStorageBarEnabled: true,
         ])
         let settings = Self.decodeSettings(from: defaults)
         self.settings = settings
@@ -202,6 +208,7 @@ final class SettingsStore {
                 Set($0.compactMap(NewFileTemplate.BuiltIn.init(rawValue:)))
             } ?? Set(NewFileTemplate.BuiltIn.allCases)
         finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
+        finderStorageBarEnabled = defaults.bool(forKey: Key.finderStorageBarEnabled)
         checksForUpdatesAutomatically = defaults.bool(forKey: Key.checksForUpdatesAutomatically)
         showsStatusItem = defaults.bool(forKey: Key.showsStatusItem)
         showsRecentOperations = defaults.bool(forKey: Key.showsRecentOperations)
@@ -273,6 +280,7 @@ final class SettingsStore {
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false
         finderPreviewEnabled = false
+        finderStorageBarEnabled = true
         checksForUpdatesAutomatically = true
         showsStatusItem = true
         showsRecentOperations = true
