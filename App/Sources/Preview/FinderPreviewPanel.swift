@@ -12,7 +12,6 @@ final class FinderPreviewPanel: NSPanel {
     private static let finderCornerRadius: CGFloat = 16
     private static let undockedSize = NSSize(width: FinderPreviewGeometry.defaultWidth, height: 600)
     private static let minimumSize = NSSize(width: FinderPreviewGeometry.minimumWidth, height: 420)
-    private static let escape = "\u{1B}"
     private let defaults: UserDefaults
     private let container = NSView()
     private(set) var previewWidth: CGFloat
@@ -112,9 +111,9 @@ final class FinderPreviewPanel: NSPanel {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let key = event.charactersIgnoringModifiers
-        let closes = (modifiers.isEmpty && key == Self.escape) || (modifiers == .command && key == "w")
+        let closes =
+            event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+            && event.charactersIgnoringModifiers == "w"
         guard closes, let closeRequested else { return super.performKeyEquivalent(with: event) }
         closeRequested()
         return true

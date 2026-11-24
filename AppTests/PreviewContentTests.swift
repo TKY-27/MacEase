@@ -19,6 +19,22 @@ final class PreviewContentTests: XCTestCase {
         }
     }
 
+    func testFoldersAndPackagesUseTheSystemPreviewWhateverTheirName() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        addTeardownBlock { try FileManager.default.removeItem(at: directory) }
+        for name in ["Folder", "notes.md", "Archive.pdf", "Sample.app", "Report.rtfd"] {
+            let folder = directory.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+            XCTAssertEqual(try PreviewKind.inspect(folder), .quickLook, name)
+        }
+        let document = directory.appendingPathComponent("notes.md")
+            .appendingPathComponent("inside.md")
+        try Data("# Title".utf8).write(to: document)
+        XCTAssertEqual(try PreviewKind.inspect(document), .markdown)
+        XCTAssertThrowsError(try PreviewKind.inspect(directory.appendingPathComponent("missing.txt")))
+    }
+
     func testReadLimitKeepsFourMiBButExcerptsLargerFiles() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)

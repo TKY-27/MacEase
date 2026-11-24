@@ -1,20 +1,18 @@
 import AppKit
 import ApplicationServices
 import Engine
-import MenuCatalog
 import SwiftUI
 import os
 
 @MainActor
 final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
-    private let panels: PanelCoordinator
     private let reader = FinderSelectionReader()
     private let logger = Logger(category: "finder-preview")
     private var tracker: FinderWindowTracker?
     private var panel: FinderPreviewPanel?
     private var state = FinderPreviewState()
     private var pollTimer: Timer?
-    private var metadataTask: Task<Void, Never>?
+    private var kindTask: Task<Void, Never>?
     private var generation: UInt64 = 0 {
         didSet { state.generation = generation }
     }
@@ -24,10 +22,6 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var retryAfter = Date.distantPast
     private var observingTermination = false
     var visibilityChanged: (() -> Void)?
-
-    init(panels: PanelCoordinator) {
-        self.panels = panels
-    }
 
     var isOpen: Bool { panel != nil }
 
@@ -51,8 +45,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         generation &+= 1
         pollTimer?.invalidate()
         pollTimer = nil
-        metadataTask?.cancel()
-        metadataTask = nil
+        kindTask?.cancel()
+        kindTask = nil
         tracker?.stop()
         tracker = nil
         targetID = nil
@@ -126,8 +120,6 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
                 self?.open()
             },
             select: { [weak self] in self?.select($0) },
-            open: { [weak self] in self?.openFile($0) },
-            edit: { [weak self] in self?.editFile($0) },
             resize: { [weak self] in self?.resize(by: $0) })
     }
 
@@ -151,7 +143,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         pollTimer?.invalidate()
         pollTimer = nil
         generation &+= 1
-        metadataTask?.cancel()
+        kindTask?.cancel()
         clearSelection()
         state.notice = AXIsProcessTrusted() ? .unavailable : .accessibility
         state.docked = false
@@ -163,7 +155,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private func followWindow() {
         guard let panel, let target = tracker?.target else {
             generation &+= 1
-            metadataTask?.cancel()
+            kindTask?.cancel()
             clearSelection()
             panel?.orderOut(nil)
             return
@@ -171,7 +163,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         let changedWindow = targetID != target.windowID
         if changedWindow {
             generation &+= 1
-            metadataTask?.cancel()
+            kindTask?.cancel()
             targetID = target.windowID
             clearSelection()
             if state.notice != .automation { state.notice = nil }
@@ -179,7 +171,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         guard target.visible else {
             if panel.isVisible {
                 generation &+= 1
-                metadataTask?.cancel()
+                kindTask?.cancel()
                 clearSelection()
                 panel.orderOut(nil)
             }
@@ -225,7 +217,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func selectionFailed(_ failure: FinderSelectionReader.Failure) {
         generation &+= 1
-        metadataTask?.cancel()
+        kindTask?.cancel()
         clearSelection()
         switch failure {
         case .automationDenied: state.notice = .automation
@@ -238,46 +230,28 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private func clearSelection() {
         state.urls = []
         state.selectedIndex = 0
-        state.details = nil
+        state.kind = nil
         state.fileFailure = nil
     }
 
     private func select(_ index: Int) {
         generation &+= 1
-        metadataTask?.cancel()
+        kindTask?.cancel()
         state.selectedIndex = index
-        state.details = nil
+        state.kind = nil
         state.fileFailure = nil
         guard let url = state.selectedURL else { return }
         let requestedGeneration = generation
-        metadataTask = Task { [weak self] in
-            let inspection = Task.detached(priority: .utility) { try await PreviewFileDetails.read(url) }
+        kindTask = Task { [weak self] in
             do {
-                let details = try await withTaskCancellationHandler {
-                    try await inspection.value
-                } onCancel: {
-                    inspection.cancel()
-                }
+                let kind = try await Task.detached(priority: .userInitiated) { try PreviewKind.inspect(url) }.value
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
-                state.details = details
-            } catch is CancellationError {
+                state.kind = kind
             } catch {
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 logger.error("Preview file inspection failed: \(error.localizedDescription, privacy: .private)")
                 state.fileFailure = String(localized: "This file could not be read.")
             }
         }
-    }
-
-    private func openFile(_ url: URL) {
-        if !NSWorkspace.shared.open(url) {
-            logger.error("No application opened the preview file")
-            state.fileFailure = String(localized: "This file could not be opened.")
-        }
-    }
-
-    private func editFile(_ url: URL) {
-        let operation: OperationID = FileKind(fileURL: url) == .video ? .videoEdit : .imageEdit
-        panels.present(MenuEntry(op: operation, preset: nil, path: []), inputs: [url])
     }
 }

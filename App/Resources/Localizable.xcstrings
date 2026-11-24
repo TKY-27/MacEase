@@ -301,66 +301,6 @@
         }
       }
     },
-    "Set A": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A点を設定"
-          }
-        }
-      }
-    },
-    "Set B": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "B点を設定"
-          }
-        }
-      }
-    },
-    "Clear Loop": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ループを解除"
-          }
-        }
-      }
-    },
-    "A: %@ s · B: %@ s": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A：%@ 秒・B：%@ 秒"
-          }
-        }
-      }
-    },
-    "Waveform unavailable": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "波形を表示できません"
-          }
-        }
-      }
-    },
-    "Page Thumbnails": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページのサムネイル"
-          }
-        }
-      }
-    },
     "UTF-8": {
       "localizations": {
         "ja": {
@@ -511,16 +451,6 @@
         }
       }
     },
-    "Edit in MacEase": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MacEaseで編集"
-          }
-        }
-      }
-    },
     "Preview Width": {
       "localizations": {
         "ja": {
@@ -591,16 +521,6 @@
         }
       }
     },
-    "Reading File": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルを読み込み中"
-          }
-        }
-      }
-    },
     "No Selection": {
       "localizations": {
         "ja": {
@@ -617,16 +537,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "このファイルを読み込めませんでした。"
-          }
-        }
-      }
-    },
-    "This file could not be opened.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このファイルを開けませんでした。"
           }
         }
       }
@@ -651,36 +561,6 @@
         }
       }
     },
-    "Information": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "情報"
-          }
-        }
-      }
-    },
-    "Show More": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細を表示"
-          }
-        }
-      }
-    },
-    "Show Less": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "詳細を隠す"
-          }
-        }
-      }
-    },
     "Select a file in Finder to preview it.": {
       "localizations": {
         "ja": {
@@ -697,128 +577,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld / %2$lld"
-          }
-        }
-      }
-    },
-    "preview.fact.modified": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modified"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更日"
-          }
-        }
-      }
-    },
-    "preview.fact.items": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Items"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "項目数"
-          }
-        }
-      }
-    },
-    "preview.fact.pages": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pages"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ数"
-          }
-        }
-      }
-    },
-    "preview.fact.colorProfile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Color Profile"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カラープロファイル"
-          }
-        }
-      }
-    },
-    "preview.fact.dynamicRange": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dynamic Range"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダイナミックレンジ"
-          }
-        }
-      }
-    },
-    "preview.fact.dimensions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dimensions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "大きさ"
-          }
-        }
-      }
-    },
-    "%lld items": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld項目"
-          }
-        }
-      }
-    },
-    "Open": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開く"
           }
         }
       }
@@ -2951,22 +2709,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "重複ファイル"
-          }
-        }
-      }
-    },
-    "Duration": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再生時間"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duration"
           }
         }
       }
@@ -18464,6 +18206,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキストを編集"
+          }
+        }
+      }
+    },
+    "This PDF is locked with a password.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このPDFはパスワードでロックされています。"
           }
         }
       }

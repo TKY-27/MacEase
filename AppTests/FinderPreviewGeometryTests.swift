@@ -90,10 +90,4 @@ final class FinderPreviewGeometryTests: XCTestCase {
         XCTAssertEqual(
             FinderPreviewGeometry.resizedWidth(inset, pointerDelta: -2000, window: fullWindow, screen: screen), 800)
     }
-
-    func testPreviewHeightFollowsAspectRatioAndCapsTallContent() {
-        XCTAssertEqual(FinderPreviewGeometry.previewHeight(width: 320, aspectRatio: 16 / 9), 180, accuracy: 0.001)
-        XCTAssertEqual(FinderPreviewGeometry.previewHeight(width: 320, aspectRatio: 1), 320)
-        XCTAssertEqual(FinderPreviewGeometry.previewHeight(width: 320, aspectRatio: 9 / 16), 400)
-    }
 }

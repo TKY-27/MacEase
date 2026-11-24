@@ -83,6 +83,11 @@ struct PreviewTextViewer: View {
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar { controls }
+            if source?.truncated == true && !(kind == .html && rich) {
+                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 24)
+                Divider()
+            }
             Group {
                 if kind == .html && rich {
                     PreviewWebViewer(url: url, html: nil, scripts: scripts, network: network)
@@ -105,11 +110,6 @@ struct PreviewTextViewer: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if source?.truncated == true && !(kind == .html && rich) {
-                Divider()
-                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24)
-            }
         }
         .task { await read() }
         .task(id: PreviewTextRequest(loaded: source != nil, encoding: encoding, rich: rich)) { await render() }
@@ -126,7 +126,6 @@ struct PreviewTextViewer: View {
                 modePicker.pickerStyle(.menu).labelsHidden().fixedSize()
             }
         }
-        Spacer(minLength: 0)
         if kind == .html && rich {
             ViewThatFits(in: .horizontal) {
                 webPermissions.labelStyle(.titleOnly)
@@ -134,15 +133,12 @@ struct PreviewTextViewer: View {
             }
         } else if !(rich && kind == .markdown) {
             if source?.binaryPropertyList != true {
-                ViewThatFits(in: .horizontal) {
-                    encodingPicker.labelsHidden().fixedSize()
-                    Menu {
-                        encodingPicker.pickerStyle(.inline)
-                    } label: {
-                        Label("Encoding", systemImage: "textformat")
-                    }
-                    .labelStyle(.iconOnly).fixedSize()
+                Menu {
+                    encodingPicker.pickerStyle(.inline)
+                } label: {
+                    Label("Encoding", systemImage: "textformat")
                 }
+                .labelStyle(.iconOnly).fixedSize()
                 .accessibilityLabel(Text("Encoding"))
                 .help(Text("Encoding"))
             }

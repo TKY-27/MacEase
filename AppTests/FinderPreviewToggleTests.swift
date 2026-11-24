@@ -28,7 +28,7 @@ final class FinderPreviewToggleTests: XCTestCase {
             japanese.localizedString(forKey: "Show Finder Preview", value: nil, table: nil), "Finderプレビューを表示")
     }
 
-    func testEscapeAndCommandWCloseThePanelButOtherKeysDoNot() throws {
+    func testOnlyCommandWClosesThePanel() throws {
         let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
@@ -36,7 +36,7 @@ final class FinderPreviewToggleTests: XCTestCase {
         var closeRequests = 0
         panel.closeRequested = { closeRequests += 1 }
         let keys: [(String, NSEvent.ModifierFlags, Int)] = [
-            ("\u{1B}", [], 1), ("w", .command, 2), ("w", [], 2), ("\u{1B}", .shift, 2), ("q", .command, 2),
+            ("\u{1B}", [], 0), ("w", .command, 1), ("w", [], 1), ("\u{1B}", .shift, 1), ("q", .command, 1),
         ]
         for (characters, modifiers, expected) in keys {
             let event = try XCTUnwrap(
