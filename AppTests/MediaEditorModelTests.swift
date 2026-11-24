@@ -2355,7 +2355,7 @@ final class MediaEditorModelTests: XCTestCase {
         let support = directory.appending(path: "support")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
         let staging = StagingArea(supportDirectory: support)
-        var music = try BackgroundMusic.load(from: songURL)
+        var music = try await BackgroundMusic.load(from: songURL)
         music.volume = 0.4
 
         var edit = VideoEdit()

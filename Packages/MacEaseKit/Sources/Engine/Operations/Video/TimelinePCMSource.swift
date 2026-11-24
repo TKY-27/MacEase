@@ -23,7 +23,7 @@ final class TimelinePCMSource {
     init(
         input: MediaInput, track: MediaTrack?, timeline: VideoTimeline, inputs: [MediaInput]? = nil,
         stagingDirectory: URL
-    ) throws {
+    ) async throws {
         let targetRate: Double
         let targetChannels: Int
         if inputs == nil, timeline.music == nil, let track {
@@ -43,9 +43,12 @@ final class TimelinePCMSource {
         self.channels = targetChannels
         try AudioMetadata.validate(sampleRate: self.sampleRate, channels: self.channels)
         continuity = PCMFrameContinuity(sampleRate: self.sampleRate, timestampQuantum: nil)
-        music = try timeline.music.map {
-            try MusicPCMSource(
-                music: $0, outputDuration: timeline.duration, sampleRate: targetRate, channels: targetChannels)
+        if let backgroundMusic = timeline.music {
+            music = try await MusicPCMSource(
+                music: backgroundMusic, outputDuration: timeline.duration, sampleRate: targetRate,
+                channels: targetChannels)
+        } else {
+            music = nil
         }
     }
 
@@ -131,11 +134,12 @@ private final class MusicPCMSource {
     private var pendingOffset = 0
     private var drained = false
 
-    init(music: BackgroundMusic, outputDuration: Double, sampleRate: Double, channels: Int) throws {
+    init(music: BackgroundMusic, outputDuration: Double, sampleRate: Double, channels: Int) async throws {
         try music.validate()
         try music.validateSource()
         let reader: any PCMSource
         do {
+            try await UntrustedMediaAsset.rejectExternalReferences(in: music.url)
             let input = try AudioInput(url: music.url)
             reader = try input.open()
         } catch {

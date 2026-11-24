@@ -75,7 +75,7 @@ func benchmarkEditorTimeline(_ source: URL, mode: String) async throws {
         let song = folder.appending(path: "song.caf")
         try writeBenchmarkTone(to: song)
         edit.segments = [VideoSegment(start: 0, end: details.duration)]
-        edit.music = try BackgroundMusic.load(from: song)
+        edit.music = try await BackgroundMusic.load(from: song)
         let volumes = [0.25, 0.5, 0.75]
         for (iteration, volume) in volumes.enumerated() {
             edit.music?.volume = volume

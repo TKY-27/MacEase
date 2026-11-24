@@ -37,9 +37,10 @@ public struct BackgroundMusic: Codable, Hashable, Sendable {
         volume = try values.decodeIfPresent(Double.self, forKey: .volume) ?? Self.defaultVolume
     }
 
-    public static func load(from url: URL) throws -> BackgroundMusic {
+    public static func load(from url: URL) async throws -> BackgroundMusic {
         do {
             let stamp = try MediaSourceStamp(url: url)
+            try await UntrustedMediaAsset.rejectExternalReferences(in: url)
             let input = try AudioInput(url: url)
             guard let duration = input.duration, duration.isFinite, duration > 0 else {
                 throw EngineError.decodeFailed("unknown audio duration")

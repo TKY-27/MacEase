@@ -79,7 +79,7 @@ enum Transcoder {
             let number = stages.count + 1
             if let timeline = plan.timeline, case .encode(let codec, let kilobits) = audio {
                 if audioInput.audio != nil || timeline.music != nil {
-                    let source = try TimelinePCMSource(
+                    let source = try await TimelinePCMSource(
                         input: audioInput, track: audioInput.audio, timeline: timeline, inputs: plan.sourceInputs,
                         stagingDirectory: url.deletingLastPathComponent())
                     stages.append(

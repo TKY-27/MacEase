@@ -69,7 +69,7 @@ extension MediaEditorModel {
 
     @concurrent private static func loadMusic(_ url: URL) async throws -> BackgroundMusic {
         try Task.checkCancellation()
-        let music = try BackgroundMusic.load(from: url)
+        let music = try await BackgroundMusic.load(from: url)
         try Task.checkCancellation()
         return music
     }

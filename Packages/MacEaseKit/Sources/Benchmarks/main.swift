@@ -295,7 +295,7 @@ func audioSampleBuffer(_ samples: [Float], format: AVAudioFormat, position: Int)
 }
 
 func verifyClip(at url: URL) async throws {
-    let asset = AVURLAsset(url: url)
+    let asset = UntrustedMediaAsset.make(url)
     let video = try await asset.loadTracks(withMediaType: .video)
     let audio = try await asset.loadTracks(withMediaType: .audio)
     guard video.count == 1, audio.count == 1 else {

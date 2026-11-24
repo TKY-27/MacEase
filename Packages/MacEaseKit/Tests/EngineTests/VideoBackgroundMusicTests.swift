@@ -35,7 +35,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 660, amplitude: 0.5, seconds: 5.0, sampleRate: Self.sampleRate, channels: 2),
             to: songURL, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        let loaded = try BackgroundMusic.load(from: songURL)
+        let loaded = try await BackgroundMusic.load(from: songURL)
         #expect(loaded.url == songURL)
         #expect(abs(loaded.duration - 5.0) < 0.01)
         #expect(loaded.start == 0)
@@ -110,7 +110,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 880, amplitude: 0.8, seconds: 6.0, sampleRate: Self.sampleRate, channels: 2),
             to: songURL, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var music = try BackgroundMusic.load(from: songURL)
+        var music = try await BackgroundMusic.load(from: songURL)
         music.volume = 0.5
 
         var singleEdit = VideoEdit()
@@ -180,7 +180,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 1_000, amplitude: 0.8, seconds: 6.0, sampleRate: Self.sampleRate, channels: 2),
             to: longSong, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var longMusic = try BackgroundMusic.load(from: longSong)
+        var longMusic = try await BackgroundMusic.load(from: longSong)
         longMusic.volume = 0.3
 
         var mixEdit = VideoEdit()
@@ -202,14 +202,14 @@ private final class OnceFlag: Sendable {
         try await writeVideo(
             to: loudClip, duration: 1.5,
             audio: tone(frequency: 440, amplitude: 0.9, seconds: 1.5, sampleRate: Self.sampleRate, channels: 2))
-        var loudMusic = try BackgroundMusic.load(from: longSong)
+        var loudMusic = try await BackgroundMusic.load(from: longSong)
         loudMusic.volume = 1.0
         var clampEdit = VideoEdit()
         clampEdit.segments = [VideoSegment(start: 0, end: 1.5)]
         clampEdit.music = loudMusic
         let clampInput = try await MediaInput.open(loudClip)
         let clampTimeline = try VideoTimeline(edit: clampEdit, sourceDuration: 1.5)
-        let pcmSource = try TimelinePCMSource(
+        let pcmSource = try await TimelinePCMSource(
             input: clampInput, track: clampInput.audio, timeline: clampTimeline, stagingDirectory: folder)
         var maxSample: Float = 0
         var clampedHits = 0
@@ -231,7 +231,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 880, amplitude: 0.7, seconds: 1.5, sampleRate: Self.sampleRate, channels: 2),
             to: shortSong, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var shortMusic = try BackgroundMusic.load(from: shortSong)
+        var shortMusic = try await BackgroundMusic.load(from: shortSong)
         shortMusic.volume = 0.5
         var shortEdit = VideoEdit()
         shortEdit.segments = [VideoSegment(start: 0, end: 3.5)]
@@ -251,7 +251,7 @@ private final class OnceFlag: Sendable {
         let loudSuffix = tone(frequency: 750, amplitude: 0.8, seconds: 2.0, sampleRate: Self.sampleRate, channels: 2)
         try await AudioSignals.write(
             silentPrefix + loudSuffix, to: delayedSong, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var offsetMusic = try BackgroundMusic.load(from: delayedSong)
+        var offsetMusic = try await BackgroundMusic.load(from: delayedSong)
         offsetMusic.start = 2.0
         offsetMusic.volume = 0.5
         let twoSecondSilent = folder.appending(path: "silent_2.mov")
@@ -281,7 +281,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 1_000, amplitude: 0.8, seconds: 8.0, sampleRate: Self.sampleRate, channels: 2),
             to: songURL, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var music = try BackgroundMusic.load(from: songURL)
+        var music = try await BackgroundMusic.load(from: songURL)
         music.volume = 0.35
 
         var seg0 = VideoSegment(start: 0, end: 1.5, volume: 0.8)
@@ -343,7 +343,7 @@ private final class OnceFlag: Sendable {
         let songSecond = tone(frequency: 1_500, amplitude: 0.8, seconds: 3.0, sampleRate: Self.sampleRate, channels: 2)
         try await AudioSignals.write(
             songFirst + songSecond, to: twoToneSong, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var stepMusic = try BackgroundMusic.load(from: twoToneSong)
+        var stepMusic = try await BackgroundMusic.load(from: twoToneSong)
         stepMusic.volume = 0.4
         let reverseTarget = VideoSegment(start: 0, end: 2.0)
         var reverseEdit = VideoEdit()
@@ -426,7 +426,7 @@ private final class OnceFlag: Sendable {
                 rate == 44_100
                 ? signal : tone(frequency: 700, amplitude: 0.7, seconds: 3.0, sampleRate: rate, channels: 2)
             try await AudioSignals.write(samples, to: songURL, format: format, sampleRate: rate, channels: 2)
-            var music = try BackgroundMusic.load(from: songURL)
+            var music = try await BackgroundMusic.load(from: songURL)
             music.volume = 0.5
             var edit = VideoEdit()
             edit.segments = [VideoSegment(start: 0, end: 2.0)]
@@ -445,14 +445,14 @@ private final class OnceFlag: Sendable {
 
         let wmaURL = folder.appending(path: "unsupported.wma")
         try Data(AudioInput.asfSignature + [0, 1, 2, 3]).write(to: wmaURL)
-        #expect(throws: EngineError.unsupportedCodec("Windows Media Audio")) {
-            try BackgroundMusic.load(from: wmaURL)
+        await #expect(throws: EngineError.unsupportedCodec("Windows Media Audio")) {
+            try await BackgroundMusic.load(from: wmaURL)
         }
 
         let textURL = folder.appending(path: "notes.txt")
         try Data("not an audio file".utf8).write(to: textURL)
         do {
-            _ = try BackgroundMusic.load(from: textURL)
+            _ = try await BackgroundMusic.load(from: textURL)
             Issue.record("expected text file to fail")
         } catch let error as EngineError {
             guard case .decodeFailed = error else {
@@ -464,7 +464,7 @@ private final class OnceFlag: Sendable {
         let corruptOgg = folder.appending(path: "corrupt.ogg")
         try Data("OggS\u{00}\u{02}corrupt".utf8).write(to: corruptOgg)
         do {
-            _ = try BackgroundMusic.load(from: corruptOgg)
+            _ = try await BackgroundMusic.load(from: corruptOgg)
             Issue.record("expected corrupt ogg to fail")
         } catch let error as EngineError {
             guard case .decodeFailed = error else {
@@ -474,7 +474,7 @@ private final class OnceFlag: Sendable {
         }
 
         do {
-            _ = try BackgroundMusic.load(from: silentClip)
+            _ = try await BackgroundMusic.load(from: silentClip)
             Issue.record("expected audio-less video to fail")
         } catch let error as EngineError {
             guard case .decodeFailed = error else {
@@ -501,7 +501,7 @@ private final class OnceFlag: Sendable {
         let originalSongModified = originalSongAttributes[.modificationDate] as? Date
         let originalClipBytes = try Data(contentsOf: clip)
 
-        let music = try BackgroundMusic.load(from: songURL)
+        let music = try await BackgroundMusic.load(from: songURL)
         var edit = VideoEdit()
         edit.sourceStamp = try MediaSourceStamp(url: clip)
         edit.segments = [VideoSegment(start: 0, end: 2.0)]
@@ -540,7 +540,7 @@ private final class OnceFlag: Sendable {
 
         let changedSong = folder.appending(path: "changed_start.wav")
         try originalSongBytes.write(to: changedSong)
-        let staleMusic = try BackgroundMusic.load(from: changedSong)
+        let staleMusic = try await BackgroundMusic.load(from: changedSong)
         try FileManager.default.setAttributes(
             [.modificationDate: Date(timeIntervalSinceNow: 15)], ofItemAtPath: changedSong.path)
         var staleEdit = edit
@@ -576,7 +576,7 @@ private final class OnceFlag: Sendable {
 
         let midExportSong = folder.appending(path: "changed_mid.wav")
         try originalSongBytes.write(to: midExportSong)
-        let midMusic = try BackgroundMusic.load(from: midExportSong)
+        let midMusic = try await BackgroundMusic.load(from: midExportSong)
         var midEdit = VideoEdit()
         midEdit.sourceStamp = try MediaSourceStamp(url: clip)
         midEdit.segments = [VideoSegment(start: 0, end: 2.0)]
@@ -601,7 +601,7 @@ private final class OnceFlag: Sendable {
 
         let midJoinedSong = folder.appending(path: "changed_mid_joined.wav")
         try originalSongBytes.write(to: midJoinedSong)
-        let midJoinedMusic = try BackgroundMusic.load(from: midJoinedSong)
+        let midJoinedMusic = try await BackgroundMusic.load(from: midJoinedSong)
         var midJoinedEdit = staleJoined
         midJoinedEdit.music = midJoinedMusic
         let beforeJoinedFiles = Set(try FileManager.default.contentsOfDirectory(atPath: folder.path))
@@ -632,7 +632,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 1_000, amplitude: 0.8, seconds: 6.0, sampleRate: Self.sampleRate, channels: 2),
             to: longSong, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var music = try BackgroundMusic.load(from: longSong)
+        var music = try await BackgroundMusic.load(from: longSong)
         music.start = 0.5
         music.volume = 0.35
 
@@ -682,7 +682,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 880, amplitude: 0.7, seconds: 1.2, sampleRate: Self.sampleRate, channels: 2),
             to: shortSong, format: .wav, sampleRate: Self.sampleRate, channels: 2)
-        var shortMusic = try BackgroundMusic.load(from: shortSong)
+        var shortMusic = try await BackgroundMusic.load(from: shortSong)
         shortMusic.volume = 0.5
         var shortEdit = VideoEdit()
         shortEdit.segments = [VideoSegment(start: 0, end: 3.0)]
@@ -717,7 +717,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 1_000, amplitude: 0.7, seconds: 5.0, sampleRate: 44_100, channels: 2),
             to: stereoSong, format: .wav, sampleRate: 44_100, channels: 2)
-        var music = try BackgroundMusic.load(from: stereoSong)
+        var music = try await BackgroundMusic.load(from: stereoSong)
         music.volume = 0.35
 
         var edit = VideoEdit()
@@ -775,7 +775,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(
             tone(frequency: 1_600, amplitude: 0.3, seconds: 3, sampleRate: rate, channels: channels),
             to: songURL, format: .wav, sampleRate: rate, channels: channels)
-        var music = try BackgroundMusic.load(from: songURL)
+        var music = try await BackgroundMusic.load(from: songURL)
         music.volume = 0.3
         let target = VideoSegment(start: 0, end: 1)
         var edit = VideoEdit()
@@ -825,7 +825,7 @@ private final class OnceFlag: Sendable {
         try await AudioSignals.write(signal, to: song, format: .wav, sampleRate: Self.sampleRate, channels: 2)
         var edit = VideoEdit()
         edit.segments = [VideoSegment(start: 0, end: 2)]
-        edit.music = try BackgroundMusic.load(from: song)
+        edit.music = try await BackgroundMusic.load(from: song)
         edit.music?.volume = 1
         let editor = try await VideoEditorSource.open(
             source, staging: StagingArea(supportDirectory: try AudioSignals.temporaryFolder()))
@@ -856,7 +856,7 @@ private final class OnceFlag: Sendable {
         let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
         var edit = VideoEdit()
         edit.segments = [VideoSegment(start: 0, end: 2)]
-        edit.music = try BackgroundMusic.load(from: song)
+        edit.music = try await BackgroundMusic.load(from: song)
         edit.music?.volume = 0.25
         let first = try await renderPreviewAudio(try await editor.playback(edit: edit))
         var appearance = edit
@@ -886,7 +886,7 @@ private final class OnceFlag: Sendable {
         let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
         var edit = VideoEdit()
         edit.segments = [VideoSegment(start: 0, end: 2)]
-        edit.music = try BackgroundMusic.load(from: song)
+        edit.music = try await BackgroundMusic.load(from: song)
         var other = edit
         other.music?.volume = 0.75
         let firstEdit = edit
@@ -920,7 +920,7 @@ private final class OnceFlag: Sendable {
         let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
         var edit = VideoEdit()
         edit.segments = [VideoSegment(start: 0, end: 2)]
-        edit.music = try BackgroundMusic.load(from: song)
+        edit.music = try await BackgroundMusic.load(from: song)
         let snapshot = edit
         let preparation = Task { try await editor.playback(edit: snapshot) }
         let registry = support.appending(path: "staging.json")
