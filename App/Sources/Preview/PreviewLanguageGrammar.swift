@@ -56,29 +56,6 @@ enum UTF16Code {
     static let rightBrace: UInt16 = 125
     static let tilde: UInt16 = 126
     static let delete: UInt16 = 127
-    static let c1End: UInt16 = 0x009F
-    static let softHyphen: UInt16 = 0x00AD
-    static let arabicLetterMark: UInt16 = 0x061C
-    static let zeroWidthSpace: UInt16 = 0x200B
-    static let zeroWidthNonJoiner: UInt16 = 0x200C
-    static let zeroWidthJoiner: UInt16 = 0x200D
-    static let leftToRightMark: UInt16 = 0x200E
-    static let rightToLeftMark: UInt16 = 0x200F
-    static let combiningEnclosingKeycap: UInt32 = 0x20E3
-    static let variationSelector16: UInt32 = 0xFE0F
-    static let lineSeparator: UInt16 = 0x2028
-    static let paragraphSeparator: UInt16 = 0x2029
-    static let bidiEmbedStart: UInt16 = 0x202A
-    static let bidiOverrideEnd: UInt16 = 0x202E
-    static let wordJoiner: UInt16 = 0x2060
-    static let invisibleOperatorEnd: UInt16 = 0x2064
-    static let bidiIsolateStart: UInt16 = 0x2066
-    static let bidiIsolateEnd: UInt16 = 0x2069
-    static let byteOrderMark: UInt16 = 0xFEFF
-    static let leadSurrogateStart: UInt16 = 0xD800
-    static let leadSurrogateEnd: UInt16 = 0xDBFF
-    static let trailSurrogateStart: UInt16 = 0xDC00
-    static let trailSurrogateEnd: UInt16 = 0xDFFF
 }
 
 // Reference type avoids ARC copies per token.
@@ -124,6 +101,10 @@ final class PreviewLanguageGrammar: Sendable {
         let multiline: Bool
         let scope: Scope
 
+        var capsMultilineScan: Bool {
+            multiline && openLength == 1 && closeLength == 1
+        }
+
         init(
             _ open: String,
             close: String? = nil,
@@ -152,74 +133,75 @@ final class PreviewLanguageGrammar: Sendable {
         case none
     }
 
-    struct Features: OptionSet, Sendable {
-        let rawValue: UInt32
-        static let markupTags = Self(rawValue: 1 << 0)
-        static let markdownHeadings = Self(rawValue: 1 << 1)
-        static let hashPreprocessor = Self(rawValue: 1 << 2)
-        static let keyBeforeColon = Self(rawValue: 1 << 3)
-        static let keyBeforeEquals = Self(rawValue: 1 << 4)
-        static let keyBeforeColonOrEquals = Self(rawValue: 1 << 5)
-        static let iniSectionHeaders = Self(rawValue: 1 << 6)
-        static let dockerfileInstructions = Self(rawValue: 1 << 7)
-        static let makefileTargets = Self(rawValue: 1 << 8)
-        static let latexCommands = Self(rawValue: 1 << 9)
-        static let rstSyntax = Self(rawValue: 1 << 10)
-        static let asciiDocSyntax = Self(rawValue: 1 << 11)
-        static let diffSyntax = Self(rawValue: 1 << 12)
-        static let rustRawStrings = Self(rawValue: 1 << 13)
-        static let cppRawStrings = Self(rawValue: 1 << 14)
-        static let luaLongBrackets = Self(rawValue: 1 << 15)
-        static let heredoc = Self(rawValue: 1 << 16)
-        static let objcAtKeywords = Self(rawValue: 1 << 17)
-        static let slashCommentSkipsURL = Self(rawValue: 1 << 18)
-        static let batchRemComment = Self(rawValue: 1 << 19)
-        static let powershellHereString = Self(rawValue: 1 << 20)
-        static let pythonStringPrefixes = Self(rawValue: 1 << 21)
-        static let dartRawStringPrefix = Self(rawValue: 1 << 22)
-        static let rustByteStringPrefix = Self(rawValue: 1 << 23)
-        static let allowDollarIdentifier = Self(rawValue: 1 << 24)
-        static let allowHyphenIdentifier = Self(rawValue: 1 << 25)
-        static let allowAtIdentifier = Self(rawValue: 1 << 26)
-        static let escapedPercentSkipsComment = Self(rawValue: 1 << 27)
-        static let yamlKeyColonRequiresSpace = Self(rawValue: 1 << 28)
-        static let csharpInterpolatedPrefix = Self(rawValue: 1 << 29)
+    enum KeyStyle: Sendable {
+        case none
+        case yamlColon
+        case cssProperty
+        case tomlEquals
+        case iniColonOrEquals
     }
 
-    private struct WordSlot: Sendable {
-        let hash: UInt64
-        let offset: Int
-        let length: Int
-        let kind: PreviewToken.Kind
+    enum RawLiteralStyle: Sendable {
+        case none
+        case swiftHash
+        case rustHash
+        case cppDelim
+        case luaBracket
+        case powershellHereString
+    }
+
+    enum PrefixedStringStyle: Sendable {
+        case none
+        case python
+        case dartRaw
+        case rustBytes
+        case csharpInterpolated
+    }
+
+    enum LineSyntax: Sendable {
+        case none
+        case hashPreprocessor
+        case sectionHeaders
+        case markdown
+        case dockerfile
+        case makefile
+        case latex
+        case batchRem
+    }
+
+    struct IdentifierRules: OptionSet, Sendable {
+        let rawValue: UInt8
+        static let dollarStart = Self(rawValue: 1 << 0)
+        static let atStart = Self(rawValue: 1 << 1)
+        static let hyphenContinue = Self(rawValue: 1 << 2)
     }
 
     let lineComments: [[UInt16]]
+    let lineCommentRequiresLeadingSpace: Bool
+    let skipSlashCommentAfterColon: Bool
+    let skipPercentCommentAfterBackslash: Bool
     let blockComments: [BlockComment]
     let strings: [StringRule]
-    private let wordPool: [UInt8]
-    private let wordSlots: [WordSlot?]
-    private let wordMask: Int
+    private let words: [String: PreviewToken.Kind]
     let caseInsensitiveKeywords: Bool
     let numberStyle: NumberStyle
-    let features: Features
-
-    // ASCII masks skip non-matching scanner branches.
-    let commentLow: UInt64
-    let commentHigh: UInt64
-    let specialLow: UInt64
-    let specialHigh: UInt64
-    let stringLow: UInt64
-    let stringHigh: UInt64
-    let triggerLow: UInt64
-    let triggerHigh: UInt64
+    let keyStyle: KeyStyle
+    let rawLiteralStyle: RawLiteralStyle
+    let prefixedStringStyle: PrefixedStringStyle
+    let lineSyntax: LineSyntax
+    let identifiers: IdentifierRules
+    let supportsHeredoc: Bool
+    let supportsMarkupTags: Bool
+    let supportsObjCAt: Bool
     let minWordLength: Int
     let maxWordLength: Int
-
-    private static let fnvOffsetBasis: UInt64 = 14_695_981_039_346_656_037
-    private static let fnvPrime: UInt64 = 1_099_511_628_211
+    let hasLetterPrefixedString: Bool
 
     init(
         lineComments: [String] = [],
+        lineCommentRequiresLeadingSpace: Bool = false,
+        skipSlashCommentAfterColon: Bool = false,
+        skipPercentCommentAfterBackslash: Bool = false,
         blockComments: [BlockComment] = [],
         strings: [StringRule] = [],
         keywords: String = "",
@@ -227,9 +209,19 @@ final class PreviewLanguageGrammar: Sendable {
         literals: String = "",
         caseInsensitiveKeywords: Bool = false,
         numberStyle: NumberStyle = .standard,
-        features: Features = []
+        keyStyle: KeyStyle = .none,
+        rawLiteralStyle: RawLiteralStyle = .none,
+        prefixedStringStyle: PrefixedStringStyle = .none,
+        lineSyntax: LineSyntax = .none,
+        identifiers: IdentifierRules = [],
+        supportsHeredoc: Bool = false,
+        supportsMarkupTags: Bool = false,
+        supportsObjCAt: Bool = false
     ) {
         self.lineComments = lineComments.map { Array($0.utf16) }
+        self.lineCommentRequiresLeadingSpace = lineCommentRequiresLeadingSpace
+        self.skipSlashCommentAfterColon = skipSlashCommentAfterColon
+        self.skipPercentCommentAfterBackslash = skipPercentCommentAfterBackslash
         self.blockComments = blockComments
         self.strings = strings
         let normalize: (Substring) -> String =
@@ -238,98 +230,17 @@ final class PreviewLanguageGrammar: Sendable {
         for word in types.split(separator: " ") { map[normalize(word)] = .type }
         for word in keywords.split(separator: " ") { map[normalize(word)] = .keyword }
         for word in literals.split(separator: " ") { map[normalize(word)] = .keyword }
-        var pool: [UInt8] = []
-        var capacity = 16
-        while capacity < map.count * 4 { capacity <<= 1 }
-        var slots = [WordSlot?](repeating: nil, count: capacity)
-        let mask = capacity - 1
-        for (word, kind) in map {
-            let bytes = Array(word.utf8)
-            let offset = pool.count
-            pool.append(contentsOf: bytes)
-            var hash = Self.fnvOffsetBasis
-            for byte in bytes {
-                hash ^= UInt64(byte)
-                hash &*= Self.fnvPrime
-            }
-            var index = Int(truncatingIfNeeded: hash) & mask
-            while slots[index] != nil { index = (index + 1) & mask }
-            slots[index] = WordSlot(hash: hash, offset: offset, length: bytes.count, kind: kind)
-        }
-        self.wordPool = pool
-        self.wordSlots = slots
-        self.wordMask = mask
+        self.words = map
         self.caseInsensitiveKeywords = caseInsensitiveKeywords
         self.numberStyle = numberStyle
-        self.features = features
-
-        var cLow: UInt64 = 0
-        var cHigh: UInt64 = 0
-        var spLow: UInt64 = 0
-        var spHigh: UInt64 = 0
-        var stLow: UInt64 = 0
-        var stHigh: UInt64 = 0
-        func mark(_ unit: UInt16, low: inout UInt64, high: inout UInt64) {
-            if unit < 64 {
-                low |= 1 << UInt64(unit)
-            } else if unit < 128 {
-                high |= 1 << UInt64(unit - 64)
-            }
-        }
-        for marker in self.lineComments {
-            if let first = marker.first { mark(first, low: &cLow, high: &cHigh) }
-        }
-        for block in blockComments {
-            mark(block.openFirst, low: &cLow, high: &cHigh)
-        }
-        if features.contains(.luaLongBrackets) {
-            mark(UTF16Code.minus, low: &cLow, high: &cHigh)
-            mark(UTF16Code.leftBracket, low: &spLow, high: &spHigh)
-        }
-        if features.contains(.markdownHeadings) || features.contains(.hashPreprocessor) {
-            mark(UTF16Code.hash, low: &cLow, high: &cHigh)
-        }
-        if features.contains(.iniSectionHeaders) { mark(UTF16Code.leftBracket, low: &cLow, high: &cHigh) }
-        if features.contains(.latexCommands) { mark(UTF16Code.backslash, low: &cLow, high: &cHigh) }
-        if features.contains(.rustRawStrings) {
-            mark(UTF16Code.lowerR, low: &spLow, high: &spHigh)
-            mark(UTF16Code.lowerB, low: &spLow, high: &spHigh)
-        }
-        if features.contains(.cppRawStrings) { mark(UTF16Code.upperR, low: &spLow, high: &spHigh) }
-        if features.contains(.heredoc) { mark(UTF16Code.lessThan, low: &spLow, high: &spHigh) }
-        if features.contains(.objcAtKeywords) || features.contains(.powershellHereString) {
-            mark(UTF16Code.atSign, low: &spLow, high: &spHigh)
-        }
-        if features.contains(.pythonStringPrefixes) {
-            for unit in "rfbuRFBU".utf16 { mark(unit, low: &spLow, high: &spHigh) }
-        }
-        if features.contains(.dartRawStringPrefix) { mark(UTF16Code.lowerR, low: &spLow, high: &spHigh) }
-        if features.contains(.rustByteStringPrefix) {
-            mark(UTF16Code.lowerB, low: &spLow, high: &spHigh)
-            mark(UTF16Code.lowerC, low: &spLow, high: &spHigh)
-        }
-        if features.contains(.csharpInterpolatedPrefix) {
-            mark(UTF16Code.dollar, low: &spLow, high: &spHigh)
-            mark(UTF16Code.atSign, low: &spLow, high: &spHigh)
-        }
-        for rule in strings {
-            mark(rule.openFirst, low: &stLow, high: &stHigh)
-        }
-        if features.contains(.markupTags) {
-            mark(UTF16Code.lessThan, low: &stLow, high: &stHigh)
-            mark(UTF16Code.greaterThan, low: &stLow, high: &stHigh)
-            mark(UTF16Code.slash, low: &stLow, high: &stHigh)
-        }
-        if numberStyle == .cssUnit { mark(UTF16Code.hash, low: &stLow, high: &stHigh) }
-
-        self.commentLow = cLow
-        self.commentHigh = cHigh
-        self.specialLow = spLow
-        self.specialHigh = spHigh
-        self.stringLow = stLow
-        self.stringHigh = stHigh
-        self.triggerLow = cLow | spLow | stLow
-        self.triggerHigh = cHigh | spHigh | stHigh
+        self.keyStyle = keyStyle
+        self.rawLiteralStyle = rawLiteralStyle
+        self.prefixedStringStyle = prefixedStringStyle
+        self.lineSyntax = lineSyntax
+        self.identifiers = identifiers
+        self.supportsHeredoc = supportsHeredoc
+        self.supportsMarkupTags = supportsMarkupTags
+        self.supportsObjCAt = supportsObjCAt
 
         var shortest = Int.max
         var longest = 0
@@ -340,72 +251,23 @@ final class PreviewLanguageGrammar: Sendable {
         }
         self.minWordLength = shortest
         self.maxWordLength = longest
-    }
-
-    @inline(__always)
-    func triggersSpecial(_ unit: UInt16) -> Bool {
-        if unit < 64 { return (triggerLow & (1 << UInt64(unit))) != 0 }
-        if unit < 128 { return (triggerHigh & (1 << UInt64(unit - 64))) != 0 }
-        return false
-    }
-
-    @inline(__always)
-    func triggersComment(_ unit: UInt16) -> Bool {
-        if unit < 64 { return (commentLow & (1 << UInt64(unit))) != 0 }
-        if unit < 128 { return (commentHigh & (1 << UInt64(unit - 64))) != 0 }
-        return false
-    }
-
-    @inline(__always)
-    func triggersSpecialLiteral(_ unit: UInt16) -> Bool {
-        if unit < 64 { return (specialLow & (1 << UInt64(unit))) != 0 }
-        if unit < 128 { return (specialHigh & (1 << UInt64(unit - 64))) != 0 }
-        return false
-    }
-
-    @inline(__always)
-    func triggersStringOrMarkup(_ unit: UInt16) -> Bool {
-        if unit < 64 { return (stringLow & (1 << UInt64(unit))) != 0 }
-        if unit < 128 { return (stringHigh & (1 << UInt64(unit - 64))) != 0 }
-        return false
+        self.hasLetterPrefixedString =
+            rawLiteralStyle == .rustHash || rawLiteralStyle == .cppDelim
+            || prefixedStringStyle == .python || prefixedStringStyle == .dartRaw
+            || prefixedStringStyle == .rustBytes
     }
 
     func lookupWord(_ buffer: UnsafeBufferPointer<UInt16>, start: Int, end: Int) -> PreviewToken.Kind? {
         let length = end - start
         guard length >= minWordLength, length <= maxWordLength else { return nil }
-        var hash = Self.fnvOffsetBasis
-        let fold = caseInsensitiveKeywords
-        for index in start..<end {
-            var unit = buffer[index]
-            if unit >= UTF16Code.delete { return nil }
-            if fold, (UTF16Code.upperA...UTF16Code.upperZ).contains(unit) { unit &+= UTF16Code.asciiCaseOffset }
-            hash ^= UInt64(unit)
-            hash &*= Self.fnvPrime
-        }
-        var slotIndex = Int(truncatingIfNeeded: hash) & wordMask
-        while let slot = wordSlots[slotIndex] {
-            if slot.hash == hash, slot.length == length {
-                var matched = true
-                for offset in 0..<length {
-                    var unit = buffer[start + offset]
-                    if fold, (UTF16Code.upperA...UTF16Code.upperZ).contains(unit) {
-                        unit &+= UTF16Code.asciiCaseOffset
-                    }
-                    if UInt8(truncatingIfNeeded: unit) != wordPool[slot.offset + offset] {
-                        matched = false
-                        break
-                    }
-                }
-                if matched { return slot.kind }
-            }
-            slotIndex = (slotIndex + 1) & wordMask
-        }
-        return nil
+        for index in start..<end where buffer[index] >= UTF16Code.delete { return nil }
+        let slice = String(decoding: buffer[start..<end], as: UTF16.self)
+        return words[caseInsensitiveKeywords ? slice.lowercased() : slice]
     }
 
-    static func grammar(for language: PreviewLanguage) -> PreviewLanguageGrammar {
+    static func grammar(for language: PreviewLanguage) -> PreviewLanguageGrammar? {
         switch language {
-        case .plain: plain
+        case .plain, .diff, .restructuredText, .asciiDoc: nil
         case .swift: swift
         case .javascript: javascript
         case .python: python
@@ -444,9 +306,6 @@ final class PreviewLanguageGrammar: Sendable {
         case .markup: markup
         case .markdown: markdown
         case .latex: latex
-        case .restructuredText: restructuredText
-        case .asciiDoc: asciiDoc
-        case .diff: diff
         case .fsharp: fsharp
         case .vb: vb
         case .julia: julia
@@ -471,8 +330,6 @@ final class PreviewLanguageGrammar: Sendable {
         "BOOL NSObject NSString NSMutableString NSArray NSMutableArray NSDictionary NSMutableDictionary NSSet NSNumber NSData NSURL NSError NSInteger NSUInteger CGFloat CGRect CGPoint CGSize SEL IMP Class Protocol"
     private static let objcExtraLiterals = "YES NO nil Nil"
 
-    static let plain = PreviewLanguageGrammar(numberStyle: .none)
-
     static let swift = PreviewLanguageGrammar(
         lineComments: ["//"],
         blockComments: [BlockComment("/*", "*/", nested: true)],
@@ -485,7 +342,8 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "Any AnyObject Array Bool Character Codable Data Date Dictionary Double Error Equatable Float Hashable Int Int8 Int16 Int32 Int64 Never Optional Result Sendable Set String UInt UInt8 UInt16 UInt32 UInt64 URL Void",
         literals: "true false nil",
-        features: [.hashPreprocessor]
+        rawLiteralStyle: .swiftHash,
+        lineSyntax: .hashPreprocessor
     )
 
     static let javascript = PreviewLanguageGrammar(
@@ -516,7 +374,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "bool bytearray bytes complex dict enumerate Exception filter float frozenset int isinstance issubclass KeyError len list map memoryview object print range reversed RuntimeError set sorted str super tuple type TypeError ValueError zip",
         literals: "True False None",
-        features: [.pythonStringPrefixes]
+        prefixedStringStyle: .python
     )
 
     static let c = PreviewLanguageGrammar(
@@ -530,7 +388,7 @@ final class PreviewLanguageGrammar: Sendable {
         types: cTypes,
         literals: cLiterals,
         numberStyle: .cDigitQuote,
-        features: [.hashPreprocessor]
+        lineSyntax: .hashPreprocessor
     )
 
     static let cpp = PreviewLanguageGrammar(
@@ -544,7 +402,8 @@ final class PreviewLanguageGrammar: Sendable {
         types: cTypes + " " + cppExtraTypes,
         literals: cLiterals,
         numberStyle: .cDigitQuote,
-        features: [.hashPreprocessor, .cppRawStrings]
+        rawLiteralStyle: .cppDelim,
+        lineSyntax: .hashPreprocessor
     )
 
     static let objectiveC = PreviewLanguageGrammar(
@@ -558,7 +417,8 @@ final class PreviewLanguageGrammar: Sendable {
         types: cTypes + " " + objcExtraTypes,
         literals: cLiterals + " " + objcExtraLiterals,
         numberStyle: .cDigitQuote,
-        features: [.hashPreprocessor, .objcAtKeywords]
+        lineSyntax: .hashPreprocessor,
+        supportsObjCAt: true
     )
 
     static let objectiveCPP = PreviewLanguageGrammar(
@@ -572,7 +432,9 @@ final class PreviewLanguageGrammar: Sendable {
         types: cTypes + " " + cppExtraTypes + " " + objcExtraTypes,
         literals: cLiterals + " " + objcExtraLiterals,
         numberStyle: .cDigitQuote,
-        features: [.hashPreprocessor, .objcAtKeywords, .cppRawStrings]
+        rawLiteralStyle: .cppDelim,
+        lineSyntax: .hashPreprocessor,
+        supportsObjCAt: true
     )
 
     static let go = PreviewLanguageGrammar(
@@ -602,7 +464,8 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "Arc bool Box char Clone Copy Debug Default Drop Eq Err f32 f64 Fn FnMut FnOnce Hash i8 i16 i32 i64 i128 IntoIterator isize Iterator None Ok Option Ord PartialEq PartialOrd Rc Result Send Sized Some str String Sync u8 u16 u32 u64 u128 usize Vec",
         literals: "true false",
-        features: [.rustRawStrings, .rustByteStringPrefix]
+        rawLiteralStyle: .rustHash,
+        prefixedStringStyle: .rustBytes
     )
 
     static let ruby = PreviewLanguageGrammar(
@@ -617,7 +480,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "Array BasicObject Class Comparable Enumerable Exception FalseClass File Float Hash Integer IO Kernel MatchData Module NilClass Numeric Object p print Proc puts Range Regexp String Struct Symbol Thread Time TrueClass",
         literals: "true false nil",
-        features: [.heredoc]
+        supportsHeredoc: true
     )
 
     static let php = PreviewLanguageGrammar(
@@ -632,7 +495,8 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "bool Closure DateTime Exception float int iterable mixed never object parent self stdClass string Throwable void",
         literals: "true false null TRUE FALSE NULL",
-        features: [.heredoc, .allowDollarIdentifier]
+        identifiers: [.dollarStart],
+        supportsHeredoc: true
     )
 
     static let java = PreviewLanguageGrammar(
@@ -679,7 +543,8 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "Action Boolean Char Console DateTime Decimal Dictionary Double Exception Func Guid HashSet IEnumerable Int32 Int64 IQueryable List Object String Task TimeSpan ValueTask Void",
         literals: "true false null",
-        features: [.hashPreprocessor, .csharpInterpolatedPrefix]
+        prefixedStringStyle: .csharpInterpolated,
+        lineSyntax: .hashPreprocessor
     )
 
     static let scala = PreviewLanguageGrammar(
@@ -711,7 +576,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "bool DateTime double Duration Error Exception Function Future int Iterable List Map Never num Object print RegExp Set Stream String Type Uri",
         literals: "true false null",
-        features: [.dartRawStringPrefix]
+        prefixedStringStyle: .dartRaw
     )
 
     static let lua = PreviewLanguageGrammar(
@@ -725,7 +590,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "assert collectgarbage coroutine dofile error getmetatable io ipairs load loadfile math next os package pairs pcall print rawequal rawget rawlen rawset require select setmetatable string table tonumber tostring type utf8 xpcall _G _VERSION",
         literals: "true false nil",
-        features: [.luaLongBrackets]
+        rawLiteralStyle: .luaBracket
     )
 
     static let perl = PreviewLanguageGrammar(
@@ -739,7 +604,8 @@ final class PreviewLanguageGrammar: Sendable {
             "and cmp continue CORE do else elsif eq eval for foreach ge goto gt if last le local lt my ne next no or our package redo ref return say state sub unless until use while xor",
         types:
             "chomp chop close defined delete die each exists grep join keys length map open pop print printf push reverse scalar shift sort split sprintf substr undef unshift values warn",
-        features: [.heredoc, .allowDollarIdentifier]
+        identifiers: [.dollarStart],
+        supportsHeredoc: true
     )
 
     static let rLanguage = PreviewLanguageGrammar(
@@ -758,6 +624,7 @@ final class PreviewLanguageGrammar: Sendable {
     static let shell = PreviewLanguageGrammar(
         lineComments: ["#"],
         strings: [
+            StringRule("$'", close: "'", escape: .backslash, multiline: true),
             StringRule("\"", multiline: true),
             StringRule("'", escape: .none, multiline: true),
             StringRule("`", multiline: true),
@@ -767,7 +634,8 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "alias awk builtin cat cd command cp echo eval exec find grep ls mkdir mv printf pwd read rm rmdir sed source test type unalias which xargs",
         literals: "true false",
-        features: [.heredoc, .allowDollarIdentifier]
+        identifiers: [.dollarStart],
+        supportsHeredoc: true
     )
 
     static let powershell = PreviewLanguageGrammar(
@@ -783,7 +651,8 @@ final class PreviewLanguageGrammar: Sendable {
             "array bool byte char datetime decimal double get-content get-item guid hashtable int int32 int64 object pscustomobject set-content set-item string test-path timespan void write-error write-host write-output write-warning",
         literals: "$true $false $null",
         caseInsensitiveKeywords: true,
-        features: [.powershellHereString, .allowDollarIdentifier, .allowHyphenIdentifier]
+        rawLiteralStyle: .powershellHereString,
+        identifiers: [.dollarStart, .hyphenContinue]
     )
 
     static let batch = PreviewLanguageGrammar(
@@ -795,7 +664,7 @@ final class PreviewLanguageGrammar: Sendable {
             "assoc attrib break call cd chdir cls cmdextversion color comp compact copy date defined del dir do echo else endlocal equ erase errorlevel exist exit for ftype geq goto gtr if in leq lss md mkdir mklink move neq not off on path pause popd prompt pushd rd rem ren rename rmdir set setlocal shift start time title type ver verify vol",
         types: "aux con nul prn",
         caseInsensitiveKeywords: true,
-        features: [.batchRemComment]
+        lineSyntax: .batchRem
     )
 
     static let sql = PreviewLanguageGrammar(
@@ -828,7 +697,8 @@ final class PreviewLanguageGrammar: Sendable {
             StringRule("'", escape: .doubled, scope: .scalarStart),
         ],
         literals: "true false null yes no on off",
-        features: [.keyBeforeColon, .yamlKeyColonRequiresSpace]
+        keyStyle: .yamlColon,
+        identifiers: [.hyphenContinue]
     )
 
     static let toml = PreviewLanguageGrammar(
@@ -840,17 +710,20 @@ final class PreviewLanguageGrammar: Sendable {
             StringRule("'", escape: .none, scope: .scalarStart),
         ],
         literals: "true false inf nan",
-        features: [.iniSectionHeaders, .keyBeforeEquals]
+        keyStyle: .tomlEquals,
+        lineSyntax: .sectionHeaders
     )
 
     static let ini = PreviewLanguageGrammar(
         lineComments: ["#", ";"],
+        lineCommentRequiresLeadingSpace: true,
         strings: [
             StringRule("\"", scope: .scalarStart),
             StringRule("'", escape: .none, scope: .scalarStart),
         ],
         literals: "true false yes no on off null",
-        features: [.iniSectionHeaders, .keyBeforeColonOrEquals]
+        keyStyle: .iniColonOrEquals,
+        lineSyntax: .sectionHeaders
     )
 
     static let dockerfile = PreviewLanguageGrammar(
@@ -862,7 +735,7 @@ final class PreviewLanguageGrammar: Sendable {
         keywords:
             "add arg as cmd copy entrypoint env expose from healthcheck label maintainer onbuild run shell stopsignal user volume workdir",
         caseInsensitiveKeywords: true,
-        features: [.dockerfileInstructions]
+        lineSyntax: .dockerfile
     )
 
     static let makefile = PreviewLanguageGrammar(
@@ -873,7 +746,7 @@ final class PreviewLanguageGrammar: Sendable {
         ],
         keywords:
             "define else endef endif export ifdef ifeq ifndef ifneq include override private sinclude undefine unexport vpath",
-        features: [.makefileTargets]
+        lineSyntax: .makefile
     )
 
     static let cmake = PreviewLanguageGrammar(
@@ -916,7 +789,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "any bool coalesce concat flatten format join keys length list lookup map merge number object set split string tuple values",
         literals: "true false null",
-        features: [.heredoc]
+        supportsHeredoc: true
     )
 
     static let protobuf = PreviewLanguageGrammar(
@@ -947,6 +820,7 @@ final class PreviewLanguageGrammar: Sendable {
 
     static let css = PreviewLanguageGrammar(
         lineComments: ["//"],
+        skipSlashCommentAfterColon: true,
         blockComments: [BlockComment("/*", "*/")],
         strings: [
             StringRule("\""),
@@ -955,7 +829,8 @@ final class PreviewLanguageGrammar: Sendable {
         keywords:
             "auto calc clamp from important inherit initial keyframes max media min none revert supports to unset var @charset @container @each @else @extend @font-face @for @forward @if @import @include @keyframes @layer @media @mixin @supports @use",
         numberStyle: .cssUnit,
-        features: [.keyBeforeColon, .slashCommentSkipsURL, .allowHyphenIdentifier, .allowAtIdentifier]
+        keyStyle: .cssProperty,
+        identifiers: [.hyphenContinue, .atStart]
     )
 
     static let markup = PreviewLanguageGrammar(
@@ -965,38 +840,23 @@ final class PreviewLanguageGrammar: Sendable {
             StringRule("'", escape: .none, scope: .markupTag),
         ],
         numberStyle: .none,
-        features: [.markupTags]
+        supportsMarkupTags: true
     )
 
     static let markdown = PreviewLanguageGrammar(
         blockComments: [BlockComment("<!--", "-->")],
         strings: [
-            StringRule("```", escape: .none, multiline: true),
-            StringRule("`", escape: .none),
+            StringRule("`", escape: .none)
         ],
         numberStyle: .none,
-        features: [.markdownHeadings]
+        lineSyntax: .markdown
     )
 
     static let latex = PreviewLanguageGrammar(
         lineComments: ["%"],
+        skipPercentCommentAfterBackslash: true,
         numberStyle: .none,
-        features: [.latexCommands, .escapedPercentSkipsComment]
-    )
-
-    static let restructuredText = PreviewLanguageGrammar(
-        numberStyle: .none,
-        features: [.rstSyntax]
-    )
-
-    static let asciiDoc = PreviewLanguageGrammar(
-        numberStyle: .none,
-        features: [.asciiDocSyntax]
-    )
-
-    static let diff = PreviewLanguageGrammar(
-        numberStyle: .none,
-        features: [.diffSyntax]
+        lineSyntax: .latex
     )
 
     static let fsharp = PreviewLanguageGrammar(
@@ -1026,7 +886,7 @@ final class PreviewLanguageGrammar: Sendable {
             "boolean byte char date decimal double integer long object sbyte short single string uinteger ulong ushort",
         literals: "true false nothing",
         caseInsensitiveKeywords: true,
-        features: [.batchRemComment]
+        lineSyntax: .batchRem
     )
 
     static let julia = PreviewLanguageGrammar(
@@ -1069,7 +929,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "apply assoc assoc-in atom comp conj cons count deref dissoc filter first get get-in hash-map hash-set list map next partial println prn reduce rest seq str update vec",
         literals: "true false nil",
-        features: [.allowHyphenIdentifier]
+        identifiers: [.hyphenContinue]
     )
 
     static let solidity = PreviewLanguageGrammar(
