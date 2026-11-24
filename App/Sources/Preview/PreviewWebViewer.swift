@@ -1,5 +1,5 @@
+import AppKit
 import Engine
-import Network
 import SwiftUI
 import WebKit
 import os
@@ -70,18 +70,36 @@ enum PreviewWebConfiguration {
         ]
         """
 
-    // Prevents link-click speculative TCP preconnect offline.
-    private static let offlineNavigationGuard = """
-        document.addEventListener('click', (event) => {
-          const anchor = event.target && event.target.closest ? event.target.closest('a[href], area[href]') : null;
-          if (!anchor) return;
-          const href = (anchor.getAttribute('href') || '').trim();
-          if (!href.startsWith('#')) { event.preventDefault(); event.stopImmediatePropagation(); }
-        }, true);
-        document.addEventListener('submit', (event) => {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }, true);
+    // Blocks scripted anchor clicks from preconnecting offline.
+    private static let offlineScriptClickGuard = """
+        (() => {
+          const stop = (event) => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          };
+          window.addEventListener('click', stop, true);
+          window.addEventListener('submit', stop, true);
+          const isNav = (node) =>
+            node instanceof Element && (node instanceof SVGAElement || node.closest('a, area') !== null);
+          const originalClick = HTMLElement.prototype.click;
+          Object.defineProperty(HTMLElement.prototype, 'click', {
+            value: function() {
+              if (isNav(this)) return;
+              return originalClick.apply(this, arguments);
+            },
+            writable: false,
+            configurable: false
+          });
+          const originalDispatch = EventTarget.prototype.dispatchEvent;
+          Object.defineProperty(EventTarget.prototype, 'dispatchEvent', {
+            value: function(event) {
+              if (event && event.type === 'click' && isNav(this)) return false;
+              return originalDispatch.apply(this, arguments);
+            },
+            writable: false,
+            configurable: false
+          });
+        })();
         """
 
     enum Reach {
@@ -104,18 +122,13 @@ enum PreviewWebConfiguration {
         else { throw CocoaError(.featureUnsupported) }
         try Task.checkCancellation()
         let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: scripts)
-        if !reach.allowsNetwork {
-            var proxy = ProxyConfiguration(socksv5Proxy: .hostPort(host: .ipv4(.loopback), port: .any))
-            proxy.allowFailover = false
-            configuration.websiteDataStore.proxyConfigurations = [proxy]
+        if !reach.allowsNetwork, scripts {
+            // Lockdown Mode removes WebRTC and WebTransport.
+            configuration.defaultWebpagePreferences.isLockdownModeEnabled = true
             configuration.userContentController.addUserScript(
                 WKUserScript(
-                    source: offlineNavigationGuard, injectionTime: .atDocumentStart, forMainFrameOnly: false,
-                    in: .defaultClient))
-            if scripts {
-                // Lockdown Mode removes WebRTC and WebTransport.
-                configuration.defaultWebpagePreferences.isLockdownModeEnabled = true
-            }
+                    source: offlineScriptClickGuard, injectionTime: .atDocumentStart, forMainFrameOnly: false,
+                    in: .page))
         }
         configuration.userContentController.add(rules)
         return configuration
@@ -169,6 +182,13 @@ struct PreviewWebViewer: View {
         case file(URL, readAccess: URL, PreviewWebPolicy)
         case inline(String, PreviewWebPolicy)
         case generated(String)
+
+        var allowsNetwork: Bool {
+            switch self {
+            case .file(_, _, let policy), .inline(_, let policy): policy.network
+            case .generated: false
+            }
+        }
     }
 
     let page: Page
@@ -209,24 +229,177 @@ private struct PreviewBrowser: NSViewRepresentable {
 
     func makeCoordinator() -> PreviewWebDelegate { PreviewWebDelegate(page: page, failed: $failed) }
 
-    func makeNSView(context: Context) -> WKWebView {
-        let browser = WKWebView(frame: .zero, configuration: configuration)
-        browser.navigationDelegate = context.coordinator
-        browser.uiDelegate = context.coordinator
-        browser.allowsBackForwardNavigationGestures = false
-        browser.allowsLinkPreview = false
-        PreviewWebConfiguration.load(page, in: browser)
-        return browser
+    func makeNSView(context: Context) -> PreviewWebContainerView {
+        let container = PreviewWebContainerView(
+            frame: .zero, configuration: configuration, interactive: page.allowsNetwork)
+        container.webView.navigationDelegate = context.coordinator
+        container.webView.uiDelegate = context.coordinator
+        PreviewWebConfiguration.load(page, in: container.webView)
+        return container
     }
 
-    func updateNSView(_ browser: WKWebView, context: Context) {}
-
-    static func dismantleNSView(_ browser: WKWebView, coordinator: PreviewWebDelegate) {
-        browser.stopLoading()
-        browser.navigationDelegate = nil
-        browser.uiDelegate = nil
-        browser.configuration.userContentController.removeAllContentRuleLists()
+    func updateNSView(_ container: PreviewWebContainerView, context: Context) {
+        container.setInteractive(page.allowsNetwork)
     }
+
+    static func dismantleNSView(_ container: PreviewWebContainerView, coordinator: PreviewWebDelegate) {
+        container.tearDown()
+    }
+}
+
+// AppKit layer enforcing view-only offline previews.
+@MainActor
+final class PreviewWebContainerView: NSView {
+    let webView: PreviewWKWebView
+    let inputShield: PreviewInputShieldView
+
+    init(frame: NSRect, configuration: WKWebViewConfiguration, interactive: Bool) {
+        webView = PreviewWKWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: configuration)
+        inputShield = PreviewInputShieldView(frame: NSRect(origin: .zero, size: frame.size), webView: webView)
+        super.init(frame: frame)
+        webView.autoresizingMask = [.width, .height]
+        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsLinkPreview = false
+        inputShield.autoresizingMask = [.width, .height]
+        addSubview(webView)
+        addSubview(inputShield)
+        setInteractive(interactive)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setInteractive(_ interactive: Bool) {
+        webView.isInteractive = interactive
+        inputShield.isHidden = interactive
+        if !interactive {
+            webView.unregisterDraggedTypes()
+            if window?.firstResponder === webView { window?.makeFirstResponder(nil) }
+        }
+    }
+
+    func tearDown() {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.configuration.userContentController.removeAllContentRuleLists()
+        webView.configuration.userContentController.removeAllUserScripts()
+    }
+}
+
+@MainActor
+final class PreviewWKWebView: WKWebView {
+    var isInteractive = true
+
+    override var acceptsFirstResponder: Bool { isInteractive && super.acceptsFirstResponder }
+
+    override func becomeFirstResponder() -> Bool { isInteractive && super.becomeFirstResponder() }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.mouseUp(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.mouseDragged(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.rightMouseDown(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.rightMouseUp(with: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.rightMouseDragged(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.otherMouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.otherMouseUp(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.otherMouseDragged(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.keyUp(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        isInteractive && super.performKeyEquivalent(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        isInteractive ? super.menu(for: event) : nil
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isInteractive ? super.draggingEntered(sender) : []
+    }
+}
+
+// Forwards only scroll and magnify offline.
+@MainActor
+final class PreviewInputShieldView: NSView {
+    private weak var webView: PreviewWKWebView?
+
+    init(frame: NSRect, webView: PreviewWKWebView) {
+        self.webView = webView
+        super.init(frame: frame)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        return self
+    }
+
+    override func scrollWheel(with event: NSEvent) { webView?.scrollWheel(with: event) }
+
+    override func magnify(with event: NSEvent) { webView?.magnify(with: event) }
+
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func rightMouseDragged(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func keyDown(with event: NSEvent) {}
+    override func keyUp(with event: NSEvent) {}
+    override func performKeyEquivalent(with event: NSEvent) -> Bool { false }
+    override func menu(for event: NSEvent) -> NSMenu? { nil }
 }
 
 @MainActor

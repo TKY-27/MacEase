@@ -93,7 +93,9 @@ final class LoopbackUDPListener: @unchecked Sendable {
 @MainActor
 final class PreviewWebProbe {
     private static let loadTimeout: Duration = .seconds(10)
-    private let browser: WKWebView
+    private let window: NSWindow
+    let container: PreviewWebContainerView
+    private var browser: PreviewWKWebView { container.webView }
     private let delegate: PreviewWebDelegate
     private var finished: CheckedContinuation<Void, any Error>?
     private(set) var didFail = false
@@ -102,11 +104,17 @@ final class PreviewWebProbe {
         var failed = false
         let binding = Binding(get: { failed }, set: { failed = $0 })
         delegate = PreviewWebDelegate(page: page, failed: binding)
-        browser = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        let rect = NSRect(x: -1000, y: -1000, width: 400, height: 300)
+        window = NSWindow(
+            contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
+        container = PreviewWebContainerView(
+            frame: NSRect(origin: .zero, size: rect.size), configuration: configuration, interactive: page.allowsNetwork
+        )
+        window.contentView = container
+        window.orderBack(nil)
+        window.layoutIfNeeded()
         browser.navigationDelegate = delegate
         browser.uiDelegate = delegate
-        browser.allowsBackForwardNavigationGestures = false
-        browser.allowsLinkPreview = false
         delegate.onFinishNavigation = { [weak self] in self?.resume() }
         delegate.onFailNavigation = { [weak self] error in
             self?.didFail = true
@@ -114,7 +122,14 @@ final class PreviewWebProbe {
         }
     }
 
-    // Uses production configuration, delegates and load path.
+    deinit {
+        MainActor.assumeIsolated {
+            container.tearDown()
+            window.orderOut(nil)
+        }
+    }
+
+    // Uses production configuration, AppKit hierarchy and load.
     static func loading(_ page: PreviewWebViewer.Page) async throws -> PreviewWebProbe {
         let probe = PreviewWebProbe(page: page, configuration: try await PreviewWebConfiguration.make(for: page))
         try await probe.waitForLoad { PreviewWebConfiguration.load(page, in: $0) }
@@ -126,6 +141,100 @@ final class PreviewWebProbe {
     // App-injected; works with page scripts off.
     func evaluate(_ script: String) async throws -> Any? {
         try await browser.evaluateJavaScript(script)
+    }
+
+    func attemptFocusWebView() -> Bool {
+        guard browser.acceptsFirstResponder else {
+            _ = window.makeFirstResponder(browser)
+            return window.firstResponder === browser
+        }
+        return window.makeFirstResponder(browser) && window.firstResponder === browser
+    }
+
+    func hitTest(webPoint: NSPoint) -> NSView? {
+        let windowPoint = windowPoint(fromWebPoint: webPoint)
+        return window.contentView?.hitTest(windowPoint)
+    }
+
+    func click(webPoint: NSPoint) throws {
+        let point = windowPoint(fromWebPoint: webPoint)
+        let down = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseUp, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
+        window.sendEvent(down)
+        window.sendEvent(up)
+    }
+
+    func rightClick(webPoint: NSPoint) throws {
+        let point = windowPoint(fromWebPoint: webPoint)
+        let down = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseUp, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 4, clickCount: 1, pressure: 0))
+        window.sendEvent(down)
+        window.sendEvent(up)
+    }
+
+    func drag(from startWebPoint: NSPoint, to endWebPoint: NSPoint) throws {
+        let start = windowPoint(fromWebPoint: startWebPoint)
+        let end = windowPoint(fromWebPoint: endWebPoint)
+        let down = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown, location: start, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 5, clickCount: 1, pressure: 1))
+        let dragged = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDragged, location: end, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 6, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseUp, location: end, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 7, clickCount: 1, pressure: 0))
+        window.sendEvent(down)
+        window.sendEvent(dragged)
+        window.sendEvent(up)
+    }
+
+    func pressKey(_ characters: String, keyCode: UInt16) throws {
+        let down = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
+        let up = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyUp, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters,
+                charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode))
+        window.sendEvent(down)
+        window.sendEvent(up)
+    }
+
+    func scroll(deltaY: Int32, at webPoint: NSPoint = NSPoint(x: 100, y: 100)) throws {
+        let cgEvent = try XCTUnwrap(
+            CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: deltaY, wheel2: 0, wheel3: 0))
+        let event = try XCTUnwrap(NSEvent(cgEvent: cgEvent))
+        let target = hitTest(webPoint: webPoint)
+        target?.scrollWheel(with: event)
+    }
+
+    private func windowPoint(fromWebPoint webPoint: NSPoint) -> NSPoint {
+        NSPoint(x: webPoint.x, y: container.bounds.height - webPoint.y)
     }
 
     // Lets late subresource requests reach the listener.

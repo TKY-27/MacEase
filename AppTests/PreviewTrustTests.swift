@@ -374,9 +374,15 @@ final class PreviewTrustTests: XCTestCase {
         let probe = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, policy))
         try await probe.settle()
 
-        for id in ["nav", "blank", "dl", "jslink", "remote", "bOther", "bSelf"] {
+        for id in ["nav", "blank", "dl", "jslink", "bOther", "bSelf"] {
             _ = try await probe.evaluate("document.getElementById('\(id)').click()")
         }
+        let remoteRect =
+            try await probe.evaluate(
+                "(() => { const r = document.getElementById('remote').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()"
+            ) as? [Double]
+        let coords = try XCTUnwrap(remoteRect)
+        try probe.click(webPoint: NSPoint(x: coords[0], y: coords[1]))
         _ = try await probe.evaluate("window.open('other.html')")
         try await probe.settle()
 
@@ -449,5 +455,122 @@ final class PreviewTrustTests: XCTestCase {
 
         XCTAssertEqual(PreviewTrust.evaluate(target, trustedFolders: [directory.path]).level, .trusted)
         XCTAssertEqual(PreviewTrust.evaluate(link, trustedFolders: [directory.path]).level, .restricted)
+    }
+
+    @MainActor
+    func testOfflinePreviewIsViewOnlyAtAppKitLevelAndBlocksBaseAndShadowLinkClicks() async throws {
+        let tcp = try LoopbackListener()
+        let udp = try LoopbackUDPListener()
+        let tcpPort = try await tcp.start()
+        _ = try await udp.start()
+        defer {
+            tcp.stop()
+            udp.stop()
+        }
+        let directory = try PreviewFixtures.directory(self)
+        let baseHTML = """
+            <!DOCTYPE html><html><head><base href="http://127.0.0.1:\(tcpPort)/base"></head>
+            <body style="margin:0;height:1200px">
+            <a id="target" href="#go" style="display:block;width:200px;height:100px;background:#09f">go</a>
+            </body></html>
+            """
+        let shadowHTML = """
+            <!DOCTYPE html><html><body style="margin:0;height:1200px">
+            <div id="host" style="width:200px;height:100px"></div>
+            <script>
+            const shadow = document.getElementById('host').attachShadow({mode: 'open'});
+            shadow.innerHTML = '<a id="shadowLink" href="http://127.0.0.1:\(tcpPort)/shadow" style="display:block;width:200px;height:100px;background:#f90">shadow</a>';
+            </script></body></html>
+            """
+        let baseFile = directory.appendingPathComponent("base.html")
+        let shadowFile = directory.appendingPathComponent("shadow.html")
+        try Data(baseHTML.utf8).write(to: baseFile)
+        try Data(shadowHTML.utf8).write(to: shadowFile)
+        let resolvedBase = baseFile.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedShadow = shadowFile.resolvingSymlinksInPath().standardizedFileURL
+        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedBase))
+
+        let plainPolicy = PreviewWebPolicy(
+            trust: PreviewTrust(level: .standard, resolvedPath: resolvedBase.path), scriptsConsented: false)
+        var scriptedPolicy = plainPolicy
+        scriptedPolicy.allowScripts()
+
+        let offlinePages: [PreviewWebViewer.Page] = [
+            .generated(baseHTML),
+            .file(resolvedBase, readAccess: readAccess, plainPolicy),
+            .file(resolvedBase, readAccess: readAccess, scriptedPolicy),
+            .file(resolvedShadow, readAccess: readAccess, scriptedPolicy),
+        ]
+        let linkPoint = NSPoint(x: 40, y: 40)
+        for page in offlinePages {
+            let probe = try await PreviewWebProbe.loading(page)
+            try await probe.settle(.milliseconds(200))
+            XCTAssertTrue(probe.hitTest(webPoint: linkPoint) === probe.container.inputShield)
+            XCTAssertFalse(probe.attemptFocusWebView())
+            try probe.click(webPoint: linkPoint)
+            try probe.rightClick(webPoint: linkPoint)
+            try probe.drag(from: linkPoint, to: NSPoint(x: 120, y: 120))
+            try probe.pressKey("\r", keyCode: 36)
+            try probe.pressKey(" ", keyCode: 49)
+            try probe.scroll(deltaY: -80, at: linkPoint)
+            try await probe.settle(.milliseconds(400))
+            XCTAssertEqual(tcp.connectionCount, 0)
+            XCTAssertEqual(udp.datagramCount, 0)
+        }
+
+        // Control: allowed network clicks reach the listener.
+        var onlinePolicy = scriptedPolicy
+        onlinePolicy.allowNetwork()
+        for file in [resolvedBase, resolvedShadow] {
+            let before = tcp.connectionCount
+            let online = try await PreviewWebProbe.loading(.file(file, readAccess: readAccess, onlinePolicy))
+            try await online.settle(.milliseconds(200))
+            XCTAssertTrue(online.hitTest(webPoint: linkPoint) !== online.container.inputShield)
+            try online.click(webPoint: linkPoint)
+            try await online.settle(.milliseconds(600))
+            XCTAssertGreaterThan(
+                tcp.connectionCount, before, "control: allowed click reaches listener for \(file.lastPathComponent)")
+        }
+    }
+
+    @MainActor
+    func testProgrammaticAnchorClicksEmitNoTrafficOffline() async throws {
+        let tcp = try LoopbackListener()
+        let port = try await tcp.start()
+        defer { tcp.stop() }
+        let directory = try PreviewFixtures.directory(self)
+        let page = directory.appendingPathComponent("programmatic.html")
+        try Data(
+            """
+            <!DOCTYPE html><html><head><base href="http://127.0.0.1:\(port)/ext"></head><body>
+            <a id="base" href="#go">go</a>
+            <a id="abs" href="http://127.0.0.1:\(port)/abs">abs</a>
+            <div id="host"></div>
+            <script>
+              window.__ran = true;
+              document.getElementById('base').click();
+              document.getElementById('abs').click();
+              const s = document.getElementById('host').attachShadow({mode: 'closed'});
+              const a = document.createElement('a');
+              a.href = 'http://127.0.0.1:\(port)/shadow';
+              s.appendChild(a);
+              a.click();
+              const d = document.createElement('a');
+              d.href = 'http://127.0.0.1:\(port)/detached';
+              d.click();
+              d.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+            </script></body></html>
+            """.utf8
+        ).write(to: page)
+        let resolved = page.resolvingSymlinksInPath().standardizedFileURL
+        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolved))
+        var policy = PreviewWebPolicy(
+            trust: PreviewTrust(level: .standard, resolvedPath: resolved.path), scriptsConsented: false)
+        policy.allowScripts()
+        let probe = try await PreviewWebProbe.loading(.file(resolved, readAccess: readAccess, policy))
+        try await probe.settle(.milliseconds(700))
+        let ran = try await probe.evaluate("window.__ran") as? Bool
+        XCTAssertEqual(ran, true)
+        XCTAssertEqual(tcp.connectionCount, 0)
     }
 }

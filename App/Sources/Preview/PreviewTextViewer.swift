@@ -123,11 +123,34 @@ struct PreviewTextViewer: View {
         VStack(spacing: 0) {
             PreviewToolbar { controls }
             if trust.restricted && (kind == .html || kind == .markdown) {
-                PreviewNote(
-                    symbol: "shield.lefthalf.filled",
-                    text: Text(
-                        "This file is from the internet. Scripts, external content and other files are disabled."),
-                    shortText: Text("From the internet: limited preview"))
+                if kind == .html && rich {
+                    PreviewNote(
+                        symbol: "shield.lefthalf.filled",
+                        text: Text(
+                            "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled."
+                        ),
+                        shortText: Text("From the internet: view-only preview"))
+                } else {
+                    PreviewNote(
+                        symbol: "shield.lefthalf.filled",
+                        text: Text(
+                            "This file is from the internet. Scripts, external content and other files are disabled."),
+                        shortText: Text("From the internet: limited preview"))
+                }
+            } else if kind == .html && rich && !policy.network {
+                if policy.scripts {
+                    PreviewNote(
+                        symbol: "eye",
+                        text: Text(
+                            "Preview is view-only until you allow network access. Some features, such as WebAssembly and custom fonts, are unavailable."
+                        ),
+                        shortText: Text("View-only until network is allowed"))
+                } else {
+                    PreviewNote(
+                        symbol: "eye",
+                        text: Text("Preview is view-only until you allow network access."),
+                        shortText: Text("View-only until network is allowed"))
+                }
             }
             if source?.truncated == true && fileBackedPage == nil {
                 PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
