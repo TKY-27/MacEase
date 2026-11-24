@@ -24,6 +24,7 @@ public enum AudioWaveform {
         url: URL, range: Range<Double>? = nil, bins: Int = 4_096,
         update: @escaping @Sendable (AudioWaveformSnapshot) -> Void = { _ in }
     ) async throws -> AudioWaveformSnapshot {
+        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
         let task = Task.detached(priority: .utility) {
             try read(url: url, range: range, bins: bins, update: update)
         }
@@ -127,52 +128,90 @@ public enum AudioWaveform {
 }
 
 public actor AudioPreviewSource {
+    private static let previewAACKilobits = 192
+    private static let maximumAACChannels = 6
+
     public let duration: Double
     public let sampleRate: Double
     public let stamp: MediaSourceStamp
     private let input: AudioInput
     private let staging: StagingArea
+    private let compactPlayback: Bool
     private var directory: URL?
     private var closed = false
 
     public static func open(
         _ url: URL, staging: StagingArea, omission: StreamOmission? = nil
     ) async throws -> AudioPreviewSource {
+        try await open(url, staging: staging, compactPlayback: false) { input, stamp in
+            let omitted = omission?.streams(covering: stamp) ?? []
+            let unconsented = try await AudioJob.unpreservedStreams(in: input).filter { !omitted.contains($0) }
+            if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        }
+    }
+
+    /// Throwaway playback copies only; trims use `open`.
+    public static func openForPreviewPlayback(_ url: URL, staging: StagingArea) async throws -> AudioPreviewSource {
+        try await open(url, staging: staging, compactPlayback: true) { _, _ in }
+    }
+
+    private static func open(
+        _ url: URL, staging: StagingArea, compactPlayback: Bool,
+        validate: (AudioInput, MediaSourceStamp) async throws -> Void
+    ) async throws -> AudioPreviewSource {
         let stamp = try MediaSourceStamp(url: url)
+        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
         let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
-        let omitted = omission?.streams(covering: stamp) ?? []
-        let unconsented = try await AudioJob.unpreservedStreams(in: input).filter { !omitted.contains($0) }
-        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        try await validate(input, stamp)
         guard let duration = input.duration, duration > 0 else {
             throw EngineError.decodeFailed("unknown audio duration")
         }
         try stamp.validate(url)
-        return AudioPreviewSource(input: input, duration: duration, stamp: stamp, staging: staging)
+        return AudioPreviewSource(
+            input: input, duration: duration, stamp: stamp, staging: staging, compactPlayback: compactPlayback)
     }
 
-    private init(input: AudioInput, duration: Double, stamp: MediaSourceStamp, staging: StagingArea) {
+    private init(
+        input: AudioInput, duration: Double, stamp: MediaSourceStamp, staging: StagingArea, compactPlayback: Bool
+    ) {
         self.input = input
         self.duration = duration
         sampleRate = input.sampleRate
         self.stamp = stamp
         self.staging = staging
+        self.compactPlayback = compactPlayback
+    }
+
+    private var stagedFileName: String {
+        guard compactPlayback else { return "preview.wav" }
+        return input.channels <= Self.maximumAACChannels ? "preview.m4a" : "preview.caf"
     }
 
     public func playbackURL() async throws -> URL {
         guard !closed else { throw CancellationError() }
         try stamp.validate(input.url)
         if input.container != .ogg, input.container != .flac,
-            try await AVURLAsset(url: input.url).load(.isPlayable)
+            try await UntrustedMediaAsset.make(input.url).load(.isPlayable)
         {
             return input.url
         }
-        if let directory { return directory.appending(path: "preview.wav") }
+        if let directory { return directory.appending(path: stagedFileName) }
         let folder = try staging.makeDirectory(for: input.url)
-        let output = folder.appending(path: "preview.wav")
+        let output = folder.appending(path: stagedFileName)
         do {
-            let encoder = try AudioFileEncoder(
-                url: output, target: AudioTarget(format: .wav, kilobits: 0), sampleRate: sampleRate,
-                channels: input.channels, bitDepth: 32, isFloat: true)
+            let encoder: AudioFileEncoder
+            if compactPlayback {
+                let target =
+                    input.channels <= Self.maximumAACChannels
+                    ? AudioTarget(format: .m4aAAC, kilobits: Self.previewAACKilobits)
+                    : AudioTarget(format: .cafALAC, kilobits: 0)
+                encoder = try AudioFileEncoder(
+                    url: output, target: target, sampleRate: sampleRate, channels: input.channels)
+            } else {
+                encoder = try AudioFileEncoder(
+                    url: output, target: AudioTarget(format: .wav, kilobits: 0), sampleRate: sampleRate,
+                    channels: input.channels, bitDepth: 32, isFloat: true)
+            }
             let source = try input.open()
             while let samples = try source.read() {
                 try Task.checkCancellation()

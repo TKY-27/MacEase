@@ -30,6 +30,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private static let failureBackoff: TimeInterval = 2
 
     private let settings: SettingsStore
+    private let staging: StagingArea
     private let reader = FinderSelectionReader()
     private let logger = Logger(category: "finder-preview")
     private var tracker: FinderWindowTracker?
@@ -51,8 +52,9 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var retryAfter = Date.distantPast
     var enabledChanged: (() -> Void)?
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, staging: StagingArea) {
         self.settings = settings
+        self.staging = staging
     }
 
     func start() {
@@ -256,7 +258,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func makeView() -> FinderPreviewView {
         FinderPreviewView(
-            state: state, close: { [weak self] in self?.settings.finderPreviewEnabled = false },
+            state: state, settings: settings, staging: staging,
+            close: { [weak self] in self?.settings.finderPreviewEnabled = false },
             retry: { [weak self] in self?.retry() },
             select: { [weak self] in self?.select($0) },
             resize: { [weak self] in self?.resize(by: $0) })
@@ -330,6 +333,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         state.urls = []
         state.selectedIndex = 0
         state.kind = nil
+        state.trust = nil
+        state.detected = nil
         state.fileFailure = nil
     }
 
@@ -338,14 +343,29 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         kindTask?.cancel()
         state.selectedIndex = index
         state.kind = nil
+        state.trust = nil
+        state.detected = nil
         state.fileFailure = nil
         guard let url = state.selectedURL else { return }
         let requestedGeneration = generation
+        let disabledKinds = settings.finderPreview.disabledKinds
+        let trustedFolders = settings.finderPreview.trustedFolders
         kindTask = Task { [weak self] in
             do {
-                let kind = try await Task.detached(priority: .userInitiated) { try PreviewKind.inspect(url) }.value
+                let (kind, trust, detected) = try await offMain {
+                    try Task.checkCancellation()
+                    let kind = try PreviewKind.inspect(url, disabled: disabledKinds)
+                    try Task.checkCancellation()
+                    // Quick Look handles folders and unknown types.
+                    let detected = kind == .quickLook ? nil : try ContentSniffer.identify(url)
+                    try Task.checkCancellation()
+                    return (kind, PreviewTrust.evaluate(url, trustedFolders: trustedFolders), detected)
+                }
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
+                state.trust = trust
+                state.detected = detected
                 state.kind = kind
+            } catch is CancellationError {
             } catch {
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 logger.error("Preview file inspection failed: \(error.localizedDescription, privacy: .private)")

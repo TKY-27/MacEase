@@ -179,7 +179,7 @@ enum VideoProperties {
         let aperture = CMVideoFormatDescriptionGetCleanAperture(expected, originIsAtTopLeft: true)
         let presentation = CMVideoFormatDescriptionGetPresentationDimensions(
             expected, usePixelAspectRatio: true, useCleanAperture: true)
-        guard let track = try await AVURLAsset(url: output).loadTracks(withMediaType: .video).first else {
+        guard let track = try await UntrustedMediaAsset.make(output).loadTracks(withMediaType: .video).first else {
             return false
         }
         let formats = try await track.load(.formatDescriptions)

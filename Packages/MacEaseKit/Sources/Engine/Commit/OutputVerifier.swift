@@ -125,7 +125,7 @@ enum OutputVerifier {
             try verifyPackets(demuxer)
             return
         }
-        let asset = AVURLAsset(url: url)
+        let asset = UntrustedMediaAsset.make(url)
         let tracks = try await asset.load(.tracks)
         var playable = false
         for track in tracks where try await track.load(.isPlayable) {

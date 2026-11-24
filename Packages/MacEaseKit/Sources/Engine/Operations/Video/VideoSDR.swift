@@ -25,7 +25,7 @@ enum VideoSDR {
         guard MenuLayout.isApplicable(entry, selection: [url]) else {
             throw EngineError.invalidInput(.unsupportedFileType)
         }
-        let asset = AVURLAsset(url: url)
+        let asset = UntrustedMediaAsset.make(url)
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard !tracks.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
         for track in tracks {
@@ -134,7 +134,7 @@ enum VideoSDR {
     }
 
     static func verify(_ url: URL) async throws {
-        let asset = AVURLAsset(url: url)
+        let asset = UntrustedMediaAsset.make(url)
         let tracks = try await asset.loadTracks(withMediaType: .video)
         guard tracks.count == 1, let track = tracks.first else { throw EngineError.sdrVerificationFailed }
         let formats = try await track.load(.formatDescriptions)

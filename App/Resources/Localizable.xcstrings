@@ -221,36 +221,6 @@
         }
       }
     },
-    "Run Scripts": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スクリプトを実行"
-          }
-        }
-      }
-    },
-    "Allow Network": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワーク接続を許可"
-          }
-        }
-      }
-    },
-    "Soft Wrap": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "折り返し"
-          }
-        }
-      }
-    },
     "Showing the first 256 KB": {
       "localizations": {
         "ja": {
@@ -327,6 +297,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "UTF-16 LE"
+          }
+        }
+      }
+    },
+    "UTF-32": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-32"
+          }
+        }
+      }
+    },
+    "UTF-32 BE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-32 BE"
+          }
+        }
+      }
+    },
+    "UTF-32 LE": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-32 LE"
           }
         }
       }
@@ -521,6 +521,66 @@
         }
       }
     },
+    "This file doesn't look like text, so it isn't shown.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはテキストではないようなので、表示しません。"
+          }
+        }
+      }
+    },
+    "This file is empty.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは空です。"
+          }
+        }
+      }
+    },
+    "This file is from the internet, so MacEase doesn't convert it. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットからダウンロードされたものなので、MacEaseでは変換しません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
+    },
+    "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットからダウンロードされたものです。プレビューは表示専用で、スクリプト、外部コンテンツ、他のファイルは無効です。"
+          }
+        }
+      }
+    },
+    "This file is from the internet. Scripts, external content and other files are disabled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットからダウンロードされたものです。スクリプト、外部コンテンツ、他のファイルは無効です。"
+          }
+        }
+      }
+    },
+    "This file is too large to convert for preview. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは大きすぎるためプレビュー用に変換できません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
+    },
     "Hide Finder Preview": {
       "localizations": {
         "ja": {
@@ -537,6 +597,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finderプレビューを表示"
+          }
+        }
+      }
+    },
+    "Show Finder Preview beside Finder windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウの横にFinderプレビューを表示"
           }
         }
       }
@@ -876,6 +946,30 @@
         }
       }
     },
+    "Mach-O executable": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach-O実行ファイル"
+          }
+        }
+      }
+    },
+    "Mach-O universal binary": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach-Oユニバーサルバイナリ"
+          }
+        }
+      }
+    },
     "Exact": {
       "localizations": {
         "ja": {
@@ -1125,6 +1219,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld / %lld — %@"
+          }
+        }
+      }
+    },
+    "%lld pt": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
           }
         }
       }
@@ -1894,6 +1998,16 @@
         }
       }
     },
+    "Built-in sample": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準の見本"
+          }
+        }
+      }
+    },
     "By character code": {
       "comment": "JSON ordinal key comparison",
       "localizations": {
@@ -1901,6 +2015,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "文字コード順"
+          }
+        }
+      }
+    },
+    "Bzip2 archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2アーカイブ"
+          }
+        }
+      }
+    },
+    "CAF audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAFオーディオ"
           }
         }
       }
@@ -2206,6 +2344,7 @@
       }
     },
     "Continue": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -2219,8 +2358,7 @@
             "value": "続ける"
           }
         }
-      },
-      "extractionState": "manual"
+      }
     },
     "Convert": {
       "comment": "Encoding panel action",
@@ -2229,6 +2367,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "変換"
+          }
+        }
+      }
+    },
+    "Convert and Play": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換して再生"
           }
         }
       }
@@ -2683,6 +2831,18 @@
         }
       }
     },
+    "ELF executable": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ELF実行ファイル"
+          }
+        }
+      }
+    },
     "EXIF (camera and settings)": {
       "comment": "Metadata field",
       "localizations": {
@@ -2754,6 +2914,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "PNG を埋め込む"
+          }
+        }
+      }
+    },
+    "Empty file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のファイル"
           }
         }
       }
@@ -3078,6 +3250,7 @@
       }
     },
     "Finder extension": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -3091,8 +3264,7 @@
             "value": "Finder拡張機能"
           }
         }
-      },
-      "extractionState": "manual"
+      }
     },
     "Finder menu token": {
       "localizations": {
@@ -3200,6 +3372,38 @@
         }
       }
     },
+    "Font collection": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントコレクション"
+          }
+        }
+      }
+    },
+    "Font sample text": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントの見本テキスト"
+          }
+        }
+      }
+    },
+    "Fonts": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォント"
+          }
+        }
+      }
+    },
     "Foreground mask": {
       "comment": "Saved foreground mask",
       "localizations": {
@@ -3213,16 +3417,16 @@
     },
     "Format": {
       "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "形式"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Format"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "形式"
           }
         }
       }
@@ -3268,6 +3472,26 @@
         }
       }
     },
+    "From the internet: limited preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットからダウンロード：制限付きプレビュー"
+          }
+        }
+      }
+    },
+    "From the internet: view-only preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットからダウンロード：表示専用プレビュー"
+          }
+        }
+      }
+    },
     "Full Disk Access": {
       "localizations": {
         "ja": {
@@ -3279,6 +3503,7 @@
       }
     },
     "Full Disk Access…": {
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -3292,8 +3517,7 @@
             "value": "フルディスクアクセス…"
           }
         }
-      },
-      "extractionState": "manual"
+      }
     },
     "Further file changes were stopped because undo history could not be saved. Check free disk space and access to the history folder, then retry.": {
       "comment": "Avoids implying earlier commits were rolled back",
@@ -3369,6 +3593,18 @@
         }
       }
     },
+    "Gzip archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gzipアーカイブ"
+          }
+        }
+      }
+    },
     "H.264 parameter sets out of range": {
       "comment": "Invalid decoder configuration",
       "localizations": {
@@ -3401,12 +3637,52 @@
         }
       }
     },
+    "HTML files in these folders open in Preview with scripts and network access enabled. Files from the internet stay restricted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのフォルダ内のHTMLファイルは、スクリプトとネットワークアクセスが有効な状態でプレビューで開きます。インターネットからダウンロードされたファイルは制限されたままです。"
+          }
+        }
+      }
+    },
+    "HTML in the chosen folders opens with scripts and network access enabled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したフォルダ内のHTMLは、スクリプトとネットワークアクセスが有効な状態で開きます。"
+          }
+        }
+      }
+    },
     "Scripts and external resources omitted. PDF uses one continuous page; TXT keeps rendered text only.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "スクリプトと外部リソースを省略します。PDF は連続した 1 ページ、TXT は表示された文字のみです。"
+          }
+        }
+      }
+    },
+    "Scripts can use the internet": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトはインターネット接続可能"
+          }
+        }
+      }
+    },
+    "Scripts on this page can connect to the internet.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページのスクリプトはインターネットに接続できます。"
           }
         }
       }
@@ -3644,6 +3920,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "日本語 (Shift_JIS)"
+          }
+        }
+      }
+    },
+    "Java class file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Javaクラスファイル"
           }
         }
       }
@@ -3967,6 +4255,18 @@
         }
       }
     },
+    "M4V video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4V動画"
+          }
+        }
+      }
+    },
     "MIT License": {
       "localizations": {
         "ja": {
@@ -3994,6 +4294,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "MP3 ストリームが大きすぎます"
+          }
+        }
+      }
+    },
+    "MPEG transport stream": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEGトランスポートストリーム"
+          }
+        }
+      }
+    },
+    "MPEG video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEG動画"
+          }
+        }
+      }
+    },
+    "MPEG-4 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEG-4オーディオ"
           }
         }
       }
@@ -4191,6 +4527,18 @@
         }
       }
     },
+    "Matroska video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matroska動画"
+          }
+        }
+      }
+    },
     "Matroska video dimensions out of range": {
       "comment": "Invalid track metadata",
       "localizations": {
@@ -4380,6 +4728,16 @@
         }
       }
     },
+    "Name doesn't match content (%@)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前と内容が不一致（%@）"
+          }
+        }
+      }
+    },
     "Narrowest ratio": {
       "localizations": {
         "ja": {
@@ -4536,6 +4894,16 @@
         }
       }
     },
+    "No trusted folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するフォルダはありません"
+          }
+        }
+      }
+    },
     "None": {
       "comment": "GIF dithering method",
       "localizations": {
@@ -4543,6 +4911,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "なし"
+          }
+        }
+      }
+    },
+    "Not Allowed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可されていません"
+          }
+        }
+      }
+    },
+    "Not Set Up": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定"
           }
         }
       }
@@ -4658,6 +5046,18 @@
         }
       }
     },
+    "Ogg audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oggオーディオ"
+          }
+        }
+      }
+    },
     "Ogg granule out of range": {
       "comment": "Invalid audio timeline",
       "localizations": {
@@ -4665,6 +5065,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ogg のグラニュール位置が範囲外です"
+          }
+        }
+      }
+    },
+    "Ogg video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogg動画"
           }
         }
       }
@@ -5045,6 +5457,18 @@
         }
       }
     },
+    "Photoshop image": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photoshop画像"
+          }
+        }
+      }
+    },
     "Plain Text": {
       "comment": "Analysis export format",
       "localizations": {
@@ -5136,6 +5560,16 @@
         }
       }
     },
+    "Preview is static and view-only. Scripts and network access are off.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューは静的な表示専用です。スクリプトとネットワークアクセスは無効です。"
+          }
+        }
+      }
+    },
     "Preview shows the first 8 MB.": {
       "localizations": {
         "ja": {
@@ -5215,6 +5649,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "終了をキャンセルしました。ディスクの空き容量とサポートフォルダへのアクセス権を確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "RAR archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RARアーカイブ"
+          }
+        }
+      }
+    },
+    "RAW image": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW画像"
           }
         }
       }
@@ -5657,6 +6115,26 @@
         }
       }
     },
+    "Run Scripts with Network Access": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークアクセス付きでスクリプトを実行"
+          }
+        }
+      }
+    },
+    "Runs scripts and allows network access for this file until it changes or MacEase quits.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルが変更されるかMacEaseを終了するまで、スクリプトの実行とネットワークアクセスを許可します。"
+          }
+        }
+      }
+    },
     "SVG": {
       "comment": "SVG export defaults",
       "localizations": {
@@ -5681,6 +6159,7 @@
     },
     "Save as new file": {
       "comment": "Output mode",
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -5694,8 +6173,7 @@
             "value": "新しいファイルとして保存"
           }
         }
-      },
-      "extractionState": "manual"
+      }
     },
     "Save as text file": {
       "localizations": {
@@ -5763,16 +6241,16 @@
     "Select All": {
       "comment": "Edit menu item",
       "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて選択"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Select All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて選択"
           }
         }
       }
@@ -6124,6 +6602,7 @@
     },
     "Start (seconds)": {
       "comment": "Animated image start time",
+      "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -6137,8 +6616,7 @@
             "value": "開始（秒）"
           }
         }
-      },
-      "extractionState": "manual"
+      }
     },
     "Start at": {
       "localizations": {
@@ -6156,6 +6634,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "開始番号"
+          }
+        }
+      }
+    },
+    "Static view-only preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静的な表示専用プレビュー"
           }
         }
       }
@@ -6246,16 +6734,16 @@
     },
     "Subtitles": {
       "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字幕"
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Subtitles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕"
           }
         }
       }
@@ -6308,6 +6796,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "システムに従う (%@)"
+          }
+        }
+      }
+    },
+    "System Monospaced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムの等幅フォント"
+          }
+        }
+      }
+    },
+    "TAR archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TARアーカイブ"
           }
         }
       }
@@ -6509,6 +7019,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "選択したアーカイブ内の項目を利用できません。"
+          }
+        }
+      }
+    },
+    "The file name doesn't match its content (%@).": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名が内容（%@）と一致しません。"
           }
         }
       }
@@ -6791,6 +7311,56 @@
         }
       }
     },
+    "This file is too long to convert for preview. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは長すぎるためプレビュー用に変換できません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
+    },
+    "This file refers to media in another file, so MacEase can't open it. Export a self-contained copy in the app that made it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは別のファイル内のメディアを参照しているため、MacEaseでは開けません。作成したアプリで自己完結型のコピーを書き出してください。"
+          }
+        }
+      }
+    },
+    "This font collection has too many faces to preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォントコレクションは含まれる書体が多すぎるためプレビューできません。"
+          }
+        }
+      }
+    },
+    "This font file is too large to preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォントファイルは大きすぎるためプレビューできません。"
+          }
+        }
+      }
+    },
+    "This format can't be played directly.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この形式は直接再生できません。"
+          }
+        }
+      }
+    },
     "This operation cannot use the selected number of files.": {
       "comment": "Rejects stale selection counts",
       "localizations": {
@@ -6965,6 +7535,18 @@
         }
       }
     },
+    "TrueType font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TrueTypeフォント"
+          }
+        }
+      }
+    },
     "Truncated AVI list type": {
       "comment": "Rejects incomplete LIST chunks",
       "localizations": {
@@ -6972,6 +7554,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "AVI のリスト種別が途中で切れています"
+          }
+        }
+      }
+    },
+    "Trust": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼する"
+          }
+        }
+      }
+    },
+    "Trusted Folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するフォルダ"
           }
         }
       }
@@ -7004,6 +7606,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "種類"
+          }
+        }
+      }
+    },
+    "Types that are off use the macOS preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにした種類はmacOSのプレビューで表示します。"
           }
         }
       }
@@ -7057,6 +7669,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "取り消し済み"
+          }
+        }
+      }
+    },
+    "Unknown": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
           }
         }
       }
@@ -7408,6 +8030,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "言語を選択しない場合、MacEase が自動的に言語を判別します。"
+          }
+        }
+      }
+    },
+    "Wrap long lines to the panel width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長い行をパネルの幅で折り返す"
+          }
+        }
+      }
+    },
+    "XZ archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XZアーカイブ"
           }
         }
       }
@@ -13691,6 +14335,18 @@
     "3:2": {
       "shouldTranslate": false
     },
+    "3GP video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3GP動画"
+          }
+        }
+      }
+    },
     "4:3": {
       "shouldTranslate": false
     },
@@ -13699,6 +14355,18 @@
     },
     "4×": {
       "shouldTranslate": false
+    },
+    "7-Zip archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7-Zipアーカイブ"
+          }
+        }
+      }
     },
     "Adjust": {
       "localizations": {
@@ -14416,6 +15084,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "音量"
+          }
+        }
+      }
+    },
+    "WOFF font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WOFFフォント"
+          }
+        }
+      }
+    },
+    "WOFF2 font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WOFF2フォント"
           }
         }
       }
@@ -15242,6 +15934,18 @@
         }
       }
     },
+    "ZIP archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPアーカイブ"
+          }
+        }
+      }
+    },
     "Rename opaque camera, scan and random filenames": {
       "localizations": {
         "ja": {
@@ -15288,6 +15992,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "元のビデオ"
+          }
+        }
+      }
+    },
+    "Source code and text": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースコードとテキスト"
           }
         }
       }
@@ -15462,6 +16176,18 @@
         }
       }
     },
+    "AAC audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AACオーディオ"
+          }
+        }
+      }
+    },
     "Video: Thumbnail (PNG)": {
       "localizations": {
         "ja": {
@@ -15568,6 +16294,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "仕上げレシピ"
+          }
+        }
+      }
+    },
+    "First of %lld faces": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld個のフェイスの1つ目"
           }
         }
       }
@@ -16092,6 +16828,16 @@
         }
       }
     },
+    "File Types": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの種類"
+          }
+        }
+      }
+    },
     "Finding target size": {
       "localizations": {
         "ja": {
@@ -16208,6 +16954,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "待機中"
+          }
+        }
+      }
+    },
+    "QuickTime movie": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QuickTimeムービー"
           }
         }
       }
@@ -16771,6 +17529,30 @@
         }
       }
     },
+    "Binary Property List": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリプロパティリスト"
+          }
+        }
+      }
+    },
+    "Binary file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリファイル"
+          }
+        }
+      }
+    },
     "Original audio": {
       "localizations": {
         "en": {
@@ -16959,6 +17741,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "変換中"
+          }
+        }
+      }
+    },
+    "Converting…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換中…"
           }
         }
       }
@@ -18223,6 +19015,16 @@
         }
       }
     },
+    "Finder Windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウ"
+          }
+        }
+      }
+    },
     "Accessibility": {
       "localizations": {
         "ja": {
@@ -18300,6 +19102,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%1$@” を%2$@なしで開きますか？"
+          }
+        }
+      }
+    },
+    "OpenType font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenTypeフォント"
           }
         }
       }
@@ -18544,6 +19358,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "クローズドキャプション：再生中に表示できなくなります。"
+          }
+        }
+      }
+    },
+    "Code font": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォント"
+          }
+        }
+      }
+    },
+    "Code font size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォントサイズ"
           }
         }
       }

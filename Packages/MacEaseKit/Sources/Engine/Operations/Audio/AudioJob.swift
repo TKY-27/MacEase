@@ -65,6 +65,7 @@ enum AudioJob {
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
         context.phase(.decoding)
+        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
         let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         switch operation {
         case .subtitles(let request):
@@ -109,7 +110,7 @@ enum AudioJob {
     static func unpreservedStreams(in input: AudioInput) async throws -> [UnpreservedStream] {
         var found: Set<UnpreservedStream> = []
         if input.container == .mpeg4 {
-            let asset = AVURLAsset(url: input.url)
+            let asset = UntrustedMediaAsset.make(input.url)
             let audioTracks = try await asset.loadTracks(withMediaType: .audio)
             let kept = Set([audioTracks.first?.trackID].compactMap { $0 })
             let skipped = try await MediaInput.skippedStreams(in: asset, keeping: kept)

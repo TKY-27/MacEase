@@ -7,9 +7,49 @@ private struct PreviewTextRequest: Equatable {
     let loaded: Bool
     let encoding: PreviewEncoding
     let rich: Bool
+    let reloadToken: Int
 }
 
-private struct PreviewTextRendering: Sendable {
+// Evaluates HTML trust fresh on each load.
+enum PreviewHTMLSnapshot {
+    struct Prepared: Equatable, Sendable {
+        let id: UUID
+        let trust: PreviewTrust
+        let policy: PreviewWebPolicy
+        let page: PreviewWebViewer.Page?
+        let truncated: Bool
+    }
+
+    static func prepare(
+        url: URL,
+        trustedFolders: [String],
+        scriptConsent: Set<PreviewScriptConsentKey>,
+        encoding: PreviewEncoding = .automatic,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) throws -> Prepared {
+        let (source, trust, stamp) = try PreviewTextSource.readSnapshot(url, trustedFolders: trustedFolders)
+        let consented = scriptConsent.contains(PreviewScriptConsentKey(resolvedPath: trust.resolvedPath, stamp: stamp))
+        let policy = PreviewWebPolicy(trust: trust, interactiveConsented: consented)
+        if source.truncated {
+            return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
+        }
+        let resolved = URL(fileURLWithPath: trust.resolvedPath).standardizedFileURL
+        if trust.restricted {
+            let html = try source.decoded(as: encoding)
+            return Prepared(id: UUID(), trust: trust, policy: policy, page: .generated(html), truncated: false)
+        }
+        if let readAccess = PreviewWebConfiguration.folderReadAccess(for: resolved, homeDirectory: homeDirectory) {
+            return Prepared(
+                id: UUID(), trust: trust, policy: policy,
+                page: .file(resolved, readAccess: readAccess, policy, expectedStamp: stamp),
+                truncated: false)
+        }
+        let html = try source.decoded(as: encoding)
+        return Prepared(id: UUID(), trust: trust, policy: policy, page: .inline(html, policy), truncated: false)
+    }
+}
+
+struct PreviewTextRendering: Sendable {
     private static let markdownStyle = """
         <style>
         :root { color-scheme: light dark; }
@@ -32,25 +72,34 @@ private struct PreviewTextRendering: Sendable {
     let html: Bool
 
     static func make(
-        source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL
+        source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
+        restricted: Bool
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
-        let html = rich && kind == .markdown
-        var language = PreviewLanguage.resolve(url.pathExtension)
+        let html = rich && (kind == .markdown || kind == .svg || (kind == .html && restricted))
+        var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
             text = try PropertyListConversion.json(from: source.bytes, indent: "  ")
             language = .json
+        } else if html && kind == .svg {
+            guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
+            text = svgPage(source.bytes)
         } else {
             let decoded = try source.decoded(as: encoding)
             if rich && kind == .json {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
                 text = try JSONFormatter.formatted(decoded)
                 language = .json
+            } else if html && kind == .markdown {
+                text = try PreviewMarkdownRenderer.html(
+                    decoded, markdownURL: url, directory: source.parentDirectory?.rawValue, restricted: restricted
+                )
+                .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
             } else if html {
-                text = try MarkdownConversion.html(decoded, title: url.lastPathComponent)
-                    .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
+                guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
+                text = decoded
             } else {
                 text = decoded
             }
@@ -66,44 +115,112 @@ private struct PreviewTextRendering: Sendable {
         try Task.checkCancellation()
         return Self(text: text, tokens: tokens, lineStarts: lineStarts, html: html)
     }
+
+    // An image element never runs SVG scripts.
+    static func svgPage(_ svg: Data) -> String {
+        """
+        <!DOCTYPE html><html><head><meta charset="utf-8"><style>
+        :root { color-scheme: light dark; }
+        html, body { margin: 0; height: 100%; }
+        body { box-sizing: border-box; padding: 16px; display: flex; align-items: center; justify-content: center;
+          background: repeating-conic-gradient(#8881 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+        img { width: 100%; height: 100%; object-fit: contain; }
+        </style></head><body><img alt="" src="data:image/svg+xml;base64,\(svg.base64EncodedString())"></body></html>
+        """
+    }
 }
 
 struct PreviewTextViewer: View {
     let url: URL
     let kind: PreviewKind
+    let trust: PreviewTrust
+    let settings: FinderPreviewSettings
+    @Binding var scriptConsent: Set<PreviewScriptConsentKey>
     @State private var source: PreviewTextSource?
     @State private var rendering: PreviewTextRendering?
+    @State private var htmlLoad: PreviewHTMLSnapshot.Prepared?
+    @State private var currentTrust: PreviewTrust
     @State private var encoding = PreviewEncoding.automatic
-    @State private var rich = true
-    @State private var wrap = true
-    @State private var scripts = false
-    @State private var network = false
+    @State private var rich: Bool
+    @State private var reloadToken = 0
     @State private var failed = false
+
+    init(
+        url: URL, kind: PreviewKind, trust: PreviewTrust, settings: FinderPreviewSettings,
+        scriptConsent: Binding<Set<PreviewScriptConsentKey>>
+    ) {
+        self.url = url
+        self.kind = kind
+        self.trust = trust
+        self.settings = settings
+        _scriptConsent = scriptConsent
+        _currentTrust = State(initialValue: trust)
+        let consented = trust.consentKey.map { scriptConsent.wrappedValue.contains($0) } ?? false
+        let initialPolicy = PreviewWebPolicy(trust: trust, interactiveConsented: consented)
+        // Source first unless interactive access is granted.
+        _rich = State(initialValue: kind != .html || initialPolicy.allowsInteractive)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar { controls }
+            if effectiveTrust.restricted && (kind == .html || kind == .markdown) {
+                if kind == .html && rich {
+                    PreviewNote(
+                        symbol: "shield.lefthalf.filled",
+                        text: Text(
+                            "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled."
+                        ),
+                        shortText: Text("From the internet: view-only preview"))
+                } else {
+                    PreviewNote(
+                        symbol: "shield.lefthalf.filled",
+                        text: Text(
+                            "This file is from the internet. Scripts, external content and other files are disabled."),
+                        shortText: Text("From the internet: limited preview"))
+                }
+            } else if kind == .html, rich, let activePolicy {
+                switch activePolicy {
+                case .staticPreview:
+                    PreviewNote(
+                        symbol: "eye",
+                        text: Text("Preview is static and view-only. Scripts and network access are off."),
+                        shortText: Text("Static view-only preview"))
+                case .interactive:
+                    PreviewNote(
+                        symbol: "network",
+                        text: Text("Scripts on this page can connect to the internet."),
+                        shortText: Text("Scripts can use the internet"))
+                case .restricted:
+                    EmptyView()
+                }
+            }
             if source?.truncated == true && !(kind == .html && rich) {
-                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24)
-                Divider()
+                PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
             }
             Group {
-                if kind == .html && rich {
-                    PreviewWebViewer(url: url, html: nil, scripts: scripts, network: network)
-                        .id("\(scripts)-\(network)")
+                if kind == .html, rich {
+                    if failed {
+                        Text("The text could not be decoded or formatted. Try Source or another encoding.")
+                            .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            .padding(PreviewLayout.margin)
+                    } else if let prepared = htmlLoad, let page = prepared.page {
+                        PreviewWebViewer(page: page, onStaleFile: { reloadToken += 1 }).id(prepared.id)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
                 } else if failed {
                     Text("The text could not be decoded or formatted. Try Source or another encoding.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .padding(PreviewLayout.margin)
                 } else if let rendering {
                     if rendering.html {
-                        PreviewWebViewer(url: url, html: rendering.text, scripts: false, network: false)
-                            .id(rendering.text)
+                        PreviewWebViewer(page: .generated(rendering.text)).id(rendering.text)
                     } else {
                         PreviewCodeView(
                             text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts,
-                            wrap: wrap)
+                            font: PreviewCodeFont.font(family: settings.codeFontFamily, size: settings.codeFontSize),
+                            wrap: settings.wrapLines)
                     }
                 } else {
                     ProgressView().controlSize(.small)
@@ -112,12 +229,22 @@ struct PreviewTextViewer: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task { await read() }
-        .task(id: PreviewTextRequest(loaded: source != nil, encoding: encoding, rich: rich)) { await render() }
+        .task(id: PreviewTextRequest(loaded: source != nil, encoding: encoding, rich: rich, reloadToken: reloadToken)) {
+            await render()
+        }
+        .onChange(of: rich) { _, isRich in
+            if !isRich { htmlLoad = nil }
+        }
         .onDisappear {
             source = nil
             rendering = nil
+            htmlLoad = nil
         }
     }
+
+    private var effectiveTrust: PreviewTrust { htmlLoad?.trust ?? currentTrust }
+
+    private var activePolicy: PreviewWebPolicy? { htmlLoad?.policy }
 
     @ViewBuilder private var controls: some View {
         if kind != .text && source?.binaryPropertyList != true {
@@ -127,11 +254,13 @@ struct PreviewTextViewer: View {
             }
         }
         if kind == .html && rich {
-            ViewThatFits(in: .horizontal) {
-                webPermissions.labelStyle(.titleOnly)
-                webPermissions.labelStyle(.iconOnly)
+            if let policy = activePolicy, !effectiveTrust.restricted {
+                ViewThatFits(in: .horizontal) {
+                    webPermissions(for: policy).labelStyle(.titleOnly)
+                    webPermissions(for: policy).labelStyle(.iconOnly)
+                }
             }
-        } else if !(rich && kind == .markdown) {
+        } else if !(rich && (kind == .markdown || kind == .svg)) {
             if source?.binaryPropertyList != true {
                 Menu {
                     encodingPicker.pickerStyle(.inline)
@@ -142,16 +271,12 @@ struct PreviewTextViewer: View {
                 .accessibilityLabel(Text("Encoding"))
                 .help(Text("Encoding"))
             }
-            Toggle(isOn: $wrap) {
-                Label("Soft Wrap", systemImage: "arrow.turn.down.left")
-            }
-            .toggleStyle(.button).labelStyle(.iconOnly).help(Text("Soft Wrap"))
         }
     }
 
     private var modePicker: some View {
         Picker("View", selection: $rich) {
-            if kind == .html {
+            if kind == .html || kind == .svg {
                 Text("Preview").tag(true)
             } else if kind == .markdown {
                 Text("Rendered").tag(true)
@@ -170,21 +295,30 @@ struct PreviewTextViewer: View {
         }
     }
 
-    private var webPermissions: some View {
+    private func webPermissions(for policy: PreviewWebPolicy) -> some View {
         HStack(spacing: 6) {
-            Toggle(isOn: $scripts) { Label("Run Scripts", systemImage: "curlybraces") }
-                .help(Text("Run Scripts"))
-            Toggle(isOn: $network) { Label("Allow Network", systemImage: "network") }
-                .help(Text("Allow Network"))
+            if policy.offersInteractive {
+                Button {
+                    if let key = htmlLoad?.trust.consentKey { scriptConsent.insert(key) }
+                    reloadToken += 1
+                } label: {
+                    Label("Run Scripts with Network Access", systemImage: "network")
+                }
+                .help(Text("Runs scripts and allows network access for this file until it changes or MacEase quits."))
+            }
         }
-        .toggleStyle(.button)
         .fixedSize()
     }
 
     private func read() async {
         do {
-            let loaded = try await offMain { [url] in try PreviewTextSource.read(url) }
+            let keepParent = kind == .markdown
+            let trustedFolders = settings.trustedFolders
+            let loaded = try await offMain { [url] in
+                try PreviewTextSource.read(url, trustedFolders: trustedFolders, keepParentDirectory: keepParent)
+            }
             try Task.checkCancellation()
+            if let freshTrust = loaded.trust { currentTrust = freshTrust }
             if loaded.truncated && !loaded.binaryPropertyList { rich = false }
             source = loaded
         } catch is CancellationError {
@@ -197,15 +331,55 @@ struct PreviewTextViewer: View {
     }
 
     private func render() async {
-        guard let source else { return }
         rendering = nil
+        htmlLoad = nil
         failed = false
-        guard !(kind == .html && rich) else { return }
+        if kind == .html, rich {
+            let trustedFolders = settings.trustedFolders
+            let consent = scriptConsent
+            let encoding = encoding
+            do {
+                let prepared = try await offMain { [url] in
+                    try PreviewHTMLSnapshot.prepare(
+                        url: url, trustedFolders: trustedFolders, scriptConsent: consent, encoding: encoding)
+                }
+                try Task.checkCancellation()
+                currentTrust = prepared.trust
+                if prepared.truncated {
+                    rich = false
+                    return
+                }
+                htmlLoad = prepared
+            } catch is CancellationError {
+            } catch {
+                guard !Task.isCancelled else { return }
+                failed = true
+                Logger(category: "finder-preview").error(
+                    "Preview HTML load failed: \(error.localizedDescription, privacy: .private)")
+            }
+            return
+        }
+        guard let source else { return }
         let encoding = encoding
         let rich = rich
         do {
-            let rendered = try await offMain { [kind, url] in
-                try PreviewTextRendering.make(source: source, encoding: encoding, rich: rich, kind: kind, url: url)
+            let currentSource: PreviewTextSource
+            if kind == .html {
+                let trustedFolders = settings.trustedFolders
+                let refreshed = try await offMain { [url] in
+                    try PreviewTextSource.read(url, trustedFolders: trustedFolders)
+                }
+                try Task.checkCancellation()
+                if let freshTrust = refreshed.trust { currentTrust = freshTrust }
+                self.source = refreshed
+                currentSource = refreshed
+            } else {
+                currentSource = source
+            }
+            let rendered = try await offMain { [kind, url, restricted = currentTrust.restricted] in
+                try PreviewTextRendering.make(
+                    source: currentSource, encoding: encoding, rich: rich, kind: kind, url: url,
+                    restricted: restricted)
             }
             try Task.checkCancellation()
             rendering = rendered
@@ -219,10 +393,31 @@ struct PreviewTextViewer: View {
     }
 }
 
+@MainActor
+enum PreviewCodeFont {
+    static let families = NSFontManager.shared.availableFontFamilies.filter { family in
+        NSFontManager.shared.font(withFamily: family, traits: [], weight: regularWeight, size: probeSize)?
+            .isFixedPitch == true
+    }
+    // NSFontManager weight scale; 5 is regular.
+    private static let regularWeight = 5
+    private static let probeSize: CGFloat = 12
+
+    // Uninstalled families use the system font.
+    static func font(family: String, size: Int) -> NSFont {
+        let points = CGFloat(size)
+        guard !family.isEmpty,
+            let font = NSFontManager.shared.font(withFamily: family, traits: [], weight: regularWeight, size: points)
+        else { return .monospacedSystemFont(ofSize: points, weight: .regular) }
+        return font
+    }
+}
+
 private struct PreviewCodeView: NSViewRepresentable {
     let text: String
     let tokens: [PreviewToken]
     let lineStarts: [Int]
+    let font: NSFont
     let wrap: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -232,7 +427,6 @@ private struct PreviewCodeView: NSViewRepresentable {
         let textView = PreviewTextView(usingTextLayoutManager: true)
         textView.usesFindBar = true
         textView.isEditable = false
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.isSelectable = true
         textView.isRichText = false
         textView.isAutomaticLinkDetectionEnabled = false
@@ -258,11 +452,11 @@ private struct PreviewCodeView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = scroll.documentView as? NSTextView else { return }
-        if !textView.string.utf8.elementsEqual(text.utf8) {
+        if textView.font != font || !textView.string.utf8.elementsEqual(text.utf8) {
             let styled = NSMutableAttributedString(
                 string: text,
                 attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .font: font,
                     .foregroundColor: NSColor.textColor,
                 ])
             for token in tokens {
@@ -276,8 +470,12 @@ private struct PreviewCodeView: NSViewRepresentable {
                 styled.addAttribute(.foregroundColor, value: color, range: token.range)
             }
             textView.textStorage?.setAttributedString(styled)
+            textView.font = font
         }
-        (scroll.verticalRulerView as? PreviewLineRuler)?.lineStarts = lineStarts
+        if let ruler = scroll.verticalRulerView as? PreviewLineRuler {
+            ruler.lineStarts = lineStarts
+            ruler.codeFont = font
+        }
         scroll.hasHorizontalScroller = !wrap
         textView.isHorizontallyResizable = !wrap
         textView.autoresizingMask = wrap ? [.width] : []
@@ -305,11 +503,31 @@ private final class PreviewTextView: NSTextView {
 }
 
 private final class PreviewLineRuler: NSRulerView {
+    private static let minimumThickness: CGFloat = 40
+    private static let labelPadding: CGFloat = 8
     var lineStarts = [0] {
         didSet {
-            ruleThickness = max(40, CGFloat(String(lineStarts.count).count) * 8 + 16)
-            needsDisplay = true
+            if lineStarts != oldValue { measure() }
         }
+    }
+    var codeFont = NSFont.monospacedSystemFont(
+        ofSize: CGFloat(FinderPreviewSettings.defaultCodeFontSize), weight: .regular)
+    {
+        didSet {
+            if codeFont != oldValue { measure() }
+        }
+    }
+    private var labelAttributes: [NSAttributedString.Key: Any] = [:]
+
+    private func measure() {
+        labelAttributes = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: max(1, codeFont.pointSize - 1), weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let widest = String(repeating: "8", count: String(lineStarts.count).count) as NSString
+        ruleThickness = max(
+            Self.minimumThickness, ceil(widest.size(withAttributes: labelAttributes).width) + Self.labelPadding * 2)
+        needsDisplay = true
     }
 
     override var isFlipped: Bool { true }
@@ -334,15 +552,14 @@ private final class PreviewLineRuler: NSRulerView {
             }
             guard let first = fragment.textLineFragments.first else { return true }
             let label = String(max(1, lower)) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
+            let attributes = self.labelAttributes
             let origin = self.convert(
                 NSPoint(x: 0, y: frame.minY + first.typographicBounds.minY + editor.textContainerOrigin.y), from: editor
             )
             label.draw(
-                at: NSPoint(x: self.ruleThickness - label.size(withAttributes: attributes).width - 8, y: origin.y),
+                at: NSPoint(
+                    x: self.ruleThickness - label.size(withAttributes: attributes).width - Self.labelPadding,
+                    y: origin.y),
                 withAttributes: attributes)
             return true
         }

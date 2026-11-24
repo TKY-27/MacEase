@@ -29,6 +29,8 @@ final class SettingsStore {
         static let showsRecentOperations = "menuBar.showsRecentOperations"
         static let terminalApplication = "finderCommands.terminalApplication"
         static let newFileTemplates = "finderCommands.newFileTemplates"
+        static let finderPreviewSettings = FinderPreviewSettings.defaultsKey
+        static let unreadableFinderPreviewSettings = "finderPreview.settings.unreadable"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -123,6 +125,13 @@ final class SettingsStore {
         }
     }
 
+    var finderPreview: FinderPreviewSettings {
+        didSet {
+            guard finderPreview != oldValue else { return }
+            saveFinderPreview()
+        }
+    }
+
     var onboardingCompleted: Bool {
         didSet { defaults.set(onboardingCompleted, forKey: Key.onboardingCompleted) }
     }
@@ -196,6 +205,7 @@ final class SettingsStore {
         checksForUpdatesAutomatically = defaults.bool(forKey: Key.checksForUpdatesAutomatically)
         showsStatusItem = defaults.bool(forKey: Key.showsStatusItem)
         showsRecentOperations = defaults.bool(forKey: Key.showsRecentOperations)
+        finderPreview = Self.decodeFinderPreview(from: defaults)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
         hideEmptiedGroups()
@@ -268,6 +278,7 @@ final class SettingsStore {
         showsRecentOperations = true
         terminalApplicationURL = Self.defaultTerminalApplicationURL
         enabledNewFileTemplates = Set(NewFileTemplate.BuiltIn.allCases)
+        finderPreview = FinderPreviewSettings()
     }
 
     /// SPEC 4.4 defaults for new installs.
@@ -332,6 +343,21 @@ final class SettingsStore {
         }
     }
 
+    private static func decodeFinderPreview(from defaults: UserDefaults) -> FinderPreviewSettings {
+        guard let stored = defaults.data(forKey: Key.finderPreviewSettings) else { return FinderPreviewSettings() }
+        do {
+            return try FinderPreviewSettings.decode(stored)
+        } catch {
+            let failure = error as NSError
+            Logger(category: "settings")
+                .error(
+                    "Stored Finder Preview settings unreadable, using defaults (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
+            defaults.set(stored, forKey: Key.unreadableFinderPreviewSettings)
+            return FinderPreviewSettings()
+        }
+    }
+
     /// Unreadable arrangements are kept aside.
     private static func decodeMenuArrangement(from defaults: UserDefaults) -> MenuArrangement {
         let stored = defaults.object(forKey: Key.menuArrangement)
@@ -367,6 +393,17 @@ final class SettingsStore {
             let failure = error as NSError
             logger.error(
                 "Settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
+        }
+    }
+
+    private func saveFinderPreview() {
+        do {
+            defaults.set(try JSONEncoder().encode(finderPreview), forKey: Key.finderPreviewSettings)
+        } catch {
+            let failure = error as NSError
+            logger.error(
+                "Finder Preview settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
             )
         }
     }

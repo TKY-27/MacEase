@@ -189,7 +189,7 @@ public struct AudioInput: Sendable {
 
     private static func commonTags(_ url: URL) async throws -> AudioTags {
         var tags = AudioTags()
-        for item in try await AVURLAsset(url: url).load(.commonMetadata) {
+        for item in try await UntrustedMediaAsset.make(url).load(.commonMetadata) {
             switch item.commonKey {
             case .commonKeyTitle where tags.title == nil: tags.title = try await item.load(.stringValue)
             case .commonKeyArtist where tags.artist == nil: tags.artist = try await item.load(.stringValue)

@@ -1,7 +1,29 @@
+import AppKit
 import Engine
+import Network
 import SwiftUI
 import WebKit
 import os
+
+// Scripts without network access is unrepresentable.
+enum PreviewWebPolicy: Hashable, Sendable {
+    case restricted
+    case staticPreview
+    case interactive
+
+    init(trust: PreviewTrust, interactiveConsented: Bool) {
+        if trust.restricted {
+            self = .restricted
+        } else if trust.level == .trusted || interactiveConsented {
+            self = .interactive
+        } else {
+            self = .staticPreview
+        }
+    }
+
+    var allowsInteractive: Bool { self == .interactive }
+    var offersInteractive: Bool { self == .staticPreview }
+}
 
 @MainActor
 enum PreviewWebConfiguration {
@@ -15,6 +37,23 @@ enum PreviewWebConfiguration {
           {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}}
         ]
         """
+    // Generated pages may only use inline data.
+    private static let inlineRules = """
+        [
+          {"trigger":{"url-filter":".*"},"action":{"type":"block"}},
+          {"trigger":{"url-filter":"^data:"},"action":{"type":"ignore-previous-rules"}},
+          {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}}
+        ]
+        """
+    private static let inlineOnlineRules = """
+        [
+          {"trigger":{"url-filter":".*"},"action":{"type":"block"}},
+          {"trigger":{"url-filter":"^data:"},"action":{"type":"ignore-previous-rules"}},
+          {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}},
+          {"trigger":{"url-filter":"^https?:"},"action":{"type":"ignore-previous-rules"}},
+          {"trigger":{"url-filter":"^wss?:"},"action":{"type":"ignore-previous-rules"}}
+        ]
+        """
     private static let onlineRules = """
         [
           {"trigger":{"url-filter":".*"},"action":{"type":"block"}},
@@ -26,30 +65,150 @@ enum PreviewWebConfiguration {
         ]
         """
 
-    static func make(scripts: Bool = false, network: Bool = false) async throws -> WKWebViewConfiguration {
+    // Makes links non-actionable for AXPress statically.
+    private static let staticPreviewNeutralizer = """
+        (() => {
+          const neutralize = (root) => {
+            for (const el of root.querySelectorAll('a[href], area[href], math[href], math [href]')) {
+              const style = getComputedStyle(el);
+              if (!el.style.color && style.color) el.style.color = style.color;
+              if (!el.style.textDecorationLine && style.textDecorationLine) {
+                el.style.textDecorationLine = style.textDecorationLine;
+              }
+              el.removeAttribute('href');
+              el.removeAttribute('ping');
+              el.removeAttribute('download');
+              el.setAttribute('aria-disabled', 'true');
+            }
+            for (const el of root.querySelectorAll('a, math, math *')) {
+              if (el.hasAttributeNS('http://www.w3.org/1999/xlink', 'href')) {
+                el.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                el.setAttribute('aria-disabled', 'true');
+              }
+            }
+            for (const form of root.querySelectorAll('form')) {
+              form.removeAttribute('action');
+            }
+            for (const ctrl of root.querySelectorAll('button, input, select, textarea')) {
+              ctrl.removeAttribute('formaction');
+              ctrl.disabled = true;
+            }
+            for (const host of root.querySelectorAll('*')) {
+              if (host.shadowRoot) neutralize(host.shadowRoot);
+            }
+          };
+          neutralize(document);
+        })();
+        """
+
+    private enum Reach {
+        case inline, inlineNetwork, localFiles, network
+
+        var allowsInteractive: Bool { self == .network || self == .inlineNetwork }
+    }
+
+    // Blocks host-named preconnects on missed elements.
+    private static var failClosedProxy: ProxyConfiguration {
+        var configuration = ProxyConfiguration(
+            socksv5Proxy: NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any))
+        configuration.allowFailover = false
+        configuration.excludedDomains = []
+        return configuration
+    }
+
+    private static func make(reach: Reach) async throws -> WKWebViewConfiguration {
+        let (identifier, encoded) =
+            switch reach {
+            case .inline: ("MacEasePreviewInline", inlineRules)
+            case .inlineNetwork: ("MacEasePreviewInlineOnline", inlineOnlineRules)
+            case .localFiles: ("MacEasePreviewOffline", offlineRules)
+            case .network: ("MacEasePreviewOnline", onlineRules)
+            }
         guard let store = WKContentRuleListStore.default(),
             let rules = try await store.compileContentRuleList(
-                forIdentifier: network ? "MacEasePreviewOnline" : "MacEasePreviewOffline",
-                encodedContentRuleList: network ? onlineRules : offlineRules)
+                forIdentifier: identifier, encodedContentRuleList: encoded)
         else { throw CocoaError(.featureUnsupported) }
         try Task.checkCancellation()
-        let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: scripts)
+        let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: reach.allowsInteractive)
+        if !reach.allowsInteractive {
+            configuration.websiteDataStore.proxyConfigurations = [failClosedProxy]
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: staticPreviewNeutralizer, injectionTime: .atDocumentEnd, forMainFrameOnly: false,
+                    in: .defaultClient))
+        }
         configuration.userContentController.add(rules)
         return configuration
     }
 
-    static func permitsNavigation(to destination: URL, source: URL, generated: Bool) -> Bool {
-        if generated { return destination.absoluteString == "about:blank" }
-        return destination.isFileURL && destination.host == source.host
-            && destination.standardizedFileURL.path == source.standardizedFileURL.path
+    static func make(for page: PreviewWebViewer.Page) async throws -> WKWebViewConfiguration {
+        switch page {
+        case .file(_, _, let policy, _):
+            try await make(reach: policy.allowsInteractive ? .network : .localFiles)
+        case .inline(_, let policy):
+            try await make(reach: policy.allowsInteractive ? .inlineNetwork : .inline)
+        case .generated:
+            try await make(reach: .inline)
+        }
+    }
+
+    // Home-folder files get no folder access.
+    nonisolated static func folderReadAccess(
+        for url: URL, homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL
+        let folder = resolvedFile.deletingLastPathComponent().standardizedFileURL
+        let home = homeDirectory.resolvingSymlinksInPath().standardizedFileURL.path
+        let folderPath = folder.path
+        if folderPath == "/" || folderPath == home || home.hasPrefix(folderPath + "/") {
+            return nil
+        }
+        return folder
+    }
+
+    // Returns false when the file changed.
+    @discardableResult
+    static func load(_ page: PreviewWebViewer.Page, in browser: WKWebView) -> Bool {
+        switch page {
+        case .file(let url, let readAccess, _, let expectedStamp):
+            guard PreviewTrust.isUnchangedUnquarantined(url, expectedStamp: expectedStamp) else {
+                return false
+            }
+            browser.loadFileURL(url, allowingReadAccessTo: readAccess)
+            return true
+        case .inline(let html, _), .generated(let html):
+            browser.loadHTMLString(html, baseURL: nil)
+            return true
+        }
+    }
+
+    static func permitsNavigation(to destination: URL, page: PreviewWebViewer.Page) -> Bool {
+        switch page {
+        case .generated, .inline: destination.absoluteString == "about:blank"
+        case .file(let source, _, _, _):
+            destination.isFileURL && destination.host == source.host && destination.query == source.query
+                && destination.standardizedFileURL.path == source.standardizedFileURL.path
+        }
     }
 }
 
 struct PreviewWebViewer: View {
-    let url: URL
-    let html: String?
-    let scripts: Bool
-    let network: Bool
+    // Generated pages are sealed and scriptless.
+    enum Page: Hashable, Sendable {
+        case file(URL, readAccess: URL, PreviewWebPolicy, expectedStamp: PreviewFileStamp)
+        case inline(String, PreviewWebPolicy)
+        case generated(String)
+
+        var allowsInteractive: Bool {
+            switch self {
+            case .file(_, _, let policy, _), .inline(_, let policy): policy.allowsInteractive
+            case .generated: false
+            }
+        }
+    }
+
+    let page: Page
+    var onStaleFile: (() -> Void)?
     @State private var configuration: WKWebViewConfiguration?
     @State private var failed = false
 
@@ -58,14 +217,14 @@ struct PreviewWebViewer: View {
             if failed {
                 PreviewFailure()
             } else if let configuration {
-                PreviewBrowser(url: url, html: html, configuration: configuration, failed: $failed)
+                PreviewBrowser(page: page, configuration: configuration, failed: $failed, onStaleFile: onStaleFile)
             } else {
                 ProgressView().controlSize(.small)
             }
         }
         .task {
             do {
-                let configured = try await PreviewWebConfiguration.make(scripts: scripts, network: network)
+                let configured = try await PreviewWebConfiguration.make(for: page)
                 try Task.checkCancellation()
                 configuration = configured
             } catch is CancellationError {
@@ -81,96 +240,277 @@ struct PreviewWebViewer: View {
 }
 
 private struct PreviewBrowser: NSViewRepresentable {
-    let url: URL
-    let html: String?
+    let page: PreviewWebViewer.Page
     let configuration: WKWebViewConfiguration
     @Binding var failed: Bool
+    let onStaleFile: (() -> Void)?
 
-    func makeCoordinator() -> Coordinator { Coordinator(source: url, generated: html != nil, failed: $failed) }
+    func makeCoordinator() -> PreviewWebDelegate { PreviewWebDelegate(page: page, failed: $failed) }
 
-    func makeNSView(context: Context) -> WKWebView {
-        let browser = WKWebView(frame: .zero, configuration: configuration)
-        browser.navigationDelegate = context.coordinator
-        browser.uiDelegate = context.coordinator
-        browser.allowsBackForwardNavigationGestures = false
-        browser.allowsLinkPreview = false
-        if let html {
-            browser.loadHTMLString(html, baseURL: nil)
-        } else {
-            browser.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        }
-        return browser
-    }
-
-    func updateNSView(_ browser: WKWebView, context: Context) {}
-
-    static func dismantleNSView(_ browser: WKWebView, coordinator: Coordinator) {
-        browser.stopLoading()
-        browser.navigationDelegate = nil
-        browser.uiDelegate = nil
-        browser.configuration.userContentController.removeAllContentRuleLists()
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        let source: URL
-        let generated: Bool
-        var failed: Binding<Bool>
-
-        init(source: URL, generated: Bool, failed: Binding<Bool>) {
-            self.source = source
-            self.generated = generated
-            self.failed = failed
-        }
-
-        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async
-            -> WKNavigationActionPolicy
-        {
-            guard !navigationAction.shouldPerformDownload, navigationAction.targetFrame?.isMainFrame == true,
-                navigationAction.navigationType != .formSubmitted,
-                navigationAction.navigationType != .formResubmitted,
-                let destination = navigationAction.request.url,
-                PreviewWebConfiguration.permitsNavigation(to: destination, source: source, generated: generated)
-            else { return .cancel }
-            return .allow
-        }
-
-        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async
-            -> WKNavigationResponsePolicy
-        {
-            guard navigationResponse.canShowMIMEType, navigationResponse.isForMainFrame,
-                let destination = navigationResponse.response.url,
-                PreviewWebConfiguration.permitsNavigation(to: destination, source: source, generated: generated),
-                (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
-                    == nil
-            else { return .cancel }
-            return .allow
-        }
-
-        func webView(
-            _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
-            for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures
-        ) -> WKWebView? { nil }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
-            report(error)
-        }
-
-        func webView(
-            _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error
-        ) {
-            report(error)
-        }
-
-        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { failed.wrappedValue = true }
-
-        private func report(_ error: any Error) {
-            if (error as NSError).domain == NSURLErrorDomain && (error as NSError).code == NSURLErrorCancelled {
-                return
+    func makeNSView(context: Context) -> PreviewWebContainerView {
+        let container = PreviewWebContainerView(
+            frame: .zero, configuration: configuration, interactive: page.allowsInteractive)
+        container.webView.navigationDelegate = context.coordinator
+        container.webView.uiDelegate = context.coordinator
+        if !PreviewWebConfiguration.load(page, in: container.webView) {
+            if let onStaleFile {
+                Task { @MainActor in onStaleFile() }
             }
-            failed.wrappedValue = true
-            Logger(category: "finder-preview").error(
-                "Preview web load failed: \(error.localizedDescription, privacy: .private)")
         }
+        return container
+    }
+
+    func updateNSView(_ container: PreviewWebContainerView, context: Context) {
+        container.setInteractive(page.allowsInteractive)
+    }
+
+    static func dismantleNSView(_ container: PreviewWebContainerView, coordinator: PreviewWebDelegate) {
+        container.tearDown()
+    }
+}
+
+// AppKit layer enforcing view-only offline previews.
+@MainActor
+final class PreviewWebContainerView: NSView {
+    let webView: PreviewWKWebView
+    let inputShield: PreviewInputShieldView
+
+    init(frame: NSRect, configuration: WKWebViewConfiguration, interactive: Bool) {
+        webView = PreviewWKWebView(frame: NSRect(origin: .zero, size: frame.size), configuration: configuration)
+        inputShield = PreviewInputShieldView(frame: NSRect(origin: .zero, size: frame.size), webView: webView)
+        super.init(frame: frame)
+        webView.autoresizingMask = [.width, .height]
+        webView.allowsBackForwardNavigationGestures = false
+        webView.allowsLinkPreview = false
+        inputShield.autoresizingMask = [.width, .height]
+        addSubview(webView)
+        addSubview(inputShield)
+        setInteractive(interactive)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setInteractive(_ interactive: Bool) {
+        webView.isInteractive = interactive
+        inputShield.isHidden = interactive
+        if !interactive {
+            webView.unregisterDraggedTypes()
+            if window?.firstResponder === webView { window?.makeFirstResponder(nil) }
+        }
+    }
+
+    func tearDown() {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.configuration.userContentController.removeAllContentRuleLists()
+        webView.configuration.userContentController.removeAllUserScripts()
+    }
+}
+
+@MainActor
+final class PreviewWKWebView: WKWebView {
+    var isInteractive = true
+
+    override var acceptsFirstResponder: Bool { isInteractive && super.acceptsFirstResponder }
+
+    override func becomeFirstResponder() -> Bool { isInteractive && super.becomeFirstResponder() }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.mouseUp(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.mouseDragged(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.rightMouseDown(with: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.rightMouseUp(with: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.rightMouseDragged(with: event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.otherMouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.otherMouseUp(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.otherMouseDragged(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        guard isInteractive else { return }
+        super.keyUp(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        isInteractive && super.performKeyEquivalent(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        isInteractive ? super.menu(for: event) : nil
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isInteractive ? super.draggingEntered(sender) : []
+    }
+}
+
+// Forwards only scroll and magnify offline.
+@MainActor
+final class PreviewInputShieldView: NSView {
+    private weak var webView: PreviewWKWebView?
+
+    init(frame: NSRect, webView: PreviewWKWebView) {
+        self.webView = webView
+        super.init(frame: frame)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var acceptsFirstResponder: Bool { false }
+
+    override func isAccessibilityElement() -> Bool { false }
+
+    // Keeps VoiceOver reading through the input shield.
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        webView?.accessibilityHitTest(point)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        return self
+    }
+
+    override func scrollWheel(with event: NSEvent) { webView?.scrollWheel(with: event) }
+
+    override func magnify(with event: NSEvent) { webView?.magnify(with: event) }
+
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {}
+    override func mouseDragged(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func rightMouseUp(with event: NSEvent) {}
+    override func rightMouseDragged(with event: NSEvent) {}
+    override func otherMouseDown(with event: NSEvent) {}
+    override func otherMouseUp(with event: NSEvent) {}
+    override func otherMouseDragged(with event: NSEvent) {}
+    override func keyDown(with event: NSEvent) {}
+    override func keyUp(with event: NSEvent) {}
+    override func performKeyEquivalent(with event: NSEvent) -> Bool { false }
+    override func menu(for event: NSEvent) -> NSMenu? { nil }
+}
+
+@MainActor
+final class PreviewWebDelegate: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private static let webKitErrorDomain = "WebKitErrorDomain"
+    private static let frameLoadInterruptedCode = 102
+
+    let page: PreviewWebViewer.Page
+    var failed: Binding<Bool>
+
+    init(page: PreviewWebViewer.Page, failed: Binding<Bool>) {
+        self.page = page
+        self.failed = failed
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async
+        -> WKNavigationActionPolicy
+    {
+        let method = navigationAction.request.httpMethod?.uppercased()
+        guard !navigationAction.shouldPerformDownload, navigationAction.targetFrame?.isMainFrame == true,
+            navigationAction.navigationType != .formSubmitted,
+            navigationAction.navigationType != .formResubmitted,
+            method == nil || method == "GET",
+            let destination = navigationAction.request.url,
+            PreviewWebConfiguration.permitsNavigation(to: destination, page: page)
+        else { return .cancel }
+        return .allow
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async
+        -> WKNavigationResponsePolicy
+    {
+        guard navigationResponse.canShowMIMEType, navigationResponse.isForMainFrame,
+            let destination = navigationResponse.response.url,
+            PreviewWebConfiguration.permitsNavigation(to: destination, page: page),
+            (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+                == nil
+        else { return .cancel }
+        return .allow
+    }
+
+    func webView(
+        _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures
+    ) -> WKWebView? { nil }
+
+    func webView(
+        _ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+
+    func webView(
+        _ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+        decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.deny)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        report(error)
+    }
+
+    func webView(
+        _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error
+    ) {
+        report(error)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { failed.wrappedValue = true }
+
+    private func report(_ error: any Error) {
+        let nsError = error as NSError
+        if (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled)
+            || (nsError.domain == Self.webKitErrorDomain && nsError.code == Self.frameLoadInterruptedCode)
+        {
+            return
+        }
+        failed.wrappedValue = true
+        Logger(category: "finder-preview").error(
+            "Preview web load failed: \(error.localizedDescription, privacy: .private)")
     }
 }

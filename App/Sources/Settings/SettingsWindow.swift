@@ -37,6 +37,7 @@ enum SettingsWindow {
 enum SettingsPage: String, CaseIterable, Identifiable {
     case general
     case finderMenu
+    case finderWindows
     case folderAccess
     case organization
     case recipes
@@ -58,6 +59,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .organization: String(localized: "Organization", comment: "Settings page")
         case .recipes: String(localized: "Finishing Recipes", comment: "Settings page")
         case .finderMenu: String(localized: "Finder Menu", comment: "Settings page")
+        case .finderWindows: String(localized: "Finder Windows", comment: "Settings page")
         case .images: String(localized: "Images", comment: "Settings page")
         case .video: String(localized: "Video", comment: "Settings page")
         case .audio: String(localized: "Audio", comment: "Settings page")
@@ -73,6 +75,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .finderMenu: "contextualmenu.and.cursorarrow"
+        case .finderWindows: "rectangle.righthalf.inset.filled"
         case .folderAccess: "folder.badge.gearshape"
         case .organization: "tray.and.arrow.down"
         case .recipes: "square.stack.3d.up"
@@ -127,6 +130,7 @@ struct SettingsView: View {
             if let organization { OrganizationSettingsView(controller: organization) }
         case .recipes: RecipeLibraryView(recipeStore: recipes)
         case .finderMenu: FinderMenuSettingsView(store: store, supportDirectory: supportDirectory)
+        case .finderWindows: FinderWindowsSettingsView(store: store)
         case .images: ImageSettingsView(store: store)
         case .video: VideoSettingsView(store: store)
         case .audio: AudioSettingsView(store: store)

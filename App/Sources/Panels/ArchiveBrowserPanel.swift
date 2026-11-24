@@ -758,7 +758,7 @@ private struct ArchiveMediaView: NSViewRepresentable {
             context.coordinator.didAttach = true
         }
         if (view.player?.currentItem?.asset as? AVURLAsset)?.url != url {
-            view.player = AVPlayer(url: url)
+            view.player = AVPlayer(playerItem: AVPlayerItem(asset: UntrustedMediaAsset.make(url)))
         }
     }
     func makeCoordinator() -> Coordinator { Coordinator(attach: attach, release: release) }
