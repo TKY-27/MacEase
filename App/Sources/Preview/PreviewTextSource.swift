@@ -283,210 +283,1627 @@ struct PreviewTextSource: Sendable {
 
 }
 
-enum PreviewLanguage: Sendable {
-    case plain, swift, javascript, python, c, json, markup, css, shell, yaml, markdown
+enum PreviewLanguage: CaseIterable, Equatable, Sendable {
+    case plain, swift, javascript, python, c, cpp, objectiveC, objectiveCPP, go, rust, ruby, php,
+        java, kotlin, csharp, scala, dart, lua, perl, r, shell, powershell, batch, sql,
+        json, yaml, toml, ini, dockerfile, makefile, cmake, groovy, hcl, protobuf, graphql,
+        css, markup, markdown, latex, restructuredText, asciiDoc, diff,
+        fsharp, vb, julia, elixir, clojure, solidity
 
     static func resolve(_ suffix: String, fileName: String? = nil) -> Self {
+        if let name = fileName?.lowercased(), let exact = exactFileNames[name] {
+            return exact
+        }
         let lowered = suffix.lowercased()
-        if lowered.isEmpty, fileName?.lowercased() == ".env" { return .shell }
         switch lowered {
         case "swift": return .swift
         case "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx": return .javascript
         case "py", "pyw", "pyi": return .python
-        case "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl", "m", "mm",
-            "java", "kt", "kts", "gradle", "groovy", "scala", "cs", "csx", "dart":
-            return .c
+        case "c", "h": return .c
+        case "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl": return .cpp
+        case "m": return .objectiveC
+        case "mm": return .objectiveCPP
+        case "go": return .go
+        case "rs": return .rust
+        case "rb": return .ruby
+        case "php": return .php
+        case "java": return .java
+        case "kt", "kts": return .kotlin
+        case "cs", "csx": return .csharp
+        case "scala": return .scala
+        case "dart": return .dart
+        case "lua": return .lua
+        case "pl", "pm": return .perl
+        case "r": return .r
+        case "sh", "bash", "zsh", "fish": return .shell
+        case "ps1", "psm1", "psd1": return .powershell
+        case "bat", "cmd": return .batch
+        case "sql": return .sql
         case "json", "jsonc", "json5": return .json
+        case "yaml", "yml": return .yaml
+        case "toml": return .toml
+        case "ini", "cfg", "conf", "properties", "reg", "inf", "env", "editorconfig", "gitmodules": return .ini
+        case "dockerfile": return .dockerfile
+        case "mk", "mak", "make": return .makefile
+        case "cmake": return .cmake
+        case "gradle", "groovy": return .groovy
+        case "hcl", "tf", "tfvars": return .hcl
+        case "proto": return .protobuf
+        case "graphql", "gql": return .graphql
+        case "css", "scss", "sass", "less": return .css
         case "html", "htm", "xhtml", "xml", "xaml", "csproj", "vcxproj", "fsproj", "vbproj",
             "props", "targets", "plist", "manifest", "svg", "vue", "svelte", "astro":
             return .markup
-        case "css", "scss", "sass", "less": return .css
-        case "sh", "bash", "zsh", "fish", "env": return .shell
-        case "yaml", "yml", "toml": return .yaml
         case "md", "markdown", "mdx": return .markdown
-        default: return .plain
+        case "tex", "sty", "cls": return .latex
+        case "rst": return .restructuredText
+        case "adoc", "asciidoc": return .asciiDoc
+        case "diff", "patch": return .diff
+        case "fs", "fsx": return .fsharp
+        case "vb", "vbs": return .vb
+        case "jl": return .julia
+        case "ex", "exs": return .elixir
+        case "clj": return .clojure
+        case "sol": return .solidity
+        default:
+            if let name = fileName?.lowercased() {
+                if name.hasPrefix(".env.") { return .ini }
+                if name.hasPrefix("dockerfile.") { return .dockerfile }
+            }
+            return .plain
         }
     }
 
-    var keywords: Set<String> {
-        let words: String
-        switch self {
-        case .swift:
-            words =
-                "actor as async await break case catch class continue default defer do else enum extension false fileprivate for func guard if import in init inout internal is let nil nonisolated open private protocol public repeat rethrows return self static struct super switch throw throws true try typealias var weak where while"
-        case .javascript:
-            words =
-                "async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof interface let new null of return static super switch this throw true try typeof undefined var void while yield type"
-        case .python:
-            words =
-                "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield"
-        case .c:
-            words =
-                "auto bool break case catch char class const continue default delete do double else enum extern false float for if import int long namespace new null nullptr private protected public return short signed sizeof static struct super switch template this throw true try typedef union unsigned using virtual void volatile while"
-        case .json: words = "true false null"
-        case .shell:
-            words = "if then else elif fi for while do done case esac function in select until export local return"
-        case .yaml: words = "true false null yes no on off"
-        case .css: words = "important inherit initial unset none auto var calc media supports keyframes"
-        case .plain, .markup, .markdown: words = ""
-        }
-        return Set(words.split(separator: " ").map(String.init))
-    }
-
-    func startsString(quote: UInt16, previous: UInt16?, inMarkupTag: Bool) -> Bool {
-        switch self {
-        case .plain:
-            return false
-        case .swift, .json:
-            return quote == Self.doubleQuote
-        case .javascript, .shell:
-            return quote == Self.doubleQuote || quote == Self.singleQuote || quote == Self.backtick
-        case .python, .css:
-            return quote == Self.doubleQuote || quote == Self.singleQuote
-        case .c:
-            return quote == Self.doubleQuote
-                || (quote == Self.singleQuote && !(previous.map { Self.digitRange.contains($0) } ?? false))
-        case .markup:
-            return inMarkupTag && (quote == Self.doubleQuote || quote == Self.singleQuote)
-        case .yaml:
-            guard quote == Self.doubleQuote || quote == Self.singleQuote else { return false }
-            guard let previous else { return true }
-            return Self.yamlQuotePreceders.contains(previous)
-        case .markdown:
-            return quote == Self.backtick
-        }
-    }
-
-    private static let doubleQuote: UInt16 = 34
-    private static let singleQuote: UInt16 = 39
-    private static let backtick: UInt16 = 96
-    private static let digitRange: ClosedRange<UInt16> = 48...57
-    private static let yamlQuotePreceders: Set<UInt16> = [9, 10, 13, 32, 44, 58, 61, 91, 123]
+    private static let exactFileNames: [String: Self] = [
+        "cmakelists.txt": .cmake,
+        "makefile": .makefile,
+        "gnumakefile": .makefile,
+        "dockerfile": .dockerfile,
+        "containerfile": .dockerfile,
+        ".dockerfile": .dockerfile,
+        "gemfile": .ruby,
+        "rakefile": .ruby,
+        "podfile": .ruby,
+        "brewfile": .ruby,
+        "fastfile": .ruby,
+        "vagrantfile": .ruby,
+        "jenkinsfile": .groovy,
+        ".env": .ini,
+        ".editorconfig": .ini,
+        ".gitmodules": .ini,
+        ".gitconfig": .ini,
+        ".npmrc": .ini,
+        ".gitignore": .plain,
+        ".gitattributes": .plain,
+        ".bashrc": .shell,
+        ".zshrc": .shell,
+        ".bash_profile": .shell,
+        ".zprofile": .shell,
+        ".zshenv": .shell,
+        ".profile": .shell,
+    ]
 }
 
 struct PreviewToken: Equatable, Sendable {
-    enum Kind: Sendable { case keyword, string, comment, number }
+    enum Kind: Sendable {
+        case keyword, type, string, comment, number, diffAdded, diffRemoved, invisible
+    }
     let range: NSRange
     let kind: Kind
 }
 
 enum PreviewTokenizer {
-    private static let singleQuote: UInt16 = 39
-    private static let lessThan: UInt16 = 60
-    private static let greaterThan: UInt16 = 62
-    private static let markupDirectiveLeaders: Set<UInt16> = [33, 63]
+    private static let cancellationStride = 4096
+    // Bounds unterminated comments and multiline strings.
+    private static let maximumBlockUnits = 16_384
+    private static let maximumBlockLines = 256
+    private static let maximumDelimiterLength = 16
+    private static let maximumHeredocTagLength = 32
+    private static let maximumUnicodeEscapeDigits = 6
+    private static let maximumAsciiDocHeadingLevel = 6
+    private static let minimumRstAdornmentLength = 3
+    private static let minimumAsciiDocFenceLength = 4
+
+    private static let doubleQuoteRule = PreviewLanguageGrammar.StringRule("\"")
+    private static let multilineDoubleQuoteRule = PreviewLanguageGrammar.StringRule("\"", multiline: true)
+    private static let verbatimDoubleQuoteRule = PreviewLanguageGrammar.StringRule(
+        "\"", escape: .doubled, multiline: true)
+    private static let rawDoubleQuoteRule = PreviewLanguageGrammar.StringRule("\"", escape: .none)
+    private static let rawSingleQuoteRule = PreviewLanguageGrammar.StringRule("'", escape: .none)
+    private static let rawTripleDoubleQuoteRule = PreviewLanguageGrammar.StringRule(
+        "\"\"\"", escape: .none, multiline: true)
+    private static let rawTripleSingleQuoteRule = PreviewLanguageGrammar.StringRule(
+        "'''", escape: .none, multiline: true)
+
+    private static let markupDirectiveLeaders: Set<UInt16> = [UTF16Code.exclamation, UTF16Code.question]
+    private static let scalarPreceders: Set<UInt16> = [
+        UTF16Code.tab, UTF16Code.lineFeed, UTF16Code.carriageReturn, UTF16Code.space,
+        UTF16Code.comma, UTF16Code.colon, UTF16Code.equals, UTF16Code.leftBracket, UTF16Code.leftBrace,
+    ]
+    private static let objcAtKeywords: Set<String> = [
+        "autoreleasepool", "available", "catch", "class", "compatibility_alias", "defs", "dynamic",
+        "encode", "end", "finally", "implementation", "import", "interface", "NO", "optional",
+        "package", "private", "property", "protected", "protocol", "public", "required", "selector",
+        "synchronized", "synthesize", "throw", "try", "YES",
+    ]
+    private static let rstAdornments: Set<UInt16> = Set("=-~^+*#\"`:.'_".utf16)
+    private static let cssUnitSuffixes: Set<String> = [
+        "px", "em", "rem", "vh", "vw", "vmin", "vmax", "svh", "dvh", "lvh",
+        "ch", "ex", "pt", "pc", "cm", "mm", "in", "s", "ms", "deg", "rad", "turn", "fr",
+    ]
 
     static func tokens(_ text: String, language: PreviewLanguage) throws -> [PreviewToken] {
-        guard language != .plain else { return [] }
-        let prefix = String(decoding: text.utf8.prefix(PreviewTextSource.highlightBytes), as: UTF8.self)
-        let units = Array(prefix.utf16)
-        let keywords = language.keywords
-        var cursor = 0
-        var inMarkupTag = false
-        var result: [PreviewToken] = []
-        func matches(_ literal: String) -> Bool {
-            units[cursor...].starts(with: literal.utf16)
-        }
-        func lineEnd() -> Int {
-            var end = cursor
-            while end < units.count, units[end] != 10, units[end] != 13 { end += 1 }
-            return end
-        }
-        while cursor < units.count {
-            try Task.checkCancellation()
-            let start = cursor
-            let unit = units[cursor]
-            let previous = cursor > 0 ? units[cursor - 1] : nil
-            var kind: PreviewToken.Kind?
-            if [.markup, .markdown].contains(language) && matches("<!--") {
-                cursor += 4
-                while cursor < units.count, !matches("-->") { cursor += 1 }
-                cursor = min(units.count, cursor + 3)
-                kind = .comment
-            } else if [.swift, .javascript, .c, .css].contains(language) && matches("/*") {
-                cursor += 2
-                var depth = 1
-                while cursor < units.count, depth > 0 {
-                    if matches("*/") {
-                        depth -= 1; cursor += 2
-                    } else if language == .swift && matches("/*") {
-                        depth += 1; cursor += 2
-                    } else {
-                        cursor += 1
-                    }
+        let units = cappedUTF16Units(of: text)
+        guard !units.isEmpty else { return [] }
+        return try units.withUnsafeBufferPointer { buffer in
+            var result: [PreviewToken] = []
+            if language != .plain {
+                let grammar = PreviewLanguageGrammar.grammar(for: language)
+                if grammar.features.contains(.diffSyntax) {
+                    try tokenizeDiff(buffer, into: &result)
+                } else if grammar.features.contains(.rstSyntax) {
+                    try tokenizeRestructuredText(buffer, into: &result)
+                } else if grammar.features.contains(.asciiDocSyntax) {
+                    try tokenizeAsciiDoc(buffer, into: &result)
+                } else {
+                    try tokenizeGeneral(buffer, baseGrammar: grammar, into: &result)
                 }
-                kind = .comment
-            } else if ([.swift, .javascript, .c].contains(language) && matches("//"))
-                || ([.python, .shell, .yaml].contains(language) && unit == 35)
-            {
-                cursor = lineEnd()
-                kind = .comment
-            } else if language.startsString(quote: unit, previous: previous, inMarkupTag: inMarkupTag) {
-                let triple =
-                    (language == .python || language == .swift || language == .markdown)
-                    && cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit
-                let delimiter = triple ? 3 : 1
-                cursor += delimiter
-                while cursor < units.count {
-                    if language == .yaml, unit == Self.singleQuote,
-                        cursor + 1 < units.count, units[cursor] == Self.singleQuote,
-                        units[cursor + 1] == Self.singleQuote
-                    {
-                        cursor += 2; continue
-                    }
-                    if !(language == .yaml && unit == Self.singleQuote), units[cursor] == 92 {
-                        cursor = min(units.count, cursor + 2); continue
-                    }
-                    if units[cursor] == unit,
-                        !triple || (cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit)
-                    {
-                        cursor += delimiter; break
-                    }
-                    cursor += 1
-                }
-                kind = .string
-            } else if language == .markdown && unit == 35 && (cursor == 0 || units[cursor - 1] == 10) {
-                cursor = lineEnd()
-                kind = .keyword
-            } else if language == .markup && unit == Self.lessThan {
-                cursor += 1
-                if cursor < units.count, units[cursor] == 47 { cursor += 1 }
-                let nameStart = cursor
-                while cursor < units.count, identifier(units[cursor]) { cursor += 1 }
-                if cursor > nameStart
-                    || (nameStart < units.count && Self.markupDirectiveLeaders.contains(units[nameStart]))
-                {
-                    inMarkupTag = true
-                }
-                kind = .keyword
-            } else if language == .markup && unit == Self.greaterThan {
-                inMarkupTag = false
-                cursor += 1
-            } else if (48...57).contains(unit) {
-                cursor += 1
-                while cursor < units.count,
-                    (48...57).contains(units[cursor]) || [46, 95].contains(units[cursor])
-                { cursor += 1 }
-                kind = .number
-            } else if identifier(unit) {
-                cursor += 1
-                while cursor < units.count, identifier(units[cursor]) || (48...57).contains(units[cursor]) {
-                    cursor += 1
-                }
-                let word = String(decoding: units[start..<cursor], as: UTF16.self)
-                if keywords.contains(word) { kind = .keyword }
-                if [.yaml, .css].contains(language), cursor < units.count, units[cursor] == 58 { kind = .keyword }
-            } else {
-                cursor += 1
             }
-            if let kind {
-                result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: kind))
-            }
+            try appendInvisibleTokens(buffer, into: &result)
+            return result
         }
-        return result
     }
 
-    private static func identifier(_ unit: UInt16) -> Bool {
-        (65...90).contains(unit) || (97...122).contains(unit) || unit == 95 || unit > 127
+    private static func cappedUTF16Units(of text: String) -> [UInt16] {
+        let limit = PreviewTextSource.highlightBytes
+        if text.utf8.count <= limit {
+            return Array(text.utf16)
+        }
+        let utf8 = text.utf8
+        var end = utf8.index(utf8.startIndex, offsetBy: limit)
+        // Walk back to avoid splitting UTF-8 scalars.
+        while end > utf8.startIndex, (utf8[end] & 0xC0) == 0x80 {
+            end = utf8.index(before: end)
+        }
+        return Array(text[..<end].utf16)
+    }
+
+    private static func tokenizeGeneral(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        baseGrammar: PreviewLanguageGrammar,
+        into result: inout [PreviewToken]
+    ) throws {
+        let count = buffer.count
+        var activeGrammar = baseGrammar
+        var cursor = 0
+        var step = 0
+        var atLineStart = true
+        var lineStartOffset = 0
+        var inMarkupTag = false
+        var tagSelfClosing = false
+        var pendingEmbedded: PreviewLanguage?
+        var embeddedLanguage: PreviewLanguage?
+
+        while cursor < count {
+            step &+= 1
+            if (step & (cancellationStride - 1)) == 0 { try Task.checkCancellation() }
+
+            if let embedded = embeddedLanguage,
+                matchesEmbeddedClose(buffer, at: cursor, language: embedded)
+            {
+                embeddedLanguage = nil
+                activeGrammar = baseGrammar
+            }
+
+            let start = cursor
+            let unit = buffer[cursor]
+            if unit == UTF16Code.lineFeed || unit == UTF16Code.carriageReturn {
+                cursor += 1
+                atLineStart = true
+                lineStartOffset = cursor
+                continue
+            }
+            if unit == UTF16Code.space || unit == UTF16Code.tab {
+                cursor += 1
+                continue
+            }
+
+            let isFirstOnLine = atLineStart
+            atLineStart = false
+            let previous: UInt16? = start > 0 ? buffer[start - 1] : nil
+            let features = activeGrammar.features
+
+            if activeGrammar.triggersSpecial(unit) || (isFirstOnLine && features.contains(.batchRemComment)) {
+                if let token = scanSpecial(
+                    buffer,
+                    at: &cursor,
+                    previous: previous,
+                    isFirstOnLine: isFirstOnLine,
+                    grammar: activeGrammar,
+                    inMarkupTag: &inMarkupTag,
+                    tagSelfClosing: &tagSelfClosing,
+                    pendingEmbedded: &pendingEmbedded,
+                    embeddedLanguage: &embeddedLanguage,
+                    activeGrammar: &activeGrammar)
+                {
+                    result.append(token)
+                    continue
+                }
+                if cursor > start { continue }
+            }
+
+            if isFirstOnLine,
+                features.contains(.keyBeforeEquals) || features.contains(.keyBeforeColonOrEquals),
+                let keyEnd = scanKeyAssignment(
+                    buffer, from: start, allowColon: features.contains(.keyBeforeColonOrEquals))
+            {
+                cursor = keyEnd
+                result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword))
+                continue
+            }
+
+            if isFirstOnLine, start == lineStartOffset, features.contains(.makefileTargets),
+                let targetEnd = scanMakefileTarget(buffer, from: start)
+            {
+                cursor = targetEnd
+                result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .type))
+                continue
+            }
+
+            if activeGrammar.numberStyle != .none, isDigit(unit) {
+                cursor = scanNumber(buffer, from: start, style: activeGrammar.numberStyle)
+                result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .number))
+                continue
+            }
+
+            if isIdentifierStart(unit, features: features) {
+                cursor += 1
+                while cursor < count, isIdentifierContinue(buffer[cursor], features: features) {
+                    cursor += 1
+                }
+                if let kind = classifyWord(
+                    buffer, start: start, end: cursor, isFirstOnLine: isFirstOnLine, grammar: activeGrammar)
+                {
+                    result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: kind))
+                }
+                continue
+            }
+
+            cursor += 1
+        }
+    }
+
+    private static func scanSpecial(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        at cursor: inout Int,
+        previous: UInt16?,
+        isFirstOnLine: Bool,
+        grammar: PreviewLanguageGrammar,
+        inMarkupTag: inout Bool,
+        tagSelfClosing: inout Bool,
+        pendingEmbedded: inout PreviewLanguage?,
+        embeddedLanguage: inout PreviewLanguage?,
+        activeGrammar: inout PreviewLanguageGrammar
+    ) -> PreviewToken? {
+        let unit = buffer[cursor]
+        if grammar.triggersComment(unit) || (isFirstOnLine && grammar.features.contains(.batchRemComment)),
+            let token = scanCommentOrDirective(
+                buffer, at: &cursor, previous: previous, isFirstOnLine: isFirstOnLine, grammar: grammar)
+        {
+            return token
+        }
+        if grammar.triggersSpecialLiteral(unit),
+            let token = scanSpecialLiteral(buffer, at: &cursor, previous: previous, grammar: grammar)
+        {
+            return token
+        }
+        guard grammar.triggersStringOrMarkup(unit) else { return nil }
+        return scanMarkupOrQuotedLiteral(
+            buffer,
+            at: &cursor,
+            previous: previous,
+            grammar: grammar,
+            inMarkupTag: &inMarkupTag,
+            tagSelfClosing: &tagSelfClosing,
+            pendingEmbedded: &pendingEmbedded,
+            embeddedLanguage: &embeddedLanguage,
+            activeGrammar: &activeGrammar)
+    }
+
+    private static func scanCommentOrDirective(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        at cursor: inout Int,
+        previous: UInt16?,
+        isFirstOnLine: Bool,
+        grammar: PreviewLanguageGrammar
+    ) -> PreviewToken? {
+        let start = cursor
+        let count = buffer.count
+        let unit = buffer[start]
+        let features = grammar.features
+
+        if features.contains(.luaLongBrackets), unit == UTF16Code.minus,
+            start + 3 < count, buffer[start + 1] == UTF16Code.minus, buffer[start + 2] == UTF16Code.leftBracket,
+            let end = scanLuaLongBracket(buffer, from: start + 2)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .comment)
+        }
+
+        for block in grammar.blockComments where block.open.first == unit && matches(buffer, at: start, block.open) {
+            cursor = scanBlockComment(buffer, from: start, block: block)
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .comment)
+        }
+
+        for marker in grammar.lineComments where marker.first == unit && matches(buffer, at: start, marker) {
+            if features.contains(.slashCommentSkipsURL), unit == UTF16Code.slash, previous == UTF16Code.colon {
+                continue
+            }
+            if features.contains(.escapedPercentSkipsComment), unit == UTF16Code.percent,
+                previous == UTF16Code.backslash
+            {
+                continue
+            }
+            cursor = lineEnd(buffer, from: start)
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .comment)
+        }
+
+        if isFirstOnLine, features.contains(.batchRemComment), matchesBatchRem(buffer, at: start) {
+            cursor = lineEnd(buffer, from: start)
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .comment)
+        }
+
+        if isFirstOnLine, features.contains(.markdownHeadings), unit == UTF16Code.hash {
+            cursor = lineEnd(buffer, from: start)
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword)
+        }
+
+        if isFirstOnLine, features.contains(.hashPreprocessor), unit == UTF16Code.hash {
+            var end = start + 1
+            while end < count, buffer[end] == UTF16Code.space || buffer[end] == UTF16Code.tab { end += 1 }
+            let wordStart = end
+            while end < count, isASCIIIdentifier(buffer[end]) { end += 1 }
+            if end > wordStart {
+                cursor = end
+                return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword)
+            }
+        }
+
+        if isFirstOnLine, features.contains(.iniSectionHeaders), unit == UTF16Code.leftBracket,
+            let end = scanSectionHeader(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword)
+        }
+
+        if features.contains(.latexCommands), unit == UTF16Code.backslash {
+            cursor = scanLaTeXCommand(buffer, from: start)
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword)
+        }
+
+        return nil
+    }
+
+    private static func scanSpecialLiteral(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        at cursor: inout Int,
+        previous: UInt16?,
+        grammar: PreviewLanguageGrammar
+    ) -> PreviewToken? {
+        let start = cursor
+        let count = buffer.count
+        let unit = buffer[start]
+        let features = grammar.features
+
+        if features.contains(.objcAtKeywords), unit == UTF16Code.atSign, start + 1 < count {
+            let next = buffer[start + 1]
+            if next == UTF16Code.doubleQuote {
+                cursor = scanDelimited(buffer, from: start + 1, rule: doubleQuoteRule)
+                return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+            }
+            if isASCIILetter(next) {
+                var end = start + 2
+                while end < count, isASCIIIdentifier(buffer[end]) { end += 1 }
+                let word = String(decoding: buffer[(start + 1)..<end], as: UTF16.self)
+                if objcAtKeywords.contains(word) {
+                    cursor = end
+                    return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword)
+                }
+            }
+        }
+
+        if features.contains(.powershellHereString), unit == UTF16Code.atSign,
+            let end = scanPowerShellHereString(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        if features.contains(.rustRawStrings), unit == UTF16Code.lowerR || unit == UTF16Code.lowerB,
+            !(previous.map(isPlainIdentifier) ?? false),
+            let end = scanRustRawString(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        if features.contains(.cppRawStrings), unit == UTF16Code.upperR,
+            !(previous.map(isPlainIdentifier) ?? false),
+            let end = scanCPPRawString(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        if features.contains(.luaLongBrackets), unit == UTF16Code.leftBracket,
+            let end = scanLuaLongBracket(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        if features.contains(.heredoc), unit == UTF16Code.lessThan,
+            let end = scanHeredoc(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        if let end = scanPrefixedString(buffer, from: start, previous: previous, grammar: grammar) {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        return nil
+    }
+
+    private static func scanMarkupOrQuotedLiteral(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        at cursor: inout Int,
+        previous: UInt16?,
+        grammar: PreviewLanguageGrammar,
+        inMarkupTag: inout Bool,
+        tagSelfClosing: inout Bool,
+        pendingEmbedded: inout PreviewLanguage?,
+        embeddedLanguage: inout PreviewLanguage?,
+        activeGrammar: inout PreviewLanguageGrammar
+    ) -> PreviewToken? {
+        let start = cursor
+        let count = buffer.count
+        let unit = buffer[start]
+
+        if grammar.features.contains(.markupTags) {
+            if unit == UTF16Code.lessThan {
+                return scanMarkupOpen(
+                    buffer, at: &cursor, inMarkupTag: &inMarkupTag,
+                    tagSelfClosing: &tagSelfClosing, pendingEmbedded: &pendingEmbedded)
+            }
+            if inMarkupTag, unit == UTF16Code.slash, start + 1 < count, buffer[start + 1] == UTF16Code.greaterThan {
+                tagSelfClosing = true
+                cursor += 1
+                return nil
+            }
+            if unit == UTF16Code.greaterThan {
+                let wasInTag = inMarkupTag
+                inMarkupTag = false
+                cursor += 1
+                if wasInTag, !tagSelfClosing, let next = pendingEmbedded {
+                    embeddedLanguage = next
+                    activeGrammar = PreviewLanguageGrammar.grammar(for: next)
+                }
+                pendingEmbedded = nil
+                tagSelfClosing = false
+                return nil
+            }
+        }
+
+        for rule in grammar.strings
+        where rule.openFirst == unit
+            && (rule.openLength == 1 || matches(buffer, at: start, rule.open))
+        {
+            switch rule.scope {
+            case .anywhere:
+                break
+            case .notAfterDigit:
+                if let previous, isDigit(previous) { continue }
+            case .markupTag:
+                guard inMarkupTag else { continue }
+            case .scalarStart:
+                if let previous, !scalarPreceders.contains(previous) { continue }
+            case .charLiteral:
+                if let end = scanCharLiteral(buffer, from: start) {
+                    cursor = end
+                    return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+                }
+                continue
+            }
+            cursor = scanDelimited(buffer, from: start, rule: rule)
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
+        }
+
+        if grammar.numberStyle == .cssUnit, unit == UTF16Code.hash,
+            let end = scanCSSHexColor(buffer, from: start)
+        {
+            cursor = end
+            return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .number)
+        }
+
+        return nil
+    }
+
+    private static func scanMarkupOpen(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        at cursor: inout Int,
+        inMarkupTag: inout Bool,
+        tagSelfClosing: inout Bool,
+        pendingEmbedded: inout PreviewLanguage?
+    ) -> PreviewToken {
+        let start = cursor
+        let count = buffer.count
+        cursor += 1
+        var isClosing = false
+        if cursor < count, buffer[cursor] == UTF16Code.slash {
+            isClosing = true
+            cursor += 1
+        }
+        let nameStart = cursor
+        while cursor < count, isMarkupNameChar(buffer[cursor]) { cursor += 1 }
+        if cursor > nameStart
+            || (nameStart < count && markupDirectiveLeaders.contains(buffer[nameStart]))
+        {
+            inMarkupTag = true
+            tagSelfClosing = false
+            pendingEmbedded = nil
+            if !isClosing, cursor > nameStart {
+                let length = cursor - nameStart
+                if length == 6, matchesASCIIFolded(buffer, at: nameStart, "script") {
+                    pendingEmbedded = .javascript
+                } else if length == 5, matchesASCIIFolded(buffer, at: nameStart, "style") {
+                    pendingEmbedded = .css
+                }
+            }
+        }
+        return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword)
+    }
+
+    private static func matchesEmbeddedClose(
+        _ buffer: UnsafeBufferPointer<UInt16>, at index: Int, language: PreviewLanguage
+    ) -> Bool {
+        let tag = language == .javascript ? "</script" : "</style"
+        let length = tag.utf16.count
+        guard index + length <= buffer.count, matchesASCIIFolded(buffer, at: index, tag) else { return false }
+        if index + length == buffer.count { return true }
+        let next = buffer[index + length]
+        return next == UTF16Code.greaterThan || next == UTF16Code.space || next == UTF16Code.tab
+            || next == UTF16Code.lineFeed || next == UTF16Code.carriageReturn || next == UTF16Code.slash
+    }
+
+    private static func scanBlockComment(
+        _ buffer: UnsafeBufferPointer<UInt16>, from start: Int, block: PreviewLanguageGrammar.BlockComment
+    ) -> Int {
+        let count = buffer.count
+        let unitLimit = min(count, start + maximumBlockUnits)
+        var cursor = start + block.open.count
+        var depth = 1
+        var lines = 0
+        while cursor < unitLimit, depth > 0 {
+            if matches(buffer, at: cursor, block.close) {
+                depth -= 1
+                cursor += block.close.count
+            } else if block.nested, matches(buffer, at: cursor, block.open) {
+                depth += 1
+                cursor += block.open.count
+            } else {
+                if buffer[cursor] == UTF16Code.lineFeed {
+                    lines += 1
+                    if lines >= maximumBlockLines { break }
+                }
+                cursor += 1
+            }
+        }
+        return min(count, cursor)
+    }
+
+    private static func scanDelimited(
+        _ buffer: UnsafeBufferPointer<UInt16>, from start: Int, rule: PreviewLanguageGrammar.StringRule
+    ) -> Int {
+        let count = buffer.count
+        let unitLimit = rule.multiline ? min(count, start + maximumBlockUnits) : count
+        var cursor = start + rule.openLength
+        var lines = 0
+        let closeFirst = rule.closeFirst
+        let closeLength = rule.closeLength
+        if closeLength == 1 {
+            while cursor < unitLimit {
+                let unit = buffer[cursor]
+                if unit == closeFirst {
+                    if rule.escape == .doubled, cursor + 1 < unitLimit, buffer[cursor + 1] == closeFirst {
+                        cursor += 2
+                        continue
+                    }
+                    return cursor + 1
+                }
+                if unit == UTF16Code.lineFeed || unit == UTF16Code.carriageReturn {
+                    if !rule.multiline { return cursor }
+                    if unit == UTF16Code.lineFeed {
+                        lines += 1
+                        if lines >= maximumBlockLines { return cursor }
+                    }
+                    cursor += 1
+                    continue
+                }
+                if (rule.escape == .backslash && unit == UTF16Code.backslash)
+                    || (rule.escape == .backtick && unit == UTF16Code.backtick)
+                {
+                    cursor = min(unitLimit, cursor + 2)
+                    continue
+                }
+                cursor += 1
+            }
+            return min(count, cursor)
+        }
+        while cursor < unitLimit {
+            let unit = buffer[cursor]
+            if unit == UTF16Code.lineFeed || unit == UTF16Code.carriageReturn {
+                if !rule.multiline { break }
+                if unit == UTF16Code.lineFeed {
+                    lines += 1
+                    if lines >= maximumBlockLines { break }
+                }
+                cursor += 1
+                continue
+            }
+            switch rule.escape {
+            case .backslash:
+                if unit == UTF16Code.backslash {
+                    cursor = min(unitLimit, cursor + 2)
+                    continue
+                }
+            case .backtick:
+                if unit == UTF16Code.backtick {
+                    cursor = min(unitLimit, cursor + 2)
+                    continue
+                }
+            case .doubled:
+                if unit == closeFirst, matches(buffer, at: cursor, rule.close),
+                    matches(buffer, at: cursor + closeLength, rule.close)
+                {
+                    cursor += closeLength * 2
+                    continue
+                }
+            case .none:
+                break
+            }
+            if unit == closeFirst, matches(buffer, at: cursor, rule.close) {
+                cursor += closeLength
+                break
+            }
+            cursor += 1
+        }
+        return min(count, cursor)
+    }
+
+    private static func scanCharLiteral(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        var pos = start + 1
+        guard pos < count else { return nil }
+        let first = buffer[pos]
+        guard first != UTF16Code.singleQuote, first != UTF16Code.lineFeed, first != UTF16Code.carriageReturn else {
+            return nil
+        }
+        if first == UTF16Code.backslash {
+            pos += 1
+            guard pos < count else { return nil }
+            let escaped = buffer[pos]
+            pos += 1
+            if escaped == UTF16Code.lowerX {
+                guard pos + 1 < count, isHexDigit(buffer[pos]), isHexDigit(buffer[pos + 1]) else { return nil }
+                pos += 2
+            } else if escaped == UTF16Code.lowerU, pos < count, buffer[pos] == UTF16Code.leftBrace {
+                pos += 1
+                var digits = 0
+                while pos < count, digits < maximumUnicodeEscapeDigits, isHexDigit(buffer[pos]) {
+                    pos += 1
+                    digits += 1
+                }
+                guard digits > 0, pos < count, buffer[pos] == UTF16Code.rightBrace else { return nil }
+                pos += 1
+            }
+        } else if (UTF16Code.leadSurrogateStart...UTF16Code.leadSurrogateEnd).contains(first),
+            pos + 1 < count,
+            (UTF16Code.trailSurrogateStart...UTF16Code.trailSurrogateEnd).contains(buffer[pos + 1])
+        {
+            pos += 2
+        } else {
+            pos += 1
+        }
+        guard pos < count, buffer[pos] == UTF16Code.singleQuote else { return nil }
+        return pos + 1
+    }
+
+    private static func scanRustRawString(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        var pos = start
+        if buffer[pos] == UTF16Code.lowerB {
+            pos += 1
+            guard pos < count, buffer[pos] == UTF16Code.lowerR else { return nil }
+        }
+        pos += 1
+        var hashes = 0
+        while pos < count, hashes < maximumDelimiterLength, buffer[pos] == UTF16Code.hash {
+            pos += 1
+            hashes += 1
+        }
+        guard pos < count, buffer[pos] == UTF16Code.doubleQuote else { return nil }
+        pos += 1
+        let limit = min(count, start + maximumBlockUnits)
+        var lines = 0
+        while pos < limit {
+            let unit = buffer[pos]
+            if unit == UTF16Code.doubleQuote {
+                var matched = 0
+                while matched < hashes, pos + 1 + matched < count, buffer[pos + 1 + matched] == UTF16Code.hash {
+                    matched += 1
+                }
+                if matched == hashes { return pos + 1 + hashes }
+            } else if unit == UTF16Code.lineFeed {
+                lines += 1
+                if lines >= maximumBlockLines { break }
+            }
+            pos += 1
+        }
+        return min(count, pos)
+    }
+
+    private static func scanCPPRawString(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        guard start + 2 < count, buffer[start + 1] == UTF16Code.doubleQuote else { return nil }
+        let delimStart = start + 2
+        var delimEnd = delimStart
+        while delimEnd < count, delimEnd - delimStart <= maximumDelimiterLength {
+            let unit = buffer[delimEnd]
+            if unit == UTF16Code.leftParen { break }
+            if unit == UTF16Code.space || unit == UTF16Code.tab || unit == UTF16Code.lineFeed
+                || unit == UTF16Code.carriageReturn || unit == UTF16Code.rightParen || unit == UTF16Code.backslash
+            {
+                return nil
+            }
+            delimEnd += 1
+        }
+        guard delimEnd < count, buffer[delimEnd] == UTF16Code.leftParen else { return nil }
+        let delimLength = delimEnd - delimStart
+        var pos = delimEnd + 1
+        let limit = min(count, start + maximumBlockUnits)
+        var lines = 0
+        while pos < limit {
+            if buffer[pos] == UTF16Code.rightParen, pos + delimLength + 1 < count,
+                buffer[pos + delimLength + 1] == UTF16Code.doubleQuote
+            {
+                var matched = true
+                for offset in 0..<delimLength where buffer[pos + 1 + offset] != buffer[delimStart + offset] {
+                    matched = false
+                    break
+                }
+                if matched { return pos + delimLength + 2 }
+            } else if buffer[pos] == UTF16Code.lineFeed {
+                lines += 1
+                if lines >= maximumBlockLines { break }
+            }
+            pos += 1
+        }
+        return min(count, pos)
+    }
+
+    private static func scanLuaLongBracket(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        guard start + 1 < count, buffer[start] == UTF16Code.leftBracket else { return nil }
+        var pos = start + 1
+        var equals = 0
+        while pos < count, equals < maximumDelimiterLength, buffer[pos] == UTF16Code.equals {
+            pos += 1
+            equals += 1
+        }
+        guard pos < count, buffer[pos] == UTF16Code.leftBracket else { return nil }
+        pos += 1
+        let limit = min(count, start + maximumBlockUnits)
+        var lines = 0
+        while pos < limit {
+            if buffer[pos] == UTF16Code.rightBracket, pos + equals + 1 < count,
+                buffer[pos + equals + 1] == UTF16Code.rightBracket
+            {
+                var matched = true
+                for offset in 0..<equals where buffer[pos + 1 + offset] != UTF16Code.equals {
+                    matched = false
+                    break
+                }
+                if matched { return pos + equals + 2 }
+            } else if buffer[pos] == UTF16Code.lineFeed {
+                lines += 1
+                if lines >= maximumBlockLines { break }
+            }
+            pos += 1
+        }
+        return min(count, pos)
+    }
+
+    private static func scanPowerShellHereString(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        guard start + 2 < count else { return nil }
+        let quote = buffer[start + 1]
+        guard quote == UTF16Code.doubleQuote || quote == UTF16Code.singleQuote else { return nil }
+        var pos = start + 2
+        while pos < count, buffer[pos] == UTF16Code.space || buffer[pos] == UTF16Code.tab { pos += 1 }
+        guard pos < count, buffer[pos] == UTF16Code.lineFeed || buffer[pos] == UTF16Code.carriageReturn else {
+            return nil
+        }
+        let limit = min(count, start + maximumBlockUnits)
+        var lines = 0
+        while pos < limit {
+            if buffer[pos] == UTF16Code.lineFeed {
+                lines += 1
+                if lines >= maximumBlockLines { break }
+                if pos + 2 < count, buffer[pos + 1] == quote, buffer[pos + 2] == UTF16Code.atSign {
+                    return pos + 3
+                }
+            }
+            pos += 1
+        }
+        return min(count, pos)
+    }
+
+    private static func scanHeredoc(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        guard start + 2 < count, buffer[start + 1] == UTF16Code.lessThan else { return nil }
+        var pos = start + 2
+        var isTriple = false
+        var stripIndent = false
+        if pos < count, buffer[pos] == UTF16Code.lessThan {
+            isTriple = true
+            pos += 1
+        } else if pos < count, buffer[pos] == UTF16Code.minus || buffer[pos] == UTF16Code.tilde {
+            stripIndent = true
+            pos += 1
+        }
+        let hadSpace = pos < count && (buffer[pos] == UTF16Code.space || buffer[pos] == UTF16Code.tab)
+        while pos < count, buffer[pos] == UTF16Code.space || buffer[pos] == UTF16Code.tab { pos += 1 }
+        guard pos < count else { return nil }
+        let quote: UInt16?
+        if buffer[pos] == UTF16Code.singleQuote || buffer[pos] == UTF16Code.doubleQuote {
+            quote = buffer[pos]
+            pos += 1
+        } else {
+            // Skip bitshift operators like `a << b`.
+            if hadSpace && !isTriple && !stripIndent { return nil }
+            quote = nil
+        }
+        let tagStart = pos
+        var hasUpper = false
+        while pos < count, pos - tagStart < maximumHeredocTagLength, isASCIIIdentifier(buffer[pos]) {
+            if (UTF16Code.upperA...UTF16Code.upperZ).contains(buffer[pos]) { hasUpper = true }
+            pos += 1
+        }
+        let tagLength = pos - tagStart
+        guard tagLength > 0, isASCIILetter(buffer[tagStart]) || buffer[tagStart] == UTF16Code.underscore else {
+            return nil
+        }
+        if let quote {
+            guard pos < count, buffer[pos] == quote else { return nil }
+            pos += 1
+        } else if !isTriple && !stripIndent && !hasUpper {
+            return nil
+        }
+        let firstLineEnd = lineEnd(buffer, from: pos)
+        guard firstLineEnd < count else { return nil }
+        var lineCursor = nextLineStart(buffer, after: firstLineEnd)
+        let limit = min(count, start + maximumBlockUnits)
+        var lines = 0
+        while lineCursor < limit, lines < maximumBlockLines {
+            lines += 1
+            let currentEnd = lineEnd(buffer, from: lineCursor)
+            var checkStart = lineCursor
+            if stripIndent {
+                while checkStart < currentEnd,
+                    buffer[checkStart] == UTF16Code.space || buffer[checkStart] == UTF16Code.tab
+                {
+                    checkStart += 1
+                }
+            }
+            var checkEnd = currentEnd
+            if isTriple, checkEnd > checkStart, buffer[checkEnd - 1] == UTF16Code.semicolon {
+                checkEnd -= 1
+            }
+            if checkEnd - checkStart == tagLength {
+                var matched = true
+                for offset in 0..<tagLength where buffer[checkStart + offset] != buffer[tagStart + offset] {
+                    matched = false
+                    break
+                }
+                if matched { return currentEnd }
+            }
+            lineCursor = nextLineStart(buffer, after: currentEnd)
+        }
+        return min(count, lineCursor)
+    }
+
+    private static func scanPrefixedString(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        from start: Int,
+        previous: UInt16?,
+        grammar: PreviewLanguageGrammar
+    ) -> Int? {
+        let count = buffer.count
+        let features = grammar.features
+        let unit = buffer[start]
+        if features.contains(.csharpInterpolatedPrefix) {
+            if unit == UTF16Code.dollar, start + 2 < count,
+                buffer[start + 1] == UTF16Code.atSign, buffer[start + 2] == UTF16Code.doubleQuote
+            {
+                return scanDelimited(buffer, from: start + 2, rule: verbatimDoubleQuoteRule)
+            }
+            if unit == UTF16Code.atSign, start + 2 < count,
+                buffer[start + 1] == UTF16Code.dollar, buffer[start + 2] == UTF16Code.doubleQuote
+            {
+                return scanDelimited(buffer, from: start + 2, rule: verbatimDoubleQuoteRule)
+            }
+            if unit == UTF16Code.dollar, start + 1 < count, buffer[start + 1] == UTF16Code.doubleQuote {
+                return scanDelimited(buffer, from: start + 1, rule: doubleQuoteRule)
+            }
+        }
+        guard !(previous.map(isPlainIdentifier) ?? false) else { return nil }
+        if features.contains(.pythonStringPrefixes), isPythonPrefixChar(unit) {
+            var quotePos = start + 1
+            if quotePos < count, isPythonPrefixChar(buffer[quotePos]) { quotePos += 1 }
+            if quotePos < count, buffer[quotePos] == UTF16Code.doubleQuote || buffer[quotePos] == UTF16Code.singleQuote
+            {
+                for rule in grammar.strings where matches(buffer, at: quotePos, rule.open) {
+                    return scanDelimited(buffer, from: quotePos, rule: rule)
+                }
+            }
+        }
+        if features.contains(.dartRawStringPrefix), unit == UTF16Code.lowerR, start + 1 < count {
+            let next = buffer[start + 1]
+            if next == UTF16Code.doubleQuote || next == UTF16Code.singleQuote {
+                for rule in [
+                    rawTripleDoubleQuoteRule, rawTripleSingleQuoteRule, rawDoubleQuoteRule, rawSingleQuoteRule,
+                ] where matches(buffer, at: start + 1, rule.open) {
+                    return scanDelimited(buffer, from: start + 1, rule: rule)
+                }
+            }
+        }
+        if features.contains(.rustByteStringPrefix), unit == UTF16Code.lowerB || unit == UTF16Code.lowerC,
+            start + 1 < count
+        {
+            if buffer[start + 1] == UTF16Code.doubleQuote {
+                return scanDelimited(buffer, from: start + 1, rule: multilineDoubleQuoteRule)
+            }
+            if unit == UTF16Code.lowerB, buffer[start + 1] == UTF16Code.singleQuote,
+                let end = scanCharLiteral(buffer, from: start + 1)
+            {
+                return end
+            }
+        }
+        return nil
+    }
+
+    private static func scanSectionHeader(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        var pos = start + 1
+        while pos < count, buffer[pos] != UTF16Code.lineFeed, buffer[pos] != UTF16Code.carriageReturn {
+            if buffer[pos] == UTF16Code.rightBracket {
+                pos += 1
+                if pos < count, buffer[pos] == UTF16Code.rightBracket { pos += 1 }
+                return pos
+            }
+            pos += 1
+        }
+        return nil
+    }
+
+    private static func scanLaTeXCommand(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int {
+        let count = buffer.count
+        guard start + 1 < count else { return start + 1 }
+        var pos = start + 1
+        if isASCIILetter(buffer[pos]) {
+            while pos < count, isASCIILetter(buffer[pos]) { pos += 1 }
+            return pos
+        }
+        if buffer[pos] != UTF16Code.lineFeed && buffer[pos] != UTF16Code.carriageReturn {
+            return pos + 1
+        }
+        return pos
+    }
+
+    private static func scanKeyAssignment(
+        _ buffer: UnsafeBufferPointer<UInt16>, from start: Int, allowColon: Bool
+    ) -> Int? {
+        let count = buffer.count
+        guard isASCIIKeyStart(buffer[start]) else { return nil }
+        var keyEnd = start + 1
+        while keyEnd < count, isASCIIKeyContinue(buffer[keyEnd]) { keyEnd += 1 }
+        var probe = keyEnd
+        while probe < count, buffer[probe] == UTF16Code.space || buffer[probe] == UTF16Code.tab { probe += 1 }
+        guard probe < count else { return nil }
+        if buffer[probe] == UTF16Code.equals || (allowColon && buffer[probe] == UTF16Code.colon) {
+            return keyEnd
+        }
+        return nil
+    }
+
+    private static func scanMakefileTarget(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        let first = buffer[start]
+        guard isASCIILetter(first) || first == UTF16Code.dot || first == UTF16Code.underscore else { return nil }
+        var pos = start + 1
+        while pos < count {
+            let unit = buffer[pos]
+            if unit == UTF16Code.colon {
+                if pos + 1 < count, buffer[pos + 1] == UTF16Code.equals { return nil }
+                return pos
+            }
+            if unit == UTF16Code.equals || unit == UTF16Code.lineFeed || unit == UTF16Code.carriageReturn
+                || unit == UTF16Code.hash || unit == UTF16Code.space || unit == UTF16Code.tab
+            {
+                return nil
+            }
+            pos += 1
+        }
+        return nil
+    }
+
+    private static func scanNumber(
+        _ buffer: UnsafeBufferPointer<UInt16>, from start: Int, style: PreviewLanguageGrammar.NumberStyle
+    ) -> Int {
+        let count = buffer.count
+        var cursor = start + 1
+        if buffer[start] == UTF16Code.digitZero, cursor < count {
+            let prefix = buffer[cursor]
+            if prefix == UTF16Code.lowerX || prefix == UTF16Code.upperX {
+                cursor += 1
+                while cursor < count,
+                    isHexDigit(buffer[cursor]) || buffer[cursor] == UTF16Code.underscore
+                        || (style == .cDigitQuote && buffer[cursor] == UTF16Code.singleQuote
+                            && cursor + 1 < count && isHexDigit(buffer[cursor + 1]))
+                {
+                    cursor += 1
+                }
+                return cursor
+            }
+            if prefix == UTF16Code.lowerB || prefix == UTF16Code.upperB
+                || prefix == UTF16Code.lowerO || prefix == UTF16Code.upperO
+            {
+                cursor += 1
+                while cursor < count,
+                    isDigit(buffer[cursor]) || buffer[cursor] == UTF16Code.underscore
+                        || (style == .cDigitQuote && buffer[cursor] == UTF16Code.singleQuote
+                            && cursor + 1 < count && isDigit(buffer[cursor + 1]))
+                {
+                    cursor += 1
+                }
+                return cursor
+            }
+        }
+        while cursor < count {
+            let unit = buffer[cursor]
+            if isDigit(unit) || unit == UTF16Code.underscore {
+                cursor += 1
+            } else if style == .cDigitQuote, unit == UTF16Code.singleQuote,
+                cursor + 1 < count, isDigit(buffer[cursor + 1])
+            {
+                cursor += 1
+            } else if unit == UTF16Code.dot, cursor + 1 < count, isDigit(buffer[cursor + 1]) {
+                cursor += 1
+            } else {
+                break
+            }
+        }
+        if cursor < count, buffer[cursor] == UTF16Code.lowerE || buffer[cursor] == UTF16Code.upperE {
+            var exp = cursor + 1
+            if exp < count, buffer[exp] == UTF16Code.plus || buffer[exp] == UTF16Code.minus { exp += 1 }
+            if exp < count, isDigit(buffer[exp]) {
+                cursor = exp + 1
+                while cursor < count, isDigit(buffer[cursor]) || buffer[cursor] == UTF16Code.underscore {
+                    cursor += 1
+                }
+            }
+        }
+        if style == .cssUnit, cursor < count {
+            if buffer[cursor] == UTF16Code.percent {
+                cursor += 1
+            } else if isASCIILetter(buffer[cursor]) {
+                var unitEnd = cursor + 1
+                while unitEnd < count, isASCIILetter(buffer[unitEnd]) { unitEnd += 1 }
+                let suffix = String(decoding: buffer[cursor..<unitEnd], as: UTF16.self).lowercased()
+                if cssUnitSuffixes.contains(suffix) { cursor = unitEnd }
+            }
+        }
+        return cursor
+    }
+
+    private static func scanCSSHexColor(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int? {
+        let count = buffer.count
+        var pos = start + 1
+        while pos < count, isHexDigit(buffer[pos]) { pos += 1 }
+        let length = pos - (start + 1)
+        guard length == 3 || length == 4 || length == 6 || length == 8 else { return nil }
+        if pos < count, isASCIIIdentifier(buffer[pos]) || buffer[pos] == UTF16Code.minus { return nil }
+        return pos
+    }
+
+    private static func classifyWord(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        start: Int,
+        end: Int,
+        isFirstOnLine: Bool,
+        grammar: PreviewLanguageGrammar
+    ) -> PreviewToken.Kind? {
+        let features = grammar.features
+        if features.contains(.keyBeforeColon), end < buffer.count, buffer[end] == UTF16Code.colon {
+            if !features.contains(.yamlKeyColonRequiresSpace) || end + 1 == buffer.count
+                || isSpaceOrLineBreak(buffer[end + 1])
+            {
+                return .keyword
+            }
+        }
+        let length = end - start
+        guard length >= grammar.minWordLength && length <= grammar.maxWordLength else { return nil }
+        if features.contains(.dockerfileInstructions) {
+            if isFirstOnLine || (length == 2 && matchesASCIIFolded(buffer, at: start, "as")),
+                grammar.lookupWord(buffer, start: start, end: end) == .keyword
+            {
+                return .keyword
+            }
+            return nil
+        }
+        return grammar.lookupWord(buffer, start: start, end: end)
+    }
+
+    private static func tokenizeDiff(
+        _ buffer: UnsafeBufferPointer<UInt16>, into result: inout [PreviewToken]
+    ) throws {
+        let count = buffer.count
+        var cursor = 0
+        var lineIndex = 0
+        while cursor < count {
+            lineIndex &+= 1
+            if (lineIndex & (cancellationStride - 1)) == 0 { try Task.checkCancellation() }
+            let end = lineEnd(buffer, from: cursor)
+            if end > cursor {
+                if let kind = diffLineKind(buffer, start: cursor, end: end) {
+                    result.append(PreviewToken(range: NSRange(location: cursor, length: end - cursor), kind: kind))
+                }
+            }
+            cursor = nextLineStart(buffer, after: end)
+        }
+    }
+
+    private static func diffLineKind(
+        _ buffer: UnsafeBufferPointer<UInt16>, start: Int, end: Int
+    ) -> PreviewToken.Kind? {
+        let first = buffer[start]
+        if matchesASCII(buffer, at: start, end: end, "@@") { return .number }
+        if matchesASCII(buffer, at: start, end: end, "+++ ")
+            || matchesASCII(buffer, at: start, end: end, "+++\t")
+            || matchesASCII(buffer, at: start, end: end, "--- ")
+            || matchesASCII(buffer, at: start, end: end, "---\t")
+            || (end - start == 3
+                && (matchesASCII(buffer, at: start, end: end, "+++")
+                    || matchesASCII(buffer, at: start, end: end, "---")))
+            || matchesASCII(buffer, at: start, end: end, "diff ")
+            || matchesASCII(buffer, at: start, end: end, "index ")
+            || matchesASCII(buffer, at: start, end: end, "===")
+            || matchesASCII(buffer, at: start, end: end, "new file mode ")
+            || matchesASCII(buffer, at: start, end: end, "deleted file mode ")
+            || matchesASCII(buffer, at: start, end: end, "old mode ")
+            || matchesASCII(buffer, at: start, end: end, "new mode ")
+            || matchesASCII(buffer, at: start, end: end, "rename from ")
+            || matchesASCII(buffer, at: start, end: end, "rename to ")
+            || matchesASCII(buffer, at: start, end: end, "similarity index ")
+            || matchesASCII(buffer, at: start, end: end, "Binary files ")
+            || matchesASCII(buffer, at: start, end: end, "\\ No newline")
+        {
+            return .keyword
+        }
+        if first == UTF16Code.plus { return .diffAdded }
+        if first == UTF16Code.minus { return .diffRemoved }
+        return nil
+    }
+
+    private static func tokenizeRestructuredText(
+        _ buffer: UnsafeBufferPointer<UInt16>, into result: inout [PreviewToken]
+    ) throws {
+        let count = buffer.count
+        var cursor = 0
+        var lineIndex = 0
+        var prevStart = 0
+        var prevEnd = 0
+        var prevHadText = false
+        var prevWasAdornment = false
+        var prevTokenBaseline = 0
+        var pendingOverline: (Int, Int)?
+        while cursor < count {
+            lineIndex &+= 1
+            if (lineIndex & (cancellationStride - 1)) == 0 { try Task.checkCancellation() }
+            let end = lineEnd(buffer, from: cursor)
+            if isRstAdornment(buffer, start: cursor, end: end) {
+                if prevHadText && !prevWasAdornment {
+                    result.removeSubrange(prevTokenBaseline..<result.count)
+                    if let overline = pendingOverline {
+                        result.append(
+                            PreviewToken(
+                                range: NSRange(location: overline.0, length: overline.1 - overline.0), kind: .keyword))
+                    }
+                    result.append(
+                        PreviewToken(range: NSRange(location: prevStart, length: prevEnd - prevStart), kind: .keyword))
+                    result.append(
+                        PreviewToken(range: NSRange(location: cursor, length: end - cursor), kind: .keyword))
+                    pendingOverline = nil
+                } else {
+                    pendingOverline = (cursor, end)
+                }
+                prevHadText = false
+                prevWasAdornment = true
+            } else {
+                prevTokenBaseline = result.count
+                let hasText = lineHasNonSpace(buffer, start: cursor, end: end)
+                if hasText {
+                    scanInlineBackticks(buffer, start: cursor, end: end, doubleFirst: true, into: &result)
+                } else {
+                    pendingOverline = nil
+                }
+                prevStart = cursor
+                prevEnd = end
+                prevHadText = hasText
+                prevWasAdornment = false
+            }
+            cursor = nextLineStart(buffer, after: end)
+        }
+    }
+
+    private static func tokenizeAsciiDoc(
+        _ buffer: UnsafeBufferPointer<UInt16>, into result: inout [PreviewToken]
+    ) throws {
+        let count = buffer.count
+        var cursor = 0
+        var lineIndex = 0
+        while cursor < count {
+            lineIndex &+= 1
+            if (lineIndex & (cancellationStride - 1)) == 0 { try Task.checkCancellation() }
+            let end = lineEnd(buffer, from: cursor)
+            if let fenceChar = asciiDocFenceChar(buffer, start: cursor, end: end) {
+                let blockStart = cursor
+                let blockLimit = min(count, blockStart + maximumBlockUnits)
+                var blockLines = 0
+                var scan = nextLineStart(buffer, after: end)
+                var blockEnd = end
+                while scan < blockLimit, blockLines < maximumBlockLines {
+                    blockLines += 1
+                    let scanEnd = lineEnd(buffer, from: scan)
+                    blockEnd = scanEnd
+                    let next = nextLineStart(buffer, after: scanEnd)
+                    if asciiDocFenceChar(buffer, start: scan, end: scanEnd) == fenceChar {
+                        scan = next
+                        break
+                    }
+                    scan = next
+                }
+                result.append(
+                    PreviewToken(range: NSRange(location: blockStart, length: blockEnd - blockStart), kind: .string))
+                cursor = scan
+                continue
+            }
+            if isAsciiDocHeading(buffer, start: cursor, end: end) {
+                result.append(PreviewToken(range: NSRange(location: cursor, length: end - cursor), kind: .keyword))
+            } else {
+                scanInlineBackticks(buffer, start: cursor, end: end, doubleFirst: false, into: &result)
+            }
+            cursor = nextLineStart(buffer, after: end)
+        }
+    }
+
+    private static func scanInlineBackticks(
+        _ buffer: UnsafeBufferPointer<UInt16>,
+        start: Int,
+        end: Int,
+        doubleFirst: Bool,
+        into result: inout [PreviewToken]
+    ) {
+        var pos = start
+        while pos < end {
+            if buffer[pos] == UTF16Code.backtick {
+                var delimLength = 1
+                let maxDelim = doubleFirst ? 2 : 3
+                while delimLength < maxDelim, pos + delimLength < end,
+                    buffer[pos + delimLength] == UTF16Code.backtick
+                {
+                    delimLength += 1
+                }
+                var scan = pos + delimLength
+                var closed: Int?
+                while scan + delimLength <= end {
+                    var matched = true
+                    for offset in 0..<delimLength where buffer[scan + offset] != UTF16Code.backtick {
+                        matched = false
+                        break
+                    }
+                    if matched {
+                        closed = scan + delimLength
+                        break
+                    }
+                    scan += 1
+                }
+                if let closed, closed > pos + delimLength * 2 {
+                    result.append(PreviewToken(range: NSRange(location: pos, length: closed - pos), kind: .string))
+                    pos = closed
+                    continue
+                }
+            }
+            pos += 1
+        }
+    }
+
+    private static func appendInvisibleTokens(
+        _ buffer: UnsafeBufferPointer<UInt16>, into result: inout [PreviewToken]
+    ) throws {
+        let count = buffer.count
+        var index = 0
+        while index < count {
+            if (index & (cancellationStride - 1)) == 0 { try Task.checkCancellation() }
+            let unit = buffer[index]
+            if unit < UTF16Code.space || unit >= UTF16Code.delete {
+                if unit == UTF16Code.zeroWidthJoiner {
+                    if !isEmojiZWJ(buffer, at: index) {
+                        result.append(PreviewToken(range: NSRange(location: index, length: 1), kind: .invisible))
+                    }
+                } else if isInvisibleOrBidi(unit) {
+                    result.append(PreviewToken(range: NSRange(location: index, length: 1), kind: .invisible))
+                }
+            }
+            index += 1
+        }
+    }
+
+    @inline(__always)
+    private static func isInvisibleOrBidi(_ unit: UInt16) -> Bool {
+        if unit < UTF16Code.space {
+            return unit != UTF16Code.tab && unit != UTF16Code.lineFeed && unit != UTF16Code.carriageReturn
+        }
+        if unit <= UTF16Code.c1End { return true }
+        switch unit {
+        case UTF16Code.softHyphen, UTF16Code.arabicLetterMark,
+            UTF16Code.zeroWidthSpace, UTF16Code.zeroWidthNonJoiner,
+            UTF16Code.leftToRightMark, UTF16Code.rightToLeftMark,
+            UTF16Code.lineSeparator, UTF16Code.paragraphSeparator,
+            UTF16Code.bidiEmbedStart...UTF16Code.bidiOverrideEnd,
+            UTF16Code.wordJoiner...UTF16Code.invisibleOperatorEnd,
+            UTF16Code.bidiIsolateStart...UTF16Code.bidiIsolateEnd,
+            UTF16Code.byteOrderMark:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isEmojiZWJ(_ buffer: UnsafeBufferPointer<UInt16>, at index: Int) -> Bool {
+        guard let before = scalarBefore(buffer, index: index),
+            let after = scalarAt(buffer, index: index + 1)
+        else { return false }
+        return isNonASCIIEmojiPart(before) && isNonASCIIEmojiPart(after)
+    }
+
+    private static func scalarBefore(_ buffer: UnsafeBufferPointer<UInt16>, index: Int) -> Unicode.Scalar? {
+        guard index > 0 else { return nil }
+        let unit = buffer[index - 1]
+        if (UTF16Code.trailSurrogateStart...UTF16Code.trailSurrogateEnd).contains(unit), index >= 2 {
+            let lead = buffer[index - 2]
+            if (UTF16Code.leadSurrogateStart...UTF16Code.leadSurrogateEnd).contains(lead) {
+                let value =
+                    0x10000
+                    + (UInt32(lead - UTF16Code.leadSurrogateStart) << 10)
+                    + UInt32(unit - UTF16Code.trailSurrogateStart)
+                return Unicode.Scalar(value)
+            }
+        }
+        return Unicode.Scalar(unit)
+    }
+
+    private static func scalarAt(_ buffer: UnsafeBufferPointer<UInt16>, index: Int) -> Unicode.Scalar? {
+        guard index < buffer.count else { return nil }
+        let unit = buffer[index]
+        if (UTF16Code.leadSurrogateStart...UTF16Code.leadSurrogateEnd).contains(unit), index + 1 < buffer.count {
+            let trail = buffer[index + 1]
+            if (UTF16Code.trailSurrogateStart...UTF16Code.trailSurrogateEnd).contains(trail) {
+                let value =
+                    0x10000
+                    + (UInt32(unit - UTF16Code.leadSurrogateStart) << 10)
+                    + UInt32(trail - UTF16Code.trailSurrogateStart)
+                return Unicode.Scalar(value)
+            }
+        }
+        return Unicode.Scalar(unit)
+    }
+
+    private static func isNonASCIIEmojiPart(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value > UInt32(UTF16Code.delete)
+            && (scalar.properties.isEmoji
+                || scalar.value == UTF16Code.variationSelector16
+                || scalar.value == UTF16Code.combiningEnclosingKeycap)
+    }
+
+    private static func isRstAdornment(_ buffer: UnsafeBufferPointer<UInt16>, start: Int, end: Int) -> Bool {
+        var trimmedEnd = end
+        while trimmedEnd > start,
+            buffer[trimmedEnd - 1] == UTF16Code.space || buffer[trimmedEnd - 1] == UTF16Code.tab
+        {
+            trimmedEnd -= 1
+        }
+        guard trimmedEnd - start >= minimumRstAdornmentLength else { return false }
+        let marker = buffer[start]
+        guard rstAdornments.contains(marker) else { return false }
+        for index in (start + 1)..<trimmedEnd where buffer[index] != marker { return false }
+        return true
+    }
+
+    private static func asciiDocFenceChar(_ buffer: UnsafeBufferPointer<UInt16>, start: Int, end: Int) -> UInt16? {
+        var trimmedEnd = end
+        while trimmedEnd > start,
+            buffer[trimmedEnd - 1] == UTF16Code.space || buffer[trimmedEnd - 1] == UTF16Code.tab
+        {
+            trimmedEnd -= 1
+        }
+        guard trimmedEnd - start >= minimumAsciiDocFenceLength else { return nil }
+        let marker = buffer[start]
+        guard marker == UTF16Code.minus || marker == UTF16Code.dot else { return nil }
+        for index in (start + 1)..<trimmedEnd where buffer[index] != marker { return nil }
+        return marker
+    }
+
+    private static func isAsciiDocHeading(_ buffer: UnsafeBufferPointer<UInt16>, start: Int, end: Int) -> Bool {
+        var pos = start
+        while pos < end, pos - start < maximumAsciiDocHeadingLevel, buffer[pos] == UTF16Code.equals {
+            pos += 1
+        }
+        return pos > start && pos < end && (buffer[pos] == UTF16Code.space || buffer[pos] == UTF16Code.tab)
+    }
+
+    private static func lineHasNonSpace(_ buffer: UnsafeBufferPointer<UInt16>, start: Int, end: Int) -> Bool {
+        for index in start..<end where buffer[index] != UTF16Code.space && buffer[index] != UTF16Code.tab {
+            return true
+        }
+        return false
+    }
+
+    @inline(__always)
+    private static func lineEnd(_ buffer: UnsafeBufferPointer<UInt16>, from start: Int) -> Int {
+        var pos = start
+        let count = buffer.count
+        while pos < count, buffer[pos] != UTF16Code.lineFeed, buffer[pos] != UTF16Code.carriageReturn {
+            pos += 1
+        }
+        return pos
+    }
+
+    @inline(__always)
+    private static func nextLineStart(_ buffer: UnsafeBufferPointer<UInt16>, after end: Int) -> Int {
+        let count = buffer.count
+        guard end < count else { return count }
+        if buffer[end] == UTF16Code.carriageReturn, end + 1 < count, buffer[end + 1] == UTF16Code.lineFeed {
+            return end + 2
+        }
+        return end + 1
+    }
+
+    @inline(__always)
+    private static func matches(_ buffer: UnsafeBufferPointer<UInt16>, at index: Int, _ pattern: [UInt16]) -> Bool {
+        let length = pattern.count
+        guard index + length <= buffer.count else { return false }
+        for offset in 0..<length where buffer[index + offset] != pattern[offset] { return false }
+        return true
+    }
+
+    private static func matchesASCII(
+        _ buffer: UnsafeBufferPointer<UInt16>, at start: Int, end: Int, _ literal: String
+    ) -> Bool {
+        let units = literal.utf8
+        guard start + units.count <= end else { return false }
+        var offset = 0
+        for byte in units {
+            if buffer[start + offset] != UInt16(byte) { return false }
+            offset += 1
+        }
+        return true
+    }
+
+    private static func matchesASCIIFolded(
+        _ buffer: UnsafeBufferPointer<UInt16>, at start: Int, _ lowerLiteral: String
+    ) -> Bool {
+        let units = lowerLiteral.utf8
+        guard start + units.count <= buffer.count else { return false }
+        var offset = 0
+        for byte in units {
+            var actual = buffer[start + offset]
+            if (UTF16Code.upperA...UTF16Code.upperZ).contains(actual) { actual &+= UTF16Code.asciiCaseOffset }
+            if actual != UInt16(byte) { return false }
+            offset += 1
+        }
+        return true
+    }
+
+    private static func matchesBatchRem(_ buffer: UnsafeBufferPointer<UInt16>, at start: Int) -> Bool {
+        guard matchesASCIIFolded(buffer, at: start, "rem") else { return false }
+        let after = start + 3
+        return after == buffer.count || isSpaceOrLineBreak(buffer[after])
+    }
+
+    @inline(__always)
+    private static func isDigit(_ unit: UInt16) -> Bool {
+        (UTF16Code.digitZero...UTF16Code.digitNine).contains(unit)
+    }
+
+    @inline(__always)
+    private static func isHexDigit(_ unit: UInt16) -> Bool {
+        isDigit(unit) || (UTF16Code.upperA...UTF16Code.upperF).contains(unit)
+            || (UTF16Code.lowerA...UTF16Code.lowerF).contains(unit)
+    }
+
+    @inline(__always)
+    private static func isASCIILetter(_ unit: UInt16) -> Bool {
+        (UTF16Code.upperA...UTF16Code.upperZ).contains(unit) || (UTF16Code.lowerA...UTF16Code.lowerZ).contains(unit)
+    }
+
+    @inline(__always)
+    private static func isASCIIIdentifier(_ unit: UInt16) -> Bool {
+        isASCIILetter(unit) || isDigit(unit) || unit == UTF16Code.underscore
+    }
+
+    @inline(__always)
+    private static func isPlainIdentifier(_ unit: UInt16) -> Bool {
+        isASCIILetter(unit) || unit == UTF16Code.underscore || unit > UTF16Code.delete
+    }
+
+    @inline(__always)
+    private static func isIdentifierStart(_ unit: UInt16, features: PreviewLanguageGrammar.Features) -> Bool {
+        if isPlainIdentifier(unit) { return true }
+        if unit == UTF16Code.dollar, features.contains(.allowDollarIdentifier) { return true }
+        if unit == UTF16Code.atSign, features.contains(.allowAtIdentifier) { return true }
+        return false
+    }
+
+    @inline(__always)
+    private static func isIdentifierContinue(_ unit: UInt16, features: PreviewLanguageGrammar.Features) -> Bool {
+        if isPlainIdentifier(unit) || isDigit(unit) { return true }
+        if unit == UTF16Code.minus, features.contains(.allowHyphenIdentifier) { return true }
+        return false
+    }
+
+    @inline(__always)
+    private static func isMarkupNameChar(_ unit: UInt16) -> Bool {
+        isPlainIdentifier(unit) || isDigit(unit) || unit == UTF16Code.minus || unit == UTF16Code.colon
+    }
+
+    @inline(__always)
+    private static func isASCIIKeyStart(_ unit: UInt16) -> Bool {
+        isASCIILetter(unit) || unit == UTF16Code.underscore
+    }
+
+    @inline(__always)
+    private static func isASCIIKeyContinue(_ unit: UInt16) -> Bool {
+        isASCIIIdentifier(unit) || unit == UTF16Code.dot || unit == UTF16Code.minus
+    }
+
+    @inline(__always)
+    private static func isSpaceOrLineBreak(_ unit: UInt16) -> Bool {
+        unit == UTF16Code.space || unit == UTF16Code.tab
+            || unit == UTF16Code.lineFeed || unit == UTF16Code.carriageReturn
+    }
+
+    @inline(__always)
+    private static func isPythonPrefixChar(_ unit: UInt16) -> Bool {
+        switch unit {
+        case UTF16Code.lowerR, UTF16Code.lowerF, UTF16Code.lowerB, UTF16Code.lowerU,
+            UTF16Code.upperR, UTF16Code.upperF, UTF16Code.upperB, UTF16Code.upperU:
+            true
+        default:
+            false
+        }
     }
 }
