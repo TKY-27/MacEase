@@ -278,7 +278,7 @@ struct PreviewTable: Sendable {
         let cut = bounded.unicodeScalars.count > limit
         // The last grapheme holds the extra scalar.
         let kept = cut ? bounded[..<bounded.index(before: bounded.endIndex)] : bounded[...]
-        let flagged = Set(PreviewInvisibleScanner.flagged(in: kept).map(\.range.location))
+        let flagged = Set(PreviewInvisibleScanner.flagged(in: kept, startsFile: false).map(\.range.location))
         var shown = String.UnicodeScalarView()
         var offset = 0
         for scalar in kept.unicodeScalars {

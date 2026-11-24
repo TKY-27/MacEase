@@ -77,12 +77,6 @@ enum PreviewTokenizer {
         return text[..<end]
     }
 
-    static func invisibleCharacters(
-        _ text: String, language: PreviewLanguage = .plain
-    ) throws -> [PreviewInvisibleCharacter] {
-        try PreviewInvisibleScanner.scan(prefix: cappedPrefix(of: text), language: language)
-    }
-
     static func tokens(_ text: String, language: PreviewLanguage) throws -> [PreviewToken] {
         let prefix = cappedPrefix(of: text)
         guard !prefix.isEmpty else { return [] }
@@ -127,7 +121,6 @@ enum PreviewTokenizer {
         var atLineStart = true
         var lineStartOffset = 0
         var braceDepth = 0
-        var previousNonSpace: UInt16?
 
         while cursor < count {
             step &+= 1
@@ -140,7 +133,6 @@ enum PreviewTokenizer {
                     markup.embeddedLanguage = nil
                     markup.activeGrammar = markup.baseGrammar
                     atLineStart = false
-                    previousNonSpace = nil
                     continue
                 }
                 if embedded != .php, matchesEmbeddedClose(buffer, at: cursor, language: embedded) {
@@ -155,7 +147,6 @@ enum PreviewTokenizer {
                 cursor += 1
                 atLineStart = true
                 lineStartOffset = cursor
-                previousNonSpace = nil
                 continue
             }
             if unit == UTF16Code.space || unit == UTF16Code.tab {
@@ -171,7 +162,6 @@ enum PreviewTokenizer {
             if grammar.numberStyle != .none, isDigit(unit) {
                 cursor = scanNumber(buffer, from: start, style: grammar.numberStyle)
                 result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .number))
-                previousNonSpace = nil
                 continue
             }
 
@@ -181,7 +171,6 @@ enum PreviewTokenizer {
                         cursor = lineEnd(buffer, from: start)
                         result.append(
                             PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .comment))
-                        previousNonSpace = nil
                         continue
                     }
                     if grammar.keyStyle == .tomlEquals || grammar.keyStyle == .iniColonOrEquals,
@@ -191,7 +180,6 @@ enum PreviewTokenizer {
                         cursor = keyEnd
                         result.append(
                             PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .keyword))
-                        previousNonSpace = nil
                         continue
                     }
                     if grammar.lineSyntax == .makefile, start == lineStartOffset,
@@ -200,7 +188,6 @@ enum PreviewTokenizer {
                         cursor = targetEnd
                         result.append(
                             PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .type))
-                        previousNonSpace = nil
                         continue
                     }
                 }
@@ -210,7 +197,6 @@ enum PreviewTokenizer {
                 {
                     cursor = literalEnd
                     result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string))
-                    previousNonSpace = nil
                     continue
                 }
                 cursor += 1
@@ -222,13 +208,11 @@ enum PreviewTokenizer {
                     start: start,
                     end: cursor,
                     isFirstOnLine: isFirstOnLine,
-                    previousNonSpace: previousNonSpace,
                     braceDepth: braceDepth,
                     grammar: grammar)
                 {
                     result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: kind))
                 }
-                previousNonSpace = nil
                 continue
             }
 
@@ -242,11 +226,9 @@ enum PreviewTokenizer {
                 markup: &markup)
             {
                 result.append(token)
-                previousNonSpace = nil
                 continue
             }
             if cursor > start {
-                previousNonSpace = nil
                 continue
             }
 
@@ -255,7 +237,6 @@ enum PreviewTokenizer {
             {
                 cursor = targetEnd
                 result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .type))
-                previousNonSpace = nil
                 continue
             }
 
@@ -269,13 +250,11 @@ enum PreviewTokenizer {
                     start: start,
                     end: cursor,
                     isFirstOnLine: isFirstOnLine,
-                    previousNonSpace: previousNonSpace,
                     braceDepth: braceDepth,
                     grammar: grammar)
                 {
                     result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: kind))
                 }
-                previousNonSpace = nil
                 continue
             }
 
@@ -284,7 +263,6 @@ enum PreviewTokenizer {
             } else if unit == UTF16Code.rightBrace, braceDepth > 0 {
                 braceDepth -= 1
             }
-            previousNonSpace = unit
             cursor += 1
         }
     }
@@ -305,6 +283,7 @@ enum PreviewTokenizer {
             previous: previous,
             isFirstOnLine: isFirstOnLine,
             lineStartOffset: lineStartOffset,
+            insidePHP: markup.embeddedLanguage == .php,
             grammar: grammar)
         {
             return token
@@ -326,6 +305,7 @@ enum PreviewTokenizer {
         previous: UInt16?,
         isFirstOnLine: Bool,
         lineStartOffset: Int,
+        insidePHP: Bool,
         grammar: PreviewLanguageGrammar
     ) -> PreviewToken? {
         let start = cursor
@@ -360,6 +340,10 @@ enum PreviewTokenizer {
                 continue
             }
             cursor = lineEnd(buffer, from: start)
+            // PHP ends a line comment at ?>.
+            if insidePHP, let close = (start..<cursor).first(where: { matchesPHPEnd(buffer, at: $0) }) {
+                cursor = close
+            }
             return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .comment)
         }
 
@@ -452,8 +436,10 @@ enum PreviewTokenizer {
             return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
         }
 
-        if grammar.supportsHeredoc, unit == UTF16Code.lessThan,
-            let end = scanHeredoc(buffer, from: start, lastLineBreak: lastLineBreak)
+        if grammar.heredocStyle != .none, unit == UTF16Code.lessThan,
+            let end = scanHeredoc(
+                buffer, from: start, lastLineBreak: lastLineBreak,
+                quoteMayFollowSpace: grammar.heredocStyle == .spacedQuote)
         {
             cursor = end
             return PreviewToken(range: NSRange(location: start, length: cursor - start), kind: .string)
@@ -804,7 +790,6 @@ enum PreviewTokenizer {
         start: Int,
         end: Int,
         isFirstOnLine: Bool,
-        previousNonSpace: UInt16?,
         braceDepth: Int,
         grammar: PreviewLanguageGrammar
     ) -> PreviewToken.Kind? {
@@ -818,7 +803,10 @@ enum PreviewTokenizer {
                 break
             }
         }
-        if previousNonSpace == UTF16Code.dot { return nil }
+        // Member access, not spread or lone dot.
+        if start > 0, buffer[start - 1] == UTF16Code.dot, start == 1 || buffer[start - 2] != UTF16Code.dot {
+            return nil
+        }
         let length = end - start
         guard length >= grammar.minWordLength && length <= grammar.maxWordLength else { return nil }
         if grammar.lineSyntax == .dockerfile {

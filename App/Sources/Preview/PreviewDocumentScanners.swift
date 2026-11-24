@@ -282,7 +282,7 @@ extension PreviewTokenizer {
     }
 
     static func scanHeredoc(
-        _ buffer: UnsafeBufferPointer<UInt16>, from start: Int, lastLineBreak: Int
+        _ buffer: UnsafeBufferPointer<UInt16>, from start: Int, lastLineBreak: Int, quoteMayFollowSpace: Bool
     ) -> Int? {
         let count = buffer.count
         guard start + 2 < count, buffer[start + 1] == UTF16Code.lessThan else { return nil }
@@ -301,6 +301,7 @@ extension PreviewTokenizer {
         guard pos < count else { return nil }
         let quote: UInt16?
         if buffer[pos] == UTF16Code.singleQuote || buffer[pos] == UTF16Code.doubleQuote {
+            if hadSpace && !quoteMayFollowSpace { return nil }
             quote = buffer[pos]
             pos += 1
         } else {

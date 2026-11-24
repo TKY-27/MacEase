@@ -619,6 +619,37 @@ final class PreviewTokenizerTests: XCTestCase {
             ["if", "true", "then", "fi"])
     }
 
+    func testPHPCommentsEndAtCloseTagRubyAppendsAndSpreadKeepsKeywords() throws {
+        func substrings(_ text: String, _ language: PreviewLanguage, _ kind: PreviewToken.Kind) throws -> [String] {
+            try PreviewTokenizer.tokens(text, language: language).filter { $0.kind == kind }.map {
+                (text as NSString).substring(with: $0.range)
+            }
+        }
+        let template = """
+            <?php // header ?>
+            <p>Don't forget</p>
+            <?php echo $a; ?>
+            <p>It's done</p>
+            <?php # hash ?>
+            <p>Won't break</p>
+            """
+        XCTAssertEqual(try substrings(template, .php, .comment), ["// header ", "# hash "])
+        XCTAssertEqual(try substrings(template, .php, .string), [])
+        XCTAssertEqual(
+            try substrings(template, .php, .keyword),
+            ["<?php", "?>", "<p", "</p", "<?php", "echo", "?>", "<p", "</p", "<?php", "?>", "<p", "</p"])
+
+        let ruby = "log << \"started\"\ndef run\n  puts \"x\"\nend\nsql = <<~\"SQL\"\n  select 1\nSQL\n"
+        XCTAssertEqual(try substrings(ruby, .ruby, .string), ["\"started\"", "\"x\"", "<<~\"SQL\"\n  select 1\nSQL"])
+        XCTAssertEqual(try substrings(ruby, .ruby, .keyword), ["def", "end"])
+        XCTAssertEqual(try substrings("cat << \"EOF\"\nhi\nEOF\n", .shell, .string), ["<< \"EOF\"\nhi\nEOF"])
+
+        XCTAssertEqual(try substrings("from . import views\n", .python, .keyword), ["from", "import"])
+        XCTAssertEqual(
+            try substrings("const s = [...new Set(a)]; f(...await g()); obj.default;", .javascript, .keyword),
+            ["const", "new", "await"])
+    }
+
     func testDiffHeadersDoNotMisclassifyHunkLines() throws {
         let patch = """
             diff --git a/query.sql b/query.sql
@@ -760,7 +791,7 @@ final class PreviewTokenizerTests: XCTestCase {
             + "\u{200B}\u{2060}\u{2062}\u{FEFF}\u{2028}\u{2029}"
             + "\u{E0041}\u{E0042}\u{115F}\u{1160}\u{3164}\u{FFA0}\u{180E}\u{2800}"
             + "\u{034F}\u{17B4}\u{FFF9}b"
-        let alwaysMarks = try PreviewTokenizer.invisibleCharacters(alwaysFlagged, language: .plain)
+        let alwaysMarks = try Self.invisibleMarks(alwaysFlagged, language: .plain)
         XCTAssertEqual(
             alwaysMarks.map(\.codePointLabel),
             [
@@ -772,30 +803,30 @@ final class PreviewTokenizerTests: XCTestCase {
         let tagMark = try XCTUnwrap(alwaysMarks.first { $0.scalar == Unicode.Scalar(0xE0041) })
         XCTAssertEqual(tagMark.range.length, 2)
 
-        XCTAssertTrue(try PreviewTokenizer.invisibleCharacters("\u{FEFF}leading BOM", language: .plain).isEmpty)
+        XCTAssertTrue(try Self.invisibleMarks("\u{FEFF}leading BOM", language: .plain).isEmpty)
 
         let validFlag = "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}"
-        XCTAssertTrue(try PreviewTokenizer.invisibleCharacters(validFlag, language: .plain).isEmpty)
+        XCTAssertTrue(try Self.invisibleMarks(validFlag, language: .plain).isEmpty)
 
         let unclosedTag = "🏴\u{E0041}"
-        let unclosedMarks = try PreviewTokenizer.invisibleCharacters(unclosedTag, language: .plain)
+        let unclosedMarks = try Self.invisibleMarks(unclosedTag, language: .plain)
         XCTAssertEqual(unclosedMarks.map(\.codePointLabel), ["U+E0041"])
 
         let vsAttack = "\u{FE00} a\u{FE00} 😀\u{E0100} 😀\u{FE0F}\u{FE0F}"
-        let vsMarks = try PreviewTokenizer.invisibleCharacters(vsAttack, language: .plain)
+        let vsMarks = try Self.invisibleMarks(vsAttack, language: .plain)
         XCTAssertEqual(vsMarks.map(\.codePointLabel), ["U+FE00", "U+FE00", "U+E0100", "U+FE0F"])
 
         let validVS = "❤\u{FE0F} 🏳\u{FE0F} 1\u{FE0F}\u{20E3} 葛\u{E0100}"
-        XCTAssertTrue(try PreviewTokenizer.invisibleCharacters(validVS, language: .plain).isEmpty)
+        XCTAssertTrue(try Self.invisibleMarks(validVS, language: .plain).isEmpty)
 
         let asciiAdjacent = "admin\u{200D}user 1\u{200D}2 a\u{200C}b a\u{200E}b a\u{200F}b a\u{061C}b"
-        let adjacentMarks = try PreviewTokenizer.invisibleCharacters(asciiAdjacent, language: .plain)
+        let adjacentMarks = try Self.invisibleMarks(asciiAdjacent, language: .plain)
         XCTAssertEqual(
             adjacentMarks.map(\.codePointLabel),
             ["U+200D", "U+200D", "U+200C", "U+200E", "U+200F", "U+061C"])
 
         let codeSoftHyphen = "let is\u{00AD}Admin = true"
-        let codeSoftMarks = try PreviewTokenizer.invisibleCharacters(codeSoftHyphen, language: .swift)
+        let codeSoftMarks = try Self.invisibleMarks(codeSoftHyphen, language: .swift)
         XCTAssertEqual(codeSoftMarks.map(\.codePointLabel), ["U+00AD"])
 
         let naturalParagraphs: [(String, String)] = [
@@ -813,12 +844,84 @@ final class PreviewTokenizerTests: XCTestCase {
             ),
         ]
         for (label, text) in naturalParagraphs {
-            let marks = try PreviewTokenizer.invisibleCharacters(text, language: .plain)
+            let marks = try Self.invisibleMarks(text, language: .plain)
             XCTAssertTrue(marks.isEmpty, "\(label) unexpectedly flagged: \(marks.map(\.codePointLabel))")
         }
 
         let beyondCap = String(repeating: "a", count: PreviewTextSource.highlightBytes) + "\u{202E}"
         XCTAssertTrue(try PreviewTokenizer.tokens(beyondCap, language: .plain).isEmpty)
+    }
+
+    private static func invisibleMarks(_ text: String, language: PreviewLanguage) throws -> [PreviewInvisibleCharacter]
+    {
+        try PreviewTokenizer.tokens(text, language: language).compactMap { token in
+            token.invisibleScalar.map { PreviewInvisibleCharacter(range: token.range, scalar: $0) }
+        }
+    }
+
+    private static func tags(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.compactMap { Unicode.Scalar($0.value + 0xE0000) }))
+    }
+
+    func testTagFlagsVariationSelectorsAndContextRulesResistHiding() throws {
+        let cancel = "\u{E007F}"
+        let hiddenFlags = [
+            "🏴" + Self.tags("Ignore previous") + cancel,
+            "🏴" + Self.tags("ignore previous") + cancel,
+            "🏴" + Self.tags("ignoreall") + cancel,
+            "🏴" + Self.tags("gb") + cancel,
+            "🏴" + Self.tags("1bab") + cancel,
+            "🏴" + Self.tags("GBENG") + cancel,
+        ]
+        for text in hiddenFlags {
+            let marks = try Self.invisibleMarks(text, language: .javascript)
+            XCTAssertEqual(marks.count, text.unicodeScalars.count - 1, "every tag is flagged: \(marks.count)")
+        }
+        for subdivision in ["gbeng", "gbsct", "gbwls", "usca", "fr75"] {
+            let flag = "🏴" + Self.tags(subdivision) + cancel
+            XCTAssertTrue(try Self.invisibleMarks(flag, language: .javascript).isEmpty, subdivision)
+        }
+
+        let selectorAttacks = [
+            "const user1\u{FE00} = 1; const user1 = 2;", "const _\u{FE00} = 1;", "var a = \"x\u{FE00}\";",
+            "let b = 1\u{FE00};", "let c = x\u{FE0F};", "let d = #\u{FE01};",
+        ]
+        for text in selectorAttacks {
+            XCTAssertEqual(try Self.invisibleMarks(text, language: .javascript).count, 1, text)
+        }
+        XCTAssertTrue(
+            try Self.invisibleMarks("1\u{FE0F}\u{20E3} #\u{FE0F}\u{20E3} *\u{FE0E}", language: .plain).isEmpty)
+
+        let codeAttacks = [
+            "const кл\u{200D}юч = 1; const ключ = 2;", "let ρο\u{200C}λος = admin;",
+            "if (role === \"адм\u{200D}ин\") grant();", "café\u{200D}s = 1", "naïve\u{200C}x = 1",
+            "x = \u{200F}1 - 2; // שלום", "x = \"\u{200F}1 - 2\"; // שלום", "t(\"שלום\"); x = \"\u{200F}1 - 2\";",
+            "if (isAdmin \u{200F}) {} // עברית", "let s = \"\u{200B}\";", "let 日本\u{200B}語 = 1",
+        ]
+        for text in codeAttacks {
+            XCTAssertEqual(try Self.invisibleMarks(text, language: .javascript).count, 1, text)
+        }
+        XCTAssertTrue(
+            try Self.invisibleMarks("const s = \"שלום\u{200F}עולם\";", language: .javascript).isEmpty,
+            "a mark between right-to-left letters stays clean in code")
+        XCTAssertEqual(try Self.invisibleMarks("pass\u{200B}word", language: .plain).count, 1)
+
+        let naturalText = [
+            "من می\u{200C}خواهم این کتاب\u{200C}ها را بخوانم.", "لا\u{200C} أعرف", "یہ کتاب\u{200C} ہے",
+            "क्\u{200D}ष र\u{200D}्\u{200D}य हिन्दी", "मराठी: र्\u{200D}य आणि र\u{200D}्य", "বাংলা: র\u{200D}্যাব",
+            "தமிழ்\u{200C} எழுத்து", "മലയാളം: ന്\u{200D} ര്\u{200D} ള്\u{200D}", "සිංහල: ශ්\u{200D}රී ක්\u{200D}ය",
+            "שלום \u{200F}עולם\u{200F} (123)\u{200E} טקסט", "המחיר הוא 50 ש״ח (כולל מע״מ)\u{200F}.",
+            "אני משתמש ב-C++\u{200E} כל יום", "Donau\u{AD}dampf\u{AD}schiff\u{AD}fahrt",
+            "Megszentségtelenít\u{AD}het\u{AD}etlen\u{AD}ség", "ភាសា\u{200B}ខ្មែរ\u{200B}គឺ\u{200B}ជា",
+            "ภาษา\u{200B}ไทย\u{200B}เป็น", "日本語\u{200B}の\u{200B}テキスト",
+            "👨\u{200D}👩\u{200D}👧 🏳\u{FE0F}\u{200D}🌈 👍🏽 1\u{FE0F}\u{20E3} ©\u{FE0F}",
+        ]
+        for language in [PreviewLanguage.plain, .markdown] {
+            for text in naturalText {
+                let marks = try Self.invisibleMarks(text, language: language)
+                XCTAssertTrue(marks.isEmpty, "\(language) \(text): \(marks.map(\.codePointLabel))")
+            }
+        }
     }
 
     @MainActor
@@ -874,11 +977,11 @@ final class PreviewTokenizerTests: XCTestCase {
         for (language, prefix) in heredocLanguages {
             let small = prefix + String(repeating: "x<<A ", count: 3_000)
             let large = prefix + String(repeating: "x<<A ", count: 12_000)
-            let smallTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(small, language: language) }
-            let largeTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(large, language: language) }
+            let smallTime = try minimumThreadTime { _ = try PreviewTokenizer.tokens(small, language: language) }
+            let largeTime = try minimumThreadTime { _ = try PreviewTokenizer.tokens(large, language: language) }
             let ratio = largeTime / max(smallTime, 1e-6)
             XCTAssertLessThan(
-                ratio, 8.0,
+                ratio, Self.maximumLinearRatio,
                 "\(language) heredoc scaled superlinearly: \(smallTime)s -> \(largeTime)s (ratio \(ratio))")
         }
 
@@ -906,11 +1009,11 @@ final class PreviewTokenizerTests: XCTestCase {
         for (name, language, builder) in scalingCases {
             let small = builder(400)
             let large = builder(1_600)
-            let smallTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(small, language: language) }
-            let largeTime = try minimumElapsed { _ = try PreviewTokenizer.tokens(large, language: language) }
+            let smallTime = try minimumThreadTime { _ = try PreviewTokenizer.tokens(small, language: language) }
+            let largeTime = try minimumThreadTime { _ = try PreviewTokenizer.tokens(large, language: language) }
             let ratio = largeTime / max(smallTime, 1e-6)
             XCTAssertLessThan(
-                ratio, 8.0,
+                ratio, Self.maximumLinearRatio,
                 "\(name) scaled superlinearly: \(smallTime)s -> \(largeTime)s (ratio \(ratio))")
         }
 
@@ -951,13 +1054,19 @@ final class PreviewTokenizerTests: XCTestCase {
         }
     }
 
-    private func minimumElapsed(_ body: () throws -> Void) throws -> Double {
+    // Linear stays near 4; quadratic reaches 16.
+    private static let maximumLinearRatio = 11.0
+    private static let timingRuns = 5
+    private static let nanosecondsPerSecond = 1e9
+
+    // Thread CPU time ignores other busy processes.
+    private func minimumThreadTime(_ body: () throws -> Void) throws -> Double {
         var best = Double.greatestFiniteMagnitude
-        for _ in 0..<3 {
-            let start = CFAbsoluteTimeGetCurrent()
+        for _ in 0..<Self.timingRuns {
+            let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
             try body()
-            let elapsed = CFAbsoluteTimeGetCurrent() - start
-            if elapsed < best { best = elapsed }
+            let elapsed = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start) / Self.nanosecondsPerSecond
+            best = min(best, elapsed)
         }
         return best
     }

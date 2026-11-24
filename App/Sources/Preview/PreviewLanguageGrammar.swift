@@ -150,6 +150,13 @@ final class PreviewLanguageGrammar: Sendable {
         case powershellHereString
     }
 
+    enum HeredocStyle: Sendable {
+        case none
+        case spacedQuote
+        // Ruby `buf << "x"` appends.
+        case adjacentQuote
+    }
+
     enum PrefixedStringStyle: Sendable {
         case none
         case python
@@ -190,7 +197,7 @@ final class PreviewLanguageGrammar: Sendable {
     let prefixedStringStyle: PrefixedStringStyle
     let lineSyntax: LineSyntax
     let identifiers: IdentifierRules
-    let supportsHeredoc: Bool
+    let heredocStyle: HeredocStyle
     let supportsMarkupTags: Bool
     let supportsObjCAt: Bool
     let minWordLength: Int
@@ -214,7 +221,7 @@ final class PreviewLanguageGrammar: Sendable {
         prefixedStringStyle: PrefixedStringStyle = .none,
         lineSyntax: LineSyntax = .none,
         identifiers: IdentifierRules = [],
-        supportsHeredoc: Bool = false,
+        heredocStyle: HeredocStyle = .none,
         supportsMarkupTags: Bool = false,
         supportsObjCAt: Bool = false
     ) {
@@ -238,7 +245,7 @@ final class PreviewLanguageGrammar: Sendable {
         self.prefixedStringStyle = prefixedStringStyle
         self.lineSyntax = lineSyntax
         self.identifiers = identifiers
-        self.supportsHeredoc = supportsHeredoc
+        self.heredocStyle = heredocStyle
         self.supportsMarkupTags = supportsMarkupTags
         self.supportsObjCAt = supportsObjCAt
 
@@ -480,7 +487,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "Array BasicObject Class Comparable Enumerable Exception FalseClass File Float Hash Integer IO Kernel MatchData Module NilClass Numeric Object p print Proc puts Range Regexp String Struct Symbol Thread Time TrueClass",
         literals: "true false nil",
-        supportsHeredoc: true
+        heredocStyle: .adjacentQuote
     )
 
     static let php = PreviewLanguageGrammar(
@@ -496,7 +503,7 @@ final class PreviewLanguageGrammar: Sendable {
             "bool Closure DateTime Exception float int iterable mixed never object parent self stdClass string Throwable void",
         literals: "true false null TRUE FALSE NULL",
         identifiers: [.dollarStart],
-        supportsHeredoc: true
+        heredocStyle: .spacedQuote
     )
 
     static let java = PreviewLanguageGrammar(
@@ -508,7 +515,7 @@ final class PreviewLanguageGrammar: Sendable {
             StringRule("'"),
         ],
         keywords:
-            "abstract assert boolean break byte case catch char class const continue default do double else enum exports extends final finally float for goto if implements import instanceof int interface long module native new non-sealed open opens package permits private protected provides public record requires return sealed short static strictfp super switch synchronized this throw throws to transient transitive try uses var void volatile while with yield",
+            "abstract assert boolean break byte case catch char class const continue default do double else enum exports extends final finally float for goto if implements import instanceof int interface long module native new open opens package permits private protected provides public record requires return sealed short static strictfp super switch synchronized this throw throws to transient transitive try uses var void volatile while with yield",
         types:
             "ArrayList Boolean Byte Character Class Double Exception Float HashMap HashSet Integer List Long Map Math Object Optional Override RuntimeException Set Short Stream String StringBuilder System Throwable Void",
         literals: "true false null"
@@ -605,7 +612,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "chomp chop close defined delete die each exists grep join keys length map open pop print printf push reverse scalar shift sort split sprintf substr undef unshift values warn",
         identifiers: [.dollarStart],
-        supportsHeredoc: true
+        heredocStyle: .spacedQuote
     )
 
     static let rLanguage = PreviewLanguageGrammar(
@@ -635,7 +642,7 @@ final class PreviewLanguageGrammar: Sendable {
             "alias awk builtin cat cd command cp echo eval exec find grep ls mkdir mv printf pwd read rm rmdir sed source test type unalias which xargs",
         literals: "true false",
         identifiers: [.dollarStart],
-        supportsHeredoc: true
+        heredocStyle: .spacedQuote
     )
 
     static let powershell = PreviewLanguageGrammar(
@@ -789,7 +796,7 @@ final class PreviewLanguageGrammar: Sendable {
         types:
             "any bool coalesce concat flatten format join keys length list lookup map merge number object set split string tuple values",
         literals: "true false null",
-        supportsHeredoc: true
+        heredocStyle: .spacedQuote
     )
 
     static let protobuf = PreviewLanguageGrammar(
