@@ -5,7 +5,7 @@ import WebKit
 import os
 
 // One-way; network resets on reselection.
-struct PreviewWebPolicy: Hashable {
+struct PreviewWebPolicy: Hashable, Sendable {
     let restricted: Bool
     private(set) var scripts: Bool
     private(set) var network = false
@@ -136,7 +136,7 @@ enum PreviewWebConfiguration {
 
     static func make(for page: PreviewWebViewer.Page) async throws -> WKWebViewConfiguration {
         switch page {
-        case .file(_, _, let policy):
+        case .file(_, _, let policy, _):
             try await make(scripts: policy.scripts, reach: policy.network ? .network : .localFiles)
         case .inline(_, let policy):
             try await make(scripts: policy.scripts, reach: policy.network ? .inlineNetwork : .inline)
@@ -146,7 +146,7 @@ enum PreviewWebConfiguration {
     }
 
     // Home-folder files get no folder access.
-    static func folderReadAccess(
+    nonisolated static func folderReadAccess(
         for url: URL, homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> URL? {
         let resolvedFile = url.resolvingSymlinksInPath().standardizedFileURL
@@ -159,17 +159,26 @@ enum PreviewWebConfiguration {
         return folder
     }
 
-    static func load(_ page: PreviewWebViewer.Page, in browser: WKWebView) {
+    // Returns false when the file changed.
+    @discardableResult
+    static func load(_ page: PreviewWebViewer.Page, in browser: WKWebView) -> Bool {
         switch page {
-        case .file(let url, let readAccess, _): browser.loadFileURL(url, allowingReadAccessTo: readAccess)
-        case .inline(let html, _), .generated(let html): browser.loadHTMLString(html, baseURL: nil)
+        case .file(let url, let readAccess, _, let expectedStamp):
+            if let expectedStamp, !PreviewTrust.isUnchangedUnquarantined(url, expectedStamp: expectedStamp) {
+                return false
+            }
+            browser.loadFileURL(url, allowingReadAccessTo: readAccess)
+            return true
+        case .inline(let html, _), .generated(let html):
+            browser.loadHTMLString(html, baseURL: nil)
+            return true
         }
     }
 
     static func permitsNavigation(to destination: URL, page: PreviewWebViewer.Page) -> Bool {
         switch page {
         case .generated, .inline: destination.absoluteString == "about:blank"
-        case .file(let source, _, _):
+        case .file(let source, _, _, _):
             destination.isFileURL && destination.host == source.host && destination.query == source.query
                 && destination.standardizedFileURL.path == source.standardizedFileURL.path
         }
@@ -178,20 +187,21 @@ enum PreviewWebConfiguration {
 
 struct PreviewWebViewer: View {
     // Generated pages are sealed and scriptless.
-    enum Page: Hashable {
-        case file(URL, readAccess: URL, PreviewWebPolicy)
+    enum Page: Hashable, Sendable {
+        case file(URL, readAccess: URL, PreviewWebPolicy, expectedStamp: FileStamp? = nil)
         case inline(String, PreviewWebPolicy)
         case generated(String)
 
         var allowsNetwork: Bool {
             switch self {
-            case .file(_, _, let policy), .inline(_, let policy): policy.network
+            case .file(_, _, let policy, _), .inline(_, let policy): policy.network
             case .generated: false
             }
         }
     }
 
     let page: Page
+    var onStaleFile: (() -> Void)?
     @State private var configuration: WKWebViewConfiguration?
     @State private var failed = false
 
@@ -200,7 +210,7 @@ struct PreviewWebViewer: View {
             if failed {
                 PreviewFailure()
             } else if let configuration {
-                PreviewBrowser(page: page, configuration: configuration, failed: $failed)
+                PreviewBrowser(page: page, configuration: configuration, failed: $failed, onStaleFile: onStaleFile)
             } else {
                 ProgressView().controlSize(.small)
             }
@@ -226,6 +236,7 @@ private struct PreviewBrowser: NSViewRepresentable {
     let page: PreviewWebViewer.Page
     let configuration: WKWebViewConfiguration
     @Binding var failed: Bool
+    let onStaleFile: (() -> Void)?
 
     func makeCoordinator() -> PreviewWebDelegate { PreviewWebDelegate(page: page, failed: $failed) }
 
@@ -234,7 +245,11 @@ private struct PreviewBrowser: NSViewRepresentable {
             frame: .zero, configuration: configuration, interactive: page.allowsNetwork)
         container.webView.navigationDelegate = context.coordinator
         container.webView.uiDelegate = context.coordinator
-        PreviewWebConfiguration.load(page, in: container.webView)
+        if !PreviewWebConfiguration.load(page, in: container.webView) {
+            if let onStaleFile {
+                Task { @MainActor in onStaleFile() }
+            }
+        }
         return container
     }
 

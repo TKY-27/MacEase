@@ -74,16 +74,22 @@ struct PreviewTextSource: Sendable {
     let bytes: Data
     let truncated: Bool
     let parentDirectory: PreviewDirectoryDescriptor?
+    let trust: PreviewTrust?
 
-    init(bytes: Data, truncated: Bool, parentDirectory: PreviewDirectoryDescriptor? = nil) {
+    init(
+        bytes: Data, truncated: Bool, parentDirectory: PreviewDirectoryDescriptor? = nil, trust: PreviewTrust? = nil
+    ) {
         self.bytes = bytes
         self.truncated = truncated
         self.parentDirectory = parentDirectory
+        self.trust = trust
     }
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
 
-    static func read(_ url: URL, keepParentDirectory: Bool = false) throws -> Self {
+    static func read(
+        _ url: URL, trustedFolders: [String] = [], keepParentDirectory: Bool = false
+    ) throws -> Self {
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL
         let folderPath = resolved.deletingLastPathComponent().path
         let folderFD = open(folderPath, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
@@ -101,6 +107,9 @@ struct PreviewTextSource: Sendable {
         guard fstat(fileFD, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
             throw CocoaError(.fileReadUnsupportedScheme)
         }
+        let trust = PreviewTrust.evaluate(
+            linkURL: url, resolvedURL: resolved, fileDescriptor: fileFD, status: status,
+            trustedFolders: trustedFolders)
         let truncated = Int64(status.st_size) > Int64(maximumBytes)
         let limit = truncated ? excerptBytes : maximumBytes
         var bytes = Data()
@@ -117,7 +126,9 @@ struct PreviewTextSource: Sendable {
             bytes.append(contentsOf: chunk[..<received])
         }
         try Task.checkCancellation()
-        return Self(bytes: bytes, truncated: truncated, parentDirectory: keepParentDirectory ? retainedFolder : nil)
+        return Self(
+            bytes: bytes, truncated: truncated, parentDirectory: keepParentDirectory ? retainedFolder : nil,
+            trust: trust)
     }
 
     func decoded(as encoding: PreviewEncoding) throws -> String {

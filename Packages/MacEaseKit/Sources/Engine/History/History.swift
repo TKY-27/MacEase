@@ -48,6 +48,18 @@ public struct FileStamp: Codable, Hashable, Sendable {
             ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
     }
 
+    public init(fileStatus metadata: stat, includingIdentity: Bool = false) {
+        size = metadata.st_size
+        modified = Date(
+            timeIntervalSinceReferenceDate: TimeInterval(metadata.st_mtimespec.tv_sec)
+                - Date.timeIntervalBetween1970AndReferenceDate
+                + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
+        directorySummary = nil
+        identity =
+            includingIdentity
+            ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
+    }
+
     func matches(_ path: String) -> Bool {
         guard directorySummary?.unreadableCount == nil || directorySummary?.unreadableCount == 0 else {
             return false

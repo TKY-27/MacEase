@@ -51,6 +51,31 @@ struct PreviewTrust: Equatable, Sendable {
         return Self(level: level, resolvedPath: resolved.path, stamp: stamp)
     }
 
+    // Evaluates quarantine and identity from one descriptor.
+    static func evaluate(
+        linkURL: URL, resolvedURL: URL, fileDescriptor: Int32, status: stat, trustedFolders: [String]
+    ) -> Self {
+        let linkPath = linkURL.standardizedFileURL.path
+        let quarantined =
+            (linkPath != resolvedURL.path && isQuarantined(linkPath, options: XATTR_NOFOLLOW))
+            || isQuarantined(fileDescriptor: fileDescriptor)
+        let level: Level =
+            if quarantined {
+                .restricted
+            } else if trustedFolders.contains(where: { contains(folder: $0, file: resolvedURL) }) {
+                .trusted
+            } else {
+                .standard
+            }
+        let stamp = FileStamp(fileStatus: status, includingIdentity: true)
+        return Self(level: level, resolvedPath: resolvedURL.path, stamp: stamp)
+    }
+
+    static func isUnchangedUnquarantined(_ url: URL, expectedStamp: FileStamp) -> Bool {
+        let current = evaluate(url, trustedFolders: [])
+        return !current.restricted && current.stamp == expectedStamp
+    }
+
     private static func isQuarantined(_ path: String, options: Int32) -> Bool {
         guard getxattr(path, quarantineAttribute, nil, 0, 0, options) < 0 else { return true }
         let code = errno
@@ -58,6 +83,15 @@ struct PreviewTrust: Equatable, Sendable {
         // An unreadable attribute could hide a download.
         Logger(category: "finder-preview").error(
             "Quarantine check failed (errno \(code, privacy: .public)), treating the file as downloaded")
+        return true
+    }
+
+    private static func isQuarantined(fileDescriptor: Int32) -> Bool {
+        guard fgetxattr(fileDescriptor, quarantineAttribute, nil, 0, 0, 0) < 0 else { return true }
+        let code = errno
+        if code == ENOATTR || code == ENOTSUP { return false }
+        Logger(category: "finder-preview").error(
+            "Quarantine fd check failed (errno \(code, privacy: .public)), treating the file as downloaded")
         return true
     }
 

@@ -573,4 +573,82 @@ final class PreviewTrustTests: XCTestCase {
         XCTAssertEqual(ran, true)
         XCTAssertEqual(tcp.connectionCount, 0)
     }
+
+    @MainActor
+    func testHTMLPolicyEvaluatesFreshOnEveryLoadAfterReplacementEditOrQuarantine() async throws {
+        let directory = try PreviewFixtures.directory(self)
+        let sibling = directory.appendingPathComponent("sibling.png")
+        try PreviewFixtures.png().write(to: sibling)
+        let page = directory.appendingPathComponent("page.html")
+        try Data(
+            "<html><head><title>a</title></head><body><img id='s' src='sibling.png'><script>document.title='a-ran'</script></body></html>"
+                .utf8
+        ).write(to: page)
+
+        let first = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [])
+        XCTAssertFalse(first.policy.scripts)
+        let keyA = try XCTUnwrap(first.trust.consentKey)
+        let consent: Set<PreviewScriptConsentKey> = [keyA]
+
+        // Consent applies to unchanged file A.
+        let consentedA = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: consent)
+        XCTAssertTrue(consentedA.policy.scripts)
+        let pageA = try XCTUnwrap(consentedA.page)
+        let probeA = try await PreviewWebProbe.loading(pageA)
+        let titleA = try await probeA.evaluate("document.title") as? String
+        XCTAssertEqual(titleA, "a-ran")
+
+        // Replacing the file drops script consent.
+        let replacement = directory.appendingPathComponent("b.html")
+        try Data(
+            "<html><head><title>b</title></head><body><img id='s' src='sibling.png'><script>document.title='b-ran'</script></body></html>"
+                .utf8
+        ).write(to: replacement)
+        _ = try FileManager.default.replaceItemAt(page, withItemAt: replacement)
+
+        // Stale prepared page refuses to load.
+        let staleConfig = try await PreviewWebConfiguration.make(for: pageA)
+        let staleWeb = PreviewWKWebView(frame: .zero, configuration: staleConfig)
+        XCTAssertFalse(PreviewWebConfiguration.load(pageA, in: staleWeb))
+
+        // Fresh prepare evaluates B without scripts.
+        let reloadedB = try PreviewHTMLSnapshot.prepare(
+            url: page, trustedFolders: [], scriptConsent: consent, networkConsentKey: keyA)
+        XCTAssertFalse(reloadedB.policy.scripts)
+        XCTAssertFalse(reloadedB.policy.network)
+        let probeB = try await PreviewWebProbe.loading(try XCTUnwrap(reloadedB.page))
+        let titleB = try await probeB.evaluate("document.title") as? String
+        XCTAssertEqual(titleB, "b")
+
+        // In-place edit drops script consent.
+        let keyB = try XCTUnwrap(reloadedB.trust.consentKey)
+        let consentB: Set<PreviewScriptConsentKey> = [keyB]
+        let handle = try FileHandle(forWritingTo: page)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("<!-- edited -->".utf8))
+        try handle.close()
+        let editedB = try PreviewHTMLSnapshot.prepare(
+            url: page, trustedFolders: [], scriptConsent: consentB, networkConsentKey: keyB)
+        XCTAssertFalse(editedB.policy.scripts)
+        XCTAssertFalse(editedB.policy.network)
+        let probeEdited = try await PreviewWebProbe.loading(try XCTUnwrap(editedB.page))
+        let titleEdited = try await probeEdited.evaluate("document.title") as? String
+        XCTAssertEqual(titleEdited, "b")
+
+        // Quarantine added while selected forces restricted preview.
+        let keyEdited = try XCTUnwrap(editedB.trust.consentKey)
+        try PreviewFixtures.quarantine(page)
+        let quarantined = try PreviewHTMLSnapshot.prepare(
+            url: page, trustedFolders: [directory.path], scriptConsent: [keyEdited], networkConsentKey: keyEdited)
+        XCTAssertTrue(quarantined.trust.restricted)
+        XCTAssertFalse(quarantined.policy.scripts)
+        XCTAssertFalse(quarantined.policy.network)
+        XCTAssertFalse(quarantined.policy.offersScripts)
+        XCTAssertFalse(quarantined.policy.offersNetwork)
+        let probeQuarantined = try await PreviewWebProbe.loading(try XCTUnwrap(quarantined.page))
+        let titleQuarantined = try await probeQuarantined.evaluate("document.title") as? String
+        let siblingWidth = try await probeQuarantined.evaluate("document.getElementById('s').naturalWidth") as? Int
+        XCTAssertEqual(titleQuarantined, "b")
+        XCTAssertEqual(siblingWidth, 0)
+    }
 }
