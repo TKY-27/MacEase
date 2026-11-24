@@ -492,7 +492,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         return CGRect(x: span.minX, y: lane.minY, width: max(2, span.width), height: lane.height)
     }
 
-    func musicLane(_ configuration: MediaTimeline) -> CGRect {
+    private func musicLane(_ configuration: MediaTimeline) -> CGRect {
         CGRect(
             x: 0,
             y: Self.rulerHeight + Self.clipHeight + 6
@@ -530,7 +530,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
-    var overlayLane: CGRect {
+    private var overlayLane: CGRect {
         CGRect(
             x: 0, y: Self.rulerHeight + Self.clipHeight + 6, width: bounds.width, height: Self.overlayLaneHeight - 4)
     }
@@ -862,7 +862,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             width: (range.upperBound - range.lowerBound) / duration * bounds.width, height: Self.clipHeight)
     }
 
-    func point(_ seconds: Double, _ configuration: MediaTimeline) -> Double {
+    private func point(_ seconds: Double, _ configuration: MediaTimeline) -> Double {
         seconds / configuration.duration * bounds.width
     }
 
