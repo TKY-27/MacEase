@@ -80,7 +80,7 @@ import Testing
 
     @Test(arguments: identificationCases)
     func classifiesMultiplexedIdentificationHeaders(header: Data, expected: UnpreservedStream) async throws {
-        let mixed = try await multiplexed(headers: [header])
+        let mixed = try await multiplexedOgg(headers: [header])
         let context = ItemContext(
             settings: Settings(), staging: StagingArea(supportDirectory: mixed.deletingLastPathComponent()),
             progress: { _ in })
@@ -93,7 +93,7 @@ import Testing
     }
 
     @Test func mixedMultiplexedKindsRequireSeparateConsent() async throws {
-        let mixed = try await multiplexed(headers: [Data("OpusHead".utf8), Data("fishead\0".utf8)])
+        let mixed = try await multiplexedOgg(headers: [Data("OpusHead".utf8), Data("fishead\0".utf8)])
         let original = try Data(contentsOf: mixed)
         let folder = mixed.deletingLastPathComponent()
         let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
@@ -117,29 +117,6 @@ import Testing
             }
             #expect(try Data(contentsOf: mixed) == original)
         }
-    }
-
-    private func multiplexed(headers: [Data]) async throws -> URL {
-        let folder = try TestVolume.makeFolder()
-        let primary = folder.appending(path: "primary.ogg")
-        try await AudioSignals.write(AudioSignals.music(seconds: 0.1), to: primary, format: .ogg)
-        let primaryBytes = try Data(contentsOf: primary)
-        let headerLength = 27
-        let segments = Int(primaryBytes[26])
-        let firstPageLength =
-            headerLength + segments
-            + primaryBytes[headerLength..<(headerLength + segments)].reduce(0) { $0 + Int($1) }
-        var extra = Data()
-        for (index, header) in headers.enumerated() {
-            let url = folder.appending(path: "extra-\(index).ogg")
-            let writer = try OggPacketWriter(url: url)
-            try writer.writeHeader(header)
-            try writer.close()
-            extra.append(try Data(contentsOf: url))
-        }
-        let mixed = folder.appending(path: "mixed.ogg")
-        try (primaryBytes.prefix(firstPageLength) + extra + primaryBytes.dropFirst(firstPageLength)).write(to: mixed)
-        return mixed
     }
 
     @Test(arguments: [AudioFormat.ogg, .opus], [false, true])
