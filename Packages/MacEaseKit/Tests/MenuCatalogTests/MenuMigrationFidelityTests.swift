@@ -160,7 +160,7 @@ import Testing
         nodes.flatMap { node -> [String] in
             switch node {
             case .separator: ["\(prefix)—"]
-            case .command(_, let title): ["\(prefix)\(title) [command]"]
+            case .command(_, let title, _): ["\(prefix)\(title) [command]"]
             case .action(let title, let index):
                 ["\(prefix)\(title) [\(file.entries[index].op.rawValue)/\(file.entries[index].preset ?? "")]"]
             case .submenu(let title, let children):

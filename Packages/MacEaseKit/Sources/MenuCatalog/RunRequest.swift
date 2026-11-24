@@ -69,8 +69,10 @@ public struct MenuBuilds: Sendable {
 
     /// Entry zero's tag, or nil when exhausted.
     public mutating func record(_ file: MenuFile) -> Int? {
-        guard file.entries.count <= Self.tagLimit - nextTag else { return nil }
-        let tags = nextTag..<nextTag + file.entries.count
+        let count = file.entries.count + file.commandActions.count
+        guard count <= Self.tagLimit - nextTag else { return nil }
+        guard count > 0 else { return nextTag }
+        let tags = nextTag..<nextTag + count
         nextTag = tags.upperBound
         builds.append(Build(tags: tags, file: file))
         if builds.count > Self.retainedCount { builds.removeFirst() }
@@ -79,10 +81,28 @@ public struct MenuBuilds: Sendable {
 
     /// Nil once newer menus replaced the build.
     public func request(tag: Int, paths: [String]) -> RunRequest? {
-        guard let build = builds.first(where: { $0.tags.contains(tag) }) else { return nil }
+        guard let build = builds.first(where: { $0.tags.contains(tag) }),
+            tag - build.tags.lowerBound < build.file.entries.count
+        else { return nil }
         return RunRequest(
             catalogVersion: build.file.catalogVersion, entryIndex: tag - build.tags.lowerBound,
             token: build.file.token, paths: paths)
+    }
+
+    public func commandTag(_ action: MenuCommandAction, firstTag: Int) -> Int? {
+        guard let build = builds.first(where: { $0.tags.lowerBound == firstTag }),
+            let index = build.file.commandActions.firstIndex(of: action)
+        else { return nil }
+        return firstTag + build.file.entries.count + index
+    }
+
+    public func commandRequest(tag: Int, paths: [String]) -> HostCommandRequest? {
+        guard let build = builds.first(where: { $0.tags.contains(tag) }) else { return nil }
+        let index = tag - build.tags.lowerBound - build.file.entries.count
+        guard build.file.commandActions.indices.contains(index) else { return nil }
+        return HostCommandRequest(
+            action: build.file.commandActions[index],
+            catalogVersion: build.file.catalogVersion, token: build.file.token, paths: paths)
     }
 }
 

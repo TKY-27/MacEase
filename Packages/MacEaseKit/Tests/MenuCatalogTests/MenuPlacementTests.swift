@@ -25,7 +25,7 @@ import Testing
         nodes.compactMap {
             switch $0 {
             case .action(let title, _), .submenu(let title, _): title
-            case .command(_, let title): title
+            case .command(_, let title, _): title
             case .separator: nil
             }
         }

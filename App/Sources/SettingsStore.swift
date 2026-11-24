@@ -24,6 +24,8 @@ final class SettingsStore {
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
         static let finderPreviewEnabled = "finderPreview.enabled"
+        static let terminalApplication = "finderCommands.terminalApplication"
+        static let newFileTemplates = "finderCommands.newFileTemplates"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -89,6 +91,22 @@ final class SettingsStore {
         didSet { defaults.set(finderPreviewEnabled, forKey: Key.finderPreviewEnabled) }
     }
 
+    static let defaultTerminalApplicationURL = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+
+    var terminalApplicationURL: URL {
+        didSet {
+            defaults.set(terminalApplicationURL.path, forKey: Key.terminalApplication)
+            onChange?()
+        }
+    }
+
+    var enabledNewFileTemplates: Set<NewFileTemplate.BuiltIn> {
+        didSet {
+            defaults.set(enabledNewFileTemplates.map(\.rawValue).sorted(), forKey: Key.newFileTemplates)
+            onChange?()
+        }
+    }
+
     var onboardingCompleted: Bool {
         didSet { defaults.set(onboardingCompleted, forKey: Key.onboardingCompleted) }
     }
@@ -149,6 +167,13 @@ final class SettingsStore {
         activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
         activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
+        terminalApplicationURL =
+            defaults.string(forKey: Key.terminalApplication).map { URL(fileURLWithPath: $0) }
+            ?? Self.defaultTerminalApplicationURL
+        enabledNewFileTemplates =
+            defaults.stringArray(forKey: Key.newFileTemplates).map {
+                Set($0.compactMap(NewFileTemplate.BuiltIn.init(rawValue:)))
+            } ?? Set(NewFileTemplate.BuiltIn.allCases)
         finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
@@ -217,6 +242,8 @@ final class SettingsStore {
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false
         finderPreviewEnabled = false
+        terminalApplicationURL = Self.defaultTerminalApplicationURL
+        enabledNewFileTemplates = Set(NewFileTemplate.BuiltIn.allCases)
     }
 
     /// SPEC 4.4 defaults for new installs.

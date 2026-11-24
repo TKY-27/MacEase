@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var recipes: [Recipe] = Recipe.builtIns
     private var recipeObserver: NSObjectProtocol?
     private var activity: ActivityWindow?
+    private var finderCommands: FinderCommands?
     private var router: RequestRouter?
     private var finderService: FinderService?
     private var statusItem: StatusItemController?
@@ -77,12 +78,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         jobs.onStart = { [weak activity] in activity?.started($0) }
         jobs.showsFinished = { [weak activity] in activity?.finished($0, outcome: $1) ?? false }
         jobs.onScanEnd = { [weak activity] in activity?.scanEnded($0) }
+        let finderCommands = FinderCommands(jobs: jobs, settings: settings)
+        finderCommands.onCutChange = { [weak self] in self?.refreshMenuFile() }
+        jobs.onUndo = { [weak finderCommands] in finderCommands?.clearCut() }
+        self.finderCommands = finderCommands
         router = RequestRouter(
             configuration: configuration, jobs: jobs, notifier: notifier,
             menuFile: { [weak self] in self?.menuFile },
             openApp: { [weak self] in self?.openApp() },
             openUpdate: { [weak self] in self?.showUpdate() },
-            openPreview: { [weak self] in self?.finderPreview?.toggle() })
+            openPreview: { [weak self] in self?.finderPreview?.toggle() },
+            finderCommand: { [weak finderCommands, weak panels] request in
+                Task {
+                    do { try await finderCommands?.execute(request) } catch {
+                        panels?.showFailure(
+                            title: MenuStrings.command(request.action.command), message: error.localizedDescription)
+                    }
+                }
+            })
         notifier.onUndo = { [weak jobs] in jobs?.undo($0) }
         notifier.onShow = { [weak jobs] in jobs?.showOutputs(of: $0) }
         notifier.onDismissBatch = { [weak activity] in activity?.dismissBatch($0) }
@@ -230,6 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let jobs else { return .terminateNow }
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
+        finderCommands?.clearCut()
         Task {
             do {
                 organization?.stop()
@@ -254,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        finderCommands?.prepareForTermination()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         if let recipeObserver { NotificationCenter.default.removeObserver(recipeObserver) }
     }
@@ -331,7 +346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuFile = try MenuFileWriter(configuration: configuration).write(
             visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
             monitoredPaths: folders.monitoredPaths, recipes: recipes, arrangement: settings.menuArrangement,
-            availableVersion: updates.availableVersion, previewOpen: settings.finderPreviewEnabled
+            availableVersion: updates.availableVersion, previewOpen: settings.finderPreviewEnabled,
+            cutCount: finderCommands?.cutCount ?? 0, newFileTemplates: settings.enabledNewFileTemplates
         )
         menuInputs = inputs
     }

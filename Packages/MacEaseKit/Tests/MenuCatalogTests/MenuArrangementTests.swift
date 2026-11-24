@@ -47,7 +47,12 @@ private func id(_ name: String) -> MenuGroupID {
                 "folder.removeEmpty")
         ),
         (.archive, ids("archive.hatchExtract", "archive.extract", "archive.browse")), (.jar, []), (.any, []),
-        (.commands, ids("command.update", "command.preview")),
+        (
+            .commands,
+            ids(
+                "command.update", "command.preview", "command.newFile", "command.cut", "command.moveHere",
+                "command.copyPath", "command.openTerminal")
+        ),
     ])
     func defaultsReproduceTheFixedPrimaryTable(scope: MenuScope, menu: [MenuGroupID]) {
         let defaults = catalog.defaultArrangement(scope)

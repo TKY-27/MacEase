@@ -87,7 +87,8 @@ final class FinderSyncExtension: FIFinderSync {
         let menu = NSMenu(title: "")
         let submenu = NSMenu(title: "MacEase")
         if let file, file.hostAvailable, let firstTag = cache.withLock({ $0.builds.record(file) }) {
-            let tree = MenuLayout.tree(for: file, selection: selection)
+            let tree = MenuLayout.tree(
+                for: file, selection: selection, isContainer: menuKind == .contextualMenuForContainer)
             add(tree.finder, to: menu, firstTag: firstTag)
             add(tree.macEase, to: submenu, firstTag: firstTag)
         } else {
@@ -112,8 +113,9 @@ final class FinderSyncExtension: FIFinderSync {
                 menuItem.target = self
                 menuItem.tag = firstTag + entryIndex
                 menu.addItem(menuItem)
-            case .command(let command, let title):
-                guard let tag = HostCommand.allCases.firstIndex(of: command) else { continue }
+            case .command(let command, let title, let preset):
+                let action = MenuCommandAction(command: command, preset: preset)
+                guard let tag = cache.withLock({ $0.builds.commandTag(action, firstTag: firstTag) }) else { continue }
                 let menuItem = NSMenuItem(title: title, action: #selector(runCommand(_:)), keyEquivalent: "")
                 menuItem.target = self
                 menuItem.tag = tag
@@ -152,15 +154,9 @@ final class FinderSyncExtension: FIFinderSync {
 
     @objc func runCommand(_ sender: NSMenuItem) {
         let tag = sender.tag
-        guard HostCommand.allCases.indices.contains(tag), let file = cache.withLock({ $0.file }), file.hostAvailable
-        else { return }
-        let command = HostCommand.allCases[tag]
-        guard file.commands.contains(where: { $0.command == command }) else { return }
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = command.rawValue
-        components.queryItems = [URLQueryItem(name: "t", value: file.token)]
-        guard let url = components.url else { return }
+        let (builds, menuKind) = cache.withLock { ($0.builds, $0.lastMenuKind) }
+        let paths = selection(for: menuKind).map(\.path)
+        guard let url = builds.commandRequest(tag: tag, paths: paths)?.url(scheme: scheme) else { return }
         NSWorkspace.shared.open(url)
     }
 

@@ -616,6 +616,10 @@ final class PanelCoordinator {
     }
 
     func showFailure(_ op: OperationID, message: String) {
-        host.show(title: MenuStrings.operationName(op)) { close in PanelFailure(message: message, close: close) }
+        showFailure(title: MenuStrings.operationName(op), message: message)
+    }
+
+    func showFailure(title: String, message: String) {
+        host.show(title: title) { close in PanelFailure(message: message, close: close) }
     }
 }

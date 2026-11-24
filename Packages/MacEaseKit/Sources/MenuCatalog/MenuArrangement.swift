@@ -15,6 +15,7 @@ public struct MenuGroupID: RawRepresentable, Hashable, Codable, Sendable {
 /// Raw values are the host URL routes.
 public enum HostCommand: String, CaseIterable, Codable, Sendable {
     case update, preview
+    case newFile, cut, moveHere, copyPath, openTerminal
 
     fileprivate static let groupPrefix = "command."
 

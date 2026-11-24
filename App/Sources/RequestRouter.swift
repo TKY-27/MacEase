@@ -12,6 +12,7 @@ final class RequestRouter {
     private let openApp: () -> Void
     private let openUpdate: () -> Void
     private let openPreview: () -> Void
+    private let finderCommand: (HostCommandRequest) -> Void
     private let logger = Logger(category: "requests")
     /// The extension's Open MacEase fallback.
     private static let openHost = "open"
@@ -19,7 +20,7 @@ final class RequestRouter {
     init(
         configuration: HostConfiguration, jobs: JobCenter, notifier: BatchNotifier,
         menuFile: @escaping () -> MenuFile?, openApp: @escaping () -> Void, openUpdate: @escaping () -> Void,
-        openPreview: @escaping () -> Void
+        openPreview: @escaping () -> Void, finderCommand: @escaping (HostCommandRequest) -> Void
     ) {
         self.configuration = configuration
         self.jobs = jobs
@@ -28,6 +29,7 @@ final class RequestRouter {
         self.openApp = openApp
         self.openUpdate = openUpdate
         self.openPreview = openPreview
+        self.finderCommand = finderCommand
     }
 
     func route(_ url: URL) {
@@ -42,6 +44,8 @@ final class RequestRouter {
                 routeUpdate(url)
             } else if url.host() == "preview" {
                 routePreview(url)
+            } else {
+                routeFinderCommand(url)
             }
             return
         } catch {
@@ -62,6 +66,17 @@ final class RequestRouter {
         let entry = file.entries[request.entryIndex]
         let inputs = request.paths.map { URL(fileURLWithPath: $0) }
         jobs.start(entry: entry, inputs: inputs)
+    }
+
+    private func routeFinderCommand(_ url: URL) {
+        guard let request = HostCommandRequest(url: url, scheme: configuration.urlScheme),
+            let file = menuFile(), file.hostAvailable, RequestToken.matches(request.token, file.token)
+        else { return }
+        guard request.catalogVersion == file.catalogVersion, file.commandActions.contains(request.action) else {
+            notifier.notifyStaleMenu()
+            return
+        }
+        finderCommand(request)
     }
 
     private func routeUpdate(_ url: URL) {
