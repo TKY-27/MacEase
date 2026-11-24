@@ -32,6 +32,7 @@ Run from the repository root.
 | Ad-hoc signed DMG for local testing | `MACEASE_ALLOW_ADHOC=1 make dmg` |
 | Benchmarks | `scripts/bench.sh` |
 | Regenerate the app icon and template glyph assets | `swift scripts/make-app-icon.swift` |
+| Regenerate the DMG window background | `swift scripts/make-dmg-window.swift background` |
 
 Builds treat warnings as errors. Keep these commands working as the project
 grows; if one changes, update this table and README.md in the same commit.
