@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reduce the bundled JavaScript runtime from Node to source-built QuickJS-NG,
+  removing the JIT entitlement. YouTube challenge solving may take a few seconds
+  longer; the pinned offline EJS solver and explicit runtime selection remain.
+
 - Enable Hardened Runtime for the app, Finder extension and bundled native
   executables, with measured exceptions confined to interpreter and media/audio
   child processes. Add host Finder Automation entitlement. Distribution remains

@@ -165,7 +165,7 @@ final class MediaDownloadModelTests: XCTestCase {
         }
         let scripts = [
             "python3": "#!/bin/sh\nprintf '%s' '\(metadata)'\n",
-            "node": "#!/bin/sh\nexit 0\n", "ffmpeg": "#!/bin/sh\nexit 0\n", "ffprobe": "#!/bin/sh\nexit 0\n",
+            "qjs": "#!/bin/sh\nexit 0\n", "ffmpeg": "#!/bin/sh\nexit 0\n", "ffprobe": "#!/bin/sh\nexit 0\n",
         ]
         for (name, script) in scripts {
             let url = bin.appending(path: name)

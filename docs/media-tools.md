@@ -22,9 +22,9 @@ scripts/build-media-tools.sh
 ```
 
 The script verifies every archive against `Vendor/media-tools.lock`, then builds
-CPython, OpenSSL, FFmpeg, LAME, libvpx, dav1d and Opus from the exact pinned sources.
-Node LTS is the pinned official arm64 executable. Its official LICENSE includes
-its third-party dependency notices. yt-dlp is installed from its
+CPython, OpenSSL, FFmpeg, LAME, libvpx, dav1d, Opus and QuickJS-NG from the exact pinned sources.
+QuickJS-NG is built as a static arm64 executable from its MIT-licensed source.
+yt-dlp is installed from its
 Unlicense Python source distribution, rather than its GPL-containing macOS
 standalone executable. The pinned EJS wheel contains offline solver JavaScript;
 its matching source distribution is included. No package manager or external
@@ -34,7 +34,7 @@ Python is required at runtime. Python's TLS verifier uses macOS's
 Python intentionally omits interactive, database, Tk, ctypes, LZMA and Zstandard
 optional modules. Download requests use the included standard urllib backend.
 The host uses `python3 -I -B -m yt_dlp`, ignores user configuration and plugins,
-passes explicit Node and FFmpeg paths, and never self-updates these tools.
+passes explicit QuickJS and FFmpeg paths, and never self-updates these tools.
 Image galleries use `python3 -I -B -m gallery_dl` with configuration discovery,
 postprocessors and interactive authentication disabled. Only supported image
 files are accepted; downloads are verified before publishing a new folder.
@@ -50,11 +50,34 @@ replace these independent tools with compatible modified builds. Signing
 replacement executables ad hoc can be necessary under macOS code validation.
 No MacEase source object relinking is needed.
 
-Node 26.13.1 is the official Lithium LTS security release, and exceeds yt-dlp's Node 22
-minimum. yt-dlp executes its solver using Node's `--permission` mode over stdin.
-Node was selected over Deno because its official distribution includes a complete
-third-party license document, and over QuickJS because it avoids solver temporary
-files. The arm64 Node executable is approximately 141 MiB.
+QuickJS-NG 0.18.0 replaces Node. The pinned yt-dlp 2026.10.26 supports
+QuickJS 2023-12-09 or newer and every QuickJS-NG release; its recommended
+performance floors are QuickJS 2025-04-26 and QuickJS-NG 0.12.0.
+EJS 0.8.0 remains bundled, with remote components disabled. There is one explicit
+runtime and no fallback. QuickJS-NG needs no JIT entitlement under Hardened Runtime.
+Unlike Node's restricted permission mode, QuickJS exposes its standard OS modules.
+It executes only the pinned EJS solver and the player code processed by that solver.
+
+The pinned provider creates a mode-0600 JavaScript file using Python's
+`NamedTemporaryFile` and unlinks it in `finally`. `MediaToolProcess` sets `TMPDIR`
+to the per-analysis or download staging directory. Cancellation removes the
+whole staging directory, including a script left by a killed provider.
+
+On 2026-11-24, Node and QuickJS-NG both solved challenges and downloaded format 18
+for `jNQXAC9IVRw`, `aqz-KE-bpKQ` and `M7lc1UVf-VE`, with matching SHA-256 hashes and nonempty audio/video packet streams.
+No temporary JavaScript files remained. Solver timings exclude network and media
+transfer: `time.perf_counter()` surrounds the upstream provider's
+`_run_js_runtime`, with disk cache disabled, once per video/runtime.
+
+| Video | Node 26.13.1 | QuickJS-NG 0.18.0 |
+| --- | ---: | ---: |
+| jNQXAC9IVRw | 0.873 s | 3.119 s |
+| aqz-KE-bpKQ | 0.871 s | 3.572 s |
+| M7lc1UVf-VE | 0.819 s | 2.999 s |
+
+The upstream EJS integration tests also passed for QuickJS-NG (bulk challenges
+and cached-player reuse). These single-run measurements establish a size/latency trade-off, not a general
+performance benchmark. Player changes can change either runtime's timing.
 
 ## Source distribution
 
@@ -65,7 +88,7 @@ The application contains the manifest, build configuration and license texts.
 
 To rebuild from the source archive, extract it, create `Vendor/src/media-tools`,
 copy `sources/*` there and run the included script from that directory's parent
-repository layout. The script also downloads pinned Node. The included LAME
+repository layout. The included LAME
 patch removes an export for the removed
 `lame_init_old` API, which otherwise fails current Apple linking. No algorithm
 code is changed. All configure options are preserved in the build script.
@@ -75,4 +98,12 @@ Upstream references: [yt-dlp](https://github.com/yt-dlp/yt-dlp),
 [EJS setup](https://github.com/yt-dlp/yt-dlp/wiki/EJS),
 [CPython configuration](https://docs.python.org/3.14/using/configure.html),
 [FFmpeg licensing](https://ffmpeg.org/legal.html), and
-[Node permissions](https://nodejs.org/api/permissions.html).
+[QuickJS-NG source](https://github.com/quickjs-ng/quickjs/tree/v0.18.0).
+
+## Size measurement
+
+Run `scripts/measure-bundle-size.py /path/to/MacEase.app /path/to/MacEase.dmg`.
+The table reports file bytes and allocated bytes (`st_blocks × 512`), without
+following symlinks or counting hard links twice. DMG compression is shared across
+components; only its total has an unambiguous compressed size. APFS clone sharing
+and filesystem metadata are outside these file-level measurements.

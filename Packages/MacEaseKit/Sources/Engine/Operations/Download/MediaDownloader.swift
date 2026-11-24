@@ -421,7 +421,7 @@ public struct MediaDownloader: Sendable {
             executable: tools.python,
             arguments: [
                 "-I", "-B", "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--no-update", "--no-cache-dir",
-                "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "node:" + tools.node.path,
+                "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "quickjs:" + tools.quickJS.path,
                 "--ffmpeg-location", tools.directory.path, "--socket-timeout", "30",
             ] + arguments,
             directory: directory, tools: tools, captureOutput: captureOutput, line: line)

@@ -105,6 +105,7 @@ import Testing
         #expect(arguments.hasPrefix("-I\n-B\n-m\nyt_dlp\n"))
         #expect(arguments.contains("--ignore-config\n--no-plugin-dirs\n--no-update"))
         #expect(arguments.contains("--no-remote-components"))
+        #expect(arguments.contains("--no-js-runtimes\n--js-runtimes\nquickjs:" + fixture.tools.quickJS.path))
         #expect(arguments.contains("--\nhttps://example.com/fail?secret=private"))
     }
 
@@ -507,7 +508,7 @@ private struct DownloadFixture {
             cp download.mp4 "$output"
             """
         try Self.executable(converter, at: bin.appending(path: "ffmpeg"))
-        try Self.executable("#!/bin/sh\nexit 0\n", at: bin.appending(path: "node"))
+        try Self.executable("#!/bin/sh\nexit 0\n", at: bin.appending(path: "qjs"))
         tools = try MediaDownloadTools(directory: bin)
     }
 
