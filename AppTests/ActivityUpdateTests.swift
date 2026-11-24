@@ -111,6 +111,16 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertEqual(UserMessages.noteCount(1), String(localized: "1 note"))
     }
 
+    func testReverseCapacityMessageStatesRequiredAndAvailableSpace() {
+        let reason = EngineError.invalidInput(
+            .insufficientReverseSpace(
+                requiredBytes: 20_000_000_000, availableBytes: 1_000_000_000))
+        XCTAssertEqual(
+            UserMessages.describe(reason, file: "clip.mov"),
+            "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume. Required: 20 GB; available: 1 GB."
+        )
+    }
+
     func testMalformedToolDiagnosticStaysOutOfNotifications() async throws {
         let detail = "java.lang.IllegalArgumentException\n\tat example.Decompiler.run(Decompiler.java:42)"
         let outcome = try await runBatch([{ _ in throw EngineError.invalidInput(.malformed(detail)) }])

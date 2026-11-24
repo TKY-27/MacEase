@@ -580,6 +580,12 @@ enum UserMessages {
             )
         case .videoSegmentNotFound:
             String(localized: "The selected video segment no longer exists. Select another segment.")
+        case .insufficientReverseSpace(let required, let available):
+            String(
+                localized:
+                    "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume."
+            )
+                + " " + String(localized: "Required: \(byteCount(required)); available: \(byteCount(available)).")
         case .cannotReverseFreeze:
             String(localized: "A freeze frame cannot be reversed. Select a moving segment.")
         case .segmentAlreadyReversed:

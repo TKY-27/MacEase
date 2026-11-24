@@ -108,7 +108,7 @@ import Testing
     @Test func reverse8KHDRSpillsWithinBudgetAndRetainsPixels() async throws {
         let fixture = try #require(
             Bundle.module.url(forResource: "reverse-8k-pq.mp4", withExtension: nil, subdirectory: "Resources"))
-        let folder = try TestVolume.makeFolder()
+        let folder = try AudioSignals.temporaryFolder()
         let source = folder.appending(path: "8k.mp4")
         try FileManager.default.copyItem(at: fixture, to: source)
         let input = try await MediaInput.open(source)
@@ -124,6 +124,7 @@ import Testing
         defer { VideoSegmentReverser.cleanupStagedSource(staged.url, in: staging) }
         let measured = try #require(measurements.withLock { $0 })
         #expect(measured.decodedFrames == 4)
+        #expect(measured.peakSpillBytes > 0)
         #expect(measured.peakBufferedBytes > 90_000_000)
         #expect(measured.peakBufferedBytes <= ReversedFrameSpill.maximumBufferedBytes)
         let rendered = try await MediaInput.open(staged.url)
@@ -135,10 +136,10 @@ import Testing
             ])
     }
 
-    @Test func reverse8KContainerSpillsWithoutBufferedDecoderReordering() async throws {
+    @Test func reverse8KContainerBoundsNativeFrameRetention() async throws {
         let fixture = try #require(
             Bundle.module.url(forResource: "reverse-8k-sdr.mkv", withExtension: nil, subdirectory: "Resources"))
-        let folder = try TestVolume.makeFolder()
+        let folder = try AudioSignals.temporaryFolder()
         let source = folder.appending(path: "8k.mkv")
         try FileManager.default.copyItem(at: fixture, to: source)
         let segment = VideoSegment(start: 0, end: 1)
@@ -153,7 +154,8 @@ import Testing
         defer { VideoSegmentReverser.cleanupStagedSource(sourceURL, in: staging) }
         let result = try #require(measured.withLock { $0 })
         #expect(result.decodedFrames == 4)
-        #expect(result.peakBufferedBytes == 7680 * 4320 * 4)
+        #expect(result.peakBufferedBytes == 4 * 7680 * 4320 * 3 / 2)
+        #expect(result.peakSpillBytes == 0)
         #expect(result.peakBufferedBytes <= ReversedFrameSpill.maximumBufferedBytes)
     }
 
@@ -206,7 +208,8 @@ import Testing
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = .zero
         let preview = try await generator.image(at: CMTime(seconds: 0.1, preferredTimescale: 60_000)).image
-        let fetched = try #require(try await editor.frames(at: [0.1], width: 160, edit: edit, exactFrame: true).first)
+        let fetched = try #require(
+            try await editor.frames(at: [0.1], width: 160, edit: edit, exactFrame: true).first)
         for image in [preview, fetched] {
             #expect(
                 try ImageFixtures.pixel(image, x: image.width / 2, y: image.height / 2).prefix(3).allSatisfy { $0 < 16 }

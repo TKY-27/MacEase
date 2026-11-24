@@ -7,6 +7,7 @@ import Foundation
 public struct VideoReverseStatistics: Sendable {
     public let decodedFrames: Int
     public let peakBufferedBytes: Int
+    public let peakSpillBytes: UInt64
 }
 
 public enum VideoSegmentReverser {
@@ -243,14 +244,16 @@ public enum VideoSegmentReverser {
                 source: input.codedSize, edit: frameEdit, hdr: hdr?.configuration, display: videoTrack.displayGeometry)
         }
 
-        let frameRanges = try await scanVideoIndex(input: input, range: range)
+        let index = try await EditorFrameIndex(input: input)
+        let frameRanges = index.timestamps.enumerated().compactMap { position, start -> Range<Int64>? in
+            let end = position + 1 < index.timestamps.count ? index.timestamps[position + 1] : input.duration
+            guard start < range.upperBound, end > range.lowerBound, start < end else { return nil }
+            return max(0, start)..<end
+        }
         guard !frameRanges.isEmpty else { throw EngineError.decodeFailed("no frame in selected segment") }
-        let spillURL = stagingDirectory.appending(path: "reverse-frames.lz4")
-        let spill = try ReversedFrameSpill(url: spillURL)
-        let decodedFrames = try await spillForwardFrames(
-            input: input, videoTrack: videoTrack, frameRanges: frameRanges, hdr: hdr?.configuration,
-            spill: spill, progress: progress)
-
+        let frames = try ReverseFrameSource(
+            input: input, index: index, frameRanges: frameRanges, duration: range.upperBound - range.lowerBound,
+            hdr: hdr?.configuration, directory: stagingDirectory)
         var encoding = VideoEncoding(
             codec: .hevc, width: outputSize.width, height: outputSize.height,
             frameDuration: input.frameDuration, bitrate: nil)
@@ -265,7 +268,7 @@ public enum VideoSegmentReverser {
         let hasAudio = input.audio != nil
         var stages: [any StreamStage] = []
         let videoStage = try ReversedVideoStage(
-            spill: spill, range: range, frameRanges: frameRanges, encoding: encoding, processor: processor)
+            frames: frames, range: range, frameRanges: frameRanges, encoding: encoding, processor: processor)
         stages.append(videoStage)
 
         if let audioTrack = input.audio {
@@ -313,10 +316,12 @@ public enum VideoSegmentReverser {
                 progress(baseProgress + streamWeight * fraction)
             }
             try await sink.finish()
-            try spill.close()
-            try FileManager.default.removeItem(at: spillURL)
+            try frames.clear()
             if let audioTempURL { try FileManager.default.removeItem(at: audioTempURL) }
-            statistics(VideoReverseStatistics(decodedFrames: decodedFrames, peakBufferedBytes: spill.peakBufferedBytes))
+            statistics(
+                VideoReverseStatistics(
+                    decodedFrames: frames.decodedFrames, peakBufferedBytes: frames.peakBufferedBytes,
+                    peakSpillBytes: frames.peakSpillBytes))
             progress(1)
             return frameRanges.reversed().map { frame in
                 ReversedSourceFrame(
@@ -359,63 +364,201 @@ public enum VideoSegmentReverser {
         }
     }
 
-    private static func scanVideoIndex(
-        input: MediaInput, range: Range<Int64>
-    ) async throws -> [Range<Int64>] {
-        let sorted = try await EditorFrameIndex(input: input).timestamps
-        return sorted.enumerated().compactMap { index, start in
-            let end = index + 1 < sorted.count ? sorted[index + 1] : input.duration
-            guard start < range.upperBound, end > range.lowerBound, start < end else { return nil }
-            return max(0, start)..<end
+    static func requireCapacity(required: Int64, available: Int64) throws {
+        guard available >= required else {
+            throw EngineError.invalidInput(
+                .insufficientReverseSpace(requiredBytes: required, availableBytes: available))
         }
     }
 
-    private static func spillForwardFrames(
-        input: MediaInput, videoTrack: MediaTrack, frameRanges: [Range<Int64>], hdr: VideoHDRConfiguration?,
-        spill: ReversedFrameSpill, progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> Int {
-        let targets = Set(frameRanges.map(\.lowerBound))
-        var seen = Set<Int64>()
-        var decodedCount = 0
-        func store(_ frame: DecodedFrame) throws {
-            decodedCount += 1
+    private final class ReverseFrameSource {
+        private static let rowAlignment = 256
+        private static let frameOverhead = 4_096
+        private static let outputReserve: Int64 = 8 << 20
+        private static let lz4ExpansionDivisor: Int64 = 255
+        private static let lz4StreamOverhead: Int64 = 64
+        private let input: MediaInput
+        private let index: EditorFrameIndex
+        private let frameRanges: [Range<Int64>]
+        private let groups: [Range<Int>]
+        private let hdr: VideoHDRConfiguration?
+        private let spillURL: URL
+        private let frameByteBound: Int64
+        private var loadedGroup: Range<Int>?
+        private var buffered: [DecodedFrame] = []
+        private var spill: ReversedFrameSpill?
+        private var bufferedBytes = 0
+        private(set) var decodedFrames = 0
+        private(set) var peakBufferedBytes = 0
+        private(set) var peakSpillBytes: UInt64 = 0
+
+        init(
+            input: MediaInput, index: EditorFrameIndex, frameRanges: [Range<Int64>], duration: Int64,
+            hdr: VideoHDRConfiguration?, directory: URL
+        ) throws {
+            self.input = input
+            self.index = index
+            self.frameRanges = frameRanges
+            self.hdr = hdr
+            spillURL = directory.appending(path: "reverse-frames.lz4")
+            var groups: [Range<Int>] = []
+            var start = 0
+            var keyframe = index.keyframes.last { $0 <= frameRanges[0].lowerBound }
+            for position in frameRanges.indices.dropFirst() {
+                let current = index.keyframes.last { $0 <= frameRanges[position].lowerBound }
+                if current != keyframe {
+                    groups.append(start..<position)
+                    start = position
+                    keyframe = current
+                }
+            }
+            groups.append(start..<frameRanges.count)
+            self.groups = groups
+            let nativePixels: Bool
+            if case .asset = input.backend {
+                nativePixels = input.video?.hasAlpha != true
+            } else {
+                nativePixels =
+                    input.video.map { [.h264, .hevc, .mpeg4Part2].contains($0.codec) } == true
+                    && input.video?.hasAlpha != true
+            }
+            let pixelBytes = hdr != nil ? 2 : nativePixels ? 1 : sdrBytesPerPixel
+            let rowBytes =
+                ((input.codedSize.width * pixelBytes + Self.rowAlignment - 1)
+                    / Self.rowAlignment) * Self.rowAlignment
+            let rows =
+                nativePixels || hdr != nil
+                ? input.codedSize.height + (input.codedSize.height + 1) / 2 : input.codedSize.height
+            let frameBytes = Int64(rowBytes) * Int64(rows) + Int64(Self.frameOverhead)
+            frameByteBound = frameBytes
+            let largest = Int64(groups.map(\.count).max() ?? 0) * frameBytes
+            let spillBytes =
+                largest > ReversedFrameSpill.maximumBufferedBytes
+                ? largest + largest / Self.lz4ExpansionDivisor + Self.lz4StreamOverhead : 0
+            let audioBytes =
+                input.audio.map { track -> Int64 in
+                    guard case .audio(let rate, let channels) = track.kind else { return 0 }
+                    return Int64(
+                        (Double(duration) / Double(Nanoseconds.perSecond) * rate * Double(channels) * 4).rounded(.up))
+                } ?? 0
+            let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+            guard let available = values.volumeAvailableCapacity else {
+                throw EngineError.encodeFailed("Cannot determine free space for reverse staging.")
+            }
+            try VideoSegmentReverser.requireCapacity(
+                required: spillBytes + audioBytes + Self.outputReserve, available: Int64(available))
+        }
+
+        func image(at position: Int) async throws -> CVPixelBuffer {
+            if loadedGroup?.contains(position) != true {
+                try clear()
+                guard let group = groups.last(where: { $0.contains(position) }) else {
+                    throw EngineError.decodeFailed("reverse frame group missing")
+                }
+                try await load(group)
+                loadedGroup = group
+            }
+            guard let loadedGroup else { throw EngineError.decodeFailed("reverse frame group missing") }
+            let offset = position - loadedGroup.lowerBound
+            if let spill { return try autoreleasepool { try spill.image(at: offset) } }
+            return buffered[offset].image
+        }
+
+        func clear() throws {
+            buffered.removeAll()
+            bufferedBytes = 0
+            loadedGroup = nil
+            if let spill {
+                try spill.close()
+                try FileManager.default.removeItem(at: spillURL)
+                self.spill = nil
+            }
+        }
+
+        private func store(_ frame: DecodedFrame, targets: Set<Int64>, seen: inout Set<Int64>) throws {
+            decodedFrames += 1
             guard targets.contains(frame.timestamp) else { return }
             guard seen.insert(frame.timestamp).inserted else {
                 throw EngineError.decodeFailed("duplicate decoded reverse frame")
             }
-            try spill.append(frame)
-            progress(videoPreparationProgressShare * Double(seen.count) / Double(targets.count))
-        }
-        switch input.backend {
-        case .asset(let asset, let track?, _):
-            let range = CMTimeRange(
-                start: CMTime(value: frameRanges[0].lowerBound, timescale: SampleBuffers.nanosecondScale),
-                end: CMTime(value: input.duration, timescale: SampleBuffers.nanosecondScale))
-            let reader = try AssetTrackReader(
-                asset: asset, track: track, number: videoTrack.number, mode: hdr == nil ? .frames : .hdrFrames,
-                range: range)
-            while let frame = try await reader.nextFrame() {
-                try autoreleasepool { try store(frame) }
-                if seen.count == targets.count { break }
-            }
-        default:
-            guard var demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
-            var decoder = try VideoDecoders.make(for: videoTrack, hdr: hdr, presentationOrder: false)
-            while let packet = try demuxer.nextPacket() {
-                try Task.checkCancellation()
-                guard packet.track == videoTrack.number else { continue }
-                try autoreleasepool {
-                    for frame in try decoder.decode(packet) { try store(frame) }
+            let image = frame.image
+            let planes = CVPixelBufferGetPlaneCount(image)
+            let bytes =
+                planes == 0
+                ? CVPixelBufferGetBytesPerRow(image) * CVPixelBufferGetHeight(image)
+                : (0..<planes).reduce(0) {
+                    $0 + CVPixelBufferGetBytesPerRowOfPlane(image, $1) * CVPixelBufferGetHeightOfPlane(image, $1)
                 }
-                if seen.count == targets.count { break }
+            guard bytes <= ReversedFrameSpill.maximumBufferedBytes else {
+                throw EngineError.invalidInput(.frameMemoryExceeded)
             }
-            for frame in try decoder.finish() { try autoreleasepool { try store(frame) } }
+            if spill == nil, bufferedBytes + bytes > ReversedFrameSpill.maximumBufferedBytes {
+                let created = try ReversedFrameSpill(url: spillURL)
+                spill = created
+                for retained in buffered { try created.append(retained) }
+                buffered.removeAll()
+                bufferedBytes = 0
+            }
+            if let spill {
+                try spill.append(frame)
+                peakSpillBytes = max(peakSpillBytes, spill.bytesWritten)
+                peakBufferedBytes = max(peakBufferedBytes, bytes)
+            } else {
+                buffered.append(frame)
+                bufferedBytes += bytes
+                peakBufferedBytes = max(peakBufferedBytes, bufferedBytes)
+            }
         }
-        guard seen == targets else {
-            throw EngineError.decodeFailed("missing decoded reverse frame: \(targets.subtracting(seen).sorted())")
+
+        private func load(_ group: Range<Int>) async throws {
+            if Int64(group.count) * frameByteBound > ReversedFrameSpill.maximumBufferedBytes {
+                spill = try ReversedFrameSpill(url: spillURL)
+            }
+            let targets = Set(group.map { frameRanges[$0].lowerBound })
+            var seen = Set<Int64>()
+            guard let track = input.video else { throw EngineError.decodeFailed("no video track") }
+            let start = frameRanges[group.lowerBound].lowerBound
+            switch input.backend {
+            case .asset(let asset, let video?, _):
+                let range = CMTimeRange(
+                    start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
+                    end: CMTime(value: input.duration, timescale: SampleBuffers.nanosecondScale))
+                let mode: AssetTrackReader.Mode = hdr != nil ? .hdrFrames : track.hasAlpha ? .frames : .nativeFrames
+                let reader = try AssetTrackReader(
+                    asset: asset, track: video, number: track.number, mode: mode, range: range)
+                while let frame = try await reader.nextFrame() {
+                    try autoreleasepool { try store(frame, targets: targets, seen: &seen) }
+                    if seen.count == targets.count { break }
+                }
+            default:
+                guard var demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
+                let decodeFrom = index.keyframes.last { $0 <= start } ?? 0
+                var started = false
+                if var matroska = demuxer as? MatroskaDemuxer, let checkpoint = index.checkpoints[decodeFrom] {
+                    matroska.seek(to: checkpoint)
+                    demuxer = matroska
+                    started = true
+                }
+                var decoder = try VideoDecoders.make(
+                    for: track, hdr: hdr, presentationOrder: false, nativePixels: true)
+                while let packet = try demuxer.nextPacket() {
+                    try Task.checkCancellation()
+                    guard packet.track == track.number else { continue }
+                    if !started {
+                        guard packet.isKeyframe, packet.timestamp == decodeFrom else { continue }
+                        started = true
+                    }
+                    try autoreleasepool {
+                        for frame in try decoder.decode(packet) { try store(frame, targets: targets, seen: &seen) }
+                    }
+                    if seen.count == targets.count { break }
+                }
+                for frame in try decoder.finish() { try store(frame, targets: targets, seen: &seen) }
+            }
+            guard seen == targets else { throw EngineError.decodeFailed("missing decoded reverse frame") }
+            buffered.sort { $0.timestamp < $1.timestamp }
+            try spill?.sortFrames()
         }
-        try spill.sortFrames()
-        return decodedCount
     }
 
     private struct PreparedAudio {
@@ -435,7 +578,7 @@ public enum VideoSegmentReverser {
     }
 
     private final class ReversedVideoStage: StreamStage {
-        private let spill: ReversedFrameSpill
+        private let frames: ReverseFrameSource
         private let range: Range<Int64>
         private let frameRanges: [Range<Int64>]
         private let durations: [Int64: Int64]
@@ -445,10 +588,10 @@ public enum VideoSegmentReverser {
         private var finished = false
 
         init(
-            spill: ReversedFrameSpill, range: Range<Int64>, frameRanges: [Range<Int64>],
+            frames: ReverseFrameSource, range: Range<Int64>, frameRanges: [Range<Int64>],
             encoding: VideoEncoding, processor: FrameProcessor?
         ) throws {
-            self.spill = spill
+            self.frames = frames
             self.range = range
             self.frameRanges = frameRanges
             durations = Dictionary(
@@ -480,8 +623,8 @@ public enum VideoSegmentReverser {
                 return try timed(encoder.finish())
             }
             remaining -= 1
+            let image = try await frames.image(at: remaining)
             return try autoreleasepool {
-                let image = try spill.image(at: remaining)
                 let buffer = try processor?.process(image) ?? image
                 let timestamp = outputTimestamp(at: remaining)
                 var packets = try encoder.encode(buffer, timestamp: timestamp)

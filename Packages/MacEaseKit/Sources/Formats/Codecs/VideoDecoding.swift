@@ -37,7 +37,8 @@ public enum VideoDecoders {
     }
 
     public static func make(
-        for track: MediaTrack, hdr: VideoHDRConfiguration? = nil, presentationOrder: Bool = true
+        for track: MediaTrack, hdr: VideoHDRConfiguration? = nil, presentationOrder: Bool = true,
+        nativePixels: Bool = false
     ) throws -> any VideoFrameDecoder {
         if hdr != nil {
             guard track.codec == .hevc else { throw FormatError.decoderFailure("HDR decoding requires HEVC") }
@@ -48,7 +49,7 @@ public enum VideoDecoders {
         case .av1 where !ToolboxFrameDecoder.opensSession(for: track): try Dav1dFrameDecoder()
         case .mjpeg: JPEGFrameDecoder()
         case .h264, .hevc, .mpeg4Part2, .av1:
-            try ToolboxFrameDecoder(track: track, presentationOrder: presentationOrder)
+            try ToolboxFrameDecoder(track: track, presentationOrder: presentationOrder, nativePixels: nativePixels)
         default: throw FormatError.unsupported(track.codec.displayName)
         }
     }
@@ -74,10 +75,12 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
     private var annexB = false
     private var reorder: ReorderBuffer?
     private let hdr: Bool
+    private let nativePixels: Bool
 
-    init(track: MediaTrack, hdr: Bool = false, presentationOrder: Bool = true) throws {
+    init(track: MediaTrack, hdr: Bool = false, presentationOrder: Bool = true, nativePixels: Bool = false) throws {
         self.track = track
         self.hdr = hdr
+        self.nativePixels = nativePixels && !track.hasAlpha
         guard case .video(let width, let height) = track.kind else { throw FormatError.unsupported("not video") }
         reorder = presentationOrder ? try ReorderBuffer(width: width, height: height) : nil
     }
@@ -111,7 +114,8 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
         let format = try VideoFormat.description(for: track)
         let attributes: [CFString: Any] = [
             kCVPixelBufferPixelFormatTypeKey: hdr
-                ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : VideoDecoders.pixelFormat,
+                ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                : nativePixels ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : VideoDecoders.pixelFormat,
             kCVPixelBufferIOSurfacePropertiesKey: [:] as [CFString: Any],
         ]
         var session: VTDecompressionSession?

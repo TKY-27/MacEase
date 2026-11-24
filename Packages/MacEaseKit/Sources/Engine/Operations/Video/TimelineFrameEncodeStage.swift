@@ -10,6 +10,7 @@ final class TimelineFrameSource {
     private let hdr: VideoHDRConfiguration?
     private let toneMapToSDR: Bool
     private let duration: Int64
+    let frameIndexes = EditorFrameIndexes()
     private var sampler: FrameSampler?
     private var segmentIndex: Int?
 
@@ -42,10 +43,12 @@ final class TimelineFrameSource {
             frameEdit.adjustments = segment.adjustments.isIdentity ? nil : segment.adjustments
             frameEdit.hasOverlays = !timeline.overlays.isEmpty
             let sourceHDR = try await VideoProperties.hdrConfiguration(input)
+            let needsIndex = frameEdit.hasOverlays || input.container.fileType == nil
+            let frameIndex = needsIndex ? try await frameIndexes.index(for: input.url) : nil
             sampler = try await FrameSampler(
                 input: input, frameDuration: frameDuration, edit: frameEdit,
                 start: Nanoseconds.from(seconds: segment.start), end: Nanoseconds.from(seconds: segment.end),
-                hdr: hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil, holdsLastFrame: true)
+                hdr: hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil, holdsLastFrame: true, frameIndex: frameIndex)
             segmentIndex = index
         }
         let (center, overflow) = timestamp.addingReportingOverflow(frameDuration / 2)

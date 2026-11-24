@@ -102,6 +102,7 @@ public enum InvalidInput: Equatable, Sendable {
     case unsafeArchivePath(String)
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
+    case insufficientReverseSpace(requiredBytes: Int64, availableBytes: Int64)
     case multipleTracks
     case unpreservedStreams([UnpreservedStream])
     case chainedStream

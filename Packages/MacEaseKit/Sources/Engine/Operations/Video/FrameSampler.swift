@@ -10,7 +10,7 @@ final class FrameSampler {
     private static let hdrBytesPerPixel = 8
     private enum Source {
         case asset(AssetTrackReader)
-        case container(any MediaDemuxer, any VideoFrameDecoder, sourceTrack: Int, decodeFrom: Int64)
+        case container(any MediaDemuxer, any VideoFrameDecoder, sourceTrack: Int, decodeFrom: Int64, started: Bool)
     }
 
     private var source: Source
@@ -35,7 +35,7 @@ final class FrameSampler {
     init(
         input: MediaInput, frameDuration: Int64, edit: FrameEdit, start: Int64, end: Int64,
         hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool = false, speed: Double = 1,
-        holdsLastFrame: Bool = false
+        holdsLastFrame: Bool = false, frameIndex: EditorFrameIndex? = nil
     ) async throws {
         guard let track = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         if hdr != nil {
@@ -57,21 +57,38 @@ final class FrameSampler {
         position = start
         switch input.backend {
         case .asset(let asset, let video?, _):
-            frameIndex =
-                edit.hasOverlays ? try await EditorFrameIndex(asset: asset, track: video, end: input.duration) : nil
+            if let frameIndex {
+                self.frameIndex = frameIndex
+            } else if edit.hasOverlays {
+                self.frameIndex = try await EditorFrameIndex(asset: asset, track: video, end: input.duration)
+            } else {
+                self.frameIndex = nil
+            }
             let range = CMTimeRange(
                 start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
                 end: Transcoder.readerTime(end))
             let mode: AssetTrackReader.Mode = toneMapToSDR ? .sdrFrames : hdr != nil ? .hdrFrames : .frames
             source = .asset(try AssetTrackReader(asset: asset, track: video, number: 1, mode: mode, range: range))
         default:
-            frameIndex = nil
+            self.frameIndex = frameIndex
             if toneMapToSDR { throw EngineError.hdrConversionUnsupported }
-            guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
-            let decodeFrom = start > 0 ? try await Transcoder.keyframe(atOrBefore: start, in: input) : 0
+            guard var demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
+            let decodeFrom: Int64
+            if let frameIndex {
+                decodeFrom = frameIndex.keyframes.last { $0 <= start } ?? 0
+            } else {
+                decodeFrom = start > 0 ? try await Transcoder.keyframe(atOrBefore: start, in: input) : 0
+            }
+            var started = decodeFrom == 0
+            if var matroska = demuxer as? MatroskaDemuxer, let checkpoint = frameIndex?.checkpoints[decodeFrom] {
+                matroska.seek(to: checkpoint)
+                demuxer = matroska
+                started = true
+            }
             source = .container(
-                demuxer, try VideoDecoders.make(for: track, hdr: hdr), sourceTrack: track.number, decodeFrom: decodeFrom
-            )
+                demuxer, try VideoDecoders.make(for: track, hdr: hdr), sourceTrack: track.number,
+                decodeFrom: decodeFrom, started: started)
+
         }
     }
 
@@ -162,11 +179,18 @@ final class FrameSampler {
         switch source {
         case .asset(let reader):
             return try await reader.nextFrame()
-        case .container(var demuxer, var decoder, let sourceTrack, let decodeFrom):
-            defer { source = .container(demuxer, decoder, sourceTrack: sourceTrack, decodeFrom: decodeFrom) }
+        case .container(var demuxer, var decoder, let sourceTrack, let decodeFrom, var started):
+            defer {
+                source = .container(
+                    demuxer, decoder, sourceTrack: sourceTrack, decodeFrom: decodeFrom, started: started)
+            }
             while sourceQueue.isEmpty, let packet = try demuxer.nextPacket() {
                 try Task.checkCancellation()
-                guard packet.track == sourceTrack, packet.timestamp >= decodeFrom else { continue }
+                guard packet.track == sourceTrack else { continue }
+                if !started {
+                    guard packet.isKeyframe, packet.timestamp == decodeFrom else { continue }
+                    started = true
+                }
                 guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
                     throw EngineError.unsupportedCodec(sourceCodec.displayName)
                 }
@@ -178,56 +202,97 @@ final class FrameSampler {
     }
 }
 
-struct EditorFrameIndex: Sendable {
+final class EditorFrameIndex: Sendable {
     private static let timestampTolerance: Int64 = 1
     private static let maximumIndexedFrames = 4_000_000
     let timestamps: [Int64]
+    let keyframes: [Int64]
+    let checkpoints: [Int64: MatroskaDemuxer.Checkpoint]
+    let packetBytesRead: Int64
     let end: Int64
 
     init(asset: AVAsset, track: AVAssetTrack, end: Int64) async throws {
-        let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .packets)
+        guard let cursor = track.makeSampleCursorAtFirstSampleInDecodeOrder() else {
+            throw EngineError.decodeFailed("source has no frame index")
+        }
+        let mappings = try await track.load(.segments).filter { !$0.isEmpty }.map(\.timeMapping)
         var timestamps: [Int64] = []
-        while let sample = try await reader.nextSample() {
+        var keyframes: [Int64] = []
+        repeat {
             try Task.checkCancellation()
-            let duration = sample.outputDuration
-            let timestamp = sample.outputPresentationTimeStamp
-            guard duration.isNumeric else { throw EngineError.decodeFailed("invalid video frame duration") }
-            guard duration > .zero else { continue }
-            guard timestamp.isNumeric, CMSampleBufferGetNumSamples(sample) == 1 else {
+            let timestamp = cursor.presentationTimeStamp
+            let duration = cursor.currentSampleDuration
+            guard timestamp.isNumeric, duration.isNumeric else {
                 throw EngineError.decodeFailed("invalid video frame index sample")
             }
-            timestamps.append(SampleBuffers.nanoseconds(timestamp))
+            if duration > .zero {
+                let sampleRange = CMTimeRange(start: timestamp, duration: duration)
+                for mapping in mappings {
+                    let overlap = CMTimeRangeGetIntersection(sampleRange, otherRange: mapping.source)
+                    guard overlap.isValid, overlap.duration > .zero else { continue }
+                    let output = CMTimeMapTimeFromRangeToRange(
+                        overlap.start, fromRange: mapping.source, toRange: mapping.target)
+                    let time = SampleBuffers.nanoseconds(output)
+                    timestamps.append(time)
+                    if cursor.currentSampleSyncInfo.sampleIsFullSync.boolValue { keyframes.append(time) }
+                }
+            }
             guard timestamps.count <= Self.maximumIndexedFrames else {
                 throw EngineError.decodeFailed("video frame index limit exceeded")
             }
-        }
+        } while cursor.stepInDecodeOrder(byCount: 1) == 1
         self.timestamps = Array(Set(timestamps.filter { $0 >= 0 && $0 < end })).sorted()
+        self.keyframes = Array(Set(keyframes)).sorted()
+        checkpoints = [:]
+        packetBytesRead = 0
         self.end = end
         guard !self.timestamps.isEmpty else { throw EngineError.decodeFailed("source has no frame index") }
     }
 
-    init(input: MediaInput) async throws {
+    convenience init(input: MediaInput) async throws {
         if case .asset(let asset, let track?, _) = input.backend {
-            self = try await Self(asset: asset, track: track, end: input.duration)
+            try await self.init(asset: asset, track: track, end: input.duration)
             return
         }
         guard let video = input.video, var demuxer = try input.demuxer else {
             throw EngineError.decodeFailed("source has no frame index")
         }
         var timestamps: [Int64] = []
-        while let packet = try demuxer.nextPacket() {
+        var keyframes: [Int64] = []
+        var checkpoints: [Int64: MatroskaDemuxer.Checkpoint] = [:]
+        var packetBytesRead: Int64 = 0
+        while true {
+            let checkpoint = (demuxer as? MatroskaDemuxer)?.checkpoint()
+            guard let packet = try demuxer.nextPacket() else { break }
             try Task.checkCancellation()
             guard packet.track == video.number else { continue }
             guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
                 throw EngineError.unsupportedCodec(video.codec.displayName)
             }
+            packetBytesRead += Int64(packet.payload.count)
             timestamps.append(packet.timestamp)
+            if packet.isKeyframe {
+                keyframes.append(packet.timestamp)
+                if let checkpoint { checkpoints[packet.timestamp] = checkpoint }
+            }
             guard timestamps.count <= Self.maximumIndexedFrames else {
                 throw EngineError.decodeFailed("video frame index limit exceeded")
             }
         }
-        self.timestamps = Array(Set(timestamps.filter { $0 >= 0 && $0 < input.duration })).sorted()
-        end = input.duration
+        try self.init(
+            timestamps: timestamps, keyframes: keyframes, checkpoints: checkpoints,
+            packetBytesRead: packetBytesRead, end: input.duration)
+    }
+
+    private init(
+        timestamps: [Int64], keyframes: [Int64], checkpoints: [Int64: MatroskaDemuxer.Checkpoint],
+        packetBytesRead: Int64, end: Int64
+    ) throws {
+        self.timestamps = Array(Set(timestamps.filter { $0 >= 0 && $0 < end })).sorted()
+        self.keyframes = Array(Set(keyframes)).sorted()
+        self.checkpoints = checkpoints
+        self.packetBytesRead = packetBytesRead
+        self.end = end
         guard !self.timestamps.isEmpty else { throw EngineError.decodeFailed("source has no frame index") }
     }
 
@@ -257,5 +322,28 @@ struct EditorFrameIndex: Sendable {
             }
         }
         return lower
+    }
+}
+
+actor EditorFrameIndexes {
+    private(set) var buildCount = 0
+    private var indexes: [URL: Task<EditorFrameIndex, any Error>] = [:]
+
+    func index(for url: URL) async throws -> EditorFrameIndex {
+        if let existing = indexes[url] { return try await existing.value }
+        let task = Task { try await EditorFrameIndex(input: MediaInput.open(url)) }
+        buildCount += 1
+        indexes[url] = task
+        do {
+            return try await task.value
+        } catch {
+            indexes.removeValue(forKey: url)
+            throw error
+        }
+    }
+
+    func close() {
+        for task in indexes.values { task.cancel() }
+        indexes.removeAll()
     }
 }

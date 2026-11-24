@@ -1,6 +1,26 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生に必要な空き容量がありません。選択範囲を短くするか、元のファイルがあるボリュームの空き容量を増やしてください。"
+          }
+        }
+      }
+    },
+    "Required: %@; available: %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
     "Analyze Links (⌘R)": {
       "localizations": {
         "ja": {

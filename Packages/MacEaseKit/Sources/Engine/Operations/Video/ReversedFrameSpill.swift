@@ -21,6 +21,7 @@ final class ReversedFrameSpill {
     private let file: FileHandle
     private(set) var frames: [Frame] = []
     private(set) var peakBufferedBytes = 0
+    private(set) var bytesWritten: UInt64 = 0
 
     init(url: URL) throws {
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
@@ -68,6 +69,7 @@ final class ReversedFrameSpill {
             }
         }
         try filter.finalize()
+        bytesWritten = try file.offset()
         frames.append(
             Frame(
                 timestamp: frame.timestamp, offset: offset, length: try file.offset() - offset,
