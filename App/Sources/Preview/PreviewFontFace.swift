@@ -30,8 +30,24 @@ struct PreviewFontFace: @unchecked Sendable {
     private static let ttcVersion2: UInt32 = 0x0002_0000
 
     let displayName: String
-    let faceCount: Int
-    private let descriptor: CTFontDescriptor
+    let styleName: String?
+    let glyphCount: Int
+    let index: Int
+    let faceNames: [String]
+    private let descriptors: [CTFontDescriptor]
+
+    var faceCount: Int { descriptors.count }
+
+    private init(index: Int, descriptors: [CTFontDescriptor], faceNames: [String]) {
+        let font = CTFontCreateWithFontDescriptor(descriptors[index], Self.specimenSizes[0], nil)
+        self.index = index
+        self.descriptors = descriptors
+        self.faceNames = faceNames
+        displayName = faceNames[index]
+        let style = CTFontCopyLocalizedName(font, kCTFontStyleNameKey, nil) as String?
+        styleName = style?.isEmpty == false ? style : nil
+        glyphCount = CTFontGetGlyphCount(font)
+    }
 
     static func load(
         _ url: URL, maximumFileBytes: Int64 = maximumFileBytes, maximumFaceCount: Int = maximumFaceCount
@@ -40,21 +56,28 @@ struct PreviewFontFace: @unchecked Sendable {
         try validateBounds(url, maximumFileBytes: maximumFileBytes, maximumFaceCount: maximumFaceCount)
         try Task.checkCancellation()
         guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor],
-            let first = descriptors.first
+            !descriptors.isEmpty
         else {
             throw PreviewFontError.unreadable
         }
         guard descriptors.count <= maximumFaceCount else {
             throw PreviewFontError.tooManyFaces
         }
-        try Task.checkCancellation()
-        let sample = CTFontCreateWithFontDescriptor(first, specimenSizes[0], nil)
-        let name = resolvedName(for: sample, fallbackURL: url)
-        return Self(displayName: name, faceCount: descriptors.count, descriptor: first)
+        let names = try descriptors.map { descriptor in
+            try Task.checkCancellation()
+            let sample = CTFontCreateWithFontDescriptor(descriptor, specimenSizes[0], nil)
+            return resolvedName(for: sample, fallbackURL: url)
+        }
+        return Self(index: 0, descriptors: descriptors, faceNames: names)
+    }
+
+    func selecting(_ index: Int) -> Self? {
+        guard descriptors.indices.contains(index) else { return nil }
+        return Self(index: index, descriptors: descriptors, faceNames: faceNames)
     }
 
     func font(size: CGFloat) -> CTFont {
-        CTFontCreateWithFontDescriptor(descriptor, size, nil)
+        CTFontCreateWithFontDescriptor(descriptors[index], size, nil)
     }
 
     // Reject oversized, compressed-bomb or huge collections upfront.
