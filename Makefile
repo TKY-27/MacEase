@@ -42,6 +42,7 @@ build: project
 	python3 scripts/verify-signing.py "$(DERIVED_DATA)/Build/Products/Debug/MacEase Dev.app" --configuration Debug
 
 test:
+	"$(MEDIA_TOOLS)/python3" -I -B scripts/verify-js-isolation.py "$(MEDIA_TOOLS)/qjs"
 	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
 
 test-app: project
@@ -49,6 +50,7 @@ test-app: project
 
 # Missing capabilities fail here instead of skipping.
 test-device: build
+	"$(MEDIA_TOOLS)/python3" -I -B scripts/verify-js-isolation.py "$(MEDIA_TOOLS)/qjs"
 	MACEASE_DEVICE_TESTS=1 MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
 	$(MAKE) test-app
 

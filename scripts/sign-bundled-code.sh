@@ -18,8 +18,6 @@ find "$code_path" -type f -print0 | while IFS= read -r -d '' binary; do
         */media-tools/bin/python3.*|*/media-tools/bin/ffmpeg|*/media-tools/bin/ffprobe|\
         */ai-audio/bin/sherpa-onnx-offline-denoiser|*/ai-audio/bin/sherpa-onnx-offline-source-separation)
             sign_options+=(--entitlements "$root/scripts/entitlements/library-validation.plist") ;;
-        */media-tools/bin/node)
-            sign_options+=(--entitlements "$root/scripts/entitlements/jit.plist") ;;
     esac
     codesign "${sign_options[@]}" "$binary"
 done

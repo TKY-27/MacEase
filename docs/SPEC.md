@@ -491,6 +491,11 @@ exports retain the ordinary Derived behavior. See section 8.5 and ADR 0040.
 
 ### 3.7 Native dependencies
 
+The isolated download runtime includes MIT-licensed QuickJS-NG 0.18.0, built
+from source with a solver-only CLI and pinned by SHA-256 in
+`Vendor/media-tools.lock` (section 22). Its patch, CLI source and license accompany
+the source distribution.
+
 Libraries linked into MacEase are permissively licensed and compatible with MIT
 distribution. Sections 22–24 permit separately licensed isolated tools and
 models; these are not linked-library license exceptions. Versions are
@@ -2309,7 +2314,7 @@ that bound. Earlier whole-key results remain historical evidence in
   Events entitlement for Finder Automation. In normal Debug and Release builds,
   only Python, FFmpeg, ffprobe and
   the two sherpa audio executables disable library validation, because the
-  configured identities have no Apple Team ID. Only Node allows JIT memory.
+  configured identities have no Apple Team ID. No bundled process allows JIT memory.
   The host and extension retain library validation. No unsigned-executable-memory
   or DYLD-environment exception is granted. Nested code is signed before its
   enclosing bundles; packaging verifies runtime flags and strict signatures.
@@ -2608,12 +2613,27 @@ Completed downloads support Show in Finder and Undo through normal history.
 ### 22.2 Runtime and file safety
 
 Bundle source-distributed Unlicense yt-dlp, a private Python runtime, EJS and a
-supported JavaScript runtime. Never depend on the user's Python or Homebrew.
+source-built QuickJS-NG 0.18.0 runtime. EJS 0.8.0 runs only through that explicit
+runtime, without remote components or automatic fallback. Do not link the stock
+CLI or `quickjs-libc`. The solver CLI reads only its caller-selected input script
+before evaluation, exposes `console.log` and ordinary language/base64/clock
+intrinsics, and rejects every module load. JavaScript cannot access files,
+environment variables, processes, workers or the network. Gate the media build
+and package test command with real denied-I/O probes and a global allowlist.
+This is an API boundary, not an OS sandbox or a CPU/memory limit. Solver temporary
+files stay in per-request staging and are removed on completion or cancellation.
+QuickJS-NG needs no JIT entitlement. Omit Python GUI/bootstrap packages, unused
+certifi tests and bytecode caches; retain runtime source and extension modules.
+Launch Python with isolated imports and bytecode writes disabled. Never depend
+on the user's Python or Homebrew.
 Bundle FFmpeg and ffprobe as independent processes, built without GPL or nonfree
 features, for downloading, merging, converting and repairing newly downloaded
 media, plus local MP3 encoding under section 23. Their required LGPL dependencies
 share this narrow exception.
 MacEase source remains MIT; third-party executables retain their own licenses.
+Strip debug and local symbols from media/audio native helpers before signing,
+while preserving external symbols and all executable sections. Keep audio model
+files unchanged and hash the signed helpers in their runtime manifest.
 Pin source versions and hashes, provide notices and corresponding source/build
 instructions, sign nested executable code, and update tools with app releases.
 No runtime self-update, arbitrary user arguments, plugins or user configuration.
@@ -3040,6 +3060,18 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-24: Require a solver-only QuickJS CLI without native I/O modules, with
+  real capability-denial checks in builds and tests (ADR 0074).
+
+- 2026-11-24: Strip debug/local symbols from media/audio helpers before signing,
+  preserving executable sections and exports (ADR 0074).
+
+- 2026-11-24: Omit Python GUI/bootstrap packages, certifi tests and bytecode
+  caches while retaining runtime modules and source (ADR 0074).
+
+- 2026-11-24: Replace Node with source-built QuickJS-NG 0.18.0, remove its JIT
+  exception, and confine solver temporary files to request staging (ADR 0074).
 
 - 2026-11-24: Enable Hardened Runtime with measured, per-executable exceptions
   and host Finder Automation access; preserve the unsandboxed host and

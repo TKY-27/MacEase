@@ -419,7 +419,7 @@ make test
 make test-app
 ```
 
-パッケージの検証は負荷の競合を避けるため順番に実行します。並行処理のテスト内では、引き続き並行動作を検証します。
+`make test` は最初に同梱 JavaScript ソルバーのファイル・プロセス・ネットワークアクセスが拒否されることを検証します。パッケージの検証は負荷の競合を避けるため順番に実行します。並行処理のテスト内では、引き続き並行動作を検証します。
 アプリ内で動くテストは専用の `DebugTests` 構成と `MacEase Tests` の識別子を使います。このテスト用ホストだけは XCTest を読み込むため library validation を無効にし、通常の Debug・Release ビルドでは有効なままにします。
 
 初回起動の前に、`build/DerivedData/Build/Products/Debug/MacEase Dev.app` を `~/Applications` または `/Applications` にコピーしてください。このどちらにもない場合、ようこそウインドウを完了できません。Finder 拡張機能は、ようこそウインドウか **システム設定 > 一般 > ログイン項目と機能拡張** から有効にできます。
