@@ -845,19 +845,14 @@ final class PreviewTokenizerTests: XCTestCase {
         XCTAssertEqual(invisibleTokens[0].invisibleScalar, Unicode.Scalar(0x202E))
 
         let storage = try XCTUnwrap(textView.textStorage)
-        let addedOffset = (patchText as NSString).range(of: "+new").location
-        let removedOffset = (patchText as NSString).range(of: "-old").location
         let bidiOffset = (patchText as NSString).range(of: "\u{202E}").location
-
-        let addedBg = try XCTUnwrap(
-            storage.attribute(.backgroundColor, at: addedOffset, effectiveRange: nil) as? NSColor)
-        let removedBg = try XCTUnwrap(
-            storage.attribute(.backgroundColor, at: removedOffset, effectiveRange: nil) as? NSColor)
-        XCTAssertNotNil(storage.attribute(.backgroundColor, at: bidiOffset, effectiveRange: nil) as? NSColor)
+        XCTAssertNil(storage.attribute(.backgroundColor, at: bidiOffset, effectiveRange: nil))
         XCTAssertNil(storage.attribute(.kern, at: bidiOffset, effectiveRange: nil))
         XCTAssertNil(storage.attribute(.underlineStyle, at: bidiOffset, effectiveRange: nil))
         XCTAssertNil(storage.attribute(.underlineColor, at: bidiOffset, effectiveRange: nil))
 
+        let addedBg = PreviewTextView.diffAddedBackground
+        let removedBg = PreviewTextView.diffRemovedBackground
         XCTAssertNotEqual(resolvedAlpha(of: addedBg, in: .aqua), resolvedAlpha(of: addedBg, in: .darkAqua))
         XCTAssertNotEqual(resolvedAlpha(of: removedBg, in: .aqua), resolvedAlpha(of: removedBg, in: .darkAqua))
         XCTAssertGreaterThan(

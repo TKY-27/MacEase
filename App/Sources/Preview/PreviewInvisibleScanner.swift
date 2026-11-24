@@ -7,6 +7,14 @@ struct PreviewInvisibleCharacter: Equatable, Sendable {
     var codePointLabel: String {
         String(format: "U+%04X", scalar.value)
     }
+
+    // Unicode names controls "<control>".
+    var unicodeLabel: String {
+        let properties = scalar.properties
+        let name =
+            properties.name ?? properties.nameAlias ?? (properties.generalCategory == .control ? "<control>" : nil)
+        return name.map { "\(codePointLabel) \($0)" } ?? codePointLabel
+    }
 }
 
 enum PreviewInvisibleScanner {
@@ -71,6 +79,14 @@ enum PreviewInvisibleScanner {
     // Short strings finish before any checkpoint.
     static func flagged(in text: Substring) -> [PreviewInvisibleCharacter] {
         scan(text, language: .plain) {}
+    }
+
+    // Reorders text or hides readable text.
+    static func altersReading(_ scalar: Unicode.Scalar) -> Bool {
+        let value = scalar.value
+        return (bidiEmbedStart...bidiOverrideEnd).contains(value)
+            || (bidiIsolateStart...bidiIsolateEnd).contains(value)
+            || (tagStartValue...tagCancelValue).contains(value)
     }
 
     private static func scan(

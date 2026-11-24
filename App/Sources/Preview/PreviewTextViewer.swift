@@ -83,6 +83,10 @@ struct PreviewTextRendering: Sendable {
     let html: Bool
     // Nil for converted or rendered text.
     let decodedAs: PreviewEncoding?
+    let invisibleCharacters: [PreviewInvisibleCharacter]
+    let altersReading: Bool
+    // Text past the highlight limit is unscanned.
+    let scannedPartially: Bool
 
     static func make(
         source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
@@ -129,8 +133,15 @@ struct PreviewTextRendering: Sendable {
                 lineStarts.append(offset + 1)
             }
         }
+        let invisible = tokens.compactMap { token in
+            token.invisibleScalar.map { PreviewInvisibleCharacter(range: token.range, scalar: $0) }
+        }
         try Task.checkCancellation()
-        return Self(text: text, tokens: tokens, lineStarts: lineStarts, html: html, decodedAs: decodedAs)
+        return Self(
+            text: text, tokens: tokens, lineStarts: lineStarts, html: html, decodedAs: decodedAs,
+            invisibleCharacters: invisible,
+            altersReading: invisible.contains { PreviewInvisibleScanner.altersReading($0.scalar) },
+            scannedPartially: text.utf8.count > PreviewTextSource.highlightBytes)
     }
 
     // An image element never runs SVG scripts.
@@ -279,9 +290,27 @@ struct PreviewTextViewer: View {
                 EmptyView()
             }
         }
+        if let rendering, rendering.altersReading, failure == nil {
+            hiddenCharactersNote(rendering)
+        }
         if source?.truncated == true && failure == nil && !(kind == .html && rich) {
             PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
         }
+    }
+
+    // Bidi and tag characters mislead readers.
+    private func hiddenCharactersNote(_ rendering: PreviewTextRendering) -> PreviewNote {
+        let count = rendering.invisibleCharacters.count
+        let symbol = "exclamationmark.triangle.fill"
+        guard rendering.scannedPartially else {
+            return PreviewNote(
+                symbol: symbol, text: Text("This file contains \(count) hidden or direction-changing characters."),
+                shortText: Text("\(count) hidden or direction-changing characters"), tint: .orange)
+        }
+        return PreviewNote(
+            symbol: symbol,
+            text: Text("This file contains at least \(count) hidden or direction-changing characters."),
+            shortText: Text("At least \(count) hidden or direction-changing characters"), tint: .orange)
     }
 
     @ViewBuilder private var controls: some View {
@@ -574,15 +603,21 @@ private struct PreviewCodeView: NSViewRepresentable {
 }
 
 final class PreviewTextView: NSTextView, PreviewFindTarget {
+    private static let markHitWidth: CGFloat = 8
+    private static let maximumToolTipLines = 8
     private var contentVersion: UInt64 = 0
     private var matchedQuery: String?
     private var matches: [NSRange] = []
     private var matchIndex: Int?
+    // The layout manager holds its delegate weakly.
+    private var decorations: PreviewTextDecorations?
+    let markToolTips = PreviewMarkToolTips()
 
     func show(_ rendering: PreviewTextRendering, font: NSFont) {
         contentVersion &+= 1
         let styled = NSMutableAttributedString(
             string: rendering.text, attributes: [.font: font, .foregroundColor: NSColor.textColor])
+        var rowTints: [Int: PreviewTextDecorations.RowTint] = [:]
         for token in rendering.tokens {
             switch token.kind {
             case .keyword:
@@ -596,30 +631,99 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
             case .number:
                 styled.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: token.range)
             case .diffAdded:
-                styled.addAttributes(
-                    [.foregroundColor: Self.diffAddedForeground, .backgroundColor: Self.diffAddedBackground],
-                    range: token.range)
+                styled.addAttribute(.foregroundColor, value: Self.diffAddedForeground, range: token.range)
+                rowTints[token.range.location] = .added
             case .diffRemoved:
-                styled.addAttributes(
-                    [.foregroundColor: Self.diffRemovedForeground, .backgroundColor: Self.diffRemovedBackground],
-                    range: token.range)
+                styled.addAttribute(.foregroundColor, value: Self.diffRemovedForeground, range: token.range)
+                rowTints[token.range.location] = .removed
             case .invisible:
-                styled.addAttribute(.backgroundColor, value: Self.invisibleBackground, range: token.range)
+                break
             }
         }
+        let decorations = PreviewTextDecorations(marks: rendering.invisibleCharacters, rowTints: rowTints)
+        decorations.rowSpan.withLock { $0 = rowSpan }
+        self.decorations = decorations
+        textLayoutManager?.delegate = decorations
         textStorage?.setAttributedString(styled)
         self.font = font
         matchedQuery = nil
         matches = []
         matchIndex = nil
+        refreshMarkToolTips()
     }
 
-    private static let highContrastAppearances: Set<NSAppearance.Name> = [
+    private var rowSpan: ClosedRange<CGFloat> {
+        let origin = textContainerOrigin.x
+        return -origin...max(-origin, bounds.width - origin)
+    }
+
+    // The next viewport layout reads it.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        let span = rowSpan
+        decorations?.rowSpan.withLock { $0 = span }
+    }
+
+    override func prepareContent(in rect: NSRect) {
+        super.prepareContent(in: rect)
+        refreshMarkToolTips()
+    }
+
+    // Tooltips cover the prepared area only.
+    private func refreshMarkToolTips() {
+        for tag in markToolTips.labels.keys { removeToolTip(tag) }
+        markToolTips.labels = [:]
+        guard let decorations, !decorations.marks.isEmpty, let layout = textLayoutManager else { return }
+        let visible = preparedContentRect.union(visibleRect)
+        let origin = textContainerOrigin
+        let top = CGPoint(x: 0, y: max(0, visible.minY - origin.y))
+        let start = layout.textLayoutFragment(for: top)?.rangeInElement.location ?? layout.documentRange.location
+        var stacks: [(rect: CGRect, marks: [PreviewInvisibleCharacter])] = []
+        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
+            guard frame.minY <= visible.maxY, stacks.count < PreviewTextFragment.maximumDrawnMarks else {
+                return false
+            }
+            guard let fragment = fragment as? PreviewTextFragment else { return true }
+            let clip = visible.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            for (rect, mark) in fragment.markRects(within: clip) {
+                let placed = rect.offsetBy(dx: frame.minX, dy: frame.minY)
+                if let last = stacks.indices.last, stacks[last].rect == placed {
+                    stacks[last].marks.append(mark)
+                } else {
+                    stacks.append((placed, [mark]))
+                }
+            }
+            return true
+        }
+        for stack in stacks {
+            let tag = addToolTip(
+                stack.rect.insetBy(dx: -Self.markHitWidth / 2, dy: 0), owner: markToolTips, userData: nil)
+            markToolTips.labels[tag] = Self.toolTip(for: stack.marks)
+        }
+    }
+
+    // Stacked zero-width marks share one tooltip.
+    static func toolTip(for marks: [PreviewInvisibleCharacter]) -> String {
+        var lines: [String] = []
+        var index = marks.startIndex
+        while index < marks.endIndex, lines.count < maximumToolTipLines {
+            let label = marks[index].unicodeLabel
+            var next = index + 1
+            while next < marks.endIndex, marks[next].scalar == marks[index].scalar { next += 1 }
+            lines.append(next - index > 1 ? "\(label) ×\(next - index)" : label)
+            index = next
+        }
+        if index < marks.endIndex { lines.append("…") }
+        return lines.joined(separator: "\n")
+    }
+
+    nonisolated private static let highContrastAppearances: Set<NSAppearance.Name> = [
         .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
         .accessibilityHighContrastVibrantLight, .accessibilityHighContrastVibrantDark,
     ]
 
-    static func diffBackgroundColor(added: Bool, dark: Bool, highContrast: Bool) -> NSColor {
+    nonisolated static func diffBackgroundColor(added: Bool, dark: Bool, highContrast: Bool) -> NSColor {
         switch (added, dark, highContrast) {
         case (true, false, false): NSColor(srgbRed: 0.15, green: 0.72, blue: 0.32, alpha: 0.13)
         case (true, false, true): NSColor(srgbRed: 0.15, green: 0.72, blue: 0.32, alpha: 0.24)
@@ -644,7 +748,13 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         dark: NSColor(srgbRed: 0.49, green: 0.89, blue: 0.55, alpha: 1),
         darkHighContrast: NSColor(srgbRed: 0.68, green: 0.96, blue: 0.72, alpha: 1))
 
-    private static let diffAddedBackground = adaptiveColor(
+    nonisolated static let invisibleMarkColor = adaptiveColor(
+        light: NSColor(srgbRed: 0.75, green: 0.32, blue: 0.0, alpha: 1),
+        lightHighContrast: NSColor(srgbRed: 0.60, green: 0.24, blue: 0.0, alpha: 1),
+        dark: NSColor(srgbRed: 1.0, green: 0.62, blue: 0.20, alpha: 1),
+        darkHighContrast: NSColor(srgbRed: 1.0, green: 0.74, blue: 0.38, alpha: 1))
+
+    nonisolated static let diffAddedBackground = adaptiveColor(
         light: diffBackgroundColor(added: true, dark: false, highContrast: false),
         lightHighContrast: diffBackgroundColor(added: true, dark: false, highContrast: true),
         dark: diffBackgroundColor(added: true, dark: true, highContrast: false),
@@ -656,19 +766,13 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
         dark: NSColor(srgbRed: 1.0, green: 0.62, blue: 0.60, alpha: 1),
         darkHighContrast: NSColor(srgbRed: 1.0, green: 0.78, blue: 0.76, alpha: 1))
 
-    private static let diffRemovedBackground = adaptiveColor(
+    nonisolated static let diffRemovedBackground = adaptiveColor(
         light: diffBackgroundColor(added: false, dark: false, highContrast: false),
         lightHighContrast: diffBackgroundColor(added: false, dark: false, highContrast: true),
         dark: diffBackgroundColor(added: false, dark: true, highContrast: false),
         darkHighContrast: diffBackgroundColor(added: false, dark: true, highContrast: true))
 
-    private static let invisibleBackground = adaptiveColor(
-        light: NSColor(srgbRed: 0.95, green: 0.60, blue: 0.05, alpha: 0.24),
-        lightHighContrast: NSColor(srgbRed: 0.90, green: 0.52, blue: 0.0, alpha: 0.38),
-        dark: NSColor(srgbRed: 0.95, green: 0.65, blue: 0.10, alpha: 0.28),
-        darkHighContrast: NSColor(srgbRed: 0.98, green: 0.70, blue: 0.15, alpha: 0.42))
-
-    private static func adaptiveColor(
+    nonisolated private static func adaptiveColor(
         light: NSColor, lightHighContrast: NSColor, dark: NSColor, darkHighContrast: NSColor
     ) -> NSColor {
         NSColor(name: nil) { appearance in
@@ -744,6 +848,16 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
     }
 
     nonisolated private static let cancellationStride = 1024
+}
+
+final class PreviewMarkToolTips: NSObject, NSViewToolTipOwner {
+    var labels: [NSView.ToolTipTag: String] = [:]
+
+    func view(
+        _ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        labels[tag] ?? ""
+    }
 }
 
 private final class PreviewLineRuler: NSRulerView {
