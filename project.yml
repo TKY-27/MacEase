@@ -153,6 +153,9 @@ schemes:
       config: Debug
     test:
       config: DebugTests
+      # Message tests assert literal English text.
+      language: en
+      region: US
       targets:
         - MacEaseAppTests
     archive:

@@ -22,8 +22,22 @@ public enum RecipePlanner {
         Set(inputs.map { $0.deletingLastPathComponent().standardizedFileURL }).count > 1
     }
 
-    public static func batch(recipe: Recipe, inputs: [URL], destination: URL? = nil, settings: Settings) throws -> Batch
-    {
+    /// Videos whose recompressed copies would leave streams out.
+    public static func streamOmissions(recipe: Recipe, inputs: [URL]) async throws -> [URL: StreamOmission] {
+        guard recipe.variants.contains(where: { $0.output.videoFormat != nil }) else { return [:] }
+        var omissions: [URL: StreamOmission] = [:]
+        for input in inputs where FileKind(fileURL: input) == .video {
+            let stamp = try MediaSourceStamp(url: input)
+            let streams = MediaInput.unpreservedStreams(from: try await MediaInput.open(input).skippedStreams)
+            if !streams.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: Set(streams)) }
+        }
+        return omissions
+    }
+
+    public static func batch(
+        recipe: Recipe, inputs: [URL], destination: URL? = nil, settings: Settings,
+        omissions: [URL: StreamOmission] = [:]
+    ) throws -> Batch {
         try recipe.validate()
         guard let first = inputs.first else { throw EngineError.invalidInput(.emptyInput) }
         guard destination != nil || !requiresDestination(for: inputs) else { throw RecipeError.destinationRequired }
@@ -40,7 +54,7 @@ public enum RecipePlanner {
             inputs: inputs, lane: inputs.contains { FileKind(fileURL: $0) == .video } ? .hardwareVideo : .cpu
         ) {
             context in
-            try await run(execution, inputs: inputs, destination: output, context: context)
+            try await run(execution, inputs: inputs, destination: output, omissions: omissions, context: context)
         }
         return Batch(operation: .filesFinish, items: [work], recipeExecution: execution)
     }
@@ -53,10 +67,12 @@ public enum RecipePlanner {
     private struct VariantRun {
         let source: Source
         let variant: OutputVariant
+        let omittedStreams: Set<UnpreservedStream>
     }
 
     private static func run(
-        _ execution: RecipeExecution, inputs: [URL], destination: URL, context: ItemContext
+        _ execution: RecipeExecution, inputs: [URL], destination: URL, omissions: [URL: StreamOmission],
+        context: ItemContext
     ) async throws -> ItemResult {
         try validate(recipe: execution.recipe, inputs: inputs)
         let folder = destination.deletingLastPathComponent()
@@ -65,12 +81,19 @@ public enum RecipePlanner {
         else { throw RecipeError.invalidDestination }
         let stamps = try Dictionary(
             uniqueKeysWithValues: Set(inputs).map { ($0, try FileStamp(of: $0, includingIdentity: true)) })
+        for (input, omission) in omissions where stamps[input] != omission.stamp.fileStamp {
+            throw RecipeError.sourceChanged(input.lastPathComponent)
+        }
         let workspace = try context.stagingDirectory(for: destination)
         let sources = try clone(inputs, into: workspace)
         try checkSources(stamps)
         let runs = sources.flatMap { source in
             execution.recipe.variants.filter { $0.output.kind == FileKind(fileURL: source.original) }
-                .map { VariantRun(source: source, variant: $0) }
+                .map {
+                    VariantRun(
+                        source: source, variant: $0,
+                        omittedStreams: omissions[source.original]?.streams ?? [])
+                }
         }
         var targets: [Int64?] = runs.map { $0.variant.targetBytes }
         var smallest = Int64.max
@@ -123,7 +146,8 @@ public enum RecipePlanner {
             var variantSettings = execution.settings
             if run.variant.output == .pdfPagesJPEG { variantSettings.image.jpegQuality = run.variant.quality }
             let child = ItemContext(
-                settings: variantSettings, staging: context.staging, phase: { context.phase($0) }
+                settings: variantSettings, staging: context.staging, omittedStreams: run.omittedStreams,
+                phase: { context.phase($0) }
             ) { context.progress($0) }
             defer {
                 for warning in child.warnings where !context.warnings.contains(warning) { context.warn(warning) }

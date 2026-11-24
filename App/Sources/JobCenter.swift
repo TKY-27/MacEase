@@ -69,6 +69,7 @@ final class JobCenter {
     private(set) var sessions: [UUID: ActivitySession] = [:]
     private(set) var downloadSessions: [UUID: DownloadSession] = [:]
     private var validatingRetries: Set<UUID> = []
+    private(set) var continuedWithoutStreams: Set<UUID> = []
     private var sessionOrder: [UUID] = []
     @ObservationIgnored private let comparisonHost = FeatureWindowHost()
     @ObservationIgnored private let retryHost = PanelHost()
@@ -395,6 +396,7 @@ final class JobCenter {
     }
 
     func dismissSession(_ id: UUID) {
+        continuedWithoutStreams.remove(id)
         sessions.removeValue(forKey: id)
         downloadSessions.removeValue(forKey: id)
         sessionOrder.removeAll { $0 == id }
@@ -425,19 +427,45 @@ final class JobCenter {
             }
             return
         }
-        guard !terminating, let session = sessions[id], canRetry(id) else { return }
+        guard !terminating, sessions[id] != nil, canRetry(id) else { return }
+        validateRetry(id, beginning: { try $0.beginRetry() }) { session, request in
+            self.presentRetry(id, request: request, settings: session.settings)
+        }
+    }
+
+    func canContinueWithoutStreams(_ id: UUID) -> Bool {
+        sessions[id]?.canRetryOmittingStreams == true && !validatingRetries.contains(id)
+            && !continuedWithoutStreams.contains(id)
+    }
+
+    /// Resubmits only the files and kinds shown.
+    func continueWithoutStreams(_ id: UUID) {
+        guard !terminating, let session = sessions[id], canContinueWithoutStreams(id) else { return }
+        let streams = Set(session.unpreservedStreams)
+        let indices = session.unpreservedStreamIndices
+        validateRetry(id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }) { _, request in
+            self.continuedWithoutStreams.insert(id)
+            self.launchRetry(id, request: request)
+        }
+    }
+
+    private func validateRetry(
+        _ id: UUID, beginning: @escaping @Sendable (inout ActivitySession) throws -> OperationRequest,
+        then launch: @escaping (ActivitySession, OperationRequest) -> Void
+    ) {
+        guard let session = sessions[id] else { return }
         validatingRetries.insert(id)
         Task {
             defer { validatingRetries.remove(id) }
             do {
                 let validated = try await Task.detached {
                     var snapshot = session
-                    let request = try snapshot.beginRetry()
+                    let request = try beginning(&snapshot)
                     return (snapshot, request)
                 }.value
                 guard !terminating, sessions[id] != nil else { return }
                 sessions[id] = validated.0
-                presentRetry(id, request: validated.1, settings: validated.0.settings)
+                launch(validated.0, validated.1)
             } catch {
                 presentFailure?(session.request.op, UserMessages.describeActivity(error))
             }
@@ -565,6 +593,7 @@ final class JobCenter {
         sessionOrder.append(id)
         while sessionOrder.count > Self.sessionCount {
             let expired = sessionOrder.removeFirst()
+            continuedWithoutStreams.remove(expired)
             sessions.removeValue(forKey: expired)
             downloadSessions.removeValue(forKey: expired)
         }

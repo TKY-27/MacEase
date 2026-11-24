@@ -12343,56 +12343,6 @@
         }
       }
     },
-    "Couldn’t process “%@”: it contains %@ that cannot be preserved. You can run this operation without them.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%1$@” を処理できませんでした：保持できない%2$@が含まれています。これらを省略して処理を実行できます。"
-          }
-        }
-      }
-    },
-    "Couldn’t process “%@”: some streams or chapters cannot be preserved. You can run this operation without them.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” を処理できませんでした：保持できないストリームやチャプタが含まれています。これらを省略して処理を実行できます。"
-          }
-        }
-      }
-    },
-    "extra video tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加の映像トラック"
-          }
-        }
-      }
-    },
-    "extra audio tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加の音声トラック"
-          }
-        }
-      }
-    },
-    "subtitle tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字幕トラック"
-          }
-        }
-      }
-    },
     "closed captions": {
       "localizations": {
         "ja": {
@@ -12403,22 +12353,12 @@
         }
       }
     },
-    "timecode tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タイムコードトラック"
-          }
-        }
-      }
-    },
     "chapters": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャプタ"
+            "value": "チャプター"
           }
         }
       }
@@ -12429,26 +12369,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "添付ファイル"
-          }
-        }
-      }
-    },
-    "timed metadata tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タイムドメタデータトラック"
-          }
-        }
-      }
-    },
-    "other data streams": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他のデータストリーム"
           }
         }
       }
@@ -18366,6 +18286,547 @@
           "stringUnit": {
             "state": "translated",
             "value": "許可済み"
+          }
+        }
+      }
+    },
+    "Continue Without %@": {
+      "comment": "Runs the operation, leaving the named content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@なしで続ける"
+          }
+        }
+      }
+    },
+    "Open “%@” without %@?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” を%2$@なしで開きますか？"
+          }
+        }
+      }
+    },
+    "Add “%@” without %@?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” を%2$@なしで追加しますか？"
+          }
+        }
+      }
+    },
+    "Opening doesn’t change the originals.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いても元のファイルは変更されません。"
+          }
+        }
+      }
+    },
+    "Adding doesn’t change the originals.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加しても元のファイルは変更されません。"
+          }
+        }
+      }
+    },
+    "Open Without %@": {
+      "comment": "Opens media, leaving the named content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@なしで開く"
+          }
+        }
+      }
+    },
+    "Add Without %@": {
+      "comment": "Adds media, leaving the named content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@なしで追加"
+          }
+        }
+      }
+    },
+    "The saved file won’t include %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存するファイルには%@が含まれません。"
+          }
+        }
+      }
+    },
+    "extra video": {
+      "comment": "Video tracks after the first",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の映像トラック"
+          }
+        }
+      }
+    },
+    "extra audio": {
+      "comment": "Audio tracks after the first",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の音声トラック"
+          }
+        }
+      }
+    },
+    "subtitles": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕"
+          }
+        }
+      }
+    },
+    "timecode": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムコード"
+          }
+        }
+      }
+    },
+    "timed metadata": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時系列のメタデータ"
+          }
+        }
+      }
+    },
+    "other data": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のデータ"
+          }
+        }
+      }
+    },
+    "Extra video: only the first video track is used to create the output.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra video: only the first video track is used to create the output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の映像トラック：最初の映像トラックだけを使って出力を作成します。"
+          }
+        }
+      }
+    },
+    "Extra video: only the first video track is kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の映像トラック：最初の映像トラックだけが残ります。"
+          }
+        }
+      }
+    },
+    "Extra audio: all audio tracks are removed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra audio: all audio tracks are removed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の音声トラック：すべての音声トラックが削除されます。"
+          }
+        }
+      }
+    },
+    "Extra audio: the output contains no audio tracks.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra audio: the output contains no audio tracks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の音声トラック：出力に音声トラックは含まれません。"
+          }
+        }
+      }
+    },
+    "Extra audio: only the first audio track is used to create the output.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra audio: only the first audio track is used to create the output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の音声トラック：最初の音声トラックだけを使って出力を作成します。"
+          }
+        }
+      }
+    },
+    "Extra video: the output contains no video tracks.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra video: the output contains no video tracks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+          }
+        }
+      }
+    },
+    "Extra audio: only the first audio track is kept.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2本目以降の音声トラック：最初の音声トラックだけが残ります。"
+          }
+        }
+      }
+    },
+    "Subtitles: they can no longer be turned on during playback.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕：再生中に表示できなくなります。"
+          }
+        }
+      }
+    },
+    "Closed captions: they can no longer be turned on during playback.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クローズドキャプション：再生中に表示できなくなります。"
+          }
+        }
+      }
+    },
+    "Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムコード：編集アプリがクリップの位置合わせに使う情報です。省いても映像と音声には影響しません。"
+          }
+        }
+      }
+    },
+    "Chapters: you can no longer jump from chapter to chapter.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャプター：チャプター単位で移動できなくなります。"
+          }
+        }
+      }
+    },
+    "Attachments: files stored inside, such as cover art or fonts, are left out.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル：カバー画像やフォントなど、ファイル内に保存されたものは含まれません。"
+          }
+        }
+      }
+    },
+    "Timed metadata: details that change over time, such as location, are left out.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時系列のメタデータ：位置情報など、時間とともに変わる情報は含まれません。"
+          }
+        }
+      }
+    },
+    "Other data: things like markers or sensor readings are left out. Most players don’t use them.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のデータ：マーカーやセンサーの記録などは含まれません。多くの再生アプリでは使われない情報です。"
+          }
+        }
+      }
+    },
+    "“%@” contains %@, which MacEase can’t carry over.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” には%2$@が含まれていますが、MacEase では引き継げません。"
+          }
+        }
+      }
+    },
+    "These files contain content MacEase can’t carry over:": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のファイルには、MacEase で引き継げない内容が含まれています："
+          }
+        }
+      }
+    },
+    "1 file needs your confirmation.": {
+      "comment": "Activity status",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認が必要なファイルが 1 件あります。"
+          }
+        }
+      }
+    },
+    "%lld files need your confirmation.": {
+      "comment": "Activity status",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認が必要なファイルが %lld 件あります。"
+          }
+        }
+      }
+    },
+    "Continue Without Them": {
+      "comment": "Runs the operation, leaving the listed content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらを省いて続ける"
+          }
+        }
+      }
+    },
+    "If you continue, “%@” is replaced. The original moves to the Trash, and you can undo this.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると、“%@” は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
+          }
+        }
+      }
+    },
+    "If you continue, these %lld files are replaced. The originals move to the Trash, and you can undo this.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると、これら %lld 個のファイルは置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
+          }
+        }
+      }
+    },
+    "If you continue, a new file is made and “%@” stays as it is.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると新しいファイルが作られ、“%@” はそのまま残ります。"
+          }
+        }
+      }
+    },
+    "If you continue, new files are made and the originals stay as they are.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続けると新しいファイルが作られ、元のファイルはそのまま残ります。"
+          }
+        }
+      }
+    },
+    "Continued without %@. The new result is below.": {
+      "comment": "Activity note after the user agreed to leave content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を省いて続けました。新しい結果は下に表示されています。"
+          }
+        }
+      }
+    },
+    "Left out, as you confirmed: %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認したとおり省きました：%@。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: it contains %@, which MacEase can’t carry over. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” を処理できませんでした：%2$@が含まれていますが、MacEase では引き継げません。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: it contains content MacEase can’t carry over. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” を処理できませんでした：MacEase で引き継げない内容が含まれています。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Open %lld videos without content MacEase can’t carry over?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase で引き継げない内容を省いて %lld 個の動画を開きますか？"
+          }
+        }
+      }
+    },
+    "Add %lld videos without content MacEase can’t carry over?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase で引き継げない内容を省いて %lld 個の動画を追加しますか？"
+          }
+        }
+      }
+    },
+    "Continue without %@?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@なしで続けますか？"
+          }
+        }
+      }
+    },
+    "Continue without content MacEase can’t carry over?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase で引き継げない内容を省いて続けますか？"
+          }
+        }
+      }
+    },
+    "Opening doesn’t change “%@”.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いても “%@” は変更されません。"
+          }
+        }
+      }
+    },
+    "Adding doesn’t change “%@”.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加しても “%@” は変更されません。"
+          }
+        }
+      }
+    },
+    "Your originals stay as they are.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルはそのまま残ります。"
+          }
+        }
+      }
+    },
+    "Open Without Them": {
+      "comment": "Opens media, leaving the listed content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらを省いて開く"
+          }
+        }
+      }
+    },
+    "Add Without Them": {
+      "comment": "Adds media, leaving the listed content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらを省いて追加"
           }
         }
       }

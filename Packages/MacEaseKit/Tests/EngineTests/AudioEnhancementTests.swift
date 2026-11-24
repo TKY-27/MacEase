@@ -133,6 +133,104 @@ struct AudioEnhancementTests {
         #expect(waves.map { $0.resolvingSymlinksInPath() } == [source.resolvingSymlinksInPath()])
     }
 
+    @Test func multiplexedOggRunsOnlyWithConsentForTheVersionShown() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        let source = folder.appending(path: "two-voices.ogg")
+        let tools = try MediaDownloadTools(directory: repository.appending(path: "Vendor/build/media-tools/bin"))
+        _ = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: [
+                "-nostdin", "-v", "error", "-n", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                "-f", "lavfi", "-i", "sine=frequency=660:duration=1", "-map", "0", "-map", "1",
+                "-c:a", "libopus", source.path,
+            ], directory: folder, tools: tools, captureOutput: false)
+        let original = try Data(contentsOf: source)
+        let engine = try JobEngine(
+            supportDirectory: source.deletingLastPathComponent().appending(path: "support"), concurrency: 1)
+        let refused = await engine.run(try enhancement().makeBatch(source: source, mode: .speech), settings: Settings())
+        {
+            _ in
+        }
+        #expect(refused.outcomes == [.failed(.invalidInput(.unpreservedStreams([.audio])))])
+
+        let omission = try #require(try await AudioEnhancement.streamOmission(for: source))
+        #expect(omission.streams == [.audio])
+        let consented = await engine.run(
+            try enhancement().makeBatch(source: source, mode: .speech, omission: omission), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, let warnings) = consented.outcomes.first else {
+            Issue.record("consented enhancement failed: \(consented.outcomes)")
+            return
+        }
+        #expect(outputs.count == 1)
+        #expect(warnings == [.streamsOmitted([.audio])])
+        #expect(try Data(contentsOf: source) == original)
+
+        try FileManager.default.removeItem(at: source)
+        try original.write(to: source)
+        let stale = await engine.run(
+            try enhancement().makeBatch(source: source, mode: .speech, omission: omission), settings: Settings()
+        ) { _ in }
+        guard case .failed(let error) = stale.outcomes.first else {
+            Issue.record("consent for a replaced file must not apply: \(stale.outcomes)")
+            return
+        }
+        #expect(error != .invalidInput(.unpreservedStreams([.audio])))
+        #expect(stale.record == nil)
+    }
+
+    @Test(arguments: ["wav", "mp3", "flac"])
+    func ancillaryContentRequiresConsentBeforeEnhancement(format: String) async throws {
+        let source: URL
+        let expected: [UnpreservedStream]
+        switch format {
+        case "mp3":
+            source = try await AudioStreamOmissionTests().id3Source(frameID: "CHAP")
+            expected = [.chapter]
+        case "flac":
+            source = try await AudioStreamOmissionTests().flacSource()
+            expected = [.chapter, .attachment, .data]
+        default:
+            source = try AudioSignals.temporaryFolder().appending(path: "cues.wav")
+            try await AudioSignals.write(AudioSignals.music(seconds: 0.2), to: source, format: .wav)
+            var wave = try Data(contentsOf: source)
+            let cue =
+                Data([1, 0, 0, 0]) + Data(repeating: 0, count: 8)
+                + Data("data".utf8) + Data(repeating: 0, count: 12)
+            wave.append(Data("cue ".utf8) + Data([28, 0, 0, 0]) + cue)
+            let length = UInt32(wave.count - 8)
+            for offset in 0..<4 { wave[4 + offset] = UInt8(length >> (offset * 8) & 0xFF) }
+            try wave.write(to: source)
+            expected = [.data]
+        }
+        let original = try Data(contentsOf: source)
+        let folder = source.deletingLastPathComponent()
+        let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
+        let refused = await engine.run(
+            try enhancement().makeBatch(source: source, mode: .speech), settings: Settings()
+        ) { _ in }
+        #expect(refused.outcomes == [.failed(.invalidInput(.unpreservedStreams(expected)))])
+        #expect(refused.record == nil)
+        #expect(
+            Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == [
+                source.lastPathComponent, "support",
+            ])
+        let omission = try #require(try await AudioEnhancement.streamOmission(for: source))
+        #expect(omission.streams == Set(expected))
+        let consented = await engine.run(
+            try enhancement().makeBatch(source: source, mode: .speech, omission: omission), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, let warnings) = consented.outcomes.first else {
+            Issue.record("Consented enhancement failed: \(consented.outcomes)")
+            return
+        }
+        #expect(outputs.count == 1)
+        #expect(warnings == [.streamsOmitted(expected)])
+        #expect(try !AudioSignals.decode(try #require(outputs.first)).samples.isEmpty)
+        #expect(consented.record != nil)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
     @Test func unavailableModelFailsExplicitly() throws {
         let folder = try AudioSignals.temporaryFolder()
         let missing = try enhancement(directory: folder)
