@@ -55,7 +55,8 @@ an assistive-technology press on a link inside a closed declarative shadow root
 aimed at such an address could still preconnect while the navigation is
 cancelled; input-method composition inside a closed shadow root can change
 local, transient text; Look Up may contact Apple when Siri Suggestions are on.
-Measured probe results are in `docs/spikes.md`.
+The measurements come from app-hosted probes with loopback listeners in
+`PreviewTrustTests`, `PreviewSealedPageTests` and `PreviewRenderedPageTests`.
 
 Alternatives rejected: separate script and network permissions; a page-world
 click guard, which page scripts bypassed; the AppKit input shield, replaced by
