@@ -4,9 +4,22 @@ import CoreVideo
 import Formats
 import Foundation
 import ImageIO
+import Synchronization
 import Testing
 
 @testable import Engine
+
+private final class ProgressRecorder: Sendable {
+    private let recorded = Mutex<[Double]>([])
+    var values: [Double] { recorded.withLock { $0 } }
+    func record(_ value: Double) { recorded.withLock { $0.append(value) } }
+}
+
+private final class TaskHolder: Sendable {
+    private let current = Mutex<Task<VideoEdit, any Error>?>(nil)
+    func store(_ task: Task<VideoEdit, any Error>) { current.withLock { $0 = task } }
+    func cancel() { current.withLock { $0?.cancel() } }
+}
 
 @Suite(.serialized) struct VideoFrameToolsTests {
     private static let frameRate = 30
@@ -454,6 +467,371 @@ import Testing
         return pixels
     }
 
+    @Test func reverseSegmentReversesVideoAndAudioAcrossGOPsRestoresAndExports() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "multi_gop.mov")
+        let totalDuration = 3.0
+        try await writeUniqueFramesWithRampAudio(
+            to: source, width: 160, height: 120, duration: totalDuration, keyframeSeconds: 0.5)
+        let originalBytes = try Data(contentsOf: source)
+
+        let support = try AudioSignals.temporaryFolder()
+        let staging = StagingArea(supportDirectory: support)
+
+        let targetSegment = VideoSegment(start: 0.5, end: 2.0)
+        var edit = VideoEdit()
+        edit.segments = [
+            VideoSegment(start: 0, end: 0.5),
+            targetSegment,
+            VideoSegment(start: 2.0, end: totalDuration),
+        ]
+
+        let progressRecorder = ProgressRecorder()
+        let reversedEdit = try await VideoSegmentReverser.reverse(
+            segmentID: targetSegment.id, in: edit, primaryURL: source, staging: staging
+        ) { value in
+            progressRecorder.record(value)
+        }
+
+        let updatedSegment = try #require(reversedEdit.segments?[1])
+        #expect(updatedSegment.isReversed)
+        #expect(updatedSegment.reversedOrigin == ReversedSegmentOrigin(sourceIndex: 0, start: 0.5, end: 2.0))
+        #expect(updatedSegment.sourceIndex == 1)
+        #expect(abs(updatedSegment.outputDuration - 1.5) < 0.05)
+        #expect(progressRecorder.values.contains { $0 >= 0.99 })
+
+        let reversedURL = try #require(reversedEdit.sources?[1].url)
+        #expect(FileManager.default.fileExists(atPath: reversedURL.path))
+
+        let roundTrip = try JSONDecoder().decode(VideoEdit.self, from: JSONEncoder().encode(reversedEdit))
+        #expect(roundTrip == reversedEdit)
+
+        let sourceFrames = try await readAllFrames(from: source, range: 0.5..<2.0)
+        let reversedFrames = try await readAllFrames(from: reversedURL, range: nil)
+        #expect(reversedFrames.count == sourceFrames.count)
+        for index in reversedFrames.indices {
+            let expected = try ImageFixtures.pixel(sourceFrames[sourceFrames.count - 1 - index], x: 80, y: 60)
+            let actual = try ImageFixtures.pixel(reversedFrames[index], x: 80, y: 60)
+            #expect(
+                zip(expected, actual).allSatisfy { abs(Int($0) - Int($1)) <= 18 },
+                "frame \(index) mismatch: got \(actual), expected \(expected)")
+        }
+
+        let sourceAudio = try await readPCM(from: source, start: 0.5, end: 2.0)
+        let reversedAudio = try await readPCM(from: reversedURL, start: 0, end: nil)
+        let frameCount = min(sourceAudio.samples.count, reversedAudio.samples.count) / sourceAudio.channels
+        #expect(abs(sourceAudio.samples.count - reversedAudio.samples.count) <= sourceAudio.channels * 4)
+        let channels = sourceAudio.channels
+        for frame in stride(from: 100, to: frameCount - 100, by: 257) {
+            let mirrored = frameCount - 1 - frame
+            for channel in 0..<channels {
+                let expected = sourceAudio.samples[mirrored * channels + channel]
+                let actual = reversedAudio.samples[frame * channels + channel]
+                #expect(
+                    abs(actual - expected) < 0.01,
+                    "audio mismatch at frame \(frame) ch \(channel): got \(actual), expected \(expected)")
+            }
+        }
+
+        let urls = try #require(reversedEdit.sources?.map(\.url))
+        let playback = try await VideoEditorPlayback.joined(
+            urls: urls, edit: reversedEdit, sourceSize: CGSize(width: 160, height: 120))
+        #expect(abs(playback.timeline.duration - totalDuration) < 0.05)
+
+        let engine = try JobEngine(supportDirectory: try AudioSignals.temporaryFolder(), concurrency: 1)
+        let exportOutcome = await engine.run(
+            MediaEditing.video(url: source, edit: reversedEdit, settings: Settings()), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let exportedOutputs, _) = exportOutcome.outcomes.first,
+            let exportedURL = exportedOutputs.first
+        else {
+            Issue.record("expected reversed timeline export to succeed")
+            return
+        }
+        let exportedInput = try await MediaInput.open(exportedURL)
+        #expect(abs(Double(exportedInput.duration) / Double(Nanoseconds.perSecond) - totalDuration) < 0.1)
+        #expect(try Data(contentsOf: source) == originalBytes)
+
+        var trimmedReversed = reversedEdit
+        trimmedReversed.segments?[1].start = 0.25
+        trimmedReversed.segments?[1].end = 1.0
+        let trimmedRestored = try VideoSegmentReverser.unreverse(segmentID: targetSegment.id, in: trimmedReversed)
+        let trimmedSegment = try #require(trimmedRestored.segments?[1])
+        #expect(abs(trimmedSegment.start - 1.0) < 0.05 && abs(trimmedSegment.end - 1.75) < 0.05)
+
+        let stagedDirectory = reversedURL.deletingLastPathComponent()
+        let restored = try VideoSegmentReverser.unreverse(
+            segmentID: targetSegment.id, in: reversedEdit, staging: staging)
+        let restoredSegment = try #require(restored.segments?[1])
+        #expect(!restoredSegment.isReversed)
+        #expect(restoredSegment.sourceIndex == 0)
+        #expect(abs(restoredSegment.start - 0.5) < 1e-9)
+        #expect(abs(restoredSegment.end - 2.0) < 1e-9)
+        #expect(restored.sources?.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: stagedDirectory.path))
+    }
+
+    @Test func reverseSegmentRespectsMaximumLengthCancellationHDRAlphaAndLegacyDecode() async throws {
+        let legacyJSON = Data(
+            #"{"id":"F776754A-28B9-45D4-9001-6659A97C6786","start":0,"end":1,"speed":1,"volume":1,"adjustments":{"style":"original","styleIntensity":1,"values":{}}}"#
+                .utf8)
+        let legacy = try JSONDecoder().decode(VideoSegment.self, from: legacyJSON)
+        #expect(!legacy.isReversed && legacy.reversedOrigin == nil)
+
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "short.mov")
+        try await writeUniqueFramesWithRampAudio(
+            to: source, width: 128, height: 96, duration: 1.0, keyframeSeconds: 0.5)
+        let staging = StagingArea(supportDirectory: try AudioSignals.temporaryFolder())
+
+        let oversizedSegment = VideoSegment(
+            start: 0, end: VideoSegmentReverser.maximumSegmentSeconds + 1.0)
+        var oversizedEdit = VideoEdit()
+        oversizedEdit.segments = [oversizedSegment]
+        await #expect(
+            throws: EngineError.invalidInput(.tooLong(limitSeconds: VideoSegmentReverser.maximumSegmentSeconds))
+        ) {
+            _ = try await VideoSegmentReverser.reverse(
+                segmentID: oversizedSegment.id, in: oversizedEdit, primaryURL: source, staging: staging)
+        }
+
+        let cancelSupport = try AudioSignals.temporaryFolder()
+        let cancelStaging = StagingArea(supportDirectory: cancelSupport)
+        let cancelSegment = VideoSegment(start: 0, end: 1.0)
+        var cancelEdit = VideoEdit()
+        cancelEdit.segments = [cancelSegment]
+        let cancelledTask = Task {
+            try await Task.sleep(for: .milliseconds(5))
+            return try await VideoSegmentReverser.reverse(
+                segmentID: cancelSegment.id, in: cancelEdit, primaryURL: source, staging: cancelStaging)
+        }
+        cancelledTask.cancel()
+        await #expect(throws: CancellationError.self) { _ = try await cancelledTask.value }
+
+        let midSupport = try AudioSignals.temporaryFolder()
+        let midStaging = StagingArea(supportDirectory: midSupport)
+        let registryPath = midSupport.appending(path: "staging.json")
+        let longClip = folder.appending(path: "longer.mov")
+        try await writeUniqueFramesWithRampAudio(
+            to: longClip, width: 160, height: 120, duration: 2.0, keyframeSeconds: 0.5)
+        let midSegment = VideoSegment(start: 0, end: 2.0)
+        var midEdit = VideoEdit()
+        midEdit.segments = [midSegment]
+        let taskHolder = TaskHolder()
+        let midTask = Task {
+            try await VideoSegmentReverser.reverse(
+                segmentID: midSegment.id, in: midEdit, primaryURL: longClip, staging: midStaging
+            ) { value in
+                if value > 0.1 { taskHolder.cancel() }
+            }
+        }
+        taskHolder.store(midTask)
+        await #expect(throws: (any Error).self) { _ = try await midTask.value }
+        if FileManager.default.fileExists(atPath: registryPath.path) {
+            let tracked = try JSONDecoder().decode([String].self, from: Data(contentsOf: registryPath))
+            #expect(tracked.isEmpty)
+        }
+
+        let hdrFixture = try #require(
+            Bundle.module.url(forResource: "x265-pq.mp4", withExtension: nil, subdirectory: "Resources"))
+        let hdrSource = folder.appending(path: "hdr.mp4")
+        try FileManager.default.copyItem(at: hdrFixture, to: hdrSource)
+        let hdrInput = try await MediaInput.open(hdrSource)
+        let hdrDuration = Double(hdrInput.duration) / Double(Nanoseconds.perSecond)
+        let hdrSegment = VideoSegment(start: 0, end: hdrDuration)
+        var hdrEdit = VideoEdit()
+        hdrEdit.segments = [hdrSegment]
+        let hdrReversed = try await VideoSegmentReverser.reverse(
+            segmentID: hdrSegment.id, in: hdrEdit, primaryURL: hdrSource, staging: staging)
+        let hdrReversedURL = try #require(hdrReversed.sources?[1].url)
+        defer { VideoSegmentReverser.cleanupStagedSource(hdrReversedURL, in: staging) }
+        let hdrReversedInput = try await MediaInput.open(hdrReversedURL)
+        #expect(try await VideoProperties.hdrConfiguration(hdrReversedInput)?.configuration.transfer == .pq)
+
+        let alphaSource = folder.appending(path: "alpha.mov")
+        try await writeAlphaVideo(to: alphaSource, width: 64, height: 48, frameCount: 6)
+        let alphaInput = try await MediaInput.open(alphaSource)
+        let alphaDuration = Double(alphaInput.duration) / Double(Nanoseconds.perSecond)
+        let alphaSegment = VideoSegment(start: 0, end: alphaDuration)
+        var alphaEdit = VideoEdit()
+        alphaEdit.segments = [alphaSegment]
+        let alphaReversed = try await VideoSegmentReverser.reverse(
+            segmentID: alphaSegment.id, in: alphaEdit, primaryURL: alphaSource, staging: staging)
+        let alphaReversedURL = try #require(alphaReversed.sources?[1].url)
+        defer { VideoSegmentReverser.cleanupStagedSource(alphaReversedURL, in: staging) }
+        let alphaReversedInput = try await MediaInput.open(alphaReversedURL)
+        #expect(alphaReversedInput.video?.hasAlpha == true)
+        let alphaFrames = try await readAllFrames(from: alphaReversedURL, range: nil)
+        let firstAlpha = try #require(alphaFrames.first)
+        #expect(try ImageFixtures.pixel(firstAlpha, x: 8, y: 24)[3] < 16)
+        #expect(try ImageFixtures.pixel(firstAlpha, x: 56, y: 24)[3] > 240)
+
+        let rotatedFixture = try #require(
+            Bundle.module.url(forResource: "ffmpeg-rotated.mov", withExtension: nil, subdirectory: "Resources"))
+        let rotatedSource = folder.appending(path: "rotated.mov")
+        try FileManager.default.copyItem(at: rotatedFixture, to: rotatedSource)
+        let rotatedInput = try await MediaInput.open(rotatedSource)
+        let rotatedDuration = Double(rotatedInput.duration) / Double(Nanoseconds.perSecond)
+        let rotatedSegment = VideoSegment(start: 0, end: rotatedDuration)
+        var rotatedEdit = VideoEdit()
+        rotatedEdit.segments = [rotatedSegment]
+        let rotatedReversed = try await VideoSegmentReverser.reverse(
+            segmentID: rotatedSegment.id, in: rotatedEdit, primaryURL: rotatedSource, staging: staging)
+        let rotatedReversedURL = try #require(rotatedReversed.sources?[1].url)
+        defer { VideoSegmentReverser.cleanupStagedSource(rotatedReversedURL, in: staging) }
+        let rotatedReversedInput = try await MediaInput.open(rotatedReversedURL)
+        #expect(rotatedReversedInput.displaySize == rotatedInput.displaySize)
+        #expect(try rotatedReversedInput.displayOrientation == rotatedInput.displayOrientation)
+    }
+
+    private func writeAlphaVideo(to url: URL, width: Int, height: Int, frameCount: Int) async throws {
+        let frameDuration = Nanoseconds.perSecond / 12
+        var encoding = VideoEncoding(
+            codec: .prores4444, width: width, height: height, frameDuration: frameDuration, bitrate: nil)
+        encoding.alpha = true
+        var encoder = try VideoEncoders.make(encoding, track: 1)
+        var packets: [MediaPacket] = []
+        for index in 0..<frameCount {
+            var created: CVPixelBuffer?
+            try #require(
+                CVPixelBufferCreate(
+                    nil, width, height, kCVPixelFormatType_32BGRA,
+                    [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &created) == kCVReturnSuccess)
+            let buffer = try #require(created)
+            try #require(CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess)
+            let base = try #require(CVPixelBufferGetBaseAddress(buffer)).assumingMemoryBound(to: UInt8.self)
+            let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = y * rowBytes + x * 4
+                    if x < width / 2 {
+                        base[offset] = 0
+                        base[offset + 1] = 0
+                        base[offset + 2] = 0
+                        base[offset + 3] = 0
+                    } else {
+                        base[offset] = 30
+                        base[offset + 1] = UInt8(40 + index * 30)
+                        base[offset + 2] = 220
+                        base[offset + 3] = 255
+                    }
+                }
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            packets += try encoder.encode(buffer, timestamp: Int64(index) * frameDuration)
+        }
+        packets += try encoder.finish()
+        var sink = try Sinks.make(
+            .mov, url: url, tracks: [OutputTrack(track: encoder.track, format: encoder.formatDescription)],
+            transform: .identity)
+        for packet in packets { try await sink.write(packet) }
+        try await sink.finish()
+    }
+
+    private func readAllFrames(from url: URL, range: Range<Double>?) async throws -> [CGImage] {
+        let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let timeRange: CMTimeRange? = range.map {
+            CMTimeRange(
+                start: CMTime(seconds: $0.lowerBound, preferredTimescale: SampleBuffers.nanosecondScale),
+                end: CMTime(seconds: $0.upperBound, preferredTimescale: SampleBuffers.nanosecondScale))
+        }
+        let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .frames, range: timeRange)
+        var images: [CGImage] = []
+        while let frame = try await reader.nextFrame() {
+            images.append(try CGImage.make(from: frame.image))
+        }
+        return images
+    }
+
+    private func readPCM(from url: URL, start: Double, end: Double?) async throws -> (samples: [Float], channels: Int) {
+        let input = try await MediaInput.open(url)
+        let track = try #require(input.audio)
+        let startNs = try Nanoseconds.from(seconds: start)
+        let endNs = try end.map { try Nanoseconds.from(seconds: $0) } ?? input.duration
+        let source = try VideoPCMSource(input: input, track: track, start: startNs, end: endNs)
+        var samples: [Float] = []
+        while let chunk = try await source.next() { samples += chunk.samples }
+        return (samples, source.channels)
+    }
+
+    private func writeUniqueFramesWithRampAudio(
+        to url: URL, width: Int, height: Int, duration: Double, keyframeSeconds: Double
+    ) async throws {
+        var encoding = VideoEncoding(
+            codec: .h264, width: width, height: height,
+            frameDuration: Nanoseconds.perSecond / Int64(Self.frameRate), bitrate: nil)
+        encoding.keyframeInterval = try Nanoseconds.from(seconds: keyframeSeconds)
+        var encoder = try VideoEncoders.make(encoding, track: 1)
+        var videoPackets: [MediaPacket] = []
+        let totalFrames = Int((duration * Double(Self.frameRate)).rounded())
+        for index in 0..<totalFrames {
+            let progress = Double(index) / Double(max(1, totalFrames - 1))
+            let red = UInt8((20 + progress * 220).rounded())
+            let green = UInt8((230 - progress * 200).rounded())
+            let blue = UInt8(((index * 37) % 200) + 30)
+            let frame = try solidBuffer(width: width, height: height, red: red, green: green, blue: blue)
+            let timestamp = try Nanoseconds.from(seconds: Double(index) / Double(Self.frameRate))
+            videoPackets += try encoder.encode(frame, timestamp: timestamp)
+        }
+        videoPackets += try encoder.finish()
+
+        let sampleRate = 48_000.0
+        let channels = 2
+        let totalSamples = Int((duration * sampleRate).rounded())
+        let pcmFormat = try PCMFormat.make(sampleRate: sampleRate, channels: channels)
+        let audioTrack = MediaTrack(
+            number: 2, kind: .audio(sampleRate: sampleRate, channels: channels),
+            codec: .pcm(bits: 32, float: true, bigEndian: false))
+        var audioPackets: [MediaPacket] = []
+        let chunkFrames = 4_096
+        var cursor = 0
+        while cursor < totalSamples {
+            let count = min(chunkFrames, totalSamples - cursor)
+            var samples = [Float](repeating: 0, count: count * channels)
+            for offset in 0..<count {
+                let sampleIndex = cursor + offset
+                let left = Float(-0.8 + 1.6 * Double(sampleIndex) / Double(totalSamples))
+                let right = Float(sin(2 * .pi * 220 * Double(sampleIndex) / sampleRate) * 0.5)
+                samples[offset * channels] = left
+                samples[offset * channels + 1] = right
+            }
+            let timestamp = try Nanoseconds.scale(Int64(cursor), by: Nanoseconds.perSecond, over: Int64(sampleRate))
+            let packetDuration = try Nanoseconds.scale(
+                Int64(count), by: Nanoseconds.perSecond, over: Int64(sampleRate))
+            audioPackets.append(
+                MediaPacket(
+                    track: 2, timestamp: timestamp, duration: packetDuration, isKeyframe: true,
+                    payload: samples.withUnsafeBytes { Data($0) }))
+            cursor += count
+        }
+        var sink = try Sinks.make(
+            .mov, url: url,
+            tracks: [
+                OutputTrack(track: encoder.track, format: encoder.formatDescription),
+                OutputTrack(track: audioTrack, format: pcmFormat.formatDescription),
+            ],
+            transform: .identity)
+        var pendingVideo = videoPackets.sorted {
+            ($0.decodeTimestamp ?? $0.timestamp) < ($1.decodeTimestamp ?? $1.timestamp)
+        }
+        var pendingAudio = audioPackets
+        while !pendingVideo.isEmpty || !pendingAudio.isEmpty {
+            let videoTime = pendingVideo.first?.timestamp ?? .max
+            let audioTime = pendingAudio.first?.timestamp ?? .max
+            if !pendingVideo.isEmpty, videoTime <= audioTime || !sink.accepts(track: 2), sink.accepts(track: 1) {
+                try await sink.write(pendingVideo.removeFirst())
+            } else if !pendingAudio.isEmpty, sink.accepts(track: 2) {
+                try await sink.write(pendingAudio.removeFirst())
+            } else {
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
+        sink.endTrack(1)
+        sink.endTrack(2)
+        try await sink.finish()
+    }
+
     private func writeDistinctFramesWithTone(
         to url: URL, width: Int, height: Int, duration: Double
     ) async throws {
@@ -508,10 +886,21 @@ import Testing
                 OutputTrack(track: audioTrack, format: nil),
             ],
             transform: .identity)
-        let merged = (videoPackets + audioPackets).sorted {
+        var pendingVideo = videoPackets.sorted {
             ($0.decodeTimestamp ?? $0.timestamp) < ($1.decodeTimestamp ?? $1.timestamp)
         }
-        for packet in merged { try await sink.write(packet) }
+        var pendingAudio = audioPackets
+        while !pendingVideo.isEmpty || !pendingAudio.isEmpty {
+            let videoTime = pendingVideo.first?.timestamp ?? .max
+            let audioTime = pendingAudio.first?.timestamp ?? .max
+            if !pendingVideo.isEmpty, videoTime <= audioTime || !sink.accepts(track: 2), sink.accepts(track: 1) {
+                try await sink.write(pendingVideo.removeFirst())
+            } else if !pendingAudio.isEmpty, sink.accepts(track: 2) {
+                try await sink.write(pendingAudio.removeFirst())
+            } else {
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        }
         sink.endTrack(1)
         sink.endTrack(2)
         try await sink.finish()

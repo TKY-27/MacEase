@@ -13,6 +13,18 @@ public struct VideoEditSource: Codable, Hashable, Sendable {
     }
 }
 
+public struct ReversedSegmentOrigin: Codable, Hashable, Sendable {
+    public var sourceIndex: Int
+    public var start: Double
+    public var end: Double
+
+    public init(sourceIndex: Int, start: Double, end: Double) {
+        self.sourceIndex = sourceIndex
+        self.start = start
+        self.end = end
+    }
+}
+
 public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     public static let freezeDurationRange = 0.1...30.0
 
@@ -27,8 +39,10 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     public var fadeIn = 0.0
     public var fadeOut = 0.0
     public var freezeDuration: Double?
+    public var reversedOrigin: ReversedSegmentOrigin?
 
     public var isFreeze: Bool { freezeDuration != nil }
+    public var isReversed: Bool { reversedOrigin != nil }
 
     public var outputDuration: Double {
         freezeDuration ?? (end - start) / speed
@@ -37,7 +51,7 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     public init(
         id: UUID = UUID(), start: Double, end: Double, speed: Double = 1,
         volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments(), sourceIndex: Int = 0,
-        freezeDuration: Double? = nil
+        freezeDuration: Double? = nil, reversedOrigin: ReversedSegmentOrigin? = nil
     ) {
         self.id = id
         self.sourceIndex = sourceIndex
@@ -47,9 +61,10 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         self.volume = volume
         self.adjustments = adjustments
         self.freezeDuration = freezeDuration
+        self.reversedOrigin = reversedOrigin
     }
     private enum CodingKeys: String, CodingKey {
-        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut, freezeDuration
+        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut, freezeDuration, reversedOrigin
     }
 
     public init(from decoder: Decoder) throws {
@@ -64,6 +79,7 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         fadeIn = try values.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
         fadeOut = try values.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
         freezeDuration = try values.decodeIfPresent(Double.self, forKey: .freezeDuration)
+        reversedOrigin = try values.decodeIfPresent(ReversedSegmentOrigin.self, forKey: .reversedOrigin)
     }
 }
 
@@ -111,6 +127,14 @@ public struct VideoTimeline: Hashable, Sendable {
             if let freezeDuration = segment.freezeDuration {
                 guard freezeDuration.isFinite, VideoSegment.freezeDurationRange.contains(freezeDuration),
                     segment.speed == 1, segment.volume == 0
+                else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            }
+            if let origin = segment.reversedOrigin {
+                guard segment.freezeDuration == nil,
+                    durations.indices.contains(origin.sourceIndex),
+                    origin.sourceIndex != segment.sourceIndex,
+                    origin.start.isFinite, origin.end.isFinite,
+                    origin.start >= 0, origin.end > origin.start, origin.end <= durations[origin.sourceIndex]
                 else { throw EngineError.invalidInput(.invalidNumericParameter) }
             }
             let start = try Nanoseconds.from(seconds: segment.start)
