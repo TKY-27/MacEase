@@ -61,7 +61,7 @@ public enum VideoSegmentReverser {
 
         let originSource = sources[segment.sourceIndex]
         let input = try await MediaInput.open(originSource.url)
-        try input.requireSingleTracksForReplacement()
+        try input.requirePreservableStreams()
         guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
         let rangeStart = try Nanoseconds.from(seconds: segment.start)
         let rangeEnd = try Nanoseconds.from(seconds: segment.end)

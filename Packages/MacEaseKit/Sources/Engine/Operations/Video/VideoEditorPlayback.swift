@@ -41,37 +41,46 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             let video = composition.addMutableTrack(
                 withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
         else { throw EngineError.decodeFailed("cannot create playback video track") }
+        video.naturalTimeScale = compositionTimescale
         video.preferredTransform = try await sourceVideo.load(.preferredTransform)
-        let sourceAudio = try await source.loadTracks(withMediaType: .audio).first
-        let audio: AVMutableCompositionTrack?
-        var anyAudio = sourceAudio != nil
-        for url in urls.dropFirst() {
-            if try await !AVURLAsset(url: url).loadTracks(withMediaType: .audio).isEmpty { anyAudio = true }
-        }
-        if anyAudio {
+        var audioTracks: [AVMutableCompositionTrack?] = []
+        var audioParameters: [AVMutableAudioMixInputParameters?] = []
+        for url in urls {
+            if try await AVURLAsset(url: url).loadTracks(withMediaType: .audio).isEmpty {
+                audioTracks.append(nil)
+                audioParameters.append(nil)
+                continue
+            }
             guard
                 let track = composition.addMutableTrack(
                     withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
             else { throw EngineError.decodeFailed("cannot create playback audio track") }
-            audio = track
-        } else {
-            audio = nil
+            track.naturalTimeScale = compositionTimescale
+            let parameters = AVMutableAudioMixInputParameters(track: track)
+            parameters.audioTimePitchAlgorithm = .timeDomain
+            audioTracks.append(track)
+            audioParameters.append(parameters)
         }
 
-        let parameters = audio.map { AVMutableAudioMixInputParameters(track: $0) }
-        parameters?.audioTimePitchAlgorithm = .timeDomain
         for (index, segment) in timeline.segments.enumerated() {
             try Task.checkCancellation()
+            let audio = audioTracks[segment.sourceIndex]
+            let parameters = audioParameters[segment.sourceIndex]
             let asset = AVURLAsset(url: urls[segment.sourceIndex])
             guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else {
                 throw EngineError.decodeFailed("no playback video track")
             }
             let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
-            let audioRange = try await sourceAudio?.load(.timeRange)
+            let audioRange: CMTimeRange?
+            if let range = try await sourceAudio?.load(.timeRange) {
+                audioRange = CMTimeRange(start: time(range.start.seconds), end: time(range.end.seconds))
+            } else {
+                audioRange = nil
+            }
             let sourceRange: CMTimeRange
             if segment.freezeDuration != nil {
                 // One tick isolates a single source frame.
-                let tick = CMTime(value: 1, timescale: SampleBuffers.nanosecondScale)
+                let tick = CMTime(value: 1, timescale: compositionTimescale)
                 let sliceDuration = CMTimeMinimum(tick, time(segment.end) - time(segment.start))
                 sourceRange = CMTimeRange(start: time(segment.start), duration: sliceDuration)
             } else {
@@ -116,9 +125,10 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             }
         }
         let mix: AVAudioMix?
-        if let parameters {
+        let parameters = audioParameters.compactMap { $0 }
+        if !parameters.isEmpty {
             let audioMix = AVMutableAudioMix()
-            audioMix.inputParameters = [parameters]
+            audioMix.inputParameters = parameters
             guard let snapshot = audioMix.copy() as? AVAudioMix else {
                 throw EngineError.decodeFailed("cannot snapshot playback audio mix")
             }
@@ -200,7 +210,9 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         // Scaled freeze samples otherwise pause fades.
         let hasFreeze = timeline.segments.contains(where: \.isFreeze)
         let frameDuration =
-            hasFreeze ? CMTime(value: 1, timescale: Self.freezePreviewFrameRate) : filtered.frameDuration
+            CMTimeConvertScale(
+                hasFreeze ? CMTime(value: 1, timescale: Self.freezePreviewFrameRate) : filtered.frameDuration,
+                timescale: compositionTimescale, method: .default)
         var configuration = AVVideoComposition.Configuration(
             colorPrimaries: filtered.colorPrimaries,
             colorTransferFunction: filtered.colorTransferFunction,
