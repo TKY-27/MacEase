@@ -202,6 +202,8 @@ struct PreviewTextViewer: View {
                     if rendering.html {
                         PreviewWebViewer(page: .generated(rendering.text), find: supportsFind ? find : nil)
                             .id(rendering.id)
+                    } else if let tableFormat, rich {
+                        PreviewTableViewer(rendering: rendering, format: tableFormat, find: find)
                     } else {
                         PreviewCodeView(
                             rendering: rendering,
@@ -233,7 +235,11 @@ struct PreviewTextViewer: View {
 
     private var activePolicy: PreviewWebPolicy? { htmlLoad?.policy }
 
-    private var offersModes: Bool { kind != .text && source?.binaryPropertyList != true }
+    private var offersModes: Bool { (kind != .text || tableFormat != nil) && source?.binaryPropertyList != true }
+
+    private var tableFormat: PreviewTable.Format? {
+        kind == .text ? PreviewTable.Format(pathExtension: url.pathExtension) : nil
+    }
 
     private var supportsFind: Bool { !(kind == .svg && rich) }
 
@@ -303,6 +309,8 @@ struct PreviewTextViewer: View {
         Picker("View", selection: $rich) {
             if kind == .json || kind == .propertyList {
                 Text("Formatted").tag(true)
+            } else if tableFormat != nil {
+                Text("Table").tag(true)
             } else {
                 Text("Preview").tag(true)
             }
@@ -362,6 +370,7 @@ struct PreviewTextViewer: View {
         switch failure {
         case .tooLarge(let limitBytes):
             let size = ByteCountFormatter.string(fromByteCount: limitBytes, countStyle: .memory)
+            if tableFormat != nil { return Text("Files larger than \(size) can't be shown as a table.") }
             return formats
                 ? Text("Files larger than \(size) can't be formatted.")
                 : Text("Files larger than \(size) can't be previewed here.")
@@ -404,6 +413,10 @@ struct PreviewTextViewer: View {
             return
         }
         guard let source else { return }
+        if tableFormat != nil, rich, source.truncated {
+            failure = .tooLarge(limitBytes: Int64(PreviewTextSource.maximumBytes))
+            return
+        }
         let encoding = encoding
         let rich = rich
         do {

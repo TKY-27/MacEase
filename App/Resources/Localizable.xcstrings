@@ -22279,6 +22279,56 @@
         }
       }
     },
+    "Table": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can't be shown as a table.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルは表として表示できません。"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@行を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@列を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows and %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%1$@行、%2$@列を表示しています"
+          }
+        }
+      }
+    },
     "Face": {
       "localizations": {
         "ja": {
