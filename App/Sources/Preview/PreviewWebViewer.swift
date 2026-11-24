@@ -66,47 +66,75 @@ enum PreviewWebConfiguration {
         """
 
     // Isolated world; page content cannot undo it.
-    private static let staticPreviewNeutralizer = #"""
+    static let staticPreviewNeutralizer = #"""
         (() => {
+          const svgNS = 'http://www.w3.org/2000/svg';
+          const xlinkNS = 'http://www.w3.org/1999/xlink';
+          const run = (action) => { try { action(); } catch {} };
+          const setSVGTitle = (el, text) => {
+            if (!text || el.querySelector(':scope > title')) return;
+            const title = document.createElementNS(svgNS, 'title');
+            title.textContent = text;
+            el.appendChild(title);
+          };
           const neutralize = (root) => {
             for (const el of root.querySelectorAll('a[href], area[href], math[href], math [href]')) {
-              const style = getComputedStyle(el);
-              if (!el.style.color && style.color) el.style.color = style.color;
-              if (!el.style.textDecorationLine && style.textDecorationLine) {
-                el.style.textDecorationLine = style.textDecorationLine;
-              }
-              const target = el.getAttribute('href');
-              if (el.localName === 'a' && target.startsWith('#')) {
-                el.dataset.maceaseFragment = target.slice(1);
-                el.tabIndex = 0;
-                el.setAttribute('role', 'link');
-                el.style.cursor = 'pointer';
-              } else {
-                if (!el.title) el.title = el.href || target;
-                el.setAttribute('aria-disabled', 'true');
-              }
-              el.removeAttribute('href');
-              el.removeAttribute('ping');
-              el.removeAttribute('download');
+              let target = '';
+              run(() => { target = el.getAttribute('href') ?? ''; });
+              run(() => {
+                if (!el.style) return;
+                const style = getComputedStyle(el);
+                if (!el.style.color && style.color) el.style.color = style.color;
+                if (!el.style.textDecorationLine && style.textDecorationLine) {
+                  el.style.textDecorationLine = style.textDecorationLine;
+                }
+              });
+              const fragment = el instanceof HTMLElement && el.localName === 'a' && target.startsWith('#');
+              run(() => {
+                if (fragment) {
+                  el.dataset.maceaseFragment = target.slice(1);
+                  el.tabIndex = 0;
+                  el.setAttribute('role', 'link');
+                  if (el.style) el.style.cursor = 'pointer';
+                } else {
+                  if (el instanceof HTMLElement) {
+                    if (!el.title) el.title = (typeof el.href === 'string' && el.href) || target;
+                  } else if (el.namespaceURI === svgNS) {
+                    setSVGTitle(el, (typeof el.href?.baseVal === 'string' && el.href.baseVal) || target);
+                  }
+                  el.setAttribute('aria-disabled', 'true');
+                }
+              });
+              run(() => {
+                el.removeAttribute('href');
+                el.removeAttribute('ping');
+                el.removeAttribute('download');
+              });
             }
             for (const el of root.querySelectorAll('a, math, math *')) {
-              if (el.hasAttributeNS('http://www.w3.org/1999/xlink', 'href')) {
-                el.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
-                el.setAttribute('aria-disabled', 'true');
-              }
+              run(() => {
+                if (el.hasAttributeNS(xlinkNS, 'href')) {
+                  const target = el.getAttributeNS(xlinkNS, 'href') ?? '';
+                  if (el.namespaceURI === svgNS) setSVGTitle(el, target);
+                  el.removeAttributeNS(xlinkNS, 'href');
+                  el.setAttribute('aria-disabled', 'true');
+                }
+              });
             }
             for (const form of root.querySelectorAll('form')) {
-              form.removeAttribute('action');
+              run(() => form.removeAttribute('action'));
             }
             for (const ctrl of root.querySelectorAll('button, input, select, textarea')) {
-              ctrl.removeAttribute('formaction');
-              ctrl.disabled = true;
+              run(() => {
+                ctrl.removeAttribute('formaction');
+                ctrl.disabled = true;
+              });
             }
             for (const el of root.querySelectorAll('[contenteditable]')) {
-              el.removeAttribute('contenteditable');
+              run(() => el.removeAttribute('contenteditable'));
             }
             for (const host of root.querySelectorAll('*')) {
-              if (host.shadowRoot) neutralize(host.shadowRoot);
+              run(() => { if (host.shadowRoot) neutralize(host.shadowRoot); });
             }
           };
           neutralize(document);
@@ -114,8 +142,11 @@ enum PreviewWebConfiguration {
         """#
 
     // Before parsing; covers closed shadow roots.
-    private static let staticPreviewGuard = #"""
+    static let staticPreviewGuard = #"""
         (() => {
+          const blockedDrag =
+            'a, area, img, picture, svg, video, audio, object, embed, math, [href], [draggable="true"]';
+          const xlinkNS = 'http://www.w3.org/1999/xlink';
           const slug = (text) => text.trim().toLowerCase()
             .replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
           const headingFor = (fragment) => {
@@ -145,7 +176,7 @@ enum PreviewWebConfiguration {
             event.preventDefault();
             const link = fragmentLink(event);
             if (link) {
-              scrollToFragment(link.dataset.maceaseFragment);
+              scrollToFragment(link.getAttribute('data-macease-fragment') ?? '');
               return;
             }
             const details = origin(event)?.closest('summary')?.parentElement;
@@ -156,13 +187,23 @@ enum PreviewWebConfiguration {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             const link = fragmentLink(event);
-            if (link) scrollToFragment(link.dataset.maceaseFragment);
+            if (link) scrollToFragment(link.getAttribute('data-macease-fragment') ?? '');
           }, true);
           addEventListener('beforeinput', (event) => event.preventDefault(), true);
           addEventListener('submit', (event) => event.preventDefault(), true);
           addEventListener('dragstart', (event) => {
-            if (origin(event)?.closest('a, area, img, picture, svg, video, audio, object, embed')) {
+            const path = event.composedPath();
+            const first = path[0] ?? event.target;
+            if (!first || first.nodeType !== Node.TEXT_NODE) {
               event.preventDefault();
+              return;
+            }
+            for (const node of path) {
+              if (node instanceof Element
+                  && (node.matches(blockedDrag) || node.hasAttributeNS(xlinkNS, 'href'))) {
+                event.preventDefault();
+                return;
+              }
             }
           }, true);
         })();
@@ -175,7 +216,7 @@ enum PreviewWebConfiguration {
     }
 
     // Blocks host-named preconnects on missed elements.
-    private static var failClosedProxy: ProxyConfiguration {
+    static var failClosedProxy: ProxyConfiguration {
         var configuration = ProxyConfiguration(
             socksv5Proxy: NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any))
         configuration.allowFailover = false
@@ -381,9 +422,13 @@ final class PreviewWebContainerView: NSView, PreviewFindTarget {
                 _ = try await webView.evaluateJavaScript(
                     "getSelection().isCollapsed || getSelection().collapseToStart(), true", in: nil,
                     contentWorld: .defaultClient)
+                guard !Task.isCancelled else { return .notFound }
             }
-            return try await PreviewFindOutcome(found: webView.find(query, configuration: configuration).matchFound)
+            let result = try await webView.find(query, configuration: configuration)
+            guard !Task.isCancelled else { return .notFound }
+            return PreviewFindOutcome(found: result.matchFound)
         } catch {
+            guard !Task.isCancelled else { return .notFound }
             Logger(category: "finder-preview").error(
                 "Preview page find failed: \(error.localizedDescription, privacy: .private)")
             return .notFound
@@ -433,8 +478,8 @@ final class PreviewWKWebView: WKWebView {
         let identifiers = Set(menu.items.compactMap { $0.identifier?.rawValue })
         var allowed = staticMenuItems
         if identifiers.isDisjoint(with: linkMenuItems) { allowed.insert(shareMenuItem) }
-        for item in menu.items.reversed() where !item.isSeparatorItem {
-            if !allowed.contains(item.identifier?.rawValue ?? "") { menu.removeItem(item) }
+        for menuItem in menu.items.reversed() where !menuItem.isSeparatorItem {
+            if !allowed.contains(menuItem.identifier?.rawValue ?? "") { menu.removeItem(menuItem) }
         }
         while let first = menu.items.first, first.isSeparatorItem { menu.removeItem(first) }
         while let last = menu.items.last, last.isSeparatorItem { menu.removeItem(last) }

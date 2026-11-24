@@ -176,16 +176,24 @@ private final class ProbeNavigationObserver: NSObject, WKNavigationDelegate, WKU
 @MainActor
 private final class ProbeMenuCanceller: NSObject {
     private(set) var shown: [[String]] = []
+    private var captured: [String]?
 
     // Tracking begins before WebKit filters items.
     @objc func began(_ notification: Notification) {
         guard let menu = notification.object as? NSMenu, menu.supermenu == nil else { return }
+        captured = nil
         perform(#selector(capture), with: menu, afterDelay: 0, inModes: [.eventTracking, .default])
     }
 
     @objc private func capture(_ menu: NSMenu) {
-        shown.append(menu.items.map { $0.isSeparatorItem ? "" : $0.identifier?.rawValue ?? $0.title })
+        captured = menu.items.map { $0.isSeparatorItem ? "" : $0.identifier?.rawValue ?? $0.title }
         menu.cancelTracking()
+    }
+
+    @objc func ended(_ notification: Notification) {
+        guard let menu = notification.object as? NSMenu, menu.supermenu == nil, let items = captured else { return }
+        captured = nil
+        shown.append(items)
     }
 }
 
@@ -231,6 +239,9 @@ final class PreviewWebProbe {
         NotificationCenter.default.addObserver(
             menuCanceller, selector: #selector(ProbeMenuCanceller.began), name: NSMenu.didBeginTrackingNotification,
             object: nil)
+        NotificationCenter.default.addObserver(
+            menuCanceller, selector: #selector(ProbeMenuCanceller.ended), name: NSMenu.didEndTrackingNotification,
+            object: nil)
     }
 
     var requestedNavigationURLs: [URL] { observer.requestedURLs }
@@ -246,7 +257,13 @@ final class PreviewWebProbe {
 
     // Uses production configuration, AppKit hierarchy and load.
     static func loading(_ page: PreviewWebViewer.Page) async throws -> PreviewWebProbe {
-        let probe = PreviewWebProbe(page: page, configuration: try await PreviewWebConfiguration.make(for: page))
+        try await loading(page, configuration: try await PreviewWebConfiguration.make(for: page))
+    }
+
+    static func loading(_ page: PreviewWebViewer.Page, configuration: WKWebViewConfiguration) async throws
+        -> PreviewWebProbe
+    {
+        let probe = PreviewWebProbe(page: page, configuration: configuration)
         try await probe.waitForLoad { PreviewWebConfiguration.load(page, in: $0) }
         return probe
     }
@@ -256,6 +273,12 @@ final class PreviewWebProbe {
     // App-injected; works with page scripts off.
     func evaluate(_ script: String) async throws -> Any? {
         try await browser.evaluateJavaScript(script)
+    }
+
+    func nextFrame() async throws {
+        _ = try await browser.callAsyncJavaScript(
+            "return await new Promise(resolve => setTimeout(() => resolve(true), 0))",
+            in: nil, contentWorld: .defaultClient)
     }
 
     // Scrolls the element into view first.
@@ -311,10 +334,10 @@ final class PreviewWebProbe {
         window.sendEvent(event)
     }
 
-    func click(webPoint: NSPoint, clickCount: Int = 1) throws {
+    func click(webPoint: NSPoint, clickCount: Int = 1, modifiers: NSEvent.ModifierFlags = []) throws {
         for count in 1...clickCount {
-            try send(.leftMouseDown, at: webPoint, clickCount: count)
-            try send(.leftMouseUp, at: webPoint, clickCount: count)
+            try send(.leftMouseDown, at: webPoint, clickCount: count, modifiers: modifiers)
+            try send(.leftMouseUp, at: webPoint, clickCount: count, modifiers: modifiers)
         }
     }
 
@@ -416,5 +439,19 @@ enum PreviewFixtures {
         let value = Array("0083;00000000;Safari;".utf8)
         let status = setxattr(url.path, "com.apple.quarantine", value, value.count, 0, 0)
         XCTAssertEqual(status, 0, "setxattr failed with errno \(errno)")
+    }
+
+    @MainActor
+    static func waitUntil(
+        timeout: Duration = .seconds(5),
+        interval: Duration = .milliseconds(20),
+        _ condition: () async throws -> Bool
+    ) async throws -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if try await condition() { return true }
+            try await Task.sleep(for: interval)
+        }
+        return try await condition()
     }
 }

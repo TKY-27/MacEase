@@ -11,10 +11,10 @@ final class PreviewRenderedPageTests: XCTestCase {
     // Copy writes the shared pasteboard.
     private func preservingPasteboard(_ body: () async throws -> Void) async rethrows {
         let pasteboard = NSPasteboard.general
-        let saved = (pasteboard.pasteboardItems ?? []).map { item in
+        let saved = (pasteboard.pasteboardItems ?? []).map { pasteboardItem in
             let copy = NSPasteboardItem()
-            for type in item.types {
-                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+            for type in pasteboardItem.types {
+                if let bytes = pasteboardItem.data(forType: type) { copy.setData(bytes, forType: type) }
             }
             return copy
         }
@@ -51,22 +51,26 @@ final class PreviewRenderedPageTests: XCTestCase {
             source: try PreviewTextSource.read(file), encoding: .automatic, rich: true, kind: .markdown, url: file,
             restricted: false)
         let probe = try await PreviewWebProbe.loading(.generated(rendering.text))
-        try await probe.settle(.milliseconds(300))
         let startURL = probe.currentURL
         XCTAssertTrue(probe.focusWebView())
 
         try await preservingPasteboard {
             try probe.click(webPoint: try await probe.center(of: "h1"), clickCount: 2)
-            try await probe.settle(.milliseconds(300))
-            let selected = try await probe.evaluate("getSelection().toString()") as? String
-            XCTAssertEqual(selected, "Guide")
+            let selected = try await PreviewFixtures.waitUntil {
+                (try await probe.evaluate("getSelection().toString()") as? String) == "Guide"
+            }
+            XCTAssertTrue(selected)
             XCTAssertTrue(NSApp.sendAction(#selector(NSText.copy(_:)), to: probe.container.webView, from: nil))
-            try await probe.settle(.milliseconds(300))
-            XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Guide")
+            let copied = try await PreviewFixtures.waitUntil {
+                NSPasteboard.general.string(forType: .string) == "Guide"
+            }
+            XCTAssertTrue(copied)
         }
+        let menusBefore = probe.shownMenuItems.count
         try probe.rightClick(webPoint: try await probe.center(of: "h1"))
-        try await probe.settle(.milliseconds(500))
-        let menu = try XCTUnwrap(probe.shownMenuItems.last, "right-clicking a selection shows a menu")
+        let menuShown = try await PreviewFixtures.waitUntil { probe.shownMenuItems.count > menusBefore }
+        XCTAssertTrue(menuShown, "right-clicking a selection shows a menu")
+        let menu = try XCTUnwrap(probe.shownMenuItems.last)
         XCTAssertTrue(menu.contains("WKMenuItemIdentifierCopy"), "\(menu)")
         XCTAssertTrue(Set(menu).isSubset(of: PreviewWebProbe.selectionMenuItems), "\(menu)")
 
@@ -74,14 +78,15 @@ final class PreviewRenderedPageTests: XCTestCase {
             "JSON.stringify([...document.links].length + ':' + document.querySelectorAll('a')[1].title)")
         XCTAssertEqual(external as? String, #""0:https://example.com/docs?a=1&b=2""#)
         try probe.click(webPoint: try await probe.center(of: "a[title]"))
-        try await probe.settle(.milliseconds(300))
+        try await probe.nextFrame()
         XCTAssertEqual(probe.currentURL, startURL)
 
         _ = try await probe.evaluate("scrollTo(0, 0), true")
         let headingBefore = try await scrollTop(of: "h2", in: probe)
         XCTAssertGreaterThan(headingBefore, 300)
         try probe.click(webPoint: try await probe.center(of: "a[data-macease-fragment]"))
-        try await probe.settle(.milliseconds(300))
+        let jumped = try await PreviewFixtures.waitUntil { abs(try await self.scrollTop(of: "h2", in: probe)) <= 2 }
+        XCTAssertTrue(jumped)
         let headingAfter = try await scrollTop(of: "h2", in: probe)
         XCTAssertEqual(headingAfter, 0, accuracy: 2)
         XCTAssertEqual(probe.currentURL, startURL)
@@ -114,19 +119,20 @@ final class PreviewRenderedPageTests: XCTestCase {
             .file(
                 resolved, readAccess: try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolved)),
                 .staticPreview, expectedStamp: try PreviewFileStamp(of: resolved)))
-        try await probe.settle(.milliseconds(300))
 
         let intro = try await probe.center(of: "#intro")
         try probe.drag(from: NSPoint(x: 4, y: intro.y), to: NSPoint(x: 300, y: intro.y))
-        try await probe.settle(.milliseconds(300))
-        let selected = try await probe.evaluate("getSelection().toString()") as? String
-        XCTAssertEqual(selected?.hasPrefix("Intro words"), true, String(describing: selected))
+        let dragged = try await PreviewFixtures.waitUntil {
+            ((try await probe.evaluate("getSelection().toString()") as? String) ?? "").hasPrefix("Intro words")
+        }
+        XCTAssertTrue(dragged)
 
         let title = try await probe.evaluate("document.getElementById('ext').title") as? String
         XCTAssertEqual(title, "http://127.0.0.1:\(port)/page.html", "inert links show where they lead")
         try probe.click(webPoint: try await probe.center(of: "#ext"))
         try probe.click(webPoint: try await probe.center(of: "#toc"))
-        try await probe.settle(.milliseconds(400))
+        let jumped = try await PreviewFixtures.waitUntil { abs(try await self.scrollTop(of: "#later", in: probe)) <= 2 }
+        XCTAssertTrue(jumped)
         let later = try await scrollTop(of: "#later", in: probe)
         XCTAssertEqual(later, 0, accuracy: 2)
         XCTAssertEqual(probe.currentURL?.standardizedFileURL.path, resolved.path)
@@ -148,9 +154,9 @@ final class PreviewRenderedPageTests: XCTestCase {
                     menu.addItem(.separator())
                     continue
                 }
-                let item = NSMenuItem(title: identifier, action: nil, keyEquivalent: "")
-                item.identifier = NSUserInterfaceItemIdentifier(identifier)
-                menu.addItem(item)
+                let menuItem = NSMenuItem(title: identifier, action: nil, keyEquivalent: "")
+                menuItem.identifier = NSUserInterfaceItemIdentifier(identifier)
+                menu.addItem(menuItem)
             }
             PreviewWKWebView.restrictToSelectionActions(menu)
             return menu
@@ -159,6 +165,13 @@ final class PreviewRenderedPageTests: XCTestCase {
             menu(identifiers).items.map(\.title),
             ["WKMenuItemIdentifierCopy", "WKMenuItemIdentifierLookUp", "", "WKMenuItemIdentifierSpeechMenu"],
             "sharing a link could make another app fetch it")
+        XCTAssertEqual(
+            menu([
+                "WKMenuItemIdentifierCopyImage", "WKMenuItemIdentifierDownloadImage", "WKMenuItemIdentifierShareMenu",
+            ])
+            .items.map(\.title),
+            [],
+            "sharing an image must be stripped")
         XCTAssertEqual(
             menu(identifiers.filter { !$0.contains("Link") }).items.map(\.title),
             [
@@ -188,9 +201,9 @@ final class PreviewRenderedPageTests: XCTestCase {
 
         let oversized = directory.appendingPathComponent("oversized.html")
         XCTAssertTrue(FileManager.default.createFile(atPath: oversized.path, contents: Data("<p>".utf8)))
-        let handle = try FileHandle(forWritingTo: oversized)
-        try handle.truncate(atOffset: UInt64(PreviewHTMLSnapshot.maximumFileBytes) + 1)
-        try handle.close()
+        let writer = try FileHandle(forWritingTo: oversized)
+        try writer.truncate(atOffset: UInt64(PreviewHTMLSnapshot.maximumFileBytes) + 1)
+        try writer.close()
         let refused = try PreviewHTMLSnapshot.prepare(url: oversized, trustedFolders: [], scriptConsent: [])
         XCTAssertTrue(refused.truncated)
         XCTAssertNil(refused.page)
