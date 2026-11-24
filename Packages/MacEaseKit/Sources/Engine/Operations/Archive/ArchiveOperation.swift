@@ -22,16 +22,43 @@ enum ArchivePlanner {
         }
     }
 
-    static func batch(_ operation: ArchiveOperation, op: OperationID, archives: [URL]) -> Batch {
+    static func batch(
+        _ operation: ArchiveOperation, op: OperationID, archives: [URL], prefersJapanese: Bool = false
+    ) -> Batch {
         switch operation {
         case .hatchExtract(let password, let sessionID):
             return Batch(
                 operation: op,
                 items: primaryArchives(archives).map { archive in
                     WorkItem(inputs: [archive], durableArchive: true) { context in
+                        let inspection: ArchiveNameInspection?
+                        var inspectedStamp: FileStamp?
+                        if sessionID == nil {
+                            try await HatchExtractionStore.validateLocation(archive)
+                            try JobEngine.downloadIfNeeded([archive])
+                            let stamp = try FileStamp(of: archive, includingIdentity: true)
+                            let inspected = try ArchiveNameInspection.inspect(
+                                archive, password: password, prefersJapanese: prefersJapanese)
+                            guard stamp.matches(archive.path) else { throw FileCommitter.Failure.changedSinceScan }
+                            if inspected.needsLegacyDecoder {
+                                if let feature = inspected.unsupportedNativeFeature {
+                                    throw ArchiveError.legacyNameFeatureUnsupported(feature)
+                                }
+                                context.recordInputs([archive: stamp])
+                                context.phase(.decoding)
+                                return try extract(
+                                    archive, password: password, prefersJapanese: prefersJapanese, context: context)
+                            }
+                            inspection = inspected
+                            inspectedStamp = stamp
+                        } else {
+                            inspection = nil
+                        }
+                        context.phase(.extractingInPlace)
                         let extraction = try await context.hatchExtractions.extract(
                             input: sessionID == nil ? archive : nil, resuming: sessionID, password: password,
-                            progress: context.progress)
+                            inspection: inspection, inspectedStamp: inspectedStamp, progress: context.progress)
+                        if extraction.paused { context.recordArchivePause(extraction.sessionID) }
                         if extraction.warning != nil { context.warn(.archiveFolderAttributesNotRestored) }
                         return .hatchExtraction(extraction)
                     }
@@ -39,7 +66,7 @@ enum ArchivePlanner {
         case .extract(let password):
             let items = archives.map { archive in
                 OperationPlanner.validated(archive, kind: .archive) { context in
-                    try extract(archive, password: password, context: context)
+                    try extract(archive, password: password, prefersJapanese: prefersJapanese, context: context)
                 }
             }
             return Batch(operation: op, items: items)
@@ -60,7 +87,9 @@ enum ArchivePlanner {
         }
     }
 
-    private static func extract(_ archive: URL, password: String?, context: ItemContext) throws -> ItemResult {
+    private static func extract(_ archive: URL, password: String?, prefersJapanese: Bool, context: ItemContext) throws
+        -> ItemResult
+    {
         let staging = try realPath(of: context.stagingDirectory(for: archive))
         let root = staging.appending(path: extractionFolderName, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
@@ -68,7 +97,8 @@ enum ArchivePlanner {
         let layout: ExtractedLayout
         do {
             layout = try ArchiveExtractor.extract(
-                archive, into: root, rawName: baseName, password: password, progress: context.progress)
+                archive, into: root, rawName: baseName, password: password, prefersJapanese: prefersJapanese,
+                progress: context.progress)
         } catch let error as ArchiveError {
             throw engineError(error)
         } catch let error as FormatError {
@@ -135,6 +165,11 @@ extension ArchivePlanner {
         case .passwordRequired: .invalidInput(.passwordRequired)
         case .wrongPassword: .invalidInput(.wrongPassword)
         case .unsafePath(let path): .invalidInput(.unsafeArchivePath(path))
+        case .unsupportedNameEncoding: .invalidInput(.archiveNameEncodingUnsupported)
+        case .nameInspectionLimit(let limit): .invalidInput(.archiveNameInspectionLimit(limit))
+        case .nameCollision(let first, let second): .invalidInput(.archiveNameCollision(first: first, second: second))
+        case .wrappedZIPContainer: .invalidInput(.wrappedZIPArchive)
+        case .legacyNameFeatureUnsupported(let feature): .invalidInput(.archiveLegacyFeatureUnsupported(feature))
         case .expandsTooMuch(let limit): .invalidInput(.archiveExpandsTooMuch(limitBytes: limit))
         case .duplicateRootName(let name): .duplicateArchiveRootName(name)
         }

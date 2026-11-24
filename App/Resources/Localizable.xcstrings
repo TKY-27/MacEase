@@ -22496,6 +22496,482 @@
         }
       }
     },
+    "Deflate64 compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deflate64 compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deflate64圧縮"
+          }
+        }
+      }
+    },
+    "Implode compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implode compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implode圧縮"
+          }
+        }
+      }
+    },
+    "Shrink compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shrink compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shrink圧縮"
+          }
+        }
+      }
+    },
+    "Reduce compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduce compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduce圧縮"
+          }
+        }
+      }
+    },
+    "JPEG compression inside ZIP": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG compression inside ZIP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内のJPEG圧縮"
+          }
+        }
+      }
+    },
+    "WavPack compression inside ZIP": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WavPack compression inside ZIP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内のWavPack圧縮"
+          }
+        }
+      }
+    },
+    "unreadable AES ZIP encryption metadata": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unreadable AES ZIP encryption metadata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取れないAES ZIP暗号化情報"
+          }
+        }
+      }
+    },
+    "an unsupported ZIP compression format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an unsupported ZIP compression format"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未対応のZIP圧縮形式"
+          }
+        }
+      }
+    },
+    "PKWARE Strong Encryption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PKWARE Strong Encryption"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PKWARE Strong Encryption"
+          }
+        }
+      }
+    },
+    "Windows-style ZIP path separators": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows-style ZIP path separators"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows形式のZIP内のパス区切り"
+          }
+        }
+      }
+    },
+    "encrypted symbolic links inside ZIP": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "encrypted symbolic links inside ZIP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内の暗号化されたシンボリックリンク"
+          }
+        }
+      }
+    },
+    "symbolic links using %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbolic links using %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を使用するシンボリックリンク"
+          }
+        }
+      }
+    },
+    "the 10-second inspection time limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 10-second inspection time limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検査時間の上限（10秒）"
+          }
+        }
+      }
+    },
+    "the 100,000-entry inspection limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 100,000-entry inspection limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目数の検査上限（100,000件）"
+          }
+        }
+      }
+    },
+    "the 32 MiB name-metadata limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 32 MiB name-metadata limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名情報の上限（32 MiB）"
+          }
+        }
+      }
+    },
+    "the 256-component path limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 256-component path limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスの階層数の上限（256）"
+          }
+        }
+      }
+    },
+    "the 10,000-volume inspection limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 10,000-volume inspection limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ファイル数の検査上限（10,000）"
+          }
+        }
+      }
+    },
+    "the 64 KiB ZIP link-target limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 64 KiB ZIP link-target limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPのリンク先情報の上限（64 KiB）"
+          }
+        }
+      }
+    },
+    "the single outer compression layer limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the single outer compression layer limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外側の圧縮の上限（1層）"
+          }
+        }
+      }
+    },
+    "the %@ expanded-size inspection limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the %@ expanded-size inspection limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開サイズの検査上限（%@）"
+          }
+        }
+      }
+    },
+    "Couldn’t extract “%@”: its file-name encoding is not supported with the current language preferences. Re-create it with UTF-8 file names or use an app that lets you choose the encoding. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t extract “%@”: its file-name encoding is not supported with the current language preferences. Re-create it with UTF-8 file names or use an app that lets you choose the encoding. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は現在の優先言語ではファイル名の文字コードを読み取れないため、展開できません。UTF-8のファイル名で作り直すか、文字コードを選べるアプリで展開してください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Couldn’t inspect “%@”: it reached %@. Use another archive app or create a smaller archive. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t inspect “%@”: it reached %@. Use another archive app or create a smaller archive. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は%@に達したため、検査できません。別のアーカイブアプリを使うか、小さなアーカイブに作り直してください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Couldn’t extract “%@”: entries “%@” and “%@” have the same name on this disk. Re-create the archive with distinct file and folder names. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t extract “%@”: entries “%@” and “%@” have the same name on this disk. Re-create the archive with distinct file and folder names. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の項目「%@」と「%@」は、このディスクでは同じ名前になるため展開できません。重複しないファイル名とフォルダ名で作り直してください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Couldn’t extract “%@”: CP932 file names cannot be combined with %@. Re-create it as a single ZIP with UTF-8 file names and Deflate compression, or use another archive app. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t extract “%@”: CP932 file names cannot be combined with %@. Re-create it as a single ZIP with UTF-8 file names and Deflate compression, or use another archive app. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」はWindowsの日本語ファイル名と%@の組み合わせに対応していないため、展開できません。UTF-8のファイル名とDeflate圧縮で単一のZIPに作り直すか、別のアーカイブアプリを使ってください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Bzip2 compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2 compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2圧縮"
+          }
+        }
+      }
+    },
+    "Zstandard compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zstandard compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zstandard圧縮"
+          }
+        }
+      }
+    },
+    "XZ compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XZ compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XZ圧縮"
+          }
+        }
+      }
+    },
+    "PPMd compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PPMd compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PPMd圧縮"
+          }
+        }
+      }
+    },
     "Converting input": {
       "localizations": {
         "en": {
@@ -23337,6 +23813,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイムアウト · 最初の%lld項目"
+          }
+        }
+      }
+    },
+    "Extracting": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開中"
+          }
+        }
+      }
+    },
+    "ZIP archives wrapped in another compression format can’t be extracted. Decompress the outer layer first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の圧縮形式で包まれたZIPは展開できません。先に外側の圧縮を解除してください。"
+          }
+        }
+      }
+    },
+    "This file isn’t a supported archive or compressed file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは、対応するアーカイブまたは圧縮ファイルではありません。"
+          }
+        }
+      }
+    },
+    "split archive volumes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割アーカイブ"
+          }
+        }
+      }
+    },
+    "This archive uses a text encoding for file names that MacEase can’t read.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブのファイル名は、MacEaseで読み取れない文字コードを使用しています。"
           }
         }
       }

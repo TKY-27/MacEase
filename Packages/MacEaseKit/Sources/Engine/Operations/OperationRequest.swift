@@ -1,3 +1,4 @@
+import Formats
 import Foundation
 import MenuCatalog
 
@@ -54,8 +55,12 @@ public enum OperationPlanner {
     }
 
     /// No file I/O; items validate when run.
-    public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
-        let planned = plannedBatch(for: request, settings: settings)
+    public static func batch(
+        for request: OperationRequest, settings: Settings,
+        prefersJapaneseArchiveNames: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages)
+    ) -> Batch {
+        let planned = plannedBatch(
+            for: request, settings: settings, prefersJapaneseArchiveNames: prefersJapaneseArchiveNames)
         let fallbackNaming = NewFileNaming(options: request.options)
         let naming = settings.outputMode == .newFile ? fallbackNaming : nil
         guard
@@ -79,7 +84,9 @@ public enum OperationPlanner {
             reportsMultipleTexts: planned.reportsMultipleTexts, recipeExecution: planned.recipeExecution)
     }
 
-    private static func plannedBatch(for request: OperationRequest, settings: Settings) -> Batch {
+    private static func plannedBatch(
+        for request: OperationRequest, settings: Settings, prefersJapaneseArchiveNames: Bool
+    ) -> Batch {
         let inputs: [URL]
         let usesResolvedInputs: Bool
         switch request.options {
@@ -166,7 +173,8 @@ public enum OperationPlanner {
         case .folder(let operation):
             return FolderPlanner.batch(operation, op: request.op, folders: inputs, settings: settings)
         case .archive(let operation):
-            return ArchivePlanner.batch(operation, op: request.op, archives: inputs)
+            return ArchivePlanner.batch(
+                operation, op: request.op, archives: inputs, prefersJapanese: prefersJapaneseArchiveNames)
         case .pdf(let operation):
             return PDFPlanner.batch(operation, op: request.op, inputs: inputs)
         case .text(let operation):

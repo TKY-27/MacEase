@@ -273,7 +273,7 @@ private struct ActiveBatchRow: View {
                     .foregroundStyle(.secondary)
                 }
                 Button(
-                    batch.operation == .archiveHatchExtract
+                    batch.canPauseArchiveExtraction
                         ? String(localized: "Pause") : String(localized: "Cancel", comment: "Cancel a running batch")
                 ) { jobs.cancel(batchID) }
                 .controlSize(.small)

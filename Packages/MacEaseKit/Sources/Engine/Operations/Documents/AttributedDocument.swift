@@ -1,6 +1,7 @@
 import AppKit
 import CArchive
 import Darwin
+import Formats
 import Foundation
 
 enum AttributedDocument {
@@ -114,8 +115,10 @@ enum AttributedDocument {
                 throw EngineError.decodeFailed("Archive reader allocation failed")
             }
             defer { archive_read_free(archive) }
-            archive_read_support_filter_all(archive)
-            archive_read_support_format_zip(archive)
+            try ArchiveReadSupport.enableFilters(archive, compressed: false)
+            guard archive_read_support_format_zip(archive) == ARCHIVE_OK else {
+                throw EngineError.decodeFailed("Document archive cannot be opened")
+            }
             guard archive_read_open_memory(archive, rawBytes.baseAddress, rawBytes.count) == ARCHIVE_OK else {
                 throw EngineError.decodeFailed("Document archive cannot be opened")
             }
