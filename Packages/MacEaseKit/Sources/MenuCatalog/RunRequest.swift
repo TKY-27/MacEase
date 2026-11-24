@@ -48,6 +48,37 @@ public struct RunRequest: Equatable, Sendable {
     }
 }
 
+/// Ties item tags to their menu's file.
+public struct MenuBuilds: Sendable {
+    /// Keeps tags within 31 bits.
+    static let idCount = 1 << 11
+    static let retainedCount = 8
+
+    private var files: [Int: MenuFile] = [:]
+    private var nextID = 0
+
+    public init() {}
+
+    public mutating func record(_ file: MenuFile) -> Int {
+        let id = nextID
+        nextID = (nextID + 1) % Self.idCount
+        files[(id - Self.retainedCount + Self.idCount) % Self.idCount] = nil
+        files[id] = file
+        return id
+    }
+
+    public static func tag(build: Int, entryIndex: Int) -> Int {
+        entryIndex * idCount + build
+    }
+
+    /// Nil once newer menus replaced the build.
+    public func request(tag: Int, paths: [String]) -> RunRequest? {
+        guard tag >= 0, let file = files[tag % Self.idCount] else { return nil }
+        return RunRequest(
+            catalogVersion: file.catalogVersion, entryIndex: tag / Self.idCount, token: file.token, paths: paths)
+    }
+}
+
 public enum RunRequestError: Error, Equatable, Sendable {
     case notARunRequest
     case missingField(String)
