@@ -37,7 +37,7 @@ private struct PreviewTextRendering: Sendable {
         try Task.checkCancellation()
         let text: String
         let html = rich && kind == .markdown
-        var language = PreviewLanguage.resolve(url.pathExtension)
+        var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
             text = try PropertyListConversion.json(from: source.bytes, indent: "  ")

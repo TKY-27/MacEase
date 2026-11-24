@@ -11,7 +11,7 @@ final class PreviewContentTests: XCTestCase {
             (.html, "html", .html), (.json, "json", .json), (.xml, "xml", .text),
             (.propertyList, "plist", .propertyList), (.pdf, "pdf", .pdf), (.png, "png", .image),
             (.audio, "wav", .audio), (.movie, "mov", .media), (.sourceCode, "swift", .text),
-            (.plainText, "txt", .text), (.plainText, "MD", .markdown), (.svg, "svg", .quickLook), (nil, "yaml", .text),
+            (.plainText, "txt", .text), (.plainText, "MD", .markdown), (.svg, "svg", .svg), (nil, "yaml", .text),
             (nil, "toml", .text), (nil, "csv", .text), (nil, "LOG", .text), (nil, "unknown", .quickLook),
         ]
         for (type, suffix, expected) in cases {

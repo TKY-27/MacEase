@@ -1,0 +1,245 @@
+import Compression
+import CoreText
+import Foundation
+import UniformTypeIdentifiers
+import XCTest
+
+@testable import MacEase
+
+final class PreviewFontFaceTests: XCTestCase {
+    func testLoadsSystemTTFOTFAndFirstFaceOfTTC() throws {
+        let ttf = URL(fileURLWithPath: "/System/Library/Fonts/Geneva.ttf")
+        let ttfFace = try PreviewFontFace.load(ttf)
+        XCTAssertEqual(ttfFace.displayName, "Geneva")
+        XCTAssertEqual(ttfFace.faceCount, 1)
+        for size in PreviewFontFace.specimenSizes {
+            let font = ttfFace.font(size: size)
+            XCTAssertEqual(CTFontGetSize(font), size, accuracy: 0.01)
+            XCTAssertEqual(CTFontCopyDisplayName(font) as String, ttfFace.displayName)
+        }
+
+        let otf = URL(fileURLWithPath: "/System/Library/Fonts/LastResort.otf")
+        let otfFace = try PreviewFontFace.load(otf)
+        XCTAssertFalse(otfFace.displayName.isEmpty)
+        XCTAssertEqual(otfFace.faceCount, 1)
+        XCTAssertEqual(CTFontGetSize(otfFace.font(size: 28)), 28, accuracy: 0.01)
+
+        let ttc = URL(fileURLWithPath: "/System/Library/Fonts/Menlo.ttc")
+        let ttcFace = try PreviewFontFace.load(ttc)
+        XCTAssertGreaterThan(ttcFace.faceCount, 1)
+        XCTAssertEqual(ttcFace.displayName, "Menlo Regular")
+        XCTAssertEqual(CTFontGetSize(ttcFace.font(size: 64)), 64, accuracy: 0.01)
+    }
+
+    func testCoreTextLoadsWOFF1AndWOFF2WrappedFromSystemFonts() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        addTeardownBlock { try FileManager.default.removeItem(at: directory) }
+
+        let ttfBytes = try Data(contentsOf: URL(fileURLWithPath: "/System/Library/Fonts/Geneva.ttf"))
+        let woffURL = directory.appendingPathComponent("geneva.woff")
+        try Self.makeWOFF1(fromSFNT: ttfBytes).write(to: woffURL)
+        let woffFace = try PreviewFontFace.load(woffURL)
+        XCTAssertEqual(woffFace.displayName, "Geneva")
+        XCTAssertEqual(woffFace.faceCount, 1)
+        XCTAssertEqual(CTFontGetSize(woffFace.font(size: 20)), 20, accuracy: 0.01)
+
+        let otfBytes = try Data(contentsOf: URL(fileURLWithPath: "/System/Library/Fonts/LastResort.otf"))
+        let woff2URL = directory.appendingPathComponent("lastresort.woff2")
+        try Self.makeWOFF2(fromCFFSFNT: otfBytes).write(to: woff2URL)
+        let woff2Face = try PreviewFontFace.load(woff2URL)
+        XCTAssertFalse(woff2Face.displayName.isEmpty)
+        XCTAssertEqual(woff2Face.faceCount, 1)
+        XCTAssertEqual(CTFontGetSize(woff2Face.font(size: 40)), 40, accuracy: 0.01)
+    }
+
+    func testUnreadableOrMissingFontReturnsTypedFailure() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        addTeardownBlock { try FileManager.default.removeItem(at: directory) }
+
+        let bogus = directory.appendingPathComponent("broken.ttf")
+        try Data("not a font".utf8).write(to: bogus)
+        XCTAssertThrowsError(try PreviewFontFace.load(bogus)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .unreadable)
+        }
+
+        let missing = directory.appendingPathComponent("missing.otf")
+        XCTAssertThrowsError(try PreviewFontFace.load(missing)) { error in
+            XCTAssertEqual(error as? PreviewFontError, .unreadable)
+        }
+    }
+
+    func testWidenedExtensionMapAndTokenizerLanguageMapping() throws {
+        let textCases: [(String, PreviewLanguage)] = [
+            ("env", .shell), ("ini", .plain), ("cfg", .plain), ("conf", .plain), ("properties", .plain),
+            ("srt", .plain), ("vtt", .plain), ("ass", .plain), ("lrc", .plain), ("diff", .plain), ("patch", .plain),
+            ("tex", .plain), ("rst", .plain), ("nfo", .plain), ("tsv", .plain), ("reg", .plain), ("inf", .plain),
+            ("gitignore", .plain), ("gitattributes", .plain), ("gitmodules", .plain), ("editorconfig", .plain),
+            ("jsonc", .json), ("json5", .json),
+            ("xaml", .markup), ("csproj", .markup), ("vcxproj", .markup), ("fsproj", .markup), ("vbproj", .markup),
+            ("props", .markup), ("targets", .markup), ("manifest", .markup), ("vue", .markup), ("svelte", .markup),
+            ("astro", .markup),
+            ("sass", .css), ("less", .css),
+            ("mts", .javascript), ("cts", .javascript), ("ts", .javascript),
+            ("pyi", .python),
+            ("cxx", .c), ("hh", .c), ("hxx", .c), ("inl", .c), ("csx", .c), ("kt", .c), ("kts", .c),
+            ("gradle", .c), ("groovy", .c), ("scala", .c), ("dart", .c),
+            ("rb", .plain), ("php", .plain), ("go", .plain), ("rs", .plain), ("fs", .plain), ("fsx", .plain),
+            ("vb", .plain), ("vbs", .plain), ("lua", .plain), ("pl", .plain), ("pm", .plain), ("r", .plain),
+            ("jl", .plain), ("ex", .plain), ("exs", .plain), ("clj", .plain), ("sql", .plain),
+            ("ps1", .plain), ("psm1", .plain), ("psd1", .plain), ("bat", .plain), ("cmd", .plain),
+            ("dockerfile", .plain), ("cmake", .plain), ("mk", .plain), ("proto", .plain),
+            ("graphql", .plain), ("gql", .plain), ("hcl", .plain), ("tf", .plain), ("sol", .plain), ("sln", .plain),
+        ]
+        for (suffix, language) in textCases {
+            XCTAssertEqual(PreviewKind.resolve(type: nil, extension: suffix), .text, suffix)
+            XCTAssertEqual(PreviewLanguage.resolve(suffix), language, suffix)
+        }
+
+        XCTAssertEqual(PreviewKind.resolve(type: .mpeg2TransportStream, extension: "ts"), .text)
+        XCTAssertEqual(PreviewKind.resolve(type: nil, extension: "xhtml"), .html)
+        XCTAssertEqual(PreviewLanguage.resolve("xhtml"), .markup)
+        XCTAssertEqual(PreviewKind.resolve(type: nil, extension: "mdx"), .markdown)
+        XCTAssertEqual(PreviewLanguage.resolve("mdx"), .markdown)
+
+        for video in ["mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "flv", "ogv", "mpg", "mpeg", "m2ts", "3gp"] {
+            XCTAssertEqual(PreviewKind.resolve(type: nil, extension: video), .media, video)
+        }
+        for audio in ["mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "wma", "aif", "aiff"] {
+            XCTAssertEqual(PreviewKind.resolve(type: nil, extension: audio), .audio, audio)
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        addTeardownBlock { try FileManager.default.removeItem(at: directory) }
+        for name in [".env", ".gitignore", ".gitattributes", ".gitmodules", ".editorconfig", ".dockerfile"] {
+            let dotfile = directory.appendingPathComponent(name)
+            try Data("KEY=VALUE\n".utf8).write(to: dotfile)
+            XCTAssertEqual(try PreviewKind.inspect(dotfile), .text, name)
+            XCTAssertEqual(
+                PreviewLanguage.resolve(dotfile.pathExtension, fileName: dotfile.lastPathComponent),
+                name == ".env" ? .shell : .plain, name)
+        }
+    }
+
+    private static func makeWOFF1(fromSFNT sfnt: Data) -> Data {
+        let flavor = readUInt32BE(sfnt, at: 0)
+        let numTables = Int(readUInt16BE(sfnt, at: 4))
+        var totalSFNTSize = UInt32(12 + numTables * 16)
+        var entries = Data()
+        var payloads = Data()
+        var currentOffset = UInt32(44 + numTables * 20)
+        for index in 0..<numTables {
+            let recordOffset = 12 + index * 16
+            let tag = sfnt[recordOffset..<(recordOffset + 4)]
+            let checksum = readUInt32BE(sfnt, at: recordOffset + 4)
+            let offset = Int(readUInt32BE(sfnt, at: recordOffset + 8))
+            let length = Int(readUInt32BE(sfnt, at: recordOffset + 12))
+            let raw = Data(sfnt[offset..<(offset + length)])
+            totalSFNTSize += UInt32((length + 3) & ~3)
+            entries.append(tag)
+            appendUInt32BE(&entries, currentOffset)
+            appendUInt32BE(&entries, UInt32(raw.count))
+            appendUInt32BE(&entries, UInt32(raw.count))
+            appendUInt32BE(&entries, checksum)
+            payloads.append(raw)
+            let padding = (4 - (raw.count % 4)) % 4
+            if padding > 0 { payloads.append(Data(repeating: 0, count: padding)) }
+            currentOffset += UInt32(raw.count + padding)
+        }
+        var header = Data()
+        appendUInt32BE(&header, 0x774F_4646)
+        appendUInt32BE(&header, flavor)
+        appendUInt32BE(&header, currentOffset)
+        appendUInt16BE(&header, UInt16(numTables))
+        appendUInt16BE(&header, 0)
+        appendUInt32BE(&header, totalSFNTSize)
+        appendUInt16BE(&header, 1)
+        appendUInt16BE(&header, 0)
+        for _ in 0..<5 { appendUInt32BE(&header, 0) }
+        return header + entries + payloads
+    }
+
+    private static func makeWOFF2(fromCFFSFNT sfnt: Data) throws -> Data {
+        let flavor = readUInt32BE(sfnt, at: 0)
+        let numTables = Int(readUInt16BE(sfnt, at: 4))
+        var totalSFNTSize = UInt32(12 + numTables * 16)
+        var directory = Data()
+        var stream = Data()
+        for index in 0..<numTables {
+            let recordOffset = 12 + index * 16
+            let tag = sfnt[recordOffset..<(recordOffset + 4)]
+            let offset = Int(readUInt32BE(sfnt, at: recordOffset + 8))
+            let length = Int(readUInt32BE(sfnt, at: recordOffset + 12))
+            totalSFNTSize += UInt32((length + 3) & ~3)
+            // Flag 63 stores an untransformed explicit tag.
+            directory.append(63)
+            directory.append(tag)
+            appendBase128(&directory, UInt32(length))
+            stream.append(sfnt[offset..<(offset + length)])
+        }
+        let compressed = try brotliCompress(stream)
+        let unpaddedLength = 48 + directory.count + compressed.count
+        let trailingPadding = (4 - (unpaddedLength % 4)) % 4
+        let totalLength = UInt32(unpaddedLength + trailingPadding)
+        var header = Data()
+        appendUInt32BE(&header, 0x774F_4632)
+        appendUInt32BE(&header, flavor)
+        appendUInt32BE(&header, totalLength)
+        appendUInt16BE(&header, UInt16(numTables))
+        appendUInt16BE(&header, 0)
+        appendUInt32BE(&header, totalSFNTSize)
+        appendUInt32BE(&header, UInt32(compressed.count))
+        appendUInt16BE(&header, 1)
+        appendUInt16BE(&header, 0)
+        for _ in 0..<5 { appendUInt32BE(&header, 0) }
+        return header + directory + compressed + Data(repeating: 0, count: trailingPadding)
+    }
+
+    private static func brotliCompress(_ source: Data) throws -> Data {
+        let capacity = max(source.count + 1024, 4096)
+        var output = Data(count: capacity)
+        let written = output.withUnsafeMutableBytes { destination in
+            source.withUnsafeBytes { input in
+                guard let dst = destination.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                    let src = input.baseAddress?.assumingMemoryBound(to: UInt8.self)
+                else { return 0 }
+                return compression_encode_buffer(dst, capacity, src, source.count, nil, COMPRESSION_BROTLI)
+            }
+        }
+        guard written > 0 else { throw CocoaError(.coderInvalidValue) }
+        output.count = written
+        return output
+    }
+
+    private static func appendBase128(_ buffer: inout Data, _ value: UInt32) {
+        var chunks: [UInt8] = [UInt8(value & 0x7F)]
+        var remaining = value >> 7
+        while remaining > 0 {
+            chunks.append(UInt8((remaining & 0x7F) | 0x80))
+            remaining >>= 7
+        }
+        buffer.append(contentsOf: chunks.reversed())
+    }
+
+    private static func readUInt16BE(_ bytes: Data, at offset: Int) -> UInt16 {
+        (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
+    }
+
+    private static func readUInt32BE(_ bytes: Data, at offset: Int) -> UInt32 {
+        (UInt32(bytes[offset]) << 24) | (UInt32(bytes[offset + 1]) << 16)
+            | (UInt32(bytes[offset + 2]) << 8) | UInt32(bytes[offset + 3])
+    }
+
+    private static func appendUInt16BE(_ buffer: inout Data, _ value: UInt16) {
+        buffer.append(contentsOf: [UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF)])
+    }
+
+    private static func appendUInt32BE(_ buffer: inout Data, _ value: UInt32) {
+        buffer.append(contentsOf: [
+            UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
+            UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+        ])
+    }
+}

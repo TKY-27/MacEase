@@ -341,9 +341,12 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         state.fileFailure = nil
         guard let url = state.selectedURL else { return }
         let requestedGeneration = generation
+        let disabledKinds = settings.finderPreview.disabledKinds
         kindTask = Task { [weak self] in
             do {
-                let kind = try await Task.detached(priority: .userInitiated) { try PreviewKind.inspect(url) }.value
+                let kind = try await Task.detached(priority: .userInitiated) {
+                    try PreviewKind.inspect(url, disabled: disabledKinds)
+                }.value
                 guard !Task.isCancelled, let self, generation == requestedGeneration else { return }
                 state.kind = kind
             } catch {
