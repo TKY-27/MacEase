@@ -56,13 +56,82 @@ import Testing
         }
         let sink = try AssetWriterSink(
             url: url, fileType: .mov, tracks: [OutputTrack(track: described, format: format)], transform: .identity)
-        try sink.checkHealth()
+        try await sink.checkHealth()
         sink.cancel()
         do {
-            try sink.checkHealth()
+            try await sink.checkHealth()
             Issue.record("cancelled writer must report encode failure")
         } catch EngineError.encodeFailed {
         }
+    }
+
+    @Test(arguments: ["h264_videotoolbox", "hevc_videotoolbox"])
+    func ordinaryBFrameCopiesKeepVideoTimingOutOfAudioPriming(codec: String) async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "bframes.mp4")
+        let tools = try mediaFixtureTools()
+        _ = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: [
+                "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=24:duration=2",
+                "-c:v", codec, "-bf", "2", "-b:v", "500k", source.path,
+            ], directory: folder, tools: tools)
+        let input = try await MediaInput.open(source)
+        let video = try #require(input.video)
+        let targets: [OutputContainer] = codec == "h264_videotoolbox" ? [.flv, .mkv, .mov, .mp4] : [.mkv, .mov, .mp4]
+        for target in targets {
+            let stage = try await PacketCopyStage(
+                input: input, track: video, number: 1, start: 0, end: .max, destination: target)
+            var copied: [MediaPacket] = []
+            while stage.nextTime != nil { copied += try await stage.pull() }
+            #expect(copied.count == 48)
+            #expect(copied.first?.isKeyframe == true)
+            #expect(copied.contains { $0.decodeTimestamp != nil && $0.decodeTimestamp != $0.timestamp })
+            #expect(copied.allSatisfy { $0.outputTimestamp == nil })
+            #expect(stage.output?.track.defaultDuration == video.defaultDuration)
+            #expect(stage.output?.track.codecDelay == 0)
+            if target == .flv {
+                let output = try await transcode(source, TranscodePlan(container: target, video: .copy))
+                defer { try? FileManager.default.removeItem(at: output) }
+                let written = try packets(of: output)
+                #expect(written.count == copied.count)
+                let decodeTimes = written.compactMap(\.decodeTimestamp)
+                #expect(decodeTimes == decodeTimes.sorted())
+                for (original, encoded) in zip(copied, written) {
+                    #expect(encoded.payload == original.payload)
+                    let originalOffset = original.timestamp - (original.decodeTimestamp ?? original.timestamp)
+                    let outputOffset = encoded.timestamp - (encoded.decodeTimestamp ?? encoded.timestamp)
+                    #expect(abs(originalOffset - outputOffset) <= Nanoseconds.perSecond / 1_000)
+                }
+                var decoder = try VideoDecoders.make(for: video)
+                var decoded: [DecodedFrame] = []
+                for packet in written { decoded += try decoder.decode(packet) }
+                decoded += try decoder.finish()
+                #expect(decoded.count == 48)
+                #expect(decoded.map(\.timestamp) == decoded.map(\.timestamp).sorted())
+            }
+        }
+    }
+
+    @Test func videoTrimAttachmentDoesNotBecomeAudioPresentationTiming() async throws {
+        let source = try resource("ffmpeg-h264-aac.mp4")
+        let asset = AVURLAsset(url: source)
+        let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AssetTrackReader(asset: asset, track: video, number: 1, mode: .packets)
+        var first: CMSampleBuffer?
+        while let sample = try await reader.nextSample() {
+            if CMSampleBufferGetNumSamples(sample) > 0 { first = sample; break }
+        }
+        let sample = try #require(first)
+        let trim = CMTime(value: 1, timescale: 48)
+        CMSetAttachment(
+            sample, key: kCMSampleBufferAttachmentKey_TrimDurationAtStart,
+            value: CMTimeCopyAsDictionary(trim, allocator: nil), attachmentMode: kCMAttachmentMode_ShouldPropagate)
+        let extracted = try SampleBuffers.packets(from: sample, track: 1)
+        #expect(extracted.count == 1)
+        #expect(extracted.first?.outputTimestamp == nil)
+        #expect(extracted.first?.timestamp == SampleBuffers.nanoseconds(sample.presentationTimeStamp))
+        #expect(extracted.first?.decodeTimestamp == SampleBuffers.nanoseconds(sample.decodeTimeStamp))
     }
 
     @Test func remuxesMP4IntoMatroskaAndBack() async throws {

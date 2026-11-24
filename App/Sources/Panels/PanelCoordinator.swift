@@ -182,9 +182,8 @@ final class PanelCoordinator {
                 inputs: inputs, settings: snapshot, recipeStore: recipes,
                 preselectedRecipeID: entry.recipeID, expectedRevision: entry.recipeRevision,
                 onRun: { batch in
-                    self.jobs.run(batch: batch, settings: snapshot)
-                    close()
-                }, onCancel: close)
+                    await self.jobs.run(batch: batch, settings: snapshot).value
+                }, onComplete: close, onCancel: close)
         }
     }
 

@@ -18,7 +18,7 @@ final class StreamConsentTests: XCTestCase {
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.activityClosesAfterFailure = true
 
-        let first = try await runRotate([timecoded, plain], jobs: jobs, settings: store.planning)
+        let first = try await runSpeed([timecoded, plain], jobs: jobs, settings: store.planning)
         guard case .failed(.invalidInput(.unpreservedStreams([.timecode]))) = first.outcomes[0],
             case .succeeded = first.outcomes[1]
         else { return XCTFail("unexpected outcomes \(first.outcomes)") }
@@ -34,7 +34,7 @@ final class StreamConsentTests: XCTestCase {
         let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "MacEase Activity" })
         XCTAssertTrue(panel.isVisible, "a pending choice stays visible despite closing after failure")
         XCTAssertEqual(try Data(contentsOf: timecoded), original)
-        XCTAssertEqual(try files(in: directory), ["engine", "plain.mp4", "plain_rotated.mp4", "timecoded.mov"])
+        XCTAssertEqual(try files(in: directory), ["engine", "plain.mp4", "plain_speed2x.mp4", "timecoded.mov"])
 
         let retried = try await continueAndWait(first.batchID, jobs: jobs)
         XCTAssertEqual(retried.request.inputs, [timecoded])
@@ -55,7 +55,7 @@ final class StreamConsentTests: XCTestCase {
         let timecoded = try await timecodedClip(in: directory)
         let original = try Data(contentsOf: timecoded)
         let (jobs, activity, store) = try makeActivity(in: directory)
-        let first = try await runRotate([timecoded], jobs: jobs, settings: store.planning)
+        let first = try await runSpeed([timecoded], jobs: jobs, settings: store.planning)
         XCTAssertTrue(jobs.canContinueWithoutStreams(first.batchID))
         let known = Set(jobs.sessions.keys)
 
@@ -79,7 +79,7 @@ final class StreamConsentTests: XCTestCase {
         }
         try FileManager.default.removeItem(at: source)
         let (jobs, activity, store) = try makeActivity(in: directory)
-        let first = try await runRotate(clips, jobs: jobs, settings: store.planning)
+        let first = try await runSpeed(clips, jobs: jobs, settings: store.planning)
         let session = try XCTUnwrap(jobs.sessions[first.batchID])
         let result = ActivityResult(first, awaitingConsent: session)
         XCTAssertEqual(result.status, .awaitingConfirmation)
@@ -125,7 +125,7 @@ final class StreamConsentTests: XCTestCase {
         let original = try Data(contentsOf: timecoded)
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.settings.outputMode = .replace
-        let first = try await runRotate([timecoded], jobs: jobs, settings: store.planning)
+        let first = try await runSpeed([timecoded], jobs: jobs, settings: store.planning)
         let session = try XCTUnwrap(jobs.sessions[first.batchID])
         XCTAssertEqual(
             UserMessages.streamOmissionConsequence(
@@ -568,9 +568,9 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertTrue(model.submitted)
     }
 
-    private func runRotate(_ inputs: [URL], jobs: JobCenter, settings: Engine.Settings) async throws -> BatchOutcome {
-        let options = try XCTUnwrap(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
-        let outcome = await jobs.run(OperationRequest(op: .videoRotate, options: options, inputs: inputs)).value
+    private func runSpeed(_ inputs: [URL], jobs: JobCenter, settings: Engine.Settings) async throws -> BatchOutcome {
+        let options = try XCTUnwrap(OperationPlanner.options(for: .videoSpeed, preset: "2", settings: settings))
+        let outcome = await jobs.run(OperationRequest(op: .videoSpeed, options: options, inputs: inputs)).value
         return try XCTUnwrap(outcome)
     }
 
@@ -598,6 +598,108 @@ final class StreamConsentTests: XCTestCase {
         jobs.onStart = { [weak activity] in activity?.started($0) }
         jobs.showsFinished = { [weak activity] in activity?.finished($0, outcome: $1) ?? false }
         return (jobs, activity, store)
+    }
+
+    func testRecipeLateTimecodeRefusalReturnsToConsentAndCompletes() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let original = try Data(contentsOf: source)
+        let (jobs, _, store) = try makeActivity(in: directory)
+        let recipe = Recipe(name: "Native Recipe", variants: [OutputVariant(output: .videoMOV)])
+        var attempts = 0
+        var completed = false
+        var lastOutcome: BatchOutcome?
+        let model = RecipeRunModel(
+            inputs: [source], settings: store.planning,
+            onRun: { batch in
+                attempts += 1
+                let submitted: Batch
+                if attempts == 1, let work = batch.items.first {
+                    let failing = WorkItem(inputs: work.inputs, lane: work.lane) { context in
+                        _ = try await work.body(context)
+                        throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
+                    }
+                    submitted = Batch(
+                        operation: batch.operation, items: [failing], recipeExecution: batch.recipeExecution)
+                } else {
+                    submitted = batch
+                }
+                let outcome = await jobs.run(batch: submitted, settings: store.planning).value
+                lastOutcome = outcome
+                return outcome
+            }, onComplete: { completed = true })
+        await model.run(recipe, destination: directory)
+        XCTAssertEqual(attempts, 1)
+        XCTAssertFalse(completed)
+        XCTAssertNil(model.failure)
+        let question = try XCTUnwrap(model.streamConsent)
+        XCTAssertEqual(question.files.map(\.url), [source])
+        XCTAssertEqual(question.streams, [.timecode])
+        XCTAssertEqual(question.files.first?.omission.stamp, try MediaSourceStamp(url: source))
+        await model.continueWithoutStreams(question)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(completed)
+        XCTAssertNil(model.streamConsent)
+        XCTAssertNil(model.failure)
+        guard case .succeeded(let packages, let warnings) = lastOutcome?.outcomes.first else {
+            return XCTFail("expected consented recipe success")
+        }
+        XCTAssertEqual(warnings, [.streamsOmitted([.timecode])])
+        let package = try XCTUnwrap(packages.first)
+        let output = try XCTUnwrap(
+            try FileManager.default.contentsOfDirectory(at: package, includingPropertiesForKeys: nil).first {
+                $0.pathExtension == "mov"
+            })
+        let tracks = try await AVURLAsset(url: output).loadTracks(withMediaType: .timecode)
+        XCTAssertTrue(tracks.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    func testRecipeRecoveryConsentRejectsAReplacedInput() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let (jobs, _, store) = try makeActivity(in: directory)
+        var attempts = 0
+        let model = RecipeRunModel(
+            inputs: [source], settings: store.planning,
+            onRun: { batch in
+                attempts += 1
+                let failing = WorkItem(inputs: [source]) { _ in
+                    throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
+                }
+                return await jobs.run(
+                    batch: Batch(operation: batch.operation, items: [failing]), settings: store.planning
+                ).value
+            }, onComplete: { XCTFail("changed source must not complete") })
+        await model.run(
+            Recipe(name: "Stamped Recipe", variants: [OutputVariant(output: .videoMOV)]), destination: directory)
+        let question = try XCTUnwrap(model.streamConsent)
+        let replacement = try await timecodedClip(in: try workspace())
+        try FileManager.default.removeItem(at: source)
+        try FileManager.default.copyItem(at: replacement, to: source)
+        await model.continueWithoutStreams(question)
+        XCTAssertEqual(attempts, 1)
+        XCTAssertNotNil(model.failure)
+        XCTAssertNil(model.streamConsent)
+    }
+
+    func testRecipeWriterFailuresDoNotBecomeTimecodeQuestions() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let (jobs, _, store) = try makeActivity(in: directory)
+        let model = RecipeRunModel(
+            inputs: [source], settings: store.planning,
+            onRun: { batch in
+                let failing = WorkItem(inputs: [source]) { _ in throw EngineError.encodeFailed("Disk is full") }
+                return await jobs.run(
+                    batch: Batch(operation: batch.operation, items: [failing]), settings: store.planning
+                ).value
+            }, onComplete: { XCTFail("writer failure must not complete") })
+        await model.run(
+            Recipe(name: "Failed Recipe", variants: [OutputVariant(output: .videoMOV)]), destination: directory)
+        XCTAssertNil(model.streamConsent)
+        XCTAssertNotNil(model.failure)
+        XCTAssertTrue(model.failure?.contains("Disk is full") == true)
     }
 
     private func fixture() throws -> URL {

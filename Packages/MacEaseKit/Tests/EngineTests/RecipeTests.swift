@@ -1,9 +1,11 @@
+import AVFoundation
 import CoreGraphics
 import CoreText
 import Foundation
 import ImageIO
 import MenuCatalog
 import PDFKit
+import Synchronization
 import Testing
 import UniformTypeIdentifiers
 
@@ -138,6 +140,38 @@ struct RecipeTests {
         #expect(FileManager.default.fileExists(atPath: input.path))
         #expect(FileManager.default.fileExists(atPath: video.path))
         #expect(FileManager.default.fileExists(atPath: pdf.path))
+    }
+
+    @Test(arguments: [false, true])
+    func sixtyFPSMOVRecipePlansTimecodeConsentBeforeEncoding(totalBudget: Bool) async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = try await highFrameRateTimecodedClip(in: folder)
+        let original = try Data(contentsOf: source)
+        let recipe = Recipe(
+            name: "Sixty", variants: [OutputVariant(output: .videoMOV, targetBytes: totalBudget ? nil : 20_000)],
+            totalBytes: totalBudget ? 200_000 : nil)
+        let omissions = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: [source])
+        #expect(omissions[source]?.streams == [.timecode])
+        let engine = try recipeEngine()
+        let encoded = Mutex(false)
+        let refused = await engine.run(
+            try RecipePlanner.batch(recipe: recipe, inputs: [source], settings: Settings()),
+            settings: Settings()
+        ) { if $0.itemPhases.contains(.encoding) { encoded.withLock { $0 = true } } }
+        #expect(refused.outcomes == [.failed(.invalidInput(.unpreservedStreams([.timecode])))])
+        #expect(!encoded.withLock { $0 })
+        let result = await engine.run(
+            try RecipePlanner.batch(recipe: recipe, inputs: [source], settings: Settings(), omissions: omissions),
+            settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, let warnings) = result.outcomes.first, let package = outputs.first else {
+            Issue.record("expected recipe after up-front consent: \(result.outcomes)")
+            return
+        }
+        let output = package.appending(path: "sixty-fps.mov")
+        #expect(try await AVURLAsset(url: output).loadTracks(withMediaType: .timecode).isEmpty)
+        #expect(warnings.contains(.streamsOmitted([.timecode])))
+        #expect(try Data(contentsOf: source) == original)
     }
 
     @Test func videoConsentCoversOnlyTheReportedFileAndVersion() async throws {

@@ -50,7 +50,9 @@ enum VideoSDR {
         try Task.checkCancellation()
         guard try await classification(url) != .sdr else { return .skipped(.alreadySDR) }
         let input = try await MediaInput.open(url)
-        try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
+        let carryPlan = try await NativeTimecodePlan.make(
+            for: input, destination: input.container, preservesTiming: true, omitting: context.omittedStreams)
+        try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
         guard case .asset(_, let track?, _) = input.backend, let source = input.video,
             supportedCodecs.contains(source.codec), input.container.fileType != nil
         else { throw EngineError.hdrConversionUnsupported }
@@ -76,12 +78,15 @@ enum VideoSDR {
             frameDuration: input.frameDuration, bitrate: nil)
         encoding.quality = quality
         encoding.allowsFrameReordering = false
-        let plan = try await VideoProperties.prepareMetadata(
+        var plan = try await VideoProperties.prepareMetadata(
             TranscodePlan(container: input.container, video: .toneMapToSDR(encoding), audio: .copy),
             input: input, context: context)
         let name = url.lastPathComponent
         let output = try context.stagingURL(for: url, name: name)
-        try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        plan.carriesTimecode = carryPlan.carriesTimecode
+        try await carryPlan.write(input, plan: plan, to: output) { context.progress($0) }
+        context.phase(.verifying)
+        try await carryPlan.verify(original: url, output: output)
         try await VideoProperties.verify(plan, output: output, context: context)
         context.warn(.hdrProvenanceUnknown)
         if dolbyVision { context.warn(.dolbyVisionRemoved) }
