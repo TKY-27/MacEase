@@ -191,10 +191,10 @@ final class PreviewPlayback {
     }
 
     private func play(_ asset: AVURLAsset) {
-        let item = AVPlayerItem(asset: asset)
-        statusObservation = item.observe(\.status) { [weak self] item, _ in
-            guard item.status == .failed else { return }
-            let error = item.error
+        let playerItem = AVPlayerItem(asset: asset)
+        statusObservation = playerItem.observe(\.status) { [weak self] observed, _ in
+            guard observed.status == .failed else { return }
+            let error = observed.error
             let reason = error?.localizedDescription ?? ""
             let forbidden = PreviewMediaAsset.isReferenceForbidden(error)
             Task { @MainActor in
@@ -206,7 +206,7 @@ final class PreviewPlayback {
                 }
             }
         }
-        player = AVPlayer(playerItem: item)
+        player = AVPlayer(playerItem: playerItem)
         phase = .playing
     }
 
@@ -342,20 +342,23 @@ private enum PreviewAudioLevel {
 }
 
 // AVPlayerView draws a dark backdrop for audio.
-private struct PreviewAudioControls: View {
+struct PreviewAudioControls: View {
     let player: AVPlayer
     let url: URL
+    var loadFileIcon: (URL) -> NSImage = { NSWorkspace.shared.icon(forFile: $0.path) }
     @State private var playing = false
     @State private var position = 0.0
     @State private var duration = 0.0
     @State private var scrubbing = false
     @State private var observer: Any?
     @State private var metadata: PreviewAudioMetadata?
+    @State private var fileIcon: NSImage?
     @State private var volume = PreviewAudioLevel.volume
     @State private var muted = PreviewAudioLevel.muted
     private static let updateInterval = CMTime(value: 1, timescale: 10)
     private static let hourSeconds = 3600.0
     private static let minimumDuration = 0.01
+    static let maximumDisplayDurationSeconds = 365.0 * 24.0 * 3600.0
     private static let seekTimescale: CMTimeScale = 600
     private static let artworkSize: CGFloat = 168
     private static let iconSize: CGFloat = 128
@@ -417,7 +420,7 @@ private struct PreviewAudioControls: View {
         .task { await loadDetails() }
     }
 
-    // A fixed slot keeps the controls still while loading.
+    // Fixed slot avoids layout shift while loading.
     private var artwork: some View {
         Group {
             if let artwork = metadata?.artwork {
@@ -427,8 +430,8 @@ private struct PreviewAudioControls: View {
                         RoundedRectangle(cornerRadius: Self.artworkCornerRadius, style: .continuous)
                             .strokeBorder(Color(nsColor: .separatorColor))
                     }
-            } else if metadata != nil {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
+            } else if let fileIcon {
+                Image(nsImage: fileIcon).resizable()
                     .frame(width: Self.iconSize, height: Self.iconSize)
             }
         }
@@ -492,18 +495,33 @@ private struct PreviewAudioControls: View {
     }
 
     private func loadDetails() async {
-        guard let asset = player.currentItem?.asset else { return }
+        guard !Task.isCancelled, let asset = player.currentItem?.asset else { return }
         do {
             let loaded = try await asset.load(.duration).seconds
-            if loaded.isFinite { duration = loaded }
+            try Task.checkCancellation()
+            if loaded.isFinite, loaded >= 0 { duration = Self.clampedDurationSeconds(loaded) }
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             Logger(category: "finder-preview").error(
                 "Preview audio duration failed: \(error.localizedDescription, privacy: .private)")
         }
-        metadata = await PreviewAudioMetadata.load(asset)
+        guard !Task.isCancelled else { return }
+        let loadedMetadata = await PreviewAudioMetadata.load(asset)
+        guard !Task.isCancelled else { return }
+        if loadedMetadata.artwork == nil { fileIcon = loadFileIcon(url) }
+        metadata = loadedMetadata
     }
 
-    private static func format(_ seconds: Double) -> String {
-        Duration.seconds(seconds).formatted(.time(pattern: seconds >= hourSeconds ? .hourMinuteSecond : .minuteSecond))
+    static func clampedDurationSeconds(_ seconds: Double) -> Double {
+        guard seconds.isFinite, seconds >= 0 else { return 0 }
+        return min(seconds, maximumDisplayDurationSeconds)
+    }
+
+    static func format(_ seconds: Double) -> String {
+        let clamped = clampedDurationSeconds(seconds)
+        return Duration.seconds(clamped).formatted(
+            .time(pattern: clamped >= hourSeconds ? .hourMinuteSecond : .minuteSecond))
     }
 }

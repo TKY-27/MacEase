@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import SwiftUI
 import XCTest
 
 @testable import MacEase
@@ -52,5 +53,95 @@ final class PreviewAudioMetadataTests: XCTestCase {
         let metadata = await PreviewAudioMetadata.load(PreviewMediaAsset.make(url))
         XCTAssertEqual(metadata.title, "Static")
         XCTAssertNil(metadata.artwork)
+    }
+
+    func testArtworkExceedingByteLimitIsRefused() {
+        let oversized = Data(count: PreviewAudioMetadata.artworkByteLimit + 1)
+        XCTAssertNil(PreviewAudioMetadata.decodeArtwork(oversized))
+    }
+
+    func testArtworkExceedingSourcePixelLimitIsRefusedWhileTextRemains() async throws {
+        let bombPNG = PreviewImageFixtures.monochromePNG(width: 10_000, height: 10_000)
+        XCTAssertLessThan(bombPNG.count, PreviewAudioMetadata.artworkByteLimit)
+        XCTAssertNil(PreviewAudioMetadata.decodeArtwork(bombPNG))
+
+        let url = try await PreviewImageFixtures.audio(
+            in: directory, name: "bomb-cover.m4a",
+            metadata: [
+                PreviewImageFixtures.metadata(.iTunesMetadataSongName, "Oversized Cover" as NSString),
+                PreviewImageFixtures.metadata(.iTunesMetadataArtist, "Test Artist" as NSString),
+                PreviewImageFixtures.metadata(.iTunesMetadataCoverArt, bombPNG as NSData),
+            ])
+        let metadata = await PreviewAudioMetadata.load(PreviewMediaAsset.make(url))
+        XCTAssertEqual(metadata.title, "Oversized Cover")
+        XCTAssertEqual(metadata.artist, "Test Artist")
+        XCTAssertNil(metadata.artwork)
+    }
+
+    func testCancelledMetadataLoadReturnsEmptyWithoutDecoding() async throws {
+        let cover = try PreviewImageFixtures.solid(width: 256, height: 256, gray: 0.5)
+        let png = try XCTUnwrap(NSBitmapImageRep(cgImage: cover).representation(using: .png, properties: [:]))
+        let url = try await PreviewImageFixtures.audio(
+            in: directory, name: "cancelled.m4a",
+            metadata: [
+                PreviewImageFixtures.metadata(.iTunesMetadataSongName, "Ignored" as NSString),
+                PreviewImageFixtures.metadata(.iTunesMetadataCoverArt, png as NSData),
+            ])
+        let asset = PreviewMediaAsset.make(url)
+        let loadTask = Task { @MainActor in
+            await PreviewAudioMetadata.load(asset)
+        }
+        loadTask.cancel()
+        let metadata = await loadTask.value
+        XCTAssertNil(metadata.title)
+        XCTAssertNil(metadata.artist)
+        XCTAssertNil(metadata.artwork)
+    }
+
+    func testAudioControlsLoadFileIconOnceDuringPlayback() async throws {
+        let url = try await PreviewImageFixtures.audio(in: directory, name: "icon-once.m4a", seconds: 0.5)
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: PreviewMediaAsset.make(url)))
+        player.isMuted = true
+        var iconLoads = 0
+        let stubIcon = NSImage(size: NSSize(width: 32, height: 32))
+        let window = NSWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 420, height: 400), styleMask: [.borderless], backing: .buffered,
+            defer: false)
+        window.contentView = NSHostingView(
+            rootView: PreviewAudioControls(
+                player: player, url: url,
+                loadFileIcon: { _ in
+                    iconLoads += 1
+                    return stubIcon
+                }))
+        window.orderFrontRegardless()
+        defer {
+            player.pause()
+            window.orderOut(nil)
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while iconLoads == 0, ContinuousClock.now < deadline {
+            window.layoutIfNeeded()
+            await Task.yield()
+        }
+        XCTAssertEqual(iconLoads, 1)
+
+        player.play()
+        let playbackDeadline = ContinuousClock.now + .seconds(5)
+        while player.currentTime().seconds < 0.25, ContinuousClock.now < playbackDeadline {
+            await Task.yield()
+        }
+        player.pause()
+        XCTAssertEqual(iconLoads, 1)
+    }
+
+    func testAudioDurationFormattingClampsHostileValues() {
+        XCTAssertEqual(PreviewAudioControls.clampedDurationSeconds(.nan), 0)
+        XCTAssertEqual(PreviewAudioControls.clampedDurationSeconds(.infinity), 0)
+        XCTAssertEqual(PreviewAudioControls.clampedDurationSeconds(-10), 0)
+        XCTAssertEqual(
+            PreviewAudioControls.clampedDurationSeconds(1e308), PreviewAudioControls.maximumDisplayDurationSeconds)
+        XCTAssertFalse(PreviewAudioControls.format(1e308).isEmpty)
+        XCTAssertFalse(PreviewAudioControls.format(-5).isEmpty)
     }
 }
