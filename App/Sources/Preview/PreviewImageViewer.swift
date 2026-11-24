@@ -1,165 +1,463 @@
 import AppKit
-import Engine
 import ImageIO
 import SwiftUI
+import VisionKit
 import os
 
-private struct PreviewImageFrame: Sendable {
-    let pixels: CGImage
-    let delay: Double
-}
-
-private actor PreviewImageSource {
-    private var source: CGImageSource?
-    private var maximumEdge = 0
-    private static let defaultDelay = 0.1
-    private static let minimumDelay = 0.02
-    // Bounds decode memory; larger images preview downscaled.
-    private static let maximumPreviewEdge = 4096
-
-    func open(_ url: URL) throws -> (frameCount: Int, first: PreviewImageFrame) {
-        try Task.checkCancellation()
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-            let width = properties[kCGImagePropertyPixelWidth] as? Int,
-            let height = properties[kCGImagePropertyPixelHeight] as? Int,
-            width > 0, height > 0
-        else { throw CocoaError(.fileReadCorruptFile) }
-        self.source = source
-        maximumEdge = min(max(width, height), Self.maximumPreviewEdge)
-        let first = try frame(0)
-        let animated =
-            properties[kCGImagePropertyGIFDictionary] != nil
-            || properties[kCGImagePropertyPNGDictionary] != nil || properties[kCGImagePropertyWebPDictionary] != nil
-        return (animated ? CGImageSourceGetCount(source) : 1, first)
+struct PreviewZoom: Equatable {
+    enum Preset: Equatable {
+        case fit, actualSize
     }
 
-    func frame(_ index: Int) throws -> PreviewImageFrame {
-        try Task.checkCancellation()
-        guard let source,
-            let pixels = CGImageSourceCreateThumbnailAtIndex(
-                source, index,
-                [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceDecodeRequest: kCGImageSourceDecodeToHDR,
-                    kCGImageSourceThumbnailMaxPixelSize: maximumEdge,
-                ] as CFDictionary),
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
-        else { throw CocoaError(.fileReadCorruptFile) }
-        let timings: [(CFString, CFString, CFString)] = [
-            (kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime),
-            (kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime),
-            (kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime),
-        ]
-        var delay = Self.defaultDelay
-        for (dictionary, unclamped, clamped) in timings {
-            if let animation = properties[dictionary] as? [CFString: Any],
-                let duration = (animation[unclamped] ?? animation[clamped]) as? Double, duration.isFinite
-            {
-                delay = max(Self.minimumDelay, duration); break
+    let preset: Preset?
+    // Relative to the image's own pixels.
+    let percent: Double
+}
+
+@MainActor
+@Observable
+final class PreviewImageModel {
+    enum Phase {
+        case loading, ready(PreviewImageOpened), failed
+    }
+
+    // Avoids a redundant decode for rounding noise.
+    private static let detailTolerance = 1.01
+    private(set) var phase = Phase.loading
+    private(set) var detail: CGImage?
+    private(set) var detailFailed = false
+    private(set) var animator: PreviewImageAnimator?
+    private(set) var zoom = PreviewZoom(preset: .fit, percent: 100)
+    let liveText = PreviewLiveText()
+    private let source = PreviewImageSource()
+    private var detailWork: Task<Void, Never>?
+    private var windowVisible = true
+
+    var opened: PreviewImageOpened? {
+        if case .ready(let opened) = phase { opened } else { nil }
+    }
+
+    var image: CGImage? { animator?.frame ?? detail ?? opened?.first }
+
+    private var canDecodeFullResolution: Bool { opened?.offersFullResolution == true && !detailFailed }
+
+    // Zoomed past the decode with nothing sharper.
+    var showsReduced: Bool {
+        guard let opened, detail == nil, !canDecodeFullResolution else { return false }
+        return needsDetail(opened)
+    }
+
+    var reducedSize: CGSize? {
+        guard let opened, detail == nil, !canDecodeFullResolution, opened.decodedScale < 1 else { return nil }
+        return CGSize(width: opened.first.width, height: opened.first.height)
+    }
+
+    func load(_ url: URL, reduceMotion: Bool) async {
+        do {
+            let opened = try await source.open(url)
+            try Task.checkCancellation()
+            phase = .ready(opened)
+            if let timing = opened.animation {
+                let animator = PreviewImageAnimator(source: source, first: opened.first, timing: timing)
+                animator.setWindowVisible(windowVisible)
+                self.animator = animator
+                if !reduceMotion { animator.play() }
+            } else if PreviewLiveText.isWorthAnalyzing(pixelSize: opened.pixelSize, animated: false) {
+                liveText.analyze(opened.first)
+            }
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled else { return }
+            phase = .failed
+            Logger(category: "finder-preview").error(
+                "Preview image failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    func setWindowVisible(_ visible: Bool) {
+        windowVisible = visible
+        animator?.setWindowVisible(visible)
+    }
+
+    func zoomChanged(_ zoom: PreviewZoom) {
+        self.zoom = zoom
+        guard let opened, canDecodeFullResolution, detail == nil, detailWork == nil, needsDetail(opened) else {
+            return
+        }
+        detailWork = Task { [weak self, source] in
+            do {
+                let detail = try await source.fullResolution()
+                try Task.checkCancellation()
+                self?.detail = detail
+            } catch is CancellationError {
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                detailFailed = true
+                Logger(category: "finder-preview").error(
+                    "Full-resolution image failed: \(error.localizedDescription, privacy: .private)")
             }
         }
-        try Task.checkCancellation()
-        return PreviewImageFrame(pixels: pixels, delay: delay)
+    }
+
+    func stop() {
+        animator?.pause()
+        liveText.cancel()
+        detailWork?.cancel()
+    }
+
+    private func needsDetail(_ opened: PreviewImageOpened) -> Bool {
+        opened.decodedScale < 1 && zoom.percent / 100 > opened.decodedScale * Self.detailTolerance
     }
 }
 
 struct PreviewImageViewer: View {
     let url: URL
-    @State private var pixels: CGImage?
-    @State private var fit = true
-    @State private var zoomRequest = 0
-    @State private var failed = false
+    @State private var model = PreviewImageModel()
+    @State private var zoomRequest = PreviewZoomRequest(preset: .fit, serial: 0)
+    @State private var showsInfo = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.previewSelectionPending) private var selectionPending
 
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar {
-                Button("Fit") {
-                    fit = true; zoomRequest += 1
-                }
-                Button("100%") {
-                    fit = false; zoomRequest += 1
+                if let opened = model.opened {
+                    PreviewImageBar(model: model, opened: opened, zoomRequest: $zoomRequest, showsInfo: $showsInfo)
                 }
             }
-            .disabled(pixels == nil)
             Group {
-                if failed {
-                    PreviewFailure()
-                } else if let pixels {
-                    PreviewImageCanvas(pixels: pixels, fit: fit, zoomRequest: zoomRequest)
-                } else {
-                    ProgressView().controlSize(.small)
+                switch model.phase {
+                case .failed: PreviewFailure()
+                case .ready(let opened):
+                    if let image = model.image {
+                        PreviewImageCanvas(
+                            image: image, opened: opened, analysis: model.liveText.analysis, request: zoomRequest,
+                            zoomChanged: model.zoomChanged, occlusionChanged: model.setWindowVisible)
+                    }
+                case .loading: ProgressView().controlSize(.small)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .underPageBackgroundColor))
         }
-        .task { await load() }
-        .onDisappear { pixels = nil }
-    }
-
-    private func load() async {
-        let source = PreviewImageSource()
-        do {
-            let (frameCount, first) = try await source.open(url)
-            try Task.checkCancellation()
-            pixels = first.pixels
-            guard frameCount > 1 else { return }
-            var delay = first.delay
-            var index = 1
-            while !Task.isCancelled {
-                try await Task.sleep(for: .seconds(delay))
-                let frame = try await source.frame(index)
-                try Task.checkCancellation()
-                pixels = frame.pixels
-                delay = frame.delay
-                index = (index + 1) % frameCount
-            }
-        } catch is CancellationError {
-        } catch {
-            guard !Task.isCancelled else { return }
-            pixels = nil
-            failed = true
-            Logger(category: "finder-preview").error(
-                "Preview image failed: \(error.localizedDescription, privacy: .private)")
+        .previewShortcut(.playPause) {
+            guard let animator = model.animator else { return false }
+            animator.togglePlayback()
+            return true
         }
+        .task { await model.load(url, reduceMotion: reduceMotion) }
+        .onChange(of: selectionPending) { _, pending in
+            if pending { model.liveText.cancel() }
+        }
+        .onChange(of: reduceMotion) { _, reduced in
+            if reduced { model.animator?.pause() }
+        }
+        .onDisappear { model.stop() }
     }
 }
 
+// Info sits outside ViewThatFits so popovers survive.
+struct PreviewImageBar: View {
+    let model: PreviewImageModel
+    let opened: PreviewImageOpened
+    @Binding var zoomRequest: PreviewZoomRequest
+    @Binding var showsInfo: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                controls(iconsOnly: false, showsStatus: true)
+                controls(iconsOnly: true, showsStatus: true)
+                controls(iconsOnly: true, showsStatus: false)
+            }
+            infoButton
+        }
+    }
+
+    private func controls(iconsOnly: Bool, showsStatus: Bool) -> some View {
+        HStack(spacing: 8) {
+            ControlGroup {
+                zoomToggle(
+                    .fit, title: Text("Fit"), symbol: "arrow.up.left.and.down.right.magnifyingglass",
+                    iconsOnly: iconsOnly)
+                zoomToggle(.actualSize, title: Text("100%"), symbol: "1.magnifyingglass", iconsOnly: iconsOnly)
+            }
+            .fixedSize()
+            .help(Text("Fit shows the whole image and 100% shows actual pixels. Double-click the image to switch."))
+            if showsStatus { status }
+            if let animator = model.animator { playButton(animator) }
+        }
+        .fixedSize()
+    }
+
+    private var infoButton: some View {
+        Button {
+            showsInfo.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+        }
+        .help(Text("Image Info"))
+        .accessibilityLabel(Text("Image Info"))
+        .popover(isPresented: $showsInfo, arrowEdge: .bottom) {
+            PreviewImageInfoView(metadata: opened.metadata, reducedSize: model.reducedSize)
+        }
+        .fixedSize()
+    }
+
+    private func zoomToggle(_ preset: PreviewZoom.Preset, title: Text, symbol: String, iconsOnly: Bool) -> some View {
+        Toggle(
+            isOn: Binding(
+                get: { model.zoom.preset == preset },
+                set: { if $0 { zoomRequest = PreviewZoomRequest(preset: preset, serial: zoomRequest.serial + 1) } })
+        ) {
+            if iconsOnly { Image(systemName: symbol).accessibilityLabel(title) } else { title }
+        }
+        .toggleStyle(.button)
+        .accessibilityValue(model.zoom.preset == nil ? Text(zoomPercent) : Text(verbatim: ""))
+    }
+
+    @ViewBuilder private var status: some View {
+        if model.showsReduced {
+            Text("Reduced").foregroundStyle(.secondary)
+                .help(Text("This image is shown at a reduced size. Open it in Preview to see every pixel."))
+        } else if model.zoom.preset == nil {
+            Text(zoomPercent).monospacedDigit().foregroundStyle(.secondary)
+        }
+    }
+
+    private var zoomPercent: String {
+        (model.zoom.percent / 100).formatted(.percent.precision(.fractionLength(0)))
+    }
+
+    private func playButton(_ animator: PreviewImageAnimator) -> some View {
+        Button(action: animator.togglePlayback) {
+            Image(systemName: animator.isPlaying ? "pause.fill" : "play.fill")
+        }
+        .help(animator.isPlaying ? Text("Pause (Space)") : Text("Play (Space)"))
+        .accessibilityLabel(animator.isPlaying ? Text("Pause") : Text("Play"))
+    }
+}
+
+struct PreviewZoomRequest: Equatable {
+    let preset: PreviewZoom.Preset
+    let serial: Int
+}
+
 private struct PreviewImageCanvas: NSViewRepresentable {
-    let pixels: CGImage
-    let fit: Bool
-    let zoomRequest: Int
+    let image: CGImage
+    let opened: PreviewImageOpened
+    let analysis: ImageAnalysis?
+    let request: PreviewZoomRequest
+    let zoomChanged: (PreviewZoom) -> Void
+    let occlusionChanged: (Bool) -> Void
+
+    final class Coordinator {
+        var overlay: PreviewLiveTextOverlay?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> PreviewImageScroll {
-        let scroll = PreviewImageScroll()
-        scroll.contentView = CenteringClipView()
-        scroll.hasVerticalScroller = true
-        scroll.hasHorizontalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = false
-        scroll.allowsMagnification = true
-        scroll.minMagnification = 0.01
-        scroll.maxMagnification = 16
-        let image = NSImageView()
-        image.imageScaling = .scaleProportionallyUpOrDown
-        image.setAccessibilityLabel(String(localized: "Image Preview"))
-        scroll.documentView = image
+        let scroll = PreviewImageScroll(pixelSize: opened.pixelSize)
+        scroll.content.showsCheckerboard = opened.hasAlpha
+        scroll.handledRequest = request
+        scroll.occlusionChanged = occlusionChanged
         return scroll
     }
 
     func updateNSView(_ scroll: PreviewImageScroll, context: Context) {
-        guard let image = scroll.documentView as? NSImageView else { return }
-        let size = NSSize(width: pixels.width, height: pixels.height)
-        image.image = NSImage(cgImage: pixels, size: size)
-        image.setFrameSize(size)
-        if scroll.zoomRequest != zoomRequest {
-            scroll.zoomRequest = zoomRequest
-            scroll.fitting = fit
-            scroll.adjustZoom()
+        scroll.zoomChanged = zoomChanged
+        scroll.occlusionChanged = occlusionChanged
+        scroll.content.image = image
+        if let analysis, analysis.hasResults(for: .text) {
+            let overlay = context.coordinator.overlay ?? PreviewLiveTextOverlay(content: scroll.content)
+            context.coordinator.overlay = overlay
+            scroll.liveText = overlay.view
+            overlay.show(analysis)
+        } else {
+            context.coordinator.overlay?.show(nil)
         }
+        if scroll.handledRequest != request {
+            scroll.handledRequest = request
+            scroll.setZoom(request.preset, animated: !context.environment.accessibilityReduceMotion)
+        }
+    }
+}
+
+final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
+    private static let minimumZoom: CGFloat = 0.01
+    private static let maximumZoom: CGFloat = 16
+    private static let actualSizeTolerance = 0.5
+    private static let magnificationTolerance: CGFloat = 0.001
+    private static let zoomDuration: TimeInterval = 0.15
+    private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+    let content: PreviewImageLayerView
+    var zoomChanged: ((PreviewZoom) -> Void)?
+    var occlusionChanged: ((Bool) -> Void)?
+    var handledRequest: PreviewZoomRequest?
+    weak var liveText: ImageAnalysisOverlayView?
+    // Legacy scrollers would shrink the fit.
+    private(set) var fitting = true {
+        didSet {
+            hasVerticalScroller = !fitting
+            hasHorizontalScroller = !fitting
+        }
+    }
+    private var reported: PreviewZoom?
+    private var reportedWindowVisible: Bool?
+    // Only the latest animation's completion ends zooming.
+    private var zoomAnimation = 0
+    private var zooming = false
+
+    override var magnification: CGFloat {
+        didSet { if !zooming { report(magnification) } }
+    }
+
+    init(pixelSize: CGSize) {
+        content = PreviewImageLayerView(frame: NSRect(origin: .zero, size: pixelSize))
+        super.init(frame: .zero)
+        contentView = CenteringClipView()
+        autohidesScrollers = true
+        drawsBackground = false
+        allowsMagnification = true
+        minMagnification = Self.minimumZoom
+        maxMagnification = Self.maximumZoom
+        documentView = content
+        let doubleClick = NSClickGestureRecognizer(target: self, action: #selector(doubleClicked(_:)))
+        doubleClick.numberOfClicksRequired = 2
+        doubleClick.delegate = self
+        content.addGestureRecognizer(doubleClick)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    var zoom: PreviewZoom { zoom(at: magnification) }
+
+    func setZoom(_ preset: PreviewZoom.Preset, centeredAt point: NSPoint? = nil, animated: Bool) {
+        fitting = preset == .fit
+        let target = clamped(preset == .fit ? fitMagnification : 1 / backingScale)
+        let center = point ?? NSPoint(x: documentVisibleRect.midX, y: documentVisibleRect.midY)
+        zoomAnimation += 1
+        let animation = zoomAnimation
+        zooming = true
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.zoomDuration
+                context.timingFunction = Self.easeOut
+                animator().setMagnification(target, centeredAt: center)
+            } completionHandler: {
+                MainActor.assumeIsolated { if self.zoomAnimation == animation { self.zooming = false } }
+            }
+        } else {
+            setMagnification(target, centeredAt: center)
+            zooming = false
+        }
+        report(target)
+    }
+
+    func toggleZoom(at point: NSPoint, animated: Bool) {
+        setZoom(fitting ? .actualSize : .fit, centeredAt: point, animated: animated)
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if let window {
+            NotificationCenter.default.removeObserver(
+                self, name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else {
+            reportWindowVisibility(false, deferred: true)
+            return
+        }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(occlusionDidChange),
+            name: NSWindow.didChangeOcclusionStateNotification, object: window)
+        reportWindowVisibility(window.occlusionState.contains(.visible), deferred: true)
+    }
+
+    @objc private func occlusionDidChange() {
+        guard let window else { return }
+        reportWindowVisibility(window.occlusionState.contains(.visible), deferred: false)
+    }
+
+    private func reportWindowVisibility(_ visible: Bool, deferred: Bool) {
+        guard visible != reportedWindowVisible else { return }
+        reportedWindowVisible = visible
+        if deferred {
+            Task { @MainActor [weak self] in self?.occlusionChanged?(visible) }
+        } else {
+            occlusionChanged?(visible)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        // Very wide images fit below the minimum.
+        minMagnification = min(Self.minimumZoom, fitMagnification)
+        guard fitting else { return }
+        let target = clamped(fitMagnification)
+        if abs(magnification - target) > Self.magnificationTolerance { magnification = target }
+        report(target)
+    }
+
+    // Keeps 100% and Fit true across displays.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if !fitting && reported?.preset == .actualSize {
+            setZoom(.actualSize, animated: false)
+        } else {
+            report(magnification)
+        }
+    }
+
+    override func magnify(with event: NSEvent) {
+        fitting = false
+        super.magnify(with: event)
+        report(magnification)
+    }
+
+    override func smartMagnify(with event: NSEvent) {
+        toggleZoom(at: content.convert(event.locationInWindow, from: nil), animated: Self.animates)
+    }
+
+    @objc private func doubleClicked(_ recognizer: NSClickGestureRecognizer) {
+        toggleZoom(at: recognizer.location(in: content), animated: Self.animates)
+    }
+
+    // Double-clicking text selects a word instead.
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: NSGestureRecognizer) -> Bool {
+        guard let liveText, liveText.analysis != nil else { return true }
+        return !liveText.hasInteractiveItem(at: gestureRecognizer.location(in: liveText))
+    }
+
+    private static var animates: Bool { !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    private var backingScale: CGFloat { window?.backingScaleFactor ?? 1 }
+
+    private var fitMagnification: CGFloat {
+        guard content.frame.width > 0, content.frame.height > 0 else { return 1 }
+        return min(contentSize.width / content.frame.width, contentSize.height / content.frame.height)
+    }
+
+    private func clamped(_ value: CGFloat) -> CGFloat { min(maxMagnification, max(minMagnification, value)) }
+
+    private func zoom(at magnification: CGFloat) -> PreviewZoom {
+        let percent = magnification * backingScale * 100
+        if fitting { return PreviewZoom(preset: .fit, percent: percent) }
+        return PreviewZoom(preset: abs(percent - 100) < Self.actualSizeTolerance ? .actualSize : nil, percent: percent)
+    }
+
+    private func report(_ magnification: CGFloat) {
+        content.checkerScale = magnification
+        let zoom = zoom(at: magnification)
+        guard zoom != reported else { return }
+        reported = zoom
+        // Layout can run inside a SwiftUI update.
+        Task { @MainActor [weak self] in self?.zoomChanged?(zoom) }
     }
 
     final class CenteringClipView: NSClipView {
@@ -172,29 +470,135 @@ private struct PreviewImageCanvas: NSViewRepresentable {
             return bounds
         }
     }
+}
 
-    final class PreviewImageScroll: NSScrollView {
-        var zoomRequest = -1
-        var fitting = true
+final class PreviewImageLayerView: NSView, NSMenuItemValidation {
+    struct CheckerKey: Hashable {
+        let appearance: NSAppearance.Name
+        let squarePoints: Int
+    }
 
-        override func layout() {
-            super.layout()
-            if fitting { adjustZoom() }
+    // On-screen size of one checkerboard square.
+    static let checkerSquarePoints: CGFloat = 8
+    static let minimumCheckerSquarePoints: CGFloat = 2
+    static let maximumCheckerSquarePoints: CGFloat = 64
+    private static let supportedAppearances: [NSAppearance.Name] = [
+        .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
+    ]
+    private static var checkerCache: [CheckerKey: CGColor] = [:]
+
+    var image: CGImage? {
+        didSet {
+            guard image !== oldValue, let layer else { return }
+            layer.contents = image
+            layer.preferredDynamicRange = (image?.contentHeadroom ?? 0) > 1 ? .constrainedHigh : .standard
         }
+    }
 
-        func adjustZoom() {
-            guard let documentView, documentView.bounds.width > 0, documentView.bounds.height > 0 else { return }
-            let scale =
-                fitting
-                ? min(contentSize.width / documentView.bounds.width, contentSize.height / documentView.bounds.height)
-                : 1 / (window?.backingScaleFactor ?? 1)
-            let target = max(minMagnification, min(maxMagnification, scale))
-            if abs(magnification - target) > 0.001 { magnification = target }
+    var showsCheckerboard = false {
+        didSet { needsDisplay = true }
+    }
+
+    var checkerScale: CGFloat = 1 {
+        didSet {
+            guard showsCheckerboard else { return }
+            let square = Self.checkerSquarePoints(forScale: checkerScale)
+            if square != currentCheckerSquare { needsDisplay = true }
         }
+    }
 
-        override func magnify(with event: NSEvent) {
-            fitting = false
-            super.magnify(with: event)
+    private var currentCheckerSquare: Int?
+    weak var liveText: ImageAnalysisOverlayView?
+
+    override var acceptsFirstResponder: Bool { liveText?.hasActiveTextSelection == true }
+
+    @objc func copy(_ sender: Any?) {
+        guard let selected = liveText?.selectedText, !selected.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(selected, forType: .string)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem.action == #selector(copy(_:)) && liveText?.hasActiveTextSelection == true
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        setAccessibilityElement(true)
+        setAccessibilityRole(.image)
+        setAccessibilityLabel(String(localized: "Image Preview"))
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.contentsGravity = .resize
+        guard showsCheckerboard else {
+            currentCheckerSquare = nil
+            layer?.backgroundColor = nil
+            return
+        }
+        let square = Self.checkerSquarePoints(forScale: checkerScale)
+        currentCheckerSquare = square
+        layer?.backgroundColor = Self.checkerboardColor(for: checkerAppearanceName, squarePoints: square)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    // Quantized and bounded to keep tiles small.
+    static func checkerSquarePoints(forScale scale: CGFloat) -> Int {
+        let raw = checkerSquarePoints / max(scale, .ulpOfOne)
+        let clamped = min(max(raw, minimumCheckerSquarePoints), maximumCheckerSquarePoints)
+        let power = pow(2.0, round(log2(Double(clamped))))
+        return min(max(Int(power), Int(minimumCheckerSquarePoints)), Int(maximumCheckerSquarePoints))
+    }
+
+    static func checkerboardColor(for appearance: NSAppearance.Name, squarePoints: Int) -> CGColor {
+        let clampedSquare = min(
+            max(squarePoints, Int(minimumCheckerSquarePoints)), Int(maximumCheckerSquarePoints))
+        let key = CheckerKey(appearance: appearance, squarePoints: clampedSquare)
+        if let cached = checkerCache[key] { return cached }
+        let color = makeCheckerboardColor(for: appearance, squarePoints: clampedSquare)
+        checkerCache[key] = color
+        return color
+    }
+
+    private static func makeCheckerboardColor(for appearance: NSAppearance.Name, squarePoints: Int) -> CGColor {
+        let (light, dark) = checkerShades(for: appearance)
+        let tileEdge = squarePoints * 2
+        let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard
+            let context = CGContext(
+                data: nil, width: tileEdge, height: tileEdge, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return NSColor(white: light, alpha: 1).cgColor }
+        context.setFillColor(CGColor(gray: light, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: tileEdge, height: tileEdge))
+        context.setFillColor(CGColor(gray: dark, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: squarePoints, height: squarePoints))
+        context.fill(CGRect(x: squarePoints, y: squarePoints, width: squarePoints, height: squarePoints))
+        guard let tileImage = context.makeImage() else { return NSColor(white: light, alpha: 1).cgColor }
+        let pattern = NSImage(cgImage: tileImage, size: NSSize(width: tileEdge, height: tileEdge))
+        return NSColor(patternImage: pattern).cgColor
+    }
+
+    private var checkerAppearanceName: NSAppearance.Name {
+        effectiveAppearance.bestMatch(from: Self.supportedAppearances) ?? .aqua
+    }
+
+    private static func checkerShades(for appearance: NSAppearance.Name) -> (CGFloat, CGFloat) {
+        switch appearance {
+        case .darkAqua: (0.17, 0.23)
+        case .accessibilityHighContrastAqua: (1, 0.78)
+        case .accessibilityHighContrastDarkAqua: (0.1, 0.32)
+        default: (1, 0.9)
         }
     }
 }

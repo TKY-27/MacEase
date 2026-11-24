@@ -12,20 +12,61 @@ final class FinderPreviewState {
         case accessibility, automation, unavailable, timedOut
     }
 
+    struct Shown: Equatable {
+        let url: URL
+        let kind: PreviewKind
+        let trust: PreviewTrust
+        let detected: DetectedContent?
+        let generation: UInt64
+    }
+
     var generation: UInt64 = 0
-    var urls: [URL] = []
+    var urls: [URL] = [] {
+        didSet { if urls.isEmpty { shown = nil } }
+    }
     var selectedIndex = 0
     var notice: Notice?
-    var kind: PreviewKind?
-    var trust: PreviewTrust?
-    var detected: DetectedContent?
+    var kind: PreviewKind? {
+        didSet { showIfReady() }
+    }
+    var trust: PreviewTrust? {
+        didSet { showIfReady() }
+    }
+    var detected: DetectedContent? {
+        didSet { showIfReady() }
+    }
     // Script consent for this session.
     var scriptConsent: Set<PreviewScriptConsentKey> = []
-    var fileFailure: String?
+    var fileFailure: String? {
+        didSet { if fileFailure != nil { shown = nil } }
+    }
     var dock: FinderPreviewGeometry.Dock = .right
     var docked = true
+    // Kept until the next file is ready.
+    private(set) var shown: Shown?
 
     var selectedURL: URL? { urls.indices.contains(selectedIndex) ? urls[selectedIndex] : nil }
+
+    var isLoading: Bool { selectedURL != nil && (kind == nil || trust == nil) && fileFailure == nil }
+
+    var showsLoadingIndicator: Bool { isLoading && loadingIndicatorGeneration == generation }
+
+    // Per generation, so late delays can't flash.
+    private var loadingIndicatorGeneration: UInt64?
+
+    func revealLoadingIndicator(for generation: UInt64) {
+        loadingIndicatorGeneration = generation
+    }
+
+    private func showIfReady() {
+        guard let url = selectedURL, let kind, let trust else { return }
+        shown = Shown(url: url, kind: kind, trust: trust, detected: detected, generation: generation)
+    }
+}
+
+extension EnvironmentValues {
+    // Content still shows the previous selection.
+    @Entry var previewSelectionPending = false
 }
 
 struct FinderPreviewView: View {
@@ -37,18 +78,44 @@ struct FinderPreviewView: View {
     let select: (Int) -> Void
     let resize: (CGFloat) -> Void
     @State private var accessoryWidth: CGFloat = 0
+    @State private var panelWidth: CGFloat = 0
     @Environment(\.displayScale) private var displayScale
     private static let resizeEdgeWidth: CGFloat = 5
     private static let keyboardResizeStep: CGFloat = 20
+    // Fast inspections never show a spinner.
+    private static let progressDelay = Duration.milliseconds(200)
+    private static let pendingOpacity = 0.4
+    // The viewer's controls keep most room.
+    private static let accessoryShare: CGFloat = 0.45
 
     var body: some View {
         content
             .environment(\.previewBarTrailingInset, state.docked ? accessoryWidth : 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .windowBackgroundColor))
+            .onGeometryChange(for: CGFloat.self) {
+                $0.size.width
+            } action: {
+                panelWidth = $0
+            }
+            .task(id: state.generation) {
+                let generation = state.generation
+                guard state.isLoading else { return }
+                do {
+                    try await Task.sleep(for: Self.progressDelay)
+                } catch {
+                    return
+                }
+                state.revealLoadingIndicator(for: generation)
+            }
+            .task(id: state.shown?.url) {
+                if let url = state.shown?.url { await announce(url) }
+            }
             .overlay(alignment: .topTrailing) {
                 if state.docked { accessories }
             }
+            .previewShortcut(.previousFile) { step(by: -1) }
+            .previewShortcut(.nextFile) { step(by: 1) }
             .overlay(alignment: state.dock == .left ? .trailing : .leading) {
                 if state.docked && state.dock != .inset {
                     Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1 / displayScale)
@@ -62,7 +129,13 @@ struct FinderPreviewView: View {
 
     private var accessories: some View {
         HStack(spacing: 8) {
-            if state.urls.count > 1 { selectionStepper }
+            if state.urls.count > 1 {
+                ViewThatFits(in: .horizontal) {
+                    selectionStepper(count: Text("\(state.selectedIndex + 1) of \(state.urls.count)"))
+                    selectionStepper(count: Text(verbatim: "\(state.selectedIndex + 1)/\(state.urls.count)"))
+                    selectionStepper(count: nil)
+                }
+            }
             Button(action: close) {
                 Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
             }
@@ -77,29 +150,71 @@ struct FinderPreviewView: View {
         } action: {
             accessoryWidth = $0
         }
+        .frame(maxWidth: panelWidth > 0 ? panelWidth * Self.accessoryShare : nil, alignment: .trailing)
         .accessibilitySortPriority(1)
     }
 
-    private var selectionStepper: some View {
-        HStack(spacing: 2) {
+    // VoiceOver still reads the hidden count.
+    private func selectionStepper(count: Text?) -> some View {
+        let position = Text("\(state.selectedIndex + 1) of \(state.urls.count)")
+        return HStack(spacing: 2) {
             Button {
                 select(state.selectedIndex - 1)
             } label: {
-                Image(systemName: "chevron.left").frame(width: 22, height: 22)
+                Image(systemName: "chevron.left").frame(width: 20, height: 22)
             }
             .disabled(state.selectedIndex == 0)
+            .help(Text("Previous File (⌥⌘←)"))
             .accessibilityLabel(Text("Previous File"))
-            Text("\(state.selectedIndex + 1) of \(state.urls.count)")
-                .font(.callout).monospacedDigit().foregroundStyle(.secondary)
+            if let count {
+                count.font(.callout).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                    .accessibilityLabel(position)
+            }
             Button {
                 select(state.selectedIndex + 1)
             } label: {
-                Image(systemName: "chevron.right").frame(width: 22, height: 22)
+                Image(systemName: "chevron.right").frame(width: 20, height: 22)
             }
             .disabled(state.selectedIndex == state.urls.count - 1)
+            .help(Text("Next File (⌥⌘→)"))
             .accessibilityLabel(Text("Next File"))
         }
         .buttonStyle(PreviewButtonStyle(cornerRadius: 6, restingOpacity: 0))
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(position)
+    }
+
+    private func step(by offset: Int) -> Bool {
+        let index = state.selectedIndex + offset
+        guard state.docked, state.urls.indices.contains(index) else { return false }
+        select(index)
+        return true
+    }
+
+    // Once per file, queued after Finder.
+    private func announce(_ url: URL) async {
+        let message: String
+        do {
+            message = try await offMain { try Self.spokenDescription(of: url) }
+        } catch is CancellationError {
+            return
+        } catch {
+            Logger(category: "finder-preview").notice(
+                "Preview kind unavailable: \(error.localizedDescription, privacy: .private)")
+            message = url.lastPathComponent
+        }
+        guard !Task.isCancelled else { return }
+        var announcement = AttributedString(message)
+        announcement.accessibilitySpeechAnnouncementPriority = .default
+        AccessibilityNotification.Announcement(announcement).post()
+    }
+
+    // Folders may carry document extensions.
+    nonisolated static func spokenDescription(of url: URL) throws -> String {
+        let name = url.lastPathComponent
+        guard let kind = try url.resourceValues(forKeys: [.localizedTypeDescriptionKey]).localizedTypeDescription
+        else { return name }
+        return String(localized: "\(name), \(kind)")
     }
 
     private var resizeEdge: some View {
@@ -124,17 +239,24 @@ struct FinderPreviewView: View {
             }
         } else if let failure = state.fileFailure {
             barred { PreviewMessage(symbol: "exclamationmark.triangle", message: Text(failure)) { EmptyView() } }
-        } else if let url = state.selectedURL {
-            if let kind = state.kind, let trust = state.trust {
+        } else if state.selectedURL != nil {
+            if let shown = state.shown {
                 @Bindable var state = state
+                let pending = state.showsLoadingIndicator
                 PreviewContent(
-                    url: url, kind: kind, trust: trust, detected: state.detected, settings: settings.finderPreview,
-                    staging: staging,
-                    scriptConsent: $state.scriptConsent
+                    url: shown.url, kind: shown.kind, trust: shown.trust, detected: shown.detected,
+                    settings: settings.finderPreview, staging: staging, scriptConsent: $state.scriptConsent
                 )
-                .id(state.generation)
+                .id(shown.generation)
+                .environment(\.previewSelectionPending, state.isLoading)
+                .opacity(pending ? Self.pendingOpacity : 1)
+                .overlay {
+                    if pending { loadingIndicator }
+                }
             } else {
-                barred { Color.clear }
+                barred {
+                    if state.showsLoadingIndicator { loadingIndicator }
+                }
             }
         } else {
             barred {
@@ -144,6 +266,10 @@ struct FinderPreviewView: View {
                 ) { EmptyView() }
             }
         }
+    }
+
+    private var loadingIndicator: some View {
+        ProgressView().controlSize(.small).accessibilityLabel(Text("Loading"))
     }
 
     private func failureMessage(_ message: Text) -> some View {
@@ -246,21 +372,30 @@ struct PreviewButtonStyle: ButtonStyle {
         let restingOpacity: Double
         @State private var hovering = false
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.colorSchemeContrast) private var contrast
+        private static let contrastStrokeOpacity = 0.5
+        private static let contrastFillScale = 2.0
 
         var body: some View {
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             configuration.label
-                .foregroundStyle(.secondary)
+                .foregroundStyle(contrast == .increased ? .primary : .secondary)
                 .background(Color.primary.opacity(fill), in: shape)
+                .overlay {
+                    if contrast == .increased && restingOpacity > 0 {
+                        shape.strokeBorder(Color.primary.opacity(Self.contrastStrokeOpacity), lineWidth: 1)
+                    }
+                }
                 .contentShape(shape)
                 .opacity(isEnabled ? 1 : 0.4)
                 .onHover { hovering = $0 }
         }
 
         private var fill: Double {
-            guard isEnabled else { return restingOpacity }
-            if configuration.isPressed { return 0.14 }
-            return hovering ? 0.08 : restingOpacity
+            let scale = contrast == .increased ? Self.contrastFillScale : 1
+            guard isEnabled else { return restingOpacity * scale }
+            if configuration.isPressed { return 0.14 * scale }
+            return (hovering ? 0.08 : restingOpacity) * scale
         }
     }
 }
