@@ -107,8 +107,8 @@ final class NativeTimecode {
     func cancel() { tracks = [] }
 
     static func verify(original: URL, output: URL) async throws {
-        let sourceAsset = AVURLAsset(url: original)
-        let outputAsset = AVURLAsset(url: output)
+        let sourceAsset = UntrustedMediaAsset.make(original)
+        let outputAsset = UntrustedMediaAsset.make(output)
         let sourceTracks = try await sourceAsset.loadTracks(withMediaType: .timecode)
         let outputTracks = try await outputAsset.loadTracks(withMediaType: .timecode)
         guard !sourceTracks.isEmpty, sourceTracks.count == outputTracks.count,
