@@ -61,7 +61,9 @@ public final class HatchExtractionStore: Sendable {
             guard let input, let inspection, inspection.source == input.standardizedFileURL,
                 !inspection.needsLegacyDecoder
             else { throw EngineError.invalidInput(.archiveNameEncodingUnsupported) }
-            let encoded = try JSONEncoder().encode(FilenameProof(version: 1, input: input.path))
+            let encoded = try JSONEncoder().encode(
+                FilenameProof(
+                    version: 2, input: input.path, prefersJapanese: inspection.prefersJapanese, route: "hatchzip"))
             try encoded.write(to: proof, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: proof.path)
         }
@@ -147,6 +149,8 @@ public final class HatchExtractionStore: Sendable {
     private struct FilenameProof: Codable {
         let version: Int
         let input: String
+        let prefersJapanese: Bool
+        let route: String
     }
 
     private struct Manifest: Decodable {

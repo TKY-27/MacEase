@@ -32,7 +32,7 @@ import Testing
 
     private func run(
         _ source: URL, in folder: URL, settings: Settings = Settings(), password: String? = nil,
-        native: Bool = false, executable: URL? = nil, sessionID: UUID? = nil,
+        native: Bool = false, prefersJapanese: Bool = true, executable: URL? = nil, sessionID: UUID? = nil,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async throws -> (BatchOutcome, JobEngine, HatchExtractionStore, Batch) {
         let support = folder.appending(path: "support")
@@ -40,8 +40,10 @@ import Testing
         let engine = try JobEngine(supportDirectory: support, concurrency: 1, hatchExtractions: store)
         let operation: ArchiveOperation =
             native ? .extract(password: password) : .hatchExtract(password: password, sessionID: sessionID)
-        let batch = ArchivePlanner.batch(
-            operation, op: native ? .archiveExtract : .archiveHatchExtract, archives: [source])
+        let batch = OperationPlanner.batch(
+            for: OperationRequest(
+                op: native ? .archiveExtract : .archiveHatchExtract, options: .archive(operation), inputs: [source]),
+            settings: settings, prefersJapaneseArchiveNames: prefersJapanese)
         let outcome = await engine.run(batch, settings: settings, progress: progress)
         return (outcome, engine, store, batch)
     }
@@ -55,11 +57,14 @@ import Testing
     }
 
     private func tree(_ root: URL) throws -> [String: Data] {
+        let root = root.resolvingSymlinksInPath()
         let walker = try #require(
             FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey]))
         var result: [String: Data] = [:]
         while let child = walker.nextObject() as? URL {
-            let relative = String(child.path.dropFirst(root.path.count + 1))
+            let child = child.resolvingSymlinksInPath()
+            try #require(child.pathComponents.starts(with: root.pathComponents))
+            let relative = child.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
             if try child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true {
                 result[relative + "/"] = Data()
             } else {
@@ -67,6 +72,56 @@ import Testing
             }
         }
         return result
+    }
+
+    @Test(arguments: ["cp437", "western-valid", "mixed-invalid", "nested"], [false, true])
+    func ZIPLanguagePolicyMatchesTheRealHelperBaseline(variant: String, prefersJapanese: Bool) async throws {
+        let root = try TestVolume.makeFolder()
+        let baselineFolder = root.appending(path: "baseline")
+        let currentFolder = root.appending(path: "current")
+        let encoding = variant == "cp437" ? "cp437" : "cp932"
+        let baseline = try fixture(in: baselineFolder, encoding: encoding, variant: variant)
+        let current = try fixture(in: currentFolder, encoding: encoding, variant: variant)
+        let baselineSession = baselineFolder.appending(path: "session")
+        let execution = Process()
+        let input = Pipe()
+        let output = Pipe()
+        execution.executableURL = executable
+        execution.standardInput = input
+        execution.standardOutput = output
+        let request =
+            try JSONSerialization.data(withJSONObject: [
+                "action": "start", "directory": baselineSession.path, "input": baseline.path,
+            ]) + Data([10])
+        try execution.run()
+        try input.fileHandleForWriting.write(contentsOf: request)
+        let response = output.fileHandleForReading.readDataToEndOfFile()
+        execution.waitUntilExit()
+        try input.fileHandleForWriting.close()
+        #expect(execution.terminationStatus == 0)
+        let events = try String(decoding: response, as: UTF8.self).split(separator: "\n").map {
+            try #require(JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+        }
+        let baselinePath = try #require(events.first { $0["event"] as? String == "finished" }?["output"] as? String)
+        let baselineTree = try tree(URL(fileURLWithPath: baselinePath, isDirectory: true))
+        let (outcome, _, store, _) = try await run(current, in: currentFolder, prefersJapanese: prefersJapanese)
+        let extracted = try self.output(outcome)
+        let native = prefersJapanese && ["western-valid", "nested"].contains(variant)
+        if native {
+            #expect(outcome.record?.canUndo == true)
+            #expect(FileManager.default.fileExists(atPath: current.path))
+            #expect(try store.sessions().isEmpty)
+            let expected =
+                variant == "western-valid"
+                ? ["K罵n.txt", "M〕ler.txt", "na久e.txt"] : ["資料/日本語.txt", "表.txt", "ascii.txt"]
+            let actualNames = Set(try tree(extracted).filter { !$0.key.hasSuffix("/") }.keys)
+            #expect(actualNames == Set(expected))
+        } else {
+            #expect(try tree(extracted) == baselineTree)
+            #expect(outcome.record?.canUndo == false)
+            #expect(!FileManager.default.fileExists(atPath: current.path))
+        }
+        #expect(!FileManager.default.fileExists(atPath: baseline.path))
     }
 
     @Test(arguments: ["flat", "nested"], Settings.OutputMode.allCases)
@@ -143,12 +198,12 @@ import Testing
         #expect(try store.sessions().isEmpty)
     }
 
-    @Test(arguments: ["cp437", "mixed-invalid"])
-    func undecodableNamesRefuseBeforeHelperOrOutput(_ variant: String) async throws {
+    @Test(arguments: ["tar", "tar.gz"])
+    func legacyTARWithoutJapanesePreferenceRefusesBeforeMutation(_ format: String) async throws {
         let root = try TestVolume.makeFolder()
-        let source = try fixture(in: root, encoding: variant == "cp437" ? "cp437" : "cp932", variant: variant)
+        let source = try fixture(in: root, format: format)
         let original = try Data(contentsOf: source)
-        let (outcome, _, store, _) = try await run(source, in: root)
+        let (outcome, _, store, _) = try await run(source, in: root, prefersJapanese: false)
         #expect(outcome.outcomes == [.failed(.invalidInput(.archiveNameEncodingUnsupported))])
         #expect(outcome.record == nil)
         #expect(try Data(contentsOf: source) == original)
@@ -193,7 +248,9 @@ import Testing
         #expect(try store.sessions().isEmpty)
     }
 
-    private func protocolExecutable(in root: URL, output: URL, marker: URL, legacy: Bool = false) throws -> URL {
+    private func protocolExecutable(
+        in root: URL, output: URL, marker: URL, legacy: Bool = false, resuming: Bool = false
+    ) throws -> URL {
         let script = root.appending(path: "protocol.py")
         let encoder = JSONEncoder()
         encoder.outputFormatting = .withoutEscapingSlashes
@@ -205,7 +262,7 @@ import Testing
         request = json.loads(sys.stdin.readline())
         proof = pathlib.Path(request['directory'] + '.filenames.json')
         assert proof.exists() == \(legacy ? "False" : "True")
-        assert request['action'] == '\(legacy ? "resume" : "start")'
+        assert request['action'] == '\(legacy || resuming ? "resume" : "start")'
         pathlib.Path(\(quotedMarker)).write_text('helper invoked')
         print(json.dumps({'event': 'finished', 'output': \(quotedOutput)}), flush=True)
         """.write(to: script, atomically: true, encoding: .utf8)
@@ -213,8 +270,8 @@ import Testing
         return script
     }
 
-    @Test(arguments: ["utf8", "unflagged", "ambiguous"])
-    func UTF8StillInvokesTheHelperWithProofAlreadyPresent(_ encoding: String) async throws {
+    @Test(arguments: ["utf8", "unflagged", "ambiguous"], [false, true])
+    func UTF8StillInvokesTheHelperWithProofAlreadyPresent(_ encoding: String, prefersJapanese: Bool) async throws {
         let root = try TestVolume.makeFolder()
         let source = try fixture(
             in: root, encoding: encoding, variant: encoding == "ambiguous" ? "ambiguous" : "nested")
@@ -222,7 +279,8 @@ import Testing
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: false)
         let marker = root.appending(path: "invoked")
         let executable = try protocolExecutable(in: root, output: output, marker: marker)
-        let (outcome, _, store, _) = try await run(source, in: root, executable: executable)
+        let (outcome, _, store, _) = try await run(
+            source, in: root, prefersJapanese: prefersJapanese, executable: executable)
         let extracted = try self.output(outcome)
         #expect(extracted == output)
         #expect(FileManager.default.fileExists(atPath: marker.path))
@@ -230,12 +288,15 @@ import Testing
         let proofs = try FileManager.default.contentsOfDirectory(at: store.directory, includingPropertiesForKeys: nil)
         let proof = try #require(proofs.first { $0.pathExtension == "json" })
         let contents = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: proof)) as? [String: Any])
-        #expect(contents["version"] as? Int == 1)
+        #expect(contents["version"] as? Int == 2)
         #expect(contents["input"] as? String == source.path)
+        #expect(contents["prefersJapanese"] as? Bool == prefersJapanese)
+        #expect(contents["route"] as? String == "hatchzip")
         #expect(try FileManager.default.attributesOfItem(atPath: proof.path)[.posixPermissions] as? Int == 0o600)
     }
 
-    @Test func legacyPausedSessionWithoutProofStillResumes() async throws {
+    @Test(arguments: [false, true])
+    func pausedSessionsKeepTheirStartedRouteWhenLanguagesChange(_ hasProof: Bool) async throws {
         let root = try TestVolume.makeFolder()
         let source = try fixture(in: root, encoding: "utf8")
         let output = root.appending(path: "legacy-output", directoryHint: .isDirectory)
@@ -248,8 +309,15 @@ import Testing
             "input": source.path, "output": output.path, "state": "paused",
         ])
         try manifest.write(to: session.appending(path: "manifest.json"))
+        if hasProof {
+            let proof = try JSONSerialization.data(withJSONObject: [
+                "version": 2, "input": source.path, "prefersJapanese": false, "route": "hatchzip",
+            ])
+            try proof.write(to: URL(fileURLWithPath: session.path + ".filenames.json"))
+        }
         let marker = root.appending(path: "resumed")
-        let executable = try protocolExecutable(in: root, output: output, marker: marker, legacy: true)
+        let executable = try protocolExecutable(
+            in: root, output: output, marker: marker, legacy: !hasProof, resuming: true)
         let (outcome, _, _, _) = try await run(source, in: root, executable: executable, sessionID: sessionID)
         let extracted = try self.output(outcome)
         #expect(extracted == output)
@@ -331,7 +399,7 @@ import Testing
         let original = try Data(contentsOf: source)
         var checks = 0
         #expect(throws: CancellationError.self) {
-            try ArchiveNameInspection.inspect(source) {
+            try ArchiveNameInspection.inspect(source, prefersJapanese: true) {
                 checks += 1
                 if checks == 1000 { throw CancellationError() }
             }
@@ -345,7 +413,7 @@ import Testing
         let source = try fixture(in: root, encoding: "utf8", variant: "benchmark")
         let clock = ContinuousClock()
         let started = clock.now
-        let inspection = try ArchiveNameInspection.inspect(source)
+        let inspection = try ArchiveNameInspection.inspect(source, prefersJapanese: true)
         let elapsed = started.duration(to: clock.now)
         #expect(!inspection.needsLegacyDecoder)
         #expect(elapsed < ArchiveNameInspection.maximumDuration)

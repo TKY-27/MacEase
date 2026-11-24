@@ -56,22 +56,27 @@ import Testing
                 archive.addfile(header, io.BytesIO(b'legacy payload'))
             """
         let (source, output) = try fixture(body, extensionName: extensionName)
-        try ArchiveListing.verify(source)
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        try ArchiveListing.verify(source, prefersJapanese: true)
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(try Data(contentsOf: output.appending(path: "資料/日本語.txt")) == Data("legacy payload".utf8))
         if extensionName == "zip" {
-            #expect(try ArchiveBrowserZIP.list(source).map(\.path) == ["資料/日本語.txt"])
+            #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["資料/日本語.txt"])
             let selected = output.appending(path: "selected.txt")
-            try ArchiveBrowserZIP.extract(source, ordinal: 0, to: selected, password: nil, limit: 100)
+            try ArchiveBrowserZIP.extract(
+                source, ordinal: 0, to: selected, password: nil, limit: 100, prefersJapanese: true)
             #expect(try Data(contentsOf: selected) == Data("legacy payload".utf8))
         }
     }
 
     @Test func unflaggedUTF8WinsOverCP932() throws {
         let (source, output) = try fixture("write_zip(['¢.txt'.encode('utf-8'), '資料.txt'.encode('utf-8')])")
-        #expect(try ArchiveBrowserZIP.list(source).map(\.path) == ["¢.txt", "資料.txt"])
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["¢.txt", "資料.txt"])
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(try Data(contentsOf: output.appending(path: "¢.txt")) == Data("legacy payload".utf8))
         #expect(try Data(contentsOf: output.appending(path: "資料.txt")) == Data("legacy payload".utf8))
@@ -79,8 +84,10 @@ import Testing
 
     @Test func cp932VendorAndHalfwidthCharactersRemainSupported() throws {
         let (source, output) = try fixture("write_zip([bytes.fromhex('fa 40 a6 2e 74 78 74')])")
-        #expect(try ArchiveBrowserZIP.list(source).map(\.path) == ["ⅰｦ.txt"])
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["ⅰｦ.txt"])
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(try Data(contentsOf: output.appending(path: "ⅰｦ.txt")) == Data("legacy payload".utf8))
     }
@@ -111,11 +118,11 @@ import Testing
                 let name = pair.bytes.map { CChar(bitPattern: $0) } + [0]
                 name.withUnsafeBufferPointer { archive_entry_copy_pathname(entry, $0.baseAddress) }
                 if let expected = pair.expected {
-                    let decoded = try ArchivePathname.decode(entry)
+                    let decoded = try ArchivePathname.decode(entry, encoding: .cp932)
                     #expect(decoded == expected, "\(pair.bytes)")
                 } else {
                     #expect(throws: ArchiveError.unsupportedNameEncoding, "\(pair.bytes)") {
-                        try ArchivePathname.decode(entry)
+                        try ArchivePathname.decode(entry, encoding: .cp932)
                     }
                 }
             }
@@ -129,8 +136,10 @@ import Testing
             with zipfile.ZipFile(source, 'a') as archive:
                 archive.comment = b'x' * 65535
             """)
-        #expect(try ArchiveBrowserZIP.list(source).map(\.path) == ["資料.txt"])
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["資料.txt"])
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(try Data(contentsOf: output.appending(path: "資料.txt")) == Data("legacy payload".utf8))
     }
@@ -154,8 +163,10 @@ import Testing
             struct.pack_into('<I', payload, end + 12, end - central)
             source.write_bytes(payload)
             """)
-        #expect(try ArchiveBrowserZIP.list(source).map(\.path) == ["資料.txt"])
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["資料.txt"])
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(try Data(contentsOf: output.appending(path: "資料.txt")) == Data("legacy payload".utf8))
     }
@@ -171,50 +182,124 @@ import Testing
             with zipfile.ZipFile(source, 'w') as archive:
                 archive.writestr(header, b'legacy payload')
             """)
-        #expect(try ArchiveBrowserZIP.list(source).map(\.path) == ["資料.txt"])
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["資料.txt"])
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(try Data(contentsOf: output.appending(path: "資料.txt")) == Data("legacy payload".utf8))
     }
 
-    @Test(arguments: [
-        "63 61 66 82 2e 74 78 74", "82", "81 ad", "81 7f", "f0 40", "01 82 a0",
-        "85 40", "86 40", "87 9e", "88 40", "eb 51",
-    ])
-    func unsupportedOrInvalidNamesAreRefusedWithoutWriting(_ hex: String) throws {
-        let (source, output) = try fixture("write_zip([bytes.fromhex('\(hex)')])")
+    @Test(
+        arguments: [
+            "63 61 66 82 2e 74 78 74", "82", "81 ad", "81 7f", "f0 40", "01 82 a0",
+            "85 40", "86 40", "87 9e", "88 40", "eb 51",
+        ], [false, true])
+    func invalidCP932ZIPNamesUseCP437(_ hex: String, prefersJapanese: Bool) throws {
+        let (source, output) = try fixture(
+            """
+            raw = bytes.fromhex('\(hex)')
+            write_zip([raw])
+            source.with_suffix('.expected').write_text(raw.decode('cp437'), encoding='utf-8')
+            """)
+        let expected = try String(
+            contentsOf: source.deletingPathExtension().appendingPathExtension("expected"), encoding: .utf8)
+        try ArchiveListing.verify(source, prefersJapanese: prefersJapanese)
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: prefersJapanese
+        ) { _ in }
+        #expect(layout == .entries)
+        #expect(try Data(contentsOf: output.appending(path: expected)) == Data("legacy payload".utf8))
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: prefersJapanese).map(\.path) == [expected])
+    }
+
+    @Test func oneInvalidCP932NameSelectsCP437ForTheWholeZIP() throws {
+        let (source, output) = try fixture("write_zip(['資料.txt'.encode('cp932'), b'bad\\x82.txt'])")
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) {
+            _ in
+        }
+        #expect(layout == .entries)
+        #expect(try Data(contentsOf: output.appending(path: "Äæù┐.txt")) == Data("legacy payload".utf8))
+        #expect(try Data(contentsOf: output.appending(path: "badé.txt")) == Data("legacy payload".utf8))
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: true).map(\.path) == ["Äæù┐.txt", "badé.txt"])
+        let selected = output.appending(path: "selected")
+        try ArchiveBrowserZIP.extract(
+            source, ordinal: 0, to: selected, password: nil, limit: 100, prefersJapanese: true)
+        #expect(try Data(contentsOf: selected) == Data("legacy payload".utf8))
+    }
+
+    @Test(arguments: ["cp932", "cp437-valid", "cp437-invalid"], [false, true])
+    func nativeAndBrowserUseTheSameExplicitLanguagePreference(_ kind: String, prefersJapanese: Bool) throws {
+        let expression: String
+        let expected: String
+        switch kind {
+        case "cp932":
+            expression = "'資料.txt'.encode('cp932')"
+            expected = prefersJapanese ? "資料.txt" : "Äæù┐.txt"
+        case "cp437-valid":
+            expression = "bytes.fromhex('4d 81 6c 6c 65 72 2e 74 78 74')"
+            expected = prefersJapanese ? "M〕ler.txt" : "Müller.txt"
+        default:
+            expression = "bytes.fromhex('63 61 66 82 2e 74 78 74')"
+            expected = "café.txt"
+        }
+        let (source, output) = try fixture("write_zip([\(expression)])")
+        let original = try Data(contentsOf: source)
+        try ArchiveListing.verify(source, prefersJapanese: prefersJapanese)
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: prefersJapanese
+        ) { _ in }
+        #expect(layout == .entries)
+        #expect(try Data(contentsOf: output.appending(path: expected)) == Data("legacy payload".utf8))
+        #expect(try ArchiveBrowserZIP.list(source, prefersJapanese: prefersJapanese).map(\.path) == [expected])
+        let selected = output.appending(path: "selected")
+        try ArchiveBrowserZIP.extract(
+            source, ordinal: 0, to: selected, password: nil, limit: 100, prefersJapanese: prefersJapanese)
+        #expect(try Data(contentsOf: selected) == Data("legacy payload".utf8))
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test(arguments: [false, true])
+    func invalidCP932TARNamesRemainRefused(_ prefersJapanese: Bool) throws {
+        let (source, output) = try fixture(
+            """
+            header = bytearray(tarfile.TarInfo('placeholder').tobuf(format=tarfile.USTAR_FORMAT))
+            header[:100] = b'bad\\x82.txt'.ljust(100, b'\\0')
+            header[148:156] = b' ' * 8
+            header[148:156] = ('%06o' % sum(header)).encode() + b'\\0 '
+            source.write_bytes(header + bytes(1024))
+            """, extensionName: "tar")
         #expect(throws: ArchiveError.unsupportedNameEncoding) {
-            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+            try ArchiveExtractor.extract(
+                source, into: output, rawName: "legacy", password: nil, prefersJapanese: prefersJapanese
+            ) { _ in }
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
-        #expect(throws: ArchiveError.unsupportedNameEncoding) { try ArchiveListing.verify(source) }
-        #expect(throws: ZIPBrowserError.unsupportedNameEncoding) { try ArchiveBrowserZIP.list(source) }
+        #expect(throws: ArchiveError.unsupportedNameEncoding) {
+            try ArchiveListing.verify(source, prefersJapanese: prefersJapanese)
+        }
         #expect(
             EngineError.wrapping(ArchiveError.unsupportedNameEncoding, path: source.path)
                 == .invalidInput(.archiveNameEncodingUnsupported))
     }
 
-    @Test func oneInvalidNameRefusesTheWholeZIP() throws {
-        let (source, output) = try fixture("write_zip(['資料.txt'.encode('cp932'), b'bad\\x82.txt'])")
-        #expect(throws: ArchiveError.unsupportedNameEncoding) {
-            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
-        #expect(throws: ZIPBrowserError.unsupportedNameEncoding) { try ArchiveBrowserZIP.list(source) }
-        #expect(throws: ZIPBrowserError.unsupportedNameEncoding) {
-            try ArchiveBrowserZIP.extract(
-                source, ordinal: 0, to: output.appending(path: "selected"), password: nil, limit: 100)
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
+    @Test func JapanesePreferenceIncludesSecondaryAndRegionalLanguages() {
+        #expect(ArchivePathname.prefersJapanese(in: ["en-US", "ja-JP"]))
+        #expect(ArchivePathname.prefersJapanese(in: ["fr", "ja-Latn"]))
+        #expect(!ArchivePathname.prefersJapanese(in: ["en-JP", "de", "jv"]))
+        #expect(!ArchivePathname.prefersJapanese(in: []))
     }
 
     @Test(arguments: ["../資料.txt", "/資料.txt", "資料/../outside.txt"])
     func decodedTraversalUsesTheExistingPathRefusal(_ path: String) throws {
         let (source, output) = try fixture("write_zip(['\(path)'.encode('cp932')])")
         #expect(throws: ArchiveError.unsafePath(path)) {
-            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil, prefersJapanese: true)
+            { _ in }
         }
-        #expect(throws: ZIPBrowserError.unsafeEntry) { try ArchiveBrowserZIP.list(source) }
+        #expect(throws: ZIPBrowserError.unsafeEntry) { try ArchiveBrowserZIP.list(source, prefersJapanese: true) }
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }
 
@@ -243,10 +328,13 @@ import Testing
         }
         let (source, output) = try fixture(body)
         #expect(throws: ArchiveError.unsafePath("ZIP filename contains NUL")) {
-            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil, prefersJapanese: true)
+            { _ in }
         }
-        #expect(throws: ZIPBrowserError.unsafeEntry) { try ArchiveBrowserZIP.list(source) }
-        #expect(throws: ArchiveError.unsafePath("ZIP filename contains NUL")) { try ArchiveListing.verify(source) }
+        #expect(throws: ZIPBrowserError.unsafeEntry) { try ArchiveBrowserZIP.list(source, prefersJapanese: true) }
+        #expect(throws: ArchiveError.unsafePath("ZIP filename contains NUL")) {
+            try ArchiveListing.verify(source, prefersJapanese: true)
+        }
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }
 
@@ -263,7 +351,9 @@ import Testing
                     header.linkname = '資料.txt'
                     archive.addfile(header)
             """, extensionName: "tar")
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(
             try FileManager.default.destinationOfSymbolicLink(atPath: output.appending(path: "別名").path) == "資料.txt")
@@ -285,7 +375,8 @@ import Testing
                 archive.addfile(header)
             """, extensionName: "tar")
         #expect(throws: ArchiveError.unsafePath("../資料.txt")) {
-            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil, prefersJapanese: true)
+            { _ in }
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }
@@ -299,7 +390,9 @@ import Testing
                 header.linkname = '../資料.txt'
                 archive.addfile(header)
             """, extensionName: "tar")
-        let layout = try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+        let layout = try ArchiveExtractor.extract(
+            source, into: output, rawName: "legacy", password: nil, prefersJapanese: true
+        ) { _ in }
         #expect(layout == .entries)
         #expect(
             try FileManager.default.destinationOfSymbolicLink(atPath: output.appending(path: "link").path)
@@ -317,7 +410,8 @@ import Testing
                 archive.addfile(header)
             """, extensionName: "tar")
         #expect(throws: ArchiveError.unsupportedNameEncoding) {
-            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil) { _ in }
+            try ArchiveExtractor.extract(source, into: output, rawName: "legacy", password: nil, prefersJapanese: true)
+            { _ in }
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: output.path).isEmpty)
     }

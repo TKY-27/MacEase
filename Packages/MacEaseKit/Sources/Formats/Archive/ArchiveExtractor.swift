@@ -80,6 +80,7 @@ public enum ArchiveExtractor {
         into directory: URL,
         rawName: String,
         password: String?,
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
         limits: ExtractionLimits = .standard,
         progress: (Double) -> Void
     ) throws -> ExtractedLayout {
@@ -103,6 +104,7 @@ public enum ArchiveExtractor {
             var logicalBytes: Int64 = 0
             var entry: OpaquePointer?
             var checkedZIPNames = false
+            var encoding: ArchivePathname.LegacyEncoding = prefersJapanese ? .cp932 : .utf8Only
             while true {
                 try Task.checkCancellation()
                 let status = archive_read_next_header(reader.archive, &entry)
@@ -111,17 +113,19 @@ public enum ArchiveExtractor {
                     throw failure(reader.archive, entry: nil, password: password)
                 }
                 if isZip(reader.archive), !checkedZIPNames {
-                    try ArchiveListing.verify(source)
+                    encoding = try ArchiveListing.verifiedEncoding(source, prefersJapanese: prefersJapanese)
                     checkedZIPNames = true
                 }
-                guard let name = try destinationName(of: entry, in: reader.archive, rawName: rawName) else {
+                guard
+                    let name = try destinationName(of: entry, in: reader.archive, rawName: rawName, encoding: encoding)
+                else {
                     continue
                 }
                 archive_entry_set_pathname_utf8(entry, directory.path + "/" + name)
-                if let link = try ArchivePathname.hardlink(entry) {
+                if let link = try ArchivePathname.hardlink(entry, encoding: encoding) {
                     archive_entry_set_hardlink_utf8(entry, directory.path + "/" + (try checked(link)))
                 }
-                if let link = try ArchivePathname.symlink(entry) {
+                if let link = try ArchivePathname.symlink(entry, encoding: encoding) {
                     archive_entry_set_symlink_utf8(entry, link)
                 }
                 if archive_entry_is_encrypted(entry) != 0 { try requireDecryption(reader.archive, password: password) }
@@ -149,14 +153,15 @@ public enum ArchiveExtractor {
     private static func destinationName(
         of entry: OpaquePointer,
         in archive: OpaquePointer,
-        rawName: String
+        rawName: String,
+        encoding: ArchivePathname.LegacyEncoding
     ) throws -> String? {
         if archive_format(archive) == ARCHIVE_FORMAT_RAW {
             // Raw without a filter is garbage.
             guard archive_filter_count(archive) > 1 else { throw FormatError.unsupportedArchive }
             return rawName
         }
-        let pathname = try ArchivePathname.decode(entry)
+        let pathname = try ArchivePathname.decode(entry, encoding: encoding)
         let name = try checked(pathname)
         guard !name.isEmpty, name.split(separator: "/").first != Substring(macMetadataFolder) else { return nil }
         return name

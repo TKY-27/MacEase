@@ -4,7 +4,13 @@ import Foundation
 public enum ArchiveListing {
     private static let blockSize = 64 * 1024
 
-    public static func verify(_ url: URL) throws {
+    public static func verify(
+        _ url: URL, prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages)
+    ) throws {
+        _ = try verifiedEncoding(url, prefersJapanese: prefersJapanese)
+    }
+
+    static func verifiedEncoding(_ url: URL, prefersJapanese: Bool) throws -> ArchivePathname.LegacyEncoding {
         try inUTF8Locale {
             guard let archive = archive_read_new() else { throw FormatError.io("libarchive allocation") }
             defer { archive_read_free(archive) }
@@ -16,6 +22,7 @@ public enum ArchiveListing {
             var entry: OpaquePointer?
             var count = 0
             var checkedZIPNames = false
+            var encoding: ArchivePathname.LegacyEncoding = prefersJapanese ? .cp932 : .utf8Only
             while true {
                 let status = archive_read_next_header(archive, &entry)
                 if status == ARCHIVE_EOF { break }
@@ -26,22 +33,29 @@ public enum ArchiveListing {
                     guard archive_filter_count(archive) == 1 else {
                         throw ArchiveError.wrappedZIPContainer
                     }
-                    try checkZIPNames(url)
+                    encoding = try checkZIPNames(url, prefersJapanese: prefersJapanese)
                     checkedZIPNames = true
                 }
-                _ = try ArchivePathname.decode(entry)
+                _ = try ArchivePathname.decode(entry, encoding: encoding)
                 count += 1
             }
             guard count > 0 else { throw FormatError.corrupt("archive has no entries") }
+            return encoding
         }
     }
 
-    private static func checkZIPNames(_ source: URL) throws {
-        let source = try ArchiveReadSource([source])
+    private static func checkZIPNames(_ location: URL, prefersJapanese: Bool) throws -> ArchivePathname.LegacyEncoding {
+        let source = try ArchiveReadSource([location])
         do {
+            let encoding = try ArchiveNameInspection.zipEncoding(
+                source, location: location, prefersJapanese: prefersJapanese
+            ) {
+                try Task.checkCancellation()
+            }
             _ = try ZIPDirectoryBounds.validate(source: source, bounded: false) {
                 try Task.checkCancellation()
             }
+            return encoding
         } catch ZIPBrowserError.unsafeEntry {
             throw ArchiveError.unsafePath("ZIP filename contains NUL")
         } catch is ZIPBrowserError {

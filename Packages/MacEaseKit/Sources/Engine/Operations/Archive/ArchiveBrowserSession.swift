@@ -66,12 +66,17 @@ public final class ArchiveBrowserSession: Sendable {
 
     private let source: URL
     private let staging: StagingArea
+    private let prefersJapanese: Bool
     private let state = Mutex(State())
     private let logger = Logger(category: "archive-browser")
 
-    public init(source: URL, staging: StagingArea) {
+    public init(
+        source: URL, staging: StagingArea,
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages)
+    ) {
         self.source = source
         self.staging = staging
+        self.prefersJapanese = prefersJapanese
     }
 
     public func entries() async throws -> [ArchiveEntry] {
@@ -87,7 +92,8 @@ public final class ArchiveBrowserSession: Sendable {
             return try coordinatedRead {
                 try checkRegularSource()
                 let stamp = try FileStamp(of: source, includingIdentity: true)
-                let listed = try ArchiveBrowserZIP.list(source, check: checkOpen).map(ArchiveEntry.init)
+                let listed = try ArchiveBrowserZIP.list(source, prefersJapanese: prefersJapanese, check: checkOpen).map(
+                    ArchiveEntry.init)
                 guard stamp.matches(source.path) else { throw ArchiveBrowserError.sourceChanged }
                 try state.withLock { state in
                     guard !state.closed else { throw ArchiveBrowserError.closed }
@@ -127,7 +133,7 @@ public final class ArchiveBrowserSession: Sendable {
                 do {
                     try ArchiveBrowserZIP.extract(
                         source, ordinal: entryID, to: output, password: password,
-                        limit: ArchiveBrowserZIP.previewLimit, check: checkOpen)
+                        limit: ArchiveBrowserZIP.previewLimit, prefersJapanese: prefersJapanese, check: checkOpen)
                     try ArchivePlanner.propagateQuarantine(from: source, to: output)
                     try checkStamp()
                     return try state.withLock { state in
@@ -211,7 +217,8 @@ public final class ArchiveBrowserSession: Sendable {
                     if !destinations.isEmpty {
                         try ArchiveBrowserZIP.extract(
                             source, selections: destinations, password: password,
-                            limit: outputLimit, preserveAttributes: true, check: checkOpen)
+                            limit: outputLimit, preserveAttributes: true, prefersJapanese: prefersJapanese,
+                            check: checkOpen)
                     }
                     for entry in outputs where entry.isDirectory && !directFile {
                         try FileManager.default.createDirectory(

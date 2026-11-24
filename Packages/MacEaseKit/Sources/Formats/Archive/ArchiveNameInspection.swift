@@ -13,11 +13,22 @@ public struct ArchiveNameInspection: Sendable {
     private var nameBytes = 0
     private var containsZIPLinks = false
     private var uninspectableZIPLinks = false
-    public private(set) var needsLegacyDecoder = false
+    public let prefersJapanese: Bool
+    private let bounded: Bool
+    private var hasLegacyNames = false
+    private var allLegacyNamesAreCP932 = true
+    public var needsLegacyDecoder: Bool { hasLegacyNames && prefersJapanese && allLegacyNamesAreCP932 }
+    private var zipEncoding: ArchivePathname.LegacyEncoding {
+        prefersJapanese && allLegacyNamesAreCP932 ? .cp932 : .cp437
+    }
     public private(set) var unsupportedNativeFeature: ArchiveExtractionFeature?
     public private(set) var isSplit = false
 
-    public static func inspect(_ location: URL, password: String? = nil, check: () throws -> Void = {}) throws -> Self {
+    public static func inspect(
+        _ location: URL, password: String? = nil,
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
+        check: () throws -> Void = {}
+    ) throws -> Self {
         let deadline = ContinuousClock.now + maximumDuration
         return try withoutActuallyEscaping(check) { check in
             let check = {
@@ -28,7 +39,7 @@ public struct ArchiveNameInspection: Sendable {
             let urls = try volumes(location, check: check)
             let source = try ArchiveReadSource(urls, check: check)
             let prefix = try source.read(at: 0, count: min(512, Int(source.size)), check: check)
-            var result = Self(source: location.standardizedFileURL)
+            var result = Self(source: location.standardizedFileURL, prefersJapanese: prefersJapanese, bounded: true)
             result.isSplit = urls.count > 1 || Int(location.pathExtension) != nil
             // 7z validates its UTF-16 names strictly.
             if prefix.starts(with: [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C]) { return result }
@@ -63,6 +74,20 @@ public struct ArchiveNameInspection: Sendable {
             if result.needsLegacyDecoder, result.isSplit { result.unsupportedNativeFeature = .splitVolumes }
             return result
         }
+    }
+
+    static func zipEncoding(
+        _ source: ArchiveReadSource, location: URL, prefersJapanese: Bool, check: () throws -> Void
+    ) throws -> ArchivePathname.LegacyEncoding {
+        guard prefersJapanese else { return .cp437 }
+        var result = Self(source: location, prefersJapanese: prefersJapanese, bounded: false)
+        let directory = try ZIPDirectoryBounds.validate(
+            source: source, bounded: false,
+            inspect: { header, fields in try result.inspectZIP(header, fields: fields) }, check: check)
+        if result.containsZIPLinks, !result.uninspectableZIPLinks {
+            try result.inspectZIPLinks(source, endingAt: directory.endOffset + 22, password: nil, check: check)
+        }
+        return result.zipEncoding
     }
 
     private static func volumes(_ location: URL, check: () throws -> Void) throws -> [URL] {
@@ -114,6 +139,7 @@ public struct ArchiveNameInspection: Sendable {
             }
             offset = end
         }
+        let pathname = try inspectName(selected, zip: true)
         if mode & UInt32(S_IFMT) == UInt32(S_IFLNK) {
             guard UInt32(littleEndian: header, at: 24) <= Self.maximumLinkBytes else {
                 throw ArchiveError.nameInspectionLimit
@@ -128,7 +154,6 @@ public struct ArchiveNameInspection: Sendable {
                 containsZIPLinks = true
             }
         }
-        let pathname = try inspectName(selected)
         if pathname.contains("\\") { unsupportedNativeFeature = .zipBackslashSeparators }
         if !Self.supportedZIPMethods.contains(method) { unsupportedNativeFeature = .zipCompression(method) }
         if UInt16(littleEndian: header, at: 8) & 0x40 != 0 { unsupportedNativeFeature = .zipStrongEncryption }
@@ -166,21 +191,38 @@ public struct ArchiveNameInspection: Sendable {
                     let bytes = UnsafeBufferPointer(start: pointer, count: strlen(pointer)).map {
                         UInt8(bitPattern: $0)
                     }
-                    try inspectName(bytes)
+                    try inspectName(bytes, zip: true)
                 }
             }
         }
     }
 
     @discardableResult
-    private mutating func inspectName(_ bytes: [UInt8]) throws -> String {
+    private mutating func inspectName(_ bytes: [UInt8], zip: Bool) throws -> String {
         guard !bytes.contains(0) else { throw ArchiveError.unsafePath("archive filename contains NUL") }
-        let pathname = try ArchivePathname.decode(bytes)
-        if String(bytes: bytes, encoding: .utf8) == nil { needsLegacyDecoder = true }
-        guard pathname.split(separator: "/").count <= Self.maximumPathDepth else {
+        let pathname: String
+        if let utf8 = String(bytes: bytes, encoding: .utf8) {
+            pathname = utf8
+        } else {
+            hasLegacyNames = true
+            if prefersJapanese {
+                do {
+                    pathname = try ArchivePathname.decode(bytes, encoding: .cp932)
+                } catch ArchiveError.unsupportedNameEncoding {
+                    guard zip else { throw ArchiveError.unsupportedNameEncoding }
+                    allLegacyNamesAreCP932 = false
+                    pathname = try ArchivePathname.decode(bytes, encoding: .cp437)
+                }
+            } else {
+                guard zip else { throw ArchiveError.unsupportedNameEncoding }
+                allLegacyNamesAreCP932 = false
+                pathname = try ArchivePathname.decode(bytes, encoding: .cp437)
+            }
+        }
+        guard !bounded || pathname.split(separator: "/").count <= Self.maximumPathDepth else {
             throw ArchiveError.nameInspectionLimit
         }
-        guard pathname.utf8.count <= ZIPDirectoryBounds.maximumMetadataBytes - nameBytes else {
+        guard !bounded || pathname.utf8.count <= ZIPDirectoryBounds.maximumMetadataBytes - nameBytes else {
             throw ArchiveError.nameInspectionLimit
         }
         nameBytes += pathname.utf8.count
@@ -229,7 +271,7 @@ public struct ArchiveNameInspection: Sendable {
                     let bytes = UnsafeBufferPointer(start: pointer, count: strlen(pointer)).map {
                         UInt8(bitPattern: $0)
                     }
-                    try inspectName(bytes)
+                    try inspectName(bytes, zip: false)
                 }
                 if compressed {
                     guard archive_entry_size_is_set(entry) != 0, archive_entry_size(entry) >= 0,

@@ -2,36 +2,57 @@ import CArchive
 import Foundation
 
 public enum ArchivePathname {
+    public enum LegacyEncoding: Sendable {
+        case utf8Only, cp932, cp437
+    }
+
+    public static func prefersJapanese(in languages: [String]) -> Bool {
+        languages.contains { Locale(identifier: $0).language.languageCode?.identifier == "ja" }
+    }
+
+    private static let cp437 = String.Encoding(
+        rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosLatinUS.rawValue)))
+
     private static let cp932 = String.Encoding(
         rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.dosJapanese.rawValue)))
 
-    public static func decode(_ entry: OpaquePointer) throws -> String {
-        guard let pathname = try decode(utf8: archive_entry_pathname_utf8(entry), raw: archive_entry_pathname(entry))
+    public static func decode(_ entry: OpaquePointer, encoding: LegacyEncoding) throws -> String {
+        guard
+            let pathname = try decode(
+                utf8: archive_entry_pathname_utf8(entry), raw: archive_entry_pathname(entry), encoding: encoding)
         else {
             throw ArchiveError.unsupportedNameEncoding
         }
         return pathname
     }
 
-    static func symlink(_ entry: OpaquePointer) throws -> String? {
-        try decode(utf8: archive_entry_symlink_utf8(entry), raw: archive_entry_symlink(entry))
+    static func symlink(_ entry: OpaquePointer, encoding: LegacyEncoding) throws -> String? {
+        try decode(utf8: archive_entry_symlink_utf8(entry), raw: archive_entry_symlink(entry), encoding: encoding)
     }
 
-    static func hardlink(_ entry: OpaquePointer) throws -> String? {
-        try decode(utf8: archive_entry_hardlink_utf8(entry), raw: archive_entry_hardlink(entry))
+    static func hardlink(_ entry: OpaquePointer, encoding: LegacyEncoding) throws -> String? {
+        try decode(utf8: archive_entry_hardlink_utf8(entry), raw: archive_entry_hardlink(entry), encoding: encoding)
     }
 
-    private static func decode(utf8: UnsafePointer<CChar>?, raw: UnsafePointer<CChar>?) throws -> String? {
+    private static func decode(utf8: UnsafePointer<CChar>?, raw: UnsafePointer<CChar>?, encoding: LegacyEncoding) throws
+        -> String?
+    {
         if let utf8, let pathname = String(validatingCString: utf8) { return pathname }
         guard let raw else { return nil }
         let bytes = Array(
             UnsafeBufferPointer(start: UnsafeRawPointer(raw).assumingMemoryBound(to: UInt8.self), count: strlen(raw)))
-        return try decode(bytes)
+        return try decode(bytes, encoding: encoding)
     }
 
-    static func decode(_ bytes: [UInt8]) throws -> String {
+    static func decode(_ bytes: [UInt8], encoding: LegacyEncoding) throws -> String {
         if let pathname = String(bytes: bytes, encoding: .utf8) { return pathname }
-        guard validCP932(bytes), let pathname = String(bytes: bytes, encoding: cp932),
+        if encoding == .cp437 {
+            guard let pathname = String(bytes: bytes, encoding: cp437) else {
+                throw ArchiveError.unsupportedNameEncoding
+            }
+            return pathname
+        }
+        guard encoding == .cp932, validCP932(bytes), let pathname = String(bytes: bytes, encoding: cp932),
             pathname.unicodeScalars.allSatisfy({ scalar in
                 scalar.properties.generalCategory != .privateUse
                     && (scalar.properties.generalCategory != .control || [9, 10, 13].contains(scalar.value))

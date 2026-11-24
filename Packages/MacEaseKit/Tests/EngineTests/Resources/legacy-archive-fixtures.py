@@ -94,7 +94,9 @@ def fixture(path, format_name, encoding, encryption, variant, size):
     if format_name in ['tar', 'tar.gz']:
         write_tar(path, names, encoding='cp932' if encoding == 'cp932' else 'utf-8', compressed=format_name == 'tar.gz')
         return
-    if variant == 'ambiguous':
+    if variant == 'western-valid':
+        encoded = [name.encode('cp437') for name in ['Müller.txt', 'Köln.txt', 'naïve.txt']]
+    elif variant == 'ambiguous':
         encoded = ['¢.txt'.encode('utf-8')]
     elif encoding == 'cp437':
         encoded = [bytes.fromhex('63 61 66 82 2e 74 78 74')]

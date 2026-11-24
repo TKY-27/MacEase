@@ -117,6 +117,8 @@ final class ArchiveReadSource {
 
     func open(_ archive: OpaquePointer, endingAt end: Int64? = nil) throws {
         logicalSize = end ?? size
+        offset = 0
+        failure = nil
         archive_read_set_callback_data(archive, Unmanaged.passUnretained(self).toOpaque())
         archive_read_set_read_callback(archive) { _, context, block in
             guard let context, let block else { return -1 }

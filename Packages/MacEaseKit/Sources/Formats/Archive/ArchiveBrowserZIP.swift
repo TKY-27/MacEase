@@ -37,9 +37,12 @@ public enum ArchiveBrowserZIP {
     private static let maximumPathDepth = 256
     public static let previewLimit: Int64 = 256 * 1024 * 1024
 
-    public static func list(_ source: URL, check: () throws -> Void = {}) throws -> [ZIPBrowserEntry] {
+    public static func list(
+        _ source: URL, prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
+        check: () throws -> Void = {}
+    ) throws -> [ZIPBrowserEntry] {
         try ArchiveListing.inUTF8Locale {
-            let reader = try Reader(source: source, check: check)
+            let reader = try Reader(source: source, prefersJapanese: prefersJapanese, check: check)
             var entries: [ZIPBrowserEntry] = []
             var nameBytes = 0
             var pointer: OpaquePointer?
@@ -49,7 +52,7 @@ public enum ArchiveBrowserZIP {
                 if status == ARCHIVE_EOF { break }
                 guard status == ARCHIVE_OK, let pointer else { throw ZIPBrowserError.invalidZIP }
                 guard entries.count < ZIPDirectoryBounds.maximumEntries else { throw ZIPBrowserError.tooManyEntries }
-                let path = try checkedPath(pointer)
+                let path = try checkedPath(pointer, encoding: reader.encoding)
                 let bytes = path.utf8.count
                 guard bytes <= ZIPDirectoryBounds.maximumMetadataBytes - nameBytes else {
                     throw ZIPBrowserError.namesTooLarge
@@ -78,21 +81,25 @@ public enum ArchiveBrowserZIP {
 
     public static func extract(
         _ source: URL, ordinal: Int, to destination: URL, password: String?, limit: Int64,
-        preserveAttributes: Bool = false, check: () throws -> Void = {}
+        preserveAttributes: Bool = false,
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
+        check: () throws -> Void = {}
     ) throws {
         try extract(
             source, selections: [ordinal: destination], password: password, limit: limit,
-            preserveAttributes: preserveAttributes, check: check)
+            preserveAttributes: preserveAttributes, prefersJapanese: prefersJapanese, check: check)
     }
 
     public static func extract(
         _ source: URL, selections: [Int: URL], password: String?, limit: Int64,
-        preserveAttributes: Bool = false, check: () throws -> Void = {}
+        preserveAttributes: Bool = false,
+        prefersJapanese: Bool = ArchivePathname.prefersJapanese(in: Locale.preferredLanguages),
+        check: () throws -> Void = {}
     ) throws {
         guard limit >= 0 else { throw ZIPBrowserError.selectionTooLarge }
-        _ = try list(source, check: check)
+        _ = try list(source, prefersJapanese: prefersJapanese, check: check)
         try ArchiveListing.inUTF8Locale {
-            let reader = try Reader(source: source, password: password, check: check)
+            let reader = try Reader(source: source, password: password, prefersJapanese: prefersJapanese, check: check)
             var pointer: OpaquePointer?
             var index = 0
             var found = 0
@@ -107,7 +114,7 @@ public enum ArchiveBrowserZIP {
                         archive_entry_symlink(pointer) == nil,
                         archive_entry_hardlink(pointer) == nil
                     else { throw ZIPBrowserError.unsupportedEntry }
-                    _ = try checkedPath(pointer)
+                    _ = try checkedPath(pointer, encoding: reader.encoding)
                     let declared = archive_entry_size_is_set(pointer) != 0 ? archive_entry_size(pointer) : 0
                     guard declared >= 0, declared <= limit - total else { throw ZIPBrowserError.selectionTooLarge }
                     guard password != nil || archive_entry_is_encrypted(pointer) == 0 else {
@@ -178,10 +185,10 @@ public enum ArchiveBrowserZIP {
         return extent
     }
 
-    private static func checkedPath(_ entry: OpaquePointer) throws -> String {
+    private static func checkedPath(_ entry: OpaquePointer, encoding: ArchivePathname.LegacyEncoding) throws -> String {
         let pathname: String
         do {
-            pathname = try ArchivePathname.decode(entry)
+            pathname = try ArchivePathname.decode(entry, encoding: encoding)
         } catch ArchiveError.unsupportedNameEncoding {
             throw ZIPBrowserError.unsupportedNameEncoding
         }
@@ -201,15 +208,18 @@ public enum ArchiveBrowserZIP {
     private final class Reader {
         let archive: OpaquePointer
         let expectedEntries: Int
+        let encoding: ArchivePathname.LegacyEncoding
         private let source: ArchiveReadSource
 
-        init(source location: URL, password: String? = nil, check: () throws -> Void) throws {
+        init(source location: URL, password: String? = nil, prefersJapanese: Bool, check: () throws -> Void) throws {
             let source: ArchiveReadSource
             do { source = try ArchiveReadSource([location]) } catch is FormatError { throw ZIPBrowserError.invalidZIP }
             let directory: (entries: Int, endOffset: Int64)
             do {
                 directory = try ZIPDirectoryBounds.validate(source: source, check: check)
             } catch is FormatError { throw ZIPBrowserError.invalidZIP }
+            encoding = try ArchiveNameInspection.zipEncoding(
+                source, location: location, prefersJapanese: prefersJapanese, check: check)
             guard let archive = archive_read_new() else { throw ZIPBrowserError.invalidZIP }
             do {
                 try ArchiveReadSupport.enableFilters(archive, compressed: false)
