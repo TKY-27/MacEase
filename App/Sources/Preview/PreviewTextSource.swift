@@ -1,4 +1,5 @@
 import CoreFoundation
+import Darwin
 import Engine
 import Foundation
 
@@ -52,37 +53,71 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
 
 }
 
+// Keeps one open folder descriptor across rendering.
+final class PreviewDirectoryDescriptor: @unchecked Sendable {
+    let rawValue: Int32
+
+    init(rawValue: Int32) {
+        self.rawValue = rawValue
+    }
+
+    deinit {
+        close(rawValue)
+    }
+}
+
 struct PreviewTextSource: Sendable {
     static let maximumBytes = 4 * 1024 * 1024
     static let excerptBytes = 256 * 1024
     static let highlightBytes = 512 * 1024
+    private static let readChunkBytes = 64 * 1024
     let bytes: Data
     let truncated: Bool
+    let parentDirectory: PreviewDirectoryDescriptor?
+
+    init(bytes: Data, truncated: Bool, parentDirectory: PreviewDirectoryDescriptor? = nil) {
+        self.bytes = bytes
+        self.truncated = truncated
+        self.parentDirectory = parentDirectory
+    }
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
 
-    static func read(_ url: URL) throws -> Self {
-        let file = try FileHandle(forReadingFrom: url)
-        do {
-            let size = try file.seekToEnd()
-            try file.seek(toOffset: 0)
-            let truncated = size > maximumBytes
-            let limit = truncated ? excerptBytes : maximumBytes
-            var bytes = Data()
-            while bytes.count < limit {
-                try Task.checkCancellation()
-                guard let chunk = try file.read(upToCount: min(64 * 1024, limit - bytes.count)), !chunk.isEmpty else {
-                    break
-                }
-                bytes.append(chunk)
-            }
-            try Task.checkCancellation()
-            try file.close()
-            return Self(bytes: bytes, truncated: truncated)
-        } catch {
-            try file.close()
-            throw error
+    static func read(_ url: URL, keepParentDirectory: Bool = false) throws -> Self {
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        let folderPath = resolved.deletingLastPathComponent().path
+        let folderFD = open(folderPath, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard folderFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+        let retainedFolder = PreviewDirectoryDescriptor(rawValue: folderFD)
+        // Nonblocking: a FIFO must not hang.
+        let fileFD = openat(folderFD, resolved.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fileFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(fileFD) }
+        var status = stat()
+        guard fstat(fileFD, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        let truncated = Int64(status.st_size) > Int64(maximumBytes)
+        let limit = truncated ? excerptBytes : maximumBytes
+        var bytes = Data()
+        var chunk = [UInt8](repeating: 0, count: readChunkBytes)
+        while bytes.count < limit {
+            try Task.checkCancellation()
+            let wanted = min(readChunkBytes, limit - bytes.count)
+            let received = chunk.withUnsafeMutableBytes { Darwin.read(fileFD, $0.baseAddress, wanted) }
+            if received == 0 { break }
+            if received < 0 {
+                if errno == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            bytes.append(contentsOf: chunk[..<received])
+        }
+        try Task.checkCancellation()
+        return Self(bytes: bytes, truncated: truncated, parentDirectory: keepParentDirectory ? retainedFolder : nil)
     }
 
     func decoded(as encoding: PreviewEncoding) throws -> String {

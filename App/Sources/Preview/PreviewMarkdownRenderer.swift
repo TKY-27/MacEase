@@ -7,18 +7,22 @@ enum PreviewMarkdownRenderer {
     static let maximumImageBytes = 8 * 1024 * 1024
     static let maximumTotalImageBytes = 32 * 1024 * 1024
 
-    static func html(_ markdown: String, markdownURL: URL, restricted: Bool) throws -> String {
+    static func html(_ markdown: String, markdownURL: URL, directory: Int32? = nil, restricted: Bool) throws -> String {
         let rendered = try MarkdownConversion.html(markdown, title: markdownURL.lastPathComponent)
         guard !restricted else { return rendered }
+        if let directory {
+            var embedder = PreviewImageEmbedder(directory: directory)
+            return try embedLocalImages(in: rendered, embedder: &embedder)
+        }
         let folder = markdownURL.deletingLastPathComponent().resolvingSymlinksInPath()
-        let directory = open(folder.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-        guard directory >= 0 else {
+        let opened = open(folder.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard opened >= 0 else {
             Logger(category: "finder-preview").error(
                 "Markdown folder could not be opened (errno \(errno, privacy: .public)); images stay linked")
             return rendered
         }
-        defer { close(directory) }
-        var embedder = PreviewImageEmbedder(directory: directory)
+        defer { close(opened) }
+        var embedder = PreviewImageEmbedder(directory: opened)
         return try embedLocalImages(in: rendered, embedder: &embedder)
     }
 

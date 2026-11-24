@@ -53,8 +53,10 @@ struct PreviewTextRendering: Sendable {
                 text = try JSONFormatter.formatted(decoded)
                 language = .json
             } else if html && kind == .markdown {
-                text = try PreviewMarkdownRenderer.html(decoded, markdownURL: url, restricted: restricted)
-                    .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
+                text = try PreviewMarkdownRenderer.html(
+                    decoded, markdownURL: url, directory: source.parentDirectory?.rawValue, restricted: restricted
+                )
+                .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
             } else if html {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
                 text = decoded
@@ -254,7 +256,10 @@ struct PreviewTextViewer: View {
 
     private func read() async {
         do {
-            let loaded = try await offMain { [url] in try PreviewTextSource.read(url) }
+            let keepParent = kind == .markdown
+            let loaded = try await offMain { [url] in
+                try PreviewTextSource.read(url, keepParentDirectory: keepParent)
+            }
             try Task.checkCancellation()
             if loaded.truncated && !loaded.binaryPropertyList { rich = false }
             source = loaded

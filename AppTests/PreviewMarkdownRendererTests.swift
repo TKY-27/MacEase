@@ -247,4 +247,33 @@ final class PreviewMarkdownRendererTests: XCTestCase {
         XCTAssertNotEqual(title as? String, "ran")
         XCTAssertEqual(listener.connectionCount, 0)
     }
+
+    func testMarkdownKeepsOriginalDirectoryDescriptorAfterPathSwap() throws {
+        let root = try PreviewFixtures.directory(self)
+        let original = root.appendingPathComponent("docs")
+        let outside = root.appendingPathComponent("outside")
+        let moved = root.appendingPathComponent("moved")
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: false)
+
+        let originalImage = try PreviewFixtures.png(width: 8, height: 6)
+        let outsideImage = try PreviewFixtures.png(width: 12, height: 4)
+        XCTAssertNotEqual(originalImage, outsideImage)
+        try originalImage.write(to: original.appendingPathComponent("pic.png"))
+        try outsideImage.write(to: outside.appendingPathComponent("pic.png"))
+        let markdownURL = original.appendingPathComponent("readme.md")
+        try Data("![pic](pic.png)\n".utf8).write(to: markdownURL)
+
+        let source = try PreviewTextSource.read(markdownURL, keepParentDirectory: true)
+        XCTAssertNotNil(source.parentDirectory)
+
+        // Swap folder path with symlink after reading.
+        try FileManager.default.moveItem(at: original, to: moved)
+        try FileManager.default.createSymbolicLink(at: original, withDestinationURL: outside)
+
+        let rendering = try PreviewTextRendering.make(
+            source: source, encoding: .automatic, rich: true, kind: .markdown, url: markdownURL, restricted: false)
+        XCTAssertTrue(rendering.text.contains("data:image/png;base64,\(originalImage.base64EncodedString())"))
+        XCTAssertFalse(rendering.text.contains("data:image/png;base64,\(outsideImage.base64EncodedString())"))
+    }
 }
