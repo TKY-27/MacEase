@@ -42,6 +42,7 @@ final class SettingsStore {
         didSet {
             guard settings != oldValue else { return }
             save()
+            if settings.extraRotationEnabled != oldValue.extraRotationEnabled { hideEmptiedGroups() }
             onChange?()
         }
     }
@@ -51,6 +52,7 @@ final class SettingsStore {
         didSet {
             guard hiddenEntries != oldValue else { return }
             defaults.set(hiddenEntries.sorted(), forKey: Key.hiddenEntries)
+            hideEmptiedGroups()
             onChange?()
         }
     }
@@ -150,6 +152,7 @@ final class SettingsStore {
         finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
+        hideEmptiedGroups()
     }
 
     func menuScope(_ scope: MenuScope) -> ScopeArrangement {
@@ -162,12 +165,32 @@ final class SettingsStore {
         var arranged = previous
         change(&arranged)
         let shown = previous[.hidden].filter { arranged.section(of: $0) != .hidden }
-        let emptied = shown.filter { group in
-            let keys = visibleLeafKeys(of: group)
-            return !keys.isEmpty && keys.allSatisfy(hiddenEntries.contains)
-        }
-        hiddenEntries.subtract(emptied.flatMap(\.entryKeys).filter { !Self.newInstallHiddenEntries.contains($0) })
+        restoreLeaves(of: shown.filter(isEmptied))
         menuArrangement.set(arranged)
+    }
+
+    /// Emptied shown groups fold into Hidden.
+    private func hideEmptiedGroups() {
+        var emptied: [MenuGroupID] = []
+        for scope in MenuScope.allCases {
+            var arranged = menuScope(scope)
+            let groups = arranged.groups.filter { arranged.section(of: $0) != .hidden && isEmptied($0) }
+            guard !groups.isEmpty else { continue }
+            arranged.hide(groups)
+            menuArrangement.set(arranged)
+            emptied += groups
+        }
+        restoreLeaves(of: emptied)
+    }
+
+    private func isEmptied(_ group: MenuGroupID) -> Bool {
+        group.isEmptied(by: hiddenEntries, extraAngleEnabled: settings.extraRotationEnabled)
+    }
+
+    private func restoreLeaves(of groups: [MenuGroupID]) {
+        let keys = groups.flatMap(\.entryKeys).filter { !Self.newInstallHiddenEntries.contains($0) }
+        guard !keys.isEmpty else { return }
+        hiddenEntries.subtract(keys)
     }
 
     /// Resets order and leaves, not menu values.
@@ -181,11 +204,6 @@ final class SettingsStore {
         let keys = MenuGroupCatalog.current.groups(in: scope).flatMap(\.entryKeys)
         return !menuArrangement.isCustomized(scope)
             && keys.allSatisfy { hiddenEntries.contains($0) == Self.newInstallHiddenEntries.contains($0) }
-    }
-
-    /// Extra angle counts only while enabled.
-    private func visibleLeafKeys(of group: MenuGroupID) -> [String] {
-        group.entryKeys.filter { settings.extraRotationEnabled || !$0.hasSuffix("/\(OperationID.extraAnglePreset)") }
     }
 
     /// History and edited presets survive.

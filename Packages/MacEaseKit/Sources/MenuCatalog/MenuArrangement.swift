@@ -284,9 +284,8 @@ extension MenuArrangement {
                 migrated = ScopeArrangement(
                     scope: scope, groups: [.menu: menu, .more: groups.filter { !menu.contains($0) }])
             }
-            let folded = migrated.groups.filter { group in
-                let keys = group.entryKeys.filter { extraAngleEnabled || !$0.hasSuffix(extraAngleKeySuffix) }
-                return !keys.isEmpty && keys.allSatisfy(hiddenEntries.contains)
+            let folded = migrated.groups.filter {
+                $0.isEmptied(by: hiddenEntries, extraAngleEnabled: extraAngleEnabled)
             }
             migrated.hide(folded)
             remainingHidden.subtract(folded.flatMap(\.entryKeys).filter { !newInstallHidden.contains($0) })
@@ -294,6 +293,4 @@ extension MenuArrangement {
         }
         return (arrangement, remainingHidden)
     }
-
-    private static let extraAngleKeySuffix = "/\(OperationID.extraAnglePreset)"
 }

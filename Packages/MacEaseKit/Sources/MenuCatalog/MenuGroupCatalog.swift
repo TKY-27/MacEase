@@ -72,6 +72,14 @@ extension MenuGroupID {
     public var entryKeys: [String] {
         Self.keysByGroup[rawValue] ?? []
     }
+
+    /// True when no leaf would reach Finder.
+    public func isEmptied(by hiddenEntries: Set<String>, extraAngleEnabled: Bool) -> Bool {
+        let keys = entryKeys.filter { extraAngleEnabled || !$0.hasSuffix(Self.extraAngleKeySuffix) }
+        return !keys.isEmpty && keys.allSatisfy(hiddenEntries.contains)
+    }
+
+    private static let extraAngleKeySuffix = "/\(OperationID.extraAnglePreset)"
 }
 
 extension OperationID {
