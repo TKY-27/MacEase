@@ -43,6 +43,8 @@ public enum ArchiveBrowserError: LocalizedError, Equatable, Sendable {
             case .namesTooLarge: String(localized: "ZIP entry metadata exceeds the 32 MiB limit.")
             case .pathTooDeep: String(localized: "ZIP paths cannot exceed 256 components.")
             case .unsafeEntry, .unsupportedEntry: String(localized: "The ZIP archive contains an unsafe entry.")
+            case .unsupportedNameEncoding:
+                String(localized: "This archive uses a text encoding for file names that MacEase can’t read.")
             case .selectionTooLarge: String(localized: "Preview files must be 256 MiB or smaller.")
             case .passwordRequired: String(localized: "A password is required for this entry.")
             case .wrongPassword: String(localized: "The archive password is incorrect.")
@@ -361,6 +363,7 @@ public final class ArchiveBrowserSession: Sendable {
             switch zip {
             case .passwordRequired: return .invalidInput(.passwordRequired)
             case .wrongPassword: return .invalidInput(.wrongPassword)
+            case .unsupportedNameEncoding: return .invalidInput(.archiveNameEncodingUnsupported)
             case .selectionTooLarge:
                 let limit = ExtractionLimits.standard.limit(forArchiveBytes: state.withLock { $0.stamp?.size ?? 0 })
                 return .invalidInput(.archiveExpandsTooMuch(limitBytes: limit))

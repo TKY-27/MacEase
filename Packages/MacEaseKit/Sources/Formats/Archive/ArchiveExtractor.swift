@@ -8,6 +8,7 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case unsafePath(String)
     case expandsTooMuch(limitBytes: Int64)
     case duplicateRootName(String)
+    case unsupportedNameEncoding
 }
 
 /// Caps extracted bytes against zip bombs.
@@ -89,6 +90,7 @@ public enum ArchiveExtractor {
             }
             var logicalBytes: Int64 = 0
             var entry: OpaquePointer?
+            var checkedZIPNames = false
             while true {
                 try Task.checkCancellation()
                 let status = archive_read_next_header(reader.archive, &entry)
@@ -96,12 +98,19 @@ public enum ArchiveExtractor {
                 guard status >= ARCHIVE_WARN, let entry else {
                     throw failure(reader.archive, entry: nil, password: password)
                 }
+                if isZip(reader.archive), !checkedZIPNames {
+                    try ArchiveListing.verify(source)
+                    checkedZIPNames = true
+                }
                 guard let name = try destinationName(of: entry, in: reader.archive, rawName: rawName) else {
                     continue
                 }
                 archive_entry_set_pathname_utf8(entry, directory.path + "/" + name)
-                if let link = archive_entry_hardlink_utf8(entry).map({ String(cString: $0) }) {
+                if let link = try ArchivePathname.hardlink(entry) {
                     archive_entry_set_hardlink_utf8(entry, directory.path + "/" + (try checked(link)))
+                }
+                if let link = try ArchivePathname.symlink(entry) {
+                    archive_entry_set_symlink_utf8(entry, link)
                 }
                 if archive_entry_is_encrypted(entry) != 0 { try requireDecryption(reader.archive, password: password) }
                 let declaredSize = archive_entry_size_is_set(entry) != 0 ? archive_entry_size(entry) : 0
@@ -135,9 +144,7 @@ public enum ArchiveExtractor {
             guard archive_filter_count(archive) > 1 else { throw FormatError.corrupt("not an archive") }
             return rawName
         }
-        guard let pathname = archive_entry_pathname_utf8(entry).map({ String(cString: $0) }) else {
-            throw FormatError.corrupt("entry name is not UTF-8")
-        }
+        let pathname = try ArchivePathname.decode(entry)
         let name = try checked(pathname)
         guard !name.isEmpty, name.split(separator: "/").first != Substring(macMetadataFolder) else { return nil }
         return name
@@ -145,7 +152,9 @@ public enum ArchiveExtractor {
 
     private static func checked(_ path: String) throws -> String {
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard !path.hasPrefix("/"), !components.contains("..") else { throw ArchiveError.unsafePath(path) }
+        guard !path.hasPrefix("/"), !path.utf8.contains(0), !components.contains("..") else {
+            throw ArchiveError.unsafePath(path)
+        }
         return components.filter { $0 != "." }.joined(separator: "/")
     }
 

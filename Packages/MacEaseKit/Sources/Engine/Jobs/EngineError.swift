@@ -100,6 +100,7 @@ public enum InvalidInput: Equatable, Sendable {
     case passwordRequired
     case wrongPassword
     case unsafeArchivePath(String)
+    case archiveNameEncodingUnsupported
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
     case insufficientReverseSpace(requiredBytes: Int64, availableBytes: Int64)

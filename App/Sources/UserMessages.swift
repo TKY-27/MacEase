@@ -538,6 +538,8 @@ enum UserMessages {
                 localized:
                     "Couldn’t extract “\(file)”: entry “\(path)” points outside its folder. Use an archive with safe relative paths."
             )
+        case .archiveNameEncodingUnsupported:
+            String(localized: "This archive uses a text encoding for file names that MacEase can’t read.")
         case .archiveExpandsTooMuch(let limit):
             String(
                 localized:

@@ -1,6 +1,16 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "This archive uses a text encoding for file names that MacEase can’t read.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブのファイル名は、MacEaseで読み取れない文字コードを使用しています。"
+          }
+        }
+      }
+    },
     "Analyze Links (⌘R)": {
       "localizations": {
         "ja": {

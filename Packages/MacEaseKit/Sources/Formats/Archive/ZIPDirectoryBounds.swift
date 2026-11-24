@@ -4,7 +4,7 @@ import Foundation
 enum ZIPDirectoryBounds {
     static let maximumEntries = 100_000
     static let maximumMetadataBytes = 32 * 1024 * 1024
-    private static let maximumEOCDSearch = 16 * 1024
+    private static let maximumEOCDSearch = 22 + Int(UInt16.max)
     private static let centralHeaderBytes = 46
     private static let maximumSignatureBytes = 6 + 65_535
 
@@ -12,9 +12,12 @@ enum ZIPDirectoryBounds {
         let offset: Int64
         let size: Int64
         let entries: Int
+        let offsetAdjustment: Int64
     }
 
-    static func validate(descriptor: Int32, size: Int64, check: () throws -> Void) throws -> Int {
+    static func validate(descriptor: Int32, size: Int64, bounded: Bool = true, check: () throws -> Void) throws
+        -> (entries: Int, endOffset: Int64)
+    {
         guard size >= 22 else { throw ZIPBrowserError.invalidZIP }
         let tailSize = min(Int(size), maximumEOCDSearch)
         let tail = try read(descriptor, at: size - Int64(tailSize), count: tailSize, fileSize: size, check: check)
@@ -42,7 +45,7 @@ enum ZIPDirectoryBounds {
                 directory = try zip64(
                     locator, descriptor: descriptor, fileSize: size, locatorOffset: endOffset - 20,
                     classicCount: classicCount, classicSize: classicSize, classicOffset: classicOffset,
-                    check: check)
+                    bounded: bounded, check: check)
             } else {
                 directory = try classic(
                     count: classicCount, size: classicSize, offset: classicOffset, endOffset: endOffset)
@@ -51,21 +54,23 @@ enum ZIPDirectoryBounds {
             directory = try classic(
                 count: classicCount, size: classicSize, offset: classicOffset, endOffset: endOffset)
         }
-        try scan(directory, descriptor: descriptor, fileSize: size, check: check)
-        return directory.entries
+        try scan(directory, descriptor: descriptor, fileSize: size, bounded: bounded, check: check)
+        return (directory.entries, endOffset)
     }
 
     private static func classic(count: UInt16, size: UInt32, offset: UInt32, endOffset: Int64) throws -> Directory {
         guard size != .max, offset != .max,
             Int64(offset) <= endOffset, Int64(size) <= endOffset - Int64(offset)
         else { throw ZIPBrowserError.invalidZIP }
-        return Directory(offset: endOffset - Int64(size), size: Int64(size), entries: Int(count))
+        return Directory(
+            offset: endOffset - Int64(size), size: Int64(size), entries: Int(count),
+            offsetAdjustment: endOffset - Int64(size) - Int64(offset))
     }
 
     private static func zip64(
         _ locator: [UInt8], descriptor: Int32, fileSize: Int64, locatorOffset: Int64,
         classicCount: UInt16, classicSize: UInt32, classicOffset: UInt32,
-        check: () throws -> Void
+        bounded: Bool, check: () throws -> Void
     ) throws -> Directory {
         guard UInt32(littleEndian: locator, at: 4) == 0,
             UInt32(littleEndian: locator, at: 16) == 1
@@ -86,22 +91,24 @@ enum ZIPDirectoryBounds {
         let count = little64(record, at: 32)
         let size = little64(record, at: 40)
         let offset = little64(record, at: 48)
-        guard count <= UInt64(maximumEntries) else { throw ZIPBrowserError.tooManyEntries }
+        guard count <= UInt64(Int.max), !bounded || count <= UInt64(maximumEntries) else {
+            throw ZIPBrowserError.tooManyEntries
+        }
         guard classicCount == .max || UInt64(classicCount) == count,
             classicSize == .max || UInt64(classicSize) == size,
             classicOffset == .max || UInt64(classicOffset) == offset,
             offset <= recordOffset, size == recordOffset - offset,
             offset <= UInt64(Int64.max), size <= UInt64(Int64.max)
         else { throw ZIPBrowserError.invalidZIP }
-        return Directory(offset: Int64(offset), size: Int64(size), entries: Int(count))
+        return Directory(offset: Int64(offset), size: Int64(size), entries: Int(count), offsetAdjustment: 0)
     }
 
     private static func scan(
-        _ directory: Directory, descriptor: Int32, fileSize: Int64, check: () throws -> Void
+        _ directory: Directory, descriptor: Int32, fileSize: Int64, bounded: Bool, check: () throws -> Void
     ) throws {
-        guard directory.entries <= maximumEntries else { throw ZIPBrowserError.tooManyEntries }
+        guard !bounded || directory.entries <= maximumEntries else { throw ZIPBrowserError.tooManyEntries }
         let maximumSize = Int64(maximumMetadataBytes + maximumEntries * centralHeaderBytes + maximumSignatureBytes)
-        guard directory.size <= maximumSize else { throw ZIPBrowserError.namesTooLarge }
+        guard !bounded || directory.size <= maximumSize else { throw ZIPBrowserError.namesTooLarge }
         guard directory.offset >= 0, directory.offset <= fileSize,
             directory.size <= fileSize - directory.offset
         else { throw ZIPBrowserError.invalidZIP }
@@ -125,7 +132,7 @@ enum ZIPDirectoryBounds {
             guard UInt32(littleEndian: signature, at: 0) == 0x02014b50,
                 end - position >= centralHeaderBytes
             else { throw ZIPBrowserError.invalidZIP }
-            guard count < maximumEntries else { throw ZIPBrowserError.tooManyEntries }
+            guard !bounded || count < maximumEntries else { throw ZIPBrowserError.tooManyEntries }
             let header = try read(
                 descriptor, at: position, count: centralHeaderBytes, fileSize: fileSize, check: check)
             guard UInt16(littleEndian: header, at: 34) == 0 else { throw ZIPBrowserError.invalidZIP }
@@ -133,17 +140,78 @@ enum ZIPDirectoryBounds {
                 Int(UInt16(littleEndian: header, at: 28))
                 + Int(UInt16(littleEndian: header, at: 30))
                 + Int(UInt16(littleEndian: header, at: 32))
-            guard variableBytes <= maximumMetadataBytes - metadataBytes else {
+            guard !bounded || variableBytes <= maximumMetadataBytes - metadataBytes else {
                 throw ZIPBrowserError.namesTooLarge
             }
             guard Int64(variableBytes) <= end - position - Int64(centralHeaderBytes) else {
                 throw ZIPBrowserError.invalidZIP
             }
+            let fields = try read(
+                descriptor, at: position + Int64(centralHeaderBytes), count: variableBytes,
+                fileSize: fileSize, check: check)
+            let nameCount = Int(UInt16(littleEndian: header, at: 28))
+            let extraCount = Int(UInt16(littleEndian: header, at: 30))
+            let extras = Array(fields[nameCount..<(nameCount + extraCount)])
+            try checkName(Array(fields.prefix(nameCount)), extras: extras)
+            try checkLocalName(
+                header, extras: extras, adjustment: directory.offsetAdjustment,
+                descriptor: descriptor, fileSize: fileSize, check: check)
             metadataBytes += variableBytes
             count += 1
             position += Int64(centralHeaderBytes + variableBytes)
         }
         guard position == end, count == directory.entries else { throw ZIPBrowserError.invalidZIP }
+    }
+
+    private static func checkName(_ name: [UInt8], extras: [UInt8]) throws {
+        guard !name.contains(0) else { throw ZIPBrowserError.unsafeEntry }
+        var offset = 0
+        while offset + 4 <= extras.count {
+            let length = Int(UInt16(littleEndian: extras, at: offset + 2))
+            let end = offset + 4 + length
+            guard end <= extras.count else { throw ZIPBrowserError.invalidZIP }
+            if UInt16(littleEndian: extras, at: offset) == 0x7075, length >= 5,
+                extras[(offset + 9)..<end].contains(0)
+            {
+                throw ZIPBrowserError.unsafeEntry
+            }
+            offset = end
+        }
+    }
+
+    private static func checkLocalName(
+        _ central: [UInt8], extras: [UInt8], adjustment: Int64,
+        descriptor: Int32, fileSize: Int64, check: () throws -> Void
+    ) throws {
+        var localOffset = UInt64(UInt32(littleEndian: central, at: 42))
+        if localOffset == UInt64(UInt32.max) {
+            var offset = 0
+            while offset + 4 <= extras.count {
+                let length = Int(UInt16(littleEndian: extras, at: offset + 2))
+                let end = offset + 4 + length
+                guard end <= extras.count else { throw ZIPBrowserError.invalidZIP }
+                if UInt16(littleEndian: extras, at: offset) == 1 {
+                    var position = offset + 4
+                    if UInt32(littleEndian: central, at: 24) == .max { position += 8 }
+                    if UInt32(littleEndian: central, at: 20) == .max { position += 8 }
+                    guard position + 8 <= end else { throw ZIPBrowserError.invalidZIP }
+                    localOffset = little64(extras, at: position)
+                    break
+                }
+                offset = end
+            }
+        }
+        guard localOffset <= UInt64(Int64.max), adjustment >= 0,
+            Int64(localOffset) <= Int64.max - adjustment
+        else { throw ZIPBrowserError.invalidZIP }
+        let position = Int64(localOffset) + adjustment
+        let header = try read(descriptor, at: position, count: 30, fileSize: fileSize, check: check)
+        guard UInt32(littleEndian: header, at: 0) == 0x04034b50 else { throw ZIPBrowserError.invalidZIP }
+        let nameCount = Int(UInt16(littleEndian: header, at: 26))
+        let extraCount = Int(UInt16(littleEndian: header, at: 28))
+        let fields = try read(
+            descriptor, at: position + 30, count: nameCount + extraCount, fileSize: fileSize, check: check)
+        try checkName(Array(fields.prefix(nameCount)), extras: Array(fields.dropFirst(nameCount)))
     }
 
     private static func read(

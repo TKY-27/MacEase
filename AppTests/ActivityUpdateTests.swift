@@ -121,6 +121,14 @@ final class ActivityUpdateTests: XCTestCase {
         )
     }
 
+    func testArchiveFilenameEncodingMessageExplainsTheRefusal() {
+        let expected = "This archive uses a text encoding for file names that MacEase can’t read."
+        XCTAssertEqual(
+            UserMessages.describeResult(.invalidInput(.archiveNameEncodingUnsupported), file: "legacy.zip"),
+            expected)
+        XCTAssertEqual(ArchiveBrowserError.zip(.unsupportedNameEncoding).localizedDescription, expected)
+    }
+
     func testMalformedToolDiagnosticStaysOutOfNotifications() async throws {
         let detail = "java.lang.IllegalArgumentException\n\tat example.Decompiler.run(Decompiler.java:42)"
         let outcome = try await runBatch([{ _ in throw EngineError.invalidInput(.malformed(detail)) }])

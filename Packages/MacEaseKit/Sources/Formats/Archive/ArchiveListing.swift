@@ -5,24 +5,52 @@ public enum ArchiveListing {
     private static let blockSize = 64 * 1024
 
     public static func verify(_ url: URL) throws {
-        guard let archive = archive_read_new() else { throw FormatError.io("libarchive allocation") }
-        defer { archive_read_free(archive) }
-        try ArchiveReadSupport.enableFilters(archive)
-        try ArchiveReadSupport.enableFormats(archive)
-        guard archive_read_open_filename(archive, url.path, blockSize) == ARCHIVE_OK else {
-            throw FormatError.corrupt(message(archive))
-        }
-        var entry: OpaquePointer?
-        var count = 0
-        while true {
-            let status = archive_read_next_header(archive, &entry)
-            if status == ARCHIVE_EOF { break }
-            guard status == ARCHIVE_OK || status == ARCHIVE_WARN else {
+        try inUTF8Locale {
+            guard let archive = archive_read_new() else { throw FormatError.io("libarchive allocation") }
+            defer { archive_read_free(archive) }
+            try ArchiveReadSupport.enableFilters(archive)
+            try ArchiveReadSupport.enableFormats(archive)
+            guard archive_read_open_filename(archive, url.path, blockSize) == ARCHIVE_OK else {
                 throw FormatError.corrupt(message(archive))
             }
-            count += 1
+            var entry: OpaquePointer?
+            var count = 0
+            var checkedZIPNames = false
+            while true {
+                let status = archive_read_next_header(archive, &entry)
+                if status == ARCHIVE_EOF { break }
+                guard status == ARCHIVE_OK || status == ARCHIVE_WARN, let entry else {
+                    throw FormatError.corrupt(message(archive))
+                }
+                if archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP, !checkedZIPNames {
+                    guard archive_filter_count(archive) == 1 else {
+                        throw FormatError.unsupported("filtered ZIP container")
+                    }
+                    try checkZIPNames(url)
+                    checkedZIPNames = true
+                }
+                _ = try ArchivePathname.decode(entry)
+                count += 1
+            }
+            guard count > 0 else { throw FormatError.corrupt("archive has no entries") }
         }
-        guard count > 0 else { throw FormatError.corrupt("archive has no entries") }
+    }
+
+    private static func checkZIPNames(_ source: URL) throws {
+        let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw FormatError.io("archive filename validation") }
+        defer { close(descriptor) }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0 else { throw FormatError.io("archive filename validation") }
+        do {
+            _ = try ZIPDirectoryBounds.validate(descriptor: descriptor, size: metadata.st_size, bounded: false) {
+                try Task.checkCancellation()
+            }
+        } catch ZIPBrowserError.unsafeEntry {
+            throw ArchiveError.unsafePath("ZIP filename contains NUL")
+        } catch is ZIPBrowserError {
+            throw FormatError.corrupt("invalid ZIP directory")
+        }
     }
 
     static func message(_ archive: OpaquePointer) -> String {
