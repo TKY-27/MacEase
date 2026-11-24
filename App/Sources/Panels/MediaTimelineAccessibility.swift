@@ -14,7 +14,7 @@ struct TimelineOverlayKey: Hashable {
     let part: Int
 }
 
-/// Shared layout geometry; invalidated with configuration or size.
+/// Cached geometry; invalidated on configuration or resize.
 final class TimelineLayout {
     let size: CGSize
     let overlayBars: [(mark: TimelineOverlayMark, part: Int, rect: CGRect)]
@@ -286,7 +286,7 @@ extension TimelineCanvas {
         return true
     }
 
-    /// Single availability check shared by menus and VoiceOver.
+    /// Shared availability rule for menus and VoiceOver.
     func actionState(for id: UUID, action: TimelineAction) -> TimelineActionState {
         guard interactionEnabled, let configuration, configuration.action != nil,
             hasAccessibleContent(configuration),
