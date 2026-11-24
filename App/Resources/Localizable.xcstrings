@@ -16306,16 +16306,6 @@
         }
       }
     },
-    "First of %lld faces": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld個のフェイスの1つ目"
-          }
-        }
-      }
-    },
     "The recipe produced no required outputs.": {
       "localizations": {
         "ja": {
@@ -22285,6 +22275,152 @@
           "stringUnit": {
             "state": "translated",
             "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
+    "Table": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can't be shown as a table.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルは表として表示できません。"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@行を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@列を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows and %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%1$@行、%2$@列を表示しています"
+          }
+        }
+      }
+    },
+    "Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書体"
+          }
+        }
+      }
+    },
+    "Previous Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の書体"
+          }
+        }
+      }
+    },
+    "Next Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の書体"
+          }
+        }
+      }
+    },
+    "%@ · %lld glyphs": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyphs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$lldグリフ"
+          }
+        }
+      }
+    },
+    "%lld glyphs": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyphs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldグリフ"
+          }
+        }
+      }
+    },
+    "Face %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書体 %1$lld / %2$lld"
           }
         }
       }
