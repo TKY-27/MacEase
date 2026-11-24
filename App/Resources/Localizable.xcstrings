@@ -181,86 +181,6 @@
         }
       }
     },
-    "Save changes before closing?": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更を保存してから閉じますか？"
-          }
-        }
-      }
-    },
-    "Save as UTF-8…": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "UTF-8で保存…"
-          }
-        }
-      }
-    },
-    "Save as UTF-8?": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "UTF-8で保存しますか？"
-          }
-        }
-      }
-    },
-    "Save as UTF-8": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "UTF-8で保存"
-          }
-        }
-      }
-    },
-    "This changes the file’s encoding to UTF-8. The original remains available through Undo.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルの文字コードをUTF-8に変更します。「取り消す」で元のファイルに戻せます。"
-          }
-        }
-      }
-    },
-    "Empty text cannot be saved. Enter text or revert your changes.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "空のテキストは保存できません。文字を入力するか、変更を元に戻してください。"
-          }
-        }
-      }
-    },
-    "Some characters cannot be saved in the original encoding. Save as UTF-8 instead.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元の文字コードでは保存できない文字があります。UTF-8で保存してください。"
-          }
-        }
-      }
-    },
-    "Saved as a separate file; the original is unchanged. Discard to leave this buffer.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "別のファイルとして保存しました。元のファイルは変更していません。編集を終了するには「破棄」を選んでください。"
-          }
-        }
-      }
-    },
     "Detect Encoding": {
       "localizations": {
         "ja": {
@@ -18544,46 +18464,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "テキストを編集"
-          }
-        }
-      }
-    },
-    "Unsaved changes": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未保存の変更"
-          }
-        }
-      }
-    },
-    "Discard": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "破棄"
-          }
-        }
-      }
-    },
-    "Revert": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元に戻す"
-          }
-        }
-      }
-    },
-    "Saved": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存しました"
           }
         }
       }

@@ -215,7 +215,7 @@ public final class JobEngine: Sendable {
             try await history.checkAcceptingWork()
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs,
-                inputStamps: workItem.replacementInputStamps ?? inputStamps,
+                inputStamps: inputStamps,
                 context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)

@@ -107,7 +107,8 @@ final class SettingsStore {
             hidden.insert(OperationID.videoEdit.menuEntryKey(""))
         }
         let removed: Set<String> = [
-            "video.trim", "image.copyBase64", "any.sourceInfo", "image.aiCustom", "video.aiCustom", "audio.aiCustom",
+            "video.trim", "text.edit", "image.copyBase64", "any.sourceInfo", "image.aiCustom", "video.aiCustom",
+            "audio.aiCustom",
         ]
         hidden = hidden.filter { !removed.contains(String($0.prefix { $0 != "/" })) }
         defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)

@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.organization = organization
         let panels = PanelCoordinator(jobs: jobs, store: settings, organization: organization, recipes: recipeStore)
         self.panels = panels
-        let finderPreview = FinderPreviewCoordinator(panels: panels, jobs: jobs)
+        let finderPreview = FinderPreviewCoordinator(panels: panels)
         finderPreview.visibilityChanged = { [weak self] in self?.refreshMenuFile() }
         self.finderPreview = finderPreview
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
@@ -230,11 +230,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !terminationPending else { return .terminateLater }
         terminationPending = true
         Task {
-            guard await finderPreview?.resolveEdits(terminating: true) != false else {
-                terminationPending = false
-                sender.reply(toApplicationShouldTerminate: false)
-                return
-            }
             do {
                 organization?.stop()
                 await panels?.closeFeatureWindows()
@@ -242,7 +237,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sender.reply(toApplicationShouldTerminate: true)
             } catch {
                 terminationPending = false
-                finderPreview?.cancelTermination()
                 await organization?.start()
                 logger.error("Termination history flush failed: \(error.localizedDescription, privacy: .private)")
                 sender.reply(toApplicationShouldTerminate: false)
@@ -259,7 +253,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        finderPreview?.finishTermination()
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
         if let recipeObserver { NotificationCenter.default.removeObserver(recipeObserver) }
     }

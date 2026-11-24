@@ -12,7 +12,6 @@ public struct WorkItem: Sendable {
     public let inputs: [URL]
     public let lane: Lane
     let durableArchive: Bool
-    var replacementInputStamps: [URL: FileStamp]?
     var requiredInputStamps: [URL: FileStamp]?
     var newFileNaming: NewFileNaming?
     let body: @Sendable (ItemContext) async throws -> ItemResult
@@ -79,7 +78,6 @@ public enum OutputCheck: Sendable {
     case pdf
     case plist
     case text(String.Encoding)
-    case textReplacement(encoding: String.Encoding, byteOrderMark: Data, text: String)
     case svg
     case folder
     /// Its decompressor decoded it without error.

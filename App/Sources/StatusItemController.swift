@@ -190,7 +190,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func recentItem(_ record: BatchRecord) -> NSMenuItem {
         let time = record.date.formatted(date: .omitted, time: .shortened)
-        let title = "\(MenuStrings.operationName(record.operation)) · \(time)"
+        let title = "\(MenuStrings.operationName(record)) · \(time)"
         let recentMenuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         if record.undone {

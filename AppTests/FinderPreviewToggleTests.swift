@@ -1,10 +1,23 @@
 import AppKit
+import Engine
 import XCTest
 
 @testable import MacEase
 
 @MainActor
 final class FinderPreviewToggleTests: XCTestCase {
+    func testHistoricalTextEditRecordDisplaysLocalizedTitle() throws {
+        let json = """
+            {"id":"00000000-0000-0000-0000-000000000001","operation":"text.edit","date":0,"items":[],"undone":false}
+            """
+        let record = try JSONDecoder().decode(BatchRecord.self, from: Data(json.utf8))
+        XCTAssertNil(record.operation)
+        XCTAssertEqual(record.legacyOperation, BatchRecord.legacyTextEdit)
+        XCTAssertEqual(MenuStrings.operationName(record), String(localized: "Edit Text"))
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        XCTAssertEqual(japanese.localizedString(forKey: "Edit Text", value: nil, table: nil), "テキストを編集")
+    }
+
     func testMenuTitleNamesTheNextAction() throws {
         XCTAssertEqual(MenuStrings.previewTitle(open: true), String(localized: "Hide Finder Preview"))
         XCTAssertEqual(MenuStrings.previewTitle(open: false), String(localized: "Show Finder Preview"))
