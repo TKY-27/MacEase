@@ -18,8 +18,8 @@ final class NativeTimecode {
         let associated = Set(try await video?.loadAssociatedTracks(ofType: .timecode).map(\.trackID) ?? [])
         for track in try await asset.loadTracks(withMediaType: .timecode) {
             let formats = try await track.load(.formatDescriptions)
-            guard formats.count == 1, let format = formats.first, try await track.load(.totalSampleDataLength) > 0
-            else {
+            let edits = try await track.load(.segments).filter { !$0.isEmpty }
+            guard formats.count == 1, let format = formats.first, edits.count == 1 else {
                 throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
             }
             let mediaScale = try await track.load(.naturalTimeScale)
@@ -29,18 +29,13 @@ final class NativeTimecode {
                 throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
             }
             movieTimeScale = combinedTick.timescale
-            let reader = try AssetTrackReader(asset: asset, track: track, number: Int(track.trackID), mode: .packets)
-            var samples: [CMSampleBuffer] = []
-            while let sample = try await Self.nextSample(from: reader) {
-                try Self.validate(sample, format: format)
-                samples.append(sample)
-            }
-            let edits = try await track.load(.segments).filter { !$0.isEmpty }
-            guard !samples.isEmpty, edits.count == 1,
+            let samples = try await Self.materialSamples(in: asset, track: track)
+            guard !samples.isEmpty,
                 samples.count == 1 || CMTimeCompare(edits[0].timeMapping.source.start, .zero) == 0
             else { throw EngineError.invalidInput(.unpreservedStreams([.timecode])) }
+            for sample in samples { try Self.validate(sample, format: format) }
             let input = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: format)
-            input.mediaTimeScale = try await track.load(.naturalTimeScale)
+            input.mediaTimeScale = mediaScale
             input.metadata = try await track.load(.metadata)
             input.languageCode = try await track.load(.languageCode)
             input.extendedLanguageTag = try await track.load(.extendedLanguageTag)
@@ -141,14 +136,13 @@ final class NativeTimecode {
             else {
                 throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
             }
-            let originalReader = try AssetTrackReader(asset: sourceAsset, track: source, number: 1, mode: .packets)
-            let outputReader = try AssetTrackReader(asset: outputAsset, track: written, number: 1, mode: .packets)
-            while true {
-                let first = try await nextSample(from: originalReader)
-                let second = try await nextSample(from: outputReader)
-                if first == nil, second == nil { break }
-                guard let first, let second,
-                    let originalFormat = CMSampleBufferGetFormatDescription(first),
+            let originalSamples = try await materialSamples(in: sourceAsset, track: source)
+            let outputSamples = try await materialSamples(in: outputAsset, track: written)
+            guard !originalSamples.isEmpty, originalSamples.count == outputSamples.count else {
+                throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
+            }
+            for (first, second) in zip(originalSamples, outputSamples) {
+                guard let originalFormat = CMSampleBufferGetFormatDescription(first),
                     let outputFormat = CMSampleBufferGetFormatDescription(second),
                     CMFormatDescriptionEqual(originalFormat, otherFormatDescription: outputFormat),
                     CMSampleBufferGetNumSamples(first) == CMSampleBufferGetNumSamples(second),
@@ -168,11 +162,23 @@ final class NativeTimecode {
         }
     }
 
-    private static func nextSample(from reader: AssetTrackReader) async throws -> CMSampleBuffer? {
+    static func materialSamples(in asset: AVURLAsset, track: AVAssetTrack) async throws -> [CMSampleBuffer] {
+        // Empty tracks race AVAssetReader into -12842.
+        guard try await hasSamples(in: track) else { return [] }
+        let reader = try AssetTrackReader(asset: asset, track: track, number: Int(track.trackID), mode: .packets)
+        var samples: [CMSampleBuffer] = []
         while let sample = try await reader.nextSample() {
-            if CMSampleBufferGetNumSamples(sample) > 0 { return sample }
+            if CMSampleBufferGetNumSamples(sample) > 0 { samples.append(sample) }
         }
-        return nil
+        return samples
+    }
+
+    private static func hasSamples(in track: AVAssetTrack) async throws -> Bool {
+        guard try await track.load(.totalSampleDataLength) > 0 else { return false }
+        if try await track.load(.canProvideSampleCursors) {
+            return track.makeSampleCursorAtFirstSampleInDecodeOrder() != nil
+        }
+        return true
     }
 
     private static func payload(_ sample: CMSampleBuffer) throws -> Data {
