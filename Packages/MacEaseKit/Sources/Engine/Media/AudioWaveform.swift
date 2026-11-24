@@ -136,11 +136,12 @@ public actor AudioPreviewSource {
     private var closed = false
 
     public static func open(
-        _ url: URL, staging: StagingArea, omittedStreams: Set<UnpreservedStream> = []
+        _ url: URL, staging: StagingArea, omission: StreamOmission? = nil
     ) async throws -> AudioPreviewSource {
         let stamp = try MediaSourceStamp(url: url)
         let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
-        let unconsented = try await AudioJob.unpreservedStreams(in: input).filter { !omittedStreams.contains($0) }
+        let omitted = omission?.streams(covering: stamp) ?? []
+        let unconsented = try await AudioJob.unpreservedStreams(in: input).filter { !omitted.contains($0) }
         if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
         guard let duration = input.duration, duration > 0 else {
             throw EngineError.decodeFailed("unknown audio duration")

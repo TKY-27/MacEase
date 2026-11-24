@@ -24,11 +24,11 @@ final class AudioTrimModel {
     var ready = false
     var failure: String?
     var streamConsent: StreamConsentRequest?
-    private(set) var omittedStreams: Set<UnpreservedStream> = []
+    private var consent: StreamOmission?
     var waveform: AudioWaveformSnapshot?
     var detailWaveform: AudioWaveformSnapshot?
     private var source: AudioPreviewSource?
-    private var stamp: MediaSourceStamp?
+    private(set) var stamp: MediaSourceStamp?
     private var player: AVPlayer?
     private var audioTrack: AVAssetTrack?
     private var observer: Any?
@@ -63,8 +63,10 @@ final class AudioTrimModel {
     }
 
     func load() async {
+        var inspected: MediaSourceStamp?
         do {
-            let source = try await AudioPreviewSource.open(url, staging: staging, omittedStreams: omittedStreams)
+            inspected = try MediaSourceStamp(url: url)
+            let source = try await AudioPreviewSource.open(url, staging: staging, omission: consent)
             self.source = source
             duration = await source.duration
             sampleRate = await source.sampleRate
@@ -126,8 +128,8 @@ final class AudioTrimModel {
         } catch is CancellationError {
             await source?.close()
         } catch {
-            if let streams = StreamConsentRequest.blockedStreams(in: error, at: url) {
-                streamConsent = StreamConsentRequest(purpose: .open, files: [.init(url: url, streams: streams)])
+            if let inspected, let file = StreamConsentRequest.blockedFile(by: error, at: url, stamp: inspected) {
+                streamConsent = StreamConsentRequest(purpose: .open, files: [file])
             } else {
                 report(error)
             }
@@ -135,7 +137,10 @@ final class AudioTrimModel {
     }
 
     func continueWithoutStreams(_ request: StreamConsentRequest) {
-        for file in request.files where file.url == url { omittedStreams.formUnion(file.streams) }
+        for file in request.files where file.url == url {
+            let earlier = consent?.streams(covering: file.omission.stamp) ?? []
+            consent = StreamOmission(stamp: file.omission.stamp, streams: earlier.union(file.omission.streams))
+        }
         streamConsent = nil
         Task { await load() }
     }
@@ -327,9 +332,15 @@ final class AudioTrimModel {
 
     func pause() { playbackTask?.cancel(); player?.pause(); playing = false; playbackRate = 1 }
 
-    func validate() throws {
-        guard canSave else { throw EngineError.invalidInput(.invalidNumericParameter) }
-        try stamp?.validate(url)
+    var omittedStreams: Set<UnpreservedStream> { stamp.map { consent?.streams(covering: $0) ?? [] } ?? [] }
+
+    /// The run re-checks the previewed version.
+    func trimRequest() throws -> OperationRequest {
+        guard canSave, let stamp else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        try stamp.validate(url)
+        return OperationRequest(
+            op: .audioTrim, options: .audio(.trim(start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut)),
+            inputs: [url], omittedStreams: omittedStreams, inputStamps: [url: stamp])
     }
 
     private func report(_ error: any Error) {
@@ -358,7 +369,7 @@ final class AudioTrimModel {
 struct AudioTrimPanel: View {
     @Bindable var model: AudioTrimModel
     let cancel: () -> Void
-    let run: (_ start: Double, _ end: Double, _ fadeIn: Double, _ fadeOut: Double) -> Void
+    let run: (OperationRequest) -> Void
     @State private var startDraft = ""
     @State private var endDraft = ""
 
@@ -550,7 +561,7 @@ struct AudioTrimPanel: View {
                 if let end = TimecodeField.edited(endDraft, from: model.end) {
                     model.changeRange(start: model.start, end: end)
                 }
-                do { try model.validate(); run(model.start, model.end, model.fadeIn, model.fadeOut) } catch {
+                do { run(try model.trimRequest()) } catch {
                     model.failure = error.localizedDescription
                 }
             }

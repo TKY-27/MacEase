@@ -40,9 +40,10 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
             return panel?.isVisible == true
         }
         let names = jobs.downloadSessions[outcome.batchID]?.request.selections.map(\.source.title)
-        let result = ActivityResult(outcome, fileNames: names)
         // Only this window offers the choice.
         let awaitsStreamConsent = jobs.canContinueWithoutStreams(outcome.batchID)
+        let result = ActivityResult(
+            outcome, fileNames: names, awaitingConsent: awaitsStreamConsent ? jobs.sessions[outcome.batchID] : nil)
         if awaitsStreamConsent {
             log.rows[index].dismissed = false
             present()
@@ -51,7 +52,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         if wasVisible {
             let operation = MenuStrings.operationName(batch.operation)
             AccessibilityNotification.Announcement(
-                String(localized: "\(operation): \(result.statusText)", comment: "VoiceOver batch completion")
+                String(localized: "\(operation): \(result.summary)", comment: "VoiceOver batch completion")
             ).post()
         }
         log.rows[index].result = result
@@ -120,6 +121,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         case .cancelled: settings.activityClosesAfterCancel
         case .failed: settings.activityClosesAfterFailure
         case .problems: result.problems.contains(where: \.isFailure) && settings.activityClosesAfterFailure
+        case .awaitingConfirmation: false
         }
     }
 
@@ -203,31 +205,47 @@ struct ActivityWarning {
     }
 }
 
+/// A question, not a failure.
+struct ActivityConfirmation {
+    let index: Int
+    let file: String
+    let streams: [UnpreservedStream]
+}
+
 struct ActivityResult {
     enum Status {
         case done
         case problems
         case cancelled
         case failed
+        case awaitingConfirmation
     }
 
     let status: Status
     /// Includes skips, which are not problems.
     let problems: [ActivityProblem]
+    let confirmations: [ActivityConfirmation]
+    let replacesOriginals: Bool
     let warnings: [ActivityWarning]
     let skipped: Int
     let details: String
     let hasHistory: Bool
 
-    init(_ outcome: BatchOutcome, fileNames: [String]? = nil) {
+    init(_ outcome: BatchOutcome, fileNames: [String]? = nil, awaitingConsent session: ActivitySession? = nil) {
         var problems: [ActivityProblem] = []
+        var confirmations: [ActivityConfirmation] = []
         var warnings: [ActivityWarning] = []
         var succeeded = 0
         var failed = 0
         var skipped = 0
+        let questions = session?.unpreservedStreamsByItem ?? [:]
         for index in outcome.outcomes.indices {
             let result = outcome.outcomes[index]
             let file = fileNames?[index] ?? outcome.inputs[index].first?.lastPathComponent ?? ""
+            if let streams = questions[index] {
+                confirmations.append(ActivityConfirmation(index: index, file: file, streams: streams))
+                continue
+            }
             switch result {
             case .succeeded(_, let itemWarnings):
                 succeeded += 1
@@ -260,12 +278,16 @@ struct ActivityResult {
         }
         if outcome.wasCancelled {
             status = .cancelled
-        } else if succeeded == 0, failed > 0 {
+        } else if succeeded + failed + skipped == 0, !confirmations.isEmpty {
+            status = .awaitingConfirmation
+        } else if succeeded == 0, failed > 0, confirmations.isEmpty {
             status = .failed
         } else {
             status = problems.isEmpty ? .done : .problems
         }
         self.problems = problems
+        self.confirmations = confirmations
+        replacesOriginals = session?.replacesOriginals ?? false
         self.warnings = warnings
         self.skipped = skipped
         details = BatchSummary(outcome).details
@@ -281,8 +303,19 @@ struct ActivityResult {
         return status == .done ? "checkmark.circle.fill" : "info.circle"
     }
 
+    var confirmationStreams: [UnpreservedStream] {
+        UnpreservedStream.allCases.filter { kind in confirmations.contains { $0.streams.contains(kind) } }
+    }
+
+    /// Status and pending question together.
+    var summary: String {
+        guard !confirmations.isEmpty, status != .awaitingConfirmation else { return statusText }
+        return [statusText, UserMessages.confirmationCount(confirmations.count)].joined(separator: " ")
+    }
+
     var statusText: String {
         switch status {
+        case .awaitingConfirmation: UserMessages.confirmationCount(confirmations.count)
         case .done: String(localized: "Done.", comment: "Activity status")
         case .cancelled: String(localized: "Cancelled.", comment: "Activity status")
         case .failed: String(localized: "Failed.", comment: "Activity status")
@@ -327,38 +360,57 @@ private struct ActivityProblemView: View {
 }
 
 private struct StreamOmissionOffer: View {
-    let session: ActivitySession
-    let continued: Bool
+    let result: ActivityResult
     let enabled: Bool
     let proceed: () -> Void
 
+    private static let spacing: CGFloat = 6
+    private static let fileColumnWidth: CGFloat = 180
+
     var body: some View {
-        let streams = session.unpreservedStreams
-        Group {
-            if continued {
-                Label(UserMessages.continuedWithout(streams), systemImage: "checkmark.circle")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        GroupBox {
+            content(result.confirmationStreams)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Self.spacing / 2)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .font(.callout)
+    }
+
+    private func content(_ streams: [UnpreservedStream]) -> some View {
+        VStack(alignment: .leading, spacing: Self.spacing) {
+            if let only = result.confirmations.first, result.confirmations.count == 1 {
+                Text(UserMessages.streamsStatement(file: only.file, streams: only.streams))
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(
-                        UserMessages.streamOmissionConsequence(
-                            streams,
-                            files: session.unpreservedStreamIndices.map {
-                                session.outcome.inputs[$0].first?.lastPathComponent ?? ""
-                            },
-                            replacesOriginals: session.replacesOriginals)
-                    )
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    Button(UserMessages.continueWithout(streams), action: proceed)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .disabled(!enabled)
+                Text(UserMessages.streamsListIntroduction)
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Self.spacing * 2, verticalSpacing: 2) {
+                    ForEach(Array(result.confirmations.enumerated()), id: \.offset) { _, confirmation in
+                        GridRow {
+                            Text(verbatim: confirmation.file)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: Self.fileColumnWidth, alignment: .leading)
+                            Text(UserMessages.unpreservedStreams(confirmation.streams))
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
                 }
             }
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(streams, id: \.self) { Text(UserMessages.consequence(of: $0)) }
+            }
+            .foregroundStyle(.secondary)
+            Text(
+                UserMessages.streamOmissionConsequence(
+                    files: result.confirmations.map(\.file), replacesOriginals: result.replacesOriginals)
+            )
+            .foregroundStyle(.secondary)
+            Button(UserMessages.continueWithout(streams), action: proceed)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(!enabled)
         }
-        .font(.callout)
     }
 }
 
@@ -501,7 +553,17 @@ private struct ActivityRowView: View {
         return phase.isEmpty ? file : "\(file) · \(phase)"
     }
 
-    @ViewBuilder private func fileStatus(_ outcome: ItemOutcome, file: String) -> some View {
+    @ViewBuilder private func fileStatus(
+        _ outcome: ItemOutcome, file: String, question: [UnpreservedStream]? = nil
+    ) -> some View {
+        if let question {
+            confirmationStatus(question, pending: UserMessages.streamsStatement(file: file, streams: question))
+        } else {
+            itemStatus(outcome, file: file)
+        }
+    }
+
+    @ViewBuilder private func itemStatus(_ outcome: ItemOutcome, file: String) -> some View {
         switch outcome {
         case .succeeded(_, let warnings):
             if [OperationID.imageCompress, .videoCompress, .audioCompress, .pdfCompress].contains(row.operation) {
@@ -518,6 +580,20 @@ private struct ActivityRowView: View {
         case .skipped(let reason): Text(UserMessages.describe(reason, file: file)).foregroundStyle(.secondary)
         case .failed(let error):
             ActivityProblemView(problem: ActivityProblem(error, file: file))
+        }
+    }
+
+    /// Calm tint: a question, not an error.
+    @ViewBuilder private func confirmationStatus(_ streams: [UnpreservedStream], pending: String) -> some View {
+        if jobs.continuedWithoutStreams.contains(row.batchID) {
+            Label(UserMessages.continuedWithout(streams), systemImage: "arrow.down.circle")
+                .foregroundStyle(.secondary)
+        } else {
+            Label {
+                Text(pending)
+            } icon: {
+                Image(systemName: "questionmark.circle.fill").foregroundStyle(.tint)
+            }
         }
     }
 
@@ -541,7 +617,9 @@ private struct ActivityRowView: View {
         return VStack(alignment: .leading, spacing: 3) {
             Text(verbatim: outcome.inputs[index].first?.lastPathComponent ?? "")
                 .lineLimit(1).truncationMode(.middle)
-            fileStatus(outcome.outcomes[index], file: outcome.inputs[index].first?.lastPathComponent ?? "")
+            fileStatus(
+                outcome.outcomes[index], file: outcome.inputs[index].first?.lastPathComponent ?? "",
+                question: row.result?.confirmations.first { $0.index == index }?.streams)
             Text(verbatim: String(format: "%.1f s", details.elapsedSeconds))
                 .monospacedDigit().foregroundStyle(.secondary)
             if details.outputBytes > 0 {
@@ -587,9 +665,17 @@ private struct ActivityRowView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: Self.lineSpacing) {
                 title
-                Label(result.statusText, systemImage: result.systemImage)
+                if result.status != .awaitingConfirmation {
+                    Label(result.statusText, systemImage: result.systemImage)
+                        .font(.subheadline)
+                        .foregroundStyle(result.isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                }
+                if !result.confirmations.isEmpty {
+                    confirmationStatus(
+                        result.confirmationStreams, pending: UserMessages.confirmationCount(result.confirmations.count)
+                    )
                     .font(.subheadline)
-                    .foregroundStyle(result.isFailure ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                }
             }
             .accessibilityElement(children: .combine)
             Spacer()
@@ -613,11 +699,10 @@ private struct ActivityRowView: View {
             }
             .font(.callout)
         }
-        if let session = jobs.sessions[row.batchID], !session.unpreservedStreamIndices.isEmpty {
-            StreamOmissionOffer(
-                session: session, continued: jobs.continuedWithoutStreams.contains(row.batchID),
-                enabled: jobs.canContinueWithoutStreams(row.batchID)
-            ) { jobs.continueWithoutStreams(row.batchID) }
+        if !result.confirmations.isEmpty, !jobs.continuedWithoutStreams.contains(row.batchID) {
+            StreamOmissionOffer(result: result, enabled: jobs.canContinueWithoutStreams(row.batchID)) {
+                jobs.continueWithoutStreams(row.batchID)
+            }
         }
         notes(result.warnings.map(\.summary), count: result.noteCount)
         if let session = jobs.sessions[row.batchID] {

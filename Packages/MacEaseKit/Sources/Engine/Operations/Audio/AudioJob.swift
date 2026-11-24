@@ -68,10 +68,7 @@ enum AudioJob {
         let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         switch operation {
         case .subtitles(let request):
-            let omitted = MediaInput.unpreservedStreams(from: input.multiplexedOggStreams)
-            let unconsented = omitted.filter { !context.omittedStreams.contains($0) }
-            if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
-            if !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
+            try requireConsentForMultiplexedStreams(input, context: context)
             let speech = try context.stagingURL(for: url, name: "speech.wav")
             try await encode(
                 input, to: AudioTarget(format: .wav, kilobits: 0), at: speech, tags: AudioTags(), context: context)
@@ -92,6 +89,14 @@ enum AudioJob {
             return try await trim(
                 url, input: input, start: start, end: end, fadeIn: fadeIn, fadeOut: fadeOut, context: context)
         }
+    }
+
+    /// Only the first Ogg stream is decoded.
+    static func requireConsentForMultiplexedStreams(_ input: AudioInput, context: ItemContext) throws {
+        let omitted = MediaInput.unpreservedStreams(from: input.multiplexedOggStreams)
+        let unconsented = omitted.filter { !context.omittedStreams.contains($0) }
+        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        context.warnStreamsOmitted(omitted)
     }
 
     private static func requirePreservableContent(_ input: AudioInput, context: ItemContext) async throws {

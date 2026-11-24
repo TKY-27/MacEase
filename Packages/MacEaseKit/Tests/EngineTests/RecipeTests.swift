@@ -140,6 +140,54 @@ struct RecipeTests {
         #expect(FileManager.default.fileExists(atPath: pdf.path))
     }
 
+    @Test func videoConsentCoversOnlyTheReportedFileAndVersion() async throws {
+        let folder = try TestVolume.makeFolder()
+        let photo = try recipeImage(in: folder)
+        let clip = try await timecodedClip(named: "clip.mov", in: folder)
+        let original = try Data(contentsOf: clip)
+        let recipe = Recipe(
+            name: "Delivery",
+            variants: [OutputVariant(output: .imageJPEG, maximumEdge: 80), OutputVariant(output: .videoMP4)])
+        let engine = try recipeEngine()
+        let package = folder.appending(path: "Delivery")
+
+        let refused = await engine.run(
+            try RecipePlanner.batch(recipe: recipe, inputs: [photo, clip], settings: Settings()), settings: Settings()
+        ) { _ in }
+        #expect(refused.outcomes == [.failed(.invalidInput(.unpreservedStreams([.timecode])))])
+        #expect(!FileManager.default.fileExists(atPath: package.path))
+
+        let omissions = try await RecipePlanner.streamOmissions(recipe: recipe, inputs: [photo, clip])
+        #expect(Array(omissions.keys) == [clip])
+        #expect(omissions[clip]?.streams == [.timecode])
+        let consented = await engine.run(
+            try RecipePlanner.batch(recipe: recipe, inputs: [photo, clip], settings: Settings(), omissions: omissions),
+            settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, let warnings) = consented.outcomes.first else {
+            Issue.record("consented recipe failed: \(consented.outcomes)")
+            return
+        }
+        #expect(warnings.contains(.streamsOmitted([.timecode])))
+        let clipOutput = try #require(outputs.first).appending(path: "clip.mp4")
+        #expect(try await MediaInput.open(clipOutput).skippedStreams.isEmpty)
+        #expect(try Data(contentsOf: clip) == original)
+
+        try FileManager.default.removeItem(at: try #require(outputs.first))
+        try FileManager.default.removeItem(at: clip)
+        try original.write(to: clip)
+        let stale = await engine.run(
+            try RecipePlanner.batch(recipe: recipe, inputs: [photo, clip], settings: Settings(), omissions: omissions),
+            settings: Settings()
+        ) { _ in }
+        guard case .failed(let error) = stale.outcomes.first else {
+            Issue.record("consent for a replaced file must not apply: \(stale.outcomes)")
+            return
+        }
+        #expect(error != .invalidInput(.unpreservedStreams([.timecode])))
+        #expect(!FileManager.default.fileExists(atPath: package.path))
+    }
+
     @Test func variantsDecodeAtRequestedDimensionsAndKeepOriginalWithOneUndo() async throws {
         let folder = try TestVolume.makeFolder()
         let input = try recipeImage(in: folder)

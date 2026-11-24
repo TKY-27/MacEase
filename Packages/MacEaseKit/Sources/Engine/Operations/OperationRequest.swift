@@ -6,14 +6,18 @@ public struct OperationRequest: Sendable {
     public let options: OperationOptions
     public let inputs: [URL]
     public let omittedStreams: Set<UnpreservedStream>
+    /// Inputs must still match these when their item starts.
+    public let inputStamps: [URL: MediaSourceStamp]
 
     public init(
-        op: OperationID, options: OperationOptions, inputs: [URL], omittedStreams: Set<UnpreservedStream> = []
+        op: OperationID, options: OperationOptions, inputs: [URL], omittedStreams: Set<UnpreservedStream> = [],
+        inputStamps: [URL: MediaSourceStamp] = [:]
     ) {
         self.op = op
         self.options = options
         self.inputs = inputs
         self.omittedStreams = omittedStreams
+        self.inputStamps = inputStamps
     }
 }
 
@@ -44,11 +48,14 @@ public enum OperationPlanner {
     public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
         let planned = plannedBatch(for: request, settings: settings)
         let naming = settings.outputMode == .newFile ? NewFileNaming(options: request.options) : nil
-        guard naming != nil || !request.omittedStreams.isEmpty else { return planned }
+        guard naming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty else { return planned }
         let workItems = planned.items.map { workItem in
             var configured = workItem
             configured.newFileNaming = naming
             configured.omittedStreams = request.omittedStreams
+            if !request.inputStamps.isEmpty {
+                configured.requiredInputStamps = request.inputStamps.mapValues(\.fileStamp)
+            }
             return configured
         }
         return Batch(

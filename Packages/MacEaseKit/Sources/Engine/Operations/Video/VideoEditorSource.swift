@@ -25,11 +25,11 @@ public actor VideoEditorSource {
     private static let maximumIndexedFrames = 4_000_000
 
     public static func open(
-        _ url: URL, staging: StagingArea, omittedStreams: Set<UnpreservedStream> = []
+        _ url: URL, staging: StagingArea, omission: StreamOmission? = nil
     ) async throws -> VideoEditorSource {
         let stamp = try MediaSourceStamp(url: url)
         let input = try await MediaInput.open(url)
-        try input.requirePreservableStreams(omitting: omittedStreams)
+        try input.requirePreservableStreams(omitting: omission?.streams(covering: stamp) ?? [])
         guard input.video != nil, input.duration > 0 else { throw EngineError.decodeFailed("no video track") }
         let hdr = try await VideoProperties.hdrConfiguration(input)
         let preview = try await MediaPreview(videoAt: url)

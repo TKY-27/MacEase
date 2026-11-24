@@ -105,7 +105,7 @@ final class MediaEditorModel {
     private(set) var savingBatchID: UUID?
     private(set) var saveFailure: String?
     var streamConsent: StreamConsentRequest?
-    private(set) var omittedStreams: [URL: Set<UnpreservedStream>] = [:]
+    private(set) var consents: [URL: StreamOmission] = [:]
     var invalidFields: Set<String> = []
     var image: CGImage?
     var thumbnails: [CGImage] = []
@@ -1137,31 +1137,38 @@ final class MediaEditorModel {
     private func openVideoSources(_ urls: [URL]) async throws -> [StreamConsentRequest.File] {
         var blocked: [StreamConsentRequest.File] = []
         for url in urls where videoSources[url] == nil && !blocked.contains(where: { $0.url == url }) {
+            let stamp = try MediaSourceStamp(url: url)
             do {
-                let source = try await VideoEditorSource.open(
-                    url, staging: staging, omittedStreams: omittedStreams[url] ?? [])
+                let source = try await VideoEditorSource.open(url, staging: staging, omission: consents[url])
                 guard !closed else { await source.close(); throw CancellationError() }
                 videoSources[url] = source
             } catch {
-                guard let streams = StreamConsentRequest.blockedStreams(in: error, at: url) else { throw error }
-                blocked.append(StreamConsentRequest.File(url: url, streams: streams))
+                guard let file = StreamConsentRequest.blockedFile(by: error, at: url, stamp: stamp) else { throw error }
+                blocked.append(file)
             }
         }
         return blocked
     }
 
     func continueWithoutStreams(_ request: StreamConsentRequest) {
-        for file in request.files { omittedStreams[file.url, default: []].formUnion(file.streams) }
+        for file in request.files {
+            let earlier = consents[file.url]?.streams(covering: file.omission.stamp) ?? []
+            consents[file.url] = StreamOmission(
+                stamp: file.omission.stamp, streams: earlier.union(file.omission.streams))
+        }
         streamConsent = nil
         switch request.purpose {
-        case .open: load()
+        case .open, .proceed: load()
         case .add(let urls): importVideos(urls)
         }
     }
 
     /// Opening already refused unconsented kinds per source.
     private var omittedSourceStreams: [UnpreservedStream] {
-        let omitted = Set(values.sources.flatMap { omittedStreams[$0.url] ?? [] })
+        let omitted = Set(
+            values.sources.flatMap { source in
+                consents[source.url]?.streams(covering: source.stamp) ?? []
+            })
         return UnpreservedStream.allCases.filter(omitted.contains)
     }
 
@@ -1177,7 +1184,7 @@ final class MediaEditorModel {
         if let existing = videoSources[url] {
             source = existing
         } else {
-            source = try await VideoEditorSource.open(url, staging: staging, omittedStreams: omittedStreams[url] ?? [])
+            source = try await VideoEditorSource.open(url, staging: staging, omission: consents[url])
         }
         let details = await source.details
         try Task.checkCancellation()

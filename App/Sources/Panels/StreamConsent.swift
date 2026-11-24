@@ -1,16 +1,20 @@
 import Engine
 import SwiftUI
 
-/// Consent asked before opening or adding media.
+/// Consent asked before a panel opens or runs media.
 struct StreamConsentRequest: Identifiable {
     enum Purpose: Equatable {
         case open
         case add([URL])
+        case proceed
     }
 
     struct File: Equatable {
         let url: URL
-        let streams: [UnpreservedStream]
+        let omission: StreamOmission
+
+        var streams: [UnpreservedStream] { UnpreservedStream.allCases.filter(omission.streams.contains) }
+        var name: String { url.lastPathComponent }
     }
 
     let id = UUID()
@@ -22,60 +26,64 @@ struct StreamConsentRequest: Identifiable {
         return UnpreservedStream.allCases.filter(combined.contains)
     }
 
-    static func blockedStreams(in error: Error, at url: URL) -> [UnpreservedStream]? {
+    /// `stamp` must predate the inspection.
+    static func blockedFile(by error: Error, at url: URL, stamp: MediaSourceStamp) -> File? {
         guard case .invalidInput(.unpreservedStreams(let streams)) = EngineError.wrapping(error, path: url.path),
             !streams.isEmpty
         else { return nil }
-        return streams
+        return File(url: url, omission: StreamOmission(stamp: stamp, streams: Set(streams)))
     }
 
     var title: String {
         let names = UserMessages.unpreservedStreams(streams)
         switch (purpose, files.count == 1 ? files.first : nil) {
-        case (.open, let file?):
-            return String(localized: "Open “\(file.url.lastPathComponent)” without \(names)?")
+        case (.open, let file?): return String(localized: "Open “\(file.name)” without \(names)?")
         case (.open, nil):
-            return String(localized: "Open \(files.count) videos without the streams MacEase can’t keep?")
-        case (.add, let file?):
-            return String(localized: "Add “\(file.url.lastPathComponent)” without \(names)?")
+            return String(localized: "Open \(files.count) videos without content MacEase can’t carry over?")
+        case (.add, let file?): return String(localized: "Add “\(file.name)” without \(names)?")
         case (.add, nil):
-            return String(localized: "Add \(files.count) videos without the streams MacEase can’t keep?")
+            return String(localized: "Add \(files.count) videos without content MacEase can’t carry over?")
+        case (.proceed, _) where streams.count <= UserMessages.namedStreamLimit:
+            return String(localized: "Continue without \(names)?")
+        case (.proceed, _): return String(localized: "Continue without content MacEase can’t carry over?")
         }
     }
 
     var message: String {
-        guard files.count > 1 else {
-            let file = files[0].url.lastPathComponent
-            let names = UserMessages.unpreservedStreams(streams)
-            return purpose == .open
-                ? String(
-                    localized:
-                        "MacEase can’t keep \(names) in an edited file, so the file you save won’t include them. Opening doesn’t change “\(file)”."
-                )
-                : String(
-                    localized:
-                        "MacEase can’t keep \(names) in an edited file, so the file you save won’t include them. Adding doesn’t change “\(file)”."
-                )
+        let found =
+            files.count == 1
+            ? UserMessages.streamsStatement(file: files[0].name, streams: files[0].streams)
+            : ([UserMessages.streamsListIntroduction]
+                + files.map { UserMessages.streamsListLine(file: $0.name, streams: $0.streams) })
+                .joined(separator: "\n")
+        return [found, streams.map(UserMessages.consequence(of:)).joined(separator: "\n"), originalsNote]
+            .joined(separator: "\n\n")
+    }
+
+    private var originalsNote: String {
+        switch (purpose, files.count == 1 ? files.first : nil) {
+        case (.open, let file?): String(localized: "Opening doesn’t change “\(file.name)”.")
+        case (.open, nil): String(localized: "Opening doesn’t change the originals.")
+        case (.add, let file?): String(localized: "Adding doesn’t change “\(file.name)”.")
+        case (.add, nil): String(localized: "Adding doesn’t change the originals.")
+        case (.proceed, _): String(localized: "Your originals stay as they are.")
         }
-        let lines = files.map { file in
-            String(localized: "“\(file.url.lastPathComponent)”: \(UserMessages.unpreservedStreams(file.streams))")
-        }
-        return [
-            String(
-                localized:
-                    "MacEase can’t keep these streams in an edited file, so the file you save won’t include them:"),
-            lines.joined(separator: "\n"),
-            purpose == .open
-                ? String(localized: "Opening doesn’t change the originals.")
-                : String(localized: "Adding doesn’t change the originals."),
-        ].joined(separator: "\n\n")
     }
 
     var actionTitle: String {
         let names = UserMessages.unpreservedStreams(streams, titleCase: true)
-        return purpose == .open
-            ? String(localized: "Open Without \(names)", comment: "Opens media, dropping the named streams")
-            : String(localized: "Add Without \(names)", comment: "Adds media, dropping the named streams")
+        let named = streams.count <= UserMessages.namedStreamLimit
+        return switch purpose {
+        case .open:
+            named
+                ? String(localized: "Open Without \(names)", comment: "Opens media, leaving the named content out")
+                : String(localized: "Open Without Them", comment: "Opens media, leaving the listed content out")
+        case .add:
+            named
+                ? String(localized: "Add Without \(names)", comment: "Adds media, leaving the named content out")
+                : String(localized: "Add Without Them", comment: "Adds media, leaving the listed content out")
+        case .proceed: UserMessages.continueWithout(streams)
+        }
     }
 }
 

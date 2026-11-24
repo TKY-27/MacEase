@@ -133,6 +133,52 @@ struct AudioEnhancementTests {
         #expect(waves.map { $0.resolvingSymlinksInPath() } == [source.resolvingSymlinksInPath()])
     }
 
+    @Test func multiplexedOggRunsOnlyWithConsentForTheVersionShown() async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        let source = folder.appending(path: "two-voices.ogg")
+        let tools = try MediaDownloadTools(directory: repository.appending(path: "Vendor/build/media-tools/bin"))
+        _ = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: [
+                "-nostdin", "-v", "error", "-n", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                "-f", "lavfi", "-i", "sine=frequency=660:duration=1", "-map", "0", "-map", "1",
+                "-c:a", "libopus", source.path,
+            ], directory: folder, tools: tools, captureOutput: false)
+        let original = try Data(contentsOf: source)
+        let engine = try JobEngine(
+            supportDirectory: source.deletingLastPathComponent().appending(path: "support"), concurrency: 1)
+        let refused = await engine.run(try enhancement().makeBatch(source: source, mode: .speech), settings: Settings())
+        {
+            _ in
+        }
+        #expect(refused.outcomes == [.failed(.invalidInput(.unpreservedStreams([.audio])))])
+
+        let omission = try #require(try AudioEnhancement.streamOmission(for: source))
+        #expect(omission.streams == [.audio])
+        let consented = await engine.run(
+            try enhancement().makeBatch(source: source, mode: .speech, omission: omission), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, let warnings) = consented.outcomes.first else {
+            Issue.record("consented enhancement failed: \(consented.outcomes)")
+            return
+        }
+        #expect(outputs.count == 1)
+        #expect(warnings == [.streamsOmitted([.audio])])
+        #expect(try Data(contentsOf: source) == original)
+
+        try FileManager.default.removeItem(at: source)
+        try original.write(to: source)
+        let stale = await engine.run(
+            try enhancement().makeBatch(source: source, mode: .speech, omission: omission), settings: Settings()
+        ) { _ in }
+        guard case .failed(let error) = stale.outcomes.first else {
+            Issue.record("consent for a replaced file must not apply: \(stale.outcomes)")
+            return
+        }
+        #expect(error != .invalidInput(.unpreservedStreams([.audio])))
+        #expect(stale.record == nil)
+    }
+
     @Test func unavailableModelFailsExplicitly() throws {
         let folder = try AudioSignals.temporaryFolder()
         let missing = try enhancement(directory: folder)

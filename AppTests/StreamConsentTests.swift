@@ -8,7 +8,7 @@ import XCTest
 
 @MainActor
 final class StreamConsentTests: XCTestCase {
-    func testActivityOffersConsentOnlyForAffectedFilesAndResubmitsExactlyThoseKinds() async throws {
+    func testActivityAsksOnlyAboutAffectedFilesAndResubmitsExactlyThoseKinds() async throws {
         let directory = try workspace()
         let timecoded = try await timecodedClip(in: directory)
         let plain = directory.appending(path: "plain.mp4")
@@ -17,32 +17,25 @@ final class StreamConsentTests: XCTestCase {
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.activityClosesAfterFailure = true
 
-        let options = try XCTUnwrap(
-            OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: store.planning))
-        let request = OperationRequest(op: .videoRotate, options: options, inputs: [timecoded, plain])
-        let started = await jobs.run(request).value
-        let first = try XCTUnwrap(started)
+        let first = try await runRotate([timecoded, plain], jobs: jobs, settings: store.planning)
         guard case .failed(.invalidInput(.unpreservedStreams([.timecode]))) = first.outcomes[0],
             case .succeeded = first.outcomes[1]
         else { return XCTFail("unexpected outcomes \(first.outcomes)") }
 
-        let problem = try XCTUnwrap(ActivityResult(first).problems.first)
-        XCTAssertTrue(problem.message.contains(timecoded.lastPathComponent))
-        XCTAssertTrue(problem.message.contains(String(localized: "timecode tracks")))
+        let session = try XCTUnwrap(jobs.sessions[first.batchID])
+        let result = ActivityResult(first, awaitingConsent: session)
+        XCTAssertTrue(result.problems.isEmpty, "a question is not a failure")
+        XCTAssertFalse(result.isFailure)
+        XCTAssertEqual(result.confirmations.map(\.file), ["timecoded.mov"])
+        XCTAssertEqual(result.summary, "Done. 1 file needs your confirmation.")
         XCTAssertTrue(jobs.canContinueWithoutStreams(first.batchID))
         XCTAssertFalse(jobs.canRetry(first.batchID), "a plain retry would only fail again")
-        let panel = try XCTUnwrap(NSApp.windows.first { $0.title == String(localized: "MacEase Activity") })
+        let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "MacEase Activity" })
         XCTAssertTrue(panel.isVisible, "a pending choice stays visible despite closing after failure")
-
         XCTAssertEqual(try Data(contentsOf: timecoded), original)
-        let declined = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-            .filter { $0.hasPrefix("timecoded") }
-        XCTAssertEqual(declined, [timecoded.lastPathComponent], "nothing is written before consent")
+        XCTAssertEqual(try files(in: directory), ["engine", "plain.mp4", "plain_rotated.mp4", "timecoded.mov"])
 
-        let known = Set(jobs.sessions.keys)
-        jobs.continueWithoutStreams(first.batchID)
-        try await eventually { jobs.sessions.keys.contains { !known.contains($0) } }
-        let retried = try XCTUnwrap(jobs.sessions.first { !known.contains($0.key) }?.value)
+        let retried = try await continueAndWait(first.batchID, jobs: jobs)
         XCTAssertEqual(retried.request.inputs, [timecoded])
         XCTAssertEqual(retried.request.omittedStreams, [.timecode])
         guard case .succeeded(let outputs, let warnings) = retried.outcome.outcomes.first else {
@@ -56,22 +49,213 @@ final class StreamConsentTests: XCTestCase {
         activity.dismissBatch(first.batchID)
     }
 
-    func testConsequenceNamesTheFilesKindsAndOriginalsFate() {
-        let timecode = String(localized: "timecode tracks")
-        let replaced = UserMessages.streamOmissionConsequence([.timecode], files: ["a.mov"], replacesOriginals: true)
-        let kept = UserMessages.streamOmissionConsequence([.timecode], files: ["a.mov"], replacesOriginals: false)
-        for text in [replaced, kept] {
-            XCTAssertTrue(text.contains("a.mov"))
-            XCTAssertTrue(text.contains(timecode))
+    func testDismissingTheQuestionWritesNothing() async throws {
+        let directory = try workspace()
+        let timecoded = try await timecodedClip(in: directory)
+        let original = try Data(contentsOf: timecoded)
+        let (jobs, activity, store) = try makeActivity(in: directory)
+        let first = try await runRotate([timecoded], jobs: jobs, settings: store.planning)
+        XCTAssertTrue(jobs.canContinueWithoutStreams(first.batchID))
+        let known = Set(jobs.sessions.keys)
+
+        activity.dismissBatch(first.batchID)
+        XCTAssertFalse(jobs.canContinueWithoutStreams(first.batchID))
+        jobs.continueWithoutStreams(first.batchID)
+        try await Task.sleep(for: .milliseconds(500))
+        XCTAssertTrue(jobs.active.isEmpty)
+        XCTAssertEqual(Set(jobs.sessions.keys), known.subtracting([first.batchID]))
+        XCTAssertEqual(try Data(contentsOf: timecoded), original)
+        XCTAssertEqual(try files(in: directory), ["engine", "timecoded.mov"])
+    }
+
+    func testEveryAffectedFileIsShownAndOnlyThoseAreResubmitted() async throws {
+        let directory = try workspace()
+        let source = try await timecodedClip(in: directory)
+        let clips = try (1...6).map { index in
+            let clip = directory.appending(path: "clip-\(index).mov")
+            try FileManager.default.copyItem(at: source, to: clip)
+            return clip
         }
-        XCTAssertNotEqual(replaced, kept)
-        let batch = UserMessages.streamOmissionConsequence(
-            [.timecode, .chapter], files: ["a.mov", "b.mov"], replacesOriginals: false)
-        XCTAssertTrue(batch.contains("2"))
-        XCTAssertTrue(batch.contains(UserMessages.unpreservedStreams([.timecode, .chapter], joinedBy: .or)))
-        let action = UserMessages.continueWithout([.timecode, .chapter])
-        XCTAssertTrue(action.contains(timecode.localizedCapitalized))
-        XCTAssertTrue(action.contains(String(localized: "chapters").localizedCapitalized))
+        try FileManager.default.removeItem(at: source)
+        let (jobs, activity, store) = try makeActivity(in: directory)
+        let first = try await runRotate(clips, jobs: jobs, settings: store.planning)
+        let session = try XCTUnwrap(jobs.sessions[first.batchID])
+        let result = ActivityResult(first, awaitingConsent: session)
+        XCTAssertEqual(result.status, .awaitingConfirmation)
+        XCTAssertEqual(result.statusText, "6 files need your confirmation.")
+        XCTAssertEqual(result.confirmations.map(\.file), clips.map(\.lastPathComponent))
+        XCTAssertTrue(result.confirmations.allSatisfy { $0.streams == [.timecode] })
+
+        let retried = try await continueAndWait(first.batchID, jobs: jobs)
+        XCTAssertEqual(retried.request.inputs, clips)
+        XCTAssertEqual(retried.outcome.outcomes.count, 6)
+        XCTAssertTrue(retried.outcome.outcomes.allSatisfy { if case .succeeded = $0 { true } else { false } })
+        activity.dismissBatch(first.batchID)
+    }
+
+    func testRealFailuresStayDistinctFromQuestionsAndRetryFailedSkipsQuestions() async throws {
+        let directory = try workspace()
+        let timecoded = try await timecodedClip(in: directory)
+        let broken = directory.appending(path: "broken.mov")
+        try (Data([0, 0, 0, 0x14]) + Data("ftypqt  ".utf8) + Data(repeating: 0, count: 2_048)).write(to: broken)
+        let (jobs, activity, store) = try makeActivity(in: directory)
+        store.settings.outputMode = .newFile
+        let options = try XCTUnwrap(
+            OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: store.planning))
+        let outcome = await jobs.run(
+            OperationRequest(op: .videoConvert, options: options, inputs: [broken, timecoded])
+        ).value
+        let first = try XCTUnwrap(outcome)
+        let session = try XCTUnwrap(jobs.sessions[first.batchID])
+        XCTAssertEqual(session.failedIndices, [0], "Retry Failed covers the real failure only")
+
+        let result = ActivityResult(first, awaitingConsent: session)
+        XCTAssertEqual(result.problems.count, 1)
+        XCTAssertTrue(result.isFailure)
+        XCTAssertEqual(result.confirmations.map(\.file), ["timecoded.mov"])
+        XCTAssertEqual(result.statusText, "Finished with 1 problem.")
+        XCTAssertEqual(result.summary, "Finished with 1 problem. 1 file needs your confirmation.")
+        activity.dismissBatch(first.batchID)
+    }
+
+    func testConsentedReplaceUndoRestoresTheOriginalWithItsTimecode() async throws {
+        let directory = try workspace()
+        let timecoded = try await timecodedClip(in: directory)
+        let original = try Data(contentsOf: timecoded)
+        let (jobs, activity, store) = try makeActivity(in: directory)
+        store.settings.outputMode = .replace
+        let first = try await runRotate([timecoded], jobs: jobs, settings: store.planning)
+        let session = try XCTUnwrap(jobs.sessions[first.batchID])
+        XCTAssertEqual(
+            UserMessages.streamOmissionConsequence(
+                files: ActivityResult(first, awaitingConsent: session).confirmations.map(\.file),
+                replacesOriginals: session.replacesOriginals),
+            "If you continue, “timecoded.mov” is replaced. The original moves to the Trash, and you can undo this.")
+
+        let retried = try await continueAndWait(first.batchID, jobs: jobs)
+        guard case .succeeded = retried.outcome.outcomes.first else {
+            return XCTFail("consented replace failed: \(retried.outcome.outcomes)")
+        }
+        XCTAssertNotEqual(try Data(contentsOf: timecoded), original)
+        let rotated = try await AVURLAsset(url: timecoded).loadTracks(withMediaType: .timecode)
+        XCTAssertTrue(rotated.isEmpty)
+
+        jobs.undo(retried.outcome.batchID)
+        try await eventually { (try? Data(contentsOf: timecoded)) == original }
+        let restored = try await AVURLAsset(url: timecoded).loadTracks(withMediaType: .timecode)
+        XCTAssertEqual(restored.count, 1)
+        activity.dismissBatch(first.batchID)
+    }
+
+    func testEnglishConsentTextIsSpecificAndPlain() throws {
+        XCTAssertEqual(
+            UserMessages.streamsStatement(file: "a.mov", streams: [.timecode]),
+            "“a.mov” contains timecode, which MacEase can’t carry over.")
+        XCTAssertEqual(
+            UserMessages.streamsStatement(file: "b.mkv", streams: [.audio, .subtitle]),
+            "“b.mkv” contains extra audio and subtitles, which MacEase can’t carry over.")
+        XCTAssertEqual(
+            UserMessages.consequence(of: .timecode),
+            "Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.")
+        XCTAssertEqual(UserMessages.consequence(of: .audio), "Extra audio: only the first audio track is kept.")
+        XCTAssertEqual(UserMessages.confirmationCount(1), "1 file needs your confirmation.")
+        XCTAssertEqual(UserMessages.confirmationCount(6), "6 files need your confirmation.")
+        XCTAssertEqual(UserMessages.continueWithout([.timecode]), "Continue Without Timecode")
+        XCTAssertEqual(
+            UserMessages.continueWithout([.subtitle, .timecode]), "Continue Without Subtitles and Timecode")
+        XCTAssertEqual(UserMessages.continueWithout([.subtitle, .timecode, .chapter]), "Continue Without Them")
+        XCTAssertEqual(
+            UserMessages.streamOmissionConsequence(files: ["a.mov"], replacesOriginals: false),
+            "If you continue, a new file is made and “a.mov” stays as it is.")
+        XCTAssertEqual(
+            UserMessages.streamOmissionConsequence(files: ["a.mov", "b.mov"], replacesOriginals: true),
+            "If you continue, these 2 files are replaced. The originals move to the Trash, and you can undo this.")
+        XCTAssertEqual(
+            UserMessages.streamOmissionConsequence(files: ["a.mov", "b.mov"], replacesOriginals: false),
+            "If you continue, new files are made and the originals stay as they are.")
+        XCTAssertEqual(
+            UserMessages.continuedWithout([.timecode]), "Continued without timecode. The new result is below.")
+        XCTAssertEqual(UserMessages.describe(.streamsOmitted([.timecode])), "Left out, as you confirmed: timecode.")
+        XCTAssertEqual(
+            UserMessages.describe(.invalidInput(.unpreservedStreams([.timecode, .chapter])), file: "clip.mov"),
+            "Couldn’t process “clip.mov”: it contains timecode and chapters, which MacEase can’t carry over. Nothing was changed."
+        )
+
+        let directory = try workspace()
+        let files = try ["a.mov", "Interview B-roll.mov"].map { name in
+            let url = directory.appending(path: name)
+            try Data("video".utf8).write(to: url)
+            return StreamConsentRequest.File(
+                url: url, omission: StreamOmission(stamp: try MediaSourceStamp(url: url), streams: [.timecode]))
+        }
+        let single = StreamConsentRequest(purpose: .open, files: [files[0]])
+        XCTAssertEqual(single.title, "Open “a.mov” without timecode?")
+        XCTAssertEqual(
+            single.message,
+            """
+            “a.mov” contains timecode, which MacEase can’t carry over.
+
+            Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.
+
+            Opening doesn’t change “a.mov”.
+            """)
+        XCTAssertEqual(single.actionTitle, "Open Without Timecode")
+        let batch = StreamConsentRequest(purpose: .proceed, files: files)
+        XCTAssertEqual(batch.title, "Continue without timecode?")
+        XCTAssertEqual(
+            batch.message,
+            """
+            These files contain content MacEase can’t carry over:
+            “a.mov”: timecode
+            “Interview B-roll.mov”: timecode
+
+            Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.
+
+            Your originals stay as they are.
+            """)
+        XCTAssertEqual(batch.actionTitle, "Continue Without Timecode")
+        XCTAssertEqual(
+            StreamConsentRequest(purpose: .add(files.map(\.url)), files: files).title,
+            "Add 2 videos without content MacEase can’t carry over?")
+    }
+
+    func testJapaneseConsentTextIsTranslated() throws {
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        func ja(_ key: String) -> String { japanese.localizedString(forKey: key, value: nil, table: nil) }
+        XCTAssertEqual(
+            String(format: ja("“%@” contains %@, which MacEase can’t carry over."), "a.mov", ja("timecode")),
+            "“a.mov” にはタイムコードが含まれていますが、MacEase では引き継げません。")
+        XCTAssertEqual(
+            ja("Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound."),
+            "タイムコード：編集アプリがクリップの位置合わせに使う情報です。省いても映像と音声には影響しません。")
+        XCTAssertEqual(ja("Extra audio: only the first audio track is kept."), "2本目以降の音声トラック：最初の音声トラックだけが残ります。")
+        XCTAssertEqual(ja("Subtitles: they can no longer be turned on during playback."), "字幕：再生中に表示できなくなります。")
+        XCTAssertEqual(ja("Chapters: you can no longer jump from chapter to chapter."), "チャプター：チャプター単位で移動できなくなります。")
+        XCTAssertEqual(ja("1 file needs your confirmation."), "確認が必要なファイルが 1 件あります。")
+        XCTAssertEqual(String(format: ja("%lld files need your confirmation."), 6), "確認が必要なファイルが 6 件あります。")
+        XCTAssertEqual(String(format: ja("Continue Without %@"), ja("timecode")), "タイムコードなしで続ける")
+        XCTAssertEqual(ja("Continue Without Them"), "これらを省いて続ける")
+        XCTAssertEqual(
+            String(
+                format: ja(
+                    "If you continue, “%@” is replaced. The original moves to the Trash, and you can undo this."),
+                "a.mov"),
+            "続けると、“a.mov” は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。")
+        XCTAssertEqual(
+            String(format: ja("If you continue, a new file is made and “%@” stays as it is."), "a.mov"),
+            "続けると新しいファイルが作られ、“a.mov” はそのまま残ります。")
+        XCTAssertEqual(
+            String(format: ja("Open “%@” without %@?"), "a.mov", ja("timecode")), "“a.mov” をタイムコードなしで開きますか？")
+        XCTAssertEqual(
+            String(format: ja("Continued without %@. The new result is below."), ja("timecode")),
+            "タイムコードを省いて続けました。新しい結果は下に表示されています。")
+        XCTAssertEqual(
+            String(
+                format: ja(
+                    "Couldn’t process “%@”: it contains %@, which MacEase can’t carry over. Nothing was changed."),
+                "clip.mov", ja("timecode")),
+            "“clip.mov” を処理できませんでした：タイムコードが含まれていますが、MacEase では引き継げません。ファイルは変更されていません。")
+        XCTAssertEqual(String(format: ja("Left out, as you confirmed: %@."), ja("timecode")), "確認したとおり省きました：タイムコード。")
     }
 
     func testEditorAsksBeforeOpeningAndSavesWithTheSameConsent() async throws {
@@ -86,9 +270,10 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertFalse(model.ready)
         let request = try XCTUnwrap(model.streamConsent)
         XCTAssertEqual(request.purpose, .open)
-        XCTAssertEqual(request.files, [StreamConsentRequest.File(url: timecoded, streams: [.timecode])])
-        XCTAssertTrue(request.title.contains(timecoded.lastPathComponent))
-        XCTAssertTrue(request.actionTitle.contains(String(localized: "timecode tracks").localizedCapitalized))
+        XCTAssertEqual(request.files.map(\.url), [timecoded])
+        XCTAssertEqual(request.streams, [.timecode])
+        XCTAssertEqual(request.title, "Open “timecoded.mov” without timecode?")
+        XCTAssertEqual(request.actionTitle, "Open Without Timecode")
 
         model.continueWithoutStreams(request)
         try await eventually { model.canPlay || model.failure != nil }
@@ -139,7 +324,8 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertNil(model.failure)
         XCTAssertFalse(model.ready)
         let request = try XCTUnwrap(model.streamConsent)
-        XCTAssertEqual(request.files, [StreamConsentRequest.File(url: audio, streams: [.data])])
+        XCTAssertEqual(request.files.map(\.url), [audio])
+        XCTAssertEqual(request.streams, [.data])
 
         model.continueWithoutStreams(request)
         try await eventually { model.ready || model.failure != nil }
@@ -157,6 +343,125 @@ final class StreamConsentTests: XCTestCase {
             return XCTFail("trim failed: \(outcome.outcomes)")
         }
         XCTAssertEqual(warnings, [.streamsOmitted([.data])])
+    }
+
+    func testEditorAsksAgainWhenTheFileIsReplacedWhileAsking() async throws {
+        let directory = try workspace()
+        let timecoded = try await timecodedClip(in: directory)
+        let model = MediaEditorModel(
+            urls: [timecoded], isVideo: true, settings: Engine.Settings(), staging: try staging(in: directory))
+        addTeardownBlock { await model.close() }
+        model.load()
+        try await eventually { model.streamConsent != nil || model.failure != nil }
+        let shown = try XCTUnwrap(model.streamConsent)
+
+        let replacement = try await timecodedClip(in: try workspace())
+        try FileManager.default.removeItem(at: timecoded)
+        try FileManager.default.copyItem(at: replacement, to: timecoded)
+        model.continueWithoutStreams(shown)
+        try await eventually { model.streamConsent != nil || model.canPlay || model.failure != nil }
+        XCTAssertFalse(model.canPlay, "consent for the old file must not open the new one")
+        let asked = try XCTUnwrap(model.streamConsent)
+        XCTAssertNotEqual(asked.files.map(\.omission.stamp), shown.files.map(\.omission.stamp))
+
+        model.continueWithoutStreams(asked)
+        try await eventually { model.canPlay || model.failure != nil }
+        XCTAssertNil(model.failure)
+    }
+
+    func testAudioTrimAsksAgainWhenTheFileIsReplacedWhileAsking() async throws {
+        let directory = try workspace()
+        let audio = try waveWithCuePoints(in: directory)
+        let model = AudioTrimModel(url: audio, staging: try staging(in: directory), prefill: nil)
+        addTeardownBlock { await model.close() }
+        await model.load()
+        let shown = try XCTUnwrap(model.streamConsent)
+
+        let replacement = try Data(contentsOf: audio)
+        try FileManager.default.removeItem(at: audio)
+        try replacement.write(to: audio)
+        model.continueWithoutStreams(shown)
+        try await eventually { model.streamConsent != nil || model.ready || model.failure != nil }
+        XCTAssertFalse(model.ready)
+        XCTAssertTrue(model.omittedStreams.isEmpty)
+        let asked = try XCTUnwrap(model.streamConsent)
+        XCTAssertNotEqual(asked.files.map(\.omission.stamp), shown.files.map(\.omission.stamp))
+    }
+
+    func testAudioTrimRunRefusesAnOriginalReplacedAfterPreview() async throws {
+        let directory = try workspace()
+        let audio = try waveWithCuePoints(in: directory)
+        let model = AudioTrimModel(url: audio, staging: try staging(in: directory), prefill: nil)
+        addTeardownBlock { await model.close() }
+        await model.load()
+        model.continueWithoutStreams(try XCTUnwrap(model.streamConsent))
+        try await eventually { model.ready || model.failure != nil }
+        model.changeRange(start: 0, end: model.duration / 2)
+        let trim = try model.trimRequest()
+        XCTAssertEqual(trim.omittedStreams, [.data])
+
+        let replacement = Data(try Data(contentsOf: audio).reversed())
+        try FileManager.default.removeItem(at: audio)
+        try replacement.write(to: audio)
+        var settings = Engine.Settings()
+        settings.outputMode = .replace
+        let engine = try JobEngine(supportDirectory: directory.appending(path: "engine"), concurrency: 1)
+        let outcome = await engine.run(OperationPlanner.batch(for: trim, settings: settings), settings: settings) {
+            _ in
+        }
+        guard case .failed = outcome.outcomes.first else {
+            return XCTFail("a replaced original must not be trimmed: \(outcome.outcomes)")
+        }
+        XCTAssertNil(outcome.record)
+        XCTAssertEqual(try Data(contentsOf: audio), replacement)
+        XCTAssertEqual(try files(in: directory), ["cues.wav", "engine", "support"])
+    }
+
+    func testAudioEnhancementAsksFirstAndCarriesTheConsentIntoTheRun() async throws {
+        let directory = try workspace()
+        let source = directory.appending(path: "two-voices.ogg")
+        let ffmpeg = Process()
+        ffmpeg.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        ffmpeg.arguments = [
+            "-nostdin", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-f", "lavfi", "-i",
+            "sine=frequency=660:duration=1", "-map", "0", "-map", "1", "-c:a", "libopus", source.path,
+        ]
+        try ffmpeg.run()
+        ffmpeg.waitUntilExit()
+        XCTAssertEqual(ffmpeg.terminationStatus, 0)
+        var submitted: [Batch] = []
+        let model = AudioEnhancementModel(source: source) { submitted.append($0) }
+
+        model.enhance()
+        try await eventually { model.streamConsent != nil || model.failure != nil }
+        let declined = try XCTUnwrap(model.streamConsent)
+        XCTAssertEqual(declined.purpose, .proceed)
+        XCTAssertEqual(declined.streams, [.audio])
+        model.streamConsent = nil
+        XCTAssertTrue(submitted.isEmpty, "declining submits nothing")
+
+        model.enhance()
+        try await eventually { model.streamConsent != nil || model.failure != nil }
+        model.continueWithoutStreams(try XCTUnwrap(model.streamConsent))
+        XCTAssertEqual(submitted.map { $0.items.map(\.omittedStreams) }, [[[.audio]]])
+        XCTAssertTrue(model.submitted)
+    }
+
+    private func runRotate(_ inputs: [URL], jobs: JobCenter, settings: Engine.Settings) async throws -> BatchOutcome {
+        let options = try XCTUnwrap(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
+        let outcome = await jobs.run(OperationRequest(op: .videoRotate, options: options, inputs: inputs)).value
+        return try XCTUnwrap(outcome)
+    }
+
+    private func continueAndWait(_ id: UUID, jobs: JobCenter) async throws -> ActivitySession {
+        let known = Set(jobs.sessions.keys)
+        jobs.continueWithoutStreams(id)
+        try await eventually { jobs.sessions.keys.contains { !known.contains($0) } }
+        return try XCTUnwrap(jobs.sessions.first { !known.contains($0.key) }?.value)
+    }
+
+    private func files(in directory: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: directory.path).filter { !$0.hasPrefix(".") }.sorted()
     }
 
     private func makeActivity(in directory: URL) throws -> (JobCenter, ActivityWindow, SettingsStore) {

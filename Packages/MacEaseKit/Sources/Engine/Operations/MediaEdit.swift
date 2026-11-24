@@ -22,6 +22,21 @@ public struct MediaSourceStamp: Codable, Hashable, Sendable {
     }
 }
 
+/// Consent binds to the file version the user saw.
+public struct StreamOmission: Hashable, Sendable {
+    public let stamp: MediaSourceStamp
+    public let streams: Set<UnpreservedStream>
+
+    public init(stamp: MediaSourceStamp, streams: Set<UnpreservedStream>) {
+        self.stamp = stamp
+        self.streams = streams
+    }
+
+    public func streams(covering current: MediaSourceStamp) -> Set<UnpreservedStream> {
+        current == stamp ? streams : []
+    }
+}
+
 public struct EditCrop: Codable, Hashable, Sendable {
     public var x = 0.0
     public var y = 0.0

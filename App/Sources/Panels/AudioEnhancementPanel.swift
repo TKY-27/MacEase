@@ -8,6 +8,8 @@ final class AudioEnhancementModel {
     var mode: AudioEnhancementMode
     private(set) var failure: String?
     private(set) var submitted = false
+    private(set) var checking = false
+    var streamConsent: StreamConsentRequest?
     private var closed = false
     private let run: (Batch) -> Void
 
@@ -18,18 +20,42 @@ final class AudioEnhancementModel {
     }
 
     func enhance() {
-        guard !closed, !submitted else { return }
+        guard !closed, !submitted, !checking else { return }
         failure = nil
+        checking = true
+        let source = source
+        Task {
+            defer { checking = false }
+            do {
+                let omission = try await Task.detached { try AudioEnhancement.streamOmission(for: source) }.value
+                guard let omission else { return submit(omission: nil) }
+                streamConsent = StreamConsentRequest(purpose: .proceed, files: [.init(url: source, omission: omission)])
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    func continueWithoutStreams(_ request: StreamConsentRequest) {
+        streamConsent = nil
+        submit(omission: request.files.first { $0.url == source }?.omission)
+    }
+
+    private func submit(omission: StreamOmission?) {
+        guard !closed, !submitted else { return }
         do {
-            let batch = try AudioEnhancement().makeBatch(source: source, mode: mode)
+            let batch = try AudioEnhancement().makeBatch(source: source, mode: mode, omission: omission)
             submitted = true
             run(batch)
         } catch EngineError.unsupportedCodec(let requirement) {
             failure = requirement
         } catch {
-            failure = UserMessages.describe(
-                EngineError.wrapping(error, path: source.path), file: source.lastPathComponent)
+            report(error)
         }
+    }
+
+    private func report(_ error: Error) {
+        failure = UserMessages.describe(EngineError.wrapping(error, path: source.path), file: source.lastPathComponent)
     }
 
     func close() { closed = true }
@@ -41,14 +67,11 @@ struct AudioEnhancementPanel: View {
 
     var body: some View {
         PanelForm(
-            actionTitle: String(localized: "Export New Files"), canRun: !model.submitted,
+            actionTitle: String(localized: "Export New Files"), canRun: !model.submitted && !model.checking,
             cancel: {
                 model.close(); close()
             },
-            run: {
-                model.enhance()
-                if model.submitted { close() }
-            }
+            run: model.enhance
         ) {
             LabeledContent("Source", value: model.source.displayName)
             Picker("Output", selection: $model.mode) {
@@ -65,6 +88,8 @@ struct AudioEnhancementPanel: View {
                 .foregroundStyle(.secondary)
             if let failure = model.failure { ProblemLabel(text: failure) }
         }
+        .onChange(of: model.submitted) { _, submitted in if submitted { close() } }
+        .streamConsentAlert($model.streamConsent, accept: model.continueWithoutStreams) { _ in }
         .onDisappear { model.close() }
     }
 }
