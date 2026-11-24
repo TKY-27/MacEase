@@ -2554,6 +2554,271 @@ final class MediaEditorModelTests: XCTestCase {
         return output
     }
 
+    func testDiscreteEditsWhileNumericFieldKeepsFocusRecordFourUndoSteps() async throws {
+        let model = try await videoModel()
+        let host = NSHostingView(
+            rootView: EditorNumberField(
+                model: model, title: "Speed", id: "speed", keyPath: \.speed,
+                range: VideoEdit.speedRange, precision: 2))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("2", replacementRange: editor.selectedRange())
+        XCTAssertEqual(model.values.speed, 2)
+
+        model.change { $0.volume = 0 }
+        model.binding(\.fadeIn).wrappedValue = 1
+        model.duplicateSelection()
+        XCTAssertNotNil(field.currentEditor(), "Speed field keeps focus across discrete edits")
+        XCTAssertEqual(model.values.segments.count, 2)
+
+        model.undo()
+        XCTAssertEqual(model.values.segments.count, 1)
+        XCTAssertEqual(model.values.fadeIn, 1)
+        XCTAssertEqual(model.values.volume, 0)
+        XCTAssertEqual(model.values.speed, 2)
+        model.undo()
+        XCTAssertEqual(model.values.fadeIn, 0)
+        XCTAssertEqual(model.values.volume, 0)
+        XCTAssertEqual(model.values.speed, 2)
+        model.undo()
+        XCTAssertEqual(model.values.volume, 1)
+        XCTAssertEqual(model.values.speed, 2)
+        model.undo()
+        XCTAssertEqual(model.values.speed, 1)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testPhotoSwitchWhileEditingExposureFieldSeparatesPhotoUndoSteps() async throws {
+        let model = try await photoModel(additionalPhoto: true)
+        let firstPhoto = model.photoURLs[0]
+        let secondPhoto = model.photoURLs[1]
+        struct ExposureHost: View {
+            @Bindable var model: MediaEditorModel
+            var body: some View {
+                EditorNumberField(
+                    model: model, title: "Exposure", id: MediaAdjustment.exposure.rawValue,
+                    value: model.adjustments[.exposure], range: MediaAdjustment.exposure.range, precision: 2
+                ) { amount, interaction in
+                    model.setAdjustment(.exposure, to: amount, in: interaction)
+                }
+            }
+        }
+        let host = NSHostingView(rootView: ExposureHost(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("0.5", replacementRange: editor.selectedRange())
+        XCTAssertEqual(model.values.photoEdits[firstPhoto]?.adjustments[.exposure] ?? 0, 0.5, accuracy: 0.001)
+
+        model.selectPhoto(secondPhoto)
+        XCTAssertNotNil(field.currentEditor(), "field stays focused across photo selection")
+        editor.selectAll(nil)
+        editor.insertText("0.8", replacementRange: editor.selectedRange())
+        XCTAssertEqual(model.values.photoEdits[firstPhoto]?.adjustments[.exposure] ?? 0, 0.5, accuracy: 0.001)
+        XCTAssertEqual(model.values.photoEdits[secondPhoto]?.adjustments[.exposure] ?? 0, 0.8, accuracy: 0.001)
+
+        model.undo()
+        XCTAssertEqual(model.values.photoEdits[secondPhoto]?.adjustments[.exposure] ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(model.values.photoEdits[firstPhoto]?.adjustments[.exposure] ?? 0, 0.5, accuracy: 0.001)
+        model.undo()
+        XCTAssertEqual(model.values.photoEdits[firstPhoto]?.adjustments[.exposure] ?? 0, 0, accuracy: 0.001)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testTypingStartThenImmediatelyEndRecordsTwoUndoSteps() async throws {
+        let model = try await videoModel()
+        struct BoundaryHost: View {
+            @Bindable var model: MediaEditorModel
+            var body: some View {
+                HStack {
+                    EditorNumberField(
+                        model: model, title: "Start", id: "start", value: model.values.start,
+                        range: 0...model.sourceDuration, precision: 3, timecode: true
+                    ) { seconds, interaction in
+                        model.setVideoBoundary(seconds, start: true, in: interaction)
+                    }
+                    EditorNumberField(
+                        model: model, title: "End", id: "end", value: model.values.end,
+                        range: 0...model.sourceDuration, precision: 3, timecode: true
+                    ) { seconds, interaction in
+                        model.setVideoBoundary(seconds, start: false, in: interaction)
+                    }
+                }
+            }
+        }
+        let host = NSHostingView(rootView: BoundaryHost(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 40), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let fields = textFields(in: host)
+        XCTAssertEqual(fields.count, 2)
+
+        XCTAssertTrue(window.makeFirstResponder(fields[0]))
+        let startEditor = try XCTUnwrap(fields[0].currentEditor() as? NSTextView)
+        startEditor.selectAll(nil)
+        startEditor.insertText("0.5", replacementRange: startEditor.selectedRange())
+
+        XCTAssertTrue(window.makeFirstResponder(fields[1]))
+        let endEditor = try XCTUnwrap(fields[1].currentEditor() as? NSTextView)
+        endEditor.selectAll(nil)
+        endEditor.insertText("1.5", replacementRange: endEditor.selectedRange())
+        await model.finishBoundaryInput()
+        window.makeFirstResponder(nil)
+
+        XCTAssertEqual(model.values.start, 0.5, accuracy: model.sourceFrameDuration)
+        XCTAssertEqual(model.values.end, 1.5, accuracy: model.sourceFrameDuration)
+        model.undo()
+        XCTAssertEqual(model.values.start, 0.5, accuracy: model.sourceFrameDuration)
+        XCTAssertEqual(model.values.end, model.duration, accuracy: 0.000_001)
+        model.undo()
+        XCTAssertEqual(model.values.start, 0, accuracy: 0.000_001)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testSpeedFieldThenVolumeSliderDragThenSpeedFieldRecordsThreeUndoSteps() async throws {
+        let model = try await videoModel()
+        let host = NSHostingView(
+            rootView: EditorNumberField(
+                model: model, title: "Speed", id: "speed", keyPath: \.speed,
+                range: VideoEdit.speedRange, precision: 2))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("2", replacementRange: editor.selectedRange())
+
+        let slider = model.beginInteraction()
+        for volume in [0.8, 0.6, 0.5] {
+            model.change(in: slider) { $0.volume = volume }
+        }
+        model.endInteraction(slider)
+        XCTAssertNotNil(field.currentEditor())
+
+        editor.selectAll(nil)
+        editor.insertText("3", replacementRange: editor.selectedRange())
+        editor.selectAll(nil)
+        editor.insertText("4", replacementRange: editor.selectedRange())
+        window.makeFirstResponder(nil)
+
+        XCTAssertEqual(model.values.speed, 4)
+        XCTAssertEqual(model.values.volume, 0.5)
+        model.undo()
+        XCTAssertEqual(model.values.speed, 2)
+        XCTAssertEqual(model.values.volume, 0.5)
+        model.undo()
+        XCTAssertEqual(model.values.volume, 1)
+        XCTAssertEqual(model.values.speed, 2)
+        model.undo()
+        XCTAssertEqual(model.values.speed, 1)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testMarkupTextFieldTypingAfterToolbarUndoIsOneUndoStep() async throws {
+        let model = try await photoModel()
+        let initialMark = EditMark.text("Label", at: EditPoint(x: 0.5, y: 0.5), color: .red, size: .medium)
+        let id = try XCTUnwrap(model.addOverlay(initialMark))
+        struct TextHost: View {
+            @Bindable var model: MediaEditorModel
+            let id: UUID
+            var body: some View {
+                let text: String =
+                    if case .text(let value, _, _, _) = model.selectedOverlay?.mark { value } else { "" }
+                MarkupTextField(model: model, id: id, text: text)
+            }
+        }
+        let host = NSHostingView(rootView: TextHost(model: model, id: id))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 240, height: 60), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        try await eventually { !self.textFields(in: host).isEmpty }
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        try await eventually { field.currentEditor() != nil }
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("Hello", replacementRange: editor.selectedRange())
+        XCTAssertEqual(
+            model.selectedOverlay?.mark, .text("Hello", at: EditPoint(x: 0.5, y: 0.5), color: .red, size: .medium))
+
+        model.undo()
+        XCTAssertEqual(model.selectedOverlay?.mark, initialMark)
+        XCTAssertNotNil(field.currentEditor(), "MarkupTextField keeps focus after toolbar Undo")
+
+        editor.selectAll(nil)
+        editor.insertText("a", replacementRange: editor.selectedRange())
+        editor.insertText("b", replacementRange: editor.selectedRange())
+        editor.insertText("c", replacementRange: editor.selectedRange())
+        XCTAssertEqual(
+            model.selectedOverlay?.mark, .text("abc", at: EditPoint(x: 0.5, y: 0.5), color: .red, size: .medium))
+
+        model.undo()
+        XCTAssertEqual(model.selectedOverlay?.mark, initialMark, "all three letters revert in one Undo step")
+        model.undo()
+        XCTAssertTrue(model.markupOverlays.isEmpty)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testSliderDragThroughManyValuesIsOneUndoStep() async throws {
+        let model = try await videoModel()
+        let slider = model.beginInteraction()
+        for volume in [0.9, 0.7, 0.5, 0.3, 0.1] {
+            model.change(in: slider) { $0.volume = volume }
+        }
+        model.endInteraction(slider)
+        XCTAssertEqual(model.values.volume, 0.1)
+        model.undo()
+        XCTAssertEqual(model.values.volume, 1)
+        XCTAssertFalse(model.canUndo)
+    }
+
+    func testUndoWhileBoundarySnapIsPendingRestoresOnlyPreviousAndNothingLandsAfterwards() async throws {
+        let model = try await videoModel()
+        let original = model.values
+        model.change { $0.speed = 2 }
+        let interaction = model.beginInteraction()
+        model.setVideoBoundary(0.5, start: true, in: interaction)
+        XCTAssertTrue(model.hasPendingBoundaryInput)
+        model.undo()
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values, original)
+        XCTAssertEqual(model.values.start, 0)
+        XCTAssertFalse(model.canUndo)
+        XCTAssertFalse(model.hasPendingBoundaryInput)
+    }
+
     private func japanese(_ key: String) -> String {
         let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
         return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"
