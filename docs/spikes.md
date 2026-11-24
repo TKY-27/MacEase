@@ -1062,3 +1062,23 @@ one composition track produces a ready-to-play item but no rendered audio.
 Separate audio tracks per source restore rendering. An app-hosted audio tap
 measures nonzero samples across six seeks/replays spanning a freeze and the
 staged reversed source. The staged source remains lossless PCM.
+
+## Editor annotation rasterization (2026-11-24)
+
+Apple M5, macOS 27.2.1, Swift 6.4.2, Debug. The measurement renders heavy
+system-font text into a 1280 by 720 bitmap, using a 1920 by 1080 reference.
+Each case runs 10 warmups and 120 measured iterations.
+
+| Text annotations | Content cache | Median ms | p95 ms |
+| --- | --- | --- | --- |
+| 1 | Miss | 0.3045 | 0.8542 |
+| 1 | Hit | 0.0010 | 0.0010 |
+| 50 | Miss | 59.8582 | 105.5526 |
+| 50 | Hit | 0.0208 | 0.0216 |
+
+Rebuilding 50 annotations exceeds a 30 fps frame budget. Preview and export
+now share a content-keyed one-entry bitmap cache. Content, geometry or output
+size changes still incur a miss. These measurements include bitmap generation,
+Core Text and cache lookup, excluding decoding, frame-index lookup, Core Image
+GPU compositing, encoding and UI latency. They are not end-to-end frame times.
+Reproduce with `swift test --no-parallel --package-path Packages/MacEaseKit --filter EditorOverlayMeasurements`.
