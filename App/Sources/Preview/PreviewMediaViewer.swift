@@ -162,7 +162,7 @@ struct PreviewMediaViewer: View {
     let restricted: Bool
     let staging: StagingArea
     @State private var playback = PreviewPlayback()
-    private static let audioControlsHeight: CGFloat = 48
+    private static let audioControlsWidth: CGFloat = 420
     private static let audioIconSize: CGFloat = 128
     private static let progressWidth: CGFloat = 200
 
@@ -219,7 +219,7 @@ struct PreviewMediaViewer: View {
                 .frame(width: Self.audioIconSize, height: Self.audioIconSize)
                 .accessibilityHidden(true)
             if let player = playback.player {
-                PreviewPlayer(player: player).frame(height: Self.audioControlsHeight)
+                PreviewAudioControls(player: player).frame(maxWidth: Self.audioControlsWidth)
             }
         }
         .padding(PreviewLayout.margin)
@@ -242,5 +242,86 @@ private struct PreviewPlayer: NSViewRepresentable {
     static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) {
         view.player?.pause()
         view.player = nil
+    }
+}
+
+// AVPlayerView draws a dark backdrop for audio.
+private struct PreviewAudioControls: View {
+    let player: AVPlayer
+    @State private var playing = false
+    @State private var position = 0.0
+    @State private var duration = 0.0
+    @State private var scrubbing = false
+    @State private var observer: Any?
+    private static let updateInterval = CMTime(value: 1, timescale: 10)
+    private static let hourSeconds = 3600.0
+    private static let minimumDuration = 0.01
+    private static let playButtonSize: CGFloat = 28
+    private static let seekTimescale: CMTimeScale = 600
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: toggle) {
+                Image(systemName: playing ? "pause.fill" : "play.fill").font(.title3).foregroundStyle(.primary)
+                    .frame(width: Self.playButtonSize, height: Self.playButtonSize)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(playing ? Text("Pause") : Text("Play"))
+            Text(verbatim: Self.format(position)).accessibilityHidden(true)
+            Slider(value: $position, in: 0...max(duration, Self.minimumDuration)) { editing in
+                scrubbing = editing
+                if !editing { player.seek(to: CMTime(seconds: position, preferredTimescale: Self.seekTimescale)) }
+            }
+            .controlSize(.small)
+            .accessibilityLabel(Text("Position"))
+            .accessibilityValue(Text(verbatim: Self.format(position)))
+            Text(verbatim: Self.format(duration)).accessibilityHidden(true)
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(.secondary)
+        .onAppear(perform: observe)
+        .onDisappear(perform: stopObserving)
+        .task { await loadDuration() }
+    }
+
+    private func toggle() {
+        if playing {
+            player.pause()
+        } else {
+            if duration > 0, position >= duration - Self.minimumDuration { player.seek(to: .zero) }
+            player.play()
+        }
+        playing.toggle()
+    }
+
+    private func observe() {
+        observer = player.addPeriodicTimeObserver(forInterval: Self.updateInterval, queue: .main) { time in
+            MainActor.assumeIsolated {
+                playing = player.timeControlStatus != .paused
+                if !scrubbing, time.seconds.isFinite { position = time.seconds }
+            }
+        }
+    }
+
+    private func stopObserving() {
+        guard let observer else { return }
+        player.removeTimeObserver(observer)
+        self.observer = nil
+    }
+
+    private func loadDuration() async {
+        guard let asset = player.currentItem?.asset else { return }
+        do {
+            let loaded = try await asset.load(.duration).seconds
+            if loaded.isFinite { duration = loaded }
+        } catch {
+            Logger(category: "finder-preview").error(
+                "Preview audio duration failed: \(error.localizedDescription, privacy: .private)")
+        }
+    }
+
+    private static func format(_ seconds: Double) -> String {
+        Duration.seconds(seconds).formatted(.time(pattern: seconds >= hourSeconds ? .hourMinuteSecond : .minuteSecond))
     }
 }
