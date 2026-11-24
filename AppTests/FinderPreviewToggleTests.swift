@@ -28,6 +28,48 @@ final class FinderPreviewToggleTests: XCTestCase {
             japanese.localizedString(forKey: "Show Finder Preview", value: nil, table: nil), "Finderプレビューを表示")
     }
 
+    func testPreviewSettingDefaultsOffAndPersistsAcrossLaunches() throws {
+        let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertFalse(store.finderPreviewEnabled)
+        store.finderPreviewEnabled = true
+        XCTAssertTrue(defaults.bool(forKey: "finderPreview.enabled"))
+        XCTAssertTrue(SettingsStore(defaults: defaults).finderPreviewEnabled)
+        store.resetAll()
+        XCTAssertFalse(SettingsStore(defaults: defaults).finderPreviewEnabled)
+    }
+
+    func testToggleFlipsTheSavedSettingAndTheMenuTitle() throws {
+        let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let store = SettingsStore(defaults: defaults)
+        let coordinator = FinderPreviewCoordinator(settings: store)
+        coordinator.toggle()
+        XCTAssertTrue(store.finderPreviewEnabled)
+        XCTAssertEqual(
+            MenuStrings.previewTitle(open: store.finderPreviewEnabled), String(localized: "Hide Finder Preview"))
+        coordinator.toggle()
+        XCTAssertFalse(SettingsStore(defaults: defaults).finderPreviewEnabled)
+        XCTAssertEqual(
+            MenuStrings.previewTitle(open: store.finderPreviewEnabled), String(localized: "Show Finder Preview"))
+    }
+
+    func testPresenceDocksOnlyWhenEnabledTrustedAndAWindowIsVisible() {
+        let cases: [(Bool, Bool, FinderPreviewPresence.Window, FinderPreviewPresence)] = [
+            (false, false, .visible, .hidden), (false, true, .visible, .hidden), (false, true, .unavailable, .hidden),
+            (true, false, .absent, .notice), (true, false, .visible, .notice), (true, true, .unavailable, .notice),
+            (true, true, .absent, .hidden), (true, true, .visible, .docked),
+        ]
+        for (enabled, trusted, window, expected) in cases {
+            XCTAssertEqual(
+                FinderPreviewPresence(enabled: enabled, trusted: trusted, window: window), expected,
+                "\(enabled) \(trusted) \(window)")
+        }
+    }
+
     func testOnlyCommandWClosesThePanel() throws {
         let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -5,12 +5,17 @@ import os
 
 @MainActor
 final class FinderWindowTracker: NSObject {
-    struct Target {
+    struct Target: Equatable {
         let element: AXUIElement
         let windowID: CGWindowID
         let frame: CGRect
         let screen: CGRect
         let visible: Bool
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.windowID == rhs.windowID && lhs.frame == rhs.frame && lhs.screen == rhs.screen
+                && lhs.visible == rhs.visible && CFEqual(lhs.element, rhs.element)
+        }
     }
 
     private let logger = Logger(category: "finder-preview")
@@ -25,6 +30,7 @@ final class FinderWindowTracker: NSObject {
     var changed: (() -> Void)?
     var focused: (() -> Void)?
     private var focusPending = false
+    private var announcePending = false
     var ended: (() -> Void)?
     var failed: (() -> Void)?
 
@@ -65,9 +71,10 @@ final class FinderWindowTracker: NSObject {
             center.addObserver(self, selector: #selector(workspaceChanged), name: name, object: nil)
         }
         visibilityTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.scheduleRefresh() }
+            Task { @MainActor in self?.scheduleRefresh(announce: false) }
         }
         try retarget()
+        announcePending = true
         refresh()
     }
 
@@ -99,7 +106,7 @@ final class FinderWindowTracker: NSObject {
             let focused = try Self.element(application, attribute: kAXFocusedWindowAttribute)
             return CFEqual(focused, window)
         } catch TrackingError.accessibility(.noValue) {
-            scheduleRefresh()
+            scheduleRefresh(announce: false)
             return false
         } catch {
             report(error)
@@ -109,14 +116,24 @@ final class FinderWindowTracker: NSObject {
 
     private func received(_ element: AXUIElement, notification: String) {
         if notification == kAXUIElementDestroyedNotification, let window, CFEqual(element, window) {
-            ended?()
+            windowClosed()
             return
         }
         if Self.appNotifications.contains(notification) {
             focusPending = true
             do { try retarget() } catch { report(error) }
         }
-        scheduleRefresh()
+        scheduleRefresh(announce: true)
+    }
+
+    // Another Finder window may take focus.
+    private func windowClosed() {
+        if let observer { removeWindowNotifications(observer) }
+        window = nil
+        target = nil
+        focusPending = true
+        do { try retarget() } catch { report(error) }
+        scheduleRefresh(announce: true)
     }
 
     @objc private func workspaceChanged() {
@@ -128,10 +145,12 @@ final class FinderWindowTracker: NSObject {
             focusPending = true
             do { try retarget() } catch { report(error) }
         }
-        scheduleRefresh()
+        scheduleRefresh(announce: true)
     }
 
-    private func scheduleRefresh() {
+    // Unannounced refreshes report only changed targets.
+    private func scheduleRefresh(announce: Bool) {
+        announcePending = announcePending || announce
         guard refreshTask == nil else { return }
         refreshTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(30)) } catch { return }
@@ -146,7 +165,7 @@ final class FinderWindowTracker: NSObject {
         let focused: AXUIElement
         do {
             focused = try Self.element(application, attribute: kAXFocusedWindowAttribute)
-        } catch TrackingError.accessibility(.noValue) where window != nil {
+        } catch TrackingError.accessibility(.noValue) {
             return
         }
         if let window, CFEqual(window, focused) { return }
@@ -173,9 +192,15 @@ final class FinderWindowTracker: NSObject {
     }
 
     private func refresh() {
-        guard let window, let finder, let primary = NSScreen.screens.first else { return }
+        let announce = announcePending
+        announcePending = false
+        guard let finder, let primary = NSScreen.screens.first else { return }
         if finder.isTerminated {
             ended?()
+            return
+        }
+        guard let window else {
+            if announce { changed?() }
             return
         }
         do {
@@ -199,15 +224,14 @@ final class FinderWindowTracker: NSObject {
             }
             let minimized = try Self.attribute(window, kAXMinimizedAttribute) as? Bool == true
             let windowID = (matching?[kCGWindowNumber as String] as? NSNumber)?.uint32Value ?? target?.windowID
-            if let windowID {
-                target = Target(
-                    element: window, windowID: windowID, frame: frame, screen: screen.visibleFrame,
+            let previous = target
+            target = windowID.map {
+                Target(
+                    element: window, windowID: $0, frame: frame, screen: screen.visibleFrame,
                     visible: matching != nil && !minimized && !finder.isHidden)
-            } else {
-                target = nil
             }
             lastFailure = nil
-            changed?()
+            if announce || target != previous { changed?() }
             if focusPending {
                 focusPending = false
                 focused?()
@@ -216,8 +240,8 @@ final class FinderWindowTracker: NSObject {
     }
 
     private func report(_ error: any Error) {
-        if case TrackingError.accessibility(.invalidUIElement) = error {
-            ended?()
+        if case TrackingError.accessibility(.invalidUIElement) = error, window != nil {
+            windowClosed()
             return
         }
         if case TrackingError.accessibility(let status) = error {

@@ -65,8 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.organization = organization
         let panels = PanelCoordinator(jobs: jobs, store: settings, organization: organization, recipes: recipeStore)
         self.panels = panels
-        let finderPreview = FinderPreviewCoordinator()
-        finderPreview.visibilityChanged = { [weak self] in self?.refreshMenuFile() }
+        let finderPreview = FinderPreviewCoordinator(settings: settings)
+        finderPreview.enabledChanged = { [weak self] in self?.refreshMenuFile() }
         self.finderPreview = finderPreview
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }
@@ -122,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         finderService = service
         NSApp.servicesProvider = service
         NSUpdateDynamicServices()
+        finderPreview.start()
         Task { await finishLaunching(engine: engine, jobs: jobs) }
         let isDefaultLaunch = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? false
         if !settings.onboardingCompleted || (isDefaultLaunch && !launchedAsLoginItem) { openApp() }
@@ -330,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuFile = try MenuFileWriter(configuration: configuration).write(
             visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
             monitoredPaths: folders.monitoredPaths, recipes: recipes, placements: settings.menuPlacements,
-            availableVersion: updates.availableVersion, previewOpen: finderPreview?.isOpen == true
+            availableVersion: updates.availableVersion, previewOpen: settings.finderPreviewEnabled
         )
         menuInputs = inputs
     }

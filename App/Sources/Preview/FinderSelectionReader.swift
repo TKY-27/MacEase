@@ -20,8 +20,9 @@ final class FinderSelectionReader {
     private var inFlight = false
     private var authorized = false
 
+    // Without asking, undetermined consent counts as denied.
     func read(
-        isCurrent: @escaping @MainActor () -> Bool,
+        asking: Bool, isCurrent: @escaping @MainActor () -> Bool,
         completion: @escaping @MainActor (Result<Selection, Failure>) -> Void
     ) {
         guard !inFlight else { return }
@@ -31,7 +32,7 @@ final class FinderSelectionReader {
             guard isCurrent() else { return }
             if !authorized {
                 let failure = await withCheckedContinuation { continuation in
-                    queue.async { [worker] in continuation.resume(returning: worker.requestConsent()) }
+                    queue.async { [worker] in continuation.resume(returning: worker.requestConsent(asking: asking)) }
                 }
                 if let failure {
                     if isCurrent() { completion(.failure(failure)) }
@@ -51,7 +52,7 @@ final class FinderSelectionReader {
     private final class ScriptWorker: Sendable {
         private let script = Mutex<NSAppleScript?>(nil)
         private let logger = Logger(category: "finder-preview")
-        private static let deniedCode = Int(errAEEventNotPermitted)
+        private static let deniedCodes = [Int(errAEEventNotPermitted), Int(errAEEventWouldRequireUserConsent)]
         private static let timeoutCode = Int(errAETimeout)
         private static let source = """
             with timeout of 2 seconds
@@ -68,11 +69,11 @@ final class FinderSelectionReader {
             end timeout
             """
 
-        func requestConsent() -> Failure? {
+        func requestConsent(asking: Bool) -> Failure? {
             let finder = NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder")
             let permission = withExtendedLifetime(finder) {
                 guard let target = finder.aeDesc else { return OSStatus(paramErr) }
-                return AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard, true)
+                return AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard, asking)
             }
             return permission == noErr ? nil : rejected(Int(permission))
         }
@@ -118,7 +119,7 @@ final class FinderSelectionReader {
         private func rejected(_ code: Int?) -> Failure {
             logger.error("Finder selection request failed: \(code ?? 0)")
             switch code {
-            case Self.deniedCode: return .automationDenied
+            case let code? where Self.deniedCodes.contains(code): return .automationDenied
             case Self.timeoutCode: return .timedOut
             default: return .unavailable
             }

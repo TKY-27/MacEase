@@ -9,23 +9,6 @@ import os
 final class FinderPreviewState {
     enum Notice {
         case accessibility, automation, unavailable, timedOut
-
-        var text: String {
-            switch self {
-            case .accessibility: String(localized: "Allow Accessibility access to attach Finder Preview to Finder.")
-            case .automation: String(localized: "Allow MacEase to control Finder to follow the selection.")
-            case .unavailable: String(localized: "Finder Preview is unavailable. Try again.")
-            case .timedOut: String(localized: "Finder did not respond in time. Try again.")
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .accessibility: "accessibility"
-            case .automation: "hand.raised"
-            case .unavailable, .timedOut: "exclamationmark.triangle"
-            }
-        }
     }
 
     var generation: UInt64 = 0
@@ -125,20 +108,11 @@ struct FinderPreviewView: View {
     @ViewBuilder private var content: some View {
         if let notice = state.notice {
             barred {
-                PreviewMessage(symbol: notice.symbol, message: Text(notice.text)) {
-                    switch notice {
-                    case .accessibility:
-                        Button("Open Accessibility Settings") {
-                            SystemSettingsPane.open(SystemSettingsPane.accessibility)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    case .automation:
-                        Button("Open Automation Settings") { SystemSettingsPane.open(SystemSettingsPane.automation) }
-                            .buttonStyle(.borderedProminent)
-                    case .unavailable, .timedOut:
-                        EmptyView()
-                    }
-                    Button("Try Again", action: retry)
+                switch notice {
+                case .accessibility: PreviewPermissions(accessibilityAllowed: false, retry: retry)
+                case .automation: PreviewPermissions(accessibilityAllowed: true, retry: retry)
+                case .unavailable: failureMessage(Text("Finder Preview is unavailable. Try again."))
+                case .timedOut: failureMessage(Text("Finder did not respond in time. Try again."))
                 }
             }
         } else if let failure = state.fileFailure {
@@ -159,11 +133,71 @@ struct FinderPreviewView: View {
         }
     }
 
+    private func failureMessage(_ message: Text) -> some View {
+        PreviewMessage(symbol: "exclamationmark.triangle", message: message) {
+            Button("Try Again", action: retry)
+        }
+    }
+
     private func barred(@ViewBuilder _ body: () -> some View) -> some View {
         VStack(spacing: 0) {
             if state.docked { PreviewToolbar {} }
             body().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+// Steps follow the order macOS asks.
+private struct PreviewPermissions: View {
+    let accessibilityAllowed: Bool
+    let retry: () -> Void
+    private static let maximumWidth: CGFloat = 320
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: PreviewLayout.margin) {
+            Text("Finder Preview needs permission").font(.headline).accessibilityAddTraits(.isHeader)
+            step(
+                1, title: Text("Accessibility"), detail: Text("Places the preview beside Finder windows."),
+                allowed: accessibilityAllowed
+            ) {
+                Button("Open Accessibility Settings") { SystemSettingsPane.open(SystemSettingsPane.accessibility) }
+                    .buttonStyle(.borderedProminent)
+            }
+            step(
+                2, title: Text("Automation"), detail: Text("Lets the preview follow the selection in Finder."),
+                allowed: false
+            ) {
+                if accessibilityAllowed {
+                    Button("Open Automation Settings") { SystemSettingsPane.open(SystemSettingsPane.automation) }
+                        .buttonStyle(.borderedProminent)
+                    Button("Try Again", action: retry)
+                } else {
+                    Text("MacEase asks for this next.").font(.callout).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: Self.maximumWidth, alignment: .leading)
+        .padding(PreviewLayout.margin * 2)
+    }
+
+    private func step(
+        _ number: Int, title: Text, detail: Text, allowed: Bool, @ViewBuilder actions: () -> some View
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: allowed ? "checkmark.circle.fill" : "\(number).circle")
+                .font(.title3).foregroundStyle(allowed ? Color.green : Color.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                title.font(.body.weight(.semibold))
+                detail.font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if allowed {
+                    Text("Allowed").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) { actions() }.padding(.top, 4)
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 

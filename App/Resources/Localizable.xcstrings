@@ -411,26 +411,6 @@
         }
       }
     },
-    "Allow Accessibility access to attach Finder Preview to Finder.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finderにプレビューを連動させるには、アクセシビリティへのアクセスを許可してください。"
-          }
-        }
-      }
-    },
-    "Allow MacEase to control Finder to follow the selection.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択項目を追従するには、MacEaseによるFinderの操作を許可してください。"
-          }
-        }
-      }
-    },
     "Finder Preview is unavailable. Try again.": {
       "localizations": {
         "ja": {
@@ -18216,6 +18196,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "このPDFはパスワードでロックされています。"
+          }
+        }
+      }
+    },
+    "Finder Preview needs permission": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderプレビューには許可が必要です"
+          }
+        }
+      }
+    },
+    "Accessibility": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセシビリティ"
+          }
+        }
+      }
+    },
+    "Places the preview beside Finder windows.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウの横にプレビューを表示します。"
+          }
+        }
+      }
+    },
+    "Automation": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オートメーション"
+          }
+        }
+      }
+    },
+    "Lets the preview follow the selection in Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで選択した項目をプレビューに表示します。"
+          }
+        }
+      }
+    },
+    "MacEase asks for this next.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このあとMacEaseが許可を求めます。"
+          }
+        }
+      }
+    },
+    "Allowed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可済み"
           }
         }
       }

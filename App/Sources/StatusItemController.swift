@@ -172,6 +172,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             menu.addItem(.separator())
         }
+        let preview = ClosureMenuItem(title: String(localized: "Finder Preview")) { [settings] in
+            settings.finderPreviewEnabled.toggle()
+        }
+        preview.state = settings.finderPreviewEnabled ? .on : .off
+        menu.addItem(preview)
+        menu.addItem(.separator())
         menu.addItem(
             ClosureMenuItem(title: String(localized: "Settings…", comment: "Menu bar item"), keyEquivalent: ",") {
                 [openSettings] in
