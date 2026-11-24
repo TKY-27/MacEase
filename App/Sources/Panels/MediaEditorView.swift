@@ -825,7 +825,8 @@ private struct EditorNumberControl: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
         let fitting = nsView.fittingSize
         let width = proposal.width ?? max(Self.minimumIdealWidth, fitting.width)
-        return CGSize(width: width, height: fitting.height)
+        let height = nsView.controlSize == .small ? Self.smallHeight : fitting.height
+        return CGSize(width: width, height: height)
     }
 
     static func dismantleNSView(_ view: NSTextField, coordinator: Coordinator) {
@@ -834,6 +835,8 @@ private struct EditorNumberControl: NSViewRepresentable {
     }
 
     private static let minimumIdealWidth: CGFloat = 52
+    // Matches SwiftUI's small text field.
+    private static let smallHeight: CGFloat = 21
 
     private static func controlSize(_ size: ControlSize) -> NSControl.ControlSize {
         switch size {
