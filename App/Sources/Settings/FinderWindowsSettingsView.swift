@@ -21,7 +21,7 @@ struct FinderWindowsSettingsView: View {
                 Text("Storage Bar")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Shows available space and the size of selected items at the bottom of Finder windows.")
+                    Text("Shows available space and the number of selected items at the bottom of Finder windows.")
                     if store.finderStorageBarEnabled && !finderShowsStatusBar {
                         Text("To see it, choose View > Show Status Bar in Finder.")
                     }

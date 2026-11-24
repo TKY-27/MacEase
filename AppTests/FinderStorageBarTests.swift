@@ -122,89 +122,6 @@ final class StorageVolumeTests: XCTestCase {
     }
 }
 
-final class SelectionSizeTests: XCTestCase {
-    func testFilesFoldersAndPackagesAddUpWithoutFollowingSymlinks() throws {
-        let directory = try PreviewFixtures.directory(self)
-        let outside = directory.appendingPathComponent("outside", isDirectory: true)
-        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
-        let large = outside.appendingPathComponent("large.bin")
-        try Data(count: 50_000).write(to: large)
-
-        let file = directory.appendingPathComponent("a.txt")
-        try Data(count: 1_000).write(to: file)
-        let folder = directory.appendingPathComponent("folder", isDirectory: true)
-        let nested = folder.appendingPathComponent("nested", isDirectory: true)
-        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
-        try Data(count: 2_000).write(to: folder.appendingPathComponent("b.txt"))
-        try Data(count: 3_000).write(to: nested.appendingPathComponent("c.txt"))
-        try FileManager.default.createSymbolicLink(
-            at: folder.appendingPathComponent("large link"), withDestinationURL: large)
-        try FileManager.default.createSymbolicLink(
-            at: folder.appendingPathComponent("outside link"), withDestinationURL: outside)
-        let package = directory.appendingPathComponent("Tool.app", isDirectory: true)
-        let contents = package.appendingPathComponent("Contents", isDirectory: true)
-        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
-        try Data(count: 4_000).write(to: contents.appendingPathComponent("Info.plist"))
-        let selectedLink = directory.appendingPathComponent("selected link")
-        try FileManager.default.createSymbolicLink(at: selectedLink, withDestinationURL: large)
-        let linkSize = try XCTUnwrap(selectedLink.resourceValues(forKeys: [.totalFileSizeKey]).totalFileSize)
-        XCTAssertLessThan(linkSize, 1_000)
-
-        XCTAssertEqual(try SelectionSize.total(of: [file], limits: .standard), 1_000)
-        XCTAssertEqual(try SelectionSize.total(of: [folder], limits: .standard), 5_000)
-        XCTAssertEqual(try SelectionSize.total(of: [package], limits: .standard), 4_000)
-        XCTAssertEqual(try SelectionSize.total(of: [selectedLink], limits: .standard), Int64(linkSize))
-        XCTAssertEqual(
-            try SelectionSize.total(of: [file, folder, package, selectedLink], limits: .standard),
-            10_000 + Int64(linkSize))
-    }
-
-    func testLimitsStopTheWalkWithoutAPartialTotal() throws {
-        let folder = try folderOfFiles(count: 5)
-        XCTAssertEqual(try SelectionSize.total(of: [folder], limits: .init(entries: 5, duration: .seconds(10))), 500)
-        XCTAssertNil(try SelectionSize.total(of: [folder], limits: .init(entries: 4, duration: .seconds(10))))
-        XCTAssertNil(try SelectionSize.total(of: [folder], limits: .init(entries: 100, duration: .zero)))
-    }
-
-    func testCancellationStopsTheWalk() async throws {
-        let folder = try folderOfFiles(count: 5)
-        let walk = Task.detached { () throws -> Int64? in
-            withUnsafeCurrentTask { $0?.cancel() }
-            return try SelectionSize.total(of: [folder], limits: .standard)
-        }
-        do {
-            _ = try await walk.value
-            XCTFail("A cancelled walk must not return a total")
-        } catch is CancellationError {}
-    }
-
-    func testUnreadableFoldersGiveNoPartialTotal() throws {
-        let folder = try folderOfFiles(count: 2)
-        let locked = folder.appendingPathComponent("locked", isDirectory: true)
-        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
-        try Data(count: 100).write(to: locked.appendingPathComponent("hidden.bin"))
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
-        addTeardownBlock {
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
-        }
-        XCTAssertThrowsError(try SelectionSize.total(of: [folder], limits: .standard))
-    }
-
-    func testMissingItemsThrow() {
-        let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        XCTAssertThrowsError(try SelectionSize.total(of: [missing], limits: .standard))
-    }
-
-    private func folderOfFiles(count: Int) throws -> URL {
-        let folder = try PreviewFixtures.directory(self).appendingPathComponent("files", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        for index in 0..<count {
-            try Data(count: 100).write(to: folder.appendingPathComponent("\(index).bin"))
-        }
-        return folder
-    }
-}
-
 final class FinderStorageBarTextTests: XCTestCase {
     private let volume = StorageVolume(
         name: "Macintosh HD", total: 994_000_000_000, available: 200_000_000_000,
@@ -217,11 +134,9 @@ final class FinderStorageBarTextTests: XCTestCase {
         XCTAssertEqual(text.capacity(volume), "212 GB available of 994 GB")
         let share = StorageVolume(name: "Share", total: nil, available: nil, availableForImportantUsage: nil)
         XCTAssertEqual(text.capacity(share), "Capacity unavailable")
-        XCTAssertEqual(
-            text.selection(.measured(count: 3, bytes: 1_200_000_000), includesSize: true), "3 selected, 1.2 GB")
-        XCTAssertEqual(text.selection(.measured(count: 3, bytes: 1_200_000_000), includesSize: false), "3 selected")
-        XCTAssertEqual(text.selection(.measuring(count: 1), includesSize: true), "1 selected, Calculating…")
-        XCTAssertEqual(text.selection(.unmeasured(count: 120), includesSize: true), "120 selected")
+        XCTAssertEqual(text.selection(1), "1 selected")
+        XCTAssertEqual(text.selection(3), "3 selected")
+        XCTAssertEqual(text.selection(120), "120 selected")
     }
 
     func testJapaneseMatchesFinderWording() throws {
@@ -230,23 +145,22 @@ final class FinderStorageBarTextTests: XCTestCase {
         XCTAssertEqual(text.capacity(volume), "994 GB中212 GB空き")
         let share = StorageVolume(name: "Share", total: nil, available: nil, availableForImportantUsage: nil)
         XCTAssertEqual(text.capacity(share), "容量を取得できません")
-        XCTAssertEqual(text.selection(.measured(count: 3, bytes: 1_200_000_000), includesSize: true), "3項目を選択、1.2 GB")
-        XCTAssertEqual(text.selection(.measuring(count: 1), includesSize: true), "1項目を選択、計算中…")
-        XCTAssertEqual(text.selection(.unmeasured(count: 120), includesSize: true), "120項目を選択")
+        XCTAssertEqual(text.selection(1), "1項目を選択")
+        XCTAssertEqual(text.selection(3), "3項目を選択")
+        XCTAssertEqual(text.selection(120), "120項目を選択")
     }
 
     func testVoiceOverReadsOneSentence() throws {
         let english = try text("en", locale: "en_US")
         XCTAssertEqual(
-            english.accessibilityValue(
-                volume, startupDisk: false, selection: .measured(count: 3, bytes: 1_200_000_000)),
-            "Macintosh HD, 212 GB available of 994 GB, 3 selected, 1.2 GB")
+            english.accessibilityValue(volume, startupDisk: false, selectionCount: 3),
+            "Macintosh HD, 212 GB available of 994 GB, 3 selected")
         XCTAssertEqual(
-            english.accessibilityValue(volume, startupDisk: true, selection: nil),
+            english.accessibilityValue(volume, startupDisk: true, selectionCount: nil),
             "Macintosh HD (Startup Disk), 212 GB available of 994 GB")
         let japanese = try text("ja", locale: "ja_JP")
         XCTAssertEqual(
-            japanese.accessibilityValue(volume, startupDisk: false, selection: .unmeasured(count: 2)),
+            japanese.accessibilityValue(volume, startupDisk: false, selectionCount: 2),
             "Macintosh HD、994 GB中212 GB空き、2項目を選択")
     }
 
@@ -259,57 +173,23 @@ final class FinderStorageBarTextTests: XCTestCase {
 
 @MainActor
 final class FinderStorageBarModelTests: XCTestCase {
-    func testNewSelectionDiscardsAnEarlierMeasurement() async throws {
-        let directory = try PreviewFixtures.directory(self)
-        let folder = directory.appendingPathComponent("many", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        for index in 0..<2_000 {
-            try Data(count: 10).write(to: folder.appendingPathComponent("\(index)"))
-        }
-        let file = directory.appendingPathComponent("one.bin")
-        try Data(count: 1_234).write(to: file)
-        let model = FinderStorageBarModel()
-        model.update(urls: [folder], folder: directory)
-        model.update(urls: [file], folder: directory)
-        try await waitUntil { model.selection == .measured(count: 1, bytes: 1_234) }
-        try await Task.sleep(for: .milliseconds(300))
-        XCTAssertEqual(model.selection, .measured(count: 1, bytes: 1_234))
-        model.update(urls: [], folder: directory)
-        XCTAssertNil(model.selection)
-    }
-
-    func testReachingTheLimitShowsTheCountWithoutASize() async throws {
-        let directory = try PreviewFixtures.directory(self)
-        let folder = directory.appendingPathComponent("folder", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        for index in 0..<3 {
-            try Data(count: 10).write(to: folder.appendingPathComponent("\(index)"))
-        }
-        let model = FinderStorageBarModel(limits: .init(entries: 2, duration: .seconds(10)))
-        model.update(urls: [folder], folder: directory)
-        try await waitUntil { model.selection == .unmeasured(count: 1) }
-    }
-
     func testUnknownFolderFallsBackToTheLabelledStartupDisk() async throws {
         let directory = try PreviewFixtures.directory(self)
-        let file = directory.appendingPathComponent("one.bin")
-        try Data(count: 10).write(to: file)
         let model = FinderStorageBarModel()
-        model.update(urls: nil, folder: nil)
+        model.update(selectionCount: nil, folder: nil)
         try await waitUntil { model.volume != nil }
         XCTAssertTrue(model.showsStartupDisk)
-        XCTAssertNil(model.selection)
+        XCTAssertNil(model.selectionCount)
 
-        model.update(urls: [file], folder: directory)
-        try await waitUntil { !model.showsStartupDisk && model.selection == .measured(count: 1, bytes: 10) }
+        model.update(selectionCount: 1, folder: directory)
+        try await waitUntil { !model.showsStartupDisk && model.selectionCount == 1 }
 
-        model.update(urls: nil, folder: nil)
-        XCTAssertNil(model.selection)
-        try await Task.sleep(for: .milliseconds(100))
+        model.update(selectionCount: nil, folder: nil)
+        XCTAssertNil(model.selectionCount)
         XCTAssertFalse(model.showsStartupDisk, "The last known folder keeps its volume")
 
         model.forgetLocation()
-        model.update(urls: nil, folder: nil)
+        model.update(selectionCount: nil, folder: nil)
         try await waitUntil { model.showsStartupDisk }
     }
 }
@@ -324,7 +204,7 @@ final class FinderStorageBarPresenceTests: XCTestCase {
         let bar = FinderStorageBar(readsStatusBar: { true })
         bar.start()
         addTeardownBlock { @MainActor in bar.stop() }
-        bar.model.update(urls: [], folder: directory)
+        bar.model.update(selectionCount: 0, folder: directory)
         bar.follow(window)
         try await waitUntil { bar.isVisible }
         let panel = try XCTUnwrap(NSApp.windows.compactMap { $0 as? FinderStorageBarPanel }.first { $0.isVisible })
@@ -342,7 +222,7 @@ final class FinderStorageBarPresenceTests: XCTestCase {
 
         bar.follow(nil)
         bar.follow(.init(id: 7, frame: window.frame, preview: nil))
-        bar.model.update(urls: nil, folder: nil)
+        bar.model.update(selectionCount: nil, folder: nil)
         try await waitUntil { bar.model.showsStartupDisk }
 
         bar.stop()
@@ -355,7 +235,7 @@ final class FinderStorageBarPresenceTests: XCTestCase {
         let bar = FinderStorageBar(readsStatusBar: { false })
         bar.start()
         addTeardownBlock { @MainActor in bar.stop() }
-        bar.model.update(urls: [], folder: directory)
+        bar.model.update(selectionCount: 0, folder: directory)
         try await waitUntil { bar.model.volume != nil }
         bar.follow(window)
         XCTAssertFalse(bar.isVisible)
@@ -388,7 +268,7 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
             .success(.init(windowID: 42, urls: [note], folder: directory)), trackedWindowID: 42)
         XCTAssertEqual(coordinator.state.urls, [note])
         let model = coordinator.storageBar.model
-        try await waitUntil { model.selection == .measured(count: 1, bytes: 5) && model.volume != nil }
+        try await waitUntil { model.selectionCount == 1 && model.volume != nil }
         XCTAssertFalse(model.showsStartupDisk)
         try await waitUntil { coordinator.state.kind == .text }
     }
@@ -404,13 +284,13 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42)
         try await waitUntil { model.volume != nil }
         XCTAssertTrue(model.showsStartupDisk)
-        XCTAssertNil(model.selection)
+        XCTAssertNil(model.selectionCount)
 
         coordinator.applySelectionResult(
             .success(.init(windowID: 42, urls: [note], folder: directory)), trackedWindowID: 42)
-        try await waitUntil { model.selection != nil && !model.showsStartupDisk }
+        try await waitUntil { model.selectionCount == 1 && !model.showsStartupDisk }
         coordinator.applySelectionResult(.failure(.automationDenied), trackedWindowID: 42)
-        XCTAssertNil(model.selection)
+        XCTAssertNil(model.selectionCount)
         XCTAssertNotNil(model.volume)
     }
 
@@ -423,13 +303,13 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         let model = coordinator.storageBar.model
         coordinator.applySelectionResult(
             .success(.init(windowID: 42, urls: [note], folder: directory)), trackedWindowID: 42)
-        try await waitUntil { model.selection == .measured(count: 1, bytes: 5) }
+        try await waitUntil { model.selectionCount == 1 }
         for _ in 1..<FinderPreviewCoordinator.transientFailureThreshold {
             coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
         }
-        XCTAssertEqual(model.selection, .measured(count: 1, bytes: 5))
+        XCTAssertEqual(model.selectionCount, 1)
         coordinator.applySelectionResult(.failure(.timedOut), trackedWindowID: 42)
-        XCTAssertNil(model.selection)
+        XCTAssertNil(model.selectionCount)
     }
 
     func testMissingAccessibilityShowsNothing() throws {
@@ -449,7 +329,7 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         coordinator.start()
         let bar = coordinator.storageBar
         bar.start()
-        bar.model.update(urls: [], folder: directory)
+        bar.model.update(selectionCount: 0, folder: directory)
         bar.follow(.init(id: 0, frame: CGRect(x: 100, y: 100, width: 800, height: 500), preview: nil))
         try await waitUntil { bar.isVisible }
 
@@ -457,9 +337,8 @@ final class FinderStorageBarCoordinatorTests: XCTestCase {
         try await waitUntil { !bar.isVisible && bar.model.volume == nil }
         coordinator.applySelectionResult(
             .success(.init(windowID: 42, urls: [directory], folder: directory)), trackedWindowID: 42)
-        try await Task.sleep(for: .milliseconds(100))
         XCTAssertNil(bar.model.volume)
-        XCTAssertNil(bar.model.selection)
+        XCTAssertNil(bar.model.selectionCount)
     }
 
     private func makeStore() throws -> (SettingsStore, UserDefaults) {

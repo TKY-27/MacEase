@@ -21737,40 +21737,6 @@
         }
       }
     },
-    "storageBar.selectionSize": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld selected, %2$@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$lld項目を選択、%2$@"
-          }
-        }
-      }
-    },
-    "storageBar.calculating": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld selected, Calculating…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld項目を選択、計算中…"
-          }
-        }
-      }
-    },
     "storageBar.selection": {
       "extractionState": "manual",
       "localizations": {
@@ -21818,12 +21784,12 @@
         }
       }
     },
-    "Shows available space and the size of selected items at the bottom of Finder windows.": {
+    "Shows available space and the number of selected items at the bottom of Finder windows.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finderウインドウの下端に、空き容量と選択した項目のサイズを表示します。"
+            "value": "Finderウインドウの下端に、空き容量と選択した項目の数を表示します。"
           }
         }
       }

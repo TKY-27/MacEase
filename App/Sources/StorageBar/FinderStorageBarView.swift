@@ -25,31 +25,14 @@ struct FinderStorageBarText {
             locale: locale)
     }
 
-    func selection(_ selection: FinderStorageBarModel.Selection, includesSize: Bool) -> String {
-        switch selection {
-        case .measured(let count, let bytes) where includesSize:
-            let total = size(bytes)
-            return String(
-                localized: "storageBar.selectionSize", defaultValue: "\(count) selected, \(total)", bundle: bundle,
-                locale: locale)
-        case .measuring(let count) where includesSize:
-            return String(
-                localized: "storageBar.calculating", defaultValue: "\(count) selected, Calculating…", bundle: bundle,
-                locale: locale)
-        case .measured(let count, _), .measuring(let count), .unmeasured(let count):
-            return String(
-                localized: "storageBar.selection", defaultValue: "\(count) selected", bundle: bundle, locale: locale)
-        }
+    func selection(_ count: Int) -> String {
+        String(localized: "storageBar.selection", defaultValue: "\(count) selected", bundle: bundle, locale: locale)
     }
 
-    func accessibilityValue(_ volume: StorageVolume, startupDisk: Bool, selection: FinderStorageBarModel.Selection?)
-        -> String
-    {
+    func accessibilityValue(_ volume: StorageVolume, startupDisk: Bool, selectionCount: Int?) -> String {
         let parts =
             [name(volume, startupDisk: startupDisk), capacity(volume)]
-            + [
-                selection.map { self.selection($0, includesSize: true) }
-            ].compactMap { $0 }
+            + [selectionCount.map(selection)].compactMap { $0 }
         return parts.formatted(.list(type: .and, width: .narrow).locale(locale))
     }
 
@@ -63,14 +46,15 @@ struct FinderStorageBarView: View {
     let model: FinderStorageBarModel
 
     var body: some View {
-        FinderStorageBarContent(volume: model.volume, startupDisk: model.showsStartupDisk, selection: model.selection)
+        FinderStorageBarContent(
+            volume: model.volume, startupDisk: model.showsStartupDisk, selectionCount: model.selectionCount)
     }
 }
 
 struct FinderStorageBarContent: View {
     let volume: StorageVolume?
     let startupDisk: Bool
-    let selection: FinderStorageBarModel.Selection?
+    let selectionCount: Int?
     var text = FinderStorageBarText()
     @Environment(\.displayScale) private var displayScale
 
@@ -82,11 +66,10 @@ struct FinderStorageBarContent: View {
     private static let maximumNameWidth: CGFloat = 180
 
     private enum Detail: CaseIterable {
-        case full, withoutName, withoutSelectionSize, barAndCount, barOnly
+        case full, withoutName, barAndCount, barOnly
 
         var showsName: Bool { self == .full }
-        var showsSelectionSize: Bool { self == .full || self == .withoutName }
-        var showsCapacityText: Bool { showsSelectionSize || self == .withoutSelectionSize }
+        var showsCapacityText: Bool { self == .full || self == .withoutName }
         var showsSelection: Bool { self != .barOnly }
     }
 
@@ -100,7 +83,8 @@ struct FinderStorageBarContent: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(Text("Storage"))
-                .accessibilityValue(text.accessibilityValue(volume, startupDisk: startupDisk, selection: selection))
+                .accessibilityValue(
+                    text.accessibilityValue(volume, startupDisk: startupDisk, selectionCount: selectionCount))
             }
         }
         .font(.system(size: Self.fontSize))
@@ -130,8 +114,8 @@ struct FinderStorageBarContent: View {
                 Text(verbatim: text.capacity(volume)).foregroundStyle(.secondary)
             }
             Spacer(minLength: Self.groupSpacing)
-            if let selection, detail.showsSelection {
-                Text(verbatim: text.selection(selection, includesSize: detail.showsSelectionSize))
+            if let selectionCount, detail.showsSelection {
+                Text(verbatim: text.selection(selectionCount))
                     .foregroundStyle(.secondary)
             }
         }

@@ -47,104 +47,41 @@ struct StorageVolume: Equatable, Sendable {
     }
 }
 
-enum SelectionSize {
-    struct Limits: Sendable {
-        static let standard = Self(entries: 100_000, duration: .seconds(2))
-
-        let entries: Int
-        let duration: Duration
-    }
-
-    // Logical sizes, like Finder's Get Info.
-    private static let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .totalFileSizeKey]
-
-    /// Nil when the limits stop the walk.
-    static func total(of urls: [URL], limits: Limits) throws -> Int64? {
-        let deadline = ContinuousClock.now + limits.duration
-        var visited = 0
-        var total: Int64 = 0
-        for url in urls {
-            try Task.checkCancellation()
-            let values = try url.resourceValues(forKeys: keys)
-            guard values.isDirectory == true else {
-                total += Int64(values.totalFileSize ?? 0)
-                continue
-            }
-            var unreadable: (any Error)?
-            guard
-                let entries = FileManager.default.enumerator(
-                    at: url, includingPropertiesForKeys: Array(keys), options: [],
-                    errorHandler: { _, error in
-                        unreadable = error
-                        return false
-                    })
-            else { throw CocoaError(.fileReadUnknown, userInfo: [NSURLErrorKey: url]) }
-            for case let entry as URL in entries {
-                try Task.checkCancellation()
-                visited += 1
-                guard visited <= limits.entries, ContinuousClock.now < deadline else { return nil }
-                let entryValues = try entry.resourceValues(forKeys: keys)
-                if entryValues.isRegularFile == true { total += Int64(entryValues.totalFileSize ?? 0) }
-            }
-            // A partial total would understate the size.
-            if let unreadable { throw unreadable }
-        }
-        return total
-    }
-}
-
 @MainActor
 @Observable
 final class FinderStorageBarModel {
-    enum Selection: Equatable {
-        case measuring(count: Int)
-        case measured(count: Int, bytes: Int64)
-        case unmeasured(count: Int)
-    }
-
     nonisolated private static let startupDisk = URL(fileURLWithPath: "/")
-    // Fast results skip the Calculating flash.
-    private static let calculatingDelay: Duration = .milliseconds(200)
 
-    private let limits: SelectionSize.Limits
     private let logger = Logger(category: "storage-bar")
     private(set) var volume: StorageVolume?
     private(set) var showsStartupDisk = false
-    private(set) var selection: Selection?
+    private(set) var selectionCount: Int?
     private var location: URL?
-    private var selectedURLs: [URL] = []
-    private var generation: UInt64 = 0
-    private var sizeTask: Task<Void, Never>?
-    private var calculatingTask: Task<Void, Never>?
     private var volumeTask: Task<Void, Never>?
     private var volumeRefreshPending = false
     private var locationStale = false
 
-    init(limits: SelectionSize.Limits = .standard) {
-        self.limits = limits
-    }
-
-    /// Nil `urls` means the selection is unknown.
-    func update(urls: [URL]?, folder: URL?) {
-        let known = folder ?? urls?.first ?? location
+    /// Nil count means the selection is unknown.
+    func update(selectionCount: Int?, folder: URL?) {
+        self.selectionCount = selectionCount.flatMap { $0 > 0 ? $0 : nil }
+        let known = folder ?? location
         if known != location || volume == nil || locationStale {
             location = known
             refreshVolume()
         }
-        measure(urls ?? [])
     }
 
     // Old figures stay until the window reports.
     func forgetLocation() {
         location = nil
         locationStale = true
-        measure([])
+        selectionCount = nil
     }
 
     func reset() {
         location = nil
         locationStale = false
-        measure([])
+        selectionCount = nil
         volume = nil
         volumeTask?.cancel()
         volumeTask = nil
@@ -188,39 +125,6 @@ final class FinderStorageBarModel {
                 volumeRefreshPending = false
                 refreshVolume()
             }
-        }
-    }
-
-    private func measure(_ urls: [URL]) {
-        guard urls != selectedURLs else { return }
-        selectedURLs = urls
-        generation &+= 1
-        sizeTask?.cancel()
-        calculatingTask?.cancel()
-        guard !urls.isEmpty else {
-            selection = nil
-            return
-        }
-        let requested = generation
-        let limits = limits
-        calculatingTask = Task { [weak self] in
-            do { try await Task.sleep(for: Self.calculatingDelay) } catch { return }
-            guard let self, generation == requested else { return }
-            selection = .measuring(count: urls.count)
-        }
-        sizeTask = Task { [weak self] in
-            let bytes: Int64?
-            do {
-                bytes = try await offMain { try SelectionSize.total(of: urls, limits: limits) }
-            } catch is CancellationError {
-                return
-            } catch {
-                self?.logger.error("Selection size unavailable: \(error.localizedDescription, privacy: .private)")
-                bytes = nil
-            }
-            guard let self, generation == requested else { return }
-            calculatingTask?.cancel()
-            selection = bytes.map { .measured(count: urls.count, bytes: $0) } ?? .unmeasured(count: urls.count)
         }
     }
 }
