@@ -6,6 +6,7 @@ struct FinderWindowsSettingsView: View {
     @Bindable var store: SettingsStore
     @State private var accessibilityAllowed = AXIsProcessTrusted()
     @State private var automation: FinderPermissionStatus?
+    @State private var finderShowsStatusBar = FinderStorageBarGeometry.finderShowsStatusBar()
 
     private static let sampleLines = 1...5
 
@@ -13,12 +14,28 @@ struct FinderWindowsSettingsView: View {
         Form {
             Section("Finder Preview") {
                 Toggle("Show Finder Preview beside Finder windows", isOn: $store.finderPreviewEnabled)
+            }
+            Section {
+                Toggle("Show storage bar in Finder windows", isOn: $store.finderStorageBarEnabled)
+            } header: {
+                Text("Storage Bar")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Shows available space and the number of selected items at the bottom of Finder windows.")
+                    if store.finderStorageBarEnabled && !finderShowsStatusBar {
+                        Text("To see it, choose View > Show Status Bar in Finder.")
+                    }
+                }
+            }
+            Section("Permissions") {
                 permissionRow(
-                    title: Text("Accessibility"), detail: Text("Places the preview beside Finder windows."),
+                    title: Text("Accessibility"),
+                    detail: Text("Places the preview and the storage bar on Finder windows."),
                     status: accessibilityAllowed ? .allowed : .denied,
                     open: SystemSettingsPane.accessibility, openLabel: Text("Open Accessibility Settings"))
                 permissionRow(
-                    title: Text("Automation"), detail: Text("Lets the preview follow the selection in Finder."),
+                    title: Text("Automation"),
+                    detail: Text("Lets the preview and the storage bar follow the selection in Finder."),
                     status: automation,
                     open: SystemSettingsPane.automation, openLabel: Text("Open Automation Settings"))
             }
@@ -130,6 +147,7 @@ struct FinderWindowsSettingsView: View {
 
     private func refreshPermissions() async {
         accessibilityAllowed = AXIsProcessTrusted()
+        finderShowsStatusBar = FinderStorageBarGeometry.finderShowsStatusBar()
         let status = await Task.detached(priority: .utility) {
             FinderSelectionReader.automationPermission(asking: false)
         }.value

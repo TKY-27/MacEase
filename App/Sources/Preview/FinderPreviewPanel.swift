@@ -9,7 +9,7 @@ final class FinderPreviewPanel: NSPanel {
     private static let dismissDuration: TimeInterval = 0.12
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
     // Measured from Finder windows on macOS 27.
-    private static let finderCornerRadius: CGFloat = 16
+    static let finderCornerRadius: CGFloat = 16
     private static let undockedSize = NSSize(width: FinderPreviewGeometry.defaultWidth, height: 600)
     private static let minimumSize = NSSize(width: FinderPreviewGeometry.minimumWidth, height: 420)
     private let defaults: UserDefaults
