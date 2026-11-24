@@ -10,15 +10,21 @@ struct PreviewTable: Sendable {
     private static let quote = UInt8(ascii: "\"")
     private static let lineFeed = UInt8(ascii: "\n")
     private static let carriageReturn = UInt8(ascii: "\r")
+    private static let plus = UInt8(ascii: "+")
+    private static let minus = UInt8(ascii: "-")
+    private static let decimalPoint = UInt8(ascii: ".")
+    private static let exponent = UInt8(ascii: "e")
+    private static let lowercaseBit: UInt8 = 0x20
+    private static let asciiDigits = UInt8(ascii: "0")...UInt8(ascii: "9")
+    private static let fieldBreakingScalars: Set<Unicode.Scalar> = ["\t", "\n", "\r", "\""]
     private static let ellipsis: Unicode.Scalar = "\u{2026}"
     private static let replacement: Unicode.Scalar = "\u{FFFD}"
     private static let deletePicture: Unicode.Scalar = "\u{2421}"
     private static let controlPictures: [Unicode.Scalar] = (0x2400...0x241F).compactMap(Unicode.Scalar.init)
-    private static let deleteScalar: UInt32 = 0x7F
-    // Reordering and invisible line-breaking controls.
-    private static let hiddenControls: [ClosedRange<UInt32>] = [
-        0x80...0x9F, 0x061C...0x061C, 0x200E...0x200F, 0x2028...0x202E, 0x2066...0x2069,
-    ]
+    private static let waveBlackFlag: UInt32 = 0x1F3F4
+    private static let tagScalars: ClosedRange<UInt32> = 0xE0020...0xE007F
+    private static let separatorDirective = "sep="
+    private static let lineBreaks: Set<Character> = ["\n", "\r", "\r\n"]
 
     enum Delimiter: UInt8, Sendable {
         case comma = 44
@@ -37,24 +43,17 @@ struct PreviewTable: Sendable {
             }
         }
 
-        // Locale exports often use semicolons or tabs.
-        func delimiter(for text: String) -> Delimiter {
-            guard self == .commaSeparated else { return .tab }
-            var counts: [Delimiter: Int] = [:]
-            var quoted = false
-            for byte in text.utf8 {
-                if byte == PreviewTable.quote {
-                    quoted.toggle()
-                } else if !quoted, byte == PreviewTable.lineFeed || byte == PreviewTable.carriageReturn {
-                    break
-                } else if !quoted, let delimiter = Delimiter(rawValue: byte) {
-                    counts[delimiter, default: 0] += 1
-                }
+        // Semicolon, tab and Excel sep= exports.
+        func layout(of text: String) -> (delimiter: Delimiter, body: Substring) {
+            guard self == .commaSeparated else { return (.tab, text[...]) }
+            if let directive = PreviewTable.directive(in: text) { return directive }
+            let bytes = Array(text.utf8)
+            let widths = [Delimiter.comma, .semicolon, .tab].map {
+                ($0, PreviewTable.firstRecordWidth(bytes, separator: $0.rawValue))
             }
             // Ties keep the earlier, more common separator.
-            return [Delimiter.comma, .semicolon, .tab].reduce(Delimiter.comma) { best, candidate in
-                counts[candidate, default: 0] > counts[best, default: 0] ? candidate : best
-            }
+            let widest = widths.reduce(widths[0]) { best, candidate in candidate.1 > best.1 ? candidate : best }
+            return (widest.0, text[...])
         }
     }
 
@@ -78,8 +77,31 @@ struct PreviewTable: Sendable {
         return column < cells.count ? cells[column] : ""
     }
 
+    private static func directive(in text: String) -> (delimiter: Delimiter, body: Substring)? {
+        guard text.hasPrefix(separatorDirective) else { return nil }
+        let rest = text.dropFirst(separatorDirective.count)
+        guard let ascii = rest.first?.asciiValue, let delimiter = Delimiter(rawValue: ascii) else { return nil }
+        let body = rest.dropFirst()
+        if body.isEmpty { return (delimiter, body) }
+        guard let lineBreak = body.first, lineBreaks.contains(lineBreak) else { return nil }
+        return (delimiter, body.dropFirst())
+    }
+
+    // Same field rule as parsing; capped.
+    private static func firstRecordWidth(_ bytes: [UInt8], separator: UInt8) -> Int {
+        var index = 0
+        var fields = 0
+        while fields <= maximumColumns {
+            index = readField(bytes, from: index, separator: separator).end
+            fields += 1
+            guard index < bytes.count, bytes[index] == separator else { break }
+            index += 1
+        }
+        return fields
+    }
+
     static func parse(
-        _ text: String, delimiter: Delimiter, maximumDataRows: Int = maximumDataRows,
+        _ text: some StringProtocol, delimiter: Delimiter, maximumDataRows: Int = maximumDataRows,
         maximumColumns: Int = maximumColumns
     ) throws -> Self {
         let bytes = Array(text.utf8)
@@ -158,16 +180,42 @@ struct PreviewTable: Sendable {
         return (String(decoding: unescaped, as: UTF8.self), index)
     }
 
+    // Double also accepts hex, nan and inf.
     static func number(_ value: String) -> Double? {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
-        guard let parsed = Double(trimmed), parsed.isFinite else { return nil }
+        guard isDecimal(Array(trimmed.utf8)), let parsed = Double(trimmed), parsed.isFinite else { return nil }
         return parsed
+    }
+
+    private static func isDecimal(_ bytes: [UInt8]) -> Bool {
+        var index = 0
+        func skip(_ allowed: ClosedRange<UInt8>) -> Int {
+            let start = index
+            while index < bytes.count, allowed.contains(bytes[index]) { index += 1 }
+            return index - start
+        }
+        func skipSign() {
+            if index < bytes.count, bytes[index] == plus || bytes[index] == minus { index += 1 }
+        }
+        skipSign()
+        var digits = skip(asciiDigits)
+        if index < bytes.count, bytes[index] == decimalPoint {
+            index += 1
+            digits += skip(asciiDigits)
+        }
+        guard digits > 0 else { return false }
+        if index < bytes.count, bytes[index] | lowercaseBit == exponent {
+            index += 1
+            skipSign()
+            guard skip(asciiDigits) > 0 else { return false }
+        }
+        return index == bytes.count
     }
 
     private static func isNumeric(column: Int, rows: [[String]]) -> Bool {
         var sawNumber = false
         for row in rows.dropFirst() where column < row.count {
-            let cell = row[column]
+            let cell = row[column].trimmingCharacters(in: .whitespaces)
             if cell.isEmpty { continue }
             guard number(cell) != nil else { return false }
             sawNumber = true
@@ -215,28 +263,44 @@ struct PreviewTable: Sendable {
 
     func copiedText(rows selected: [Int]) -> String {
         selected.map { row in
-            (0..<columnCount).map { value(row: row, column: $0) }.joined(separator: "\t")
+            (0..<columnCount).map { Self.tabSeparatedField(value(row: row, column: $0)) }.joined(separator: "\t")
         }
         .joined(separator: "\n")
     }
 
-    // Single line; controls stay visible.
-    static func displayText(_ raw: String) -> String {
+    // Quoted the way spreadsheets write TSV.
+    private static func tabSeparatedField(_ value: String) -> String {
+        guard value.unicodeScalars.contains(where: { fieldBreakingScalars.contains($0) }) else { return value }
+        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+    }
+
+    // One line, grapheme-safe; controls stay visible.
+    static func displayText(_ raw: String, limit: Int = maximumCellDisplayLength) -> String {
+        let bounded = String(String.UnicodeScalarView(raw.unicodeScalars.prefix(limit + 1)))
+        let cut = bounded.unicodeScalars.count > limit
+        // The last grapheme holds the extra scalar.
+        let kept = cut ? bounded[..<bounded.index(before: bounded.endIndex)] : bounded[...]
         var shown = String.UnicodeScalarView()
-        for (offset, scalar) in raw.unicodeScalars.enumerated() {
-            if offset == maximumCellDisplayLength {
-                shown.append(ellipsis)
-                break
-            }
-            shown.append(visible(scalar))
+        var inFlag = false
+        for scalar in kept.unicodeScalars {
+            // Subdivision flags are tag sequences.
+            inFlag = scalar.value == waveBlackFlag || (inFlag && tagScalars.contains(scalar.value))
+            shown.append(inFlag ? scalar : visible(scalar))
         }
+        if cut { shown.append(ellipsis) }
         return String(shown)
     }
 
     private static func visible(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
-        let value = scalar.value
-        if Int(value) < controlPictures.count { return controlPictures[Int(value)] }
-        if value == deleteScalar { return deletePicture }
-        return hiddenControls.contains { $0.contains(value) } ? replacement : scalar
+        switch scalar.value {
+        case 0x20...0x7E: return scalar
+        case 0x00...0x1F: return controlPictures[Int(scalar.value)]
+        case 0x7F: return deletePicture
+        // Reordering, invisible and line-breaking controls; joiners stay.
+        case 0x80...0x9F, 0x061C, 0x200B, 0x200E...0x200F, 0x2028...0x202E, 0x2060, 0x2066...0x2069, 0xFEFF,
+            0xE0000...0xE007F:
+            return replacement
+        default: return scalar
+        }
     }
 }

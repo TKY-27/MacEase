@@ -358,7 +358,8 @@ struct PreviewTextViewer: View {
         VStack(spacing: 12) {
             failureMessage(failure)
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            if rich && offersModes {
+            // Table and Source share the decode.
+            if rich && offersModes && !(tableFormat != nil && failure == .unreadable) {
                 Button("Show Source") { rich = false }
             }
         }
