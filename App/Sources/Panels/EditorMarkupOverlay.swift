@@ -164,9 +164,11 @@ extension MediaEditorModel {
         case .redact: return canvasRect(fromOutput: rect).map { .redaction(rect: $0, style: redactionStyle) }
         case .box: return canvasRect(fromOutput: rect).map { .box(rect: $0, color: markColor, size: markSize) }
         case .arrow:
+            // Signed size keeps the drag direction.
             let mark = EditMark.arrow(
-                from: canvasPoint(CGPoint(x: rect.minX, y: rect.minY)),
-                to: canvasPoint(CGPoint(x: rect.maxX, y: rect.maxY)), color: markColor, size: markSize)
+                from: canvasPoint(rect.origin),
+                to: canvasPoint(CGPoint(x: rect.origin.x + rect.size.width, y: rect.origin.y + rect.size.height)),
+                color: markColor, size: markSize)
             return (try? mark.validate()) == nil ? nil : mark
         case .text:
             return .text(
@@ -425,9 +427,32 @@ struct EditorMarkupOverlay: View {
         ).insetBy(dx: -4, dy: -2)
     }
 
+    /// Engine boxes are upright around transformed corners.
+    private func boxBounds(_ rect: EditCrop, _ size: CGSize) -> CGRect {
+        let points = corners(rect).map { viewPoint($0, size) }
+        let left = points.map(\.x).min() ?? 0
+        let top = points.map(\.y).min() ?? 0
+        return CGRect(
+            x: left, y: top, width: (points.map(\.x).max() ?? 0) - left, height: (points.map(\.y).max() ?? 0) - top)
+    }
+
+    private func handleLocation(_ handle: Handle, _ mark: EditMark, _ size: CGSize) -> CGPoint? {
+        switch mark {
+        case .box(let rect, _, _):
+            let bounds = boxBounds(rect, size)
+            return CGPoint(
+                x: bounds.minX + Double(handle.x + 1) / 2 * bounds.width,
+                y: bounds.minY + Double(handle.y + 1) / 2 * bounds.height)
+        case .redaction(let rect, _): return viewPoint(handlePoint(handle, rect), size)
+        case .arrow, .text: return nil
+        }
+    }
+
     private func outline(_ mark: EditMark, _ size: CGSize) -> Path {
         switch mark {
-        case .redaction(let rect, _), .box(let rect, _, _):
+        case .box(let rect, _, _):
+            return Path(boxBounds(rect, size))
+        case .redaction(let rect, _):
             return Path { path in
                 path.addLines(corners(rect).map { viewPoint($0, size) }); path.closeSubpath()
             }
@@ -463,8 +488,8 @@ struct EditorMarkupOverlay: View {
         guard selected else { return }
         let points: [CGPoint]
         switch overlay.mark {
-        case .redaction(let rect, _), .box(let rect, _, _):
-            points = Handle.all.map { viewPoint(handlePoint($0, rect), size) }
+        case .redaction, .box:
+            points = Handle.all.compactMap { handleLocation($0, overlay.mark, size) }
         case .arrow(let from, let to, _, _): points = [viewPoint(from, size), viewPoint(to, size)]
         case .text: points = []
         }
@@ -498,7 +523,7 @@ struct EditorMarkupOverlay: View {
             switch selected.mark {
             case .redaction(let rect, _), .box(let rect, _, _):
                 for handle in Handle.all {
-                    let location = viewPoint(handlePoint(handle, rect), size)
+                    guard let location = handleLocation(handle, selected.mark, size) else { continue }
                     if hypot(location.x - point.x, location.y - point.y) <= Self.handleHitRadius {
                         return .handle(selected.id, rect, handle, location)
                     }

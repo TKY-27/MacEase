@@ -781,7 +781,7 @@ private struct PhotoListThumbnail: View {
         .task(id: url) { image = await Task.detached(priority: .utility) { Self.thumbnail(url) }.value }
     }
 
-    /// Unreadable files keep the placeholder; opening reports them.
+    /// Unreadable files keep the placeholder.
     private nonisolated static func thumbnail(_ url: URL) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
@@ -1032,6 +1032,8 @@ private struct EditorNumberControl: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             beginEditing()
+            // Input methods apply only committed text.
+            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
             if let amount = parent.parse(field.stringValue) {
                 parent.model.invalidFields.remove(parent.id)
                 if amount != parent.value { parent.value = amount }
@@ -1071,7 +1073,7 @@ private struct EditorNumberControl: NSViewRepresentable {
             guard wasEditing || model.invalidFields.contains(id) else { return }
             Task { @MainActor in
                 model.invalidFields.remove(id)
-                if wasEditing { model.endInteraction() }
+                if wasEditing { model.endInteraction(owner: id) }
             }
         }
 
@@ -1079,7 +1081,7 @@ private struct EditorNumberControl: NSViewRepresentable {
             guard !editing else { return }
             editing = true
             session += 1
-            parent.model.beginInteraction()
+            parent.model.beginInteraction(owner: parent.id)
         }
 
         private func finishEditing(_ field: NSTextField?) {
@@ -1089,7 +1091,7 @@ private struct EditorNumberControl: NSViewRepresentable {
                 if field.stringValue != formatted { field.stringValue = formatted }
             }
             parent.model.invalidFields.remove(parent.id)
-            parent.model.endInteraction()
+            parent.model.endInteraction(owner: parent.id)
         }
     }
 }

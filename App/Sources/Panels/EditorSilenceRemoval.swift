@@ -43,7 +43,7 @@ extension MediaEditorModel {
 
     func cancelSilenceAnalysis() { silenceTask?.cancel() }
 
-    /// Output ranges the rule would remove; `nil` before analysis.
+    /// Removed output ranges; `nil` before analysis.
     func silencePreview(_ rule: SilenceRule) throws -> [ClosedRange<Double>]? {
         guard let silences = try silences(rule), let timeline else { return nil }
         var removed: [ClosedRange<Double>] = []

@@ -1220,6 +1220,160 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.zoom, 2.5)
     }
 
+    func testDraggedArrowKeepsItsDirectionAndDraggedRedactionLandsUnderRotationAndFlip() async throws {
+        let model = try await photoModel()
+        model.change {
+            $0.photo.geometry.quarterTurns = 1
+            $0.photo.geometry.flipHorizontal = true
+        }
+        model.markColor = .yellow
+        let arrow = try XCTUnwrap(
+            model.newMark(.arrow, outputRect: CGRect(x: 0.8, y: 0.7, width: -0.6, height: -0.5)))
+        guard case .arrow(let from, let to, _, _) = arrow else { return XCTFail("not an arrow") }
+        let start = model.outputPoint(from)
+        let end = model.outputPoint(to)
+        XCTAssertEqual(start.x, 0.8, accuracy: 0.001, "drags from bottom-right")
+        XCTAssertEqual(start.y, 0.7, accuracy: 0.001)
+        XCTAssertEqual(end.x, 0.2, accuracy: 0.001, "toward top-left")
+        XCTAssertEqual(end.y, 0.2, accuracy: 0.001)
+
+        model.redactionStyle = .solid
+        let drag = CGRect(x: 0.1, y: 0.6, width: 0.3, height: 0.25)
+        let mark = try XCTUnwrap(model.newMark(.redact, outputRect: drag))
+        XCTAssertNotNil(model.addOverlay(mark))
+        try await eventually { model.canSave || model.failure != nil }
+        let planned = try model.makeSave(replacingOriginal: false)
+        let engine = try JobEngine(supportDirectory: try workspace(), concurrency: 1)
+        let result = await engine.run(planned.batch, settings: planned.settings) { _ in }
+        guard case .succeeded(let outputs, _) = result.outcomes.first, let output = outputs.first else {
+            return XCTFail("save failed: \(result.outcomes)")
+        }
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        func pixel(_ x: Double, _ y: Double) throws -> [Double] {
+            try rgb(image, x: Int(x * Double(image.width)), y: Int(y * Double(image.height)))
+        }
+        XCTAssertLessThan(try pixel(drag.midX, drag.midY).max() ?? 1, 0.06, "the dragged area is hidden")
+        XCTAssertGreaterThan(try pixel(1 - drag.midX, drag.midY)[0], 0.5, "the mirrored area stays visible")
+        XCTAssertGreaterThan(try pixel(drag.midX, 1 - drag.midY)[0], 0.5, "the flipped area stays visible")
+    }
+
+    func testFieldInteractionsBelongToTheirOwnerAndStartAndEndSnapIndependently() async throws {
+        let model = try await videoModel()
+        let original = model.values.segments
+        model.beginInteraction(owner: "start")
+        model.setVideoBoundary(0.5, start: true)
+        model.beginInteraction(owner: "end")
+        model.endInteraction(owner: "start")
+        model.setVideoBoundary(1.5, start: false)
+        model.setVideoBoundary(1.4, start: false)
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "End input keeps Start's value")
+        XCTAssertEqual(model.values.end, 1.4, accuracy: model.frameDuration)
+        model.setVideoBoundary(1.3, start: false)
+        await model.finishBoundaryInput()
+        model.endInteraction(owner: "end")
+        XCTAssertFalse(model.canRedo)
+        model.undo()
+        XCTAssertEqual(model.values.segments, original, "the overlapping edits form one step, not one per keystroke")
+
+        model.beginInteraction(owner: "start")
+        model.setVideoBoundary(0.5, start: true)
+        await model.finishBoundaryInput()
+        model.beginInteraction(owner: "end")
+        model.setVideoBoundary(1.2, start: false)
+        await model.finishBoundaryInput()
+        model.endInteraction(owner: "end")
+        model.undo()
+        XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "each finished field is its own step")
+        XCTAssertEqual(model.values.end, original[0].end)
+        model.undo()
+        XCTAssertEqual(model.values.segments, original)
+    }
+
+    func testMarkedTextDoesNotChangeANumberUntilCommitted() async throws {
+        let model = try await videoModel()
+        let host = NSHostingView(
+            rootView: EditorNumberField(
+                model: model, title: "Speed", id: "speed", value: model.binding(\.speed),
+                range: VideoEdit.speedRange, precision: 2))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.setMarkedText(
+            "2", selectedRange: NSRange(location: 1, length: 0), replacementRange: editor.selectedRange())
+        XCTAssertTrue(editor.hasMarkedText())
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+        XCTAssertEqual(model.values.speed, 1, "a composing digit is not applied")
+        editor.insertText("2", replacementRange: editor.markedRange())
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(model.values.speed, 2, "the committed digit is applied")
+        window.makeFirstResponder(nil)
+    }
+
+    func testOverlayLaneHitsTheSelectedBarDrawnOnTop() throws {
+        var zoom = 1.0
+        var selected: UUID?
+        let ids = (0..<4).map { _ in UUID() }
+        let canvas = TimelineCanvas(frame: CGRect(x: 0, y: 0, width: 900, height: 122))
+        canvas.configuration = MediaTimeline(
+            duration: 2, position: 1, clips: [TimelineClip(id: UUID(), range: 0...2, selection: nil, label: "")],
+            playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
+            seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {},
+            overlays: ids.enumerated().map { index, id in
+                TimelineOverlayMark(
+                    id: id, ranges: [0...2], label: "\(index)", fill: .systemRed, text: .white, selected: index == 2)
+            },
+            showsOverlayLane: true, selectOverlay: { selected = $0 })
+        let lane = TimelineCanvas.rulerHeight + TimelineCanvas.clipHeight + 6
+        for y in stride(from: lane + 1, to: lane + TimelineCanvas.overlayLaneHeight - 5, by: 2) {
+            let down = try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: .leftMouseDown, location: CGPoint(x: 450, y: canvas.bounds.height - y), modifierFlags: [],
+                    timestamp: 0,
+                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            canvas.mouseDown(with: down)
+            canvas.mouseUp(with: down)
+            if selected == ids[2] { return }
+            XCTAssertNotEqual(selected, ids[3], "the bar hidden behind the selected one was hit")
+        }
+        XCTFail("the selected bar drawn on top is never hit")
+    }
+
+    func testOverlayRangeLimitsUseTheOverlaySourceFrameRate() async throws {
+        let directory = try workspace()
+        let ffmpeg = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        var clips: [URL] = []
+        for rate in [24, 60] {
+            let clip = directory.appending(path: "rate-\(rate).mp4")
+            let encoding = Process()
+            encoding.executableURL = ffmpeg
+            encoding.arguments = [
+                "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=64x48:r=\(rate):d=1",
+                "-c:v", "h264_videotoolbox", clip.path,
+            ]
+            try encoding.run()
+            encoding.waitUntilExit()
+            XCTAssertEqual(encoding.terminationStatus, 0)
+            clips.append(clip)
+        }
+        let model = MediaEditorModel(
+            urls: clips, isVideo: true, settings: Engine.Settings(),
+            staging: StagingArea(supportDirectory: directory))
+        addTeardownBlock { await model.close() }
+        model.load()
+        try await eventually { model.canPlay || model.failure != nil }
+        XCTAssertEqual(model.frameDuration, 1.0 / 24, accuracy: 0.000_1)
+        XCTAssertEqual(model.frameDuration(ofSource: 1), 1.0 / 60, accuracy: 0.000_1)
+        XCTAssertEqual(model.frameDuration(ofSource: 0), 1.0 / 24, accuracy: 0.000_1)
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
@@ -1779,7 +1933,7 @@ final class MediaEditorModelTests: XCTestCase {
         return output
     }
 
-    /// Tone for one second, then one second of silence.
+    /// Alternating one-second tone and silence.
     private func pausedSpeechFixture(in directory: URL) throws -> URL {
         let output = directory.appending(path: "paused.mp4")
         let encoding = Process()

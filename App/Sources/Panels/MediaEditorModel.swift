@@ -188,8 +188,10 @@ final class MediaEditorModel {
     private var requestedTrim: Double?
     private var trimTask: Task<Void, Never>?
     private var trimRevision = 0
-    private var boundaryInputTask: Task<Void, Never>?
-    private var boundaryInputGeneration = 0
+    /// Start and End snap independently.
+    private var boundaryInputTasks: [Bool: Task<Void, Never>] = [:]
+    private var boundaryInputGenerations: [Bool: Int] = [:]
+    private var interactionOwner: String?
     private var revision = 0
     private var preparedEdit: VideoEdit?
     private var renderedRevision = -1
@@ -281,6 +283,10 @@ final class MediaEditorModel {
         values.sources.indices.contains(index) && videoDetails[values.sources[index].url]?.hasAudio == true
     }
     var selectedSegment: VideoSegment? { values.selectedIndex.map { values.segments[$0] } }
+    func frameDuration(ofSource index: Int) -> Double {
+        guard values.sources.indices.contains(index) else { return frameDuration }
+        return videoDetails[values.sources[index].url]?.frameDuration ?? frameDuration
+    }
     var canUndo: Bool { !undoValues.isEmpty }
     var canRedo: Bool { !redoValues.isEmpty }
     var changesColor: Bool { isVideo ? values.video.changesColor : values.photo.changesColor }
@@ -352,7 +358,7 @@ final class MediaEditorModel {
     var canSave: Bool {
         guard ready, !closed, !editingLocked, failure == nil, invalidFields.isEmpty, !preparingPlayback,
             !splitting, !importing,
-            !loadingPhoto, boundaryInputTask == nil,
+            !loadingPhoto, boundaryInputTasks.isEmpty,
             renderedRevision == revision,
             (try? values.photo.validate()) != nil
         else { return false }
@@ -529,15 +535,15 @@ final class MediaEditorModel {
             !values.segments[index].isFreeze
         else { return }
         let segment = values.segments[index]
-        boundaryInputTask?.cancel()
-        boundaryInputGeneration += 1
-        let generation = boundaryInputGeneration
-        boundaryInputTask = Task {
-            defer { if generation == boundaryInputGeneration { boundaryInputTask = nil } }
+        boundaryInputTasks[start]?.cancel()
+        let generation = (boundaryInputGenerations[start] ?? 0) + 1
+        boundaryInputGenerations[start] = generation
+        boundaryInputTasks[start] = Task {
+            defer { if boundaryInputGenerations[start] == generation { boundaryInputTasks[start] = nil } }
             do {
                 let boundary = try await snappedVideoBoundary(seconds, segment: segment, start: start)
                 try Task.checkCancellation()
-                guard !closed, generation == boundaryInputGeneration, values.selectedID == segment.id,
+                guard !closed, boundaryInputGenerations[start] == generation, values.selectedID == segment.id,
                     let boundary, let current = values.segments.firstIndex(where: { $0.id == segment.id })
                 else { return }
                 change {
@@ -547,10 +553,10 @@ final class MediaEditorModel {
         }
     }
 
-    var hasPendingBoundaryInput: Bool { boundaryInputTask != nil }
+    var hasPendingBoundaryInput: Bool { !boundaryInputTasks.isEmpty }
 
     func finishBoundaryInput() async {
-        while let task = boundaryInputTask { await task.value }
+        while let task = boundaryInputTasks.values.first { await task.value }
     }
 
     func endTimelineTrim() async {
@@ -748,7 +754,7 @@ final class MediaEditorModel {
         }
     }
 
-    /// Frame snapping, thumbnails and waveforms need each staged source.
+    /// Snapping, thumbnails and waveforms need staged sources.
     private func openStagedSources(_ sources: [VideoEditSource]) async throws {
         for source in sources where videoSources[source.url] == nil {
             let opened = try await VideoEditorSource.open(source.url, staging: staging)
@@ -803,24 +809,36 @@ final class MediaEditorModel {
         }
     }
 
-    func beginInteraction() {
-        guard savingBatchID == nil else { return }
+    /// Switching owners closes the previous step.
+    func beginInteraction(owner: String? = nil) {
+        guard !editingLocked else { return }
+        if let owner, let current = interactionOwner, current != owner, !hasPendingBoundaryInput {
+            closeInteraction()
+        }
         if interactionStart == nil { interactionStart = values }
+        if let owner { interactionOwner = owner }
         pause()
     }
 
-    func endInteraction() {
-        guard savingBatchID == nil else { return }
-        if boundaryInputTask != nil {
+    /// Owners end only their own interaction.
+    func endInteraction(owner: String? = nil) {
+        guard !editingLocked else { return }
+        if let owner, interactionOwner != owner { return }
+        if hasPendingBoundaryInput {
             Task {
                 await finishBoundaryInput()
-                if !closed { endInteraction() }
+                if !closed { endInteraction(owner: owner) }
             }
             return
         }
+        closeInteraction()
+        if !isVideo { refresh() }
+    }
+
+    private func closeInteraction() {
         if let previous = interactionStart, previous != values { remember(previous) }
         interactionStart = nil
-        if !isVideo { refresh() }
+        interactionOwner = nil
     }
 
     private func remember(_ previous: EditorValues) {
@@ -1537,7 +1555,7 @@ final class MediaEditorModel {
         waveformTask?.cancel()
         seekTask?.cancel()
         trimTask?.cancel()
-        boundaryInputTask?.cancel()
+        for task in boundaryInputTasks.values { task.cancel() }
         player?.pause()
         player?.currentItem?.cancelPendingSeeks()
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
@@ -1557,7 +1575,7 @@ final class MediaEditorModel {
         await waveformTask?.value
         await seekTask?.value
         await trimTask?.value
-        await boundaryInputTask?.value
+        await finishBoundaryInput()
         selectionTask?.cancel()
         await selectionTask?.value
         _ = await saveTask?.value

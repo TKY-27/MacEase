@@ -13,7 +13,7 @@ struct TimelineClip {
     /// Timeline seconds, measured inside `selection ?? range`.
     var fadeIn = 0.0
     var fadeOut = 0.0
-    /// One held picture; it has no trim handles.
+    /// A held picture without trim handles.
     var freeze = false
     var badges: [TimelineBadge] = []
 }
@@ -445,7 +445,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             x: 0, y: Self.rulerHeight + Self.clipHeight + 6, width: bounds.width, height: Self.overlayLaneHeight - 4)
     }
 
-    /// Packs overlapping overlays into a few rows.
+    /// Packed rows; selected bars last, like drawing.
     private func overlayBars(_ configuration: MediaTimeline) -> [(mark: TimelineOverlayMark, rect: CGRect)] {
         var rows: [[ClosedRange<Double>]] = []
         var placed: [(TimelineOverlayMark, Int)] = []
@@ -461,7 +461,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let lane = overlayLane
         let count = Double(max(1, rows.count))
         let height = (lane.height - Self.overlayRowGap * (count - 1)) / count
-        return placed.flatMap { mark, row in
+        return placed.sorted { !$0.0.selected && $1.0.selected }.flatMap { mark, row in
             mark.ranges.map { range in
                 let rect = rectangle(range, duration: configuration.duration)
                 return (
@@ -478,8 +478,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let lane = overlayLane
         NSColor.quaternaryLabelColor.withAlphaComponent(0.5).setFill()
         NSBezierPath(roundedRect: lane, xRadius: 4, yRadius: 4).fill()
-        let bars = overlayBars(configuration)
-        for (mark, rect) in bars.sorted(by: { !$0.mark.selected && $1.mark.selected }) {
+        for (mark, rect) in overlayBars(configuration) {
             let radius = min(3, rect.height / 2)
             let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
             mark.fill.withAlphaComponent(0.9).setFill()
@@ -519,7 +518,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             with: pill.insetBy(dx: 5, dy: 1), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
-    /// Right-aligned pills; narrow clips keep only icons. Returns the free edge.
+    /// Narrow clips get icons; returns label room.
     private func drawBadges(_ badges: [TimelineBadge], in rect: CGRect) -> Double {
         let inset = Self.handleWidth + 4
         var trailing = rect.maxX - inset

@@ -6,7 +6,7 @@ extension MediaEditorModel {
     /// Containers `AudioInput` decodes.
     static let musicTypes = ["mp3", "m4a", "aac", "wav", "aif", "aiff", "caf", "flac", "ogg", "oga", "opus"]
         .compactMap { UTType(filenameExtension: $0) }
-    /// Engine rejects a start at the song's end.
+    /// Starts must precede the song's end.
     static let musicStartMargin = 0.001
 
     var musicChanged: Bool {
