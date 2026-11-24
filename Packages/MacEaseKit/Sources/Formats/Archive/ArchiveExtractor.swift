@@ -77,9 +77,11 @@ public enum ArchiveExtractor {
         let limit = limits.limit(forArchiveBytes: archiveBytes)
         return try ArchiveListing.inUTF8Locale {
             let reader = try Reader()
-            archive_read_support_filter_all(reader.archive)
-            archive_read_support_format_all(reader.archive)
-            archive_read_support_format_raw(reader.archive)
+            try ArchiveReadSupport.enableFilters(reader.archive)
+            try ArchiveReadSupport.enableFormats(reader.archive)
+            guard archive_read_support_format_raw(reader.archive) == ARCHIVE_OK else {
+                throw FormatError.unsupported(ArchiveListing.message(reader.archive))
+            }
             if let password { archive_read_add_passphrase(reader.archive, password) }
             archive_write_disk_set_options(reader.disk, Int32(diskFlags))
             guard archive_read_open_filename(reader.archive, source.path, blockSize) == ARCHIVE_OK else {
@@ -106,9 +108,6 @@ public enum ArchiveExtractor {
                 guard declaredSize >= 0 else { throw FormatError.corrupt("negative archive entry size") }
                 var memberBytes: Int64 = 0
                 try charge(declaredSize, from: &memberBytes, total: &logicalBytes, limit: limit)
-                guard archive_write_header(reader.disk, entry) >= ARCHIVE_WARN else {
-                    throw FormatError.corrupt(ArchiveListing.message(reader.disk))
-                }
                 try copyData(reader, entry: entry, password: password) { bytes, offset in
                     guard offset >= 0 else { throw FormatError.corrupt("negative archive data offset") }
                     let (end, overflow) = offset.addingReportingOverflow(Int64(bytes))
@@ -186,11 +185,21 @@ public enum ArchiveExtractor {
         var buffer: UnsafeRawPointer?
         var size = 0
         var offset: la_int64_t = 0
+        var headerWritten = false
         while true {
             try Task.checkCancellation()
             let status = archive_read_data_block(reader.archive, &buffer, &size, &offset)
-            if status == ARCHIVE_EOF { break }
             guard status >= ARCHIVE_WARN else { throw failure(reader.archive, entry: entry, password: password) }
+            if !headerWritten {
+                if archive_format(reader.archive) == ARCHIVE_FORMAT_RAW {
+                    try ArchiveReadSupport.checkRawPrefix(UnsafeRawBufferPointer(start: buffer, count: size))
+                }
+                guard archive_write_header(reader.disk, entry) >= ARCHIVE_WARN else {
+                    throw FormatError.corrupt(ArchiveListing.message(reader.disk))
+                }
+                headerWritten = true
+            }
+            if status == ARCHIVE_EOF { break }
             try wrote(size, offset)
             guard archive_write_data_block(reader.disk, buffer, size, offset) >= ARCHIVE_WARN else {
                 throw FormatError.corrupt(ArchiveListing.message(reader.disk))

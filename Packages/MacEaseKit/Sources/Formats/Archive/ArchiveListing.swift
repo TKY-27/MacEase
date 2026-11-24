@@ -7,8 +7,8 @@ public enum ArchiveListing {
     public static func verify(_ url: URL) throws {
         guard let archive = archive_read_new() else { throw FormatError.io("libarchive allocation") }
         defer { archive_read_free(archive) }
-        archive_read_support_filter_all(archive)
-        archive_read_support_format_all(archive)
+        try ArchiveReadSupport.enableFilters(archive)
+        try ArchiveReadSupport.enableFormats(archive)
         guard archive_read_open_filename(archive, url.path, blockSize) == ARCHIVE_OK else {
             throw FormatError.corrupt(message(archive))
         }
