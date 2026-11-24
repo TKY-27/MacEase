@@ -53,7 +53,7 @@ struct PreviewTextRendering: Sendable {
                 text = try JSONFormatter.formatted(decoded)
                 language = .json
             } else if html && kind == .markdown {
-                text = try MarkdownConversion.html(decoded, title: url.lastPathComponent)
+                text = try PreviewMarkdownRenderer.html(decoded, markdownURL: url, restricted: restricted)
                     .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
             } else if html {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }

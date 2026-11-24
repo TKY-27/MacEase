@@ -129,4 +129,122 @@ final class PreviewMarkdownRendererTests: XCTestCase {
         XCTAssertThrowsError(
             try PreviewMarkdownRenderer.html(oversizedMarkdown, markdownURL: markdownURL, restricted: false))
     }
+
+    func testDocumentedLimitsAreEightAndThirtyTwoMiB() {
+        XCTAssertEqual(PreviewMarkdownRenderer.maximumImageBytes, 8_388_608)
+        XCTAssertEqual(PreviewMarkdownRenderer.maximumTotalImageBytes, 33_554_432)
+    }
+
+    func testSymlinkedFoldersAreNeverFollowedEvenInsideTheFolder() throws {
+        let root = try PreviewFixtures.directory(self)
+        let assets = root.appendingPathComponent("assets")
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: false)
+        try Self.minimalPNG.write(to: assets.appendingPathComponent("pic.png"))
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("link"), withDestinationURL: assets)
+
+        let markdownURL = root.appendingPathComponent("readme.md")
+        let html = try PreviewMarkdownRenderer.html(
+            "![real](assets/pic.png)\n\n![linked](link/pic.png)", markdownURL: markdownURL, restricted: false)
+        XCTAssertFalse(html.contains("src=\"assets/pic.png\""))
+        XCTAssertTrue(html.contains("src=\"link/pic.png\""))
+    }
+
+    func testSpecialFilesAreSkippedWithoutBlocking() throws {
+        let root = try PreviewFixtures.directory(self)
+        let pipe = root.appendingPathComponent("pipe.png")
+        XCTAssertEqual(mkfifo(pipe.path, 0o600), 0)
+        try Self.minimalPNG.write(to: root.appendingPathComponent("pic.png"))
+        let markdownURL = root.appendingPathComponent("readme.md")
+        let html = try PreviewMarkdownRenderer.html(
+            "![pipe](pipe.png)\n\n![pic](pic.png)", markdownURL: markdownURL, restricted: false)
+        XCTAssertTrue(html.contains("src=\"pipe.png\""))
+        XCTAssertFalse(html.contains("src=\"pic.png\""))
+    }
+
+    func testHardlinksEmbedLikeFilesAndStayWithinTheTotal() throws {
+        let root = try PreviewFixtures.directory(self)
+        var sevenMiB = Self.minimalPNG
+        sevenMiB.append(Data(repeating: 0, count: 7 * 1024 * 1024 - sevenMiB.count))
+        let original = root.appendingPathComponent("chunk-1.png")
+        try sevenMiB.write(to: original)
+        for index in 2...5 {
+            try FileManager.default.linkItem(at: original, to: root.appendingPathComponent("chunk-\(index).png"))
+        }
+        let markdownURL = root.appendingPathComponent("heavy.md")
+        let markdown = (1...5).map { "![\($0)](chunk-\($0).png)" }.joined(separator: "\n\n")
+        let html = try PreviewMarkdownRenderer.html(markdown, markdownURL: markdownURL, restricted: false)
+        XCTAssertFalse(html.contains("src=\"chunk-4.png\""))
+        XCTAssertTrue(html.contains("src=\"chunk-5.png\""))
+    }
+
+    func testRepeatedNonImageReferencesAreNotReadInFull() throws {
+        let root = try PreviewFixtures.directory(self)
+        let payload = Data(repeating: 0x41, count: PreviewMarkdownRenderer.maximumImageBytes)
+        try payload.write(to: root.appendingPathComponent("payload.bin"))
+        try Self.minimalPNG.write(to: root.appendingPathComponent("pic.png"))
+        let markdownURL = root.appendingPathComponent("readme.md")
+        let markdown = String(repeating: "![p](payload.bin)\n", count: 50_000) + "\n![pic](pic.png)"
+
+        let start = ContinuousClock.now
+        let html = try PreviewMarkdownRenderer.html(markdown, markdownURL: markdownURL, restricted: false)
+        // Reading 400 GiB would take far longer.
+        XCTAssertLessThan(ContinuousClock.now - start, .seconds(10))
+        XCTAssertEqual(html.components(separatedBy: "src=\"payload.bin\"").count - 1, 50_000)
+        XCTAssertFalse(html.contains("src=\"pic.png\""))
+    }
+
+    func testCancellationStopsEmbedding() async throws {
+        let root = try PreviewFixtures.directory(self)
+        try Self.minimalPNG.write(to: root.appendingPathComponent("pic.png"))
+        let markdownURL = root.appendingPathComponent("readme.md")
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try PreviewMarkdownRenderer.html("![pic](pic.png)", markdownURL: markdownURL, restricted: false)
+        }
+        do {
+            _ = try await task.value
+            XCTFail("expected cancellation")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    @MainActor
+    func testAltTextAndFileNamesCannotInjectMarkupOrReachTheNetwork() async throws {
+        let listener = try LoopbackListener()
+        let port = try await listener.start()
+        defer { listener.stop() }
+        let root = try PreviewFixtures.directory(self)
+        let hostileName = "x\" onerror=\"document.title='ran'.png"
+        try PreviewFixtures.png().write(to: root.appendingPathComponent(hostileName))
+        let markdownURL = root.appendingPathComponent("readme.md")
+        try Data(
+            """
+            # Title
+
+            ![\\"><script>document.title='ran'</script>](x%22%20onerror=%22document.title='ran'.png)
+
+            ![remote](http://127.0.0.1:\(port)/remote.png)
+
+            <img src="http://127.0.0.1:\(port)/raw.png" onerror="document.title='ran'">
+            """.utf8
+        ).write(to: markdownURL)
+
+        let page = try PreviewTextRendering.make(
+            source: try PreviewTextSource.read(markdownURL), encoding: .automatic, rich: true, kind: .markdown,
+            url: markdownURL, restricted: false)
+        XCTAssertFalse(page.text.contains("<script"))
+        let probe = try await PreviewWebProbe.loading(.generated(page.text))
+        try await probe.settle()
+        let scripts = try await probe.evaluate("document.querySelectorAll('script, [onerror]').length")
+        XCTAssertEqual(scripts as? Int, 0)
+        let embedded = try await probe.evaluate("document.images[0].naturalWidth")
+        XCTAssertEqual(embedded as? Int, 8)
+        let source = try await probe.evaluate("document.images[0].src.slice(0, 22)")
+        XCTAssertEqual(source as? String, "data:image/png;base64,")
+        let title = try await probe.evaluate("document.title")
+        XCTAssertNotEqual(title as? String, "ran")
+        XCTAssertEqual(listener.connectionCount, 0)
+    }
 }

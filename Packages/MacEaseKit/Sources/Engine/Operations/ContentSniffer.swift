@@ -42,6 +42,16 @@ public enum ContentSniffer {
         let reader = try FileHandle(forReadingFrom: url)
         defer { try? reader.close() }
         let header = [UInt8](try reader.read(upToCount: headerLength) ?? Data())
+        let detected = identify(header: header)
+        guard detected.family == .binary,
+            let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+            (CGImageSourceGetType(source) as String?) == "com.truevision.tga-image"
+        else { return detected }
+        return DetectedContent(family: .image, displayName: "TGA")
+    }
+
+    /// Unlike `identify(_:)`, never reports TGA.
+    public static func identify(header: [UInt8]) -> DetectedContent {
         if header.isEmpty { return DetectedContent(family: .empty, displayName: "Empty file") }
         if let executable = identifyExecutable(header) { return executable }
         if starts(header, with: ascii("bplist00")) {
@@ -66,11 +76,6 @@ public enum ContentSniffer {
         }
         if isUTF16Text(header, littleEndian: true) || isUTF16Text(header, littleEndian: false) {
             return DetectedContent(family: .text, displayName: "Text")
-        }
-        if let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-            (CGImageSourceGetType(source) as String?) == "com.truevision.tga-image"
-        {
-            return DetectedContent(family: .image, displayName: "TGA")
         }
         return DetectedContent(family: .binary, displayName: "Binary file")
     }
