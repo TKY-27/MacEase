@@ -6,6 +6,7 @@ import Foundation
 public struct ArchiveContents: Sendable {
     public struct Entry: Sendable {
         public let path: String
+        public let rawPath: String
         public let isDirectory: Bool
         public let size: Int64?
         public let modified: Date?
@@ -13,7 +14,7 @@ public struct ArchiveContents: Sendable {
     }
 
     public enum Ending: Equatable, Sendable {
-        case complete, entryLimit, nameLimit, skipLimit, timeLimit, damaged
+        case complete, entryLimit, nameLimit, decodedLimit, timeLimit, damaged
     }
 
     public enum Failure: Error, Equatable, Sendable {
@@ -24,8 +25,9 @@ public struct ArchiveContents: Sendable {
     public static let maximumNameBytes = ZIPDirectoryBounds.maximumMetadataBytes
     public static let maximumPathDepth = 256
     public static let maximumDuration: Duration = .seconds(10)
-    public static let maximumCompressedSkipBytes: Int64 = 64 * 1024 * 1024
-    private static let maximumDecodedBytes: Int64 = maximumCompressedSkipBytes + Int64(maximumNameBytes)
+    public static let maximumDecodedBytes: Int64 = 64 * 1024 * 1024
+    // Matches libarchive gzip/bzip2/xz output block size.
+    static let decodedBlockBytes = 64 * 1024
     private static let readChunkBytes = 4 * 1024
     // One compression filter plus libarchive's base filter.
     private static let maximumFilterChainCount = 2
@@ -38,9 +40,11 @@ public struct ArchiveContents: Sendable {
     private static let bzip2Signature: [UInt8] = [0x42, 0x5A, 0x68]
     private static let xzSignature: [UInt8] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]
     private static let ustarSignature: [UInt8] = [0x75, 0x73, 0x74, 0x61, 0x72]
+    private static let compressedContainerExtensions: Set<String> = ["tgz", "tbz", "tbz2", "txz"]
 
     public let entries: [Entry]
     public let ending: Ending
+    let decodedBytes: Int64
 
     public static func list(
         _ source: URL, maximumDuration: Duration = maximumDuration, check: () throws -> Void = {}
@@ -49,102 +53,188 @@ public struct ArchiveContents: Sendable {
         return try withoutActuallyEscaping(check) { check in
             try ArchiveListing.inUTF8Locale {
                 let progress = Progress(deadline: deadline, check: check)
-                guard progress.proceeds() else { return try interrupted(progress, entries: []) }
-                if try startsWithZIPSignature(source) {
-                    do {
-                        return try ArchiveBrowserZIP.withReader(
-                            source: source, check: { try progress.checkProceeds() }
-                        ) { archive, _ in
-                            try walk(
-                                archive, progress: progress, rawName: nil, compressed: false,
-                                checkDecodedLimit: { false }, startsWithKnownArchive: { false })
-                        }
-                    } catch is TimeLimitExceeded {
-                        return Self(entries: [], ending: .timeLimit)
-                    } catch ZIPBrowserError.tooManyEntries {
-                        throw Failure.tooLarge
-                    } catch ZIPBrowserError.namesTooLarge {
-                        throw Failure.namesTooLarge
-                    } catch is ZIPBrowserError {
-                        throw Failure.damaged
-                    }
+                guard progress.proceeds() else { return try interrupted(progress, entries: [], decodedBytes: 0) }
+                let signature = try probeSignature(source)
+                if signature.isZIP {
+                    return try listZIP(source, progress: progress, unsupportedOnInvalidZIP: false)
                 }
-                let reader = try Reader(source: source, progress: progress)
-                return try withExtendedLifetime(reader) {
-                    try walk(
-                        reader.archive, progress: progress,
-                        rawName: source.deletingPathExtension().lastPathComponent,
-                        compressed: archive_filter_count(reader.archive) > 1,
-                        checkDecodedLimit: { reader.decodedLimitHit },
-                        startsWithKnownArchive: { reader.startsWithKnownArchive })
+                if signature.isCompressed {
+                    return try listCompressed(source, progress: progress)
+                }
+                do {
+                    return try listUncompressed(source, progress: progress, startsWithUstar: signature.isUstar)
+                } catch Failure.unsupported {
+                    guard progress.proceeds() else { return try interrupted(progress, entries: [], decodedBytes: 0) }
+                    return try listZIP(source, progress: progress, unsupportedOnInvalidZIP: true)
                 }
             }
         }
     }
 
+    private static func listZIP(
+        _ source: URL, progress: Progress, unsupportedOnInvalidZIP: Bool
+    ) throws -> Self {
+        do {
+            return try ArchiveBrowserZIP.withReader(
+                source: source, check: { try progress.checkProceeds() }
+            ) { archive, expectedEntries in
+                try walk(
+                    archive, progress: progress, expectedEntries: expectedEntries,
+                    compressed: false, rawName: nil, singleFileFallback: nil,
+                    decoderState: { (0, false, false) }, startsWithUstar: false)
+            }
+        } catch is TimeLimitExceeded {
+            return Self(entries: [], ending: .timeLimit, decodedBytes: 0)
+        } catch ZIPBrowserError.tooManyEntries {
+            throw Failure.tooLarge
+        } catch ZIPBrowserError.namesTooLarge {
+            throw Failure.namesTooLarge
+        } catch ZIPBrowserError.invalidZIP where unsupportedOnInvalidZIP {
+            throw Failure.unsupported
+        } catch is ZIPBrowserError {
+            throw Failure.damaged
+        }
+    }
+
+    private static func listCompressed(_ source: URL, progress: Progress) throws -> Self {
+        let decoder = try CompressedDecoder(source: source, progress: progress)
+        if progress.stopped {
+            return try interrupted(progress, entries: [], decodedBytes: decoder.decodedBytes)
+        }
+        let stem = source.deletingPathExtension().lastPathComponent
+        let singleFileName = Self.singleCompressedFileName(for: source, stem: stem)
+        let reader = try DecodedTarReader(decoder: decoder)
+        return try withExtendedLifetime(reader) {
+            if progress.stopped {
+                return try interrupted(progress, entries: [], decodedBytes: decoder.decodedBytes)
+            }
+            if decoder.decodedLimitHit {
+                return Self(entries: [], ending: .decodedLimit, decodedBytes: decoder.decodedBytes)
+            }
+            if reader.emptyStream {
+                if let singleFileName {
+                    let single = Entry(
+                        path: singleFileName, rawPath: singleFileName, isDirectory: false,
+                        size: nil, modified: decoder.headerModified, isEncrypted: false)
+                    return Self(entries: [single], ending: .complete, decodedBytes: decoder.decodedBytes)
+                }
+                return Self(entries: [], ending: .complete, decodedBytes: decoder.decodedBytes)
+            }
+            return try walk(
+                reader.archive, progress: progress, expectedEntries: nil,
+                compressed: true, rawName: stem.isEmpty ? nil : stem,
+                singleFileFallback: singleFileName.map { ($0, decoder.headerModified) },
+                decoderState: { (decoder.decodedBytes, decoder.decodedLimitHit, decoder.damaged) },
+                startsWithUstar: false)
+        }
+    }
+
+    private static func listUncompressed(
+        _ source: URL, progress: Progress, startsWithUstar: Bool
+    ) throws -> Self {
+        let reader = try UncompressedReader(source: source, progress: progress, startsWithUstar: startsWithUstar)
+        return try withExtendedLifetime(reader) {
+            try walk(
+                reader.archive, progress: progress, expectedEntries: nil,
+                compressed: false, rawName: nil, singleFileFallback: nil,
+                decoderState: { (0, false, false) }, startsWithUstar: startsWithUstar)
+        }
+    }
+
+    private static func singleCompressedFileName(for source: URL, stem: String) -> String? {
+        guard !stem.isEmpty else { return nil }
+        let suffix = source.pathExtension.lowercased()
+        if compressedContainerExtensions.contains(suffix) || stem.lowercased().hasSuffix(".tar") {
+            return nil
+        }
+        return stem
+    }
+
     private static func walk(
-        _ archive: OpaquePointer, progress: Progress, rawName: String?, compressed: Bool,
-        checkDecodedLimit: () -> Bool, startsWithKnownArchive: () -> Bool
+        _ archive: OpaquePointer, progress: Progress, expectedEntries: Int?,
+        compressed: Bool, rawName: String?, singleFileFallback: (name: String, modified: Date?)?,
+        decoderState: () -> (decoded: Int64, limitHit: Bool, damaged: Bool),
+        startsWithUstar: Bool
     ) throws -> Self {
         var entries: [Entry] = []
         var headersRead = 0
         var nameBytes = 0
-        var skippedBytes: Int64 = 0
         var pointer: OpaquePointer?
         while true {
-            guard progress.proceeds() else { return try interrupted(progress, entries: entries) }
-            if checkDecodedLimit() { return Self(entries: entries, ending: .skipLimit) }
-            guard headersRead < maximumEntries else { return Self(entries: entries, ending: .entryLimit) }
+            let state = decoderState()
+            guard progress.proceeds() else {
+                return try interrupted(progress, entries: entries, decodedBytes: state.decoded)
+            }
+            if state.limitHit {
+                return Self(entries: entries, ending: .decodedLimit, decodedBytes: state.decoded)
+            }
+            guard headersRead < maximumEntries else {
+                return Self(entries: entries, ending: .entryLimit, decodedBytes: state.decoded)
+            }
             let status = archive_read_next_header(archive, &pointer)
-            if status == ARCHIVE_EOF { return Self(entries: entries, ending: .complete) }
-            guard status >= ARCHIVE_WARN, let pointer else {
-                if progress.stopped { return try interrupted(progress, entries: entries) }
-                if checkDecodedLimit() { return Self(entries: entries, ending: .skipLimit) }
+            let afterState = decoderState()
+            if status == ARCHIVE_EOF {
+                if let expectedEntries {
+                    guard headersRead == expectedEntries,
+                        archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP
+                    else { throw Failure.damaged }
+                }
+                if headersRead == 0, let fallback = singleFileFallback {
+                    let single = Entry(
+                        path: fallback.name, rawPath: fallback.name, isDirectory: false,
+                        size: nil, modified: fallback.modified, isEncrypted: false)
+                    return Self(entries: [single], ending: .complete, decodedBytes: afterState.decoded)
+                }
+                return Self(entries: entries, ending: .complete, decodedBytes: afterState.decoded)
+            }
+            guard status == ARCHIVE_OK || status == ARCHIVE_WARN, let pointer else {
+                if progress.stopped {
+                    return try interrupted(progress, entries: entries, decodedBytes: afterState.decoded)
+                }
+                if afterState.limitHit {
+                    return Self(entries: entries, ending: .decodedLimit, decodedBytes: afterState.decoded)
+                }
                 guard !entries.isEmpty else { throw Failure.damaged }
-                return Self(entries: entries, ending: .damaged)
+                return Self(entries: entries, ending: .damaged, decodedBytes: afterState.decoded)
             }
             headersRead += 1
             let isRaw = archive_format(archive) == ARCHIVE_FORMAT_RAW
-            let path: String
             if isRaw {
                 // Unfiltered raw matches any file.
                 guard let rawName, !rawName.isEmpty, compressed else {
-                    throw startsWithKnownArchive() ? Failure.damaged : Failure.unsupported
+                    throw startsWithUstar ? Failure.damaged : Failure.unsupported
                 }
-                path = rawName
-            } else {
-                path = displayPath(of: pointer)
-                if path.isEmpty {
-                    if compressed {
-                        let cost = compressedSkipBytes(of: pointer)
-                        guard cost <= maximumCompressedSkipBytes - skippedBytes else {
-                            return Self(entries: entries, ending: .skipLimit)
-                        }
-                        skippedBytes += cost
-                    }
-                    continue
+                guard rawName.utf8.count <= maximumNameBytes - nameBytes else {
+                    return Self(entries: entries, ending: .nameLimit, decodedBytes: afterState.decoded)
                 }
+                let rawEntry = entry(
+                    pointer, path: rawName, rawPath: rawName,
+                    fallbackModified: singleFileFallback?.modified)
+                return Self(entries: [rawEntry], ending: .complete, decodedBytes: afterState.decoded)
             }
-            guard path.utf8.count <= maximumNameBytes - nameBytes else {
-                return Self(entries: entries, ending: .nameLimit)
-            }
-            nameBytes += path.utf8.count
-            entries.append(entry(pointer, path: path))
-            if compressed, !isRaw {
-                let cost = compressedSkipBytes(of: pointer)
-                guard cost <= maximumCompressedSkipBytes - skippedBytes else {
-                    return Self(entries: entries, ending: .skipLimit)
+            let rawPath = rawPathname(of: pointer)
+            let path = cleanedPath(from: rawPath)
+            if !path.isEmpty {
+                let retainedBytes = max(path.utf8.count, rawPath.utf8.count)
+                guard retainedBytes <= maximumNameBytes - nameBytes else {
+                    return Self(entries: entries, ending: .nameLimit, decodedBytes: afterState.decoded)
                 }
-                skippedBytes += cost
+                nameBytes += retainedBytes
+                entries.append(entry(pointer, path: path, rawPath: rawPath, fallbackModified: nil))
+            }
+            if compressed {
+                let skipCost = tarPayloadSkipBytes(of: pointer)
+                let projected = afterState.decoded.addingReportingOverflow(skipCost)
+                let budgetCeiling = maximumDecodedBytes + Int64(decodedBlockBytes)
+                if projected.overflow || projected.partialValue > budgetCeiling {
+                    return Self(entries: entries, ending: .decodedLimit, decodedBytes: afterState.decoded)
+                }
             }
         }
     }
 
-    private static func compressedSkipBytes(of entry: OpaquePointer) -> Int64 {
-        let filetype = archive_entry_filetype(entry)
-        guard filetype != UInt32(S_IFDIR), filetype != UInt32(S_IFLNK), archive_entry_hardlink(entry) == nil else {
-            return 0
-        }
+    // Every entry kind counts toward skipping cost.
+    private static func tarPayloadSkipBytes(of entry: OpaquePointer) -> Int64 {
         let rawBytes: Int64
         if archive_entry_sparse_count(entry) > 0 {
             archive_entry_sparse_reset(entry)
@@ -170,54 +260,61 @@ public struct ArchiveContents: Sendable {
         return overflow ? .max : padded
     }
 
-    private static func interrupted(_ progress: Progress, entries: [Entry]) throws -> Self {
+    private static func interrupted(_ progress: Progress, entries: [Entry], decodedBytes: Int64) throws -> Self {
         if let interruption = progress.interruption { throw interruption }
-        return Self(entries: entries, ending: .timeLimit)
+        return Self(entries: entries, ending: .timeLimit, decodedBytes: decodedBytes)
     }
 
-    private static func entry(_ pointer: OpaquePointer, path: String) -> Entry {
+    private static func entry(
+        _ pointer: OpaquePointer, path: String, rawPath: String, fallbackModified: Date?
+    ) -> Entry {
         let size = archive_entry_size_is_set(pointer) != 0 ? archive_entry_size(pointer) : nil
-        let modified =
-            archive_entry_mtime_is_set(pointer) != 0
-            ? Date(
-                timeIntervalSince1970: TimeInterval(archive_entry_mtime(pointer))
-                    + TimeInterval(archive_entry_mtime_nsec(pointer)) / 1_000_000_000)
-            : nil
+        let modified = entryModifiedDate(pointer) ?? fallbackModified
         return Entry(
-            path: path, isDirectory: archive_entry_filetype(pointer) == UInt32(S_IFDIR),
+            path: path, rawPath: rawPath, isDirectory: archive_entry_filetype(pointer) == UInt32(S_IFDIR),
             size: size.flatMap { $0 >= 0 ? $0 : nil }, modified: modified,
             isEncrypted: archive_entry_is_encrypted(pointer) != 0)
     }
 
-    // Drops only empty and "." components.
-    private static func displayPath(of entry: OpaquePointer) -> String {
-        guard let raw = archive_entry_pathname_utf8(entry) ?? archive_entry_pathname(entry) else { return "" }
-        return String(cString: raw).split(separator: "/").filter { $0 != "." }
-            .prefix(maximumPathDepth).joined(separator: "/")
+    private static func entryModifiedDate(_ pointer: OpaquePointer) -> Date? {
+        guard archive_entry_mtime_is_set(pointer) != 0 else { return nil }
+        return Date(
+            timeIntervalSince1970: TimeInterval(archive_entry_mtime(pointer))
+                + TimeInterval(archive_entry_mtime_nsec(pointer)) / 1_000_000_000)
     }
 
-    private static func startsWithZIPSignature(_ source: URL) throws -> Bool {
+    private static func rawPathname(of entry: OpaquePointer) -> String {
+        guard let raw = archive_entry_pathname_utf8(entry) ?? archive_entry_pathname(entry) else { return "" }
+        return String(cString: raw)
+    }
+
+    // Drops only empty and "." components.
+    private static func cleanedPath(from raw: String) -> String {
+        raw.split(separator: "/").filter { $0 != "." }.joined(separator: "/")
+    }
+
+    private struct HeaderSignature {
+        let isZIP: Bool
+        let isCompressed: Bool
+        let isUstar: Bool
+    }
+
+    private static func probeSignature(_ source: URL) throws -> HeaderSignature {
         let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         defer { close(descriptor) }
-        var header = [UInt8](repeating: 0, count: zipLocalSignature.count)
-        let count = pread(descriptor, &header, header.count, 0)
-        return count == header.count && (header == zipLocalSignature || header == zipEmptySignature)
-    }
-
-    private static func hasKnownArchiveSignature(_ descriptor: Int32) -> Bool {
         var header = [UInt8](repeating: 0, count: headerProbeBytes)
         let count = pread(descriptor, &header, header.count, 0)
-        guard count >= gzipSignature.count else { return false }
+        guard count > 0 else { return HeaderSignature(isZIP: false, isCompressed: false, isUstar: false) }
         let prefix = Array(header.prefix(count))
-        if prefix.starts(with: gzipSignature) || prefix.starts(with: xzSignature) { return true }
-        if prefix.count >= 4, prefix.starts(with: bzip2Signature),
-            (UInt8(ascii: "1")...UInt8(ascii: "9")).contains(prefix[3])
-        {
-            return true
-        }
+        let isZIP = prefix.starts(with: zipLocalSignature) || prefix.starts(with: zipEmptySignature)
+        let isBzip2 =
+            prefix.count >= 4 && prefix.starts(with: bzip2Signature)
+            && (UInt8(ascii: "1")...UInt8(ascii: "9")).contains(prefix[3])
+        let isCompressed = prefix.starts(with: gzipSignature) || isBzip2 || prefix.starts(with: xzSignature)
         let ustarEnd = ustarOffset + ustarSignature.count
-        return prefix.count >= ustarEnd && Array(prefix[ustarOffset..<ustarEnd]) == ustarSignature
+        let isUstar = prefix.count >= ustarEnd && Array(prefix[ustarOffset..<ustarEnd]) == ustarSignature
+        return HeaderSignature(isZIP: isZIP, isCompressed: isCompressed, isUstar: isUstar)
     }
 
     private struct TimeLimitExceeded: Error {}
@@ -254,18 +351,154 @@ public struct ArchiveContents: Sendable {
         }
     }
 
-    // Callbacks bound read chunks, deadlines, and cancellation.
-    private final class Reader {
+    // Stage 1: decodes one compression layer only.
+    private final class CompressedDecoder {
         let archive: OpaquePointer
         let progress: Progress
-        let startsWithKnownArchive: Bool
-        private(set) var tooManyFilters = false
+        private(set) var headerModified: Date?
+        private(set) var decodedBytes: Int64 = 0
         private(set) var decodedLimitHit = false
+        private(set) var damaged = false
+        private(set) var eofReached = false
+        private var tooManyFilters = false
+        private let descriptor: Int32
+        private let rawBuffer = UnsafeMutableRawPointer.allocate(byteCount: readChunkBytes, alignment: 16)
+
+        init(source: URL, progress: Progress) throws {
+            self.progress = progress
+            descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+            var metadata = stat()
+            let described = descriptor >= 0 && fstat(descriptor, &metadata) == 0
+            guard described, metadata.st_mode & S_IFMT == S_IFREG, let archive = archive_read_new() else {
+                if descriptor >= 0 { close(descriptor) }
+                rawBuffer.deallocate()
+                throw Failure.damaged
+            }
+            self.archive = archive
+            // ARCHIVE_WARN means an external decompressor.
+            let support = [
+                archive_read_support_filter_gzip, archive_read_support_filter_bzip2, archive_read_support_filter_xz,
+                archive_read_support_format_raw,
+            ]
+            guard support.allSatisfy({ $0(archive) == ARCHIVE_OK }) else { throw Failure.unsupported }
+            archive_read_set_read_callback(archive) { active, context, block in
+                guard let active, let context, let block else { return -1 }
+                let decoder = Unmanaged<CompressedDecoder>.fromOpaque(context).takeUnretainedValue()
+                guard decoder.progress.proceeds() else { return -1 }
+                if archive_filter_count(active) > maximumFilterChainCount {
+                    decoder.tooManyFilters = true
+                    return -1
+                }
+                while true {
+                    let count = read(decoder.descriptor, decoder.rawBuffer, readChunkBytes)
+                    if count < 0, errno == EINTR { continue }
+                    block.pointee = UnsafeRawPointer(decoder.rawBuffer)
+                    return count
+                }
+            }
+            archive_read_set_callback_data(archive, Unmanaged.passUnretained(self).toOpaque())
+            let opened = archive_read_open1(archive)
+            if progress.stopped { return }
+            if tooManyFilters { throw Failure.unsupported }
+            guard opened == ARCHIVE_OK else { throw Failure.damaged }
+            let filters = archive_filter_count(archive)
+            guard filters <= maximumFilterChainCount else { throw Failure.unsupported }
+            guard filters == maximumFilterChainCount else { throw Failure.damaged }
+            var header: OpaquePointer?
+            let status = archive_read_next_header(archive, &header)
+            if progress.stopped { return }
+            if status == ARCHIVE_EOF {
+                eofReached = true
+                return
+            }
+            guard status == ARCHIVE_OK || status == ARCHIVE_WARN else { throw Failure.damaged }
+            if let header { headerModified = ArchiveContents.entryModifiedDate(header) }
+        }
+
+        // Enforces decoded budget and deadline per block.
+        func readDecodedBlock(into target: UnsafeMutableRawPointer, capacity: Int) -> Int {
+            guard !eofReached else { return 0 }
+            guard progress.proceeds() else { return -1 }
+            let remaining = maximumDecodedBytes - decodedBytes
+            guard remaining > 0 else {
+                decodedLimitHit = true
+                return -1
+            }
+            let request = min(capacity, Int(min(remaining, Int64(Int.max))))
+            let count = archive_read_data(archive, target, request)
+            if count > 0 {
+                decodedBytes += Int64(count)
+                return count
+            }
+            if count == 0 {
+                eofReached = true
+                return 0
+            }
+            if !progress.stopped { damaged = true }
+            return -1
+        }
+
+        deinit {
+            archive_read_free(archive)
+            close(descriptor)
+            rawBuffer.deallocate()
+        }
+    }
+
+    // Stage 2: parses TAR/RAW from decoded blocks.
+    private final class DecodedTarReader {
+        let archive: OpaquePointer
+        let decoder: CompressedDecoder
+        private(set) var emptyStream = false
+        private let decodedBuffer = UnsafeMutableRawPointer.allocate(byteCount: decodedBlockBytes, alignment: 16)
+
+        init(decoder: CompressedDecoder) throws {
+            self.decoder = decoder
+            guard let archive = archive_read_new() else {
+                decodedBuffer.deallocate()
+                throw Failure.damaged
+            }
+            self.archive = archive
+            let support = [
+                archive_read_support_filter_none, archive_read_support_format_tar, archive_read_support_format_raw,
+            ]
+            guard support.allSatisfy({ $0(archive) == ARCHIVE_OK }) else { throw Failure.unsupported }
+            archive_read_set_read_callback(archive) { _, context, block in
+                guard let context, let block else { return -1 }
+                let reader = Unmanaged<DecodedTarReader>.fromOpaque(context).takeUnretainedValue()
+                let count = reader.decoder.readDecodedBlock(into: reader.decodedBuffer, capacity: decodedBlockBytes)
+                guard count >= 0 else { return -1 }
+                block.pointee = UnsafeRawPointer(reader.decodedBuffer)
+                return count
+            }
+            archive_read_set_callback_data(archive, Unmanaged.passUnretained(self).toOpaque())
+            let opened = archive_read_open1(archive)
+            if decoder.progress.stopped || decoder.decodedLimitHit { return }
+            if decoder.damaged { throw Failure.damaged }
+            if opened != ARCHIVE_OK {
+                if decoder.eofReached, decoder.decodedBytes == 0 {
+                    emptyStream = true
+                    return
+                }
+                throw Failure.damaged
+            }
+        }
+
+        deinit {
+            archive_read_free(archive)
+            decodedBuffer.deallocate()
+        }
+    }
+
+    // Uncompressed TAR skips via lseek directly.
+    private final class UncompressedReader {
+        let archive: OpaquePointer
+        let progress: Progress
         private let descriptor: Int32
         private let size: Int64
         private let buffer = UnsafeMutableRawPointer.allocate(byteCount: readChunkBytes, alignment: 16)
 
-        init(source: URL, progress: Progress) throws {
+        init(source: URL, progress: Progress, startsWithUstar: Bool) throws {
             self.progress = progress
             descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
             var metadata = stat()
@@ -277,26 +510,14 @@ public struct ArchiveContents: Sendable {
                 throw Failure.damaged
             }
             self.archive = archive
-            self.startsWithKnownArchive = ArchiveContents.hasKnownArchiveSignature(descriptor)
-            // ARCHIVE_WARN means an external decompressor.
             let support = [
-                archive_read_support_filter_gzip, archive_read_support_filter_bzip2, archive_read_support_filter_xz,
-                archive_read_support_format_tar, archive_read_support_format_raw,
+                archive_read_support_filter_none, archive_read_support_format_tar, archive_read_support_format_raw,
             ]
             guard support.allSatisfy({ $0(archive) == ARCHIVE_OK }) else { throw Failure.unsupported }
-            archive_read_set_read_callback(archive) { active, context, block in
-                guard let active, let context, let block else { return -1 }
-                let reader = Unmanaged<Reader>.fromOpaque(context).takeUnretainedValue()
+            archive_read_set_read_callback(archive) { _, context, block in
+                guard let context, let block else { return -1 }
+                let reader = Unmanaged<UncompressedReader>.fromOpaque(context).takeUnretainedValue()
                 guard reader.progress.proceeds() else { return -1 }
-                let filters = archive_filter_count(active)
-                if filters > maximumFilterChainCount {
-                    reader.tooManyFilters = true
-                    return -1
-                }
-                if filters > 1, archive_filter_bytes(active, 0) > maximumDecodedBytes {
-                    reader.decodedLimitHit = true
-                    return -1
-                }
                 while true {
                     let count = read(reader.descriptor, reader.buffer, readChunkBytes)
                     if count < 0, errno == EINTR { continue }
@@ -306,7 +527,7 @@ public struct ArchiveContents: Sendable {
             }
             archive_read_set_skip_callback(archive) { _, context, request in
                 guard let context else { return la_int64_t(ARCHIVE_FATAL) }
-                let reader = Unmanaged<Reader>.fromOpaque(context).takeUnretainedValue()
+                let reader = Unmanaged<UncompressedReader>.fromOpaque(context).takeUnretainedValue()
                 guard reader.progress.proceeds() else { return la_int64_t(ARCHIVE_FATAL) }
                 let current = lseek(reader.descriptor, 0, SEEK_CUR)
                 // Seeking past the end would hide truncation.
@@ -317,22 +538,16 @@ public struct ArchiveContents: Sendable {
             }
             archive_read_set_seek_callback(archive) { _, context, offset, whence in
                 guard let context else { return la_int64_t(ARCHIVE_FATAL) }
-                let reader = Unmanaged<Reader>.fromOpaque(context).takeUnretainedValue()
+                let reader = Unmanaged<UncompressedReader>.fromOpaque(context).takeUnretainedValue()
                 guard reader.progress.proceeds() else { return la_int64_t(ARCHIVE_FATAL) }
                 let position = lseek(reader.descriptor, offset, whence)
                 return position < 0 ? la_int64_t(ARCHIVE_FATAL) : position
             }
             archive_read_set_callback_data(archive, Unmanaged.passUnretained(self).toOpaque())
             let opened = archive_read_open1(archive)
-            // Stopped readers report via `walk`.
             if progress.stopped { return }
-            if tooManyFilters { throw Failure.unsupported }
-            if decodedLimitHit { return }
             guard opened == ARCHIVE_OK else {
-                throw startsWithKnownArchive ? Failure.damaged : Failure.unsupported
-            }
-            guard archive_filter_count(archive) <= maximumFilterChainCount else {
-                throw Failure.unsupported
+                throw startsWithUstar ? Failure.damaged : Failure.unsupported
             }
         }
 

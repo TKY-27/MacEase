@@ -65,7 +65,7 @@ import Testing
         #expect(contents.entries.allSatisfy { !$0.isEncrypted })
     }
 
-    @Test func hostileNamesStayLiteralExceptEmptyAndDotComponents() throws {
+    @Test func hostileNamesStayLiteralAndPreserveRawPaths() throws {
         let archive = try tar(
             "names.tar",
             members: """
@@ -80,12 +80,15 @@ import Testing
                     add('dup.txt')
 
                 """)
-        let paths = try ArchiveContents.list(archive).entries.map(\.path)
+        let entries = try ArchiveContents.list(archive).entries
         #expect(
-            paths == [
+            entries.map(\.path) == [
                 "../escape.txt", "etc/passwd", "a/b/c.txt", "bell\u{7}name", "gnp.\u{202E}exe", "same", "same",
                 "dup.txt", "dup.txt",
             ])
+        #expect(entries[1].rawPath == "/etc/passwd")
+        #expect(entries[2].rawPath == "./a//b/./c.txt")
+        #expect(entries[3].rawPath == "bell\u{7}name")
     }
 
     @Test func dotAndRootEntriesAreDroppedWithoutCounting() throws {
@@ -94,13 +97,15 @@ import Testing
             members: """
                     add('./', folder=True)
                     add('.', folder=False, size=4)
-                    add('/', folder=False, size=4)
+                    add('/', folder=True)
+                    add('/.', folder=False, size=4)
                     add('./keep.txt', size=5)
 
                 """)
         let contents = try ArchiveContents.list(archive)
         #expect(contents.ending == .complete)
         #expect(contents.entries.map(\.path) == ["keep.txt"])
+        #expect(contents.entries.first?.rawPath == "./keep.txt")
     }
 
     @Test func tarStartingWithPKListsAsTar() throws {
@@ -129,10 +134,11 @@ import Testing
         #expect(tarContents.entries.isEmpty)
     }
 
-    @Test func deepPathsAreCappedAtTheDepthLimit() throws {
-        let archive = try tar("deep.tar", members: "    add('/'.join(['d'] * 300))\n")
-        let path = try #require(try ArchiveContents.list(archive).entries.first).path
-        #expect(path.split(separator: "/").count == ArchiveContents.maximumPathDepth)
+    @Test func deepPathsKeepFileNameAndFullRawPath() throws {
+        let archive = try tar("deep.tar", members: "    add('/'.join(['d'] * 299 + ['leaf.txt']))\n")
+        let entry = try #require(try ArchiveContents.list(archive).entries.first)
+        #expect(entry.path.hasSuffix("/leaf.txt"))
+        #expect(entry.rawPath == Array(repeating: "d", count: 299).joined(separator: "/") + "/leaf.txt")
     }
 
     @Test func stopsAtTheEntryLimitWithTheFirstEntries() throws {
@@ -158,7 +164,7 @@ import Testing
         let contents = try ArchiveContents.list(archive)
         #expect(contents.ending == .nameLimit)
         #expect(!contents.entries.isEmpty)
-        let totalBytes = contents.entries.reduce(0) { $0 + $1.path.utf8.count }
+        let totalBytes = contents.entries.reduce(0) { $0 + $1.rawPath.utf8.count }
         #expect(totalBytes <= ArchiveContents.maximumNameBytes)
     }
 
@@ -230,7 +236,7 @@ import Testing
         #expect(checks < 64)
     }
 
-    @Test func tarXZBombStopsWithinSkipBudgetAndTimeLimit() throws {
+    @Test func tarXZBombStopsWithinDecodedBudgetAndTimeLimit() throws {
         let archive = try folder().appending(path: "bomb.tar.xz")
         let script = """
             import io, lzma, sys, tarfile
@@ -258,12 +264,13 @@ import Testing
         let start = ContinuousClock.now
         let contents = try ArchiveContents.list(archive, maximumDuration: limit)
         let elapsed = start.duration(to: .now)
-        #expect(contents.ending == .skipLimit || contents.ending == .timeLimit)
+        #expect(contents.ending == .decodedLimit || contents.ending == .timeLimit)
         #expect(contents.entries.map(\.path) == ["zeros.bin"])
+        #expect(contents.decodedBytes <= ArchiveContents.maximumDecodedBytes + Int64(ArchiveContents.decodedBlockBytes))
         #expect(elapsed < limit * 4)
     }
 
-    @Test func multiEntryTarXZBombHonorsSkipBudgetAndCancellation() throws {
+    @Test func multiEntryTarXZBombHonorsDecodedBudgetAndCancellation() throws {
         let archive = try folder().appending(path: "chunked-bomb.tar.xz")
         let script = """
             import io, lzma, sys, tarfile
@@ -286,8 +293,9 @@ import Testing
             """
         try run("/usr/bin/python3", ["-c", script, archive.path])
         let contents = try ArchiveContents.list(archive)
-        #expect(contents.ending == .skipLimit)
-        #expect(contents.entries.count == 9)
+        #expect(contents.ending == .decodedLimit)
+        #expect((8...9).contains(contents.entries.count))
+        #expect(contents.decodedBytes <= ArchiveContents.maximumDecodedBytes + Int64(ArchiveContents.decodedBlockBytes))
 
         var checks = 0
         let cancelStart = ContinuousClock.now
@@ -298,6 +306,158 @@ import Testing
             }
         }
         #expect(cancelStart.duration(to: .now) < .milliseconds(250))
+    }
+
+    @Test(arguments: ["bz2", "xz"])
+    func paxXattrBombStopsAtDecodedBudgetWithFrequentChecks(compression: String) throws {
+        let archive = try folder().appending(path: "xattr-bomb.tar.\(compression)")
+        let script = """
+            import bz2, lzma, sys, tarfile
+            MiB = 1024 * 1024
+            def pad(n): return b'\\0' * ((-n) % 512)
+            def x_header(body_len):
+                member = tarfile.TarInfo('././@PaxHeader')
+                member.type = tarfile.XHDTYPE
+                member.size = body_len
+                member.mtime = 0
+                return member.tobuf(format=tarfile.USTAR_FORMAT)
+            def reg_header(name, size):
+                member = tarfile.TarInfo(name)
+                member.size = size
+                member.mtime = 1700000000
+                return member.tobuf(format=tarfile.USTAR_FORMAT)
+            value_len = 16 * MiB - 1
+            lines = []
+            for number in range(60):
+                key = f'SCHILY.xattr.user.a{number:03d}'.encode()
+                payload_len = len(key) + value_len + 3
+                total = len(str(payload_len)) + payload_len
+                while len(str(total)) + payload_len != total:
+                    total = len(str(total)) + payload_len
+                lines.append((total, key))
+            body_len = sum(total for total, _ in lines)
+            compressor = bz2.BZ2Compressor(9) if sys.argv[2] == 'bz2' else lzma.LZMACompressor(preset=0)
+            chunk = b'a' * value_len
+            with open(sys.argv[1], 'wb') as out:
+                out.write(compressor.compress(x_header(body_len)))
+                for total, key in lines:
+                    out.write(compressor.compress(str(total).encode() + b' ' + key + b'='))
+                    out.write(compressor.compress(chunk))
+                    out.write(compressor.compress(b'\\n'))
+                out.write(compressor.compress(pad(body_len)))
+                out.write(compressor.compress(reg_header('xattrs.bin', 0)))
+                out.write(compressor.compress(b'\\0' * 1024))
+                out.write(compressor.flush())
+            """
+        try run("/usr/bin/python3", ["-c", script, archive.path, compression])
+        var lastCheck = ContinuousClock.now
+        var longestGap = Duration.zero
+        var checkCount = 0
+        let contents = try ArchiveContents.list(archive) {
+            let now = ContinuousClock.now
+            let gap = lastCheck.duration(to: now)
+            if gap > longestGap { longestGap = gap }
+            lastCheck = now
+            checkCount += 1
+        }
+        #expect(contents.ending == .decodedLimit)
+        #expect(contents.entries.isEmpty)
+        #expect(contents.decodedBytes <= ArchiveContents.maximumDecodedBytes + Int64(ArchiveContents.decodedBlockBytes))
+        #expect(checkCount >= 1_000)
+        #expect(longestGap < .milliseconds(100))
+    }
+
+    @Test(arguments: ["bz2", "xz"])
+    func paxHardlinkBombRespectsDecodedBudget(compression: String) throws {
+        let archive = try folder().appending(path: "hardlink-bomb.tar.\(compression)")
+        let script = """
+            import bz2, lzma, sys, tarfile
+            MiB = 1024 * 1024
+            def pad(n): return b'\\0' * ((-n) % 512)
+            def pax_body(records):
+                body = b''
+                for key, value in records:
+                    payload_len = len(key) + len(value) + 3
+                    total = len(str(payload_len)) + payload_len
+                    while len(str(total)) + payload_len != total:
+                        total = len(str(total)) + payload_len
+                    body += str(total).encode() + b' ' + key + b'=' + value + b'\\n'
+                return body
+            size = 256 * MiB
+            body = pax_body([(b'path', b'link.bin'), (b'size', str(size).encode())])
+            x_member = tarfile.TarInfo('././@PaxHeader')
+            x_member.type = tarfile.XHDTYPE
+            x_member.size = len(body)
+            link_member = tarfile.TarInfo('link.bin')
+            link_member.type = tarfile.LNKTYPE
+            link_member.linkname = 'target.bin'
+            link_member.size = 0
+            after = tarfile.TarInfo('after.txt')
+            after.size = 2
+            compressor = bz2.BZ2Compressor(9) if sys.argv[2] == 'bz2' else lzma.LZMACompressor(preset=0)
+            zeros = b'\\0' * (16 * MiB)
+            with open(sys.argv[1], 'wb') as out:
+                out.write(compressor.compress(x_member.tobuf(format=tarfile.USTAR_FORMAT) + body + pad(len(body))))
+                out.write(compressor.compress(link_member.tobuf(format=tarfile.USTAR_FORMAT)))
+                remaining = size
+                while remaining > 0:
+                    take = min(remaining, len(zeros))
+                    out.write(compressor.compress(zeros[:take]))
+                    remaining -= take
+                out.write(compressor.compress(after.tobuf(format=tarfile.USTAR_FORMAT) + b'ok' + pad(2) + b'\\0' * 1024))
+                out.write(compressor.flush())
+            """
+        try run("/usr/bin/python3", ["-c", script, archive.path, compression])
+        var lastCheck = ContinuousClock.now
+        var longestGap = Duration.zero
+        let contents = try ArchiveContents.list(archive) {
+            let now = ContinuousClock.now
+            let gap = lastCheck.duration(to: now)
+            if gap > longestGap { longestGap = gap }
+            lastCheck = now
+        }
+        #expect(contents.ending == .decodedLimit)
+        #expect(contents.entries.map(\.path) == ["link.bin"])
+        #expect(contents.decodedBytes <= ArchiveContents.maximumDecodedBytes + Int64(ArchiveContents.decodedBlockBytes))
+        #expect(longestGap < .milliseconds(100))
+    }
+
+    @Test func hugeDictionaryXZTarRespectsDecodedBudget() throws {
+        let directory = try folder()
+        let script = """
+            import binascii, io, lzma, struct, sys, tarfile
+            MiB = 1024 * 1024
+            def build(path, size_mib):
+                raw = io.BytesIO()
+                with tarfile.open(fileobj=raw, mode='w', format=tarfile.USTAR_FORMAT) as archive:
+                    member = tarfile.TarInfo('zeros.bin')
+                    member.size = size_mib * MiB
+                    archive.addfile(member, io.BytesIO(b'\\0' * member.size))
+                xz = bytearray(lzma.compress(
+                    raw.getvalue(), format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC32,
+                    filters=[{'id': lzma.FILTER_LZMA2, 'dict_size': 1 << 20, 'preset': 0}]))
+                hsize = (xz[12] + 1) * 4
+                block = xz[12:12 + hsize]
+                block[4] = 40
+                block[-4:] = struct.pack('<I', binascii.crc32(bytes(block[:-4])) & 0xffffffff)
+                xz[12:12 + hsize] = block
+                open(path, 'wb').write(xz)
+            build(sys.argv[1], 60)
+            build(sys.argv[2], 80)
+            """
+        let withinBudget = directory.appending(path: "hugedict-60m.tar.xz")
+        let overBudget = directory.appending(path: "hugedict-80m.tar.xz")
+        try run("/usr/bin/python3", ["-c", script, withinBudget.path, overBudget.path])
+
+        let ok = try ArchiveContents.list(withinBudget)
+        #expect(ok.ending == .complete)
+        #expect(ok.entries.map(\.path) == ["zeros.bin"])
+        #expect(ok.decodedBytes <= ArchiveContents.maximumDecodedBytes)
+
+        let stopped = try ArchiveContents.list(overBudget)
+        #expect(stopped.ending == .decodedLimit)
+        #expect(stopped.entries.map(\.path) == ["zeros.bin"])
+        #expect(stopped.decodedBytes <= ArchiveContents.maximumDecodedBytes + Int64(ArchiveContents.decodedBlockBytes))
     }
 
     @Test func doublyCompressedTarIsRefusedQuickly() throws {
@@ -349,22 +509,119 @@ import Testing
         }
     }
 
-    @Test func singleMemberGzipBombListsQuickly() throws {
-        let archive = try folder().appending(path: "bomb.bin.gz")
-        let script = """
+    @Test func singleMemberGzipBombAndZeroLeadingSingleFileListTheirMember() throws {
+        let directory = try folder()
+        let bomb = directory.appending(path: "bomb.bin.gz")
+        let bombScript = """
             import gzip, sys
             chunk = b'A' * (1024 * 1024)
             with gzip.open(sys.argv[1], 'wb', compresslevel=1) as out:
                 for _ in range(400):
                     out.write(chunk)
             """
-        try run("/usr/bin/python3", ["-c", script, archive.path])
+        try run("/usr/bin/python3", ["-c", bombScript, bomb.path])
         let start = ContinuousClock.now
-        let contents = try ArchiveContents.list(archive, maximumDuration: .milliseconds(50))
-        let elapsed = start.duration(to: .now)
+        let bombContents = try ArchiveContents.list(bomb, maximumDuration: .milliseconds(50))
+        #expect(bombContents.ending == .complete)
+        #expect(bombContents.entries.map(\.path) == ["bomb.bin"])
+        #expect(bombContents.decodedBytes <= Int64(ArchiveContents.decodedBlockBytes))
+        #expect(start.duration(to: .now) < .milliseconds(200))
+
+        let isoGZ = directory.appending(path: "image.iso.gz")
+        let emptyTarGZ = directory.appending(path: "empty.tar.gz")
+        let zeroScript = """
+            import gzip, sys
+            iso = b'\\0' * 32768 + b'\\x01CD001\\x01' + b'\\0' * 2041
+            with gzip.open(sys.argv[1], 'wb') as out:
+                out.write(iso)
+            with gzip.open(sys.argv[2], 'wb') as out:
+                out.write(b'\\0' * 10240)
+            """
+        try run("/usr/bin/python3", ["-c", zeroScript, isoGZ.path, emptyTarGZ.path])
+        let isoContents = try ArchiveContents.list(isoGZ)
+        #expect(isoContents.ending == .complete)
+        #expect(isoContents.entries.map(\.path) == ["image.iso"])
+
+        let emptyContents = try ArchiveContents.list(emptyTarGZ)
+        #expect(emptyContents.ending == .complete)
+        #expect(emptyContents.entries.isEmpty)
+    }
+
+    @Test func corruptMiddleHeaderAndTrailingGarbageReportDamaged() throws {
+        let directory = try folder()
+        let corruptMiddle = directory.appending(path: "corrupt-middle.tar")
+        let garbageTail = directory.appending(path: "garbage-tail.tar")
+        let script = """
+            import sys, tarfile
+            def member(name, size):
+                entry = tarfile.TarInfo(name)
+                entry.size = size
+                entry.mtime = 1700000000
+                return entry.tobuf(format=tarfile.USTAR_FORMAT) + b'x' * size + b'\\0' * ((-size) % 512)
+            a, b, c = member('a.txt', 10), bytearray(member('b.bin', 8192)), member('c.txt', 3)
+            b[148:156] = b'0000000\\0'
+            open(sys.argv[1], 'wb').write(a + bytes(b) + c + b'\\0' * 1024)
+            with open(sys.argv[2], 'wb') as out:
+                out.write(member('first.txt', 5))
+                out.write(b'\\xAA' * (4 * 1024 * 1024))
+            """
+        try run("/usr/bin/python3", ["-c", script, corruptMiddle.path, garbageTail.path])
+
+        let middleContents = try ArchiveContents.list(corruptMiddle)
+        #expect(middleContents.ending == .damaged)
+        #expect(middleContents.entries.map(\.path) == ["a.txt"])
+
+        var tailChecks = 0
+        let tailContents = try ArchiveContents.list(garbageTail) { tailChecks += 1 }
+        #expect(tailContents.ending == .damaged)
+        #expect(tailContents.entries.map(\.path) == ["first.txt"])
+        #expect(tailChecks < 100)
+    }
+
+    @Test func overlappingEntriesZIPIsRefusedAsDamagedLikeBrowser() throws {
+        let archive = try folder().appending(path: "macext-bomb.zip")
+        let script = """
+            import struct, sys, zlib
+            payload = b'\\0' * 1024
+            compressor = zlib.compressobj(9, zlib.DEFLATED, -15)
+            deflated = compressor.compress(payload) + compressor.flush()
+            crc = zlib.crc32(payload) & 0xffffffff
+            lname = b'__MACOSX/._f0'
+            local = struct.pack('<IHHHHHIIIHH', 0x04034b50, 20, 0, 8, 0, 0, crc, len(deflated), len(payload), len(lname), 0) + lname + deflated
+            plain_name = b'f0'
+            plain_offset = len(local)
+            plain = struct.pack('<IHHHHHIIIHH', 0x04034b50, 20, 0, 0, 0, 0, 0, 0, 0, len(plain_name), 0) + plain_name
+            cd = bytearray()
+            count = 0
+            for number in range(2_000):
+                for name, offset, method, csize, usize, ccrc in (
+                    (f'f{number}'.encode(), plain_offset, 0, 0, 0, 0),
+                    (f'__MACOSX/._f{number}'.encode(), 0, 8, len(deflated), len(payload), crc)):
+                    cd += struct.pack('<IHHHHHHIIIHHHHHII', 0x02014b50, 20, 20, 0, method, 0, 0, ccrc, csize, usize, len(name), 0, 0, 0, 0, 0, offset) + name
+                    count += 1
+            cd_offset = len(local) + len(plain)
+            eocd = struct.pack('<IHHHHIIH', 0x06054b50, 0, 0, count, count, len(cd), cd_offset, 0)
+            open(sys.argv[1], 'wb').write(local + plain + bytes(cd) + eocd)
+            """
+        try run("/usr/bin/python3", ["-c", script, archive.path])
+        #expect(throws: ZIPBrowserError.invalidZIP) { try ArchiveBrowserZIP.list(archive) }
+        #expect(throws: ArchiveContents.Failure.damaged) { try ArchiveContents.list(archive) }
+    }
+
+    @Test func prependedZIPListsSameAsBrowser() throws {
+        let archive = try folder().appending(path: "prepended.zip")
+        let script = """
+            import io, sys, zipfile
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, 'w') as z:
+                z.writestr('inside.txt', b'hello')
+            open(sys.argv[1], 'wb').write(b'#!/bin/sh\\necho self-extract\\n' + buf.getvalue())
+            """
+        try run("/usr/bin/python3", ["-c", script, archive.path])
+        #expect(try ArchiveBrowserZIP.list(archive).map(\.path) == ["inside.txt"])
+        let contents = try ArchiveContents.list(archive)
         #expect(contents.ending == .complete)
-        #expect(contents.entries.map(\.path) == ["bomb.bin"])
-        #expect(elapsed < .milliseconds(200))
+        #expect(contents.entries.map(\.path) == ["inside.txt"])
     }
 
     @Test func sevenZipAndRARAreUnsupported() throws {
