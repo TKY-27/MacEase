@@ -31,6 +31,7 @@ enum VideoEdits {
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         context.phase(.encoding)
+        plan.carriesTimecode = carryPlan.carriesNativeTimecode
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
         try await StreamRemuxer.apply(
             carryPlan, to: output, original: url, hasVideo: plan.video != nil,

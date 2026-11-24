@@ -35,6 +35,7 @@ struct TranscodePlan {
     var copiedDisplayTrack: MediaTrack?
     var copiedDisplayFormat: CMFormatDescription?
     var derived = false
+    var carriesTimecode = false
 }
 
 /// Pulls one output stream in time order.
@@ -132,7 +133,15 @@ enum Transcoder {
         case .copy, .toneMapToSDR: transform = plan.transform ?? input.transform
         default: transform = .identity
         }
-        var sink = try Sinks.make(plan.container, url: url, tracks: tracks, transform: transform, metadata: metadata)
+        let timecode: NativeTimecode?
+        if plan.carriesTimecode, case .asset(let asset, _, _) = input.backend {
+            timecode = try await NativeTimecode(asset: asset)
+        } else {
+            timecode = nil
+        }
+        var sink = try Sinks.make(
+            plan.container, url: url, tracks: tracks, transform: transform, metadata: metadata,
+            timecode: timecode)
         var queues = primed
         do {
             while let index = try await earliest(stages, queues, sink: sink) {
@@ -547,12 +556,18 @@ final class FrameEncodeStage: StreamStage {
         input: MediaInput, encoding: VideoEncoding, edit: FrameEdit, matte: BackgroundMatte?, start: Int64,
         end: Int64, toneMapToSDR: Bool = false, speed: Double = 1
     ) async throws {
+        var firstFrame = start
+        if start == 0, end == .max, speed == 1, case .asset(_, let video?, _) = input.backend,
+            let segment = try await video.load(.segments).first(where: { !$0.isEmpty })
+        {
+            firstFrame = max(start, SampleBuffers.nanoseconds(segment.timeMapping.target.start))
+        }
         sampler = try await FrameSampler(
-            input: input, frameDuration: encoding.frameDuration, edit: edit, start: start, end: end,
+            input: input, frameDuration: encoding.frameDuration, edit: edit, start: firstFrame, end: end,
             hdr: encoding.hdr, toneMapToSDR: toneMapToSDR, speed: speed)
         encoder = try VideoEncoders.make(encoding, track: 1)
         self.matte = matte
-        upcoming = start
+        upcoming = firstFrame
     }
 
     var output: OutputTrack? {

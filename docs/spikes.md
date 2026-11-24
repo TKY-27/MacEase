@@ -1,5 +1,30 @@
 # Spikes and Manual Verification
 
+## Native timecode output support (2026-11-24)
+
+Measured on macOS 27.2.1 (26B131), Xcode 27.2 (27B52), macOS 27.2 SDK.
+A native 30 fps `tmcd` format description from a 24 fps MOV was supplied to
+`AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint:)`.
+`AVAssetWriter.canAdd(_:)` returned:
+
+| Writer file type | Accepted timecode |
+| --- | --- |
+| `.mov` | Yes |
+| `.mp4` | No |
+| `.m4v` | No |
+| `.m4a` | No |
+
+MOV writes timecode samples in the same writer session and associates them
+with the video input using `.timecode`. Reader samples retain the original
+format description, frame duration, frame quanta, flags, payload and timing.
+MP4, M4V and M4A require explicit omission consent before encoding. Regenerating
+from a timecode string changes the rate when it differs from the video rate.
+Do not post-remux AVAssetWriter output: packet hashes alone missed HEVC alpha
+sample-description corruption and removal of leading empty edits.
+
+Apple's API contract: [Timecode support](https://developer.apple.com/library/archive/technotes/tn2310/_index.html),
+[pass-through output settings](https://developer.apple.com/documentation/avfoundation/avassetwriterinput/outputsettings).
+
 ## ONNX Runtime document availability (2026-11-24)
 
 An empty worktree-local `Vendor/src/ai-audio` cache reproduced the failure in

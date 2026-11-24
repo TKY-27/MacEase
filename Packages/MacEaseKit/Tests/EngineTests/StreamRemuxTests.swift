@@ -3,6 +3,7 @@ import CoreMedia
 import Formats
 import Foundation
 import MenuCatalog
+import Synchronization
 import Testing
 
 @testable import Engine
@@ -74,7 +75,7 @@ import Testing
     }
 
     @Test(arguments: [Settings.OutputMode.replace, .newFile])
-    func timecodeCarriedInCompressAndConvertWithoutConsent(mode: Settings.OutputMode) async throws {
+    func movTimecodeCarriesAndMP4RequestsConsent(mode: Settings.OutputMode) async throws {
         let resolved = try tools()
         let compressClip = try await makeTimecodedMOV(name: "clip-compress.mov", timecode: "01:02:03:04")
         let compressOriginal = try Data(contentsOf: compressClip)
@@ -104,24 +105,19 @@ import Testing
         let convertOriginal = try Data(contentsOf: convertClip)
         let (convertOutcome, _, _) = try await runPreset(
             .videoConvert, preset: "mp4", on: convertClip, outputMode: mode)
-        guard case .succeeded(let convertOutputs, let convertWarnings) = convertOutcome else {
-            Issue.record("expected convert without consent, got \(convertOutcome)")
+        #expect(convertOutcome == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+        #expect(try Data(contentsOf: convertClip) == convertOriginal)
+        let (consented, _, _) = try await runPreset(
+            .videoConvert, preset: "mp4", on: convertClip, omittedStreams: [.timecode], outputMode: mode)
+        guard case .succeeded(let outputs, let warnings) = consented, let output = outputs.first else {
+            Issue.record("expected explicit MP4 omission: \(consented)")
             return
         }
-        #expect(convertWarnings.isEmpty)
-        let converted = try #require(convertOutputs.first)
-        #expect(converted.pathExtension == "mp4")
-        let convertedProbe = try await StreamRemuxer.probe(converted, tools: resolved, countPackets: false)
-        let convertedTC = convertedProbe.streams.filter(\.isTimecode)
-        #expect(convertedTC.count == 1)
-        #expect(convertedTC.first?.timecodeTag == "02:03:04:05")
-        #expect(try await AVURLAsset(url: converted).loadTracks(withMediaType: .timecode).count == 1)
-        if mode == .newFile {
-            #expect(try Data(contentsOf: convertClip) == convertOriginal)
-        }
+        #expect(warnings == [.streamsOmitted([.timecode])])
+        #expect(try await AVURLAsset(url: output).loadTracks(withMediaType: .timecode).isEmpty)
     }
 
-    @Test func quickTimeMetadataAndTrackPropertiesSurviveTimecodeRemux() async throws {
+    @Test func quickTimeMetadataAndTrackPropertiesSurviveNativeCarry() async throws {
         let source = try fixture("ffmpeg-h264-aac.mp4")
         let folder = source.deletingLastPathComponent()
         let rich = folder.appending(path: "rich.mov")
@@ -180,7 +176,6 @@ import Testing
         try #require(writer.startWriting())
         writer.startSession(atSourceTime: .zero)
 
-        // 01:02:03:04 at 24 fps = 89,356 frames.
         var frameNumber = Int32(89_356).bigEndian
         var blockBuffer: CMBlockBuffer?
         try #require(
@@ -255,87 +250,83 @@ import Testing
         #expect(probed.streams.filter(\.isTimecode).first?.timecodeTag == "01:02:03:04")
     }
 
-    @Test func textSubtitlesCarriedWithRequiredConversionsAndUncarriableAsks() async throws {
-        let resolved = try tools()
-        for (preset, expectedCodec) in [("mp4", "mov_text"), ("mov", "mov_text"), ("webm", "webvtt")] {
-            let mkv = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
-            let (outcome, _, _) = try await runPreset(.videoConvert, preset: preset, on: mkv, outputMode: .newFile)
-            guard case .succeeded(let outputs, let warnings) = outcome else {
-                Issue.record("expected subtitle carry into \(preset), got \(outcome)")
-                return
-            }
-            #expect(warnings.isEmpty)
-            let output = try #require(outputs.first)
-            let probed = try await StreamRemuxer.probe(output, tools: resolved, countPackets: true)
-            let subtitles = probed.streams.filter { $0.codecType == "subtitle" }
-            #expect(subtitles.count == 1)
-            #expect(subtitles.first?.codecName == expectedCodec)
-            #expect((subtitles.first?.parsedReadPackets ?? 0) > 0)
-            let reopened = try await MediaInput.open(output)
-            #expect(MediaInput.unpreservedStreams(from: reopened.skippedStreams).contains(.subtitle))
+    @Test func nativeSubtitleCopyKeepsRepresentationAndConversionsAsk() async throws {
+        for preset in ["mp4", "mov", "webm", "avi"] {
+            let source = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
+            let (outcome, _, _) = try await runPreset(.videoConvert, preset: preset, on: source, outputMode: .newFile)
+            #expect(outcome == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
         }
-
-        let mkvForRoundtrip = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
-        let (mp4Outcome, _, _) = try await runPreset(
-            .videoConvert, preset: "mp4", on: mkvForRoundtrip, outputMode: .newFile)
-        guard case .succeeded(let mp4Outputs, _) = mp4Outcome, let mp4URL = mp4Outputs.first else {
-            Issue.record("expected mp4 conversion: \(mp4Outcome)")
+        let source = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
+        let (outcome, _, _) = try await runPreset(.videoRemoveAudio, preset: nil, on: source, outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = outcome, let output = outputs.first else {
+            Issue.record("expected native SRT carry: \(outcome)")
             return
         }
-        let (backToMKV, _, _) = try await runPreset(.videoConvert, preset: "mkv", on: mp4URL, outputMode: .newFile)
-        guard case .succeeded(let mkvOutputs, let mkvWarnings) = backToMKV, let mkvOut = mkvOutputs.first else {
-            Issue.record("expected mp4->mkv subtitle carry: \(backToMKV)")
-            return
-        }
-        #expect(mkvWarnings.isEmpty)
-        let mkvProbe = try await StreamRemuxer.probe(mkvOut, tools: resolved, countPackets: true)
-        #expect(mkvProbe.streams.filter { $0.codecType == "subtitle" }.first?.codecName == "subrip")
-
-        let mkvForAVI = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
-        let (aviOutcome, _, _) = try await runPreset(.videoConvert, preset: "avi", on: mkvForAVI, outputMode: .newFile)
-        #expect(aviOutcome == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
-
-        let bitmapBase = try fixture("ffmpeg-h264-aac.mp4")
-        let bitmapFolder = bitmapBase.deletingLastPathComponent()
-        let supURL = bitmapFolder.appending(path: "sub.sup")
-        try makePGSSubtitle().write(to: supURL)
-        let bitmapMKV = bitmapFolder.appending(path: "bitmap.mkv")
-        try await runFFmpeg(
-            [
-                "-i", bitmapBase.path, "-i", supURL.path,
-                "-map", "0:v", "-map", "0:a", "-map", "1:s",
-                "-map_metadata", "-1", "-c", "copy",
-                bitmapMKV.path,
-            ], directory: bitmapFolder)
-        let (bitmapToMP4, _, _) = try await runPreset(.videoConvert, preset: "mp4", on: bitmapMKV, outputMode: .newFile)
-        #expect(bitmapToMP4 == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
-        let (bitmapToMKV, _, _) = try await runPreset(
-            .videoRemoveAudio, preset: nil, on: bitmapMKV, outputMode: .newFile)
-        guard case .succeeded(let bitmapOutputs, let bitmapWarnings) = bitmapToMKV,
-            let bitmapOut = bitmapOutputs.first
-        else {
-            Issue.record("expected MKV to carry bitmap subtitle: \(bitmapToMKV)")
-            return
-        }
-        #expect(bitmapWarnings.isEmpty)
-        let bitmapProbe = try await StreamRemuxer.probe(bitmapOut, tools: resolved, countPackets: false)
-        #expect(bitmapProbe.streams.filter { $0.codecType == "subtitle" }.first?.codecName == "hdmv_pgs_subtitle")
+        #expect(warnings.isEmpty)
+        let probed = try await StreamRemuxer.probe(output, tools: tools(), countPackets: true)
+        #expect(probed.streams.filter { $0.codecType == "subtitle" }.first?.codecName == "subrip")
+        #expect((probed.streams.filter { $0.codecType == "subtitle" }.first?.parsedReadPackets ?? 0) > 0)
     }
 
-    private func makePGSSubtitle() -> Data {
-        func segment(_ type: UInt8, _ payload: [UInt8]) -> Data {
-            var bytes = Data("PG".utf8)
-            bytes.append(contentsOf: [UInt8](repeating: 0, count: 8))
-            bytes.append(type)
-            bytes.append(UInt8(payload.count >> 8))
-            bytes.append(UInt8(payload.count & 0xFF))
-            bytes.append(contentsOf: payload)
-            return bytes
+    @Test func styledASSConversionAsksForSubtitleConsent() async throws {
+        let source = try fixture("ffmpeg-h264-aac.mp4")
+        let folder = source.deletingLastPathComponent()
+        let subtitle = folder.appending(path: "styled.ass")
+        try """
+        [Script Info]
+        ScriptType: v4.00+
+        [V4+ Styles]
+        Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+        Style: Default,Arial,24,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,10,10,10,1
+        [Events]
+        Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+        Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{\\pos(100,80)\\frz45}Positioned
+        """.write(to: subtitle, atomically: true, encoding: .utf8)
+        let mkv = folder.appending(path: "styled.mkv")
+        try await runFFmpeg(
+            [
+                "-i", source.path, "-i", subtitle.path, "-map", "0", "-map", "1", "-map_metadata", "-1", "-c", "copy",
+                mkv.path,
+            ],
+            directory: folder)
+        let (outcome, _, _) = try await runPreset(.videoConvert, preset: "mp4", on: mkv, outputMode: .newFile)
+        #expect(outcome == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
+        let (copied, _, _) = try await runPreset(.videoRemoveAudio, preset: nil, on: mkv, outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = copied, let output = outputs.first else {
+            Issue.record("expected ASS representation copy: \(copied)")
+            return
         }
-        let pcs: [UInt8] = [0x00, 0x40, 0x00, 0x20, 0x10, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00]
-        let wds: [UInt8] = [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x20]
-        let pds: [UInt8] = [0x00, 0x00, 0x00, 0x10, 0x80, 0x80, 0x00]
-        return segment(0x16, pcs) + segment(0x17, wds) + segment(0x14, pds) + segment(0x80, [])
+        #expect(warnings.isEmpty)
+        let restored = folder.appending(path: "restored.ass")
+        try await runFFmpeg(["-i", output.path, "-map", "0:s", "-c", "copy", restored.path], directory: folder)
+        let text = try String(contentsOf: restored, encoding: .utf8)
+        #expect(text.contains("\\pos(100,80)\\frz45"))
+        #expect(text.contains(",7,10,10,10,1"))
+    }
+
+    @Test func webVTTCopyPreservesCueIdentifierAndPositioningSideData() async throws {
+        let source = try fixture("ffmpeg-h264-aac.mp4")
+        let folder = source.deletingLastPathComponent()
+        let subtitle = folder.appending(path: "positioned.vtt")
+        try "WEBVTT\n\ncue-one\n00:00:00.000 --> 00:00:01.000 position:20% align:start\nPositioned caption\n"
+            .write(to: subtitle, atomically: true, encoding: .utf8)
+        let mkv = folder.appending(path: "positioned.mkv")
+        try await runFFmpeg(
+            [
+                "-i", source.path, "-i", subtitle.path, "-map", "0", "-map", "1",
+                "-map_metadata", "-1", "-c", "copy", mkv.path,
+            ], directory: folder)
+        let (outcome, _, _) = try await runPreset(.videoRemoveAudio, preset: nil, on: mkv, outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = outcome, let output = outputs.first else {
+            Issue.record("expected WebVTT representation copy: \(outcome)")
+            return
+        }
+        #expect(warnings.isEmpty)
+        let restored = folder.appending(path: "restored.vtt")
+        try await runFFmpeg(["-i", output.path, "-map", "0:s", "-c", "copy", restored.path], directory: folder)
+        let text = try String(contentsOf: restored, encoding: .utf8)
+        #expect(text.contains("cue-one"))
+        #expect(text.contains("position:20% align:start"))
     }
 
     @Test func chaptersAndAttachmentsCarryWhereSupportedAndAskOnlyForUncarriableKinds() async throws {
@@ -369,36 +360,23 @@ import Testing
                 richMKV.path,
             ], directory: folder)
 
-        let (mkvRemoveAudio, _, _) = try await runPreset(
-            .videoRemoveAudio, preset: nil, on: richMKV, outputMode: .newFile)
-        guard case .succeeded(let mkvOutputs, let mkvWarnings) = mkvRemoveAudio, let mkvOut = mkvOutputs.first else {
-            Issue.record("expected MKV removeAudio to carry chapters and attachment: \(mkvRemoveAudio)")
+        for preset in ["mp4", "avi"] {
+            let (outcome, _, _) = try await runPreset(.videoConvert, preset: preset, on: richMKV, outputMode: .newFile)
+            #expect(outcome == .failed(.invalidInput(.unpreservedStreams([.chapter, .attachment]))))
+        }
+        let (outcome, _, _) = try await runPreset(
+            .videoRemoveAudio, preset: nil, on: richMKV, omittedStreams: [.chapter, .attachment], outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = outcome, let output = outputs.first else {
+            Issue.record("expected explicit omission: \(outcome)")
             return
         }
-        #expect(mkvWarnings.isEmpty)
-        let mkvProbe = try await StreamRemuxer.probe(mkvOut, tools: resolved, countPackets: false)
-        #expect(mkvProbe.chapters?.map(\.title) == ["Intro", "Part 2"])
-        #expect(mkvProbe.streams.filter { $0.codecType == "attachment" }.count == 1)
-
-        let (mp4Refused, _, _) = try await runPreset(.videoConvert, preset: "mp4", on: richMKV, outputMode: .newFile)
-        #expect(mp4Refused == .failed(.invalidInput(.unpreservedStreams([.attachment]))))
-
-        let (mp4Consented, _, _) = try await runPreset(
-            .videoConvert, preset: "mp4", on: richMKV, omittedStreams: [.attachment], outputMode: .newFile)
-        guard case .succeeded(let mp4Outputs, let mp4Warnings) = mp4Consented, let mp4Out = mp4Outputs.first else {
-            Issue.record("expected MP4 with attachment consent to keep chapters: \(mp4Consented)")
-            return
-        }
-        #expect(mp4Warnings == [.streamsOmitted([.attachment])])
-        let mp4Probe = try await StreamRemuxer.probe(mp4Out, tools: resolved, countPackets: false)
-        #expect(mp4Probe.chapters?.map(\.title) == ["Intro", "Part 2"])
-
-        let (aviRefused, _, _) = try await runPreset(.videoConvert, preset: "avi", on: richMKV, outputMode: .newFile)
-        #expect(aviRefused == .failed(.invalidInput(.unpreservedStreams([.chapter, .attachment]))))
+        #expect(warnings == [.streamsOmitted([.chapter, .attachment])])
+        let probed = try await StreamRemuxer.probe(output, tools: resolved, countPackets: false)
+        #expect(probed.chapters?.isEmpty != false)
+        #expect(!probed.streams.contains { $0.codecType == "attachment" })
     }
 
     @Test func audioChaptersCarryIntoSupportedContainersAndAskForWAVAndTrim() async throws {
-        let resolved = try tools()
         let folder = try TestVolume.makeFolder()
         let baseM4A = folder.appending(path: "base.m4a")
         try await AudioSignals.write(AudioSignals.music(seconds: 1.0), to: baseM4A, format: .m4aAAC)
@@ -424,23 +402,14 @@ import Testing
                 "-map_chapters", "1", "-c", "copy", chapteredM4A.path,
             ], directory: folder)
 
-        // M4A -> MP3 carries chapters without consent.
         let (mp3Outcome, _, _) = try await runEngine(
             .audioConvert, options: .audio(.convert(.mp3)), on: chapteredM4A, outputMode: .newFile)
-        guard case .succeeded(let mp3Outputs, let mp3Warnings) = mp3Outcome, let mp3Out = mp3Outputs.first else {
-            Issue.record("expected M4A->MP3 to carry chapters: \(mp3Outcome)")
-            return
-        }
-        #expect(mp3Warnings.isEmpty)
-        let mp3Probe = try await StreamRemuxer.probe(mp3Out, tools: resolved, countPackets: false)
-        #expect(mp3Probe.chapters?.map(\.title) == ["First", "Second"])
+        #expect(mp3Outcome == .failed(.invalidInput(.unpreservedStreams([.chapter]))))
 
-        // M4A -> WAV cannot hold chapters: asks.
         let (wavOutcome, _, _) = try await runEngine(
             .audioConvert, options: .audio(.convert(.wav)), on: chapteredM4A, outputMode: .newFile)
         #expect(wavOutcome == .failed(.invalidInput(.unpreservedStreams([.chapter]))))
 
-        // Audio trim changes timing: asks.
         let (trimOutcome, _, _) = try await runEngine(
             .audioTrim, options: .audio(.trim(start: 0.1, end: 0.8, fadeIn: 0, fadeOut: 0)),
             on: chapteredM4A, outputMode: .newFile)
@@ -461,29 +430,30 @@ import Testing
         }
     }
 
-    @Test func engineWrittenVideoAndAudioAreBitIdenticalBeforeAndAfterRemux() async throws {
+    @Test func nativeCarryVerificationLeavesEncodedStreamsUntouched() async throws {
         let resolved = try tools()
         let timecoded = try await makeTimecodedMOV(name: "source-tc.mov", timecode: "03:04:05:06")
         let input = try await MediaInput.open(timecoded)
-        let plan = TranscodePlan(container: .mp4, video: .copy, audio: .copy)
+        var plan = TranscodePlan(container: .mov, video: .copy, audio: .copy)
+        plan.carriesTimecode = true
         let support = try TestVolume.makeFolder().appending(path: "support")
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let context = ItemContext(settings: Settings(), staging: StagingArea(supportDirectory: support)) { _ in }
         defer { context.removeStaging() }
-        let staged = try context.stagingURL(for: timecoded, name: "staged.mp4")
+        let staged = try context.stagingURL(for: timecoded, name: "staged.mov")
         try await Transcoder.run(input, plan: plan, to: staged) { _ in }
 
-        let beforeHash = try await StreamRemuxer.streamHash(of: staged, tools: resolved)
+        let beforeHash = try await streamHash(of: staged, tools: resolved)
         let beforeProbe = try await StreamRemuxer.probe(staged, tools: resolved, countPackets: true)
         let beforeVideoPackets = beforeProbe.streams.first { $0.codecType == "video" }?.parsedReadPackets
         let beforeAudioPackets = beforeProbe.streams.first { $0.codecType == "audio" }?.parsedReadPackets
 
-        let carryPlan = try await StreamRemuxer.plan(for: input, destination: .mp4, preservesTiming: true)
+        let carryPlan = try await StreamRemuxer.plan(for: input, destination: .mov, preservesTiming: true)
         #expect(carryPlan.carriedKinds == [.timecode])
         try await StreamRemuxer.apply(
             carryPlan, to: staged, original: timecoded, hasVideo: true, hasAudio: true, context: context)
 
-        let afterHash = try await StreamRemuxer.streamHash(of: staged, tools: resolved)
+        let afterHash = try await streamHash(of: staged, tools: resolved)
         let afterProbe = try await StreamRemuxer.probe(staged, tools: resolved, countPackets: true)
         #expect(afterHash == beforeHash)
         #expect(afterProbe.streams.first { $0.codecType == "video" }?.parsedReadPackets == beforeVideoPackets)
@@ -492,20 +462,22 @@ import Testing
     }
 
     @Test func leadingDashAndColonFilenamesRemuxSafely() async throws {
-        let clip = try await makeTimecodedMOV(name: "-clip:1 (test).mov", timecode: "01:02:03:04")
-        let (outcome, _, _) = try await runPreset(.videoConvert, preset: "mp4", on: clip, outputMode: .newFile)
+        let source = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
+        let clip = source.deletingLastPathComponent().appending(path: "-clip:1 (test).mkv")
+        try FileManager.default.moveItem(at: source, to: clip)
+        let (outcome, _, _) = try await runPreset(.videoRemoveAudio, preset: nil, on: clip, outputMode: .newFile)
         guard case .succeeded(let outputs, let warnings) = outcome, let output = outputs.first else {
             Issue.record("expected leading-dash filename to remux safely: \(outcome)")
             return
         }
         #expect(warnings.isEmpty)
-        let probed = try await StreamRemuxer.probe(output, tools: try tools(), countPackets: false)
-        #expect(probed.streams.filter(\.isTimecode).first?.timecodeTag == "01:02:03:04")
+        let probed = try await StreamRemuxer.probe(output, tools: tools(), countPackets: false)
+        #expect(probed.streams.filter { $0.codecType == "subtitle" }.first?.codecName == "subrip")
     }
 
     @Test(arguments: ["exit 1", "kill -9 $$"])
     func failingOrKilledFFmpegFallsBackToConsentAndCleansStaging(scriptBody: String) async throws {
-        let clip = try await makeTimecodedMOV(name: "fallback.mov", timecode: "01:02:03:04")
+        let clip = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
         let original = try Data(contentsOf: clip)
         let folder = clip.deletingLastPathComponent()
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseFallback-\(UUID().uuidString)")
@@ -523,25 +495,26 @@ import Testing
         }
 
         let (refused, _, _) = try await runPreset(
-            .videoConvert, preset: "mp4", on: clip, outputMode: .replace, support: support)
-        #expect(refused == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+            .videoRemoveAudio, preset: nil, on: clip, outputMode: .replace, support: support)
+        #expect(refused == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
         #expect(try Data(contentsOf: clip) == original)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["fallback.mov"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [clip.lastPathComponent])
         #expect(try trackedStagingPaths(in: support).isEmpty)
 
         let (consented, _, _) = try await runPreset(
-            .videoConvert, preset: "mp4", on: clip, omittedStreams: [.timecode], outputMode: .newFile, support: support)
+            .videoRemoveAudio, preset: nil, on: clip, omittedStreams: [.subtitle], outputMode: .newFile,
+            support: support)
         guard case .succeeded(let outputs, let warnings) = consented, let output = outputs.first else {
             Issue.record("expected consented fallback to succeed: \(consented)")
             return
         }
-        #expect(warnings == [.streamsOmitted([.timecode])])
-        #expect(try await AVURLAsset(url: output).loadTracks(withMediaType: .timecode).isEmpty)
+        #expect(warnings == [.streamsOmitted([.subtitle])])
+        #expect(try await MediaInput.open(output).skippedStreams.isEmpty)
         #expect(try Data(contentsOf: clip) == original)
     }
 
     @Test func cancellationDuringRemuxKillsFFmpegAndCleansStaging() async throws {
-        let clip = try await makeTimecodedMOV(name: "cancel.mov", timecode: "01:02:03:04")
+        let clip = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
         let original = try Data(contentsOf: clip)
         let folder = clip.deletingLastPathComponent()
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseCancel-\(UUID().uuidString)")
@@ -552,10 +525,6 @@ import Testing
         let fakeTools = try makeFakeToolsDirectory(
             ffmpegScript: """
                 #!/bin/sh
-                if echo "$@" | grep -q streamhash; then
-                    echo "0,v,SHA256=deadbeef"
-                    exit 0
-                fi
                 touch "\(marker.path)"
                 exec sleep 30
                 """)
@@ -570,9 +539,9 @@ import Testing
         }
 
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
-        let options = try #require(OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: Settings()))
+        let options = try #require(OperationPlanner.options(for: .videoRemoveAudio, preset: nil, settings: Settings()))
         let batch = OperationPlanner.batch(
-            for: OperationRequest(op: .videoConvert, options: options, inputs: [clip]), settings: Settings())
+            for: OperationRequest(op: .videoRemoveAudio, options: options, inputs: [clip]), settings: Settings())
         let task = Task {
             await engine.run(batch, settings: Settings()) { _ in }
         }
@@ -585,8 +554,72 @@ import Testing
         let result = await task.value
         #expect(result.outcomes == [.failed(.cancelled)])
         #expect(try Data(contentsOf: clip) == original)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["cancel.mov"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == [clip.lastPathComponent])
         #expect(try trackedStagingPaths(in: support).isEmpty)
+    }
+
+    @Test func MP4TimecodeConsentPrecedesEncoding() async throws {
+        let source = try await makeTimecodedMOV()
+        let support = try TestVolume.makeFolder().appending(path: "support")
+        let encodes = Mutex(0)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: support),
+            phase: { if $0 == .encoding { encodes.withLock { $0 += 1 } } }
+        ) { _ in }
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
+            _ = try await VideoEdits.run(.convert(.mp4), url: source, context: context)
+        }
+        #expect(encodes.withLock { $0 } == 0)
+    }
+
+    @Test func targetSearchRemuxesOnlyFinalCandidate() async throws {
+        let source = try fixture("ffmpeg-mpeg4-ac3-srt.mkv", inFormats: true)
+        let resolved = try tools()
+        let marker = source.deletingLastPathComponent().appending(path: "remux-invocations")
+        let fake = try makeFakeToolsDirectory(
+            ffmpegScript: """
+                #!/bin/sh
+                echo remux >> '\(marker.path)'
+                exec '\(resolved.ffmpeg.path)' "$@"
+                """)
+        let previous = ProcessInfo.processInfo.environment["MACEASE_MEDIA_TOOLS"]
+        setenv("MACEASE_MEDIA_TOOLS", fake.path, 1)
+        defer {
+            if let previous { setenv("MACEASE_MEDIA_TOOLS", previous, 1) } else { unsetenv("MACEASE_MEDIA_TOOLS") }
+        }
+        var preset = try #require(
+            PresetLibrary(supportDirectory: source.deletingLastPathComponent()).bundled.first { $0.id == "discord" })
+        preset.video?.formats = ["mkv"]
+        preset.video?.maxBytes = 26_000
+        let encodes = Mutex(0)
+        let support = source.deletingLastPathComponent().appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: support),
+            phase: { if $0 == .encoding { encodes.withLock { $0 += 1 } } }
+        ) { _ in }
+        defer { context.removeStaging() }
+        let result = try await VideoCompressor.run(
+            VideoCompression(goal: .platform(preset)), url: source, context: context)
+        guard case .replace(_, let staged) = result else { Issue.record("expected final compressed candidate"); return }
+        #expect(encodes.withLock { $0 } > 1)
+        #expect(try String(contentsOf: marker, encoding: .utf8).split(separator: "\n").count == 1)
+        #expect(try await MediaInput.open(staged.url).skippedStreams.contains(.track(3, kind: .subtitle)))
+        #expect(try #require(try staged.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) <= 25_220)
+    }
+
+    private func streamHash(of url: URL, tools: MediaDownloadTools) async throws -> String {
+        let result = try await MediaToolProcess().run(
+            executable: tools.ffmpeg,
+            arguments: [
+                "-hide_banner", "-nostdin", "-v", "error",
+                "-protocol_whitelist", "file", "-i", "file:" + url.path,
+                "-map", "0:V?", "-map", "0:a?", "-c", "copy",
+                "-f", "streamhash", "-hash", "sha256", "-",
+            ],
+            directory: url.deletingLastPathComponent(), tools: tools)
+        return String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func trackedStagingPaths(in support: URL) throws -> [String] {

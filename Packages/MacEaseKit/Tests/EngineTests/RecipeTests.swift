@@ -147,7 +147,7 @@ struct RecipeTests {
         let original = try Data(contentsOf: clip)
         let recipe = Recipe(
             name: "Delivery",
-            variants: [OutputVariant(output: .imageJPEG, maximumEdge: 80), OutputVariant(output: .videoWebM)])
+            variants: [OutputVariant(output: .imageJPEG, maximumEdge: 80), OutputVariant(output: .videoMP4)])
         let engine = try recipeEngine()
         let package = folder.appending(path: "Delivery")
 
@@ -169,7 +169,7 @@ struct RecipeTests {
             return
         }
         #expect(warnings.contains(.streamsOmitted([.timecode])))
-        let clipOutput = try #require(outputs.first).appending(path: "clip.webm")
+        let clipOutput = try #require(outputs.first).appending(path: "clip.mp4")
         #expect(try await MediaInput.open(clipOutput).skippedStreams.isEmpty)
         #expect(try Data(contentsOf: clip) == original)
 

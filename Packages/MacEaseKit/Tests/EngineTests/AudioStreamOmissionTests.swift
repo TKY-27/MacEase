@@ -77,10 +77,10 @@ import Testing
         let original = try Data(contentsOf: source)
         let folder = source.deletingLastPathComponent()
         for consent: Set<UnpreservedStream> in [
-            [], [.attachment], [.attachment, .data],
+            [], [.chapter], [.chapter, .attachment], [.chapter, .attachment, .data],
         ] {
             let outcome = try await convert([source], omitting: consent, mode: mode)
-            let missing: [UnpreservedStream] = [.attachment, .data].filter { !consent.contains($0) }
+            let missing: [UnpreservedStream] = [.chapter, .attachment, .data].filter { !consent.contains($0) }
             if !missing.isEmpty {
                 #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams(missing)))])
                 #expect(outcome.record == nil)
@@ -91,14 +91,12 @@ import Testing
                     Issue.record("expected consented FLAC conversion: \(outcome.outcomes)")
                     return
                 }
-                #expect(warnings == [.streamsOmitted([.attachment, .data])])
+                #expect(warnings == [.streamsOmitted([.chapter, .attachment, .data])])
                 let output = try #require(outputs.first)
                 #expect(try !AudioSignals.decode(output).samples.isEmpty)
                 let tags = try await AudioInput(url: output).tags()
                 #expect(tags.title == "Kept title")
                 #expect(tags.artwork == AudioSignals.pngArtwork())
-                let carried = try await AudioJob.unpreservedStreams(in: AudioInput(url: output))
-                #expect(carried.contains(.chapter))
                 if mode == .newFile { #expect(try Data(contentsOf: source) == original) }
             }
         }

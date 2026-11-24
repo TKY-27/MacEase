@@ -303,6 +303,9 @@ extension SampleBuffers {
                 duration: timing.duration.isValid ? nanoseconds(timing.duration) : nil,
                 isKeyframe: attachment?[kCMSampleAttachmentKey_NotSync] as? Bool != true,
                 payload: payload.subdata(in: offset..<(offset + size)))
+            if audioFormat == nil, sample.outputPresentationTimeStamp != sample.presentationTimeStamp {
+                packet.outputTimestamp = nanoseconds(timing.presentationTimeStamp + presentationOffset)
+            }
             if let audioFormat {
                 packet.audioAttachments = audioAttachments
                 let duration =
