@@ -22313,7 +22313,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 項目、展開後 %@"
+            "value": "%lld項目、展開後 %@"
           }
         }
       }
@@ -22342,7 +22342,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 項目"
+            "value": "%lld項目"
           }
         }
       }
@@ -22370,7 +22370,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最初の %lld 項目を表示しています。"
+            "value": "最初の%lld項目を表示しています。"
           }
         }
       }
@@ -22398,7 +22398,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最初の %lld 項目"
+            "value": "最初の%lld項目"
           }
         }
       }
@@ -22426,7 +22426,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアーカイブは破損しています。最初の %lld 項目を表示しています。"
+            "value": "このアーカイブは破損しています。最初の%lld項目を表示しています。"
           }
         }
       }
@@ -22454,7 +22454,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "破損 · 最初の %lld 項目"
+            "value": "破損 · 最初の%lld項目"
           }
         }
       }
@@ -22485,16 +22485,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアーカイブは破損しているため、内容を表示できません。"
-          }
-        }
-      }
-    },
-    "This archive is password-protected.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このアーカイブはパスワードで保護されています。"
           }
         }
       }
@@ -22575,6 +22565,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "検索"
+          }
+        }
+      }
+    },
+    "This archive couldn't be listed in time.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは時間内に一覧表示できませんでした。"
+          }
+        }
+      }
+    },
+    "This archive's item names are too large to list.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブの項目名が大きすぎるため、一覧表示できません。"
           }
         }
       }

@@ -1,4 +1,5 @@
 import Engine
+import Formats
 import Foundation
 
 enum ArchiveTreeError: LocalizedError {
@@ -41,10 +42,10 @@ enum ArchiveTree {
                 || bidirectionalControls.contains(scalar.value)
             scalars.append(hidden ? replacement : scalar)
         }
-        let text = String(scalars)
-        guard text.count > maximumDisplayLength else { return text }
+        guard scalars.count > maximumDisplayLength else { return String(scalars) }
         let half = maximumDisplayLength / 2
-        return text.prefix(half) + "…" + text.suffix(half)
+        let tail = scalars.suffix(half).drop(while: { $0.properties.isGraphemeExtend })
+        return String(scalars.prefix(half)) + "…" + String(tail)
     }
 
     static func count(_ nodes: [ArchiveNode]) -> Int {
@@ -56,19 +57,26 @@ enum ArchiveTree {
     }
 
     static func filtered(_ nodes: [ArchiveNode], query search: String) -> [ArchiveNode] {
+        filtered(nodes, query: search) {}
+    }
+
+    static func filtered(
+        _ nodes: [ArchiveNode], query search: String, check: () throws -> Void
+    ) rethrows -> [ArchiveNode] {
         let query = search.localizedLowercase
-        func matching(_ node: ArchiveNode) -> ArchiveNode? {
-            let children = node.children?.compactMap(matching)
+        func matching(_ node: ArchiveNode) throws -> ArchiveNode? {
+            try check()
+            let children = try node.children?.compactMap(matching)
             guard node.path.localizedLowercase.contains(query) || !(children?.isEmpty ?? true) else { return nil }
             return ArchiveNode(
                 id: node.id, path: node.path, name: node.name, entry: node.entry,
                 children: node.children == nil ? nil : children)
         }
-        return nodes.compactMap(matching)
+        return try nodes.compactMap(matching)
     }
 
-    static func nodes(_ entries: [ArchiveEntry]) throws -> [ArchiveNode] {
-        let pathLimit = 32 * 1024 * 1024
+    static func nodes(_ entries: [ArchiveEntry], foldersFirst: Bool = true) throws -> [ArchiveNode] {
+        let pathLimit = ArchiveContents.maximumNameBytes
         var retainedPathBytes = 0
         var folders: [String: Set<String>] = [:]
         var directoryEntries: [String: [ArchiveEntry]] = [:]
@@ -80,8 +88,9 @@ enum ArchiveTree {
         }
         for entry in entries {
             try Task.checkCancellation()
-            let path = normalized(entry.path)
-            let components = path.split(separator: "/")
+            let components = normalized(entry.path).split(separator: "/").filter { $0 != "." }
+            guard !components.isEmpty else { continue }
+            let path = components.joined(separator: "/")
             var parent = ""
             for component in components.prefix(entry.isDirectory ? components.count : max(components.count - 1, 0)) {
                 let child = parent.isEmpty ? String(component) : parent + "/" + component
@@ -97,15 +106,16 @@ enum ArchiveTree {
                 files[parent, default: []].append(entry)
             }
         }
-        func nodes(in parent: String) -> [ArchiveNode] {
-            let directories = (folders[parent] ?? []).sorted { lhs, rhs in
-                return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        func nodes(in parent: String) throws -> [ArchiveNode] {
+            try Task.checkCancellation()
+            let directories = try (folders[parent] ?? []).sorted { lhs, rhs in
+                lhs.localizedStandardCompare(rhs) == .orderedAscending
             }.flatMap { path -> [ArchiveNode] in
                 let records = directoryEntries[path] ?? []
                 let name = String(path.split(separator: "/").last ?? "")
                 let owner = ArchiveNode(
                     id: records.first.map { "entry:\($0.id)" } ?? ("folder:" + path),
-                    path: path, name: name, entry: records.first, children: nodes(in: path))
+                    path: path, name: name, entry: records.first, children: try nodes(in: path))
                 let duplicates = records.dropFirst().map { entry in
                     ArchiveNode(id: "entry:\(entry.id)", path: path, name: name, entry: entry, children: [])
                 }
@@ -115,13 +125,18 @@ enum ArchiveTree {
                 let order = lhs.path.localizedStandardCompare(rhs.path)
                 return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
             }.map { entry in
-                ArchiveNode(
-                    id: "entry:\(entry.id)", path: normalized(entry.path),
-                    name: String(normalized(entry.path).split(separator: "/").last ?? ""),
+                let path = normalized(entry.path).split(separator: "/").filter { $0 != "." }.joined(separator: "/")
+                return ArchiveNode(
+                    id: "entry:\(entry.id)", path: path,
+                    name: String(path.split(separator: "/").last ?? ""),
                     entry: entry, children: nil)
             }
-            return directories + leaves
+            let combined = directories + leaves
+            guard !foldersFirst else { return combined }
+            return combined.sorted { lhs, rhs in
+                lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+            }
         }
-        return nodes(in: "")
+        return try nodes(in: "")
     }
 }

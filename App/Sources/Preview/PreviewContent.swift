@@ -34,7 +34,7 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         "dockerfile", "cmake", "mk", "proto", "graphql", "gql", "hcl", "tf", "sol",
     ]
     private static let archiveExtensions: Set<String> = [
-        "zip", "7z", "rar", "tar", "tgz", "tbz", "tbz2", "txz", "gz", "bz2", "xz",
+        "zip", "tar", "tgz", "tbz", "tbz2", "txz", "gz", "bz2", "xz",
     ]
     private static let textDotfiles: Set<String> = [
         ".env", ".editorconfig", ".gitignore", ".gitattributes", ".gitmodules", ".dockerfile",
