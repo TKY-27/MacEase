@@ -166,6 +166,8 @@ struct MediaTimeline: NSViewRepresentable {
     let position: Double
     let clips: [TimelineClip]
     let playing: Bool
+    var trimming = false
+    var playbackRate: Float = 1
     @Binding var zoom: Double
     let maximumZoom: Double
     let seek: (Double) -> Void
@@ -218,6 +220,7 @@ struct MediaTimeline: NSViewRepresentable {
 }
 
 final class TimelineScrollView: NSScrollView {
+    private static let pageMargin = 24.0
     var interactionEnabled = true
     var configuration: MediaTimeline?
     var canvas: TimelineCanvas? { documentView as? TimelineCanvas }
@@ -225,14 +228,29 @@ final class TimelineScrollView: NSScrollView {
     private var previousViewportWidth = 0.0
     private var anchor: (fraction: Double, viewport: Double)?
     private var revealedPosition: Double?
+    private var followingPlayhead = false
+    private var wasPlaying = false
+    private var previousPlaybackRate: Float = 1
+    private var updatingTimeline = false
+    private var lastScrolledX = 0.0
 
     override func layout() {
+        updatingTimeline = true
         super.layout()
+        lastScrolledX = contentView.bounds.minX
+        updatingTimeline = false
         updateTimeline()
     }
 
+    func noteExplicitMove() { followingPlayhead = true }
+
     func updateTimeline() {
         guard let configuration, let canvas else { return }
+        updatingTimeline = true
+        defer {
+            lastScrolledX = contentView.bounds.minX
+            updatingTimeline = false
+        }
         canvas.interactionEnabled = interactionEnabled
         let viewportWidth = max(1, contentSize.width)
         if viewportWidth != previousViewportWidth {
@@ -266,17 +284,78 @@ final class TimelineScrollView: NSScrollView {
             self.anchor = nil
         }
         horizontalScroller?.isEnabled = interactionEnabled && configuration.zoom > 1
-        if configuration.position != revealedPosition {
-            revealedPosition = configuration.position
-            canvas.revealPlayhead()
-        }
+        updatePlayheadFollowing(configuration, canvas: canvas)
         canvas.needsDisplay = true
         window?.invalidateCursorRects(for: canvas)
         notifyVisibleRange()
     }
 
+    private func updatePlayheadFollowing(_ configuration: MediaTimeline, canvas: TimelineCanvas) {
+        defer {
+            wasPlaying = configuration.playing
+            previousPlaybackRate = configuration.playbackRate
+            revealedPosition = configuration.position
+        }
+        guard configuration.duration > 0 else { return }
+        let positionChanged = revealedPosition != nil && configuration.position != revealedPosition
+        let interacting = canvas.isDragging || configuration.trimming
+        let playheadX = canvas.playheadCenterX(configuration)
+        let visible = contentView.bounds
+        let playheadVisible = playheadX >= visible.minX && playheadX <= visible.maxX
+
+        if !wasPlaying, configuration.playing {
+            if positionChanged, !interacting {
+                followingPlayhead = true
+                if !playheadVisible {
+                    pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
+                }
+            } else {
+                followingPlayhead = playheadVisible
+            }
+            return
+        }
+
+        if configuration.playing {
+            if configuration.playbackRate != previousPlaybackRate, !interacting {
+                followingPlayhead = true
+                if !playheadVisible {
+                    pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
+                }
+                return
+            }
+            guard positionChanged, followingPlayhead, !interacting, !playheadVisible else { return }
+            pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
+            return
+        }
+
+        guard positionChanged, !interacting else { return }
+        let endedUnfollowed =
+            wasPlaying && !followingPlayhead
+            && (configuration.position >= configuration.duration || configuration.position <= 0)
+        guard !endedUnfollowed else { return }
+        followingPlayhead = true
+        if !playheadVisible {
+            canvas.scrollToVisible(canvas.playheadFrame(configuration))
+            reflectScrolledClipView(contentView)
+        }
+    }
+
+    private func pagePlayhead(to playheadX: Double, forward: Bool, canvas: TimelineCanvas) {
+        let viewportWidth = max(1, contentView.bounds.width)
+        let margin = min(Self.pageMargin, viewportWidth * 0.1)
+        let desiredX = forward ? playheadX - margin : playheadX - (viewportWidth - margin)
+        let maxScroll = max(0, canvas.frame.width - viewportWidth)
+        let clampedX = min(maxScroll, max(0, desiredX))
+        contentView.scroll(to: CGPoint(x: clampedX, y: 0))
+        reflectScrolledClipView(contentView)
+    }
+
     override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
+        if !updatingTimeline, contentView.bounds.minX != lastScrolledX {
+            followingPlayhead = false
+            lastScrolledX = contentView.bounds.minX
+        }
         notifyVisibleRange()
     }
 
@@ -291,7 +370,11 @@ final class TimelineScrollView: NSScrollView {
 
     override func scrollWheel(with event: NSEvent) {
         guard interactionEnabled else { return }
-        guard event.modifierFlags.contains(.command) else { super.scrollWheel(with: event); return }
+        guard event.modifierFlags.contains(.command) else {
+            followingPlayhead = false
+            super.scrollWheel(with: event)
+            return
+        }
         magnify(by: exp(Double(event.scrollingDeltaY) * 0.025), event: event)
     }
 
@@ -301,6 +384,7 @@ final class TimelineScrollView: NSScrollView {
 
     private func magnify(by factor: Double, event: NSEvent) {
         guard interactionEnabled, let configuration, let canvas else { return }
+        followingPlayhead = false
         let point = canvas.convert(event.locationInWindow, from: nil)
         anchor = (point.x / max(1, canvas.frame.width), point.x - contentView.bounds.minX)
         configuration.zoom = min(configuration.maximumZoom, max(1, configuration.zoom * factor))
@@ -516,9 +600,10 @@ class TimelineCanvas: NSView, NSDraggingSource {
         return true
     }
 
-    func revealPlayhead() {
-        guard let configuration, configuration.duration > 0, trimDrag == nil else { return }
-        scrollToVisible(playheadFrame(configuration))
+    var isDragging: Bool { trimDrag != nil || mouseOrigin != nil }
+
+    func playheadCenterX(_ configuration: MediaTimeline) -> Double {
+        point(configuration.position, configuration)
     }
 
     override func resetCursorRects() {
@@ -1038,11 +1123,13 @@ class TimelineCanvas: NSView, NSDraggingSource {
         mouseOrigin = location
         leave()
         if configuration.music != nil, musicLane(configuration).contains(location) {
+            (enclosingScrollView as? TimelineScrollView)?.noteExplicitMove()
             configuration.selectMusic?()
             configuration.seek(seconds(at: location.x))
             return
         }
         if configuration.showsOverlayLane, overlayLane.contains(location) {
+            (enclosingScrollView as? TimelineScrollView)?.noteExplicitMove()
             if let bar = currentLayout().overlayBars.last(where: {
                 $0.rect.insetBy(dx: -2, dy: 0).contains(location)
             }) {
@@ -1077,6 +1164,7 @@ class TimelineCanvas: NSView, NSDraggingSource {
             configuration.select(clip.id)
             draggedClip = clip.id
         }
+        (enclosingScrollView as? TimelineScrollView)?.noteExplicitMove()
         configuration.seek(seconds(at: location.x))
     }
 
@@ -1102,6 +1190,7 @@ class TimelineCanvas: NSView, NSDraggingSource {
                 contents: NSImage(systemSymbolName: "film", accessibilityDescription: nil))
             beginDraggingSession(with: [dragging], event: event, source: self)
             self.draggedClip = nil
+            self.mouseOrigin = nil
         } else {
             configuration.seek(seconds(at: location.x))
         }

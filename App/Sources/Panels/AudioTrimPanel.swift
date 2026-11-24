@@ -51,6 +51,7 @@ final class AudioTrimModel {
     var maximumZoom: Double {
         max(zoom, MediaTimeline.maximumZoom(duration: duration, viewport: viewportWidth, interval: 0.001))
     }
+    var trimming: Bool { dragStart != nil }
     var fadesFit: Bool { fadeIn + fadeOut <= end - start }
     var canSave: Bool {
         ready && !closed && failure == nil && start >= 0 && end > start && end <= duration && fadesFit
@@ -390,7 +391,8 @@ struct AudioTrimPanel: View {
                             fadeIn: min(model.fadeIn, model.end - model.start),
                             fadeOut: min(model.fadeOut, max(0, model.end - model.start - model.fadeIn)))
                     ] : [],
-                playing: model.playing, zoom: $model.zoom, maximumZoom: model.maximumZoom,
+                playing: model.playing, trimming: model.trimming, playbackRate: model.playbackRate,
+                zoom: $model.zoom, maximumZoom: model.maximumZoom,
                 seek: model.seek, hover: { _ in }, select: { _ in },
                 beginTrim: model.beginTrim, trim: model.trim, endTrim: model.endTrim,
                 visibleRange: { range in Task { @MainActor in model.refineWaveform(range) } },

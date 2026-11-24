@@ -232,7 +232,8 @@ struct EditorTimeline: View {
             .buttonStyle(.borderless)
             MediaTimeline(
                 duration: model.timelineDuration, position: model.position,
-                clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
+                clips: clips, playing: model.playing, trimming: model.trimming, playbackRate: model.playbackRate,
+                zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
                 seek: model.seek, hover: model.skim, select: model.selectSegment,
                 beginTrim: model.beginTimelineTrim, trim: model.updateTimelineTrim,
                 endTrim: { Task { await model.endTimelineTrim() } }, move: model.moveSegment,

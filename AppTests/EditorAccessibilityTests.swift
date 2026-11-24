@@ -419,4 +419,78 @@ extension MediaEditorModelTests {
             readout.accessibilityValue() as? String, "\(Timecode.spoken(65.25)) of \(Timecode.spoken(300))")
         XCTAssertEqual(readout.accessibilityHelp(), "Type a time to move the playhead.")
     }
+
+    func testPlayheadFollowRulePagesWithoutFightingManualScrollOrTrim() throws {
+        var zoom = 8.0
+        var position = 0.0
+        var playing = false
+        var trimming = false
+        let clipID = UUID()
+        let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
+        scroll.documentView = TimelineCanvas()
+        func configure() {
+            scroll.configuration = MediaTimeline(
+                duration: 10, position: position,
+                clips: [TimelineClip(id: clipID, range: 0...10, selection: 0...10, label: "")], playing: playing,
+                trimming: trimming, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
+                seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
+            scroll.updateTimeline()
+        }
+        configure()
+
+        playing = true
+        configure()
+        XCTAssertEqual(scroll.contentView.bounds.minX, 0)
+        for next in [0.4, 0.8, 1.2] {
+            position = next
+            configure()
+            XCTAssertEqual(scroll.contentView.bounds.minX, 0, "ticks inside the visible area never scroll")
+        }
+
+        position = 1.3
+        configure()
+        let pagedOrigin = scroll.contentView.bounds.minX
+        XCTAssertGreaterThan(pagedOrigin, 500)
+        XCTAssertTrue(scroll.contentView.bounds.contains(CGPoint(x: 1.3 / 10 * 4800, y: 10)))
+        for next in [1.5, 2.0, 2.4] {
+            position = next
+            configure()
+            XCTAssertEqual(scroll.contentView.bounds.minX, pagedOrigin, "no scroll again until leaving the new page")
+        }
+
+        scroll.contentView.scroll(to: CGPoint(x: 3000, y: 0))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        for next in [2.6, 3.0, 4.0] {
+            position = next
+            configure()
+            XCTAssertEqual(scroll.contentView.bounds.minX, 3000, "manual scroll is not pulled back during playback")
+        }
+
+        playing = false
+        configure()
+        playing = true
+        configure()
+        position = 4.2
+        configure()
+        XCTAssertEqual(scroll.contentView.bounds.minX, 3000, "starting playback with playhead off-screen stays put")
+
+        playing = false
+        position = 1.0
+        configure()
+        XCTAssertTrue(scroll.contentView.bounds.contains(CGPoint(x: 1.0 / 10 * 4800, y: 10)))
+        playing = true
+        configure()
+        position = 5.0
+        configure()
+        XCTAssertTrue(
+            scroll.contentView.bounds.contains(CGPoint(x: 5.0 / 10 * 4800, y: 10)),
+            "explicit move re-enabled following for subsequent playback")
+
+        playing = false
+        trimming = true
+        let originBeforeTrim = scroll.contentView.bounds.minX
+        position = 9.5
+        configure()
+        XCTAssertEqual(scroll.contentView.bounds.minX, originBeforeTrim, "trimming never scrolls the timeline")
+    }
 }
