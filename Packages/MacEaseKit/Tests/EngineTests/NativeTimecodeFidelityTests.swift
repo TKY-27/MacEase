@@ -37,6 +37,13 @@ import Testing
         let asset = AVURLAsset(url: url)
         var samples: [[CMSampleBuffer]] = []
         for track in try await asset.loadTracks(withMediaType: .timecode) {
+            guard try await track.load(.totalSampleDataLength) > 0,
+                !(try await track.load(.canProvideSampleCursors))
+                    || track.makeSampleCursorAtFirstSampleInDecodeOrder() != nil
+            else {
+                samples.append([])
+                continue
+            }
             let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .packets)
             var trackSamples: [CMSampleBuffer] = []
             while let sample = try await reader.nextSample() {
@@ -494,6 +501,46 @@ import Testing
         }
         #expect(changed.withLock { $0 })
         #expect(mutationFailures.withLock { $0.isEmpty })
+    }
+
+    @Test func emptyTimecodeTrackIsDeterministicConcurrentlyAndUnreadableTrackStillFails() async throws {
+        let valid = try await customTimecode()
+        let empty = valid.deletingLastPathComponent().appending(path: "empty-concurrent.mov")
+        var content = try Data(contentsOf: valid)
+        for (atom, offset) in [("stsz", 12), ("stts", 8), ("stsc", 8), ("stco", 8)] {
+            let position = try #require(content.range(of: Data(atom.utf8), options: .backwards)).lowerBound + offset
+            content.replaceSubrange(
+                position..<(position + MemoryLayout<UInt32>.size),
+                with: Data(repeating: 0, count: MemoryLayout<UInt32>.size))
+        }
+        try content.write(to: empty)
+        let concurrentReads = 50
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<concurrentReads {
+                group.addTask {
+                    let asset = UntrustedMediaAsset.make(empty)
+                    let track = try #require(try await asset.loadTracks(withMediaType: .timecode).first)
+                    #expect(try await NativeTimecode.materialSamples(in: asset, track: track).isEmpty)
+                    let plan = try await NativeTimecodePlan.make(
+                        for: MediaInput.open(empty), destination: .mov, preservesTiming: true)
+                    #expect(!plan.carriesTimecode)
+                    #expect(plan.omittedKinds == [.timecode])
+                }
+            }
+            try await group.waitForAll()
+        }
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
+            try await NativeTimecode.verify(original: valid, output: empty)
+        }
+
+        let validAsset = UntrustedMediaAsset.make(valid)
+        let validTrack = try #require(try await validAsset.loadTracks(withMediaType: .timecode).first)
+        let unrelatedAsset = UntrustedMediaAsset.make(empty)
+        do {
+            _ = try await NativeTimecode.materialSamples(in: unrelatedAsset, track: validTrack)
+            Issue.record("expected decode failure for unreadable timecode track")
+        } catch EngineError.decodeFailed {
+        }
     }
 
 }
