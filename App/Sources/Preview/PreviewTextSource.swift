@@ -280,6 +280,36 @@ enum PreviewLanguage: Sendable {
         }
         return Set(words.split(separator: " ").map(String.init))
     }
+
+    func startsString(quote: UInt16, previous: UInt16?, inMarkupTag: Bool) -> Bool {
+        switch self {
+        case .plain:
+            return false
+        case .swift, .json:
+            return quote == Self.doubleQuote
+        case .javascript, .shell:
+            return quote == Self.doubleQuote || quote == Self.singleQuote || quote == Self.backtick
+        case .python, .css:
+            return quote == Self.doubleQuote || quote == Self.singleQuote
+        case .c:
+            return quote == Self.doubleQuote
+                || (quote == Self.singleQuote && !(previous.map { Self.digitRange.contains($0) } ?? false))
+        case .markup:
+            return inMarkupTag && (quote == Self.doubleQuote || quote == Self.singleQuote)
+        case .yaml:
+            guard quote == Self.doubleQuote || quote == Self.singleQuote else { return false }
+            guard let previous else { return true }
+            return Self.yamlQuotePreceders.contains(previous)
+        case .markdown:
+            return quote == Self.backtick
+        }
+    }
+
+    private static let doubleQuote: UInt16 = 34
+    private static let singleQuote: UInt16 = 39
+    private static let backtick: UInt16 = 96
+    private static let digitRange: ClosedRange<UInt16> = 48...57
+    private static let yamlQuotePreceders: Set<UInt16> = [9, 10, 13, 32, 44, 58, 61, 91, 123]
 }
 
 struct PreviewToken: Equatable, Sendable {
@@ -289,12 +319,18 @@ struct PreviewToken: Equatable, Sendable {
 }
 
 enum PreviewTokenizer {
+    private static let singleQuote: UInt16 = 39
+    private static let lessThan: UInt16 = 60
+    private static let greaterThan: UInt16 = 62
+    private static let markupDirectiveLeaders: Set<UInt16> = [33, 63]
+
     static func tokens(_ text: String, language: PreviewLanguage) throws -> [PreviewToken] {
         guard language != .plain else { return [] }
         let prefix = String(decoding: text.utf8.prefix(PreviewTextSource.highlightBytes), as: UTF8.self)
         let units = Array(prefix.utf16)
         let keywords = language.keywords
         var cursor = 0
+        var inMarkupTag = false
         var result: [PreviewToken] = []
         func matches(_ literal: String) -> Bool {
             units[cursor...].starts(with: literal.utf16)
@@ -308,6 +344,7 @@ enum PreviewTokenizer {
             try Task.checkCancellation()
             let start = cursor
             let unit = units[cursor]
+            let previous = cursor > 0 ? units[cursor - 1] : nil
             var kind: PreviewToken.Kind?
             if [.markup, .markdown].contains(language) && matches("<!--") {
                 cursor += 4
@@ -332,14 +369,22 @@ enum PreviewTokenizer {
             {
                 cursor = lineEnd()
                 kind = .comment
-            } else if unit == 34 || unit == 39 || (unit == 96 && [.javascript, .shell, .markdown].contains(language)) {
+            } else if language.startsString(quote: unit, previous: previous, inMarkupTag: inMarkupTag) {
                 let triple =
                     (language == .python || language == .swift || language == .markdown)
                     && cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit
                 let delimiter = triple ? 3 : 1
                 cursor += delimiter
                 while cursor < units.count {
-                    if units[cursor] == 92 { cursor = min(units.count, cursor + 2); continue }
+                    if language == .yaml, unit == Self.singleQuote,
+                        cursor + 1 < units.count, units[cursor] == Self.singleQuote,
+                        units[cursor + 1] == Self.singleQuote
+                    {
+                        cursor += 2; continue
+                    }
+                    if !(language == .yaml && unit == Self.singleQuote), units[cursor] == 92 {
+                        cursor = min(units.count, cursor + 2); continue
+                    }
                     if units[cursor] == unit,
                         !triple || (cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit)
                     {
@@ -351,11 +396,20 @@ enum PreviewTokenizer {
             } else if language == .markdown && unit == 35 && (cursor == 0 || units[cursor - 1] == 10) {
                 cursor = lineEnd()
                 kind = .keyword
-            } else if language == .markup && unit == 60 {
+            } else if language == .markup && unit == Self.lessThan {
                 cursor += 1
                 if cursor < units.count, units[cursor] == 47 { cursor += 1 }
+                let nameStart = cursor
                 while cursor < units.count, identifier(units[cursor]) { cursor += 1 }
+                if cursor > nameStart
+                    || (nameStart < units.count && Self.markupDirectiveLeaders.contains(units[nameStart]))
+                {
+                    inMarkupTag = true
+                }
                 kind = .keyword
+            } else if language == .markup && unit == Self.greaterThan {
+                inMarkupTag = false
+                cursor += 1
             } else if (48...57).contains(unit) {
                 cursor += 1
                 while cursor < units.count,

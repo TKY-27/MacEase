@@ -122,6 +122,61 @@ final class PreviewContentTests: XCTestCase {
             ["\"😀 // text\""])
     }
 
+    func testTokenizerScopesQuotesPerLanguage() throws {
+        let markdown = "It's fine and \"quoted\"\n# Heading\n`code`"
+        let markdownTokens = try PreviewTokenizer.tokens(markdown, language: .markdown)
+        XCTAssertEqual(
+            markdownTokens.filter { $0.kind == .string }.map { (markdown as NSString).substring(with: $0.range) },
+            ["`code`"])
+        XCTAssertTrue(
+            markdownTokens.contains {
+                $0.kind == .keyword && (markdown as NSString).substring(with: $0.range) == "# Heading"
+            })
+
+        let html = "<p>don't stop</p><a href=\"/ok\" data-mode='view'>it's</a>"
+        let htmlTokens = try PreviewTokenizer.tokens(html, language: .markup)
+        XCTAssertEqual(
+            htmlTokens.filter { $0.kind == .string }.map { (html as NSString).substring(with: $0.range) },
+            ["\"/ok\"", "'view'"])
+        XCTAssertEqual(
+            htmlTokens.filter { $0.kind == .keyword }.map { (html as NSString).substring(with: $0.range) },
+            ["<p", "</p", "<a", "</a"])
+
+        let yaml = "note: don't panic\nflag: true\nname: 'MacEase'\nquoted: 'it''s ok'"
+        let yamlTokens = try PreviewTokenizer.tokens(yaml, language: .yaml)
+        XCTAssertEqual(
+            yamlTokens.filter { $0.kind == .string }.map { (yaml as NSString).substring(with: $0.range) },
+            ["'MacEase'", "'it''s ok'"])
+        XCTAssertTrue(
+            yamlTokens.contains {
+                $0.kind == .keyword && (yaml as NSString).substring(with: $0.range) == "true"
+            })
+
+        let swift = "let pattern = /don't/\nlet count = 42"
+        let swiftTokens = try PreviewTokenizer.tokens(swift, language: .swift)
+        XCTAssertEqual(swiftTokens.filter { $0.kind == .string }, [])
+        XCTAssertTrue(
+            swiftTokens.contains {
+                $0.kind == .number && (swift as NSString).substring(with: $0.range) == "42"
+            })
+
+        let jsonc = "// don't edit\n{\"flag\": true}"
+        let jsoncTokens = try PreviewTokenizer.tokens(jsonc, language: .json)
+        XCTAssertEqual(
+            jsoncTokens.filter { $0.kind == .string }.map { (jsonc as NSString).substring(with: $0.range) },
+            ["\"flag\""])
+        XCTAssertTrue(
+            jsoncTokens.contains {
+                $0.kind == .keyword && (jsonc as NSString).substring(with: $0.range) == "true"
+            })
+
+        let cpp = "int million = 1'000'000; char ch = 'a';"
+        let cppTokens = try PreviewTokenizer.tokens(cpp, language: .c)
+        XCTAssertEqual(
+            cppTokens.filter { $0.kind == .string }.map { (cpp as NSString).substring(with: $0.range) },
+            ["'a'"])
+    }
+
     func testHighlightingStopsAt512KiBWithoutTruncatingSource() throws {
         let text = String(repeating: " ", count: 512 * 1024) + "let untouched = 42"
         XCTAssertEqual(try PreviewTokenizer.tokens(text, language: .swift), [])
