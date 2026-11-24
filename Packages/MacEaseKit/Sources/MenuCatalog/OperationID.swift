@@ -50,6 +50,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case folderAnalyze = "folder.analyze"
     case folderCompress = "folder.compress"
     case folderOrganize = "folder.organize"
+    case folderNewFile = "folder.newFile"
 
     case archiveExtract = "archive.extract"
     case archiveHatchExtract = "archive.hatchExtract"
@@ -76,10 +77,12 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case jarDecompile = "jar.decompile"
 
     case anyChecksum = "any.checksum"
+    case anyCopyPath = "any.copyPath"
     case anyShare = "any.share"
     case anyFindRelated = "any.findRelated"
     case anyProtect = "any.protect"
     case filesFinish = "files.finish"
+    case filesMove = "files.move"
 
     public var kind: FileKind {
         switch rawValue.prefix(while: { $0 != "." }) {
@@ -162,7 +165,10 @@ extension OperationID {
     }
 
     public var menuEntryKeys: [String] {
-        menuPresetIDs.isEmpty ? [menuEntryKey("")] : menuPresetIDs.map(menuEntryKey)
+        switch self {
+        case .folderNewFile, .anyCopyPath, .filesMove: []
+        default: menuPresetIDs.isEmpty ? [menuEntryKey("")] : menuPresetIDs.map(menuEntryKey)
+        }
     }
 
     public func menuEntryKey(_ preset: String) -> String {
@@ -206,7 +212,7 @@ extension OperationID {
     public var maximumSelection: Int? {
         switch self {
         case .audioTrim, .pdfExtractPages, .pdfEditPages, .imageTraceSVG,
-            .archiveBrowse, .folderDownloadMedia, .imageEnhance, .audioEnhance,
+            .archiveBrowse, .folderDownloadMedia, .folderNewFile, .imageEnhance, .audioEnhance,
             .anyFindRelated, .anyProtect:
             1
         case .anyShare: 20

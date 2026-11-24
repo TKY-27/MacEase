@@ -229,6 +229,7 @@ public actor HistoryStore {
     private var pending: [HistoryJournal.Entry] = []
     private var loadFailure: Error?
     private var organizationIntent: OrganizationMoveIntent?
+    nonisolated let staging: StagingArea
     private let committer = FileCommitter()
     private let logger = Logger(category: "history")
     private var lastSave = Date.distantPast
@@ -239,6 +240,7 @@ public actor HistoryStore {
     public private(set) var setAsideFile: URL?
 
     public init(supportDirectory: URL) {
+        staging = StagingArea(supportDirectory: supportDirectory)
         var persistence = HistoryJournal(supportDirectory: supportDirectory)
         do {
             snapshot = try persistence.load()
@@ -454,7 +456,7 @@ public actor HistoryStore {
         var outcomes: [UndoOutcome] = []
         var failed: [CommitRecord] = []
         for entry in batch.items.reversed() {
-            let outcome = await committer.undo(entry)
+            let outcome = await committer.undo(entry, staging: staging)
             outcomes.append(outcome)
             if case .failed = outcome { failed.insert(entry, at: 0) }
         }

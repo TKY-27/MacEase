@@ -29,7 +29,13 @@ public enum OperationPlanner {
     /// `nil` when a panel must ask first.
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
-        case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+        case .any:
+            switch op {
+            case .anyChecksum: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+            case .anyCopyPath:
+                (preset.map(PathFormat.init(rawValue:)) ?? .posix).map(OperationOptions.copyPath)
+            default: nil
+            }
         case .video: VideoPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.video)
         case .folder:
             FolderPlanner.options(for: op, preset: preset, settings: settings.folder).map(OperationOptions.folder)
@@ -64,13 +70,18 @@ public enum OperationPlanner {
     }
 
     private static func plannedBatch(for request: OperationRequest, settings: Settings) -> Batch {
-        let inputs = targeted(request.inputs, kind: request.op.kind)
+        let inputs: [URL]
         let usesResolvedInputs: Bool
         switch request.options {
-        case .rename(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
+        case .rename(_), .move(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
             .folder(.exportAnalysis(_, _)):
+            inputs = targeted(request.inputs, kind: request.op.kind)
             usesResolvedInputs = true
+        case .folder(.newFile(_)), .copyPath(_):
+            inputs = request.inputs
+            usesResolvedInputs = false
         default:
+            inputs = targeted(request.inputs, kind: request.op.kind)
             usesResolvedInputs = false
         }
         if (!usesResolvedInputs && inputs.count < request.op.minimumSelection)
@@ -105,6 +116,11 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .copyPath(let format):
+            let workItem = WorkItem(inputs: inputs, managesInputStamps: true) { _ in
+                .text(FinderPaths.copyText(for: inputs, format: format), .clipboard)
+            }
+            return Batch(operation: request.op, items: [workItem])
         case .rename(let plans):
             let items = plans.filter { $0.newName != $0.url.lastPathComponent }.map { plan in
                 WorkItem(inputs: [plan.url]) { _ in
@@ -113,6 +129,8 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items)
+        case .move(let plan):
+            return MovePlanner.batch(plan, op: request.op)
         case .video(let operation):
             let batch = VideoPlanner.batch(operation, op: request.op, inputs: inputs)
             guard case .extractAudio(let format, let kilobits?) = operation, format.isLossy else { return batch }
