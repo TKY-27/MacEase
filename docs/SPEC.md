@@ -3884,10 +3884,15 @@ Specialized viewers:
   "Listing timed out. Showing the first N items."; with no rows it says why,
   such as "This archive has too many items to list." A damaged archive shows
   the rows read before the damage with a note, or "This archive is damaged,
-  so its contents can't be listed." "This archive is empty." is reserved for
+  so its contents can’t be listed." "This archive is empty." is reserved for
   containers with no entries. An all-zero `.tar` of 1,024 bytes to 1 MiB in
   512-byte blocks is listed as an empty TAR. Encrypted ZIP entries show a lock
-  and a note. Quarantined archives are listed. Display names are inert:
+  and a note. Quarantined archives are listed. Entry names follow the rule of
+  section 8.5: UTF-8 first; with Japanese among the preferred languages,
+  strict CP932 for the whole archive; otherwise ZIP names are read as CP437
+  and a TAR with names that are not UTF-8 shows "This archive uses a text
+  encoding for file names that MacEase can’t read." The preference is read
+  once by the app and passed to the listing. Display names are inert:
   controls, line and paragraph separators and bidirectional formatting
   characters show as U+FFFD, names longer than 1,024 scalars are shortened in
   the middle, empty and `.` components are dropped, and `..` and absolute
@@ -3901,8 +3906,8 @@ Specialized viewers:
   the bar, counting implied folders as items. The bar holds a Search field for
   names and paths and, for ZIPs, a Browse Contents button that opens the
   section 8.14 window. Rows cannot be opened, dragged or previewed; Copy Path
-  (Command-C or the row's context menu) copies the stored entry path byte for
-  byte. VoiceOver reads name, kind, size, date and Encrypted for each row, the
+  (Command-C or the row's context menu) copies the decoded entry path as
+  stored, without the display substitutions. VoiceOver reads name, kind, size, date and Encrypted for each row, the
   path as help, and announces the summary when listing finishes. Settings >
   Finder Windows has an Archives type, on by default, including for settings
   saved before it existed.
