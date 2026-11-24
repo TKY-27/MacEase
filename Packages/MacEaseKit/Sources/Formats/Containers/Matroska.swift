@@ -100,6 +100,8 @@ enum MatroskaID {
 enum MatroskaValue {
     static let videoTrack = 1
     static let audioTrack = 2
+    static let subtitleTrack = 17
+    static let metadataTrack = 33
     static let headerStripping: UInt64 = 3
     static let alphaAdditionID: UInt64 = 1
 }

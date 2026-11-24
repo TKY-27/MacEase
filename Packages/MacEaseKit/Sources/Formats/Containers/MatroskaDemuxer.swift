@@ -269,7 +269,13 @@ public struct MatroskaDemuxer: MediaDemuxer {
             if !isEnabled { disabledTrackNumbers.insert(number) }
             if let encodings { strippedHeaders[number] = try strippedHeader(encodings) }
             guard type == MatroskaValue.videoTrack || type == MatroskaValue.audioTrack else {
-                skippedStreams.insert(.track(number))
+                let kind: SkippedTrackKind =
+                    switch type {
+                    case MatroskaValue.subtitleTrack: .subtitle
+                    case MatroskaValue.metadataTrack: .metadata
+                    default: .data
+                    }
+                skippedStreams.insert(.track(number, kind: kind))
                 continue
             }
             if type == MatroskaValue.videoTrack {

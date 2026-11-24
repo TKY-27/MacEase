@@ -13,7 +13,7 @@ enum VideoEdits {
         }
         context.phase(.decoding)
         let input = try await MediaInput.open(url)
-        try input.requireSingleTracksForReplacement()
+        try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         var plan: TranscodePlan
         do {
@@ -119,7 +119,7 @@ enum VideoEdits {
         for source in sources {
             try source.stamp.validate(source.url)
             let input = try await MediaInput.open(source.url)
-            try input.requireSingleTracksForReplacement()
+            try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
             guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
             inputs.append(input)
         }

@@ -66,7 +66,7 @@ package final class OggPacketWriter {
 
 package enum OggReadError: Error, Equatable, Sendable {
     case chainedStream
-    case multiplexedStream
+    case multiplexedStream(Set<SkippedMediaStream>)
 }
 
 final class OggPacketReader {
@@ -77,12 +77,13 @@ final class OggPacketReader {
     private let stream = UnsafeMutablePointer<ogg_stream_state>.allocate(capacity: 1)
     private(set) var serial: Int32?
     private(set) var lastGranule: Int64?
+    private(set) var multiplexedStreams: Set<SkippedMediaStream> = []
     private var ended = false
 
-    init(url: URL) throws {
+    init(url: URL, allowsMultiplexedStreams: Bool = false) throws {
         fileReader = try FileHandle(forReadingFrom: url)
         ogg_sync_init(sync)
-        try validateSingleStream()
+        try validateSingleStream(allowsMultiplexedStreams: allowsMultiplexedStreams)
         try fileReader.seek(toOffset: 0)
         ogg_sync_reset(sync)
     }
@@ -95,18 +96,43 @@ final class OggPacketReader {
         try? fileReader.close()
     }
 
-    private func validateSingleStream() throws {
+    private func validateSingleStream(allowsMultiplexedStreams: Bool) throws {
         var firstSerial: Int32?
         var reachedEOS = false
+        var extraSerials: Set<Int32> = []
         while var page = try nextPage() {
             if reachedEOS, ogg_page_bos(&page) != 0 { throw OggReadError.chainedStream }
             let pageSerial = ogg_page_serialno(&page)
             if firstSerial == nil { firstSerial = pageSerial }
-            guard pageSerial == firstSerial else { throw OggReadError.multiplexedStream }
+            if pageSerial != firstSerial {
+                if extraSerials.insert(pageSerial).inserted {
+                    guard ogg_page_bos(&page) != 0 else { throw FormatError.corrupt("Ogg stream has no first page") }
+                    let header = Data(bytes: page.body, count: page.body_len)
+                    multiplexedStreams.insert(.track(Int(pageSerial), kind: Self.streamKind(header)))
+                }
+                continue
+            }
             let granule = ogg_page_granulepos(&page)
             if granule >= 0 { lastGranule = granule }
             if ogg_page_eos(&page) != 0 { reachedEOS = true }
         }
+        if !allowsMultiplexedStreams, !multiplexedStreams.isEmpty {
+            throw OggReadError.multiplexedStream(multiplexedStreams)
+        }
+    }
+
+    private static func streamKind(_ header: Data) -> SkippedTrackKind {
+        let audioHeaders = [
+            Data([1]) + Data("vorbis".utf8), OpusHead.magic,
+            Data([0x7F]) + Data("FLAC".utf8), Data("fLaC".utf8), Data("Speex   ".utf8),
+            Data("PCM     ".utf8), Data([1]) + Data("audio".utf8),
+        ]
+        if audioHeaders.contains(where: header.starts(with:)) { return .audio }
+        let videoHeaders = [
+            Data([0x80]) + Data("theora".utf8), Data("BBCD".utf8), Data("KW-DIRAC".utf8),
+            Data("OVP80".utf8), Data([0x80]) + Data("daala".utf8), Data([1]) + Data("video".utf8),
+        ]
+        return videoHeaders.contains(where: header.starts(with:)) ? .video : .data
     }
 
     func next() throws -> OggPacket? {

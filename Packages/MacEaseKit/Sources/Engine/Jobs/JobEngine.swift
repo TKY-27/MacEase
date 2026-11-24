@@ -108,6 +108,7 @@ public final class JobEngine: Sendable {
                 group.addTask {
                     let context = ItemContext(
                         settings: settings, staging: self.staging, hatchExtractions: self.hatchExtractions,
+                        omittedStreams: workItem.omittedStreams,
                         phase: { tracker.phase(index, phase: $0, report: progress) }
                     ) { fraction in
                         tracker.update(index, fraction: fraction, report: progress)

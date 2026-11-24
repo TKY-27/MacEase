@@ -48,13 +48,14 @@ public struct AudioInput: Sendable {
     public let isFloat: Bool
     /// `nil` when the container does not say.
     public let frameCount: Int64?
+    let multiplexedOggStreams: Set<SkippedMediaStream>
 
-    public init(url: URL) throws {
+    public init(url: URL, allowsMultiplexedOgg: Bool = false) throws {
         self.url = url
         do {
             container = try Self.sniff(url)
             if container == .ogg {
-                let reader = try OggAudioReader(url: url)
+                let reader = try OggAudioReader(url: url, allowsMultiplexedStreams: allowsMultiplexedOgg)
                 codec = reader.codec == .opus ? .opus : .vorbis
                 sampleRate = reader.sampleRate
                 channels = reader.channels
@@ -62,6 +63,7 @@ public struct AudioInput: Sendable {
                 bitDepth = nil
                 isFloat = false
                 frameCount = reader.frameCount
+                multiplexedOggStreams = reader.multiplexedStreams
             } else {
                 let file: AVAudioFile
                 do {
@@ -77,6 +79,7 @@ public struct AudioInput: Sendable {
                 isFloat = codec == .pcm && description.mFormatFlags & kAudioFormatFlagIsFloat != 0
                 bitDepth = Self.bitDepth(codec: codec, description: description)
                 frameCount = file.length
+                multiplexedOggStreams = []
             }
         } catch {
             throw EngineError.fromAudio(error)
@@ -87,7 +90,9 @@ public struct AudioInput: Sendable {
     /// A fresh decoder positioned at the start.
     public func open() throws -> any PCMSource {
         do {
-            return container == .ogg ? try OggAudioReader(url: url) : try AudioFileReader(url: url)
+            return container == .ogg
+                ? try OggAudioReader(url: url, allowsMultiplexedStreams: !multiplexedOggStreams.isEmpty)
+                : try AudioFileReader(url: url)
         } catch {
             throw EngineError.fromAudio(error)
         }
@@ -96,7 +101,8 @@ public struct AudioInput: Sendable {
     public func tags() async throws -> AudioTags {
         do {
             switch container {
-            case .ogg: return try OggAudioReader(url: url).tags
+            case .ogg:
+                return try OggAudioReader(url: url, allowsMultiplexedStreams: !multiplexedOggStreams.isEmpty).tags
             case .flac: return try FLACMetadata.tags(in: url)
             default: return try await Self.commonTags(url)
             }

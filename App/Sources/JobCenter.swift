@@ -454,7 +454,10 @@ final class JobCenter {
                     }
                 ) { options in
                     self.launchRetry(
-                        id, request: OperationRequest(op: request.op, options: options, inputs: request.inputs))
+                        id,
+                        request: OperationRequest(
+                            op: request.op, options: options, inputs: request.inputs,
+                            omittedStreams: request.omittedStreams))
                     close()
                 }
             }

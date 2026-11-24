@@ -70,6 +70,18 @@ public enum PermissionLocation: String, Codable, Sendable {
     }
 }
 
+public enum UnpreservedStream: String, CaseIterable, Codable, Hashable, Sendable {
+    case video
+    case audio
+    case subtitle
+    case closedCaption
+    case timecode
+    case chapter
+    case attachment
+    case metadata
+    case data
+}
+
 public enum InvalidInput: Equatable, Sendable {
     case tooLarge(limitBytes: Int64)
     case notSquareEnough
@@ -93,7 +105,7 @@ public enum InvalidInput: Equatable, Sendable {
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
     case multipleTracks
-    case unpreservedStreams
+    case unpreservedStreams([UnpreservedStream])
     case chainedStream
     case unsupportedFileType
     case frameMemoryExceeded
@@ -156,7 +168,8 @@ extension EngineError {
         if let oggError = error as? OggReadError {
             switch oggError {
             case .chainedStream: return .invalidInput(.chainedStream)
-            case .multiplexedStream: return .invalidInput(.unpreservedStreams)
+            case .multiplexedStream(let streams):
+                return .invalidInput(.unpreservedStreams(MediaInput.unpreservedStreams(from: streams)))
             }
         }
         if let archiveError = error as? ArchiveError { return ArchivePlanner.engineError(archiveError) }

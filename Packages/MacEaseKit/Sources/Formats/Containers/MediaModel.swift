@@ -248,8 +248,18 @@ public protocol MediaDemuxer {
     mutating func nextPacket() throws -> MediaPacket?
 }
 
+public enum SkippedTrackKind: String, CaseIterable, Hashable, Sendable {
+    case video
+    case audio
+    case subtitle
+    case closedCaption
+    case timecode
+    case metadata
+    case data
+}
+
 public enum SkippedMediaStream: Hashable, Sendable {
-    case track(Int)
+    case track(Int, kind: SkippedTrackKind)
     case attachment
     case chapter
     case metadata

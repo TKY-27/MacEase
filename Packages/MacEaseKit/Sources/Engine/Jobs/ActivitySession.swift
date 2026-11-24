@@ -54,6 +54,7 @@ public struct ActivitySession: Sendable {
     public let settings: Settings
     public let outcome: BatchOutcome
     private var retrying = false
+    private var retryIndices: [Int] = []
 
     public init(request: OperationRequest, settings: Settings, outcome: BatchOutcome) {
         self.request = request
@@ -74,11 +75,42 @@ public struct ActivitySession: Sendable {
         }
     }
 
+    public var unpreservedStreamsByItem: [Int: [UnpreservedStream]] {
+        var result: [Int: [UnpreservedStream]] = [:]
+        for index in outcome.outcomes.indices {
+            if case .failed(.invalidInput(.unpreservedStreams(let streams))) = outcome.outcomes[index], !streams.isEmpty
+            {
+                result[index] = streams
+            }
+        }
+        return result
+    }
+
+    public var unpreservedStreamIndices: [Int] { unpreservedStreamsByItem.keys.sorted() }
+
+    public var unpreservedStreams: [UnpreservedStream] {
+        let combined = Set(unpreservedStreamsByItem.values.flatMap { $0 })
+        return UnpreservedStream.allCases.filter(combined.contains)
+    }
+
     public var canRetry: Bool { !retrying && !failedIndices.isEmpty }
 
-    public mutating func beginRetry(options: OperationOptions? = nil) throws -> OperationRequest {
-        guard canRetry else { throw ActivityAvailability.unavailable }
-        let inputs = try failedIndices.flatMap { index in
+    public var canRetryOmittingStreams: Bool { !retrying && !unpreservedStreamIndices.isEmpty }
+
+    public mutating func beginRetry(
+        options: OperationOptions? = nil,
+        omittingStreams: Set<UnpreservedStream> = [],
+        indices: [Int]? = nil
+    ) throws -> OperationRequest {
+        guard !retrying else { throw ActivityAvailability.unavailable }
+        let requested = indices ?? (omittingStreams.isEmpty ? failedIndices : unpreservedStreamIndices)
+        let eligible = Set(failedIndices).union(unpreservedStreamIndices)
+        var seen: Set<Int> = []
+        let targetIndices = requested.filter { seen.insert($0).inserted }
+        guard !targetIndices.isEmpty, targetIndices.allSatisfy(eligible.contains) else {
+            throw ActivityAvailability.unavailable
+        }
+        let inputs = try targetIndices.flatMap { index in
             try outcome.inputs[index].map { url in
                 guard let stamp = outcome.details[index].inputStamps[url] else {
                     throw ActivityAvailability.unavailable
@@ -88,7 +120,10 @@ public struct ActivitySession: Sendable {
             }
         }
         retrying = true
-        return OperationRequest(op: request.op, options: options ?? request.options, inputs: inputs)
+        retryIndices = targetIndices
+        return OperationRequest(
+            op: request.op, options: options ?? request.options, inputs: inputs,
+            omittedStreams: request.omittedStreams.union(omittingStreams))
     }
 
     public func retryBatch(for retry: OperationRequest) -> Batch {
@@ -99,7 +134,7 @@ public struct ActivitySession: Sendable {
             }
             var expected: [URL: FileStamp] = [:]
             for input in work.inputs {
-                guard let index = failedIndices.first(where: { outcome.inputs[$0].contains(input) }),
+                guard let index = retryIndices.first(where: { outcome.inputs[$0].contains(input) }),
                     let stamp = outcome.details[index].inputStamps[input]
                 else {
                     return WorkItem(inputs: work.inputs) { _ in throw ActivityAvailability.unavailable }
@@ -113,7 +148,10 @@ public struct ActivitySession: Sendable {
         return Batch(operation: planned.operation, items: checked)
     }
 
-    public mutating func endRetry() { retrying = false }
+    public mutating func endRetry() {
+        retrying = false
+        retryIndices = []
+    }
 
     public var supportsComparison: Bool {
         guard [.imageCompress, .imageConvert].contains(request.op) else { return false }

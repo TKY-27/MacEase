@@ -44,6 +44,7 @@ public final class OggAudioReader: PCMSource {
     public let tags: AudioTags
     /// From the last granule position, when present.
     public let frameCount: Int64?
+    public let multiplexedStreams: Set<SkippedMediaStream>
     private let reader: OggPacketReader
     private let decode: (Data) throws -> [Float]
     private let preSkip: Int64
@@ -54,8 +55,9 @@ public final class OggAudioReader: PCMSource {
     private var lastPageEnd: Int64?
     private var finished = false
 
-    public init(url: URL) throws {
-        reader = try OggPacketReader(url: url)
+    public init(url: URL, allowsMultiplexedStreams: Bool = false) throws {
+        reader = try OggPacketReader(url: url, allowsMultiplexedStreams: allowsMultiplexedStreams)
+        multiplexedStreams = reader.multiplexedStreams
         guard let first = try reader.next() else { throw FormatError.corrupt("empty Ogg stream") }
         if first.data.starts(with: OpusHead.magic) {
             let head = try OpusHead(first.data)

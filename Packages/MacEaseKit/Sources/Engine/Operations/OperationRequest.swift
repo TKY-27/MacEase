@@ -5,11 +5,15 @@ public struct OperationRequest: Sendable {
     public let op: OperationID
     public let options: OperationOptions
     public let inputs: [URL]
+    public let omittedStreams: Set<UnpreservedStream>
 
-    public init(op: OperationID, options: OperationOptions, inputs: [URL]) {
+    public init(
+        op: OperationID, options: OperationOptions, inputs: [URL], omittedStreams: Set<UnpreservedStream> = []
+    ) {
         self.op = op
         self.options = options
         self.inputs = inputs
+        self.omittedStreams = omittedStreams
     }
 }
 
@@ -39,15 +43,17 @@ public enum OperationPlanner {
     /// No file I/O; items validate when run.
     public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
         let planned = plannedBatch(for: request, settings: settings)
-        guard settings.outputMode == .newFile, let naming = NewFileNaming(options: request.options) else {
-            return planned
-        }
+        let naming = settings.outputMode == .newFile ? NewFileNaming(options: request.options) : nil
+        guard naming != nil || !request.omittedStreams.isEmpty else { return planned }
         let workItems = planned.items.map { workItem in
             var configured = workItem
             configured.newFileNaming = naming
+            configured.omittedStreams = request.omittedStreams
             return configured
         }
-        return Batch(operation: planned.operation, items: workItems, reportsMultipleTexts: planned.reportsMultipleTexts)
+        return Batch(
+            operation: planned.operation, items: workItems,
+            reportsMultipleTexts: planned.reportsMultipleTexts, recipeExecution: planned.recipeExecution)
     }
 
     private static func plannedBatch(for request: OperationRequest, settings: Settings) -> Batch {

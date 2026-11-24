@@ -178,7 +178,8 @@ public struct AVIDemuxer: MediaDemuxer {
             if format.count > AVI.waveFormatExSize { track.codecPrivate = Data(format[AVI.waveFormatExSize...]) }
             tracks.append(track)
         } else {
-            skippedStreams.insert(.track(number))
+            let kind: SkippedTrackKind = type == "txts" ? .subtitle : .data
+            skippedStreams.insert(.track(number, kind: kind))
         }
         streams.append(info)
         if superIndex.count >= AVI.indexHeaderSize { try parseSuperIndex(superIndex, stream: index) }

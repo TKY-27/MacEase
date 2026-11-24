@@ -218,6 +218,16 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertNil(relaunched.availableRelease)
     }
 
+    func testUnpreservedStreamsFailureAndOmissionNoteAreSpecific() {
+        let failure = UserMessages.describe(
+            .invalidInput(.unpreservedStreams([.timecode, .chapter])), file: "clip.mov")
+        XCTAssertTrue(failure.contains("clip.mov"))
+        XCTAssertTrue(failure.contains(String(localized: "timecode tracks")))
+        XCTAssertTrue(failure.contains(String(localized: "chapters")))
+        let note = UserMessages.describe(.streamsOmitted([.timecode]))
+        XCTAssertTrue(note.contains(String(localized: "timecode tracks")))
+    }
+
     func testDisabledUpdateNoticeDoesNotConsumeDailyReminder() throws {
         let suite = "MacEaseUpdateDisabledTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

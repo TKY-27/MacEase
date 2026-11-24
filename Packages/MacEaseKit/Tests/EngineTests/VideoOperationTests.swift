@@ -16,19 +16,26 @@ import Testing
         return copy
     }
 
-    private func run(_ op: OperationID, preset: String?, on url: URL) async throws -> ItemOutcome {
+    private func run(
+        _ op: OperationID, preset: String?, on url: URL, omittedStreams: Set<UnpreservedStream> = [],
+        outputMode: Settings.OutputMode = .replace
+    ) async throws -> ItemOutcome {
         let options = try #require(OperationPlanner.options(for: op, preset: preset, settings: Settings()))
-        return try await run(op, options: options, on: url)
+        return try await run(op, options: options, on: url, omittedStreams: omittedStreams, outputMode: outputMode)
     }
 
-    private func run(_ op: OperationID, options: OperationOptions, on url: URL) async throws -> ItemOutcome {
+    private func run(
+        _ op: OperationID, options: OperationOptions, on url: URL, omittedStreams: Set<UnpreservedStream> = [],
+        outputMode: Settings.OutputMode = .replace
+    ) async throws -> ItemOutcome {
         let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
         TestTemporaryFolders.register(support)
         let engine = try JobEngine(supportDirectory: support, concurrency: 2)
         var settings = Settings()
-        settings.outputMode = .replace
+        settings.outputMode = outputMode
         let batch = OperationPlanner.batch(
-            for: OperationRequest(op: op, options: options, inputs: [url]), settings: settings)
+            for: OperationRequest(op: op, options: options, inputs: [url], omittedStreams: omittedStreams),
+            settings: settings)
         let outcome = await engine.run(batch, settings: settings) { _ in }
         return try #require(outcome.outcomes.first)
     }
@@ -231,11 +238,13 @@ import Testing
         try FileManager.default.copyItem(at: source, to: url)
         let original = try Data(contentsOf: url)
         let input = try await MediaInput.open(url)
-        #expect(input.skippedStreams.contains(.track(3)))
+        #expect(input.skippedStreams.contains(.track(3, kind: .subtitle)))
         for (operation, preset) in [
             (OperationID.videoRemoveAudio, nil), (.videoConvert, "mp4"), (.videoCompress, "quality-high"),
         ] {
-            #expect(try await run(operation, preset: preset, on: url) == .failed(.invalidInput(.unpreservedStreams)))
+            #expect(
+                try await run(operation, preset: preset, on: url)
+                    == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
             #expect(try Data(contentsOf: url) == original)
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path).count == 1)
@@ -259,6 +268,12 @@ import Testing
             case .attachment: [0x19, 0x41, 0xA4, 0x69]
             default: [0x1A, 0x45, 0xDF, 0xA4]
             }
+        let expected: UnpreservedStream =
+            switch stream {
+            case .chapter: .chapter
+            case .attachment: .attachment
+            default: .data
+            }
         bytes.append(contentsOf: contentID + [0x80])
         let size = bytes.count - sizeStart - segmentHeaderBytes
         for index in 1..<segmentHeaderBytes {
@@ -267,7 +282,9 @@ import Testing
         try bytes.write(to: url)
         let input = try await MediaInput.open(url)
         #expect(input.skippedStreams.contains(stream))
-        #expect(try await run(.videoConvert, preset: "mp4", on: url) == .failed(.invalidInput(.unpreservedStreams)))
+        #expect(
+            try await run(.videoConvert, preset: "mp4", on: url)
+                == .failed(.invalidInput(.unpreservedStreams([expected]))))
         #expect(try Data(contentsOf: url) == bytes)
     }
 
@@ -280,10 +297,10 @@ import Testing
         bytes.replaceSubrange(marker, with: Data("txts".utf8))
         try bytes.write(to: url)
         let input = try await MediaInput.open(url)
-        #expect(input.skippedStreams.contains(.track(2)))
+        #expect(input.skippedStreams.contains(.track(2, kind: .subtitle)))
         #expect(
             try await run(.videoCompress, preset: "quality-high", on: url)
-                == .failed(.invalidInput(.unpreservedStreams)))
+                == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
         #expect(try Data(contentsOf: url) == bytes)
     }
 
@@ -383,7 +400,7 @@ import Testing
                 hasMultipleTracks: false, skippedStreams: [], duration: Nanoseconds.perSecond,
                 transform: transform)
             #expect(throws: EngineError.videoDisplayTransformUnsupported) {
-                try input.requireSingleTracksForReplacement()
+                try input.requirePreservableStreams()
             }
             #expect(throws: EngineError.videoDisplayTransformUnsupported) {
                 try VideoEdits.plan(.resize(.percent(50)), input: input, source: source, settings: VideoSettings())
@@ -510,5 +527,335 @@ import Testing
         #expect(preview.displayWidth == 160 && preview.displayHeight == 96)
         let frames = try await preview.frames(at: [0, preview.durationSeconds], width: 80)
         #expect(frames.map(\.width) == [80, 80])
+    }
+
+    private func videoWithExtraTracks(
+        includeTimecode: Bool = false, includeChapter: Bool = false, includeMetadata: Bool = false,
+        includeClosedCaption: Bool = false
+    ) async throws -> URL {
+        let source = try fixture("ffmpeg-h264-aac.mp4")
+        let asset = AVURLAsset(url: source)
+        let videoTrack = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let audioTrack = try #require(try await asset.loadTracks(withMediaType: .audio).first)
+        let duration = try await asset.load(.duration)
+        let url = try TestVolume.makeFolder().appending(path: "extra-tracks.mov")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let reader = try AVAssetReader(asset: asset)
+
+        let videoOut = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
+        let audioOut = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+        reader.add(videoOut)
+        reader.add(audioOut)
+
+        let videoIn = AVAssetWriterInput(
+            mediaType: .video, outputSettings: nil,
+            sourceFormatHint: try await videoTrack.load(.formatDescriptions).first)
+        let audioIn = AVAssetWriterInput(
+            mediaType: .audio, outputSettings: nil,
+            sourceFormatHint: try await audioTrack.load(.formatDescriptions).first)
+        writer.add(videoIn)
+        writer.add(audioIn)
+
+        var timecodePair: (AVAssetWriterInput, CMTimeCodeFormatDescription)?
+        if includeTimecode {
+            var timecodeFormat: CMTimeCodeFormatDescription?
+            let frameDuration = CMTime(value: 1, timescale: 24)
+            try #require(
+                CMTimeCodeFormatDescriptionCreate(
+                    allocator: kCFAllocatorDefault, timeCodeFormatType: kCMTimeCodeFormatType_TimeCode32,
+                    frameDuration: frameDuration, frameQuanta: 24, flags: 0, extensions: nil,
+                    formatDescriptionOut: &timecodeFormat) == noErr)
+            let tcFormat = try #require(timecodeFormat)
+            let timecodeIn = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: tcFormat)
+            writer.add(timecodeIn)
+            if videoIn.canAddTrackAssociation(
+                withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
+            {
+                videoIn.addTrackAssociation(
+                    withTrackOf: timecodeIn, type: AVAssetTrack.AssociationType.timecode.rawValue)
+            }
+            timecodePair = (timecodeIn, tcFormat)
+        }
+
+        var captionPair: (AVAssetWriterInput, CMFormatDescription)?
+        if includeClosedCaption {
+            var description: CMFormatDescription?
+            try #require(
+                CMFormatDescriptionCreate(
+                    allocator: kCFAllocatorDefault, mediaType: kCMMediaType_ClosedCaption,
+                    mediaSubType: kCMClosedCaptionFormatType_CEA608, extensions: nil,
+                    formatDescriptionOut: &description) == noErr)
+            let format = try #require(description)
+            let captionIn = AVAssetWriterInput(mediaType: .closedCaption, outputSettings: nil, sourceFormatHint: format)
+            try #require(writer.canAdd(captionIn))
+            writer.add(captionIn)
+            captionPair = (captionIn, format)
+        }
+
+        var chapterPair: (AVAssetWriterInput, AVAssetWriterInputMetadataAdaptor, AVTimedMetadataGroup)?
+        if includeChapter {
+            let title = AVMutableMetadataItem()
+            title.identifier = .commonIdentifierTitle
+            title.extendedLanguageTag = "en"
+            title.value = "Chapter 1" as NSString
+            let group = AVTimedMetadataGroup(items: [title], timeRange: CMTimeRange(start: .zero, duration: duration))
+            let chapterIn = AVAssetWriterInput(
+                mediaType: .metadata, outputSettings: nil, sourceFormatHint: group.copyFormatDescription())
+            let adaptor = AVAssetWriterInputMetadataAdaptor(assetWriterInput: chapterIn)
+            writer.add(chapterIn)
+            if videoIn.canAddTrackAssociation(
+                withTrackOf: chapterIn, type: AVAssetTrack.AssociationType.chapterList.rawValue)
+            {
+                videoIn.addTrackAssociation(
+                    withTrackOf: chapterIn, type: AVAssetTrack.AssociationType.chapterList.rawValue)
+            }
+            chapterPair = (chapterIn, adaptor, group)
+        }
+
+        var metadataPair: (AVAssetWriterInput, AVAssetWriterInputMetadataAdaptor, AVTimedMetadataGroup)?
+        if includeMetadata {
+            let tag = AVMutableMetadataItem()
+            tag.keySpace = .quickTimeMetadata
+            tag.key = "com.apple.quicktime.camera.lens_model" as NSString
+            tag.dataType = kCMMetadataBaseDataType_UTF8 as String
+            tag.value = "Wide" as NSString
+            let group = AVTimedMetadataGroup(items: [tag], timeRange: CMTimeRange(start: .zero, duration: duration))
+            let metadataIn = AVAssetWriterInput(
+                mediaType: .metadata, outputSettings: nil, sourceFormatHint: group.copyFormatDescription())
+            let adaptor = AVAssetWriterInputMetadataAdaptor(assetWriterInput: metadataIn)
+            writer.add(metadataIn)
+            metadataPair = (metadataIn, adaptor, group)
+        }
+
+        try #require(reader.startReading())
+        try #require(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+
+        if let (timecodeIn, tcFormat) = timecodePair {
+            var frameNumber: Int32 = 0
+            let payload = withUnsafeBytes(of: &frameNumber) { Data($0) }
+            try await appendExtraSample(payload, format: tcFormat, to: timecodeIn, duration: duration)
+        }
+        if let (captionIn, format) = captionPair {
+            let payload = Data([0, 0, 0, 10, 0x63, 0x64, 0x61, 0x74, 0x94, 0x20])
+            try await appendExtraSample(payload, format: format, to: captionIn, duration: duration)
+        }
+
+        if let (chapterIn, adaptor, group) = chapterPair {
+            while !chapterIn.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
+            try #require(adaptor.append(group))
+            chapterIn.markAsFinished()
+        }
+
+        if let (metadataIn, adaptor, group) = metadataPair {
+            while !metadataIn.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
+            try #require(adaptor.append(group))
+            metadataIn.markAsFinished()
+        }
+
+        var videoDone = false
+        var audioDone = false
+        while !videoDone || !audioDone {
+            var progressed = false
+            if !videoDone, videoIn.isReadyForMoreMediaData {
+                if let sample = videoOut.copyNextSampleBuffer() {
+                    try #require(videoIn.append(sample))
+                } else {
+                    videoIn.markAsFinished()
+                    videoDone = true
+                }
+                progressed = true
+            }
+            if !audioDone, audioIn.isReadyForMoreMediaData {
+                if let sample = audioOut.copyNextSampleBuffer() {
+                    try #require(audioIn.append(sample))
+                } else {
+                    audioIn.markAsFinished()
+                    audioDone = true
+                }
+                progressed = true
+            }
+            if !progressed { try await Task.sleep(for: .milliseconds(1)) }
+        }
+        await writer.finishWriting()
+        try #require(writer.status == .completed)
+        return url
+    }
+
+    private func appendExtraSample(
+        _ payload: Data, format: CMFormatDescription, to input: AVAssetWriterInput, duration: CMTime
+    ) async throws {
+        var blockBuffer: CMBlockBuffer?
+        try #require(
+            CMBlockBufferCreateWithMemoryBlock(
+                allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: payload.count,
+                blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
+                dataLength: payload.count, flags: 0, blockBufferOut: &blockBuffer) == noErr)
+        let block = try #require(blockBuffer)
+        try payload.withUnsafeBytes { raw in
+            let base = try #require(raw.baseAddress)
+            try #require(
+                CMBlockBufferReplaceDataBytes(
+                    with: base, blockBuffer: block, offsetIntoDestination: 0, dataLength: payload.count) == noErr)
+        }
+        var timing = CMSampleTimingInfo(duration: duration, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+        var sampleSize = payload.count
+        var sample: CMSampleBuffer?
+        try #require(
+            CMSampleBufferCreate(
+                allocator: kCFAllocatorDefault, dataBuffer: block, dataReady: true, makeDataReadyCallback: nil,
+                refcon: nil, formatDescription: format, sampleCount: 1, sampleTimingEntryCount: 1,
+                sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize,
+                sampleBufferOut: &sample) == noErr)
+        while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
+        try #require(input.append(try #require(sample)))
+        input.markAsFinished()
+    }
+
+    @Test(arguments: [Settings.OutputMode.replace, .newFile])
+    func closedCaptionTrackRequiresMatchingConsent(mode: Settings.OutputMode) async throws {
+        let input = try await videoWithExtraTracks(includeClosedCaption: true)
+        let original = try Data(contentsOf: input)
+        let folder = input.deletingLastPathComponent()
+        let captionTracks = try await AVURLAsset(url: input).loadTracks(withMediaType: .closedCaption)
+        #expect(captionTracks.count == 1)
+        for consent: Set<UnpreservedStream> in [[], [.subtitle]] {
+            #expect(
+                try await run(.videoConvert, preset: "mp4", on: input, omittedStreams: consent, outputMode: mode)
+                    == .failed(.invalidInput(.unpreservedStreams([.closedCaption]))))
+            #expect(try Data(contentsOf: input) == original)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
+        }
+        let result = try await run(
+            .videoConvert, preset: "mp4", on: input, omittedStreams: [.closedCaption], outputMode: mode)
+        guard case .succeeded(let outputs, let warnings) = result else {
+            Issue.record("expected caption omission: \(result)")
+            return
+        }
+        #expect(warnings.contains(.streamsOmitted([.closedCaption])))
+        let output = try #require(outputs.first)
+        #expect(try await AVURLAsset(url: output).loadTracks(withMediaType: .closedCaption).isEmpty)
+        #expect(try await AVURLAsset(url: output).loadTracks(withMediaType: .video).count == 1)
+        if mode == .newFile { #expect(try Data(contentsOf: input) == original) }
+    }
+
+    @Test func timecodeTrackRequiresConsentAndReportsOmission() async throws {
+        let input = try await videoWithExtraTracks(includeTimecode: true)
+        let original = try Data(contentsOf: input)
+        let folder = input.deletingLastPathComponent()
+
+        #expect(
+            try await run(.videoConvert, preset: "mp4", on: input)
+                == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+        #expect(
+            try await run(.videoCompress, preset: "quality-medium", on: input)
+                == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+        #expect(try Data(contentsOf: input) == original)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path).count == 1)
+
+        let editorStaging = StagingArea(supportDirectory: folder)
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
+            _ = try await VideoEditorSource.open(input, staging: editorStaging)
+        }
+        let openedEditor = try await VideoEditorSource.open(input, staging: editorStaging, omittedStreams: [.timecode])
+        await openedEditor.close()
+
+        let derivedOutcome = try await run(
+            .videoConvert, preset: "mp4", on: input, omittedStreams: [.timecode], outputMode: .newFile)
+        guard case .succeeded(let derivedOutputs, let derivedWarnings) = derivedOutcome else {
+            Issue.record("expected consented new-file convert to succeed, got \(derivedOutcome)")
+            return
+        }
+        #expect(derivedOutputs.first?.pathExtension == "mp4")
+        #expect(derivedWarnings.contains(.streamsOmitted([.timecode])))
+        #expect(try Data(contentsOf: input) == original)
+
+        let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 2)
+        var replaceSettings = Settings()
+        replaceSettings.outputMode = .replace
+        let compressInput = try await videoWithExtraTracks(includeTimecode: true)
+        let compressOriginal = try Data(contentsOf: compressInput)
+        let compressOptions = try #require(
+            OperationPlanner.options(for: .videoCompress, preset: "quality-medium", settings: replaceSettings))
+        let replaceBatch = OperationPlanner.batch(
+            for: OperationRequest(
+                op: .videoCompress, options: compressOptions, inputs: [compressInput], omittedStreams: [.timecode]),
+            settings: replaceSettings)
+        let replaceOutcome = await engine.run(replaceBatch, settings: replaceSettings) { _ in }
+        guard case .succeeded(let replaceOutputs, let replaceWarnings) = replaceOutcome.outcomes.first else {
+            Issue.record("expected consented replace compress to succeed, got \(replaceOutcome.outcomes)")
+            return
+        }
+        #expect(!replaceOutputs.isEmpty)
+        #expect(replaceWarnings.contains(.streamsOmitted([.timecode])))
+        let record = try #require(replaceOutcome.record)
+        let undone = try await engine.undo(record.id)
+        #expect(undone == [.restored])
+        #expect(try Data(contentsOf: compressInput) == compressOriginal)
+    }
+
+    @Test func consentForOneStreamKindDoesNotCoverOtherKinds() async throws {
+        let combined = try await videoWithExtraTracks(includeTimecode: true, includeChapter: true)
+        let original = try Data(contentsOf: combined)
+
+        #expect(
+            try await run(.videoConvert, preset: "mp4", on: combined)
+                == .failed(.invalidInput(.unpreservedStreams([.timecode, .chapter]))))
+        #expect(
+            try await run(.videoConvert, preset: "mp4", on: combined, omittedStreams: [.timecode])
+                == .failed(.invalidInput(.unpreservedStreams([.chapter]))))
+        #expect(try Data(contentsOf: combined) == original)
+
+        let consented = try await run(
+            .videoConvert, preset: "mp4", on: combined, omittedStreams: [.timecode, .chapter], outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = consented else {
+            Issue.record("expected fully consented convert to succeed, got \(consented)")
+            return
+        }
+        #expect(outputs.first?.pathExtension == "mp4")
+        #expect(warnings.contains(.streamsOmitted([.timecode, .chapter])))
+    }
+
+    @Test func matroskaSubtitleConsentSucceedsWithOmissionNote() async throws {
+        let source = URL(filePath: #filePath).deletingLastPathComponent()
+            .appending(path: "../FormatsTests/Resources/ffmpeg-mpeg4-ac3-srt.mkv")
+        let url = try TestVolume.makeFolder().appending(path: "subtitled-consent.mkv")
+        try FileManager.default.copyItem(at: source, to: url)
+        let original = try Data(contentsOf: url)
+
+        #expect(
+            try await run(.videoConvert, preset: "mp4", on: url, omittedStreams: [.timecode])
+                == .failed(.invalidInput(.unpreservedStreams([.subtitle]))))
+        #expect(try Data(contentsOf: url) == original)
+
+        let consented = try await run(
+            .videoConvert, preset: "mp4", on: url, omittedStreams: [.subtitle], outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = consented else {
+            Issue.record("expected consented subtitle convert to succeed, got \(consented)")
+            return
+        }
+        #expect(outputs.first?.pathExtension == "mp4")
+        #expect(warnings.contains(.streamsOmitted([.subtitle])))
+    }
+
+    @Test func timedMetadataTrackRequiresConsentAndReportsOmission() async throws {
+        let input = try await videoWithExtraTracks(includeMetadata: true)
+        let original = try Data(contentsOf: input)
+
+        #expect(
+            try await run(.videoConvert, preset: "mp4", on: input)
+                == .failed(.invalidInput(.unpreservedStreams([.metadata]))))
+        #expect(try Data(contentsOf: input) == original)
+
+        let consented = try await run(
+            .videoConvert, preset: "mp4", on: input, omittedStreams: [.metadata], outputMode: .newFile)
+        guard case .succeeded(let outputs, let warnings) = consented else {
+            Issue.record("expected consented metadata convert to succeed, got \(consented)")
+            return
+        }
+        #expect(outputs.first?.pathExtension == "mp4")
+        #expect(warnings.contains(.streamsOmitted([.metadata])))
     }
 }

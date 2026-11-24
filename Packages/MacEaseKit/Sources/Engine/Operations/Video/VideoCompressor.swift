@@ -26,7 +26,7 @@ enum VideoCompressor {
 
     static func run(_ compression: VideoCompression, url: URL, context: ItemContext) async throws -> ItemResult {
         let input = try await MediaInput.open(url)
-        try input.requireSingleTracksForReplacement()
+        try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
         guard input.video != nil, input.duration > 0 else {
             throw EngineError.invalidInput(.malformed("video must have a positive duration"))
         }

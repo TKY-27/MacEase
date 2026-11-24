@@ -15,6 +15,7 @@ public struct WorkItem: Sendable {
     var replacementInputStamps: [URL: FileStamp]?
     var requiredInputStamps: [URL: FileStamp]?
     var newFileNaming: NewFileNaming?
+    var omittedStreams: Set<UnpreservedStream> = []
     let body: @Sendable (ItemContext) async throws -> ItemResult
 
     public init(inputs: [URL], lane: Lane = .cpu, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {
@@ -131,6 +132,7 @@ public enum ItemWarning: Equatable, Sendable {
     case videoTransparencyFlattened
     case videoToneMappedToSDR
     case videoMetadataDropped([VideoMetadataProperty])
+    case streamsOmitted([UnpreservedStream])
     case pngOptimizationSkipped
     case imagePaletteReduced(colors: Int)
     case imageDimensionsReduced
@@ -151,6 +153,7 @@ public enum ItemWarning: Equatable, Sendable {
 
 public final class ItemContext: Sendable {
     public let settings: Settings
+    public let omittedStreams: Set<UnpreservedStream>
     let staging: StagingArea
     let hatchExtractions: HatchExtractionStore
     private let state = Mutex(State())
@@ -165,10 +168,12 @@ public final class ItemContext: Sendable {
 
     init(
         settings: Settings, staging: StagingArea, hatchExtractions: HatchExtractionStore? = nil,
+        omittedStreams: Set<UnpreservedStream> = [],
         phase: @escaping @Sendable (ItemPhase) -> Void = { _ in },
         progress: @escaping @Sendable (Double) -> Void
     ) {
         self.settings = settings
+        self.omittedStreams = omittedStreams
         self.staging = staging
         self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: staging.supportDirectory)
         self.progressHandler = progress
@@ -205,6 +210,21 @@ public final class ItemContext: Sendable {
 
     public func warn(_ warning: ItemWarning) {
         state.withLock { $0.warnings.append(warning) }
+    }
+
+    func warnStreamsOmitted(_ streams: [UnpreservedStream]) {
+        guard !streams.isEmpty else { return }
+        state.withLock { state in
+            if let index = state.warnings.firstIndex(where: {
+                if case .streamsOmitted = $0 { true } else { false }
+            }), case .streamsOmitted(let existing) = state.warnings[index] {
+                let merged = Set(existing).union(streams)
+                state.warnings[index] = .streamsOmitted(UnpreservedStream.allCases.filter(merged.contains))
+            } else {
+                let unique = Set(streams)
+                state.warnings.append(.streamsOmitted(UnpreservedStream.allCases.filter(unique.contains)))
+            }
+        }
     }
 
     /// On `original`'s volume.

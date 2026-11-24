@@ -50,7 +50,7 @@ enum VideoSDR {
         try Task.checkCancellation()
         guard try await classification(url) != .sdr else { return .skipped(.alreadySDR) }
         let input = try await MediaInput.open(url)
-        try input.requireSingleTracksForReplacement()
+        try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
         guard case .asset(_, let track?, _) = input.backend, let source = input.video,
             supportedCodecs.contains(source.codec), input.container.fileType != nil
         else { throw EngineError.hdrConversionUnsupported }

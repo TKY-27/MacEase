@@ -1,12 +1,13 @@
-import Formats
 import Foundation
 import MenuCatalog
 import Testing
 
 @testable import Engine
+@testable import Formats
 
 @Suite struct ChainedOggTests {
-    @Test func rejectsMultiplexedStreamBeforeWriting() async throws {
+    @Test(arguments: [Settings.OutputMode.replace, .newFile])
+    func rejectsMultiplexedStreamBeforeWriting(mode: Settings.OutputMode) async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let first = folder.appending(path: "first.ogg")
@@ -32,16 +33,113 @@ import Testing
         try original.write(to: mixed)
         let support = folder.appending(path: "support", directoryHint: .isDirectory)
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = mode
         let request = OperationRequest(
             op: .audioConvert, options: .audio(.convert(.wav)), inputs: [mixed])
-        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
-        {
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
             _ in
         }
-        #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams))])
+        #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.audio])))])
         #expect(try Data(contentsOf: mixed) == original)
         #expect(outcome.record == nil)
         #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "mixed.wav").path))
+
+        let mismatched = OperationRequest(
+            op: .audioConvert, options: .audio(.convert(.wav)), inputs: [mixed], omittedStreams: [.data])
+        let mismatchedOutcome = await engine.run(
+            OperationPlanner.batch(for: mismatched, settings: settings), settings: settings
+        ) { _ in }
+        #expect(mismatchedOutcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.audio])))])
+        #expect(try Data(contentsOf: mixed) == original)
+
+        let consented = OperationRequest(
+            op: .audioConvert, options: .audio(.convert(.wav)), inputs: [mixed], omittedStreams: [.audio])
+        let consentedOutcome = await engine.run(
+            OperationPlanner.batch(for: consented, settings: settings), settings: settings
+        ) { _ in }
+        guard case .succeeded(let outputs, let warnings) = consentedOutcome.outcomes.first else {
+            Issue.record("expected consented Ogg conversion to succeed, got \(consentedOutcome.outcomes)")
+            return
+        }
+        #expect(outputs.first?.pathExtension == "wav")
+        #expect(try !AudioSignals.decode(try #require(outputs.first)).samples.isEmpty)
+        #expect(warnings == [.streamsOmitted([.audio])])
+    }
+
+    private static let identificationCases: [(Data, UnpreservedStream)] = [
+        (Data([1]) + Data("vorbis".utf8), .audio),
+        (Data("OpusHead".utf8), .audio),
+        (Data([0x7F]) + Data("FLAC".utf8), .audio),
+        (Data("Speex   ".utf8), .audio),
+        (Data([0x80]) + Data("theora".utf8), .video),
+        (Data("BBCD".utf8), .video),
+        (Data("OVP80".utf8), .video),
+        (Data("fishead\0".utf8), .data),
+    ]
+
+    @Test(arguments: identificationCases)
+    func classifiesMultiplexedIdentificationHeaders(header: Data, expected: UnpreservedStream) async throws {
+        let mixed = try await multiplexed(headers: [header])
+        let context = ItemContext(
+            settings: Settings(), staging: StagingArea(supportDirectory: mixed.deletingLastPathComponent()),
+            progress: { _ in })
+        defer { context.removeStaging() }
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([expected]))) {
+            try await AudioJob.run(.convert(.wav), on: mixed, context: context)
+        }
+        let probed = try AudioInput(url: mixed, allowsMultiplexedOgg: true)
+        #expect(MediaInput.unpreservedStreams(from: probed.multiplexedOggStreams) == [expected])
+    }
+
+    @Test func mixedMultiplexedKindsRequireSeparateConsent() async throws {
+        let mixed = try await multiplexed(headers: [Data("OpusHead".utf8), Data("fishead\0".utf8)])
+        let original = try Data(contentsOf: mixed)
+        let folder = mixed.deletingLastPathComponent()
+        let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
+        for consent: Set<UnpreservedStream> in [[], [.data], [.audio], [.audio, .data]] {
+            let request = OperationRequest(
+                op: .audioConvert, options: .audio(.convert(.wav)), inputs: [mixed], omittedStreams: consent)
+            let outcome = await engine.run(
+                OperationPlanner.batch(for: request, settings: Settings()), settings: Settings()
+            ) { _ in }
+            if consent == [.audio, .data] {
+                guard case .succeeded(let outputs, let warnings) = outcome.outcomes.first else {
+                    Issue.record("expected conversion: \(outcome.outcomes)")
+                    return
+                }
+                #expect(warnings == [.streamsOmitted([.audio, .data])])
+                #expect(try !AudioSignals.decode(try #require(outputs.first)).samples.isEmpty)
+            } else {
+                let missing: [UnpreservedStream] = [.audio, .data].filter { !consent.contains($0) }
+                #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams(missing)))])
+                #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "mixed.wav").path))
+            }
+            #expect(try Data(contentsOf: mixed) == original)
+        }
+    }
+
+    private func multiplexed(headers: [Data]) async throws -> URL {
+        let folder = try TestVolume.makeFolder()
+        let primary = folder.appending(path: "primary.ogg")
+        try await AudioSignals.write(AudioSignals.music(seconds: 0.1), to: primary, format: .ogg)
+        let primaryBytes = try Data(contentsOf: primary)
+        let headerLength = 27
+        let segments = Int(primaryBytes[26])
+        let firstPageLength =
+            headerLength + segments
+            + primaryBytes[headerLength..<(headerLength + segments)].reduce(0) { $0 + Int($1) }
+        var extra = Data()
+        for (index, header) in headers.enumerated() {
+            let url = folder.appending(path: "extra-\(index).ogg")
+            let writer = try OggPacketWriter(url: url)
+            try writer.writeHeader(header)
+            try writer.close()
+            extra.append(try Data(contentsOf: url))
+        }
+        let mixed = folder.appending(path: "mixed.ogg")
+        try (primaryBytes.prefix(firstPageLength) + extra + primaryBytes.dropFirst(firstPageLength)).write(to: mixed)
+        return mixed
     }
 
     @Test(arguments: [AudioFormat.ogg, .opus], [false, true])

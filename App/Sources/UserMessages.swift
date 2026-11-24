@@ -80,6 +80,22 @@ enum UserMessages {
         }.formatted(.list(type: .and))
     }
 
+    private static func unpreservedStreams(_ streams: [UnpreservedStream]) -> String {
+        streams.map { stream in
+            switch stream {
+            case .video: String(localized: "extra video tracks")
+            case .audio: String(localized: "extra audio tracks")
+            case .subtitle: String(localized: "subtitle tracks")
+            case .closedCaption: String(localized: "closed captions")
+            case .timecode: String(localized: "timecode tracks")
+            case .chapter: String(localized: "chapters")
+            case .attachment: String(localized: "attachments")
+            case .metadata: String(localized: "timed metadata tracks")
+            case .data: String(localized: "other data streams")
+            }
+        }.formatted(.list(type: .and))
+    }
+
     private static func metadataClasses(_ fields: [MetadataField]) -> String {
         fields.map { field in
             switch field {
@@ -317,6 +333,10 @@ enum UserMessages {
             String(
                 localized:
                     "Not kept: this output cannot preserve \(videoMetadataProperties(properties)).")
+        case .streamsOmitted(let streams):
+            String(
+                localized:
+                    "Not kept: this output cannot preserve \(unpreservedStreams(streams)).")
         case .imageMetadataDropped(let fields):
             String(
                 localized:
@@ -437,10 +457,15 @@ enum UserMessages {
                     "Couldn’t process “\(file)”: only one audio and one video track are supported. Export a copy with those tracks in another app.",
                 comment: "Replacement would discard additional tracks"
             )
+        case .unpreservedStreams(let streams) where !streams.isEmpty:
+            String(
+                localized:
+                    "Couldn’t process “\(file)”: it contains \(unpreservedStreams(streams)) that cannot be preserved. You can run this operation without them."
+            )
         case .unpreservedStreams:
             String(
                 localized:
-                    "Couldn’t process “\(file)”: some streams or chapters cannot be preserved. Export a compatible copy in another app."
+                    "Couldn’t process “\(file)”: some streams or chapters cannot be preserved. You can run this operation without them."
             )
         case .frameMemoryExceeded:
             String(

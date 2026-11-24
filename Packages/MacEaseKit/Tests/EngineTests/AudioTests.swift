@@ -21,7 +21,10 @@ private struct AudioRun {
     }
 }
 
-private func run(_ op: OperationID, _ operation: AudioOperation, on input: URL, settings: Settings = Settings())
+private func run(
+    _ op: OperationID, _ operation: AudioOperation, on input: URL, settings: Settings = Settings(),
+    omittedStreams: Set<UnpreservedStream> = []
+)
     async throws -> AudioRun
 {
     var settings = settings
@@ -30,7 +33,9 @@ private func run(_ op: OperationID, _ operation: AudioOperation, on input: URL, 
     TestTemporaryFolders.register(support)
     let engine = try JobEngine(supportDirectory: support, concurrency: 2)
     let batch = OperationPlanner.batch(
-        for: OperationRequest(op: op, options: .audio(operation), inputs: [input]), settings: settings)
+        for: OperationRequest(
+            op: op, options: .audio(operation), inputs: [input], omittedStreams: omittedStreams),
+        settings: settings)
     let outcome = await engine.run(batch, settings: settings) { _ in }
     return AudioRun(outcome: outcome, folder: input.deletingLastPathComponent())
 }
@@ -135,10 +140,16 @@ func audioReplacementRefusesID3Payload(frameID: String) async throws {
     let headerLength = ID3Tag.length(prefix: Array(audio.prefix(ID3Tag.headerLength))) ?? 0
     let original = tag + audio.dropFirst(headerLength)
     try original.write(to: url)
+    let expected: UnpreservedStream = frameID == "CHAP" ? .chapter : .attachment
     let outcome = try await run(.audioConvert, .convert(.wav), on: url)
-    #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams))])
+    #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([expected])))])
     #expect(try Data(contentsOf: url) == original)
     #expect(outcome.outcome.record == nil)
+    let mismatched = try await run(.audioConvert, .convert(.wav), on: url, omittedStreams: [.timecode])
+    #expect(mismatched.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([expected])))])
+    let consented = try await run(.audioConvert, .convert(.wav), on: url, omittedStreams: [expected])
+    #expect(consented.output?.pathExtension == "wav")
+    #expect(consented.warnings.contains(.streamsOmitted([expected])))
 }
 
 @Test(arguments: ["cue ", "bext"])
@@ -160,9 +171,14 @@ func audioReplacementRefusesWaveAncillaryContent(chunkID: String) async throws {
     let noOp = try await run(.audioConvert, .convert(.wav), on: url)
     #expect(noOp.outcome.outcomes == [.skipped(.alreadyDone)])
     let outcome = try await run(.audioConvert, .convert(.mp3), on: url)
-    #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams))])
+    #expect(outcome.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.data])))])
     #expect(try Data(contentsOf: url) == original)
     #expect(outcome.outcome.record == nil)
+    let mismatched = try await run(.audioConvert, .convert(.mp3), on: url, omittedStreams: [.chapter])
+    #expect(mismatched.outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.data])))])
+    let consented = try await run(.audioConvert, .convert(.mp3), on: url, omittedStreams: [.data])
+    #expect(consented.output?.pathExtension == "mp3")
+    #expect(consented.warnings.contains(.streamsOmitted([.data])))
 }
 
 private func generatedSurroundAAC() async throws -> URL {

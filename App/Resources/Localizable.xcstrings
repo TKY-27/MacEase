@@ -12701,12 +12701,112 @@
         }
       }
     },
-    "Couldn’t process “%@”: some streams or chapters cannot be preserved. Export a compatible copy in another app.": {
+    "Couldn’t process “%@”: it contains %@ that cannot be preserved. You can run this operation without them.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：保持できないストリームやチャプタがあります。別のアプリで対応するコピーを書き出してください。"
+            "value": "“%1$@” を処理できませんでした：保持できない%2$@が含まれています。これらを省略して処理を実行できます。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: some streams or chapters cannot be preserved. You can run this operation without them.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” を処理できませんでした：保持できないストリームやチャプタが含まれています。これらを省略して処理を実行できます。"
+          }
+        }
+      }
+    },
+    "extra video tracks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加の映像トラック"
+          }
+        }
+      }
+    },
+    "extra audio tracks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加の音声トラック"
+          }
+        }
+      }
+    },
+    "subtitle tracks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字幕トラック"
+          }
+        }
+      }
+    },
+    "closed captions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クローズドキャプション"
+          }
+        }
+      }
+    },
+    "timecode tracks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムコードトラック"
+          }
+        }
+      }
+    },
+    "chapters": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャプタ"
+          }
+        }
+      }
+    },
+    "attachments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイル"
+          }
+        }
+      }
+    },
+    "timed metadata tracks": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムドメタデータトラック"
+          }
+        }
+      }
+    },
+    "other data streams": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のデータストリーム"
           }
         }
       }

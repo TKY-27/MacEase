@@ -46,7 +46,7 @@ struct MediaInput {
             opened.tracks.filter(\.isVideo).count > 1 || opened.tracks.filter { !$0.isVideo }.count > 1
         var skippedStreams = opened.skippedStreams
         for track in opened.tracks where track.number != video?.number && track.number != audio?.number {
-            skippedStreams.insert(.track(track.number))
+            skippedStreams.insert(.track(track.number, kind: track.isVideo ? .video : .audio))
         }
         let duration = try opened.duration ?? Self.scanDuration(try demuxer())
         let matroska = opened as? MatroskaDemuxer
@@ -95,15 +95,8 @@ struct MediaInput {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-        let allTracks = try await asset.load(.tracks)
-        var skippedStreams: Set<SkippedMediaStream> = []
-        for track in allTracks {
-            let type = track.mediaType
-            if type == .video, track.trackID == videoTracks.first?.trackID { continue }
-            if type == .audio, track.trackID == audioTracks.first?.trackID { continue }
-            skippedStreams.insert(.track(Int(track.trackID)))
-        }
-        if !(try await asset.load(.availableChapterLocales)).isEmpty { skippedStreams.insert(.chapter) }
+        let keptTrackIDs = Set([videoTracks.first?.trackID, audioTracks.first?.trackID].compactMap { $0 })
+        let skippedStreams = try await skippedStreams(in: asset, keeping: keptTrackIDs)
         let videoTrack = videoTracks.first
         let audioTrack = audioTracks.first
         let duration = SampleBuffers.nanoseconds(try await asset.load(.duration))
@@ -123,9 +116,66 @@ struct MediaInput {
             transform: transform)
     }
 
-    func requireSingleTracksForReplacement() throws {
+    static func skippedStreams(
+        in asset: AVURLAsset, keeping keptTrackIDs: Set<CMPersistentTrackID>
+    ) async throws -> Set<SkippedMediaStream> {
+        let allTracks = try await asset.load(.tracks)
+        var chapterTrackIDs: Set<CMPersistentTrackID> = []
+        for track in allTracks where keptTrackIDs.contains(track.trackID) {
+            for chapter in try await track.loadAssociatedTracks(ofType: .chapterList) {
+                chapterTrackIDs.insert(chapter.trackID)
+            }
+        }
+        var skipped: Set<SkippedMediaStream> = []
+        for track in allTracks where !keptTrackIDs.contains(track.trackID) {
+            if chapterTrackIDs.contains(track.trackID) {
+                skipped.insert(.chapter)
+                continue
+            }
+            skipped.insert(.track(Int(track.trackID), kind: skippedTrackKind(for: track.mediaType)))
+        }
+        if !(try await asset.load(.availableChapterLocales)).isEmpty { skipped.insert(.chapter) }
+        return skipped
+    }
+
+    private static func skippedTrackKind(for mediaType: AVMediaType) -> SkippedTrackKind {
+        switch mediaType {
+        case .video: .video
+        case .audio: .audio
+        case .subtitle, .text: .subtitle
+        case .closedCaption: .closedCaption
+        case .timecode: .timecode
+        case .metadata: .metadata
+        default: .data
+        }
+    }
+
+    static func unpreservedStreams(from skippedStreams: Set<SkippedMediaStream>) -> [UnpreservedStream] {
+        var found: Set<UnpreservedStream> = []
+        for stream in skippedStreams {
+            switch stream {
+            case .track(_, .video): found.insert(.video)
+            case .track(_, .audio): found.insert(.audio)
+            case .track(_, .subtitle): found.insert(.subtitle)
+            case .track(_, .closedCaption): found.insert(.closedCaption)
+            case .track(_, .timecode): found.insert(.timecode)
+            case .track(_, .metadata), .metadata: found.insert(.metadata)
+            case .track(_, .data), .unknown: found.insert(.data)
+            case .attachment: found.insert(.attachment)
+            case .chapter: found.insert(.chapter)
+            }
+        }
+        return UnpreservedStream.allCases.filter(found.contains)
+    }
+
+    func requirePreservableStreams(
+        omitting consented: Set<UnpreservedStream> = [], context: ItemContext? = nil
+    ) throws {
         if hasMultipleTracks { throw EngineError.invalidInput(.multipleTracks) }
-        if !skippedStreams.isEmpty { throw EngineError.invalidInput(.unpreservedStreams) }
+        let found = Self.unpreservedStreams(from: skippedStreams)
+        let unconsented = found.filter { !consented.contains($0) }
+        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        if !found.isEmpty { context?.warnStreamsOmitted(found) }
         _ = try VideoDisplayOrientation(transform)
     }
 

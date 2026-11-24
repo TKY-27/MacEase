@@ -65,9 +65,13 @@ enum AudioJob {
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
         context.phase(.decoding)
-        let input = try AudioInput(url: url)
+        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         switch operation {
         case .subtitles(let request):
+            let omitted = MediaInput.unpreservedStreams(from: input.multiplexedOggStreams)
+            let unconsented = omitted.filter { !context.omittedStreams.contains($0) }
+            if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+            if !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
             let speech = try context.stagingURL(for: url, name: "speech.wav")
             try await encode(
                 input, to: AudioTarget(format: .wav, kilobits: 0), at: speech, tags: AudioTags(), context: context)
@@ -90,45 +94,48 @@ enum AudioJob {
         }
     }
 
-    private static func requirePreservableContent(_ input: AudioInput) async throws {
+    private static func requirePreservableContent(_ input: AudioInput, context: ItemContext) async throws {
+        var found: Set<UnpreservedStream> = []
         if input.container == .mpeg4 {
             let asset = AVURLAsset(url: input.url)
-            let tracks = try await asset.load(.tracks)
-            let chapters = try await asset.load(.availableChapterLocales)
-            guard tracks.count == 1, tracks[0].mediaType == .audio, chapters.isEmpty else {
-                throw EngineError.invalidInput(.unpreservedStreams)
-            }
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            let kept = Set([audioTracks.first?.trackID].compactMap { $0 })
+            let skipped = try await MediaInput.skippedStreams(in: asset, keeping: kept)
+            found.formUnion(MediaInput.unpreservedStreams(from: skipped))
         }
         if input.container == .mp3 || input.container == .flac {
-            guard try !hasUnpreservedID3Content(input.url) else { throw EngineError.invalidInput(.unpreservedStreams) }
+            found.formUnion(try unpreservedID3Streams(input.url))
         }
-        if input.container == .flac, try FLACMetadata.hasUnpreservedContent(in: input.url) {
-            throw EngineError.invalidInput(.unpreservedStreams)
+        if input.container == .flac {
+            found.formUnion(MediaInput.unpreservedStreams(from: try FLACMetadata.unpreservedStreams(in: input.url)))
         }
-        if input.container == .wave || input.container == .aiff || input.container == .caf,
-            try hasUnpreservedChunks(input.url, container: input.container)
-        {
-            throw EngineError.invalidInput(.unpreservedStreams)
+        if input.container == .wave || input.container == .aiff || input.container == .caf {
+            found.formUnion(try unpreservedChunkStreams(input.url, container: input.container))
         }
+        found.formUnion(MediaInput.unpreservedStreams(from: input.multiplexedOggStreams))
+        let ordered = UnpreservedStream.allCases.filter(found.contains)
+        let unconsented = ordered.filter { !context.omittedStreams.contains($0) }
+        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        if !ordered.isEmpty { context.warnStreamsOmitted(ordered) }
     }
 
-    private static func hasUnpreservedID3Content(
+    private static func unpreservedID3Streams(
         _ url: URL, startingAt start: UInt64 = 0, within length: UInt64? = nil, requireTag: Bool = false
-    ) throws -> Bool {
+    ) throws -> Set<UnpreservedStream> {
         let reader = try FileHandle(forReadingFrom: url)
         defer { try? reader.close() }
         try reader.seek(toOffset: start)
         let prefix = [UInt8](try reader.read(upToCount: ID3Tag.headerLength) ?? Data())
         guard let tagLength = ID3Tag.length(prefix: prefix), prefix.count == ID3Tag.headerLength else {
-            return requireTag
+            return requireTag ? [.data] : []
         }
         if let length, UInt64(tagLength) > length { throw EngineError.decodeFailed("ID3 tag out of range") }
-        guard prefix[3] == id3Version3 || prefix[3] == id3Version4 else { return true }
-        if prefix[5] & ~id3FooterFlag != 0 { return true }
+        guard prefix[3] == id3Version3 || prefix[3] == id3Version4 else { return [.data] }
+        if prefix[5] & ~id3FooterFlag != 0 { return [.data] }
         let tagEnd = start + UInt64(tagLength - (prefix[5] & id3FooterFlag != 0 ? ID3Tag.headerLength : 0))
         var offset = start + UInt64(ID3Tag.headerLength)
         var artworkCount = 0
-        let unpreservedFrames: Set<String> = ["CHAP", "CTOC", "SYLT", "ETCO", "GEOB", "PRIV", "MLLT", "SYTC"]
+        var found: Set<UnpreservedStream> = []
         while offset + UInt64(ID3Tag.headerLength) <= tagEnd {
             try Task.checkCancellation()
             try reader.seek(toOffset: offset)
@@ -136,10 +143,15 @@ enum AudioJob {
             guard frame.count == ID3Tag.headerLength else { throw EngineError.decodeFailed("truncated ID3 frame") }
             if frame[0..<id3FrameIDLength].allSatisfy({ $0 == 0 }) { break }
             let name = String(decoding: frame[0..<id3FrameIDLength], as: UTF8.self)
-            if unpreservedFrames.contains(name) { return true }
-            if name == "APIC" {
+            switch name {
+            case "CHAP", "CTOC": found.insert(.chapter)
+            case "SYLT": found.insert(.subtitle)
+            case "GEOB": found.insert(.attachment)
+            case "ETCO", "PRIV", "MLLT", "SYTC": found.insert(.data)
+            case "APIC":
                 artworkCount += 1
-                if artworkCount > 1 { return true }
+                if artworkCount > 1 { found.insert(.attachment) }
+            default: break
             }
             if prefix[3] == id3Version4,
                 frame[id3FrameIDLength..<id3FrameSizeEnd].contains(where: { $0 & 0x80 != 0 })
@@ -154,10 +166,11 @@ enum AudioJob {
             }
             offset += UInt64(ID3Tag.headerLength + size)
         }
-        return false
+        return found
     }
 
-    private static func hasUnpreservedChunks(_ url: URL, container: AudioContainer) throws -> Bool {
+    private static func unpreservedChunkStreams(_ url: URL, container: AudioContainer) throws -> Set<UnpreservedStream>
+    {
         let reader = try FileHandle(forReadingFrom: url)
         defer { try? reader.close() }
         let fileSize = try reader.seekToEnd()
@@ -166,6 +179,7 @@ enum AudioJob {
         let headerBytes = container == .caf ? cafHeaderBytes : riffHeaderBytes
         var offset = firstChunk
         var audioChunkCount = 0
+        var found: Set<UnpreservedStream> = []
         while offset <= fileSize, UInt64(headerBytes) <= fileSize - offset {
             try Task.checkCancellation()
             try reader.seek(toOffset: offset)
@@ -192,7 +206,7 @@ enum AudioJob {
                 waveSizes = sizes
             }
             guard size <= fileSize - offset - UInt64(headerBytes) else {
-                if container == .caf, name == "data", size == UInt64.max { return false }
+                if container == .caf, name == "data", size == UInt64.max { return found }
                 throw EngineError.decodeFailed("audio chunk out of range")
             }
             if container == .wave {
@@ -200,27 +214,25 @@ enum AudioJob {
                     guard size >= 4 else { throw EngineError.decodeFailed("truncated audio list") }
                     let list = [UInt8](try reader.read(upToCount: 4) ?? Data())
                     guard list.count == 4 else { throw EngineError.decodeFailed("truncated audio list") }
-                    if String(decoding: list, as: UTF8.self) != "INFO" { return true }
+                    if String(decoding: list, as: UTF8.self) != "INFO" { found.insert(.data) }
                 } else if !wavePreservedChunks.contains(name) {
-                    return true
+                    found.insert(.data)
                 }
             } else if container == .aiff {
-                if !aiffPreservedChunks.contains(name) { return true }
+                if !aiffPreservedChunks.contains(name) { found.insert(.data) }
             } else if !cafPreservedChunks.contains(name) {
-                return true
+                found.insert(.data)
             }
             if name == "ID3 " || name == "id3 " {
-                if try hasUnpreservedID3Content(
-                    url, startingAt: offset + UInt64(headerBytes), within: size, requireTag: true)
-                {
-                    return true
-                }
+                found.formUnion(
+                    try unpreservedID3Streams(
+                        url, startingAt: offset + UInt64(headerBytes), within: size, requireTag: true))
             }
             offset += UInt64(headerBytes) + size + (container == .caf ? 0 : size % 2)
         }
         guard offset == fileSize else { throw EngineError.decodeFailed("truncated audio chunk") }
         if waveSizes != nil, audioChunkCount != 1 { throw EngineError.decodeFailed("missing extended audio chunk") }
-        return false
+        return found
     }
 
     private static func extendedWaveSizes(_ reader: FileHandle, fileSize: UInt64) throws -> WaveSizeExtensions? {
@@ -285,7 +297,7 @@ enum AudioJob {
         async throws -> ItemResult
     {
         guard try fileSize(url) > bytes else { return .skipped(.alreadyDone) }
-        try await requirePreservableContent(input)
+        try await requirePreservableContent(input, context: context)
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         var format = try compressedFormat(input, kilobits: nil)
         try format.validateLayout(input)
@@ -389,7 +401,7 @@ enum AudioJob {
         _ url: URL, with input: AudioInput, target: AudioTarget, frames: Range<Int64>? = nil, gain: Float = 1,
         fade: FadeRamp? = nil, progressStart: Double = 0, context: ItemContext
     ) async throws -> ItemResult {
-        try await requirePreservableContent(input)
+        try await requirePreservableContent(input, context: context)
         try target.format.validateLayout(input)
         let maximumDepth = input.isFloat ? MemoryLayout<Float>.size * byteBits : Float.significandBitCount + 1
         if let depth = input.bitDepth, depth > maximumDepth, !target.format.isLossy {
@@ -423,7 +435,7 @@ enum AudioJob {
         }
         let losesMetadata: Bool
         do {
-            losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(input.url)
+            losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(input.url, omitting: context.omittedStreams)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

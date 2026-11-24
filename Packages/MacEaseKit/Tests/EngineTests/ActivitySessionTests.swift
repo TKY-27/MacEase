@@ -1,4 +1,6 @@
+import AVFoundation
 import CoreGraphics
+import CoreMedia
 import Formats
 import Foundation
 import MenuCatalog
@@ -441,6 +443,136 @@ struct ActivitySessionTests {
         #expect(try ImageFixtures.pixel(preview.image, x: 63, y: 24) == [0, 0, 255, 255])
         let pages = try ImageFixtures.write([frame, frame], as: .tiff, to: folder.appending(path: "pages.tiff"))
         await #expect(throws: ActivityAvailability.animatedOrMultipage) { try await ActivityImagePreview.open(pages) }
+    }
+
+    @Test func unpreservedStreamsResubmissionWithConsentWorksAcrossOperations() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = try await timecodedClip(named: "first.mov", in: folder)
+        let second = try await timecodedClip(named: "second.mov", in: folder)
+        let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .newFile
+        let options = try #require(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
+        let request = OperationRequest(op: .videoRotate, options: options, inputs: [first, second])
+        let initial = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
+            _ in
+        }
+        #expect(
+            initial.outcomes == [
+                .failed(.invalidInput(.unpreservedStreams([.timecode]))),
+                .failed(.invalidInput(.unpreservedStreams([.timecode]))),
+            ])
+
+        var session = ActivitySession(request: request, settings: settings, outcome: initial)
+        #expect(!session.supportsRetry)
+        #expect(!session.canRetry)
+        #expect(session.canRetryOmittingStreams)
+        #expect(session.unpreservedStreamsByItem == [0: [.timecode], 1: [.timecode]])
+        #expect(session.unpreservedStreamIndices == [0, 1])
+        #expect(session.unpreservedStreams == [.timecode])
+
+        let singleRetry = try session.beginRetry(omittingStreams: [.timecode], indices: [1])
+        #expect(singleRetry.inputs == [second])
+        #expect(singleRetry.omittedStreams == [.timecode])
+        let singleOutcome = await engine.run(session.retryBatch(for: singleRetry), settings: settings) { _ in }
+        guard case .succeeded(let singleOutputs, let singleWarnings) = singleOutcome.outcomes.first else {
+            Issue.record("expected single consented retry to succeed, got \(singleOutcome.outcomes)")
+            return
+        }
+        #expect(singleOutputs.count == 1)
+        #expect(singleWarnings.contains(.streamsOmitted([.timecode])))
+        session.endRetry()
+
+        let batchRetry = try session.beginRetry(omittingStreams: [.timecode])
+        #expect(batchRetry.inputs == [first, second])
+        let batchOutcome = await engine.run(session.retryBatch(for: batchRetry), settings: settings) { _ in }
+        #expect(batchOutcome.outcomes.count == 2)
+        for itemOutcome in batchOutcome.outcomes {
+            guard case .succeeded(_, let warnings) = itemOutcome else {
+                Issue.record("expected consented batch retry to succeed, got \(itemOutcome)")
+                continue
+            }
+            #expect(warnings.contains(.streamsOmitted([.timecode])))
+        }
+        session.endRetry()
+
+        try Data("changed".utf8).write(to: first)
+        #expect(throws: ActivityAvailability.changed(first.lastPathComponent)) {
+            _ = try session.beginRetry(omittingStreams: [.timecode], indices: [0])
+        }
+    }
+
+    private func timecodedClip(named name: String, in folder: URL) async throws -> URL {
+        let source = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+        let asset = AVURLAsset(url: source)
+        let videoTrack = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let duration = try await asset.load(.duration)
+        let destination = folder.appending(path: name)
+        let writer = try AVAssetWriter(outputURL: destination, fileType: .mov)
+        let reader = try AVAssetReader(asset: asset)
+        let videoOut = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
+        reader.add(videoOut)
+        let videoIn = AVAssetWriterInput(
+            mediaType: .video, outputSettings: nil,
+            sourceFormatHint: try await videoTrack.load(.formatDescriptions).first)
+        var format: CMTimeCodeFormatDescription?
+        try #require(
+            CMTimeCodeFormatDescriptionCreate(
+                allocator: kCFAllocatorDefault, timeCodeFormatType: kCMTimeCodeFormatType_TimeCode32,
+                frameDuration: CMTime(value: 1, timescale: 24), frameQuanta: 24, flags: 0, extensions: nil,
+                formatDescriptionOut: &format) == noErr)
+        let timecodeFormat = try #require(format)
+        let timecodeIn = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: timecodeFormat)
+        writer.add(videoIn)
+        writer.add(timecodeIn)
+        try #require(reader.startReading())
+        try #require(writer.startWriting())
+        writer.startSession(atSourceTime: .zero)
+        var frame: Int32 = 0
+        var buffer: CMBlockBuffer?
+        try #require(
+            CMBlockBufferCreateWithMemoryBlock(
+                allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: MemoryLayout<Int32>.size,
+                blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
+                dataLength: MemoryLayout<Int32>.size, flags: 0, blockBufferOut: &buffer) == noErr)
+        let block = try #require(buffer)
+        try withUnsafeBytes(of: &frame) { raw in
+            let base = try #require(raw.baseAddress)
+            try #require(
+                CMBlockBufferReplaceDataBytes(
+                    with: base, blockBuffer: block, offsetIntoDestination: 0,
+                    dataLength: MemoryLayout<Int32>.size) == noErr)
+        }
+        var timing = CMSampleTimingInfo(duration: duration, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+        var size = MemoryLayout<Int32>.size
+        var sample: CMSampleBuffer?
+        try #require(
+            CMSampleBufferCreate(
+                allocator: kCFAllocatorDefault, dataBuffer: block, dataReady: true, makeDataReadyCallback: nil,
+                refcon: nil, formatDescription: timecodeFormat, sampleCount: 1, sampleTimingEntryCount: 1,
+                sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &size,
+                sampleBufferOut: &sample) == noErr)
+        while !timecodeIn.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
+        try #require(timecodeIn.append(try #require(sample)))
+        timecodeIn.markAsFinished()
+        while true {
+            if videoIn.isReadyForMoreMediaData {
+                if let videoSample = videoOut.copyNextSampleBuffer() {
+                    try #require(videoIn.append(videoSample))
+                } else {
+                    videoIn.markAsFinished()
+                    break
+                }
+            } else {
+                try await Task.sleep(for: .milliseconds(1))
+            }
+        }
+        await writer.finishWriting()
+        try #require(writer.status == .completed)
+        return destination
     }
 
     private func failedImage() async throws -> (folder: URL, input: URL, engine: JobEngine, session: ActivitySession) {
