@@ -4,9 +4,14 @@ MacEase remains MIT licensed. Its media download and local MP3 workflows launch 
 third-party executables from `Contents/Resources/media-tools/bin`. It does not
 link FFmpeg into the MacEase app. Local MP3 encoding streams PCM through a pipe
 into libmp3lame, with no automatic fallback or intermediate audio file.
+The same `ffmpeg` and `ffprobe` also decode local media the native engine
+cannot read into a verified intermediate in staging (SPEC section 25.3,
+ADR 0082), with `-protocol_whitelist file`, an explicit `-format_whitelist`,
+QuickTime external references disabled, watchdog limits and no
+`SSL_CERT_FILE`. They never write the user's output.
 These executables retain their upstream licenses. GPL and nonfree FFmpeg
 features are disabled. LGPL FFmpeg and LAME are the isolated executable exception
-recorded in SPEC sections 22–23 and ADRs 0052–0053.
+recorded in SPEC sections 22–23 and 25.3 and ADRs 0052, 0053 and 0082.
 Gallery downloads use the unmodified GPL-2.0-only gallery-dl command-line
 program as a separate process (ADR 0057). Its implementation is neither linked
 nor copied into the MIT application. Its exact source, license and required
