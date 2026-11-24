@@ -122,11 +122,7 @@ struct PreviewImageViewer: View {
         VStack(spacing: 0) {
             PreviewToolbar {
                 if let opened = model.opened {
-                    ViewThatFits(in: .horizontal) {
-                        controls(opened, iconsOnly: false, showsStatus: true)
-                        controls(opened, iconsOnly: true, showsStatus: true)
-                        controls(opened, iconsOnly: true, showsStatus: false)
-                    }
+                    PreviewImageBar(model: model, opened: opened, zoomRequest: $zoomRequest, showsInfo: $showsInfo)
                 }
             }
             Group {
@@ -144,6 +140,11 @@ struct PreviewImageViewer: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .underPageBackgroundColor))
         }
+        .previewShortcut(.playPause) {
+            guard let animator = model.animator else { return false }
+            animator.togglePlayback()
+            return true
+        }
         .task { await model.load(url, reduceMotion: reduceMotion) }
         .onChange(of: selectionPending) { _, pending in
             if pending { model.liveText.cancel() }
@@ -153,8 +154,27 @@ struct PreviewImageViewer: View {
         }
         .onDisappear { model.stop() }
     }
+}
 
-    private func controls(_ opened: PreviewImageOpened, iconsOnly: Bool, showsStatus: Bool) -> some View {
+// Info sits outside ViewThatFits so popovers survive.
+struct PreviewImageBar: View {
+    let model: PreviewImageModel
+    let opened: PreviewImageOpened
+    @Binding var zoomRequest: PreviewZoomRequest
+    @Binding var showsInfo: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                controls(iconsOnly: false, showsStatus: true)
+                controls(iconsOnly: true, showsStatus: true)
+                controls(iconsOnly: true, showsStatus: false)
+            }
+            infoButton
+        }
+    }
+
+    private func controls(iconsOnly: Bool, showsStatus: Bool) -> some View {
         HStack(spacing: 8) {
             ControlGroup {
                 zoomToggle(
@@ -166,16 +186,20 @@ struct PreviewImageViewer: View {
             .help(Text("Fit shows the whole image and 100% shows actual pixels. Double-click the image to switch."))
             if showsStatus { status }
             if let animator = model.animator { playButton(animator) }
-            Button {
-                showsInfo.toggle()
-            } label: {
-                Image(systemName: "info.circle")
-            }
-            .help(Text("Image Info"))
-            .accessibilityLabel(Text("Image Info"))
-            .popover(isPresented: $showsInfo, arrowEdge: .bottom) {
-                PreviewImageInfoView(metadata: opened.metadata, reducedSize: model.reducedSize)
-            }
+        }
+        .fixedSize()
+    }
+
+    private var infoButton: some View {
+        Button {
+            showsInfo.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+        }
+        .help(Text("Image Info"))
+        .accessibilityLabel(Text("Image Info"))
+        .popover(isPresented: $showsInfo, arrowEdge: .bottom) {
+            PreviewImageInfoView(metadata: opened.metadata, reducedSize: model.reducedSize)
         }
         .fixedSize()
     }
@@ -206,12 +230,9 @@ struct PreviewImageViewer: View {
     }
 
     private func playButton(_ animator: PreviewImageAnimator) -> some View {
-        Button {
-            if animator.isPlaying { animator.pause() } else { animator.play() }
-        } label: {
+        Button(action: animator.togglePlayback) {
             Image(systemName: animator.isPlaying ? "pause.fill" : "play.fill")
         }
-        .keyboardShortcut(.space, modifiers: [])
         .help(animator.isPlaying ? Text("Pause (Space)") : Text("Play (Space)"))
         .accessibilityLabel(animator.isPlaying ? Text("Pause") : Text("Play"))
     }
@@ -267,6 +288,7 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
     private static let minimumZoom: CGFloat = 0.01
     private static let maximumZoom: CGFloat = 16
     private static let actualSizeTolerance = 0.5
+    private static let magnificationTolerance: CGFloat = 0.001
     private static let zoomDuration: TimeInterval = 0.15
     private static let easeOut = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
     let content: PreviewImageLayerView
@@ -283,7 +305,8 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
     }
     private var reported: PreviewZoom?
     private var reportedWindowVisible: Bool?
-    // Intermediate animation steps keep the target's readout.
+    // Only the latest animation's completion ends zooming.
+    private var zoomAnimation = 0
     private var zooming = false
 
     override var magnification: CGFloat {
@@ -314,6 +337,8 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
         fitting = preset == .fit
         let target = clamped(preset == .fit ? fitMagnification : 1 / backingScale)
         let center = point ?? NSPoint(x: documentVisibleRect.midX, y: documentVisibleRect.midY)
+        zoomAnimation += 1
+        let animation = zoomAnimation
         zooming = true
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -321,7 +346,7 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
                 context.timingFunction = Self.easeOut
                 animator().setMagnification(target, centeredAt: center)
             } completionHandler: {
-                MainActor.assumeIsolated { self.zooming = false }
+                MainActor.assumeIsolated { if self.zoomAnimation == animation { self.zooming = false } }
             }
         } else {
             setMagnification(target, centeredAt: center)
@@ -371,10 +396,22 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
 
     override func layout() {
         super.layout()
+        // Very wide images fit below the minimum.
+        minMagnification = min(Self.minimumZoom, fitMagnification)
         guard fitting else { return }
         let target = clamped(fitMagnification)
-        if abs(magnification - target) > 0.001 { magnification = target }
+        if abs(magnification - target) > Self.magnificationTolerance { magnification = target }
         report(target)
+    }
+
+    // Keeps 100% and Fit true across displays.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if !fitting && reported?.preset == .actualSize {
+            setZoom(.actualSize, animated: false)
+        } else {
+            report(magnification)
+        }
     }
 
     override func magnify(with event: NSEvent) {
@@ -435,7 +472,7 @@ final class PreviewImageScroll: NSScrollView, NSGestureRecognizerDelegate {
     }
 }
 
-final class PreviewImageLayerView: NSView {
+final class PreviewImageLayerView: NSView, NSMenuItemValidation {
     struct CheckerKey: Hashable {
         let appearance: NSAppearance.Name
         let squarePoints: Int
@@ -471,6 +508,19 @@ final class PreviewImageLayerView: NSView {
     }
 
     private var currentCheckerSquare: Int?
+    weak var liveText: ImageAnalysisOverlayView?
+
+    override var acceptsFirstResponder: Bool { liveText?.hasActiveTextSelection == true }
+
+    @objc func copy(_ sender: Any?) {
+        guard let selected = liveText?.selectedText, !selected.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(selected, forType: .string)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem.action == #selector(copy(_:)) && liveText?.hasActiveTextSelection == true
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

@@ -60,11 +60,12 @@ final class PreviewLiveText {
 @MainActor
 final class PreviewLiveTextOverlay: NSObject, ImageAnalysisOverlayViewDelegate {
     let view = ImageAnalysisOverlayView()
-    private weak var content: NSView?
+    private weak var content: PreviewImageLayerView?
 
-    init(content: NSView) {
+    init(content: PreviewImageLayerView) {
         self.content = content
         super.init()
+        content.liveText = view
         view.delegate = self
         view.preferredInteractionTypes = [.textSelection, .dataDetectors]
         view.frame = content.bounds
@@ -81,9 +82,10 @@ final class PreviewLiveTextOverlay: NSObject, ImageAnalysisOverlayViewDelegate {
 
     func contentView(for overlayView: ImageAnalysisOverlayView) -> NSView? { content }
 
+    // The overlay refuses first responder; the image answers Copy.
     func textSelectionDidChange(_ overlayView: ImageAnalysisOverlayView) {
-        guard overlayView.hasActiveTextSelection, let window = overlayView.window, !window.isKeyWindow else { return }
-        window.makeKey()
-        window.makeFirstResponder(overlayView)
+        guard overlayView.hasActiveTextSelection, let window = overlayView.window else { return }
+        if !window.isKeyWindow { window.makeKey() }
+        window.makeFirstResponder(content)
     }
 }

@@ -150,6 +150,44 @@ final class PreviewAudioMetadataTests: XCTestCase {
         XCTAssertEqual(iconLoads, 1)
     }
 
+    func testSpacePlaysOnlyWhenNoTextHasFocus() async throws {
+        let url = try await PreviewImageFixtures.audio(in: directory, name: "space.m4a", seconds: 2)
+        let player = AVPlayer(playerItem: AVPlayerItem(asset: PreviewMediaAsset.make(url)))
+        player.isMuted = true
+        var mounted = false
+        let window = NSWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 420, height: 400), styleMask: [.borderless], backing: .buffered,
+            defer: false)
+        let host = NSHostingView(
+            rootView: PreviewAudioControls(player: player, url: url, loadFileIcon: { _ in NSImage() })
+                .onAppear { mounted = true })
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer {
+            player.pause()
+            window.orderOut(nil)
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !mounted, ContinuousClock.now < deadline {
+            window.layoutIfNeeded()
+            await Task.yield()
+        }
+        let space = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false,
+                keyCode: 49))
+        let field = NSTextField(string: "")
+        host.addSubview(field)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        XCTAssertFalse(window.performKeyEquivalent(with: space))
+        XCTAssertEqual(player.rate, 0, "Space stays with the text field")
+
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertTrue(window.performKeyEquivalent(with: space))
+        XCTAssertGreaterThan(player.rate, 0)
+    }
+
     func testAudioDurationFormattingClampsHostileValues() {
         XCTAssertEqual(PreviewAudioControls.clampedDurationSeconds(.nan), 0)
         XCTAssertEqual(PreviewAudioControls.clampedDurationSeconds(.infinity), 0)

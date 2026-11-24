@@ -260,4 +260,14 @@ enum PreviewImageFixtures {
         if value is Data { entry.dataType = kCMMetadataBaseDataType_PNG as String }
         return entry
     }
+
+    @MainActor
+    static func accessibilityElement(labeled label: String, in element: Any) -> NSAccessibilityProtocol? {
+        guard let node = element as? NSAccessibilityProtocol else { return nil }
+        if node.accessibilityLabel() == label { return node }
+        for child in node.accessibilityChildren() ?? [] {
+            if let found = accessibilityElement(labeled: label, in: child) { return found }
+        }
+        return nil
+    }
 }

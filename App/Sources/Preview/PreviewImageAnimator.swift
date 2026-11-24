@@ -33,6 +33,10 @@ final class PreviewImageAnimator {
         playback = Task { [weak self] in await self?.run(restarting: restarts) }
     }
 
+    func togglePlayback() {
+        if isPlaying { pause() } else { play() }
+    }
+
     func pause() {
         resumeWhenVisible = false
         stopPlayback()

@@ -553,6 +553,136 @@ final class PreviewImageViewerTests: XCTestCase {
         XCTAssertEqual(sdrDetails.rows.map(\.field), [.dimensions])
     }
 
+    func testActualSizeAndFitStayTrueWhenTheDisplayScaleChanges() async throws {
+        let window = ScaledWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 400, height: 400), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        let scroll = PreviewImageScroll(pixelSize: CGSize(width: 2_000, height: 1_000))
+        var reports: [PreviewZoom] = []
+        scroll.zoomChanged = { reports.append($0) }
+        window.contentView = scroll
+        scroll.layoutSubtreeIfNeeded()
+        scroll.setZoom(.actualSize, animated: false)
+        XCTAssertEqual(scroll.magnification, 0.5, accuracy: 0.001)
+
+        window.scale = 1
+        scroll.viewDidChangeBackingProperties()
+        XCTAssertEqual(scroll.zoom.preset, .actualSize)
+        XCTAssertEqual(scroll.magnification, 1, accuracy: 0.001)
+        try await waitUntilCondition { reports.last?.preset == .actualSize && reports.last?.percent == 100 }
+
+        scroll.setZoom(.fit, animated: false)
+        let fit = scroll.magnification
+        window.scale = 2
+        scroll.viewDidChangeBackingProperties()
+        try await waitUntilCondition { reports.last.map { abs($0.percent - fit * 200) < 0.01 } == true }
+        XCTAssertEqual(reports.last?.preset, .fit)
+    }
+
+    func testOverlappingAnimatedZoomsKeepTheTargetState() async throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 400, height: 400), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        let scroll = PreviewImageScroll(pixelSize: CGSize(width: 4_000, height: 2_000))
+        window.contentView = scroll
+        scroll.layoutSubtreeIfNeeded()
+        var reports: [PreviewZoom] = []
+        scroll.zoomChanged = { reports.append($0) }
+
+        scroll.setZoom(.actualSize, animated: true)
+        try await Task.sleep(for: .milliseconds(60))
+        scroll.setZoom(.actualSize, centeredAt: NSPoint(x: 3_000, y: 1_000), animated: true)
+        try await Task.sleep(for: .milliseconds(450))
+        XCTAssertFalse(reports.contains { $0.preset == nil }, "intermediate zoom reported: \(reports)")
+        XCTAssertEqual(reports.last?.preset, .actualSize)
+        XCTAssertEqual(scroll.zoom.preset, .actualSize)
+    }
+
+    func testFitShowsTheWholeOfAVeryWideImage() {
+        let scroll = PreviewImageScroll(pixelSize: CGSize(width: 60_000, height: 200))
+        scroll.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        scroll.layoutSubtreeIfNeeded()
+        XCTAssertEqual(scroll.zoom.preset, .fit)
+        XCTAssertEqual(scroll.zoom.percent, 400.0 / 60_000 * 100, accuracy: 0.001)
+        XCTAssertGreaterThanOrEqual(scroll.documentVisibleRect.width, 60_000 - 1)
+    }
+
+    func testInfoPopoverSurvivesTheBarCollapsing() async throws {
+        let url = directory.appending(path: "photo.png")
+        try PreviewImageFixtures.write(
+            [try PreviewImageFixtures.solid(width: 800, height: 600, gray: 0.4)], to: url, type: .png)
+        let model = PreviewImageModel()
+        await model.load(url, reduceMotion: true)
+        let opened = try XCTUnwrap(model.opened)
+        let window = NSWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 420, height: 60), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.contentView = NSHostingView(
+            rootView: PreviewImageBar(
+                model: model, opened: opened, zoomRequest: .constant(PreviewZoomRequest(preset: .fit, serial: 0)),
+                showsInfo: .constant(true)
+            ).frame(maxWidth: .infinity, alignment: .leading))
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        var popover: NSWindow?
+        try await waitUntilCondition(timeout: .seconds(5)) {
+            window.layoutIfNeeded()
+            popover = NSApp.windows.first { $0.className.contains("Popover") && $0.isVisible }
+            return popover != nil
+        }
+
+        window.setContentSize(NSSize(width: 120, height: 60))
+        for _ in 0..<20 {
+            window.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let visible = NSApp.windows.filter { $0.className.contains("Popover") && $0.isVisible }
+        XCTAssertEqual(visible.count, 1)
+        XCTAssertTrue(visible.first === popover, "the same popover stays open")
+        for open in visible { open.orderOut(nil) }
+        model.stop()
+    }
+
+    func testLiveTextSelectionKeepsTheArrowsAndOffersCopy() async throws {
+        try XCTSkipUnless(ImageAnalyzer.isSupported, "Live Text is not supported on this Mac")
+        let url = directory.appending(path: "receipt.png")
+        try PreviewImageFixtures.write(
+            [try PreviewImageFixtures.text("Invoice 2041 is overdue", width: 1_600, height: 400)], to: url, type: .png)
+        let model = PreviewImageModel()
+        await model.load(url, reduceMotion: true)
+        try await waitUntilCondition(timeout: .seconds(20)) { model.liveText.analysis != nil }
+        let opened = try XCTUnwrap(model.opened)
+        let window = NSWindow(
+            contentRect: NSRect(x: -5_000, y: 0, width: 400, height: 300), styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        let scroll = PreviewImageScroll(pixelSize: opened.pixelSize)
+        window.contentView = scroll
+        scroll.content.image = opened.first
+        let overlay = PreviewLiveTextOverlay(content: scroll.content)
+        overlay.show(model.liveText.analysis)
+        let copy = NSMenuItem(title: "", action: #selector(PreviewImageLayerView.copy(_:)), keyEquivalent: "")
+        XCTAssertFalse(scroll.content.validateMenuItem(copy))
+
+        let text = overlay.view.text
+        overlay.view.selectedRanges = [text.startIndex..<text.index(text.startIndex, offsetBy: 7)]
+        XCTAssertTrue(overlay.view.hasActiveTextSelection)
+        XCTAssertTrue(window.makeFirstResponder(scroll.content))
+        XCTAssertTrue(scroll.content.validateMenuItem(copy))
+        XCTAssertFalse(
+            PreviewPanelShortcut.nextFile.isAvailable(
+                firstResponder: window.firstResponder, in: window, fullKeyboardAccess: false))
+
+        overlay.view.resetSelection()
+        XCTAssertTrue(
+            PreviewPanelShortcut.nextFile.isAvailable(
+                firstResponder: window.firstResponder, in: window, fullKeyboardAccess: false))
+        model.stop()
+    }
+
     private func waitUntilObserved(
         timeout: Duration = .seconds(5), _ condition: @escaping @MainActor () -> Bool
     ) async throws {
@@ -589,4 +719,10 @@ final class PreviewImageViewerTests: XCTestCase {
             await Task.yield()
         }
     }
+}
+
+private final class ScaledWindow: NSWindow {
+    var scale: CGFloat = 2
+
+    override var backingScaleFactor: CGFloat { scale }
 }

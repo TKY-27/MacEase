@@ -405,7 +405,10 @@ struct PreviewAudioControls: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .keyboardShortcut(.space, modifiers: [])
+            .previewShortcut(.playPause) {
+                toggle()
+                return true
+            }
             .help(playing ? Text("Pause (Space)") : Text("Play (Space)"))
             .accessibilityLabel(playing ? Text("Pause") : Text("Play"))
             volumeControl

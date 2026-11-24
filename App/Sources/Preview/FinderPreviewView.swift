@@ -3,7 +3,6 @@ import Engine
 import Observation
 import Quartz
 import SwiftUI
-import UniformTypeIdentifiers
 import os
 
 @MainActor
@@ -50,6 +49,15 @@ final class FinderPreviewState {
 
     var isLoading: Bool { selectedURL != nil && (kind == nil || trust == nil) && fileFailure == nil }
 
+    var showsLoadingIndicator: Bool { isLoading && loadingIndicatorGeneration == generation }
+
+    // Per generation, so late delays can't flash.
+    private var loadingIndicatorGeneration: UInt64?
+
+    func revealLoadingIndicator(for generation: UInt64) {
+        loadingIndicatorGeneration = generation
+    }
+
     private func showIfReady() {
         guard let url = selectedURL, let kind, let trust else { return }
         shown = Shown(url: url, kind: kind, trust: trust, detected: detected, generation: generation)
@@ -71,7 +79,6 @@ struct FinderPreviewView: View {
     let resize: (CGFloat) -> Void
     @State private var accessoryWidth: CGFloat = 0
     @State private var panelWidth: CGFloat = 0
-    @State private var showsProgress = false
     @Environment(\.displayScale) private var displayScale
     private static let resizeEdgeWidth: CGFloat = 5
     private static let keyboardResizeStep: CGFloat = 20
@@ -92,21 +99,23 @@ struct FinderPreviewView: View {
                 panelWidth = $0
             }
             .task(id: state.generation) {
-                showsProgress = false
+                let generation = state.generation
                 guard state.isLoading else { return }
                 do {
                     try await Task.sleep(for: Self.progressDelay)
                 } catch {
                     return
                 }
-                showsProgress = true
+                state.revealLoadingIndicator(for: generation)
             }
-            .onChange(of: state.shown?.url) { _, url in
-                if let url { announce(url) }
+            .task(id: state.shown?.url) {
+                if let url = state.shown?.url { await announce(url) }
             }
             .overlay(alignment: .topTrailing) {
                 if state.docked { accessories }
             }
+            .previewShortcut(.previousFile) { step(by: -1) }
+            .previewShortcut(.nextFile) { step(by: 1) }
             .overlay(alignment: state.dock == .left ? .trailing : .leading) {
                 if state.docked && state.dock != .inset {
                     Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1 / displayScale)
@@ -155,7 +164,6 @@ struct FinderPreviewView: View {
                 Image(systemName: "chevron.left").frame(width: 20, height: 22)
             }
             .disabled(state.selectedIndex == 0)
-            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
             .help(Text("Previous File (⌥⌘←)"))
             .accessibilityLabel(Text("Previous File"))
             if let count {
@@ -168,7 +176,6 @@ struct FinderPreviewView: View {
                 Image(systemName: "chevron.right").frame(width: 20, height: 22)
             }
             .disabled(state.selectedIndex == state.urls.count - 1)
-            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
             .help(Text("Next File (⌥⌘→)"))
             .accessibilityLabel(Text("Next File"))
         }
@@ -177,19 +184,37 @@ struct FinderPreviewView: View {
         .accessibilityValue(position)
     }
 
+    private func step(by offset: Int) -> Bool {
+        let index = state.selectedIndex + offset
+        guard state.docked, state.urls.indices.contains(index) else { return false }
+        select(index)
+        return true
+    }
+
     // Once per file, queued after Finder.
-    private func announce(_ url: URL) {
-        let name = url.lastPathComponent
-        let message =
-            if !url.pathExtension.isEmpty, let kind = UTType(filenameExtension: url.pathExtension)?.localizedDescription
-            {
-                String(localized: "\(name), \(kind)")
-            } else {
-                name
-            }
+    private func announce(_ url: URL) async {
+        let message: String
+        do {
+            message = try await offMain { try Self.spokenDescription(of: url) }
+        } catch is CancellationError {
+            return
+        } catch {
+            Logger(category: "finder-preview").notice(
+                "Preview kind unavailable: \(error.localizedDescription, privacy: .private)")
+            message = url.lastPathComponent
+        }
+        guard !Task.isCancelled else { return }
         var announcement = AttributedString(message)
         announcement.accessibilitySpeechAnnouncementPriority = .default
         AccessibilityNotification.Announcement(announcement).post()
+    }
+
+    // Folders may carry document extensions.
+    nonisolated static func spokenDescription(of url: URL) throws -> String {
+        let name = url.lastPathComponent
+        guard let kind = try url.resourceValues(forKeys: [.localizedTypeDescriptionKey]).localizedTypeDescription
+        else { return name }
+        return String(localized: "\(name), \(kind)")
     }
 
     private var resizeEdge: some View {
@@ -217,7 +242,7 @@ struct FinderPreviewView: View {
         } else if state.selectedURL != nil {
             if let shown = state.shown {
                 @Bindable var state = state
-                let pending = state.isLoading && showsProgress
+                let pending = state.showsLoadingIndicator
                 PreviewContent(
                     url: shown.url, kind: shown.kind, trust: shown.trust, detected: shown.detected,
                     settings: settings.finderPreview, staging: staging, scriptConsent: $state.scriptConsent
@@ -230,7 +255,7 @@ struct FinderPreviewView: View {
                 }
             } else {
                 barred {
-                    if state.isLoading && showsProgress { loadingIndicator }
+                    if state.showsLoadingIndicator { loadingIndicator }
                 }
             }
         } else {
