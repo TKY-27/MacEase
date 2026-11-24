@@ -77,6 +77,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case jarDecompile = "jar.decompile"
 
     case anyChecksum = "any.checksum"
+    case anyCopyPath = "any.copyPath"
     case anyShare = "any.share"
     case anyFindRelated = "any.findRelated"
     case anyProtect = "any.protect"

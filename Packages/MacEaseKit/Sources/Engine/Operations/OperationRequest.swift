@@ -25,7 +25,13 @@ public enum OperationPlanner {
     /// `nil` when a panel must ask first.
     public static func options(for op: OperationID, preset: String?, settings: Settings) -> OperationOptions? {
         switch op.kind {
-        case .any: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+        case .any:
+            switch op {
+            case .anyChecksum: preset.flatMap(ChecksumAlgorithm.init(rawValue:)).map(OperationOptions.checksum)
+            case .anyCopyPath:
+                (preset.map(PathFormat.init(rawValue:)) ?? .posix).map(OperationOptions.copyPath)
+            default: nil
+            }
         case .video: VideoPlanner.options(for: op, preset: preset, settings: settings).map(OperationOptions.video)
         case .folder:
             FolderPlanner.options(for: op, preset: preset, settings: settings.folder).map(OperationOptions.folder)
@@ -64,7 +70,7 @@ public enum OperationPlanner {
             .folder(.exportAnalysis(_, _)):
             inputs = targeted(request.inputs, kind: request.op.kind)
             usesResolvedInputs = true
-        case .folder(.newFile(_)):
+        case .folder(.newFile(_)), .copyPath(_):
             inputs = request.inputs
             usesResolvedInputs = false
         default:
@@ -103,6 +109,11 @@ public enum OperationPlanner {
                 }
             }
             return Batch(operation: request.op, items: items, reportsMultipleTexts: true)
+        case .copyPath(let format):
+            let workItem = WorkItem(inputs: inputs, managesInputStamps: true) { _ in
+                .text(FinderPaths.copyText(for: inputs, format: format), .clipboard)
+            }
+            return Batch(operation: request.op, items: [workItem])
         case .rename(let plans):
             let items = plans.filter { $0.newName != $0.url.lastPathComponent }.map { plan in
                 WorkItem(inputs: [plan.url]) { _ in
