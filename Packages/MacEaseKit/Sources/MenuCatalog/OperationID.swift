@@ -271,10 +271,6 @@ extension OperationID {
         .archiveHatchExtract, .archiveExtract, .archiveBrowse,
     ]
 
-    var primaryMenuRank: Int {
-        Self.primaryMenuOrder.firstIndex(of: menuGroupOperation) ?? Self.primaryMenuOrder.count
-    }
-
     public var defaultMenuPlacement: MenuPlacement {
         Self.primaryMenuOrder.contains(menuGroupOperation) ? .primary : .more
     }

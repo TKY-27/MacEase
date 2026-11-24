@@ -3,35 +3,60 @@ import Foundation
 public indirect enum MenuNode: Equatable, Sendable {
     case submenu(title: String, children: [MenuNode])
     case action(title: String, entryIndex: Int)
+    case command(HostCommand, title: String)
     case separator
 }
 
+/// Finder-level items and MacEase submenu items.
+public struct MenuTree: Equatable, Sendable {
+    public let finder: [MenuNode]
+    public let macEase: [MenuNode]
+}
+
 public enum MenuLayout {
-    public static func nodes(for file: MenuFile, selection: [URL]) -> [MenuNode] {
+    public static func tree(for file: MenuFile, selection: [URL]) -> MenuTree {
         let summary = SelectionSummary(selection)
-        var primary: [FileKind: [(Int, MenuEntry)]] = [:]
-        var more: [FileKind: [(Int, MenuEntry)]] = [:]
-        for (index, entry) in file.entries.enumerated() where entry.op != .folderDownloadMedia {
-            if entry.resolvedPlacement == .primary {
-                primary[entry.kind, default: []].append((index, entry))
-            } else {
-                more[entry.kind, default: []].append((index, entry))
+        let commandGroups = Set(file.commands.map(\.group.rawValue))
+        let indexed = Array(file.entries.enumerated())
+        func commands(_ placement: MenuPlacement) -> [MenuNode] {
+            file.commands.filter { $0.placement == placement }.flatMap { item -> [MenuNode] in
+                if let command = item.command { return [.command(command, title: item.title)] }
+                return operationNodes(indexed.filter { $0.1.resolvedGroupID == item.group.rawValue }, summary: summary)
             }
         }
+        var primary: [FileKind: [(Int, MenuEntry)]] = [:]
+        var more: [FileKind: [(Int, MenuEntry)]] = [:]
+        for (index, entry) in indexed where !commandGroups.contains(entry.resolvedGroupID) {
+            switch entry.placement {
+            case .primary: primary[entry.kind, default: []].append((index, entry))
+            case .more: more[entry.kind, default: []].append((index, entry))
+            case .finder: break
+            }
+        }
+        var macEase = commands(.primary)
+        let nodes = kindNodes(
+            primary: primary, more: more, trailingMore: commands(.more), moreTitle: file.moreTitle ?? "More",
+            kindTitle: file.kindTitle, summary: summary)
+        if !macEase.isEmpty, !nodes.isEmpty { macEase.append(.separator) }
+        return MenuTree(finder: commands(.finder), macEase: macEase + nodes)
+    }
+
+    private static func kindNodes(
+        primary: [FileKind: [(Int, MenuEntry)]], more: [FileKind: [(Int, MenuEntry)]], trailingMore: [MenuNode],
+        moreTitle: String, kindTitle: (FileKind) -> String, summary: SelectionSummary
+    ) -> [MenuNode] {
         let selectedKinds = FileKind.menuOrder.filter { $0 != .any && summary.count(for: $0) > 0 }
         let singleKind =
-            selectedKinds.count == 1 && selectedKinds.first.map { summary.count(for: $0) } == selection.count
+            selectedKinds.count == 1 && selectedKinds.first.map { summary.count(for: $0) } == summary.totalCount
         var nodes: [MenuNode] = []
         var moreNodes: [MenuNode] = []
         for kind in FileKind.menuOrder {
-            let title = "\(file.kindTitle(kind)) (\(summary.count(for: kind)))"
-            let ordered = (primary[kind] ?? []).sorted {
-                let left = $0.1.op.primaryMenuRank
-                let right = $1.1.op.primaryMenuRank
-                return left == right ? $0.0 < $1.0 : left < right
-            }
-            let children = operationNodes(ordered, summary: summary)
-            if !children.isEmpty {
+            let title = "\(kindTitle(kind)) (\(summary.count(for: kind)))"
+            let children = operationNodes(primary[kind] ?? [], summary: summary)
+            if kind == .any, !children.isEmpty {
+                if !nodes.isEmpty { nodes.append(.separator) }
+                nodes += children
+            } else if !children.isEmpty {
                 if singleKind { nodes += children } else { nodes.append(.submenu(title: title, children: children)) }
             }
             var overflow = operationNodes(more[kind] ?? [], summary: summary)
@@ -41,7 +66,7 @@ public enum MenuLayout {
                     case .action(let operation, let index): .action(title: "\(title): \(operation)", entryIndex: index)
                     case .submenu(let operation, let children):
                         .submenu(title: "\(title): \(operation)", children: children)
-                    case .separator: .separator
+                    case .command, .separator: node
                     }
                 }
             }
@@ -50,9 +75,13 @@ public enum MenuLayout {
                 moreNodes += overflow
             }
         }
+        if !trailingMore.isEmpty {
+            if !moreNodes.isEmpty { moreNodes.append(.separator) }
+            moreNodes += trailingMore
+        }
         if !moreNodes.isEmpty {
             if !nodes.isEmpty { nodes.append(.separator) }
-            nodes.append(.submenu(title: file.moreTitle ?? "More", children: moreNodes))
+            nodes.append(.submenu(title: moreTitle, children: moreNodes))
         }
         return nodes
     }
@@ -112,10 +141,10 @@ public enum MenuLayout {
     }
 }
 
-private struct SelectionSummary {
+struct SelectionSummary {
     private var counts: [FileKind: Int] = [:]
     private var formats: [FileKind: Set<String>] = [:]
-    private let totalCount: Int
+    let totalCount: Int
 
     init(_ selection: [URL]) {
         totalCount = selection.count

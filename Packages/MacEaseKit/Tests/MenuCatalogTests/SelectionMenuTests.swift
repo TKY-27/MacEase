@@ -16,10 +16,11 @@ import Testing
     @Test(arguments: ["image", "video"])
     func editingMenusPrioritizeEditConvertCompressAndResolution(kind: String) {
         let suffix = kind == "image" ? "png" : "mov"
-        let nodes = MenuLayout.nodes(for: catalog(), selection: [URL(filePath: "/source.\(suffix)")])
+        let nodes = MenuLayout.tree(for: catalog(), selection: [URL(filePath: "/source.\(suffix)")]).macEase
         let titles = nodes.compactMap { node -> String? in
             switch node {
             case .action(let title, _), .submenu(let title, _): title
+            case .command(_, let title): title
             case .separator: nil
             }
         }
@@ -111,7 +112,7 @@ import Testing
 
     @Test func sdrSharesOneConvertSubmenuAfterAnimationExports() throws {
         let file = catalog()
-        let nodes = MenuLayout.nodes(for: file, selection: [URL(fileURLWithPath: "/absent/clip.mov")])
+        let nodes = MenuLayout.tree(for: file, selection: [URL(fileURLWithPath: "/absent/clip.mov")]).macEase
         let converts = nodes.compactMap { node -> [MenuNode]? in
             if case .submenu("video.convert", let children) = node { return children }
             return nil

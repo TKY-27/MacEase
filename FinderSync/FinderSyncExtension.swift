@@ -86,25 +86,9 @@ final class FinderSyncExtension: FIFinderSync {
         let menu = NSMenu(title: "")
         let submenu = NSMenu(title: "MacEase")
         if let file, file.hostAvailable {
-            if let title = file.updateTitle {
-                let update = NSMenuItem(title: title, action: #selector(showUpdate(_:)), keyEquivalent: "")
-                update.target = self
-                update.image = updateImage
-                submenu.addItem(update)
-            }
-            if let title = file.previewTitle {
-                let preview = NSMenuItem(title: title, action: #selector(showPreview(_:)), keyEquivalent: "")
-                preview.target = self
-                submenu.addItem(preview)
-            }
-            let nodes = MenuLayout.nodes(for: file, selection: selection)
-            if let index = file.entries.firstIndex(where: {
-                $0.op == .folderDownloadMedia && MenuLayout.isApplicable($0, selection: selection)
-            }), let title = file.entries[index].path.last {
-                add([.action(title: title, entryIndex: index)], to: menu)
-            }
-            if !submenu.items.isEmpty, !nodes.isEmpty { submenu.addItem(.separator()) }
-            add(nodes, to: submenu)
+            let tree = MenuLayout.tree(for: file, selection: selection)
+            add(tree.finder, to: menu)
+            add(tree.macEase, to: submenu)
         } else {
             let open = NSMenuItem(title: openTitle, action: #selector(openHost(_:)), keyEquivalent: "")
             open.target = self
@@ -126,6 +110,13 @@ final class FinderSyncExtension: FIFinderSync {
                 let menuItem = NSMenuItem(title: title, action: #selector(runEntry(_:)), keyEquivalent: "")
                 menuItem.target = self
                 menuItem.tag = entryIndex
+                menu.addItem(menuItem)
+            case .command(let command, let title):
+                guard let tag = HostCommand.allCases.firstIndex(of: command) else { continue }
+                let menuItem = NSMenuItem(title: title, action: #selector(runCommand(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.tag = tag
+                if command == .update { menuItem.image = updateImage }
                 menu.addItem(menuItem)
             case .submenu(let title, let children):
                 let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -159,21 +150,15 @@ final class FinderSyncExtension: FIFinderSync {
         NSWorkspace.shared.open(url)
     }
 
-    @objc func showUpdate(_ sender: NSMenuItem) {
-        guard let file = cache.withLock({ $0.file }), file.hostAvailable, file.updateTitle != nil else { return }
+    @objc func runCommand(_ sender: NSMenuItem) {
+        let tag = sender.tag
+        guard HostCommand.allCases.indices.contains(tag), let file = cache.withLock({ $0.file }), file.hostAvailable
+        else { return }
+        let command = HostCommand.allCases[tag]
+        guard file.commands.contains(where: { $0.command == command }) else { return }
         var components = URLComponents()
         components.scheme = scheme
-        components.host = "update"
-        components.queryItems = [URLQueryItem(name: "t", value: file.token)]
-        guard let url = components.url else { return }
-        NSWorkspace.shared.open(url)
-    }
-
-    @objc func showPreview(_ sender: NSMenuItem) {
-        guard let file = cache.withLock({ $0.file }), file.hostAvailable, file.previewTitle != nil else { return }
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = "preview"
+        components.host = command.rawValue
         components.queryItems = [URLQueryItem(name: "t", value: file.token)]
         guard let url = components.url else { return }
         NSWorkspace.shared.open(url)

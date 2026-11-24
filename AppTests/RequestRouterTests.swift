@@ -29,7 +29,10 @@ final class RequestRouterTests: XCTestCase {
         let token = String(repeating: "a", count: 64)
         let catalog = MenuFile(
             token: token, hostAvailable: true, entries: [], kinds: [:],
-            updateTitle: "Update Available (v\(available))")
+            commands: [
+                MenuCommandItem(
+                    group: MenuGroupID(.update), title: "Update Available (v\(available))", placement: .primary)
+            ])
         var published: MenuFile? = catalog
         var openedWindows: [NSWindow] = []
         let presenter = SingleWindowPresenter {
@@ -61,7 +64,9 @@ final class RequestRouterTests: XCTestCase {
         published = nil
         router.route(request)
         XCTAssertTrue(openedWindows.isEmpty)
-        published = MenuFile(token: token, hostAvailable: false, entries: [], kinds: [:], updateTitle: "Update")
+        published = MenuFile(
+            token: token, hostAvailable: false, entries: [], kinds: [:],
+            commands: [MenuCommandItem(group: MenuGroupID(.update), title: "Update", placement: .primary)])
         router.route(request)
         XCTAssertTrue(openedWindows.isEmpty)
         published = catalog
@@ -93,7 +98,8 @@ final class RequestRouterTests: XCTestCase {
         let jobs = JobCenter(engine: engine, settings: settings, notifier: notifier)
         let token = String(repeating: "a", count: 64)
         let catalog = MenuFile(
-            token: token, hostAvailable: true, entries: [], kinds: [:], previewTitle: "Finder Preview")
+            token: token, hostAvailable: true, entries: [], kinds: [:],
+            commands: [MenuCommandItem(group: MenuGroupID(.preview), title: "Finder Preview", placement: .primary)])
         var published: MenuFile? = catalog
         var opened = 0
         let router = RequestRouter(

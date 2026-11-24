@@ -61,6 +61,14 @@ final class SettingsStore {
         }
     }
 
+    /// Derived from legacy placements until stored.
+    var menuArrangement: MenuArrangement {
+        MenuArrangement.migrating(
+            placements: menuPlacements, hiddenEntries: hiddenEntries, newInstallHidden: Self.newInstallHiddenEntries,
+            extraAngleEnabled: settings.extraRotationEnabled
+        ).arrangement
+    }
+
     var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: Key.notificationsEnabled) }
     }
