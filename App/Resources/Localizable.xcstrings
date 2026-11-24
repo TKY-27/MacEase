@@ -18369,6 +18369,46 @@
           }
         }
       }
+    },
+    "The selected video segment no longer exists. Select another segment.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したビデオ区間は存在しません。別の区間を選択してください。"
+          }
+        }
+      }
+    },
+    "A freeze frame cannot be reversed. Select a moving segment.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静止フレームは逆再生できません。動画の区間を選択してください。"
+          }
+        }
+      }
+    },
+    "This segment is already reversed. Restore forward playback first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この区間は逆再生済みです。先に順方向の再生に戻してください。"
+          }
+        }
+      }
+    },
+    "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結合・逆再生した動画はH.264のMP4形式で新規保存されます。透明部分は背景色で塗りつぶされ、HDRはSDRに変換されます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

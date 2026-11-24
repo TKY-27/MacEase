@@ -102,6 +102,17 @@ public struct VideoEdit: Codable, Hashable, Sendable {
     public var overlays: [TimedOverlay] = []
     public var music: BackgroundMusic?
 
+    public var requiresJoinedExport: Bool { (sources?.count ?? 0) > 1 }
+
+    public var joinedExportNotice: String? {
+        requiresJoinedExport
+            ? String(
+                localized:
+                    "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR."
+            )
+            : nil
+    }
+
     public var changesColor: Bool {
         !overlays.isEmpty
             || (segments.map { $0.contains { !$0.adjustments.isIdentity } } ?? !adjustments.isIdentity)

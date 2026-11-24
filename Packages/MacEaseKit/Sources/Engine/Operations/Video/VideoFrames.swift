@@ -50,28 +50,12 @@ enum VideoStills {
         guard outputSeconds.isFinite, outputSeconds >= 0 else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
-        var inputs: [MediaInput] = []
-        var validated = edit
-        if let sources = edit.sources, !sources.isEmpty {
-            for source in sources {
-                try source.stamp.validate(source.url)
-                let input = try await MediaInput.open(source.url)
-                guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
-                inputs.append(input)
-            }
-            validated.sources = zip(sources, inputs).map { source, input in
-                VideoEditSource(
-                    url: source.url, duration: Double(input.duration) / Double(Nanoseconds.perSecond),
-                    stamp: source.stamp)
-            }
-        } else {
-            let input = try await MediaInput.open(url)
-            guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
-            inputs = [input]
-        }
+        let resolved = try await edit.openedSources(
+            primaryURL: url, omittedStreams: context.omittedStreams, context: context)
+        let inputs = resolved.inputs
         let first = inputs[0]
         let sourceDuration = Double(first.duration) / Double(Nanoseconds.perSecond)
-        let timeline = try VideoTimeline(edit: validated, sourceDuration: sourceDuration)
+        let timeline = try VideoTimeline(edit: resolved.edit, sourceDuration: sourceDuration)
         guard outputSeconds <= timeline.duration else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }

@@ -5,11 +5,32 @@ public struct VideoEditSource: Codable, Hashable, Sendable {
     public let url: URL
     public let duration: Double
     public let stamp: MediaSourceStamp
+    public let reversedOrigin: ReversedSegmentOrigin?
+    public let reversedFrames: [ReversedSourceFrame]?
 
-    public init(url: URL, duration: Double, stamp: MediaSourceStamp) {
+    public init(
+        url: URL, duration: Double, stamp: MediaSourceStamp,
+        reversedOrigin: ReversedSegmentOrigin? = nil, reversedFrames: [ReversedSourceFrame]? = nil
+    ) {
         self.url = url
         self.duration = duration
         self.stamp = stamp
+        self.reversedOrigin = reversedOrigin
+        self.reversedFrames = reversedFrames
+    }
+}
+
+public struct ReversedSourceFrame: Codable, Hashable, Sendable {
+    public let stagedStart: Double
+    public let stagedEnd: Double
+    public let sourceStart: Double
+    public let sourceEnd: Double
+
+    public init(stagedStart: Double, stagedEnd: Double, sourceStart: Double, sourceEnd: Double) {
+        self.stagedStart = stagedStart
+        self.stagedEnd = stagedEnd
+        self.sourceStart = sourceStart
+        self.sourceEnd = sourceEnd
     }
 }
 
@@ -23,6 +44,15 @@ public struct ReversedSegmentOrigin: Codable, Hashable, Sendable {
         self.start = start
         self.end = end
     }
+
+    func mappedTime(_ seconds: Double, stagedDuration: Double, toOriginal: Bool) -> Double {
+        let lower = toOriginal ? 0 : start
+        let upper = toOriginal ? stagedDuration : end
+        let fraction = (min(max(seconds, lower), upper) - lower) / (upper - lower)
+        let result = toOriginal ? end - fraction * (end - start) : stagedDuration * (1 - fraction)
+        return toOriginal ? min(end, max(start, result)) : min(stagedDuration, max(0, result))
+    }
+
 }
 
 public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
@@ -92,6 +122,7 @@ public struct VideoTimeline: Hashable, Sendable {
     public let duration: Double
     private let starts: [Double]
     private let sourceDurations: [Double]
+    private let reversedFrames: [[ReversedSourceFrame]]
 
     public init(edit: VideoEdit, sourceDuration: Double) throws {
         guard sourceDuration.isFinite, sourceDuration > 0 else {
@@ -100,12 +131,19 @@ public struct VideoTimeline: Hashable, Sendable {
         if edit.segments == nil, !edit.overlays.isEmpty {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
-        let segments =
+        var segments =
             edit.segments ?? [
                 VideoSegment(
                     start: edit.start, end: edit.end ?? sourceDuration, speed: edit.speed,
                     volume: edit.volume, adjustments: edit.adjustments)
             ]
+        if let sources = edit.sources {
+            for index in segments.indices where sources.indices.contains(segments[index].sourceIndex) {
+                if let origin = sources[segments[index].sourceIndex].reversedOrigin {
+                    segments[index].reversedOrigin = origin
+                }
+            }
+        }
         guard !segments.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
         var duration = 0.0
         var starts: [Double] = []
@@ -113,6 +151,22 @@ public struct VideoTimeline: Hashable, Sendable {
         let durations = edit.sources?.map(\.duration) ?? [sourceDuration]
         guard !durations.isEmpty, durations.allSatisfy({ $0.isFinite && $0 > 0 }) else {
             throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        for (index, source) in (edit.sources ?? []).enumerated() {
+            guard let frames = source.reversedFrames else { continue }
+            guard let origin = source.reversedOrigin, durations.indices.contains(origin.sourceIndex),
+                origin.sourceIndex != index, !frames.isEmpty
+            else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
+            for frame in frames {
+                guard [frame.stagedStart, frame.stagedEnd, frame.sourceStart, frame.sourceEnd].allSatisfy(\.isFinite),
+                    frame.stagedStart >= 0, frame.stagedStart < frame.stagedEnd,
+                    frame.stagedEnd <= source.duration + Self.rangeMergeTolerance,
+                    frame.sourceStart >= 0, frame.sourceStart < frame.sourceEnd,
+                    frame.sourceEnd <= durations[origin.sourceIndex] + Self.rangeMergeTolerance
+                else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            }
         }
         for segment in segments {
             guard durations.indices.contains(segment.sourceIndex) else {
@@ -132,8 +186,7 @@ public struct VideoTimeline: Hashable, Sendable {
                 else { throw EngineError.invalidInput(.invalidNumericParameter) }
             }
             if let origin = segment.reversedOrigin {
-                guard segment.freezeDuration == nil,
-                    durations.indices.contains(origin.sourceIndex),
+                guard durations.indices.contains(origin.sourceIndex),
                     origin.sourceIndex != segment.sourceIndex,
                     origin.start.isFinite, origin.end.isFinite,
                     origin.start >= 0, origin.end > origin.start, origin.end <= durations[origin.sourceIndex]
@@ -167,13 +220,14 @@ public struct VideoTimeline: Hashable, Sendable {
         self.duration = duration
         self.starts = starts
         sourceDurations = durations
+        reversedFrames = edit.sources?.map { $0.reversedFrames ?? [] } ?? [[]]
     }
 
     public func overlays(
-        at outputSeconds: Double, sourceRange: ClosedRange<Double>? = nil
+        at outputSeconds: Double, sourceRange: ClosedRange<Double>? = nil, segmentID: UUID? = nil
     ) -> [EditOverlay] {
         guard !overlays.isEmpty else { return [] }
-        let index = index(at: outputSeconds)
+        let index = segmentID.flatMap { id in segments.firstIndex { $0.id == id } } ?? index(at: outputSeconds)
         let segment = segments[index]
         let source = sourceRange?.lowerBound ?? sourceTime(at: outputSeconds)
         let upper = sourceRange?.upperBound ?? source
@@ -184,9 +238,19 @@ public struct VideoTimeline: Hashable, Sendable {
                 lowerBound = source
                 upperBound = upper
             } else if let origin = segment.reversedOrigin, timed.sourceIndex == origin.sourceIndex {
-                let scale = (origin.end - origin.start) / sourceDurations[segment.sourceIndex]
-                lowerBound = origin.end - upper * scale
-                upperBound = origin.end - source * scale
+                let duration = sourceDurations[segment.sourceIndex]
+                let frames = reversedFrames[segment.sourceIndex].filter {
+                    if case .redaction = timed.overlay.mark {
+                        return $0.stagedStart <= upper && $0.stagedEnd >= source
+                    }
+                    return $0.stagedStart <= source && $0.stagedEnd > source
+                }
+                lowerBound =
+                    frames.map(\.sourceStart).min()
+                    ?? origin.mappedTime(upper, stagedDuration: duration, toOriginal: true)
+                upperBound =
+                    frames.map(\.sourceEnd).max()
+                    ?? origin.mappedTime(source, stagedDuration: duration, toOriginal: true)
             } else {
                 return nil
             }
@@ -206,8 +270,11 @@ public struct VideoTimeline: Hashable, Sendable {
             if segment.sourceIndex == overlay.sourceIndex {
                 sourceRange = overlay.start..<overlay.end
             } else if let origin = segment.reversedOrigin, origin.sourceIndex == overlay.sourceIndex {
-                let scale = sourceDurations[segment.sourceIndex] / (origin.end - origin.start)
-                sourceRange = (origin.end - overlay.end) * scale..<(origin.end - overlay.start) * scale
+                let duration = sourceDurations[segment.sourceIndex]
+                let lower = origin.mappedTime(overlay.end, stagedDuration: duration, toOriginal: false)
+                let upper = origin.mappedTime(overlay.start, stagedDuration: duration, toOriginal: false)
+                guard lower < upper else { continue }
+                sourceRange = lower..<upper
             } else {
                 continue
             }
@@ -283,5 +350,38 @@ public struct VideoTimeline: Hashable, Sendable {
             if starts[middle] <= outputSeconds { lower = middle + 1 } else { upper = middle }
         }
         return max(0, lower - 1)
+    }
+}
+
+extension VideoEdit {
+    func openedSources(
+        primaryURL: URL, omittedStreams: Set<UnpreservedStream> = [], context: ItemContext? = nil
+    ) async throws -> (edit: VideoEdit, inputs: [MediaInput]) {
+        try sourceStamp?.validate(primaryURL)
+        var resolved = self
+        var inputs: [MediaInput] = []
+        if let sources {
+            guard !sources.isEmpty else { throw EngineError.invalidInput(.emptyInput) }
+            var validated: [VideoEditSource] = []
+            for source in sources {
+                try source.stamp.validate(source.url)
+                let input = try await MediaInput.open(source.url)
+                try input.requirePreservableStreams(omitting: omittedStreams, context: context)
+                guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
+                inputs.append(input)
+                validated.append(
+                    VideoEditSource(
+                        url: source.url, duration: Double(input.duration) / Double(Nanoseconds.perSecond),
+                        stamp: source.stamp, reversedOrigin: source.reversedOrigin,
+                        reversedFrames: source.reversedFrames))
+            }
+            resolved.sources = validated
+        } else {
+            let input = try await MediaInput.open(primaryURL)
+            try input.requirePreservableStreams(omitting: omittedStreams, context: context)
+            guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
+            inputs = [input]
+        }
+        return (resolved, inputs)
     }
 }

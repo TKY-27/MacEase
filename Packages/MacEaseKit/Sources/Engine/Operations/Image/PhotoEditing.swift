@@ -18,8 +18,8 @@ public actor PhotoEditorSource {
     private var sdr: ImageDocument?
     private var automaticFilters: [CIFilter]?
     private let context = CIContext(options: [.cacheIntermediates: false])
-    private var previewSource: (dimension: Int, sdr: Bool, image: CGImage)?
-    private var interactiveSource: (dimension: Int, sdr: Bool, image: CGImage)?
+    private var previewSource: (dimension: Int, sdr: Bool, redactions: [EditOverlay], image: CGImage)?
+    private var interactiveSource: (dimension: Int, sdr: Bool, redactions: [EditOverlay], image: CGImage)?
     private var renderedPreview: (edit: ImageEdit, dimension: Int, crop: Bool, allowsSDR: Bool, image: CGImage)?
 
     public static func open(_ url: URL) async throws -> PhotoEditorSource {
@@ -70,16 +70,16 @@ public actor PhotoEditorSource {
         let output = cropPreview ? edit.geometry.canvasSize(dimensions) : edit.geometry.outputSize(dimensions)
         let sourceScale = min(1, Double(maximumDimension) / max(output.width, output.height))
         let sourceDimension = min(8192, max(1, Int(ceil(max(dimensions.width, dimensions.height) * sourceScale))))
-        let source =
-            try edit.overlays.isEmpty
-            ? previewImage(
-                reference.first, maximumDimension: sourceDimension, isSDR: usesSDR, interactive: maximumDimension <= 960
-            )
-            : reference.first
+        let redactions = edit.overlays.filter { !$0.isAnnotation }
+        let source = try previewImage(
+            reference.first, maximumDimension: sourceDimension, isSDR: usesSDR,
+            interactive: maximumDimension <= 960, redactions: redactions)
+        var prepared = edit
+        prepared.overlays.removeAll { !$0.isAnnotation }
         let image = try PhotoEditing.image(
-            source, edit: edit,
+            source, edit: prepared,
             automaticFilters: edit.autoEnhance ? automaticFilters ?? [] : [], includingCrop: !cropPreview,
-            maximumDimension: maximumDimension)
+            maximumDimension: maximumDimension, annotationSize: output)
         guard
             let rendered = context.createCGImage(
                 image, from: image.extent.integral,
@@ -92,28 +92,45 @@ public actor PhotoEditorSource {
         return rendered
     }
 
-    private func previewImage(_ source: CGImage, maximumDimension: Int, isSDR: Bool, interactive: Bool) throws
+    private func previewImage(
+        _ source: CGImage, maximumDimension: Int, isSDR: Bool, interactive: Bool, redactions: [EditOverlay]
+    ) throws
         -> CGImage
     {
         if interactive, let interactiveSource, interactiveSource.dimension == maximumDimension,
-            interactiveSource.sdr == isSDR
+            interactiveSource.sdr == isSDR, interactiveSource.redactions == redactions
         {
             return interactiveSource.image
         }
-        if let previewSource, previewSource.dimension == maximumDimension, previewSource.sdr == isSDR {
+        if let previewSource, previewSource.dimension == maximumDimension, previewSource.sdr == isSDR,
+            previewSource.redactions == redactions
+        {
             return previewSource.image
         }
         let scale = min(1, Double(maximumDimension) / Double(max(source.width, source.height)))
-        let preview =
-            scale == 1
-            ? source
-            : try ImagePixels.scaled(
-                source, width: max(1, Int(Double(source.width) * scale)),
-                height: max(1, Int(Double(source.height) * scale)))
-        if interactive {
-            interactiveSource = (maximumDimension, isSDR, preview)
+        let preview: CGImage
+        if redactions.isEmpty {
+            preview =
+                scale == 1
+                ? source
+                : try ImagePixels.scaled(
+                    source, width: max(1, Int(Double(source.width) * scale)),
+                    height: max(1, Int(Double(source.height) * scale)))
         } else {
-            previewSource = (maximumDimension, isSDR, preview)
+            // Redact before resampling to prevent pixel leakage.
+            let image = redactions.redacting(CIImage(cgImage: source))
+                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            guard
+                let rendered = context.createCGImage(
+                    image, from: image.extent.integral, format: .RGBA8, colorSpace: ImagePixels.workingSpace(of: source)
+                )
+            else { throw EngineError.encodeFailed("redacted editor preview") }
+            preview = rendered
+        }
+        if interactive {
+            interactiveSource = (maximumDimension, isSDR, redactions, preview)
+        } else {
+            previewSource = (maximumDimension, isSDR, redactions, preview)
         }
         return preview
     }
@@ -139,7 +156,7 @@ enum PhotoEditing {
 
     static func image(
         _ source: CGImage, edit: ImageEdit, automaticFilters: [CIFilter], includingCrop: Bool = true,
-        maximumDimension: Int? = nil
+        maximumDimension: Int? = nil, annotationSize: CGSize? = nil
     ) throws -> CIImage {
         let sourceImage = CIImage(cgImage: source)
         let canvasSize = sourceImage.extent.size
@@ -151,7 +168,7 @@ enum PhotoEditing {
             image = output
         }
         image = edit.adjustments.applying(to: image)
-        let fullOutputSize = image.extent.size
+        let fullOutputSize = annotationSize ?? image.extent.size
         if let maximumDimension {
             let scale = min(1, Double(maximumDimension) / max(image.extent.width, image.extent.height))
             if scale < 1 {

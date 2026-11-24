@@ -502,7 +502,11 @@ func benchmarkSingle(_ arguments: [String]) async throws {
 
 do {
     let arguments = Array(CommandLine.arguments.dropFirst())
-    if arguments.first?.hasPrefix("feature.") == true {
+    if arguments.first == "editor.photo" {
+        try await benchmarkEditorPhoto()
+    } else if arguments.first == "editor.reverse", arguments.count == 2 {
+        try await benchmarkReverse(URL(fileURLWithPath: arguments[1]))
+    } else if arguments.first?.hasPrefix("feature.") == true {
         try await FeatureBenchmarks.run(arguments)
     } else if arguments.count >= 2 {
         try await benchmarkSingle(arguments)

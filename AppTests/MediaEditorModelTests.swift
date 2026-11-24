@@ -889,6 +889,113 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
+    func testCloseWaitsForSaveWithoutCancellingIt() async throws {
+        let model = try await photoModel()
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        try await eventually { model.canSave }
+        var release: CheckedContinuation<BatchOutcome?, Never>?
+        var saveWasCancelled = false
+        let saving = Task {
+            await model.save(replacingOriginal: false) { _, _ in
+                Task {
+                    let outcome: BatchOutcome? = await withCheckedContinuation { release = $0 }
+                    saveWasCancelled = Task.isCancelled
+                    return outcome
+                }
+            }
+        }
+        try await eventually { release != nil }
+        var closeFinished = false
+        let closing = Task {
+            await model.close()
+            closeFinished = true
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(closeFinished)
+        release?.resume(returning: nil)
+        _ = await saving.value
+        await closing.value
+        XCTAssertTrue(closeFinished)
+        XCTAssertFalse(saveWasCancelled)
+    }
+
+    func testReversedAndFrozenAudioHasExactTimelinePlacement() async throws {
+        let directory = try workspace()
+        let source = try synthesizedVideoFixture(in: directory)
+        let support = directory.appending(path: "sync-support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let staging = StagingArea(supportDirectory: support)
+        let editor = try await VideoEditorSource.open(source, staging: staging)
+        addTeardownBlock { await editor.close() }
+        let reversedSegment = VideoSegment(start: 1.5, end: 2.5)
+        var edit = VideoEdit()
+        edit.segments = [
+            VideoSegment(start: 0, end: 1),
+            VideoSegment(start: 1.013, end: 1.046, volume: 0, freezeDuration: 0.5),
+            reversedSegment,
+            VideoSegment(start: 3, end: 4),
+        ]
+        let reversed = try await editor.reverse(segmentID: reversedSegment.id, in: edit)
+        let playback = try await editor.playback(edit: reversed)
+        let preview = try await renderedEditorAudio(asset: playback.asset, mix: playback.audioMix)
+        let engine = try JobEngine(supportDirectory: directory.appending(path: "export-support"), concurrency: 1)
+        let result = await engine.run(
+            MediaEditing.video(url: source, edit: reversed, settings: Engine.Settings()), settings: Engine.Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = result.outcomes.first, let output = outputs.first else {
+            XCTFail("Audio placement export failed")
+            return
+        }
+        let exported = try await renderedEditorAudio(asset: AVURLAsset(url: output), mix: nil)
+        for (label, samples) in [("preview", preview), ("export", exported)] {
+            XCTAssertEqual(Double(samples.count / 2) / 48_000, 3.5, accuracy: 0.03)
+            for (start, end, audible) in [(0.8, 0.98, true), (1.02, 1.48, false), (1.52, 1.8, true), (2.45, 2.7, true)]
+            {
+                let first = Int(start * 48_000) * 2
+                let last = min(samples.count, Int(end * 48_000) * 2)
+                XCTAssertGreaterThan(last, first)
+                let square = samples[first..<last].reduce(0.0) { $0 + Double($1 * $1) }
+                let rms = sqrt(square / Double(last - first))
+                if audible {
+                    XCTAssertGreaterThan(rms, 0.02, "\(label) audio at \(start)...\(end)")
+                } else {
+                    XCTAssertLessThan(rms, 0.002, "\(label) audio at \(start)...\(end)")
+                }
+            }
+        }
+    }
+
+    private func renderedEditorAudio(asset: AVAsset, mix: AVAudioMix?) async throws -> [Float] {
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
+        XCTAssertFalse(tracks.isEmpty)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderAudioMixOutput(
+            audioTracks: tracks,
+            audioSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 2,
+                AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsNonInterleaved: false,
+            ])
+        output.audioMix = mix
+        output.audioTimePitchAlgorithm = .timeDomain
+        XCTAssertTrue(reader.canAdd(output))
+        reader.add(output)
+        XCTAssertTrue(reader.startReading())
+        var samples: [Float] = []
+        while let sample = await output.nextSample() {
+            let block = try XCTUnwrap(CMSampleBufferGetDataBuffer(sample))
+            let length = CMBlockBufferGetDataLength(block)
+            var chunk = [Float](repeating: 0, count: length / MemoryLayout<Float>.size)
+            let status = chunk.withUnsafeMutableBytes { bytes -> OSStatus in
+                guard let base = bytes.baseAddress else { return OSStatus(kCMBlockBufferBadLengthParameterErr) }
+                return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: base)
+            }
+            XCTAssertEqual(status, noErr)
+            samples += chunk
+        }
+        XCTAssertEqual(reader.status, .completed, String(describing: reader.error))
+        return samples
+    }
+
     func testBackgroundMusicPlaybackStaysAudibleAcrossReplays() async throws {
         let directory = try workspace()
         let source = try synthesizedVideoFixture(in: directory)

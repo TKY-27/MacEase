@@ -757,6 +757,118 @@ private final class OnceFlag: Sendable {
         #expect(rms(mkvAudio, from: 1.6, to: 1.95) < rms(mkvAudio, from: 0.2, to: 0.8) * 0.5)
     }
 
+    @Test func reversedFreezeAndMusicPreserveAudioPlacementAndSampleSync() async throws {
+        let folder = try TestVolume.makeFolder()
+        let clip = folder.appending(path: "sync.mov")
+        let rate = Self.sampleRate
+        let channels = 2
+        var signal = [Float](repeating: 0, count: Int(rate * 2) * channels)
+        for frame in 0..<Int(rate * 2) {
+            let time = Double(frame) / rate
+            let frequency = time < 0.5 ? 440.0 : time < 1 ? 660.0 : time < 1.5 ? 880.0 : 1_100.0
+            let value = Float(sin(2 * .pi * frequency * time)) * 0.4
+            signal[frame * channels] = value
+            signal[frame * channels + 1] = value
+        }
+        try await writeVideo(to: clip, duration: 2, audio: signal)
+        let songURL = folder.appending(path: "music.wav")
+        try await AudioSignals.write(
+            tone(frequency: 1_600, amplitude: 0.3, seconds: 3, sampleRate: rate, channels: channels),
+            to: songURL, format: .wav, sampleRate: rate, channels: channels)
+        var music = try BackgroundMusic.load(from: songURL)
+        music.volume = 0.3
+        let target = VideoSegment(start: 0, end: 1)
+        var edit = VideoEdit()
+        edit.segments = [
+            target, VideoSegment(start: 1, end: 1.04, volume: 0, freezeDuration: 0.4), VideoSegment(start: 1, end: 2),
+        ]
+        edit.music = music
+        let editor = try await VideoEditorSource.open(
+            clip, staging: StagingArea(supportDirectory: try AudioSignals.temporaryFolder()))
+        let reversed = try await editor.reverse(segmentID: target.id, in: edit)
+        let playback = try await editor.playback(edit: reversed)
+        let preview = try await renderPreviewAudio(playback)
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let result = await engine.run(
+            MediaEditing.video(url: clip, edit: reversed, settings: Settings()), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = result.outcomes.first, let output = outputs.first else {
+            Issue.record("sync export failed")
+            await editor.close()
+            return
+        }
+        let exported = try await decodeVideoAudio(output)
+        for audio in [preview, exported] {
+            for (start, end, frequency) in [
+                (0.05, 0.4, 660.0), (0.6, 0.95, 440.0), (1.45, 1.8, 880.0), (1.95, 2.3, 1_100.0),
+            ] {
+                #expect(toneMagnitude(audio, frequency: frequency, from: start, to: end) > 0.15)
+                #expect(toneMagnitude(audio, frequency: 1_600, from: start, to: end) > 0.015)
+            }
+            #expect(toneMagnitude(audio, frequency: 440, from: 1.05, to: 1.35) < 0.005)
+            #expect(toneMagnitude(audio, frequency: 880, from: 1.05, to: 1.35) < 0.005)
+            #expect(toneMagnitude(audio, frequency: 1_600, from: 1.05, to: 1.35) > 0.02)
+            let duration = Double(audio.samples.count / audio.channels) / audio.sampleRate
+            #expect(abs(duration - 2.4) < 0.03)
+        }
+        let videoInput = try await MediaInput.open(output)
+        #expect(abs(Double(videoInput.duration) / Double(Nanoseconds.perSecond) - 2.4) < 0.03)
+        await editor.close()
+    }
+
+    @Test func previewAndExportKeepTheSameSaturatedMixLevel() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "saturated.mov")
+        let signal = tone(frequency: 440, amplitude: 0.8, seconds: 2, sampleRate: Self.sampleRate, channels: 2)
+        try await writeVideo(to: source, duration: 2, audio: signal)
+        let song = folder.appending(path: "same-tone.wav")
+        try await AudioSignals.write(signal, to: song, format: .wav, sampleRate: Self.sampleRate, channels: 2)
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0, end: 2)]
+        edit.music = try BackgroundMusic.load(from: song)
+        edit.music?.volume = 1
+        let editor = try await VideoEditorSource.open(
+            source, staging: StagingArea(supportDirectory: try AudioSignals.temporaryFolder()))
+        let preview = try await renderPreviewAudio(try await editor.playback(edit: edit))
+        let output = folder.appending(path: "saturated-export.mov")
+        try await exportVideo(source: source, edit: edit, to: output)
+        let exported = try await decodeVideoAudio(output)
+        let previewLevel = rms(preview, from: 0.2, to: 1.8)
+        let exportLevel = rms(exported, from: 0.2, to: 1.8)
+        #expect(abs(previewLevel - exportLevel) < 0.035, "preview \(previewLevel), export \(exportLevel)")
+        await editor.close()
+    }
+
+    @Test func mixedMusicPreviewIsRemovedOnChangeAndClose() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "cleanup.mov")
+        try await writeVideo(to: source, duration: 2, audio: nil)
+        let song = folder.appending(path: "cleanup.wav")
+        try await AudioSignals.write(
+            tone(frequency: 440, amplitude: 0.5, seconds: 3, sampleRate: Self.sampleRate, channels: 2),
+            to: song, format: .wav, sampleRate: Self.sampleRate, channels: 2)
+        let support = try AudioSignals.temporaryFolder()
+        let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0, end: 2)]
+        edit.music = try BackgroundMusic.load(from: song)
+        _ = try await editor.playback(edit: edit)
+        let registry = support.appending(path: "staging.json")
+        let paths = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
+        #expect(!paths.isEmpty)
+        for path in paths { #expect(FileManager.default.fileExists(atPath: path)) }
+        var silent = edit
+        silent.music = nil
+        _ = try await editor.playback(edit: silent)
+        for path in paths { #expect(!FileManager.default.fileExists(atPath: path)) }
+        _ = try await editor.playback(edit: edit)
+        let replacement = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
+        #expect(!replacement.isEmpty)
+        await editor.close()
+        for path in replacement { #expect(!FileManager.default.fileExists(atPath: path)) }
+        #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).isEmpty)
+    }
+
     private struct DecodedAudio {
         let samples: [Float]
         let sampleRate: Double

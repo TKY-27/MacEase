@@ -57,7 +57,8 @@ final class FrameSampler {
         position = start
         switch input.backend {
         case .asset(let asset, let video?, _):
-            frameIndex = EditorFrameIndex(track: video, end: Double(input.duration) / Double(Nanoseconds.perSecond))
+            frameIndex =
+                edit.hasOverlays ? try await EditorFrameIndex(asset: asset, track: video, end: input.duration) : nil
             let range = CMTimeRange(
                 start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
                 end: Transcoder.readerTime(end))
@@ -177,33 +178,84 @@ final class FrameSampler {
     }
 }
 
-// Cursors are isolated per locked lookup.
-final class EditorFrameIndex: @unchecked Sendable {
-    private static let timestampTolerance = 1.0 / Double(Nanoseconds.perSecond)
+struct EditorFrameIndex: Sendable {
+    private static let timestampTolerance: Int64 = 1
+    private static let maximumIndexedFrames = 4_000_000
+    let timestamps: [Int64]
+    let end: Int64
 
-    private let track: AVAssetTrack
-    private let end: Double
-    private let lock = NSLock()
-
-    init(track: AVAssetTrack, end: Double) {
-        self.track = track
-        self.end = end
-    }
-
-    func range(at requested: CMTime) throws -> ClosedRange<Double> {
-        try lock.withLock {
-            guard let cursor = track.makeSampleCursor(presentationTimeStamp: requested) else {
-                throw EngineError.decodeFailed("source has no frame index")
+    init(asset: AVAsset, track: AVAssetTrack, end: Int64) async throws {
+        let reader = try AssetTrackReader(asset: asset, track: track, number: 1, mode: .packets)
+        var timestamps: [Int64] = []
+        while let sample = try await reader.nextSample() {
+            try Task.checkCancellation()
+            let duration = sample.outputDuration
+            let timestamp = sample.outputPresentationTimeStamp
+            guard duration.isNumeric else { throw EngineError.decodeFailed("invalid video frame duration") }
+            guard duration > .zero else { continue }
+            guard timestamp.isNumeric, CMSampleBufferGetNumSamples(sample) == 1 else {
+                throw EngineError.decodeFailed("invalid video frame index sample")
             }
-            while cursor.presentationTimeStamp.seconds - requested.seconds > Self.timestampTolerance {
-                guard cursor.stepInPresentationOrder(byCount: -1) == -1 else { break }
-            }
-            while true {
-                let lower = cursor.presentationTimeStamp.seconds
-                guard cursor.stepInPresentationOrder(byCount: 1) == 1 else { return lower...end }
-                let upper = cursor.presentationTimeStamp.seconds
-                if upper - requested.seconds > Self.timestampTolerance { return lower...upper }
+            timestamps.append(SampleBuffers.nanoseconds(timestamp))
+            guard timestamps.count <= Self.maximumIndexedFrames else {
+                throw EngineError.decodeFailed("video frame index limit exceeded")
             }
         }
+        self.timestamps = Array(Set(timestamps.filter { $0 >= 0 && $0 < end })).sorted()
+        self.end = end
+        guard !self.timestamps.isEmpty else { throw EngineError.decodeFailed("source has no frame index") }
+    }
+
+    init(input: MediaInput) async throws {
+        if case .asset(let asset, let track?, _) = input.backend {
+            self = try await Self(asset: asset, track: track, end: input.duration)
+            return
+        }
+        guard let video = input.video, var demuxer = try input.demuxer else {
+            throw EngineError.decodeFailed("source has no frame index")
+        }
+        var timestamps: [Int64] = []
+        while let packet = try demuxer.nextPacket() {
+            try Task.checkCancellation()
+            guard packet.track == video.number else { continue }
+            guard !packet.continuesPrevious, packet.remainingLaceFrames == 0 else {
+                throw EngineError.unsupportedCodec(video.codec.displayName)
+            }
+            timestamps.append(packet.timestamp)
+            guard timestamps.count <= Self.maximumIndexedFrames else {
+                throw EngineError.decodeFailed("video frame index limit exceeded")
+            }
+        }
+        self.timestamps = Array(Set(timestamps.filter { $0 >= 0 && $0 < input.duration })).sorted()
+        end = input.duration
+        guard !self.timestamps.isEmpty else { throw EngineError.decodeFailed("source has no frame index") }
+    }
+
+    func range(at requested: CMTime, coversBoundary: Bool = false) throws -> ClosedRange<Double> {
+        guard requested.isNumeric else { throw EngineError.invalidInput(.invalidNumericParameter) }
+        let time = SampleBuffers.nanoseconds(requested)
+        let insertion = upperBound(time, inclusive: true)
+        let exact = insertion > 0 && timestamps[insertion - 1] == time
+        let uncertain = coversBoundary && !exact
+        let lowerTime = uncertain ? time - Self.timestampTolerance : time + Self.timestampTolerance
+        let lower = max(0, upperBound(lowerTime, inclusive: !uncertain) - 1)
+        let upper = upperBound(time + Self.timestampTolerance, inclusive: true)
+        let upperTime = upper < timestamps.count ? timestamps[upper] : end
+        return Double(timestamps[lower]) / Double(Nanoseconds.perSecond)...Double(upperTime)
+            / Double(Nanoseconds.perSecond)
+    }
+
+    private func upperBound(_ time: Int64, inclusive: Bool) -> Int {
+        var lower = 0
+        var upper = timestamps.count
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if timestamps[middle] < time || (inclusive && timestamps[middle] == time) {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
+        }
+        return lower
     }
 }

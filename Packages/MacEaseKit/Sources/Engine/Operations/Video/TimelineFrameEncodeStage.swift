@@ -103,12 +103,20 @@ final class TimelineFrameEncodeStage: StreamStage {
         guard let timestamp = upcoming else { return [] }
         guard timestamp < duration else {
             upcoming = nil
-            return try encoder.finish()
+            return clamped(try encoder.finish())
         }
         let image = try await source.frame(at: timestamp)
         let (following, overflow) = timestamp.addingReportingOverflow(frameDuration)
         guard !overflow else { throw EngineError.encodeFailed("video timeline out of range") }
         upcoming = following
-        return try encoder.encode(image, timestamp: timestamp)
+        return clamped(try encoder.encode(image, timestamp: timestamp))
+    }
+
+    private func clamped(_ packets: [MediaPacket]) -> [MediaPacket] {
+        packets.map { packet in
+            var timed = packet
+            timed.duration = min(packet.duration ?? frameDuration, max(1, duration - packet.timestamp))
+            return timed
+        }
     }
 }

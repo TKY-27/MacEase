@@ -447,14 +447,12 @@ final class EditAnnotationCache: @unchecked Sendable {
         guard !annotations.isEmpty else { return nil }
         let key = Key(
             overlays: annotations, size: size, geometry: geometry, canvas: canvas, fullOutputSize: fullOutputSize)
-        return lock.withLock {
-            if let cached, cached.key == key { return cached.layer }
-            guard
-                let layer = annotations.annotationLayer(
-                    size: size, geometry: geometry, canvas: canvas, fullOutputSize: fullOutputSize)
-            else { return nil }
-            cached = (key, layer)
-            return layer
-        }
+        if let layer = lock.withLock({ cached?.key == key ? cached?.layer : nil }) { return layer }
+        guard
+            let layer = annotations.annotationLayer(
+                size: size, geometry: geometry, canvas: canvas, fullOutputSize: fullOutputSize)
+        else { return nil }
+        lock.withLock { cached = (key, layer) }
+        return layer
     }
 }

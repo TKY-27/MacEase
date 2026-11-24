@@ -14,6 +14,10 @@ public struct MediaPreview: Sendable {
 
     public init(videoAt url: URL) async throws {
         let input = try await MediaInput.open(url)
+        self.init(input: input, url: url)
+    }
+
+    init(input: MediaInput, url: URL) {
         self.url = url
         durationSeconds = Double(input.duration) / Double(Nanoseconds.perSecond)
         displayWidth = input.displaySize.width
@@ -28,6 +32,17 @@ public struct MediaPreview: Sendable {
         overlaySelection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])? = nil
     ) async throws -> [CGImage] {
         let input = try await MediaInput.open(url)
+        return try await frames(
+            input: input, at: seconds, width: width, geometry: geometry, adjustments: adjustments,
+            toneMapToSDR: toneMapToSDR, exactFrame: exactFrame, overlays: overlays, overlaySelection: overlaySelection)
+    }
+
+    func frames(
+        input: MediaInput, at seconds: [Double], width: Int, geometry: EditGeometry,
+        adjustments: MediaAdjustments, toneMapToSDR: Bool, exactFrame: Bool,
+        overlays: [EditOverlay] = [],
+        overlaySelection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])?
+    ) async throws -> [CGImage] {
         try geometry.validate()
         try adjustments.validate()
         try overlays.validate()

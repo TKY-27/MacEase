@@ -102,6 +102,7 @@ final class MediaEditorModel {
     var preparingPlayback = false
     var splitting = false
     var failure: String?
+    private var saveTask: Task<BatchOutcome?, Never>?
     private(set) var savingBatchID: UUID?
     private(set) var saveFailure: String?
     var invalidFields: Set<String> = []
@@ -1016,7 +1017,10 @@ final class MediaEditorModel {
         saveFailure = nil
         pause()
         savingBatchID = planned.batch.id
-        let result = await run(planned.batch, planned.settings).value
+        let task = run(planned.batch, planned.settings)
+        saveTask = task
+        let result = await task.value
+        saveTask = nil
         savingBatchID = nil
         guard let outcome = result else { return false }
         if outcome.outcomes.contains(where: {
@@ -1194,6 +1198,7 @@ final class MediaEditorModel {
         await boundaryInputTask?.value
         selectionTask?.cancel()
         await selectionTask?.value
+        _ = await saveTask?.value
         for source in videoSources.values { await source.close() }
         videoSources.removeAll()
         photoCache.removeAll()

@@ -17,7 +17,7 @@ public struct DecodedFrame {
 }
 
 public protocol VideoFrameDecoder {
-    /// Frames come out in presentation order.
+    /// Playback needs presentation order.
     mutating func decode(_ packet: MediaPacket) throws -> [DecodedFrame]
     mutating func finish() throws -> [DecodedFrame]
 }
@@ -36,16 +36,19 @@ public enum VideoDecoders {
         return bytes
     }
 
-    public static func make(for track: MediaTrack, hdr: VideoHDRConfiguration? = nil) throws -> any VideoFrameDecoder {
+    public static func make(
+        for track: MediaTrack, hdr: VideoHDRConfiguration? = nil, presentationOrder: Bool = true
+    ) throws -> any VideoFrameDecoder {
         if hdr != nil {
             guard track.codec == .hevc else { throw FormatError.decoderFailure("HDR decoding requires HEVC") }
-            return try ToolboxFrameDecoder(track: track, hdr: true)
+            return try ToolboxFrameDecoder(track: track, hdr: true, presentationOrder: presentationOrder)
         }
         return switch track.codec {
         case .vp8, .vp9: try LibVPXFrameDecoder(track: track)
         case .av1 where !ToolboxFrameDecoder.opensSession(for: track): try Dav1dFrameDecoder()
         case .mjpeg: JPEGFrameDecoder()
-        case .h264, .hevc, .mpeg4Part2, .av1: try ToolboxFrameDecoder(track: track)
+        case .h264, .hevc, .mpeg4Part2, .av1:
+            try ToolboxFrameDecoder(track: track, presentationOrder: presentationOrder)
         default: throw FormatError.unsupported(track.codec.displayName)
         }
     }
@@ -69,14 +72,14 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
     private var format: CMVideoFormatDescription?
     private let output = CallbackResults<DecodedFrame> { .decoderFailure("VideoToolbox frame (\($0))") }
     private var annexB = false
-    private var reorder: ReorderBuffer
+    private var reorder: ReorderBuffer?
     private let hdr: Bool
 
-    init(track: MediaTrack, hdr: Bool = false) throws {
+    init(track: MediaTrack, hdr: Bool = false, presentationOrder: Bool = true) throws {
         self.track = track
         self.hdr = hdr
         guard case .video(let width, let height) = track.kind else { throw FormatError.unsupported("not video") }
-        reorder = try ReorderBuffer(width: width, height: height)
+        reorder = presentationOrder ? try ReorderBuffer(width: width, height: height) : nil
     }
 
     deinit {
@@ -144,15 +147,23 @@ final class ToolboxFrameDecoder: VideoFrameDecoder {
             output.append(DecodedFrame(image: image, timestamp: SampleBuffers.nanoseconds(presentation)))
         }
         guard status == noErr else { throw FormatError.decoderFailure("VideoToolbox decode (\(status))") }
-        try reorder.add(try output.take())
-        return reorder.ready()
+        let frames = try output.take()
+        guard var reorder else { return frames }
+        try reorder.add(frames)
+        let ready = reorder.ready()
+        self.reorder = reorder
+        return ready
     }
 
     func finish() throws -> [DecodedFrame] {
         guard let session else { return [] }
         VTDecompressionSessionWaitForAsynchronousFrames(session)
-        try reorder.add(try output.take())
-        return reorder.remaining()
+        let frames = try output.take()
+        guard var reorder else { return frames }
+        try reorder.add(frames)
+        let remaining = reorder.remaining()
+        self.reorder = reorder
+        return remaining
     }
 }
 

@@ -122,23 +122,13 @@ enum VideoEdits {
     ) async throws -> ItemResult {
         try edit.geometry.validate()
         context.phase(.decoding)
-        var inputs: [MediaInput] = []
-        for source in sources {
-            try source.stamp.validate(source.url)
-            let input = try await MediaInput.open(source.url)
-            try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
-            guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
-            inputs.append(input)
-        }
+        let resolved = try await edit.openedSources(
+            primaryURL: url, omittedStreams: context.omittedStreams, context: context)
+        let inputs = resolved.inputs
         guard let first = inputs.first, let video = first.video else {
             throw EngineError.invalidInput(.emptyInput)
         }
-        var validated = edit
-        validated.sources = zip(sources, inputs).map { source, input in
-            VideoEditSource(
-                url: source.url, duration: Double(input.duration) / Double(Nanoseconds.perSecond), stamp: source.stamp)
-        }
-        let timeline = try VideoTimeline(edit: validated, sourceDuration: sources[0].duration)
+        let timeline = try VideoTimeline(edit: resolved.edit, sourceDuration: sources[0].duration)
         var frame = FrameEdit(displayOrientation: try first.displayOrientation)
         frame.fitCanvas = first.displaySize
         frame.editorGeometry = edit.geometry
@@ -166,7 +156,9 @@ enum VideoEdits {
         var metadataPlans: [TranscodePlan] = []
         for input in inputs {
             if try await VideoProperties.toneMapsExport(input, context: context) { plan.toneMapToSDR = true }
-            if input.video?.hasAlpha == true { context.warn(.videoTransparencyFlattened) }
+            if input.video?.hasAlpha == true, !context.warnings.contains(.videoTransparencyFlattened) {
+                context.warn(.videoTransparencyFlattened)
+            }
             metadataPlans.append(try await VideoProperties.prepareMetadata(plan, input: input, context: context))
         }
         let name = url.deletingPathExtension().lastPathComponent + "_edited.mp4"

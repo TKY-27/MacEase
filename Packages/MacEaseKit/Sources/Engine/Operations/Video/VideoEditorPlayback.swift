@@ -11,7 +11,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     public let timeline: VideoTimeline
 
     public static func joined(
-        urls: [URL], edit: VideoEdit, sourceSize: CGSize, musicURL: URL? = nil
+        urls: [URL], edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL? = nil
     ) async throws -> VideoEditorPlayback {
         guard let first = edit.sources?.first, urls.count == edit.sources?.count,
             sourceSize.width.isFinite, sourceSize.height.isFinite, sourceSize.width > 0, sourceSize.height > 0
@@ -19,17 +19,19 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             throw EngineError.invalidInput(.emptyInput)
         }
         let timeline = try VideoTimeline(edit: edit, sourceDuration: first.duration)
-        return try await make(urls: urls, timeline: timeline, edit: edit, sourceSize: sourceSize, musicURL: musicURL)
+        return try await make(
+            urls: urls, timeline: timeline, edit: edit, sourceSize: sourceSize, audioPreviewURL: audioPreviewURL)
     }
 
     static func make(
-        url: URL, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, musicURL: URL? = nil
+        url: URL, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL? = nil
     ) async throws -> VideoEditorPlayback {
-        try await make(urls: [url], timeline: timeline, edit: edit, sourceSize: sourceSize, musicURL: musicURL)
+        try await make(
+            urls: [url], timeline: timeline, edit: edit, sourceSize: sourceSize, audioPreviewURL: audioPreviewURL)
     }
 
     private static func make(
-        urls: [URL], timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, musicURL: URL?
+        urls: [URL], timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, audioPreviewURL: URL?
     ) async throws -> VideoEditorPlayback {
         guard let first = urls.first else { throw EngineError.invalidInput(.emptyInput) }
         let source = AVURLAsset(url: first)
@@ -94,7 +96,9 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             if let audio {
                 if segment.freezeDuration != nil {
                     audio.insertEmptyTimeRange(CMTimeRange(start: outputStart, duration: outputDuration))
-                    parameters?.setVolume(0, at: outputStart)
+                    parameters?.setVolumeRamp(
+                        fromStartVolume: 0, toEndVolume: 0,
+                        timeRange: CMTimeRange(start: outputStart, duration: outputDuration))
                 } else {
                     audio.insertEmptyTimeRange(insertedRange)
                     if let sourceAudio, let audioRange {
@@ -112,8 +116,13 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                         parameters?.setVolumeRamp(
                             fromStartVolume: 0, toEndVolume: volume,
                             timeRange: CMTimeRange(start: outputStart, duration: time(fade.fadeIn)))
-                    } else {
-                        parameters?.setVolume(volume, at: outputStart)
+                    }
+                    let holdStart = outputStart + time(fade.fadeIn)
+                    let holdEnd = outputStart + outputDuration - time(fade.fadeOut)
+                    if holdEnd > holdStart {
+                        parameters?.setVolumeRamp(
+                            fromStartVolume: volume, toEndVolume: volume,
+                            timeRange: CMTimeRange(start: holdStart, end: holdEnd))
                     }
                     if fade.fadeOut > 0 {
                         parameters?.setVolumeRamp(
@@ -124,10 +133,21 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                 }
             }
         }
-        if let music = timeline.music {
+        if timeline.music != nil {
+            guard let audioPreviewURL else {
+                throw EngineError.unexpected("music playback requires a prepared audio mix")
+            }
+            audioParameters = audioTracks.map { track in
+                guard let track else { return nil }
+                let parameters = AVMutableAudioMixInputParameters(track: track)
+                parameters.setVolumeRamp(
+                    fromStartVolume: 0, toEndVolume: 0,
+                    timeRange: CMTimeRange(start: .zero, duration: time(timeline.duration)))
+                return parameters
+            }
             audioParameters.append(
-                try await addMusicTrack(
-                    music, playbackURL: musicURL ?? music.url, to: composition, outputDuration: timeline.duration))
+                try await addMixedAudioTrack(
+                    audioPreviewURL, to: composition, duration: timeline.duration))
         }
         let mix: AVAudioMix?
         let parameters = audioParameters.compactMap { $0 }
@@ -172,21 +192,33 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         let hasOverlays = !timeline.overlays.isEmpty
         let annotationCache = EditAnnotationCache()
         let fullOutputSize = CGSize(width: selected.width, height: selected.height)
-        let source = try await MediaInput.open(urls[0])
+        var sourceFrameDuration: Int64?
         var sourceOrientations: [VideoDisplayOrientation] = []
         var sourceIndexes: [EditorFrameIndex] = []
-        for url in urls {
+        var playbackIndexes: [EditorFrameIndex] = []
+        for (index, url) in urls.enumerated() {
             let input = try await MediaInput.open(url)
+            if sourceFrameDuration == nil { sourceFrameDuration = input.frameDuration }
             sourceOrientations.append(try input.displayOrientation)
-            guard case .asset(_, let track?, _) = input.backend else {
+            guard case .asset(let asset, let track?, _) = input.backend else {
                 throw EngineError.decodeFailed("preview source has no native video track")
             }
-            sourceIndexes.append(
-                EditorFrameIndex(track: track, end: Double(input.duration) / Double(Nanoseconds.perSecond)))
+            if hasOverlays {
+                let playbackIndex = try await EditorFrameIndex(asset: asset, track: track, end: input.duration)
+                playbackIndexes.append(playbackIndex)
+                if let original = edit.sources?[index], original.url != url {
+                    let opened = try await MediaInput.open(original.url)
+                    sourceIndexes.append(try await EditorFrameIndex(input: opened))
+                } else {
+                    sourceIndexes.append(playbackIndex)
+                }
+            }
         }
         let orientations = sourceOrientations
         let frameIndexes = sourceIndexes
-        let frameSeconds = Double(source.frameDuration) / Double(Nanoseconds.perSecond)
+        let proxyIndexes = playbackIndexes
+        guard let sourceFrameDuration else { throw EngineError.invalidInput(.emptyInput) }
+        let frameSeconds = Double(sourceFrameDuration) / Double(Nanoseconds.perSecond)
         let renderBounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let filtered = try await AVVideoComposition(applyingFiltersTo: asset) { request in
             let outputTime = request.compositionTime.seconds
@@ -209,8 +241,21 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             }
             let activeOverlays: [EditOverlay]
             if hasOverlays {
-                let sourceRange = try frameIndexes[segment.sourceIndex].range(
-                    at: time(timeline.sourceTime(at: outputTime)))
+                let requested = CMTime(
+                    seconds: timeline.sourceTime(at: outputTime), preferredTimescale: SampleBuffers.nanosecondScale)
+                let sourceRange: ClosedRange<Double>
+                if let original = edit.sources?[segment.sourceIndex], original.url != urls[segment.sourceIndex] {
+                    let proxy = try proxyIndexes[segment.sourceIndex].range(at: requested, coversBoundary: true)
+                    let first = try frameIndexes[segment.sourceIndex].range(
+                        at: CMTime(seconds: proxy.lowerBound, preferredTimescale: SampleBuffers.nanosecondScale),
+                        coversBoundary: true)
+                    let last = try frameIndexes[segment.sourceIndex].range(
+                        at: CMTime(seconds: proxy.upperBound, preferredTimescale: SampleBuffers.nanosecondScale),
+                        coversBoundary: true)
+                    sourceRange = first.lowerBound...last.upperBound
+                } else {
+                    sourceRange = try frameIndexes[segment.sourceIndex].range(at: requested, coversBoundary: true)
+                }
                 activeOverlays = timeline.overlays(at: outputTime, sourceRange: sourceRange)
             } else {
                 activeOverlays = []
@@ -258,63 +303,23 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         return AVVideoComposition(configuration: configuration)
     }
 
-    private static func addMusicTrack(
-        _ music: BackgroundMusic, playbackURL: URL, to composition: AVMutableComposition, outputDuration: Double
+    private static func addMixedAudioTrack(
+        _ url: URL, to composition: AVMutableComposition, duration: Double
     ) async throws -> AVMutableAudioMixInputParameters {
-        try music.validateSource()
-        let musicAsset = AVURLAsset(url: playbackURL)
-        guard let sourceTrack = try await musicAsset.loadTracks(withMediaType: .audio).first else {
-            throw EngineError.decodeFailed("no playback music track")
-        }
-        let assetRange = try await sourceTrack.load(.timeRange)
-        guard assetRange.isValid, assetRange.start.isNumeric, assetRange.duration.isNumeric, assetRange.duration > .zero
-        else {
-            throw EngineError.decodeFailed("music track has no playable range")
-        }
-        let musicBounds = CMTimeRange(start: time(assetRange.start.seconds), end: time(assetRange.end.seconds))
-        let fade = music.fade(forOutputDuration: outputDuration)
-        let playEnd = time(fade.duration)
-        let requestedRange = CMTimeRange(start: time(music.start), duration: playEnd)
-        let intersection = CMTimeRangeGetIntersection(requestedRange, otherRange: musicBounds)
-        guard playEnd == .zero || (intersection.isValid && intersection.duration > .zero) else {
-            throw EngineError.decodeFailed("music range has no playable audio")
-        }
-        guard
+        let asset = AVURLAsset(url: url)
+        guard let source = try await asset.loadTracks(withMediaType: .audio).first,
             let track = composition.addMutableTrack(
                 withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-        else { throw EngineError.decodeFailed("cannot create playback music track") }
+        else { throw EngineError.decodeFailed("no mixed preview audio track") }
         track.naturalTimeScale = compositionTimescale
-        if intersection.isValid, intersection.duration > .zero {
-            let insertAt = intersection.start - requestedRange.start
-            if insertAt > .zero {
-                track.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: insertAt))
-            }
-            try track.insertTimeRange(intersection, of: sourceTrack, at: insertAt)
-        }
+        try track.insertTimeRange(CMTimeRange(start: .zero, duration: time(duration)), of: source, at: .zero)
         let parameters = AVMutableAudioMixInputParameters(track: track)
-        parameters.audioTimePitchAlgorithm = .timeDomain
-        let musicVolume = Float(music.volume)
-        if fade.fadeOut > 0 {
-            let fadeDuration = time(fade.fadeOut)
-            let fadeStart = CMTimeMaximum(.zero, playEnd - fadeDuration)
-            let rampDuration = playEnd - fadeStart
-            if fadeStart > .zero {
-                parameters.setVolume(musicVolume, at: .zero)
-            }
-            if rampDuration > .zero {
-                parameters.setVolumeRamp(
-                    fromStartVolume: musicVolume, toEndVolume: 0,
-                    timeRange: CMTimeRange(start: fadeStart, duration: rampDuration))
-            } else {
-                parameters.setVolume(musicVolume, at: .zero)
-            }
-        } else {
-            parameters.setVolume(musicVolume, at: .zero)
-        }
+        parameters.setVolumeRamp(
+            fromStartVolume: 1, toEndVolume: 1,
+            timeRange: CMTimeRange(start: .zero, duration: time(duration)))
         return parameters
     }
 
-    // Nanosecond timescales overflow CoreMedia audio alignment.
     private static let compositionTimescale: CMTimeScale = 60_000
 
     private static func time(_ seconds: Double) -> CMTime {

@@ -16,9 +16,19 @@ private final class ProgressRecorder: Sendable {
 }
 
 private final class TaskHolder: Sendable {
-    private let current = Mutex<Task<VideoEdit, any Error>?>(nil)
-    func store(_ task: Task<VideoEdit, any Error>) { current.withLock { $0 = task } }
-    func cancel() { current.withLock { $0?.cancel() } }
+    private let current = Mutex<(task: Task<VideoEdit, any Error>?, cancelled: Bool)>((nil, false))
+    func store(_ task: Task<VideoEdit, any Error>) {
+        current.withLock { state in
+            state.task = task
+            if state.cancelled { task.cancel() }
+        }
+    }
+    func cancel() {
+        current.withLock { state in
+            state.cancelled = true
+            state.task?.cancel()
+        }
+    }
 }
 
 @Suite(.serialized) struct VideoFrameToolsTests {
@@ -600,13 +610,29 @@ private final class TaskHolder: Sendable {
         let cancelSegment = VideoSegment(start: 0, end: 1.0)
         var cancelEdit = VideoEdit()
         cancelEdit.segments = [cancelSegment]
-        let cancelledTask = Task {
-            try await Task.sleep(for: .milliseconds(5))
-            return try await VideoSegmentReverser.reverse(
-                segmentID: cancelSegment.id, in: cancelEdit, primaryURL: source, staging: cancelStaging)
+        let preparationHolder = TaskHolder()
+        let preparationDirectories = Mutex<[String]>([])
+        let preparationTask = Task {
+            try await VideoSegmentReverser.reverse(
+                segmentID: cancelSegment.id, in: cancelEdit, primaryURL: source, staging: cancelStaging
+            ) { fraction in
+                guard fraction > 0 else { return }
+                let paths = Result {
+                    try JSONDecoder().decode(
+                        [String].self, from: Data(contentsOf: cancelSupport.appending(path: "staging.json")))
+                }
+                if case .success(let recorded) = paths { preparationDirectories.withLock { $0 = recorded } }
+                preparationHolder.cancel()
+            }
         }
-        cancelledTask.cancel()
-        await #expect(throws: CancellationError.self) { _ = try await cancelledTask.value }
+        preparationHolder.store(preparationTask)
+        await #expect(throws: CancellationError.self) { _ = try await preparationTask.value }
+        let preparedPaths = preparationDirectories.withLock { $0 }
+        #expect(!preparedPaths.isEmpty)
+        for path in preparedPaths { #expect(!FileManager.default.fileExists(atPath: path)) }
+        let preparationRegistry = try JSONDecoder().decode(
+            [String].self, from: Data(contentsOf: cancelSupport.appending(path: "staging.json")))
+        #expect(preparationRegistry.isEmpty)
 
         let midSupport = try AudioSignals.temporaryFolder()
         let midStaging = StagingArea(supportDirectory: midSupport)
@@ -618,19 +644,24 @@ private final class TaskHolder: Sendable {
         var midEdit = VideoEdit()
         midEdit.segments = [midSegment]
         let taskHolder = TaskHolder()
+        let renderingDirectories = Mutex<[String]>([])
         let midTask = Task {
             try await VideoSegmentReverser.reverse(
                 segmentID: midSegment.id, in: midEdit, primaryURL: longClip, staging: midStaging
             ) { value in
-                if value > 0.1 { taskHolder.cancel() }
+                guard value > 0.6 && value < 1 else { return }
+                let paths = Result { try JSONDecoder().decode([String].self, from: Data(contentsOf: registryPath)) }
+                if case .success(let recorded) = paths { renderingDirectories.withLock { $0 = recorded } }
+                taskHolder.cancel()
             }
         }
         taskHolder.store(midTask)
-        await #expect(throws: (any Error).self) { _ = try await midTask.value }
-        if FileManager.default.fileExists(atPath: registryPath.path) {
-            let tracked = try JSONDecoder().decode([String].self, from: Data(contentsOf: registryPath))
-            #expect(tracked.isEmpty)
-        }
+        await #expect(throws: CancellationError.self) { _ = try await midTask.value }
+        let renderedPaths = renderingDirectories.withLock { $0 }
+        #expect(!renderedPaths.isEmpty)
+        for path in renderedPaths { #expect(!FileManager.default.fileExists(atPath: path)) }
+        let tracked = try JSONDecoder().decode([String].self, from: Data(contentsOf: registryPath))
+        #expect(tracked.isEmpty)
 
         let hdrFixture = try #require(
             Bundle.module.url(forResource: "x265-pq.mp4", withExtension: nil, subdirectory: "Resources"))
@@ -682,6 +713,244 @@ private final class TaskHolder: Sendable {
         let rotatedReversedInput = try await MediaInput.open(rotatedReversedURL)
         #expect(rotatedReversedInput.displaySize == rotatedInput.displaySize)
         #expect(try rotatedReversedInput.displayOrientation == rotatedInput.displayOrientation)
+    }
+
+    @Test func reversedFreezeDuplicateUnreverseFrameFetchAndExportKeepPatternRedacted() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "pattern.mov")
+        try await writeGradientVideo(to: source, width: 160, height: 120, duration: 2)
+        let staging = StagingArea(supportDirectory: try AudioSignals.temporaryFolder())
+        let editor = try await VideoEditorSource.open(source, staging: staging)
+        let target = VideoSegment(start: 0.51, end: 1.91)
+        var edit = VideoEdit()
+        edit.segments = [target]
+        let redaction = EditOverlay(
+            mark: .redaction(rect: EditCrop(x: 0.2, y: 0.2, width: 0.4, height: 0.4), style: .solid))
+        let annotation = EditOverlay(
+            mark: .box(rect: EditCrop(x: 0.1, y: 0.1, width: 0.8, height: 0.8), color: .red, size: .large))
+        edit.overlays = [
+            TimedOverlay(overlay: redaction, start: 0.4, end: 2), TimedOverlay(overlay: annotation, start: 0.4, end: 2),
+        ]
+        var reversed = try await editor.reverse(segmentID: target.id, in: edit)
+        let staged = try #require(reversed.sources?.last)
+        let inferred = try #require(
+            try await editor.frames(at: [0.3], width: 160, edit: reversed, exactFrame: true).first)
+        #expect(try ImageFixtures.pixel(inferred, x: 60, y: 50).prefix(3).allSatisfy { $0 < 16 })
+        var duplicate = try #require(reversed.segments?.first)
+        duplicate.id = UUID()
+        let freeze = VideoSegment(start: 0.3, end: 0.31, volume: 0, sourceIndex: 1, freezeDuration: 0.5)
+        reversed.segments?.append(contentsOf: [duplicate, freeze])
+        reversed.overlays.append(
+            TimedOverlay(
+                overlay: EditOverlay(
+                    mark: .redaction(rect: EditCrop(x: 0.65, y: 0.25, width: 0.2, height: 0.3), style: .solid)),
+                sourceIndex: 1, start: 0, end: staged.duration))
+        let restored = try VideoSegmentReverser.unreverse(segmentID: target.id, in: reversed, staging: staging)
+        let timeline = try VideoTimeline(edit: restored, sourceDuration: 2)
+        #expect(timeline.segments.last?.reversedOrigin != nil)
+        #expect(restored.requiresJoinedExport && restored.joinedExportNotice != nil)
+        for segment in timeline.segments {
+            let time = segment.isFreeze ? segment.start : segment.end
+            let frames = try await editor.frames(
+                at: [time], width: 160, edit: restored, exactFrame: true, segmentID: segment.id)
+            let image = try #require(frames.first)
+            let redacted = try ImageFixtures.pixel(image, x: 60, y: 50)
+            let stagedRedacted = try ImageFixtures.pixel(image, x: 120, y: 50)
+            #expect(redacted.prefix(3).allSatisfy { $0 < 16 })
+            #expect(stagedRedacted.prefix(3).allSatisfy { $0 < 16 })
+        }
+        let playback = try await editor.playback(edit: restored)
+        #expect(abs(playback.timeline.duration - timeline.duration) < 1e-9)
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let outcome = await engine.run(
+            MediaEditing.video(url: source, edit: restored, settings: Settings()), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = outcome.outcomes.first, let output = outputs.first else {
+            Issue.record("redacted reversed timeline did not export")
+            await editor.close()
+            return
+        }
+        let exported = try await readAllFrames(from: output, range: nil)
+        #expect(!exported.isEmpty)
+        for image in exported {
+            #expect(try ImageFixtures.pixel(image, x: 60, y: 50).prefix(3).allSatisfy { $0 < 20 })
+            #expect(try ImageFixtures.pixel(image, x: 120, y: 50).prefix(3).allSatisfy { $0 < 20 })
+        }
+        var deleted = restored
+        deleted.segments?.removeAll { $0.sourceIndex == 1 }
+        _ = VideoSegmentReverser.removeUnusedStagedSources(in: deleted, staging: staging)
+        #expect(FileManager.default.fileExists(atPath: staged.url.path))
+        _ = try await editor.frames(
+            at: [freeze.start], width: 160, edit: restored, exactFrame: true, segmentID: freeze.id)
+        await editor.close()
+        #expect(!FileManager.default.fileExists(atPath: staged.url.deletingLastPathComponent().path))
+    }
+
+    @Test func joinedFrameFetchUsesSelectedSourceAtItsEndAndReportsMissingSegments() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = folder.appending(path: "first.mov")
+        let second = folder.appending(path: "second.mov")
+        try await writeUniqueFramesWithRampAudio(to: first, width: 160, height: 120, duration: 1, keyframeSeconds: 0.5)
+        try await writeGradientVideo(to: second, width: 160, height: 120, duration: 1)
+        let source0 = VideoEditSource(url: first, duration: 1, stamp: try MediaSourceStamp(url: first))
+        let source1 = VideoEditSource(url: second, duration: 1, stamp: try MediaSourceStamp(url: second))
+        let seg0 = VideoSegment(start: 0, end: 1)
+        let seg1 = VideoSegment(start: 0, end: 1, sourceIndex: 1)
+        var edit = VideoEdit()
+        edit.sources = [source0, source1]
+        edit.segments = [seg0, seg1]
+        edit.overlays = [
+            TimedOverlay(
+                overlay: EditOverlay(
+                    mark: .redaction(rect: EditCrop(x: 0, y: 0, width: 0.5, height: 1), style: .solid)), sourceIndex: 1,
+                start: 0, end: 1)
+        ]
+        let editor = try await VideoEditorSource.open(
+            first, staging: StagingArea(supportDirectory: try AudioSignals.temporaryFolder()))
+        let frames = try await editor.frames(at: [1], width: 160, edit: edit, exactFrame: true, segmentID: seg1.id)
+        let image = try #require(frames.first)
+        #expect(try ImageFixtures.pixel(image, x: 20, y: 60).prefix(3).allSatisfy { $0 < 10 })
+        let reference = try await MediaPreview(videoAt: second)
+        let expected = try #require(
+            try await reference.frames(
+                at: [1], width: 160, exactFrame: true, overlays: edit.overlays.map(\.overlay)
+            ).first)
+        let actualPixel = try ImageFixtures.pixel(image, x: 140, y: 60)
+        let expectedPixel = try ImageFixtures.pixel(expected, x: 140, y: 60)
+        #expect(
+            zip(actualPixel, expectedPixel).allSatisfy { abs(Int($0) - Int($1)) < 10 },
+            "actual \(actualPixel), expected \(expectedPixel)")
+        await #expect(throws: EngineError.invalidInput(.videoSegmentNotFound)) {
+            _ = try await editor.frames(at: [0.5], width: 160, edit: edit, segmentID: UUID())
+        }
+        await editor.close()
+    }
+
+    @Test func reversePreservesOpenGOPLeadingBFramesVFRAndUnalignedRedactions() async throws {
+        let fixture = try #require(
+            Bundle.module.url(forResource: "reverse-open-gop-vfr.mp4", withExtension: nil, subdirectory: "Resources"))
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "vfr.mp4")
+        try FileManager.default.copyItem(at: fixture, to: source)
+        let staging = StagingArea(supportDirectory: try AudioSignals.temporaryFolder())
+        let segment = VideoSegment(start: 0.26, end: 0.7)
+        var edit = VideoEdit()
+        edit.segments = [segment]
+        let redaction = EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid))
+        edit.overlays = [TimedOverlay(overlay: redaction, start: 0.24, end: 0.255)]
+        let measured = Mutex<VideoReverseStatistics?>(nil)
+        let reversed = try await VideoSegmentReverser.reverse(
+            segmentID: segment.id, in: edit, primaryURL: source, staging: staging,
+            statistics: { result in measured.withLock { $0 = result } })
+        let staged = try #require(reversed.sources?.last)
+        defer { VideoSegmentReverser.cleanupStagedSource(staged.url, in: staging) }
+        let original = try await readAllFrames(from: source, range: 0.25..<0.7)
+        let backwards = try await readAllFrames(from: staged.url, range: nil)
+        #expect(original.count == 6 && backwards.count == 6)
+        let expectedOrder = Array(original.reversed())
+        for (index, actual) in backwards.enumerated() {
+            let scores = try expectedOrder.map { expected in
+                var error = 0.0
+                var samples = 0
+                for y in stride(from: 4, to: 60, by: 4) {
+                    for x in stride(from: 4, to: 92, by: 4) {
+                        let left = try ImageFixtures.pixel(expected, x: x, y: y)
+                        let right = try ImageFixtures.pixel(actual, x: x, y: y)
+                        error += zip(left.prefix(3), right.prefix(3)).reduce(0.0) {
+                            $0 + abs(Double($1.0) - Double($1.1))
+                        }
+                        samples += 3
+                    }
+                }
+                return error / Double(samples)
+            }
+            #expect(scores[index] < 10, "frame \(index) mean error \(scores[index])")
+            #expect(
+                scores.indices.min { scores[$0] < scores[$1] } == index,
+                "frame \(index) matched another source frame: \(scores)")
+        }
+        let intervals = try #require(staged.reversedFrames)
+        #expect(abs(intervals[0].stagedEnd - intervals[0].stagedStart - 0.075) < 1e-8)
+        #expect(abs(intervals[1].stagedEnd - intervals[1].stagedStart - 1.0 / 24) < 1e-8)
+        let timeline = try VideoTimeline(edit: reversed, sourceDuration: 2)
+        #expect(timeline.overlays(at: timeline.duration - 0.001, sourceRange: 0.43...0.44).contains(redaction))
+        let statistics = try #require(measured.withLock { $0 })
+        #expect(statistics.decodedFrames <= 7)
+        #expect(statistics.peakBufferedBytes <= ReversedFrameSpill.maximumBufferedBytes)
+    }
+
+    @Test func reversedExportsDiscloseH264AlphaFlatteningAndHDRToneMapping() async throws {
+        let folder = try TestVolume.makeFolder()
+        let hdr = try #require(
+            Bundle.module.url(forResource: "x265-pq.mp4", withExtension: nil, subdirectory: "Resources"))
+        let alpha = folder.appending(path: "transparent.mov")
+        try await writeAlphaVideo(to: alpha, width: 64, height: 48, frameCount: 6)
+        for (index, fixture) in [hdr, alpha].enumerated() {
+            let source = folder.appending(path: "source-\(index).\(fixture.pathExtension)")
+            try FileManager.default.copyItem(at: fixture, to: source)
+            let input = try await MediaInput.open(source)
+            let segment = VideoSegment(start: 0, end: Double(input.duration) / Double(Nanoseconds.perSecond))
+            var edit = VideoEdit()
+            edit.segments = [segment]
+            let staging = StagingArea(supportDirectory: try AudioSignals.temporaryFolder())
+            let reversed = try await VideoSegmentReverser.reverse(
+                segmentID: segment.id, in: edit, primaryURL: source, staging: staging)
+            #expect(reversed.requiresJoinedExport && reversed.joinedExportNotice != nil)
+            let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+            let result = await engine.run(
+                MediaEditing.video(url: source, edit: reversed, settings: Settings()), settings: Settings()
+            ) { _ in }
+            guard case .succeeded(let outputs, let warnings) = result.outcomes.first, let output = outputs.first else {
+                Issue.record("reversed HDR/alpha export failed: \(result.outcomes)")
+                continue
+            }
+            let encoded = try await MediaInput.open(output)
+            #expect(encoded.video?.codec == .h264 && encoded.video?.hasAlpha == false)
+            #expect(output.pathExtension == "mp4")
+            #expect(try await VideoProperties.hdrConfiguration(encoded) == nil)
+            #expect(warnings.contains(index == 0 ? .videoToneMappedToSDR : .videoTransparencyFlattened))
+            #expect(
+                warnings.filter { $0 == (index == 0 ? .videoToneMappedToSDR : .videoTransparencyFlattened) }.count == 1)
+            for source in reversed.sources?.dropFirst() ?? [] {
+                VideoSegmentReverser.cleanupStagedSource(source.url, in: staging)
+            }
+        }
+    }
+
+    @Test func closingEditorCancelsInFlightReverseAndRemovesItsDirectory() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = folder.appending(path: "close.mov")
+        try await writeGradientVideo(to: source, width: 160, height: 120, duration: 2)
+        let support = try AudioSignals.temporaryFolder()
+        let editor = try await VideoEditorSource.open(source, staging: StagingArea(supportDirectory: support))
+        let segment = VideoSegment(start: 0, end: 2)
+        var edit = VideoEdit()
+        edit.segments = [segment]
+        let closing = Mutex<Task<Void, Never>?>(nil)
+        let directories = Mutex<[String]>([])
+        let task = Task {
+            try await editor.reverse(segmentID: segment.id, in: edit) { progress in
+                guard progress > 0 else { return }
+                closing.withLock { closing in
+                    guard closing == nil else { return }
+                    let recorded = Result {
+                        try JSONDecoder().decode(
+                            [String].self, from: Data(contentsOf: support.appending(path: "staging.json")))
+                    }
+                    if case .success(let paths) = recorded { directories.withLock { $0 = paths } }
+                    closing = Task { await editor.close() }
+                }
+            }
+        }
+        await #expect(throws: CancellationError.self) { _ = try await task.value }
+        let close = try #require(closing.withLock { $0 })
+        await close.value
+        let paths = directories.withLock { $0 }
+        #expect(!paths.isEmpty)
+        for path in paths { #expect(!FileManager.default.fileExists(atPath: path)) }
+        #expect(
+            try JSONDecoder().decode([String].self, from: Data(contentsOf: support.appending(path: "staging.json")))
+                .isEmpty)
     }
 
     private func writeAlphaVideo(to url: URL, width: Int, height: Int, frameCount: Int) async throws {
