@@ -135,6 +135,7 @@ enum VideoEdits {
         var frame = FrameEdit(displayOrientation: try first.displayOrientation)
         frame.fitCanvas = first.displaySize
         frame.editorGeometry = edit.geometry
+        frame.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
         let natural = edit.geometry.outputSize(CGSize(width: first.displaySize.width, height: first.displaySize.height))
         let size =
             try edit.resize?.outputSize(PixelSize(width: Int(natural.width), height: Int(natural.height)))
@@ -281,6 +282,7 @@ enum VideoEdits {
         if edit.segments != nil {
             return try segmented(edit, input: input, source: source, settings: settings, audioSettings: audioSettings)
         }
+        guard edit.overlays.isEmpty else { throw EngineError.invalidInput(.invalidNumericParameter) }
         try edit.adjustments.validate()
         guard edit.volume.isFinite, (0...1).contains(edit.volume) else {
             throw EngineError.invalidInput(.invalidNumericParameter)
@@ -342,6 +344,7 @@ enum VideoEdits {
         var frameEdit = try baked(input)
         if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
         if changesSize { frameEdit.size = size }
+        frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
         var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
         plan.timeline = timeline
         plan.startsAtKeyframe = false

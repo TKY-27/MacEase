@@ -14,9 +14,11 @@ public struct VideoEdit: Codable, Hashable, Sendable {
     public var sourceStamp: MediaSourceStamp?
     public var segments: [VideoSegment]?
     public var sources: [VideoEditSource]?
+    public var overlays: [TimedOverlay] = []
 
     public var changesColor: Bool {
-        segments.map { $0.contains { !$0.adjustments.isIdentity } } ?? !adjustments.isIdentity
+        !overlays.isEmpty
+            || (segments.map { $0.contains { !$0.adjustments.isIdentity } } ?? !adjustments.isIdentity)
     }
 
     public var changesAppearance: Bool { !geometry.isIdentity || changesColor }
@@ -34,6 +36,7 @@ public struct VideoEdit: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case start, end, speed, resize, trimMode, geometry, adjustments, volume, sourceStamp, segments, sources
+        case overlays
     }
 
     public init(from decoder: Decoder) throws {
@@ -49,6 +52,7 @@ public struct VideoEdit: Codable, Hashable, Sendable {
         sourceStamp = try values.decodeIfPresent(MediaSourceStamp.self, forKey: .sourceStamp)
         segments = try values.decodeIfPresent([VideoSegment].self, forKey: .segments)
         sources = try values.decodeIfPresent([VideoEditSource].self, forKey: .sources)
+        overlays = try values.decodeIfPresent([TimedOverlay].self, forKey: .overlays) ?? []
     }
 }
 

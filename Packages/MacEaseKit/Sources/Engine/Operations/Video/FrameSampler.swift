@@ -92,11 +92,13 @@ final class FrameSampler {
         return frame
     }
 
-    func next(sourceTime: Int64, timestamp: Int64, fade: Double = 1) async throws -> DecodedFrame? {
+    func next(sourceTime: Int64, timestamp: Int64, fade: Double = 1, overlays: [EditOverlay] = []) async throws
+        -> DecodedFrame?
+    {
         while true {
             try Task.checkCancellation()
             if let chosen = try ready(center: sourceTime) {
-                let image = try processor(for: chosen.image).process(chosen.image, fade: fade)
+                let image = try processor(for: chosen.image).process(chosen.image, fade: fade, overlays: overlays)
                 return DecodedFrame(image: image, timestamp: timestamp)
             }
             if sourceEnded { return nil }
