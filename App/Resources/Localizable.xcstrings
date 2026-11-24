@@ -16306,16 +16306,6 @@
         }
       }
     },
-    "First of %lld faces": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld個のフェイスの1つ目"
-          }
-        }
-      }
-    },
     "The recipe produced no required outputs.": {
       "localizations": {
         "ja": {
@@ -22285,6 +22275,66 @@
           "stringUnit": {
             "state": "translated",
             "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
+    "Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェイス"
+          }
+        }
+      }
+    },
+    "Previous Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のフェイス"
+          }
+        }
+      }
+    },
+    "Next Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のフェイス"
+          }
+        }
+      }
+    },
+    "%@ · %@ glyphs": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@グリフ"
+          }
+        }
+      }
+    },
+    "%@ glyphs": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@グリフ"
+          }
+        }
+      }
+    },
+    "Face %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェイス %1$lld / %2$lld"
           }
         }
       }

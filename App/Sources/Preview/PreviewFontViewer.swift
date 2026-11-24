@@ -11,7 +11,7 @@ struct PreviewFontViewer: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PreviewToolbar {}
+            PreviewToolbar { faceControls }
             if let refusalMessage {
                 PreviewFailure(message: Text(refusalMessage))
             } else if unreadable {
@@ -25,15 +25,65 @@ struct PreviewFontViewer: View {
         .task { await load() }
     }
 
+    @ViewBuilder private var faceControls: some View {
+        if let face, face.faceCount > 1 {
+            Picker("Face", selection: Binding(get: { face.index }, set: select)) {
+                ForEach(face.faceNames.indices, id: \.self) { index in
+                    Text(verbatim: face.faceNames[index]).tag(index)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .help(Text("Face"))
+            ControlGroup {
+                Button {
+                    step(by: -1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(face.index == 0)
+                .help(Text("Previous Face"))
+                .accessibilityLabel(Text("Previous Face"))
+                Button {
+                    step(by: 1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(face.index == face.faceCount - 1)
+                .help(Text("Next Face"))
+                .accessibilityLabel(Text("Next Face"))
+            }
+            .fixedSize()
+        }
+    }
+
+    private func select(_ index: Int) {
+        face = face?.selecting(index)
+    }
+
+    // Reads current state; quick clicks outrun rendering.
+    private func step(by offset: Int) {
+        guard let face, face.faceNames.indices.contains(face.index + offset) else { return }
+        select(face.index + offset)
+    }
+
     private func specimen(_ face: PreviewFontFace) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Self.specimenSpacing) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: face.displayName).font(.title3.weight(.semibold))
                         .accessibilityAddTraits(.isHeader)
-                    if face.faceCount > 1 {
-                        Text("First of \(face.faceCount) faces").font(.callout).foregroundStyle(.secondary)
+                    Group {
+                        if let style = face.styleName {
+                            Text("\(style) · \(face.glyphCount.formatted()) glyphs")
+                        } else {
+                            Text("\(face.glyphCount.formatted()) glyphs")
+                        }
+                        if face.faceCount > 1 {
+                            Text("Face \(face.index + 1) of \(face.faceCount)")
+                        }
                     }
+                    .font(.callout).foregroundStyle(.secondary)
                 }
                 ForEach(PreviewFontFace.specimenSizes, id: \.self) { size in
                     VStack(alignment: .leading, spacing: 4) {
