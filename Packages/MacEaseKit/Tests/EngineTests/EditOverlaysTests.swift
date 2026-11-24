@@ -201,6 +201,38 @@ import Testing
         #expect(first == sameBlock, "a block stays one flat colour")
     }
 
+    @Test(arguments: [1.0, 0.5, 0.25])
+    func narrowMosaicAveragesSelectedPixelsAtEveryPreviewScale(scale: Double) throws {
+        let size = CGSize(width: 640, height: 480)
+        let source = try ImageFixtures.canvas(width: Int(size.width), height: Int(size.height)) { context in
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(CGRect(origin: .zero, size: size))
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fill(CGRect(x: 162, y: 0, width: 4, height: size.height))
+        }
+        let minimumEditorSide = 0.01
+        let rect = EditCrop(x: 0.25, y: 0.25, width: minimumEditorSide, height: 0.5)
+        let overlays = [EditOverlay(mark: .redaction(rect: rect, style: .mosaic))]
+        let preview = CIImage(cgImage: source).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let reference = try ImageFixtures.canvas(width: Int(size.width * scale), height: Int(size.height * scale)) {
+            _ in
+        }
+        let before = try ImagePixels.render(preview, like: reference)
+        let rendered = try ImagePixels.render(overlays.redacting(preview, fullCanvasSize: size), like: reference)
+        let center = try ImageFixtures.pixel(rendered, x: Int(164 * scale), y: Int(240 * scale))
+        #expect((140...210).contains(center[0]), "scale \(scale): selected half-black region averaged to \(center)")
+        let outsideLeft = Int(floor(rect.x * size.width * scale)) - 1
+        let outsideRight = Int(ceil((rect.x + rect.width) * size.width * scale))
+        for column in [outsideLeft, outsideRight] {
+            #expect(
+                try ImageFixtures.pixel(rendered, x: column, y: Int(240 * scale))
+                    == ImageFixtures.pixel(before, x: column, y: Int(240 * scale)))
+        }
+        #expect(
+            try ImageFixtures.pixel(rendered, x: Int(164 * scale), y: Int(20 * scale))
+                == ImageFixtures.pixel(before, x: Int(164 * scale), y: Int(20 * scale)))
+    }
+
     @Test func redactionFollowsSensitiveContentAcrossRotationAndCrop() throws {
         let source = try ImageFixtures.canvas(width: 120, height: 80) { context in
             context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))

@@ -334,17 +334,23 @@ extension [EditOverlay] {
             switch style {
             case .mosaic:
                 let block = Swift.max(1, referenceShortSide * EditOverlay.mosaicBlockFraction) * renderScale
-                // Pixellate samples; the box averages each block.
-                replacement = current.cropped(to: region).clampedToExtent()
-                    .applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: block])
-                    .applyingFilter(
-                        "CIPixellate",
-                        parameters: [
-                            kCIInputCenterKey: CIVector(x: region.minX, y: region.minY),
-                            kCIInputScaleKey: block,
-                        ]
-                    )
-                    .cropped(to: region)
+                if region.width < block || region.height < block {
+                    replacement = current.cropped(to: region)
+                        .applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: region)])
+                        .clampedToExtent().cropped(to: region)
+                } else {
+                    // Pixellate samples; the box averages each block.
+                    replacement = current.cropped(to: region).clampedToExtent()
+                        .applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: block])
+                        .applyingFilter(
+                            "CIPixellate",
+                            parameters: [
+                                kCIInputCenterKey: CIVector(x: region.minX, y: region.minY),
+                                kCIInputScaleKey: block,
+                            ]
+                        )
+                        .cropped(to: region)
+                }
             case .blur:
                 let radius =
                     Swift.min(
