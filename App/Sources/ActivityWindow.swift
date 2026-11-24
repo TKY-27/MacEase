@@ -42,8 +42,10 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         let names = jobs.downloadSessions[outcome.batchID]?.request.selections.map(\.source.title)
         // Only this window offers the choice.
         let awaitsStreamConsent = jobs.canContinueWithoutStreams(outcome.batchID)
+        let continued = jobs.continuedWithoutStreams.contains(outcome.batchID)
         let result = ActivityResult(
-            outcome, fileNames: names, awaitingConsent: awaitsStreamConsent ? jobs.sessions[outcome.batchID] : nil)
+            outcome, fileNames: names,
+            awaitingConsent: awaitsStreamConsent || continued ? jobs.sessions[outcome.batchID] : nil)
         if awaitsStreamConsent {
             log.rows[index].dismissed = false
             present()
@@ -51,8 +53,15 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         let wasVisible = panel?.isVisible == true
         if wasVisible {
             let operation = MenuStrings.operationName(batch.operation)
+            let summary =
+                continued
+                ? [
+                    result.status == .awaitingConfirmation ? nil : result.statusText,
+                    UserMessages.continuedWithout(result.confirmationStreams),
+                ].compactMap(\.self).joined(separator: " ")
+                : result.summary
             AccessibilityNotification.Announcement(
-                String(localized: "\(operation): \(result.summary)", comment: "VoiceOver batch completion")
+                String(localized: "\(operation): \(summary)", comment: "VoiceOver batch completion")
             ).post()
         }
         log.rows[index].result = result

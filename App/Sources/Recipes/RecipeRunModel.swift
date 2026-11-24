@@ -38,7 +38,7 @@ import Observation
             if required.isEmpty {
                 try await submit(recipe)
             } else {
-                showConsent(required)
+                try await requestConsent(required, recipe: recipe)
             }
         } catch { showFailure(error) }
     }
@@ -50,14 +50,18 @@ import Observation
         streamConsent = nil
         defer { busy = false }
         do {
-            for file in request.files {
-                try file.omission.stamp.validate(file.url)
-                let previous = omissions[file.url]?.streams(covering: file.omission.stamp) ?? []
-                omissions[file.url] = StreamOmission(
-                    stamp: file.omission.stamp, streams: previous.union(file.omission.streams))
-            }
+            try approve(request.files)
             try await submit(recipe)
         } catch { showFailure(error) }
+    }
+
+    private func approve(_ files: [StreamConsentRequest.File]) throws {
+        for file in files {
+            try file.omission.stamp.validate(file.url)
+            let previous = omissions[file.url]?.streams(covering: file.omission.stamp) ?? []
+            omissions[file.url] = StreamOmission(
+                stamp: file.omission.stamp, streams: previous.union(file.omission.streams))
+        }
     }
 
     private func submit(_ recipe: Recipe) async throws {
@@ -83,7 +87,7 @@ import Observation
                 }
             }
             if !additional.isEmpty {
-                showConsent(additional)
+                try await requestConsent(additional, recipe: recipe)
                 return
             }
         }
@@ -103,10 +107,17 @@ import Observation
             .compactMap { $0 }.joined(separator: "\n")
     }
 
-    private func showConsent(_ required: [URL: StreamOmission]) {
-        streamConsent = StreamConsentRequest(
+    /// Recipes keep originals, so the setting may answer.
+    private func requestConsent(_ required: [URL: StreamOmission], recipe: Recipe) async throws {
+        let request = StreamConsentRequest(
             purpose: .proceed,
             files: required.map { .init(url: $0.key, omission: $0.value) }
                 .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+        guard settings.unpreservedStreams == .omitFromNewFiles else {
+            streamConsent = request
+            return
+        }
+        try approve(request.files)
+        try await submit(recipe)
     }
 }

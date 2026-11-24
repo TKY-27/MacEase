@@ -325,10 +325,17 @@ public struct Settings: Codable, Equatable, Sendable {
         case replace
     }
 
+    /// Replacing an original always asks first.
+    public enum UnpreservedStreamsChoice: String, Codable, CaseIterable, Sendable {
+        case ask
+        case omitFromNewFiles
+    }
+
     public static let defaultsKey = "settings"
 
     public var outputMode = OutputMode.newFile
     public var permanentDelete = false
+    public var unpreservedStreams = UnpreservedStreamsChoice.ask
     /// Zero means half of the active processors.
     public var concurrencyLimit = 0
     public var extraRotationEnabled = false
@@ -344,7 +351,8 @@ public struct Settings: Codable, Equatable, Sendable {
     public var platformPresets = PresetLibrary.bundledPresets
 
     private enum CodingKeys: String, CodingKey {
-        case outputMode, permanentDelete, concurrencyLimit, extraRotationEnabled, extraRotationDegrees, menuValues
+        case outputMode, permanentDelete, unpreservedStreams, concurrencyLimit, extraRotationEnabled,
+            extraRotationDegrees, menuValues
         case image, video, audio, folder, text, intelligence
     }
 
@@ -354,6 +362,7 @@ public struct Settings: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         outputMode = try container.decode(OutputMode.self, forKey: .outputMode)
         permanentDelete = try container.decode(Bool.self, forKey: .permanentDelete)
+        unpreservedStreams = try container.decode(UnpreservedStreamsChoice.self, forKey: .unpreservedStreams)
         concurrencyLimit = try container.decode(Int.self, forKey: .concurrencyLimit)
         extraRotationEnabled = try container.decode(Bool.self, forKey: .extraRotationEnabled)
         extraRotationDegrees = try container.decode(Double.self, forKey: .extraRotationDegrees)

@@ -1,6 +1,8 @@
+import AppKit
 import Engine
 import MenuCatalog
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 /// Menu groups whose items take editable values.
@@ -13,6 +15,8 @@ enum MenuGroupOptions: String, Identifiable {
     case videoRotate = "video.rotate"
     case frameRate = "video.fps"
     case loudness = "audio.normalize"
+    case newFile = "command.newFile"
+    case terminal = "command.openTerminal"
 
     var id: String { rawValue }
 
@@ -20,7 +24,7 @@ enum MenuGroupOptions: String, Identifiable {
         self.init(rawValue: group.rawValue)
     }
 
-    fileprivate var operation: OperationID {
+    fileprivate var operation: OperationID? {
         switch self {
         case .imageResize: .imageResize
         case .videoResize: .videoResize
@@ -30,12 +34,27 @@ enum MenuGroupOptions: String, Identifiable {
         case .videoRotate: .videoRotate
         case .frameRate: .videoFPS
         case .loudness: .audioNormalize
+        case .newFile, .terminal: nil
         }
+    }
+
+    fileprivate var title: String {
+        let scope: String
+        let item: String
+        if let operation {
+            scope = MenuStrings.kind(operation.kind)
+            item = MenuStrings.operationName(operation)
+        } else {
+            scope = MenuScope.commands.title
+            item = MenuStrings.command(self == .newFile ? .newFile : .openTerminal)
+        }
+        return String(localized: "\(scope) ▸ \(item)", comment: "Menu value row: kind and operation")
     }
 
     /// Adjacent slots sharing a unit.
     fileprivate var slotRows: [[MenuValueSlot]] {
-        MenuValues.slots.filter { $0.operation == operation }.reduce(into: []) { rows, slot in
+        guard let operation else { return [] }
+        return MenuValues.slots.filter { $0.operation == operation }.reduce(into: []) { rows, slot in
             if let last = rows.last?.last, last.unit == slot.unit {
                 rows[rows.count - 1].append(slot)
             } else {
@@ -64,9 +83,7 @@ struct MenuOptionsSheet: View {
             Section {
                 fields
             } header: {
-                Text(
-                    "\(MenuStrings.kind(options.operation.kind)) ▸ \(MenuStrings.operationName(options.operation))",
-                    comment: "Menu value row: kind and operation")
+                Text(options.title)
             } footer: {
                 if let footer {
                     Text(footer).foregroundStyle(.secondary)
@@ -105,8 +122,31 @@ struct MenuOptionsSheet: View {
             FrameRateFields(store: store, invalidFields: $invalidFields)
         case .loudness:
             LoudnessFields(store: store, invalidFields: $invalidFields)
+        case .newFile:
+            LabeledContent("Templates") {
+                VStack(alignment: .leading) {
+                    ForEach(NewFileTemplate.BuiltIn.allCases, id: \.self) { template in
+                        Toggle(MenuStrings.newFileTitle(template), isOn: isEnabled(template))
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
+        case .terminal:
+            TerminalApplicationPicker(store: store)
         case .imageResize, .videoResize:
             EmptyView()
+        }
+    }
+
+    private func isEnabled(_ template: NewFileTemplate.BuiltIn) -> Binding<Bool> {
+        Binding {
+            store.enabledNewFileTemplates.contains(template)
+        } set: { enabled in
+            if enabled {
+                store.enabledNewFileTemplates.insert(template)
+            } else {
+                store.enabledNewFileTemplates.remove(template)
+            }
         }
     }
 
@@ -120,7 +160,9 @@ struct MenuOptionsSheet: View {
             String(localized: "Edited values replace the menu items in place.", comment: "Menu options footer")
         case .imageRotate, .videoRotate:
             String(localized: "Applies to images and videos.", comment: "Extra rotation angle scope")
-        case .imageCompress, .frameRate, .loudness: nil
+        case .newFile where store.enabledNewFileTemplates.isEmpty:
+            String(localized: "New File doesn’t appear in the Finder menu until you select a template.")
+        case .imageCompress, .frameRate, .loudness, .newFile, .terminal: nil
         }
     }
 
@@ -142,6 +184,10 @@ struct MenuOptionsSheet: View {
             return store.settings.audio.loudnessTarget == defaults.audio.loudnessTarget
                 && store.settings.audio.loudnessStreaming == defaults.audio.loudnessStreaming
                 && store.settings.audio.loudnessBroadcast == defaults.audio.loudnessBroadcast
+        case .newFile:
+            return store.enabledNewFileTemplates == Set(NewFileTemplate.BuiltIn.allCases)
+        case .terminal:
+            return store.terminalApplicationURL == SettingsStore.defaultTerminalApplicationURL
         }
     }
 
@@ -161,6 +207,10 @@ struct MenuOptionsSheet: View {
             store.settings.audio.loudnessTarget = defaults.audio.loudnessTarget
             store.settings.audio.loudnessStreaming = defaults.audio.loudnessStreaming
             store.settings.audio.loudnessBroadcast = defaults.audio.loudnessBroadcast
+        case .newFile:
+            store.enabledNewFileTemplates = Set(NewFileTemplate.BuiltIn.allCases)
+        case .terminal:
+            store.terminalApplicationURL = SettingsStore.defaultTerminalApplicationURL
         }
     }
 }
@@ -246,6 +296,106 @@ private struct LoudnessFields: View {
             let isValid = AudioSettings.loudnessRange.contains(target)
             invalidFields.mark(Self.field, valid: isValid)
             if isValid { store.settings.audio[keyPath: keyPath] = target }
+        }
+    }
+}
+
+/// Found by bundle identifier, so nothing launches.
+@MainActor
+struct TerminalApplications {
+    /// Alacritty is omitted: it cannot open folders.
+    static let bundleIdentifiers = [
+        "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "dev.warp.Warp-Stable",
+        "com.github.wez.wezterm", "net.kovidgoyal.kitty",
+    ]
+
+    let choices: [URL]
+    let missing: URL?
+
+    init(
+        saved: URL,
+        locate: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+    ) {
+        var choices = [SettingsStore.defaultTerminalApplicationURL]
+        for application in Self.bundleIdentifiers.compactMap(locate) + [saved]
+        where !choices.contains(where: { $0.path == application.path }) {
+            choices.append(application)
+        }
+        self.choices = choices
+        missing = FinderCommands.canOpenTerminal(saved) ? nil : saved
+    }
+
+    static func name(of application: URL) -> String {
+        guard FileManager.default.fileExists(atPath: application.path) else {
+            return application.deletingPathExtension().lastPathComponent
+        }
+        return FileManager.default.displayName(atPath: application.path)
+    }
+}
+
+private struct TerminalApplicationPicker: View {
+    @Bindable var store: SettingsStore
+    @State private var choosesOther = false
+    @State private var failure: String?
+
+    private static let iconSize = NSSize(width: 16, height: 16)
+    private static let applicationsFolder = URL(fileURLWithPath: "/Applications", isDirectory: true)
+
+    var body: some View {
+        let applications = TerminalApplications(saved: store.terminalApplicationURL)
+        Picker("Open with", selection: selection) {
+            ForEach(applications.choices, id: \.path) { application in
+                Label {
+                    Text(verbatim: TerminalApplications.name(of: application))
+                } icon: {
+                    if application.path == applications.missing?.path {
+                        Image(systemName: "exclamationmark.triangle")
+                    } else {
+                        Image(nsImage: Self.icon(of: application))
+                    }
+                }
+                .tag(Optional(application.path))
+            }
+            Divider()
+            Text("Other…", comment: "Chooses an app that is not listed").tag(String?.none)
+        }
+        .fileImporter(isPresented: $choosesOther, allowedContentTypes: [.applicationBundle]) { result in
+            switch result {
+            case .success(let application):
+                failure = nil
+                store.terminalApplicationURL = application
+            case .failure(let error):
+                failure = error.localizedDescription
+            }
+        }
+        .fileDialogDefaultDirectory(Self.applicationsFolder)
+        if let missing = applications.missing {
+            ProblemLabel(
+                text: String(
+                    localized: "“\(TerminalApplications.name(of: missing))” can’t be found. Choose another app."))
+        }
+        if let failure {
+            ProblemLabel(text: failure)
+        }
+    }
+
+    private var selection: Binding<String?> {
+        Binding {
+            store.terminalApplicationURL.path
+        } set: { path in
+            guard let path else {
+                choosesOther = true
+                return
+            }
+            store.terminalApplicationURL = URL(fileURLWithPath: path)
+        }
+    }
+
+    private static func icon(of application: URL) -> NSImage {
+        let icon = NSWorkspace.shared.icon(forFile: application.path)
+        return NSImage(size: iconSize, flipped: false) { rect in
+            icon.draw(in: rect)
+            return true
         }
     }
 }
