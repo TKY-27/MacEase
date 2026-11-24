@@ -1,5 +1,11 @@
 name: MacEase
 
+configs:
+  Debug: debug
+  Release: release
+  # SwiftPM recognizes the Debug prefix.
+  DebugTests: debug
+
 options:
   bundleIdPrefix: io.github.tky27
   developmentLanguage: en
@@ -21,7 +27,9 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
-    ENABLE_HARDENED_RUNTIME: NO
+    ENABLE_HARDENED_RUNTIME: YES
+    OTHER_CODE_SIGN_FLAGS: --options runtime
+    ENABLE_DEBUG_DYLIB: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
@@ -39,6 +47,11 @@ settings:
       MACEASE_SUPPORT_FOLDER: MacEase
       # Debug copies duplicate the Services item.
       INFOPLIST_PREPROCESSOR_DEFINITIONS: MACEASE_SERVICES=1
+    DebugTests:
+      MACEASE_BUNDLE_ID: io.github.tky27.MacEase.tests
+      MACEASE_DISPLAY_NAME: MacEase Tests
+      MACEASE_URL_SCHEME: macease-tests
+      MACEASE_SUPPORT_FOLDER: MacEase Tests
 
 packages:
   MacEaseKit:
@@ -52,6 +65,8 @@ targets:
       - path: App
         excludes:
           - Info.plist
+          - MacEase.entitlements
+          - MacEaseTests.entitlements
       - path: Vendor/build/macease-hatchzip
         buildPhase: resources
       - path: Vendor/build/macease-age
@@ -83,7 +98,11 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         INFOPLIST_PREPROCESS: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: App/MacEase.entitlements
         ENABLE_APP_SANDBOX: NO
+      configs:
+        DebugTests:
+          CODE_SIGN_ENTITLEMENTS: App/MacEaseTests.entitlements
 
   MacEaseFinderSync:
     type: app-extension
@@ -133,7 +152,7 @@ schemes:
     run:
       config: Debug
     test:
-      config: Debug
+      config: DebugTests
       targets:
         - MacEaseAppTests
     archive:

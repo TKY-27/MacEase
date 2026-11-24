@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Enable Hardened Runtime for the app, Finder extension and bundled native
+  executables, with measured exceptions confined to interpreter and media/audio
+  child processes. Add host Finder Automation entitlement. Distribution remains
+  self-signed and unnotarized; the host remains unsandboxed.
+
 ## [3.1.0] - 2026-11-17
 
 ### Added

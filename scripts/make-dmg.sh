@@ -41,24 +41,13 @@ xcodebuild -project "$app_name.xcodeproj" -scheme "$app_name" -destination 'gene
 app="$archive/Products/Applications/$app_name.app"
 appex="$app/Contents/PlugIns/MacEaseFinderSync.appex"
 
-while IFS= read -r -d '' executable; do
-    if file -b "$executable" | grep -q 'Mach-O'; then
-        codesign "${sign_args[@]}" "$executable"
-    fi
-done < <(find "$app/Contents/Resources/media-tools" "$app/Contents/Resources/ai-audio" \
-    -type f \( -perm -111 -o -name '*.so' -o -name '*.dylib' \) -print0)
+"$root/scripts/sign-bundled-code.sh" "$app/Contents/Resources" "${sign_args[@]}"
 
 # Preserve Xcode's expanded entitlements.
-codesign "${sign_args[@]}" "$app/Contents/Resources/macease-hatchzip"
-codesign "${sign_args[@]}" "$app/Contents/Resources/macease-age"
-codesign "${sign_args[@]}" --preserve-metadata=entitlements "$appex"
-codesign "${sign_args[@]}" --preserve-metadata=entitlements "$app"
+codesign "${sign_args[@]}" --options runtime --preserve-metadata=entitlements "$appex"
+codesign "${sign_args[@]}" --options runtime --preserve-metadata=entitlements "$app"
 
-appex_entitlements="$(codesign -d --entitlements - --xml "$appex" 2>/dev/null)"
-if [[ "$appex_entitlements" != *com.apple.security.app-sandbox* ]]; then
-    echo "error: the Finder Sync extension lost its sandbox entitlement" >&2
-    exit 1
-fi
+python3 "$root/scripts/verify-signing.py" "$app" --configuration Release
 codesign --verify --deep --strict --verbose=2 "$app"
 spctl --assess --type execute --verbose=4 "$app" \
     || echo "note: Gatekeeper rejects unnotarized builds until Open Anyway" >&2

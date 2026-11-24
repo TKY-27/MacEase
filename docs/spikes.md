@@ -941,3 +941,99 @@ panel directly above that window in the on-screen order.
 
 Visual seams, full screen, Spaces, Finder tabs and keyboard focus inside the
 panel were not observed in this run.
+
+## Hardened Runtime (2026-11-24)
+
+Xcode 27.2 reports `Disabling hardened runtime with ad-hoc codesigning` even
+with `ENABLE_HARDENED_RUNTIME=YES`. Explicit `OTHER_CODE_SIGN_FLAGS=--options runtime`
+produces `flags=0x10002(adhoc,runtime)`. With those flags, launching the Debug
+extension fails loading `MacEaseFinderSync.debug.dylib` because the process and
+library have different Team IDs. `ENABLE_DEBUG_DYLIB=NO` builds ordinary Debug
+executables without debug/preview dylibs, preserving library validation.
+
+App-hosted testing additionally fails loading Xcode's generated
+`Engine_182734612EC35C_PackageProduct.framework` with the same Team ID error.
+Removing the direct test/package dependency eliminates that framework but
+still fails `dlopen` of `MacEaseAppTests.xctest` with the same error. Retain
+the original linkage and test cases; isolate the measured
+disable-library-validation requirement in the separate `DebugTests` host.
+It has its own `.tests` bundle ID, URL scheme and support folder. Normal Debug
+and Release hosts do not receive that entitlement.
+
+On arm64 macOS 27, copies of the pinned bundled executables were signed ad hoc
+with `codesign --force --sign - --options runtime`, initially without runtime
+exceptions. The configured self-signed identity also has no Apple Team ID.
+All execution measurements here use ad-hoc signatures. Equal behavior with the
+self-signed release identity is inferred, not measured; no identity was created
+or modified for these checks.
+
+| Executable | Failure without exception | Narrow exception and observed result |
+| --- | --- | --- |
+| `media-tools/bin/python3.14` | `import ssl` fails loading `_ssl.cpython-314-darwin.so`: `mapping process and mapped file (non-platform) have different Team IDs` | `disable-library-validation`: SSL, hashing and socket imports succeed. |
+| `media-tools/bin/ffmpeg`, `ffprobe` | `-version` aborts with the same Team ID mismatch after fixing install names. | `disable-library-validation`: both version commands succeed. |
+| `media-tools/bin/node` | A JavaScript calculation exits on signal 5: `Fatal process out of memory: Failed to reserve virtual memory for CodeRange`. | `allow-jit`: the calculation succeeds, printing `333283335000`. |
+| `ai-audio/bin/sherpa-onnx-offline-denoiser`, `sherpa-onnx-offline-source-separation` | `--help` aborts loading `libonnxruntime.dylib` with the same Team ID mismatch. | `disable-library-validation`: both help commands exit 0. |
+
+Hardened dyld additionally rejected FFmpeg's versioned dylib symlinks when the
+library ID used the physical filename instead of its referenced ABI filename:
+`security level requires its leaf name to match requested 'libavdevice.63.dylib'`.
+Keeping the original ABI basename in `LC_ID_DYLIB` fixes this independent issue.
+The libraries and Python extension modules themselves need no exceptions.
+The upscaler contains Core ML model resources, without a shipped Python runtime;
+CFR is a JAR using separately installed Java. Neither adds bundled Mach-O code.
+
+Apple documents the [library validation](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.disable-library-validation)
+Team ID rule and the host's required [Apple Events entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.automation.apple-events).
+
+### Host App Sandbox assessment
+
+- `RequestRouter.swift` reconstructs URLs from authenticated path strings. The token authenticates requests; it grants no sandbox file access.
+- `OrganizationStore.swift` persists ordinary bookmarks. A sandboxed design needs scoped directory grants with lifetime and stale-bookmark handling for jobs, history and automatic organization.
+- `FileCommitter.swift` writes siblings, replaces originals, moves files to Trash and restores them. SPEC 3.5 needs grants covering staging, parents and Undo across launches; source-file permission alone is insufficient.
+- `MediaToolProcess.swift` launches bundled executables with paths. Helpers can run sandboxed, but need inherited permissions or scoped IPC/file descriptors and compatible child entitlements; spawning does not escape the sandbox.
+- `FinderWindowTracker.swift` uses cross-process Accessibility; Apple's sandbox restrictions conflict with the current docking design. `FinderSelectionReader.swift` needs separate Finder scripting authorization under App Sandbox; the Hardened Runtime entitlement alone is insufficient.
+- `MenuFileWriter.swift` writes real-home Application Support, read through the extension's temporary exception. Container-relative storage requires shared storage/IPC and migration, including checking App Group eligibility for self-signed distribution.
+- `UpdateChecker.swift` can keep checking GitHub with outbound-network permission. Downloads need outbound permission; local sharing needs inbound permission. Networking alone does not prevent sandboxing.
+- Retain the unsandboxed host for this Finder-first contract. Treat host sandboxing as a separate authorization and workflow redesign, with full Replace/Undo and Preview acceptance, rather than a build-setting toggle.
+
+These are architecture findings, not a sandboxed-prototype validation. See
+Apple's [file access](https://developer.apple.com/documentation/security/accessing-files-from-the-macos-app-sandbox)
+and [sandbox restrictions](https://developer.apple.com/documentation/security/protecting-user-data-with-app-sandbox).
+
+`make test` passes all 1,334 package tests (76 MenuCatalog, 261 Formats, 997
+Engine), with no skips. `make test-app` passes all 79 existing app-hosted tests
+in `DebugTests`; its host remains hardened. Debug bundle inspection finds 73
+Mach-O files, all with `flags=0x10002(adhoc,runtime)` and strict signatures.
+The normal Debug host launches, and every bundled helper launches. Disposable
+age encrypt/verify/decrypt, HatchZip ZIP extraction, GTCRN denoising and Spleeter
+separation jobs succeed from the built bundle without further exceptions.
+
+The shared signature verifier rejects real Mach-O copies signed without
+runtime flags, with an extra helper library-validation exception, with missing
+host Automation access, or with extra host library-validation access. Exact
+host/helper signatures pass. Forced signing under macOS `/bin/bash` 3.2 passes
+for both plain helpers and the AI dylib/executables. A subsequent cached
+signing call preserves the binary modification time. CI and release workflows
+now invoke `make bootstrap` so all required runtimes exist before app building;
+workflow YAML parses locally, but GitHub Actions was not run.
+
+`make test-device` also passes all 1,334 package tests with no capability skips,
+then all 79 app-hosted tests. The build prerequisite verifies runtime flags and
+exact entitlement sets for all 73 normal Debug Mach-O files.
+
+`MACEASE_ALLOW_ADHOC=1 make dmg` succeeds. The read-only mounted DMG app has
+73 Mach-O files; every file has runtime flags, its exact expected entitlement
+set and a passing strict signature. Deep/strict app verification and strict
+DMG-container verification pass. The mounted host remains running for eight
+seconds before explicit termination. A supplemental `CFFIXED_USER_HOME`
+profile-menu isolation assertion fails; this does not establish an isolated
+launch profile. Every mounted helper launches, including the same disposable
+age, HatchZip and AI inference jobs. With `MACEASE_MEDIA_TOOLS` pointing into
+the mounted DMG, `AudioCodingTests/audioToolboxDecodesEveryMP3AndAACOutput`
+passes (one test exercising real MP3/AAC encoding and independent decoding).
+
+The real self-signed identity, macOS 26, Finder extension operation and Finder
+Automation consent were not exercised. Two pinned ONNX Runtime notice URLs
+returned HTTP 404; the local build uses copies from the installed app whose
+SHA-256 values exactly match `Vendor/ai-audio.lock`. Cold-network bootstrap
+and remote CI remain unverified.

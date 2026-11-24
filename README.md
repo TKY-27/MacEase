@@ -38,6 +38,9 @@ together. Pruning unavailable operations never fills their places from More.
    if you want completion banners, then click **Done**.
 
 Release builds use a self-signed certificate and are not notarized by Apple.
+The app, Finder extension and bundled executables enable Hardened Runtime.
+The host is unsandboxed; the Finder extension is sandboxed. Interpreter and
+media/audio helper exceptions are documented in [SECURITY.md](SECURITY.md).
 You can also [build from source](#build-from-source).
 
 After setup, select files or folders in Finder, right-click, and choose
@@ -670,6 +673,7 @@ restoration of the original archive.
 <summary><b>Why does macOS block MacEase on first launch?</b></summary>
 
 Release builds use a self-signed certificate and are not notarized by Apple.
+Hardened Runtime does not remove the first-launch Gatekeeper warning.
 Follow steps 3 and 4 of [Installation](#installation), or build from source.
 
 </details>
@@ -708,6 +712,9 @@ make test-app
 ```
 
 Package acceptance runs suites sequentially to avoid resource contention; concurrency tests still exercise parallel work.
+App-hosted tests use the separate `DebugTests` configuration and `MacEase Tests`
+identity. Only that test host disables library validation for XCTest injection;
+ordinary Debug and Release builds keep it enabled.
 
 Before first launch, copy `build/DerivedData/Build/Products/Debug/MacEase Dev.app`
 to `~/Applications` or `/Applications`. Welcome cannot finish outside those

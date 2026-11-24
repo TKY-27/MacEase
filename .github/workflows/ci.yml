@@ -43,20 +43,14 @@ jobs:
           sudo xcode-select --switch "$xcode_app"
           xcodebuild -version
 
-      - name: Install build tools
-        run: brew install xcodegen cmake meson ninja pkg-config
-
       - name: Cache native dependencies
         uses: actions/cache@v6
         with:
           path: Vendor/build
-          key: deps-${{ matrix.name }}-${{ hashFiles('Vendor/deps.lock', 'Vendor/patches/**', 'scripts/build-deps.sh') }}
+          key: deps-${{ matrix.name }}-${{ hashFiles('Vendor/*.lock', 'Vendor/patches/**', 'scripts/build-*', 'scripts/sign-bundled-code.sh', 'scripts/verify-signing.py', 'scripts/entitlements/*') }}
 
-      - name: Build native dependencies
-        run: scripts/build-deps.sh
-
-      - name: Generate Xcode project
-        run: xcodegen generate
+      - name: Build dependencies and bundled runtimes
+        run: make bootstrap
 
       - name: Test
         run: make test

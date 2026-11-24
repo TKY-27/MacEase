@@ -38,6 +38,7 @@ export CARGO_TARGET_DIR="$root/Vendor/build/hatchzip-target"
 cargo clean --release -p hatchzip-core --manifest-path "$root/Native/HatchZip/Cargo.toml"
 cargo build --release --locked --manifest-path "$root/Native/HatchZip/Cargo.toml"
 cp "$CARGO_TARGET_DIR/release/macease-hatchzip" "$root/Vendor/build/macease-hatchzip"
+"$root/scripts/sign-bundled-code.sh" "$root/Vendor/build/macease-hatchzip" --sign -
 cp "$source/LICENSE-MIT" "$source/LICENSE-APACHE" "$root/Vendor/build/licenses/hatchzip-core/"
 cargo metadata --locked --filter-platform aarch64-apple-darwin \
     --manifest-path "$root/Native/HatchZip/Cargo.toml" --format-version 1 \

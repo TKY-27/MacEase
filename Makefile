@@ -32,16 +32,20 @@ toolkit:
 	scripts/build-upscaler.sh
 
 project:
+	for component in media-tools ai-audio macease-age macease-hatchzip; do \
+		scripts/sign-bundled-code.sh "$(CURDIR)/Vendor/build/$$component" --sign - || exit; \
+	done
 	xcodegen generate
 
 build: project
 	$(XCODEBUILD) -configuration Debug build
+	python3 scripts/verify-signing.py "$(DERIVED_DATA)/Build/Products/Debug/MacEase Dev.app" --configuration Debug
 
 test:
 	MACEASE_MEDIA_TOOLS="$(MEDIA_TOOLS)" swift test --no-parallel --package-path $(PACKAGE)
 
 test-app: project
-	$(XCODEBUILD) -configuration Debug test
+	$(XCODEBUILD) -configuration DebugTests test
 
 # Missing capabilities fail here instead of skipping.
 test-device: build

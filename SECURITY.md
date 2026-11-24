@@ -30,3 +30,17 @@ Release builds use the project's stable self-signed code-signing certificate.
 They are not Apple Developer ID signed or notarized. Debug builds are ad-hoc
 signed. Verify a download against the SHA-256 checksum published with its
 GitHub Release before opening it, then follow the README's first-launch steps.
+
+The host, Finder Sync extension and bundled Mach-O code enable Hardened
+Runtime. The host remains unsandboxed so it can process Finder selections and
+commit or undo changes beside the originals. The Finder extension is sandboxed.
+Only the host has the Apple Events entitlement for Finder Automation.
+In normal Debug and Release builds, library validation is disabled only for
+the bundled Python, FFmpeg, ffprobe
+and two sherpa audio executables, which load bundled libraries without an
+Apple Team ID. Only Node has the JIT entitlement. The host and extension keep
+library validation. These settings do not provide Apple notarization.
+App-hosted tests use a separate `DebugTests` configuration whose host disables
+library validation for unteamed XCTest/package bundles; this host is not shipped.
+See [ADR 0069](docs/adr/0069-hardened-runtime.md) and the
+[runtime evidence](docs/spikes.md#hardened-runtime-2026-11-24).
