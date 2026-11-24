@@ -124,7 +124,7 @@ enum FolderPlanner {
             let staged = try context.stagingURL(for: folder, name: name)
             try template.initialBytes.write(to: staged, options: .withoutOverwriting)
             return .created(
-                in: folder, outputs: [StagedFile(url: staged, name: name, check: template.outputCheck)])
+                in: folder, outputs: [StagedFile(url: staged, name: name, check: template.outputCheck(for: name))])
         }
     }
 

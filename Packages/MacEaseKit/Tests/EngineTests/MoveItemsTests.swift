@@ -344,6 +344,8 @@ import Testing
                 .succeeded(outputs: [movedLink], warnings: []),
             ])
         #expect(try Data(contentsOf: movedFile) == payload)
+        #expect(outcome.details[0].outputStamps[movedFile]?.matchesIdentity(movedFile.path) == true)
+        #expect(outcome.details[2].outputStamps[movedLink]?.matchesIdentity(movedLink.path) == true)
         #expect(try Data(contentsOf: existingCollision) == Data("preexisting".utf8))
         #expect(try String(contentsOf: movedFolder.appending(path: "sub/doc.txt"), encoding: .utf8) == "nested")
         #expect(try entryStat(movedFolder.appending(path: "rel-link")).st_mode & S_IFMT == S_IFLNK)
@@ -360,7 +362,7 @@ import Testing
 
         let record = try #require(outcome.record)
         let reopened = try makeEngine(in: bootWorkspace)
-        #expect(try await reopened.undo(record.id) == [.restored, .restored, .restored])
+        #expect(try await reopened.undo(record.id) == Array(repeating: .restored, count: 6))
         #expect(try Data(contentsOf: file) == payload)
         #expect(try String(contentsOf: nestedDir.appending(path: "doc.txt"), encoding: .utf8) == "nested")
         #expect(
@@ -368,6 +370,16 @@ import Testing
                 == "/missing/cross-target")
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: topLink.path) == "/missing/top")
         #expect(try FileManager.default.contentsOfDirectory(atPath: destDir.path) == ["payload.bin"])
+    }
+
+    @Test func permissionErrorsUseTheFailingLocationIncludingReadOnlyVolumes() {
+        let destination = "/Volumes/MacEaseFixture/report.txt"
+        for code in [EACCES, EROFS] {
+            let failure = NSError(
+                domain: NSPOSIXErrorDomain, code: Int(code),
+                userInfo: [NSFilePathErrorKey: destination])
+            #expect(EngineError.wrapping(failure, path: "/tmp/source.txt") == .permissionDenied(.removableVolume))
+        }
     }
 
     @Test func refusesReadOnlyOrNonDirectoryDestinationAndEmptyPlan() async throws {
@@ -386,7 +398,7 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyDest.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyDest.path) }
         let denied = await runMove([entry], to: readOnlyDest, engine: engine)
-        #expect(denied.outcomes == [.failed(.permissionDenied(PermissionLocation(path: file.path)))])
+        #expect(denied.outcomes == [.failed(.permissionDenied(PermissionLocation(path: readOnlyDest.path)))])
         #expect(try String(contentsOf: file, encoding: .utf8) == "keep")
 
         let badDest = await runMove([entry], to: notAFolder, engine: engine)
@@ -399,133 +411,141 @@ import Testing
         #expect(emptyOutcome.outcomes == [.failed(.invalidInput(.tooFewFiles(minimum: 1)))])
         #expect(!OperationID.menuOrder.contains(.filesMove))
     }
-    @Test func lockedDescendantsCannotDestroyMovedOrRestoredFolders() async throws {
+    @Test func lockedChildrenAndReadOnlyFoldersLeaveNoStaging() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
         let source = boot.appending(path: "project")
-        let destination = disk.appending(path: "destination")
-        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-        for index in 0..<20 {
-            try Data("payload-\(index)".utf8).write(to: source.appending(path: "\(index).txt"))
-        }
-        let lockedName = "10.txt"
-        #expect(chflags(source.appending(path: lockedName).path, UInt32(UF_IMMUTABLE)) == 0)
+        let nested = source.appending(path: "readonly")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        let child = nested.appending(path: "locked.txt")
+        try Data("locked payload".utf8).write(to: child)
+        try #require(chflags(child.path, UInt32(UF_IMMUTABLE)) == 0)
+        try #require(chmod(nested.path, 0o555) == 0)
         let engine = try makeEngine(in: boot)
-        let registry = boot.appending(path: "support/staging.json")
+        let moved = disk.appending(path: "project")
         defer {
-            let paths = (try? JSONDecoder().decode([String].self, from: Data(contentsOf: registry))) ?? []
-            for root in [source, destination.appending(path: "project")] + paths.map({ URL(fileURLWithPath: $0) }) {
-                if let entries = FileManager.default.enumerator(atPath: root.path) {
-                    while let name = entries.nextObject() as? String { _ = chflags(root.appending(path: name).path, 0) }
-                }
+            for root in [source, moved] {
+                _ = chmod(root.appending(path: "readonly").path, 0o755)
+                _ = chflags(root.appending(path: "readonly/locked.txt").path, 0)
             }
-            engine.staging.removeStale()
         }
-        let outcome = await runMove([try MoveItem.capture(source)], to: destination, engine: engine)
-        let moved = destination.appending(path: "project")
+        let outcome = await runMove([try MoveItem.capture(source)], to: disk, engine: engine)
         #expect(outcome.outcomes == [.succeeded(outputs: [moved], warnings: [])])
         #expect(!FileManager.default.fileExists(atPath: source.path))
-        for index in 0..<20 {
-            #expect(
-                try String(contentsOf: moved.appending(path: "\(index).txt"), encoding: .utf8) == "payload-\(index)")
-        }
-        let record = try #require(outcome.record)
-        #expect(record.items.count == 1)
-        let moveStaging = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
-        #expect(!moveStaging.isEmpty)
-        let retiredMove = try #require(
-            moveStaging.first {
-                FileManager.default.fileExists(atPath: $0 + "/project/" + lockedName)
-            })
-        #expect(try FileManager.default.contentsOfDirectory(atPath: retiredMove + "/project").count < 20)
-        let reopened = try makeEngine(in: boot)
-        #expect(try await reopened.undo(record.id) == [.restored])
+        #expect(
+            try String(contentsOf: moved.appending(path: "readonly/locked.txt"), encoding: .utf8) == "locked payload")
+        try expectNoStaging(in: boot)
+        #expect(try await engine.undo(outcome.batchID) == [.restored, .restored])
+        #expect(try String(contentsOf: child, encoding: .utf8) == "locked payload")
+        #expect(try entryStat(child).st_flags & UInt32(UF_IMMUTABLE) != 0)
+        #expect(try entryStat(nested).st_mode & 0o777 == 0o555)
         #expect(!FileManager.default.fileExists(atPath: moved.path))
-        for index in 0..<20 {
-            #expect(
-                try String(contentsOf: source.appending(path: "\(index).txt"), encoding: .utf8) == "payload-\(index)")
-        }
-        let undoStaging = try JSONDecoder().decode([String].self, from: Data(contentsOf: registry))
-        #expect(undoStaging.count > moveStaging.count)
-        for path in undoStaging where !moveStaging.contains(path) {
-            let remaining = try FileManager.default.contentsOfDirectory(atPath: path + "/project")
-            #expect(remaining.contains(lockedName))
-            #expect(remaining.count < 20)
-        }
-        let startup = StagingArea(supportDirectory: boot.appending(path: "support"))
-        startup.removeStale()
-        #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).count == undoStaging.count)
-        for path in undoStaging {
-            #expect(chflags(path + "/project/" + lockedName, 0) == 0)
-        }
-        startup.removeStale()
+        try expectNoStaging(in: boot)
+    }
+
+    private func expectNoStaging(in boot: URL) throws {
+        let registry = boot.appending(path: "support/staging.json")
         #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).isEmpty)
-        #expect((await reopened.history.records).first?.undone == true)
     }
 
-    @Test(arguments: [ItemPhase.preparing, .verifying, .saving])
-    func cancelledCrossVolumeMoveLeavesOriginalAndNoPublishedOutput(stage: ItemPhase) async throws {
+    @Test func cancellationDuringLargeCopyReclaimsStaging() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
-        let source = boot.appending(path: "keep.txt")
-        try Data("keep original".utf8).write(to: source)
-        let entry = try MoveItem.capture(source)
-        try FileManager.default.createDirectory(at: boot.appending(path: "support"), withIntermediateDirectories: true)
-        let staging = StagingArea(supportDirectory: boot.appending(path: "support"))
-        let task = Task {
-            try FileCommitter().move(entry, to: disk, staging: staging) { phase in
-                if phase == stage { withUnsafeCurrentTask { $0?.cancel() } }
-            }
+        let source = boot.appending(path: "large.bin")
+        let payloadBytes = 80 * 1024 * 1024
+        try Data(repeating: 0x5A, count: payloadBytes).write(to: source)
+        let engine = try makeEngine(in: boot)
+        let cut = try MoveItem.capture(source)
+        let request = OperationRequest(
+            op: .filesMove,
+            options: .move(MovePlan(items: [cut], destination: disk)), inputs: [source])
+        let running = Task {
+            await engine.run(
+                OperationPlanner.batch(for: request, settings: Settings()),
+                settings: Settings()
+            ) { _ in }
         }
-        await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(try String(contentsOf: source, encoding: .utf8) == "keep original")
+        let registry = boot.appending(path: "support/staging.json")
+        var copiedBytes: Int64 = 0
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if let contents = try? Data(contentsOf: registry),
+                let paths = try? JSONDecoder().decode([String].self, from: contents),
+                let directory = paths.first,
+                let metadata = try? entryStat(URL(fileURLWithPath: directory).appending(path: "large.bin")),
+                metadata.st_size > 0, metadata.st_size < payloadBytes
+            {
+                copiedBytes = metadata.st_size
+                running.cancel()
+                break
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let outcome = await running.value
+        #expect(copiedBytes > 0 && copiedBytes < payloadBytes)
+        #expect(outcome.outcomes == [.failed(.cancelled)])
+        #expect(try entryStat(source).st_size == payloadBytes)
+        #expect(try Data(contentsOf: source) == Data(repeating: 0x5A, count: payloadBytes))
         #expect(try FileManager.default.contentsOfDirectory(atPath: disk.path).isEmpty)
+        try expectNoStaging(in: boot)
     }
 
-    @Test func verificationFailureKeepsSourceAndNeverPublishes() async throws {
+    @Test func verificationFailureKeepsWholeTreeAndReclaimsStaging() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
-        let source = boot.appending(path: "keep.txt")
-        try Data("keep original".utf8).write(to: source)
-        let entry = try MoveItem.capture(source)
-        let support = boot.appending(path: "support")
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        let staging = StagingArea(supportDirectory: support)
+        let source = boot.appending(path: "project")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        for name in ["one.txt", "two.txt"] { try Data(name.utf8).write(to: source.appending(path: name)) }
+        let engine = try makeEngine(in: boot)
+        let cut = try MoveItem.capture(source)
+        let request = OperationRequest(
+            op: .filesMove,
+            options: .move(MovePlan(items: [cut], destination: disk)), inputs: [source])
         let failure = Mutex<(any Error)?>(nil)
-        #expect(throws: EngineError.self) {
-            try FileCommitter().move(entry, to: disk, staging: staging) { phase in
-                guard phase == .verifying else { return }
+        let corrupted = Mutex(false)
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        {
+            progress in
+            guard progress.itemPhases.contains(.verifying) else { return }
+            corrupted.withLock { changed in
+                guard !changed else { return }
+                changed = true
                 do {
-                    let registered = try JSONDecoder().decode(
-                        [String].self, from: Data(contentsOf: support.appending(path: "staging.json")))
-                    let copied = try #require(
-                        registered.map { URL(fileURLWithPath: $0).appending(path: "keep.txt") }
-                            .first { FileManager.default.fileExists(atPath: $0.path) })
-                    try Data("corrupt staged copy".utf8).write(to: copied)
+                    let paths = try JSONDecoder().decode(
+                        [String].self,
+                        from: Data(contentsOf: boot.appending(path: "support/staging.json")))
+                    let directory = try #require(paths.first)
+                    try Data("corrupt".utf8).write(
+                        to: URL(fileURLWithPath: directory).appending(path: "project/two.txt"))
                 } catch { failure.withLock { $0 = error } }
             }
         }
+        #expect(corrupted.withLock { $0 })
         #expect(failure.withLock { $0 == nil })
-        #expect(try String(contentsOf: source, encoding: .utf8) == "keep original")
+        if case .failed(.commitFailed) = outcome.outcomes.first {} else { Issue.record("Expected content rejection") }
+        for name in ["one.txt", "two.txt"] {
+            #expect(try Data(contentsOf: source.appending(path: name)) == Data(name.utf8))
+        }
         #expect(try FileManager.default.contentsOfDirectory(atPath: disk.path).isEmpty)
+        try expectNoStaging(in: boot)
     }
 
-    @Test func metadataChangedAfterCopyIsRefusedBeforePublication() throws {
+    @Test func immutableOriginalKeepsBothWhenTrashFails() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
-        let source = boot.appending(path: "keep.txt")
-        try Data("keep original".utf8).write(to: source)
-        let entry = try MoveItem.capture(source)
-        try FileManager.default.createDirectory(at: boot.appending(path: "support"), withIntermediateDirectories: true)
-        let staging = StagingArea(supportDirectory: boot.appending(path: "support"))
-        #expect(throws: EngineError.self) {
-            try FileCommitter().move(entry, to: disk, staging: staging) { phase in
-                if phase == .saving { #expect(chmod(source.path, 0o600) == 0) }
-            }
-        }
-        #expect(try String(contentsOf: source, encoding: .utf8) == "keep original")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: disk.path).isEmpty)
+        let source = boot.appending(path: "locked.txt")
+        try Data("immutable original".utf8).write(to: source)
+        try #require(chflags(source.path, UInt32(UF_IMMUTABLE)) == 0)
+        let moved = disk.appending(path: "locked.txt")
+        defer { _ = chflags(source.path, 0); _ = chflags(moved.path, 0) }
+        let engine = try makeEngine(in: boot)
+        let outcome = await runMove([try MoveItem.capture(source)], to: disk, engine: engine)
+        #expect(outcome.outcomes == [.succeeded(outputs: [moved], warnings: [.originalKept])])
+        #expect(try Data(contentsOf: moved) == Data(contentsOf: source))
+        try expectNoStaging(in: boot)
+        #expect(try #require(outcome.record).items.count == 1)
+        let reopened = try makeEngine(in: boot)
+        #expect((await reopened.history.records).first?.items == outcome.record?.items)
     }
 
     @Test func symlinkDestinationIntoDescendantIsRefused() async throws {
@@ -566,26 +586,34 @@ import Testing
         #expect(try String(contentsOf: source, encoding: .utf8) == "source")
     }
 
-    @Test func abandonedCopyStagingIsRecoveredWithoutTouchingOriginal() throws {
+    @Test func publishedCopySurvivesRestartBeforeTrashingOriginal() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
         let source = boot.appending(path: "original.txt")
         try Data("complete original".utf8).write(to: source)
         let engine = try makeEngine(in: boot)
-        let directory = try engine.staging.makeDirectory(for: disk)
-        let partial = directory.appending(path: "original.txt")
-        try Data("partial".utf8).write(to: partial)
-        let registry = boot.appending(path: "support/staging.json")
-        #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)) == [directory.path])
-        engine.staging.removeStale()
-        #expect(FileManager.default.fileExists(atPath: partial.path))
-        StagingArea(supportDirectory: boot.appending(path: "support")).removeStale()
-        #expect(!FileManager.default.fileExists(atPath: directory.path))
-        #expect(try JSONDecoder().decode([String].self, from: Data(contentsOf: registry)).isEmpty)
-        #expect(try String(contentsOf: source, encoding: .utf8) == "complete original")
+        let context = ItemContext(settings: Settings(), staging: engine.staging) { _ in }
+        let entry = try MoveItem.capture(source)
+        let committer = FileCommitter()
+        let prepared = try #require(try committer.prepareMove(entry, to: disk, context: context))
+        #expect(prepared.copy != nil)
+        let copied = try committer.move(entry, to: disk, prepared: prepared)
+        let batchID = UUID()
+        try await engine.history.record(
+            [.derived(output: copied.output.path, stamp: copied.stamp)],
+            batch: batchID, operation: .filesMove)
+        try await engine.history.flush()
+        let restarted = try makeEngine(in: boot)
+        restarted.staging.removeStale()
+        #expect(try Data(contentsOf: source) == Data("complete original".utf8))
+        #expect(try Data(contentsOf: copied.output) == Data("complete original".utf8))
+        #expect((await restarted.history.records).first?.id == batchID)
+        try expectNoStaging(in: boot)
+        #expect(try await restarted.undo(batchID) == [.restored])
+        #expect(try Data(contentsOf: source) == Data("complete original".utf8))
     }
 
-    @Test func destinationReplacedBySymlinkBeforePublicationIsRefused() throws {
+    @Test func destinationReplacedBySymlinkBeforePublicationIsRefused() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
         let source = boot.appending(path: "original.txt")
@@ -596,22 +624,61 @@ import Testing
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: redirected, withIntermediateDirectories: true)
         let engine = try makeEngine(in: boot)
-        let entry = try MoveItem.capture(source)
-        let replacementFailure = Mutex<(any Error)?>(nil)
-        #expect(throws: FileCommitter.Failure.changedSinceScan) {
-            try FileCommitter().move(entry, to: destination, staging: engine.staging) { phase in
-                guard phase == .saving else { return }
+        let cut = try MoveItem.capture(source)
+        let request = OperationRequest(
+            op: .filesMove,
+            options: .move(MovePlan(items: [cut], destination: destination)), inputs: [source])
+        let failure = Mutex<(any Error)?>(nil)
+        let substituted = Mutex(false)
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        {
+            progress in
+            guard progress.itemPhases.contains(.saving) else { return }
+            substituted.withLock { changed in
+                guard !changed else { return }
+                changed = true
                 do {
                     try FileManager.default.moveItem(at: destination, to: displaced)
                     try FileManager.default.createSymbolicLink(
                         atPath: destination.path, withDestinationPath: redirected.path)
-                } catch { replacementFailure.withLock { $0 = error } }
+                } catch { failure.withLock { $0 = error } }
             }
         }
-        #expect(replacementFailure.withLock { $0 == nil })
+        #expect(failure.withLock { $0 == nil })
+        #expect(outcome.outcomes == [.skipped(.changedSinceScan)])
         #expect(try String(contentsOf: source, encoding: .utf8) == "original")
         #expect(try FileManager.default.contentsOfDirectory(atPath: displaced.path).isEmpty)
         #expect(try FileManager.default.contentsOfDirectory(atPath: redirected.path).isEmpty)
+        try expectNoStaging(in: boot)
+    }
+
+    @Test func sameVolumeMoveAndFolderRenameUndoResolveSymlinkedParent() async throws {
+        let boot = try makeTempFolder()
+        let disk = try TestVolume.makeFolder()
+        let sourceDirectory = disk.appending(path: "source")
+        let destination = disk.appending(path: "destination")
+        let alias = boot.appending(path: "alias")
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: alias.path, withDestinationPath: sourceDirectory.path)
+        let source = alias.appending(path: "note.txt")
+        try Data("original".utf8).write(to: source)
+        let engine = try makeEngine(in: boot)
+        let outcome = await runMove([try MoveItem.capture(source)], to: destination, engine: engine)
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
+        #expect(try Data(contentsOf: source) == Data("original".utf8))
+        let folder = alias.appending(path: "old")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let batch = Batch(
+            operation: .folderRename,
+            items: [
+                WorkItem(inputs: [folder]) { _ in
+                    .rename([RenamePlan(url: folder, newName: "new")])
+                }
+            ])
+        let renamed = await engine.run(batch, settings: Settings()) { _ in }
+        #expect(try await engine.undo(renamed.batchID) == [.restored])
+        #expect(FileManager.default.fileExists(atPath: folder.path))
     }
 
     @Test func firmlinkDescendantIsRefusedByFilesystemIdentity() async throws {

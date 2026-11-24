@@ -1,10 +1,13 @@
-// Typed wrappers for variadic C APIs.
+// Typed wrappers preserve C calling conventions.
 #ifndef NATIVE_SHIMS_H
 #define NATIVE_SHIMS_H
 
+#include <copyfile.h>
 #include <opus/opus.h>
 #include <vpx/vpx_decoder.h>
 #include <vpx/vpx_encoder.h>
+
+int macease_copyfile_set_callback(copyfile_state_t state, copyfile_callback_t callback);
 
 int macease_opus_set_bitrate(OpusEncoder *encoder, opus_int32 bitrate);
 int macease_opus_set_complexity(OpusEncoder *encoder, opus_int32 complexity);

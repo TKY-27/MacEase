@@ -9,6 +9,7 @@ public struct FileStamp: Codable, Hashable, Sendable {
     public let modified: Date
     private let directorySummary: DirectorySummary?
     private let identity: FileIdentity?
+    private var volumeIdentifier: String?
 
     private struct FileIdentity: Codable, Hashable, Sendable {
         let device: UInt64
@@ -37,6 +38,9 @@ public struct FileStamp: Codable, Hashable, Sendable {
     public init(of url: URL, includingIdentity: Bool = false) throws {
         let metadata = try Self.metadata(of: url)
         let isDirectory = metadata.st_mode & S_IFMT == S_IFDIR
+        let volumeURL =
+            metadata.st_mode & S_IFMT == S_IFLNK ? url.deletingLastPathComponent().resolvingSymlinksInPath() : url
+        volumeIdentifier = try volumeURL.resourceValues(forKeys: [.volumeUUIDStringKey]).volumeUUIDString
         size = isDirectory ? nil : metadata.st_size
         modified = Date(
             timeIntervalSinceReferenceDate: TimeInterval(metadata.st_mtimespec.tv_sec)
@@ -53,9 +57,21 @@ public struct FileStamp: Codable, Hashable, Sendable {
             return false
         }
         do {
-            return try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil) == self
+            var current = try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil)
+            if volumeIdentifier == nil { current.volumeIdentifier = nil }
+            return current == self
         } catch {
             return false
+        }
+    }
+
+    func requireVolume(at url: URL) throws {
+        guard let volumeIdentifier else { return }
+        let current = try url.deletingLastPathComponent().resolvingSymlinksInPath().resourceValues(forKeys: [
+            .volumeUUIDStringKey
+        ])
+        guard current.volumeUUIDString == volumeIdentifier else {
+            throw EngineError.commitFailed("Undo volume is unavailable")
         }
     }
 
@@ -320,6 +336,16 @@ public actor HistoryStore {
         }
     }
 
+    func updateDerived(_ output: FileCommitter.Committed, batch id: UUID) throws {
+        guard let batchIndex = snapshot.batches.firstIndex(where: { $0.id == id }),
+            let entryIndex = snapshot.batches[batchIndex].items.firstIndex(where: {
+                if case .derived(let path, _) = $0 { path == output.output.path } else { false }
+            })
+        else { throw EngineError.historyPersistenceFailed }
+        snapshot.batches[batchIndex].items[entryIndex] = .derived(output: output.output.path, stamp: output.stamp)
+        try save()
+    }
+
     func organize(_ plan: OrganizationMovePlan, batch: Batch) throws -> URL {
         try checkAcceptingCommits()
         let completed = try committer.organize(plan) { folder in
@@ -456,7 +482,7 @@ public actor HistoryStore {
         var outcomes: [UndoOutcome] = []
         var failed: [CommitRecord] = []
         for entry in batch.items.reversed() {
-            let outcome = await committer.undo(entry, staging: staging)
+            let outcome = await committer.undo(entry)
             outcomes.append(outcome)
             if case .failed = outcome { failed.insert(entry, at: 0) }
         }

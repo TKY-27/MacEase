@@ -23,6 +23,20 @@ import Testing
         return await engine.run(batch, settings: settings) { _ in }
     }
 
+    @Test(arguments: ["Broken.docx", "Broken.rtf", "Broken.DOCX"])
+    func structuredNameWithoutSeparateExtensionIsValidated(name: String) async throws {
+        let directory = try TestVolume.makeFolder()
+        let engine = try JobEngine(supportDirectory: directory.appending(path: "support"), concurrency: 1)
+        let request = OperationRequest(
+            op: .folderNewFile,
+            options: .folder(.newFile(NewFileTemplate(pathExtension: "", defaultBaseName: name))), inputs: [directory])
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        { _ in }
+        #expect(outcome.outcomes == [.failed(.encodeFailed("empty output"))])
+        #expect(!FileManager.default.fileExists(atPath: directory.appending(path: name).path))
+        #expect(outcome.record == nil)
+    }
+
     @Test func substitutedDestinationIsRefusedBeforeCreatingNewFile() async throws {
         let workspace = try TestVolume.makeFolder()
         let target = workspace.appending(path: "target")

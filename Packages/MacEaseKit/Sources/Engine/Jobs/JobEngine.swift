@@ -167,6 +167,7 @@ public final class JobEngine: Sendable {
         let path = workItem.inputs.first?.path ?? ""
         defer { context.removeStaging() }
         let result: ItemResult
+        var preparedMove: FileCommitter.PreparedMove?
         var inputStamps: [URL: FileStamp] = [:]
         do {
             try await gate.acquire()
@@ -197,12 +198,17 @@ public final class JobEngine: Sendable {
                     context.recordInputs(identities)
                 }
                 result = try await workItem.body(context)
+                if case .move(let entry, let destination) = result {
+                    preparedMove = try committer.prepareMove(entry, to: destination, context: context)
+                }
                 await gate.release()
             } catch {
                 await gate.release()
                 throw error
             }
             if !workItem.durableArchive { try Task.checkCancellation() }
+        } catch FileCommitter.Failure.changedSinceScan {
+            return (.skipped(.changedSinceScan), nil)
         } catch {
             return (.failed(logged(EngineError.wrapping(error, path: path), batch: batch, workItem: workItem)), nil)
         }
@@ -222,7 +228,7 @@ public final class JobEngine: Sendable {
             try await history.checkAcceptingWork()
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs,
-                inputStamps: inputStamps,
+                inputStamps: inputStamps, preparedMove: preparedMove,
                 context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)
@@ -289,7 +295,7 @@ public final class JobEngine: Sendable {
         _ result: ItemResult,
         newFileNaming: NewFileNaming?,
         inputs: [URL],
-        inputStamps: [URL: FileStamp],
+        inputStamps: [URL: FileStamp], preparedMove: FileCommitter.PreparedMove?,
         context: ItemContext,
         batch: Batch,
         tracker: BatchTracker,
@@ -407,14 +413,46 @@ public final class JobEngine: Sendable {
             }
         case .move(let entry, let destination):
             try await history.checkAcceptingCommits()
-            switch try committer.move(entry, to: destination, staging: staging, phase: { context.phase($0) }) {
-            case .alreadyInDestination:
-                return (.skipped(.alreadyDone), nil)
-            case .moved(let moved):
-                records.append(.renamed(from: entry.url.path, to: moved.output.path, stamp: moved.stamp))
-                outputs.append(moved.output)
-                recordOutput(moved.output, stamp: moved.stamp, context: context)
-                await recordCommits(&records, batch: batch, tracker: tracker)
+            guard let preparedMove else { return (.skipped(.alreadyDone), nil) }
+            context.phase(.saving)
+            let published = try committer.move(entry, to: destination, prepared: preparedMove)
+            outputs.append(published.output)
+            recordOutput(published.output, stamp: published.stamp, context: context)
+            if preparedMove.copy == nil {
+                records.append(.renamed(from: entry.url.path, to: published.output.path, stamp: published.stamp))
+                break
+            }
+            records.append(.derived(output: published.output.path, stamp: published.stamp))
+            await recordCommits(&records, batch: batch, tracker: tracker)
+            do {
+                try await history.flush()
+                try await history.checkAcceptingCommits()
+            } catch {
+                tracker.markHistoryFailed()
+                context.warn(.originalKept)
+                break
+            }
+            await history.commitGate.release()
+            let finalized = await Task.detached {
+                Result { try self.committer.finishMoveCopy(entry, copied: published) }
+            }.value
+            try await Task.detached { try await self.history.commitGate.acquire() }.value
+            do {
+                let completed = try finalized.get()
+                recordOutput(completed.output, stamp: completed.stamp, context: context)
+                do { try await history.updateDerived(completed, batch: batch.id) } catch {
+                    tracker.markHistoryFailed()
+                    throw error
+                }
+                try await history.checkAcceptingCommits()
+                let trashed = try committer.trashMovedOriginal(entry)
+                records.append(
+                    .removed(
+                        original: entry.url.path, trashed: trashed.url.path,
+                        trashStamp: trashed.stamp))
+            } catch {
+                context.warn(.originalKept)
+                logger.error("Move kept original: \(error.localizedDescription, privacy: .private)")
             }
         case .trash(let urls, let permanently, let condition):
             for url in urls {

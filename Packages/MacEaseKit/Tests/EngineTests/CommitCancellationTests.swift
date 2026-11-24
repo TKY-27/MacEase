@@ -154,7 +154,7 @@ import Testing
         let undoing = Task.detached {
             for await _ in ready.stream { break }
             return await FileCommitter().undo(
-                .derived(output: output.path, stamp: stamp), staging: StagingArea(supportDirectory: root))
+                .derived(output: output.path, stamp: stamp))
         }
         pending.withLock { $0 = undoing }
         ready.continuation.yield(())
@@ -223,8 +223,36 @@ import Testing
         #expect(try String(contentsOf: collision, encoding: .utf8) == "concurrent")
         #expect(try String(contentsOf: numbered, encoding: .utf8) == "original")
         NSFileCoordinator.removeFilePresenter(presenter)
-        #expect(try await engine.undo(outcome.batchID) == [.restored])
+        #expect(try await engine.undo(outcome.batchID) == Array(repeating: .restored, count: crossVolume ? 2 : 1))
         #expect(try String(contentsOf: source, encoding: .utf8) == "original")
+    }
+
+    @Test func moveHistoryIsDurableBeforeTrashingAndUndoKeepsEditedOutput() async throws {
+        let destination = try TestVolume.makeFolder()
+        let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseMoveHistory-\(UUID().uuidString)")
+        TestTemporaryFolders.register(root)
+        let support = root.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let source = root.appending(path: "original.txt")
+        try Data("original bytes".utf8).write(to: source)
+        let presenter = MoveHistoryPresenter(source: source, support: support)
+        NSFileCoordinator.addFilePresenter(presenter)
+        defer { NSFileCoordinator.removeFilePresenter(presenter) }
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        let cut = try MoveItem.capture(source)
+        let request = OperationRequest(
+            op: .filesMove,
+            options: .move(MovePlan(items: [cut], destination: destination)), inputs: [source])
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        { _ in }
+        #expect(presenter.durableBeforeTrash.withLock { $0 })
+        let output = destination.appending(path: "original.txt")
+        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        NSFileCoordinator.removeFilePresenter(presenter)
+        try Data("edited output".utf8).write(to: output)
+        #expect(try await engine.undo(outcome.batchID) == [.restored, .skipped(.undoOutputChanged, path: output.path)])
+        #expect(try Data(contentsOf: source) == Data("original bytes".utf8))
+        #expect(try Data(contentsOf: output) == Data("edited output".utf8))
     }
 
     @Test func cancelledCrossVolumeUndoKeepsMovedCopyAndHistoryRetryable() async throws {
@@ -243,7 +271,14 @@ import Testing
         let record = try #require(outcome.record)
         let moved = destination.appending(path: "original.txt")
         let pending = Mutex<Task<[UndoOutcome], any Error>?>(nil)
-        let presenter = CommitCancellationPresenter(url: moved) { pending.withLock { $0?.cancel() } }
+        let trashed = try #require(
+            record.items.compactMap { entry -> String? in
+                if case .removed(_, let path, _) = entry { return path }
+                return nil
+            }.first)
+        let presenter = CommitCancellationPresenter(url: URL(fileURLWithPath: trashed)) {
+            pending.withLock { $0?.cancel() }
+        }
         NSFileCoordinator.addFilePresenter(presenter)
         let ready = AsyncStream<Void>.makeStream()
         let undoing = Task {
@@ -253,11 +288,11 @@ import Testing
         pending.withLock { $0 = undoing }
         ready.continuation.yield(())
         ready.continuation.finish()
-        #expect(try await undoing.value == [.failed(.cancelled, path: moved.path)])
+        #expect(try await undoing.value == [.failed(.cancelled, path: trashed), .failed(.cancelled, path: moved.path)])
         NSFileCoordinator.removeFilePresenter(presenter)
         #expect(try String(contentsOf: moved, encoding: .utf8) == "original")
         #expect(!FileManager.default.fileExists(atPath: source.path))
-        #expect(try await engine.undo(record.id) == [.restored])
+        #expect(try await engine.undo(record.id) == [.restored, .restored])
         #expect(try String(contentsOf: source, encoding: .utf8) == "original")
     }
 
@@ -312,6 +347,41 @@ private final class ClearHistoryPresenter: NSObject, NSFilePresenter, Sendable {
             completed.signal()
         }
         completed.wait()
+        writer(nil)
+    }
+}
+
+private final class MoveHistoryPresenter: NSObject, NSFilePresenter, Sendable {
+    let presentedItemURL: URL?
+    let presentedItemOperationQueue = OperationQueue()
+    let durableBeforeTrash = Mutex(false)
+    private let writes = Mutex(0)
+    private let support: URL
+
+    init(source: URL, support: URL) {
+        presentedItemURL = source
+        self.support = support
+    }
+
+    func relinquishPresentedItem(toWriter writer: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        let count = writes.withLock {
+            $0 += 1; return $0
+        }
+        if count == 2 {
+            do {
+                let snapshot = try JSONDecoder().decode(
+                    HistorySnapshot.self,
+                    from: Data(contentsOf: support.appending(path: "history.json")))
+                let paths = snapshot.batches.flatMap(\.outputPaths)
+                let source = try #require(presentedItemURL)
+                #expect(try Data(contentsOf: source) == Data("original bytes".utf8))
+                #expect(paths.count == 1)
+                if let path = paths.first {
+                    #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("original bytes".utf8))
+                    durableBeforeTrash.withLock { $0 = true }
+                }
+            } catch { Issue.record(error) }
+        }
         writer(nil)
     }
 }

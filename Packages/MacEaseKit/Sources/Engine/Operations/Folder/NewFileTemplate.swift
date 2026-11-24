@@ -40,8 +40,8 @@ public struct NewFileTemplate: Codable, Hashable, Sendable {
         pathExtension.hasPrefix(".") ? String(pathExtension.dropFirst()) : pathExtension
     }
 
-    var outputCheck: OutputCheck {
-        switch normalizedExtension.lowercased() {
+    func outputCheck(for name: String) -> OutputCheck {
+        switch (name as NSString).pathExtension.lowercased() {
         case "rtf": return .newFile(.richText)
         case "docx": return .newFile(.wordDocument)
         default:

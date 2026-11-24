@@ -92,7 +92,7 @@ import Testing
         }
     }
 
-    @Test func crossVolumeMoveAndUndoPreserveMetadataAtEveryLevel() async throws {
+    @Test func crossVolumeMoveKeepsSupportedMetadataAndUndoRestoresOriginalMetadata() async throws {
         let boot = FileManager.default.temporaryDirectory.appending(path: "MacEaseMetadata-\(UUID().uuidString)")
         TestTemporaryFolders.register(boot)
         let disk = try TestVolume.makeFolder()
@@ -124,11 +124,26 @@ import Testing
                 })
         for (index, entry) in entries.enumerated() {
             let relative = String(entry.path.dropFirst(source.path.count + 1))
-            try expectMetadata(
-                disk.appending(path: relative), original: snapshots[index].0, originalACL: snapshots[index].1)
+            let copied = disk.appending(path: relative)
+            #expect(try metadata(copied).st_mode == snapshots[index].0.st_mode)
+            #expect(try aclText(copied) == snapshots[index].1)
+            var expectedAttributes = try attributes
+            if snapshots[index].0.st_mode & S_IFMT == S_IFREG {
+                expectedAttributes["com.apple.ResourceFork"] = Data("resource fork payload".utf8)
+            }
+            for (name, contents) in expectedAttributes where name != "com.apple.quarantine" {
+                let count = getxattr(copied.path, name, nil, 0, 0, XATTR_NOFOLLOW)
+                try #require(count == contents.count)
+                var actual = Data(count: count)
+                #expect(
+                    actual.withUnsafeMutableBytes {
+                        getxattr(copied.path, name, $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW)
+                    } == count)
+                #expect(actual == contents)
+            }
         }
         let record = try #require(outcome.record)
-        #expect(try await engine.undo(record.id) == [.restored, .restored, .restored])
+        #expect(try await engine.undo(record.id) == Array(repeating: .restored, count: 6))
         for (index, entry) in entries.enumerated() {
             try expectMetadata(entry, original: snapshots[index].0, originalACL: snapshots[index].1)
         }
