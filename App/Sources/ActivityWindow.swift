@@ -34,7 +34,7 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
     /// `true` when the result stays visible here.
     func finished(_ batch: JobCenter.ActiveBatch, outcome: BatchOutcome) -> Bool {
         guard let index = log.rows.firstIndex(where: { $0.id == batch.id }) else { return false }
-        if outcome.operation == .archiveHatchExtract, outcome.wasCancelled, !jobs.pausedExtractions.isEmpty {
+        if outcome.details.contains(where: { $0.pausedArchiveSessionID != nil }), !jobs.pausedExtractions.isEmpty {
             log.rows.remove(at: index)
             AccessibilityNotification.Announcement(String(localized: "Paused.")).post()
             return panel?.isVisible == true
@@ -495,7 +495,7 @@ private struct ActivityRowView: View {
     }
 
     private func progress(_ batch: JobCenter.ActiveBatch) -> some View {
-        let pausesExtraction = batch.operation == .archiveHatchExtract
+        let pausesExtraction = batch.canPauseArchiveExtraction
         let stopTitle = pausesExtraction ? String(localized: "Pause") : String(localized: "Stop")
         return HStack(spacing: Self.lineSpacing * 2) {
             VStack(alignment: .leading, spacing: Self.lineSpacing) {

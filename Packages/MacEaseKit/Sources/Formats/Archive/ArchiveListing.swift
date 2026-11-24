@@ -24,7 +24,7 @@ public enum ArchiveListing {
                 }
                 if archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK == ARCHIVE_FORMAT_ZIP, !checkedZIPNames {
                     guard archive_filter_count(archive) == 1 else {
-                        throw FormatError.unsupported("filtered ZIP container")
+                        throw ArchiveError.wrappedZIPContainer
                     }
                     try checkZIPNames(url)
                     checkedZIPNames = true
@@ -37,13 +37,9 @@ public enum ArchiveListing {
     }
 
     private static func checkZIPNames(_ source: URL) throws {
-        let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else { throw FormatError.io("archive filename validation") }
-        defer { close(descriptor) }
-        var metadata = stat()
-        guard fstat(descriptor, &metadata) == 0 else { throw FormatError.io("archive filename validation") }
+        let source = try ArchiveReadSource([source])
         do {
-            _ = try ZIPDirectoryBounds.validate(descriptor: descriptor, size: metadata.st_size, bounded: false) {
+            _ = try ZIPDirectoryBounds.validate(source: source, bounded: false) {
                 try Task.checkCancellation()
             }
         } catch ZIPBrowserError.unsafeEntry {

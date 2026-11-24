@@ -1,4 +1,5 @@
 import Engine
+import Formats
 import Foundation
 import MenuCatalog
 
@@ -64,6 +65,7 @@ enum UserMessages {
         case .finished: String(localized: "Finished")
         case .downloading: String(localized: "Downloading")
         case .converting: String(localized: "Converting")
+        case .extractingInPlace: String(localized: "Extracting")
         }
     }
 
@@ -484,6 +486,17 @@ enum UserMessages {
         }
     }
 
+    private static func archiveFeature(_ feature: ArchiveExtractionFeature) -> String {
+        switch feature {
+        case .splitVolumes: String(localized: "split archive volumes")
+        case .zipCompression(let method): String(localized: "ZIP compression method \(method)")
+        case .zipStrongEncryption: String(localized: "ZIP strong encryption")
+        case .zipBackslashSeparators: String(localized: "ZIP backslash path separators")
+        case .zipEncryptedLinks: String(localized: "encrypted ZIP links")
+        case .zipLinkCompression(let method): String(localized: "ZIP link compression method \(method)")
+        }
+    }
+
     private static func describe(_ reason: InvalidInput, file: String) -> String {
         switch reason {
         case .tooLarge(let limit):
@@ -540,6 +553,23 @@ enum UserMessages {
             )
         case .archiveNameEncodingUnsupported:
             String(localized: "This archive uses a text encoding for file names that MacEase can’t read.")
+        case .archiveNameInspectionLimit:
+            String(
+                localized:
+                    "MacEase couldn’t verify this archive’s file-name encoding within the inspection limits. The original was not changed."
+            )
+        case .wrappedZIPArchive:
+            String(
+                localized:
+                    "ZIP archives wrapped in another compression format can’t be extracted. Decompress the outer layer first."
+            )
+        case .unsupportedArchive:
+            String(localized: "This file isn’t a supported archive or compressed file.")
+        case .archiveLegacyFeatureUnsupported(let feature):
+            String(
+                localized:
+                    "This archive uses legacy file-name encoding and an unsupported extraction feature: \(archiveFeature(feature)). The original was not changed."
+            )
         case .archiveExpandsTooMuch(let limit):
             String(
                 localized:
@@ -659,7 +689,7 @@ struct BatchSummary {
         var firstReason: String?
         var noteCount = 0
         var reasons: [String] = []
-        for (result, inputs) in zip(outcome.outcomes, outcome.inputs) {
+        for (index, (result, inputs)) in zip(outcome.outcomes, outcome.inputs).enumerated() {
             let file = inputs.first?.lastPathComponent ?? ""
             switch result {
             case .succeeded(_, let warnings):
@@ -674,7 +704,9 @@ struct BatchSummary {
                 let message = UserMessages.describe(reason, file: file)
                 if firstReason == nil { firstReason = message }
                 reasons.append(message)
-            case .failed(let error) where error == .cancelled && outcome.operation == .archiveHatchExtract:
+            case .failed(let error)
+            where error == .cancelled && outcome.details.indices.contains(index)
+                && outcome.details[index].pausedArchiveSessionID != nil:
                 let message = String(localized: "Paused.")
                 if firstReason == nil { firstReason = message }
                 reasons.append(message)

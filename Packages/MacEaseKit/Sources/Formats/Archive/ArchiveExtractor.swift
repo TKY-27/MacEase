@@ -2,6 +2,15 @@ import CArchive
 import Darwin
 import Foundation
 
+public enum ArchiveExtractionFeature: Equatable, Sendable {
+    case splitVolumes
+    case zipCompression(UInt16)
+    case zipStrongEncryption
+    case zipBackslashSeparators
+    case zipEncryptedLinks
+    case zipLinkCompression(UInt16)
+}
+
 public enum ArchiveError: Error, Equatable, Sendable {
     case passwordRequired
     case wrongPassword
@@ -9,6 +18,9 @@ public enum ArchiveError: Error, Equatable, Sendable {
     case expandsTooMuch(limitBytes: Int64)
     case duplicateRootName(String)
     case unsupportedNameEncoding
+    case nameInspectionLimit
+    case wrappedZIPContainer
+    case legacyNameFeatureUnsupported(ArchiveExtractionFeature)
 }
 
 /// Caps extracted bytes against zip bombs.
@@ -141,7 +153,7 @@ public enum ArchiveExtractor {
     ) throws -> String? {
         if archive_format(archive) == ARCHIVE_FORMAT_RAW {
             // Raw without a filter is garbage.
-            guard archive_filter_count(archive) > 1 else { throw FormatError.corrupt("not an archive") }
+            guard archive_filter_count(archive) > 1 else { throw FormatError.unsupportedArchive }
             return rawName
         }
         let pathname = try ArchivePathname.decode(entry)

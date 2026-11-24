@@ -4,7 +4,7 @@ import MenuCatalog
 
 public enum ItemPhase: Int, Sendable {
     case queued, preparing, decoding, searching, encoding, optimizing, verifying, saving, finished
-    case downloading, converting
+    case downloading, converting, extractingInPlace
 }
 
 public struct ImageResultDetails: Sendable {
@@ -24,6 +24,7 @@ public struct ItemDetails: Sendable {
     public internal(set) var outputStamps: [URL: FileStamp] = [:]
     public internal(set) var elapsedSeconds: Double = 0
     public internal(set) var image: ImageResultDetails?
+    public internal(set) var pausedArchiveSessionID: UUID?
     public var originalBytes: Int64 { inputStamps.values.compactMap(\.size).reduce(0, +) }
     public var outputBytes: Int64 { outputStamps.values.compactMap(\.size).reduce(0, +) }
 }

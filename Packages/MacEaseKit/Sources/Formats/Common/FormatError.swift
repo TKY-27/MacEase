@@ -4,6 +4,7 @@ public enum FormatError: Error, Equatable, Sendable {
     case inputTooLarge(limitBytes: Int64)
     case corrupt(String)
     case unsupported(String)
+    case unsupportedArchive
     case encoderFailure(String)
     case decoderFailure(String)
     case io(String)

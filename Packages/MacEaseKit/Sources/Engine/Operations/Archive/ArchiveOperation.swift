@@ -29,9 +29,28 @@ enum ArchivePlanner {
                 operation: op,
                 items: primaryArchives(archives).map { archive in
                     WorkItem(inputs: [archive], durableArchive: true) { context in
+                        let inspection: ArchiveNameInspection?
+                        if sessionID == nil {
+                            let stamp = try FileStamp(of: archive, includingIdentity: true)
+                            let inspected = try ArchiveNameInspection.inspect(archive, password: password)
+                            guard stamp.matches(archive.path) else { throw FileCommitter.Failure.changedSinceScan }
+                            if inspected.needsLegacyDecoder {
+                                if let feature = inspected.unsupportedNativeFeature {
+                                    throw ArchiveError.legacyNameFeatureUnsupported(feature)
+                                }
+                                context.recordInputs([archive: stamp])
+                                context.phase(.decoding)
+                                return try extract(archive, password: password, context: context)
+                            }
+                            inspection = inspected
+                        } else {
+                            inspection = nil
+                        }
+                        context.phase(.extractingInPlace)
                         let extraction = try await context.hatchExtractions.extract(
                             input: sessionID == nil ? archive : nil, resuming: sessionID, password: password,
-                            progress: context.progress)
+                            inspection: inspection, progress: context.progress)
+                        if extraction.paused { context.recordArchivePause(extraction.sessionID) }
                         if extraction.warning != nil { context.warn(.archiveFolderAttributesNotRestored) }
                         return .hatchExtraction(extraction)
                     }
@@ -136,6 +155,9 @@ extension ArchivePlanner {
         case .wrongPassword: .invalidInput(.wrongPassword)
         case .unsafePath(let path): .invalidInput(.unsafeArchivePath(path))
         case .unsupportedNameEncoding: .invalidInput(.archiveNameEncodingUnsupported)
+        case .nameInspectionLimit: .invalidInput(.archiveNameInspectionLimit)
+        case .wrappedZIPContainer: .invalidInput(.wrappedZIPArchive)
+        case .legacyNameFeatureUnsupported(let feature): .invalidInput(.archiveLegacyFeatureUnsupported(feature))
         case .expandsTooMuch(let limit): .invalidInput(.archiveExpandsTooMuch(limitBytes: limit))
         case .duplicateRootName(let name): .duplicateArchiveRootName(name)
         }

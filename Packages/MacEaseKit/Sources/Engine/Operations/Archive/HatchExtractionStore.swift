@@ -1,4 +1,5 @@
 import FileProvider
+import Formats
 import Foundation
 import MenuCatalog
 import Synchronization
@@ -44,7 +45,8 @@ public final class HatchExtractionStore: Sendable {
     }
 
     func extract(
-        input: URL?, resuming id: UUID? = nil, password: String? = nil, progress: @escaping @Sendable (Double) -> Void
+        input: URL?, resuming id: UUID? = nil, password: String? = nil,
+        inspection: ArchiveNameInspection? = nil, progress: @escaping @Sendable (Double) -> Void
     ) async throws
         -> HatchExtractionResult
     {
@@ -54,19 +56,35 @@ public final class HatchExtractionStore: Sendable {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let folder = directory.appending(path: sessionID.uuidString, directoryHint: .isDirectory)
+        let proof = directory.appending(path: sessionID.uuidString + ".filenames.json")
+        if id == nil {
+            guard let input, let inspection, inspection.source == input.standardizedFileURL,
+                !inspection.needsLegacyDecoder
+            else { throw EngineError.invalidInput(.archiveNameEncodingUnsupported) }
+            let encoded = try JSONEncoder().encode(FilenameProof(version: 1, input: input.path))
+            try encoded.write(to: proof, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: proof.path)
+        }
         let request = Request(
             action: id == nil ? "start" : "resume", directory: folder.path, input: input?.path, password: password)
         let requestBytes = try JSONEncoder().encode(request) + Data([10])
         let execution = HatchExecution()
-        return try await withTaskCancellationHandler {
-            try await Task.detached {
-                try Self.coordinate(input: input ?? self.input(for: sessionID)) {
-                    try execution.run(
-                        executable: executableURL, request: requestBytes, sessionID: sessionID, progress: progress)
-                }
-            }.value
-        } onCancel: {
-            execution.pause()
+        do {
+            return try await withTaskCancellationHandler {
+                try await Task.detached {
+                    try Self.coordinate(input: input ?? self.input(for: sessionID)) {
+                        try execution.run(
+                            executable: executableURL, request: requestBytes, sessionID: sessionID, progress: progress)
+                    }
+                }.value
+            } onCancel: {
+                execution.pause()
+            }
+        } catch {
+            if id == nil, !FileManager.default.fileExists(atPath: folder.appending(path: "manifest.json").path) {
+                try FileManager.default.removeItem(at: proof)
+            }
+            throw error
         }
     }
 
@@ -124,6 +142,11 @@ public final class HatchExtractionStore: Sendable {
         if let failure { throw failure }
         guard let result else { throw EngineError.unexpected("File coordination did not run") }
         return try result.get()
+    }
+
+    private struct FilenameProof: Codable {
+        let version: Int
+        let input: String
     }
 
     private struct Manifest: Decodable {

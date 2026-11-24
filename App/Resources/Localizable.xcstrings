@@ -1,6 +1,116 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Extracting": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開中"
+          }
+        }
+      }
+    },
+    "ZIP link compression method %u": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPのリンクの圧縮方式%u"
+          }
+        }
+      }
+    },
+    "encrypted ZIP links": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化されたZIPのリンク"
+          }
+        }
+      }
+    },
+    "MacEase couldn’t verify this archive’s file-name encoding within the inspection limits. The original was not changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブのファイル名の文字コードを検査の上限内に確認できませんでした。元のファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "ZIP archives wrapped in another compression format can’t be extracted. Decompress the outer layer first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の圧縮形式で包まれたZIPは展開できません。先に外側の圧縮を解除してください。"
+          }
+        }
+      }
+    },
+    "This file isn’t a supported archive or compressed file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは、対応するアーカイブまたは圧縮ファイルではありません。"
+          }
+        }
+      }
+    },
+    "split archive volumes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割アーカイブ"
+          }
+        }
+      }
+    },
+    "ZIP strong encryption": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPの強力な暗号化"
+          }
+        }
+      }
+    },
+    "ZIP backslash path separators": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPのバックスラッシュによるパス区切り"
+          }
+        }
+      }
+    },
+    "This archive uses legacy file-name encoding and an unsupported extraction feature: %@. The original was not changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは従来のファイル名の文字コードと未対応の展開機能（%@）を使用しています。元のファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "ZIP compression method %u": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPの圧縮方式%u"
+          }
+        }
+      }
+    },
     "This archive uses a text encoding for file names that MacEase can’t read.": {
       "localizations": {
         "ja": {

@@ -26,6 +26,10 @@ public enum ArchivePathname {
         guard let raw else { return nil }
         let bytes = Array(
             UnsafeBufferPointer(start: UnsafeRawPointer(raw).assumingMemoryBound(to: UInt8.self), count: strlen(raw)))
+        return try decode(bytes)
+    }
+
+    static func decode(_ bytes: [UInt8]) throws -> String {
         if let pathname = String(bytes: bytes, encoding: .utf8) { return pathname }
         guard validCP932(bytes), let pathname = String(bytes: bytes, encoding: cp932),
             pathname.unicodeScalars.allSatisfy({ scalar in

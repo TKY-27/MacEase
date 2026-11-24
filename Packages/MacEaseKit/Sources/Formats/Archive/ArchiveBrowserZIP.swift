@@ -200,103 +200,35 @@ public enum ArchiveBrowserZIP {
 
     private final class Reader {
         let archive: OpaquePointer
-        let descriptor: Int32
         let expectedEntries: Int
-        private let input: Input
+        private let source: ArchiveReadSource
 
-        init(source: URL, password: String? = nil, check: () throws -> Void) throws {
-            let descriptor = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-            guard descriptor >= 0 else { throw ZIPBrowserError.invalidZIP }
-            var metadata = stat()
-            guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
-                close(descriptor)
-                throw ZIPBrowserError.invalidZIP
-            }
+        init(source location: URL, password: String? = nil, check: () throws -> Void) throws {
+            let source: ArchiveReadSource
+            do { source = try ArchiveReadSource([location]) } catch is FormatError { throw ZIPBrowserError.invalidZIP }
             let directory: (entries: Int, endOffset: Int64)
             do {
-                directory = try ZIPDirectoryBounds.validate(
-                    descriptor: descriptor, size: metadata.st_size, check: check)
+                directory = try ZIPDirectoryBounds.validate(source: source, check: check)
+            } catch is FormatError { throw ZIPBrowserError.invalidZIP }
+            guard let archive = archive_read_new() else { throw ZIPBrowserError.invalidZIP }
+            do {
+                try ArchiveReadSupport.enableFilters(archive, compressed: false)
+                guard archive_read_support_format_zip_seekable(archive) == ARCHIVE_OK,
+                    archive_read_set_option(archive, "zip", "mac-ext", nil) == ARCHIVE_OK
+                else { throw ZIPBrowserError.invalidZIP }
+                if let password { archive_read_add_passphrase(archive, password) }
+                // libarchive searches only the final 16 KiB.
+                try source.open(archive, endingAt: directory.endOffset + 22)
             } catch {
-                close(descriptor)
+                archive_read_free(archive)
+                if error is FormatError { throw ZIPBrowserError.invalidZIP }
                 throw error
             }
-            guard let archive = archive_read_new() else {
-                close(descriptor)
-                throw ZIPBrowserError.invalidZIP
-            }
-            let input = Input(descriptor: descriptor, size: directory.endOffset + 22)
-            guard archive_read_support_filter_none(archive) == ARCHIVE_OK,
-                archive_read_support_format_zip_seekable(archive) == ARCHIVE_OK
-            else {
-                archive_read_free(archive)
-                close(descriptor)
-                throw ZIPBrowserError.invalidZIP
-            }
-            guard archive_read_set_option(archive, "zip", "mac-ext", nil) == ARCHIVE_OK else {
-                archive_read_free(archive)
-                close(descriptor)
-                throw ZIPBrowserError.invalidZIP
-            }
-            if let password { archive_read_add_passphrase(archive, password) }
-            archive_read_set_callback_data(archive, Unmanaged.passUnretained(input).toOpaque())
-            archive_read_set_read_callback(archive) { _, context, block in
-                guard let context, let block else { return -1 }
-                let input = Unmanaged<Input>.fromOpaque(context).takeUnretainedValue()
-                let request = min(Int64(blockSize), input.size - input.offset)
-                while true {
-                    let count = pread(input.descriptor, input.buffer, Int(request), input.offset)
-                    if count < 0, errno == EINTR { continue }
-                    if count > 0 { input.offset += Int64(count) }
-                    block.pointee = UnsafeRawPointer(input.buffer)
-                    return count
-                }
-            }
-            archive_read_set_seek_callback(archive) { _, context, offset, whence in
-                guard let context else { return la_int64_t(ARCHIVE_FATAL) }
-                let input = Unmanaged<Input>.fromOpaque(context).takeUnretainedValue()
-                let origin: Int64
-                switch whence {
-                case SEEK_SET: origin = 0
-                case SEEK_CUR: origin = input.offset
-                case SEEK_END: origin = input.size
-                default: return la_int64_t(ARCHIVE_FATAL)
-                }
-                let (position, overflow) = origin.addingReportingOverflow(offset)
-                guard !overflow, position >= 0, position <= input.size else { return la_int64_t(ARCHIVE_FATAL) }
-                input.offset = position
-                return position
-            }
-            let opened = withExtendedLifetime(input) { archive_read_open1(archive) }
-            guard opened == ARCHIVE_OK else {
-                archive_read_free(archive)
-                close(descriptor)
-                throw ZIPBrowserError.invalidZIP
-            }
             self.archive = archive
-            self.descriptor = descriptor
-            self.expectedEntries = directory.entries
-            self.input = input
+            self.source = source
+            expectedEntries = directory.entries
         }
 
-        deinit {
-            _ = withExtendedLifetime(input) { archive_read_free(archive) }
-            close(descriptor)
-        }
-
-        // libarchive searches only the final 16 KiB.
-        private final class Input {
-            let descriptor: Int32
-            let size: Int64
-            var offset: Int64 = 0
-            let buffer = UnsafeMutableRawPointer.allocate(
-                byteCount: blockSize, alignment: MemoryLayout<UInt8>.alignment)
-
-            init(descriptor: Int32, size: Int64) {
-                self.descriptor = descriptor
-                self.size = size
-            }
-
-            deinit { buffer.deallocate() }
-        }
+        deinit { _ = withExtendedLifetime(source) { archive_read_free(archive) } }
     }
 }

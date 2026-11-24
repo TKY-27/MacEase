@@ -121,6 +121,33 @@ final class ActivityUpdateTests: XCTestCase {
         )
     }
 
+    func testPauseLabelRequiresOnlyInPlaceExtractionWork() {
+        var batch = JobCenter.ActiveBatch(
+            id: UUID(), batchID: UUID(), operation: .archiveHatchExtract, fileNames: ["bundle.zip"])
+        XCTAssertFalse(batch.canPauseArchiveExtraction)
+        batch.itemPhases = [.extractingInPlace]
+        XCTAssertTrue(batch.canPauseArchiveExtraction)
+        batch.itemPhases = [.extractingInPlace, .decoding]
+        XCTAssertFalse(batch.canPauseArchiveExtraction)
+        batch.itemPhases = [.extractingInPlace, .finished]
+        XCTAssertTrue(batch.canPauseArchiveExtraction)
+        XCTAssertEqual(UserMessages.describe(.extractingInPlace), "Extracting")
+    }
+
+    func testUnsupportedArchiveMessagesDescribeExtraction() {
+        XCTAssertEqual(
+            UserMessages.describeResult(.invalidInput(.unsupportedArchive), file: "image.png"),
+            "This file isn’t a supported archive or compressed file.")
+        XCTAssertEqual(
+            UserMessages.describeResult(.invalidInput(.wrappedZIPArchive), file: "bundle.zip.gz"),
+            "ZIP archives wrapped in another compression format can’t be extracted. Decompress the outer layer first.")
+        XCTAssertEqual(
+            UserMessages.describeResult(
+                .invalidInput(.archiveLegacyFeatureUnsupported(.zipCompression(9))), file: "bundle.zip"),
+            "This archive uses legacy file-name encoding and an unsupported extraction feature: ZIP compression method 9. The original was not changed."
+        )
+    }
+
     func testArchiveFilenameEncodingMessageExplainsTheRefusal() {
         let expected = "This archive uses a text encoding for file names that MacEase can’t read."
         XCTAssertEqual(

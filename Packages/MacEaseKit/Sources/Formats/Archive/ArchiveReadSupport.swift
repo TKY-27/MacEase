@@ -16,6 +16,12 @@ public enum ArchiveReadSupport {
         }
     }
 
+    static func enableGzip(_ archive: OpaquePointer) throws {
+        guard archive_read_support_filter_gzip(archive) == ARCHIVE_OK else {
+            throw FormatError.unsupported(ArchiveListing.message(archive))
+        }
+    }
+
     static func enableFormats(_ archive: OpaquePointer) throws {
         let registrations = [
             archive_read_support_format_zip, archive_read_support_format_tar,

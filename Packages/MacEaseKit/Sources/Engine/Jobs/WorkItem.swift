@@ -216,6 +216,8 @@ public final class ItemContext: Sendable {
 
     var details: ItemDetails { state.withLock { $0.details } }
 
+    func recordArchivePause(_ sessionID: UUID) { state.withLock { $0.details.pausedArchiveSessionID = sessionID } }
+
     func recordInputs(_ stamps: [URL: FileStamp]) { state.withLock { $0.details.inputStamps = stamps } }
 
     func recordOutput(_ url: URL, stamp: FileStamp) {
