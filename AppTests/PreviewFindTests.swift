@@ -413,6 +413,75 @@ final class PreviewFindTests: XCTestCase {
         XCTAssertNil(pdfView.document)
     }
 
+    func testTextRapidFindQueriesDoNotLetCancelledSearchOverwriteSelection() async throws {
+        // Single match skips inner cancellation checks.
+        let content = String(repeating: "filler text line\n", count: 40_000) + "alpha omega\n"
+        let view = try textView(showing: content, in: try PreviewFixtures.directory(self))
+        let initial = await view.find("omega", direction: .forward, restart: true)
+        XCTAssertEqual(initial, PreviewFindOutcome(found: true, current: 1, total: 1))
+        let omegaRange = view.selectedRange()
+
+        for _ in 0..<8 {
+            let stale = Task { await view.find("alpha", direction: .forward, restart: true) }
+            try await Task.sleep(for: .milliseconds(1))
+            stale.cancel()
+            let outcome = await stale.value
+            XCTAssertEqual(outcome, .notFound)
+            XCTAssertEqual(view.selectedRange(), omegaRange)
+        }
+
+        let find = PreviewFind()
+        find.attach(view)
+        find.present()
+        find.query = "alpha"
+        find.query = "omega"
+        let settled = try await PreviewFixtures.waitUntil {
+            find.outcome == PreviewFindOutcome(found: true, current: 1, total: 1)
+        }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(view.selectedRange(), omegaRange)
+    }
+
+    func testSVGPreviewDisablesFindUntilSwitchedToSource() async throws {
+        let directory = try PreviewFixtures.directory(self)
+        let svg = directory.appendingPathComponent("icon.svg")
+        try Data(
+            #"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>"#.utf8
+        )
+        .write(to: svg)
+        let window = NSWindow(
+            contentRect: NSRect(x: -2000, y: -2000, width: 320, height: 400), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.contentView = NSHostingView(
+            rootView: PreviewTextViewer(
+                url: svg, kind: .svg, trust: PreviewTrust(level: .standard, resolvedPath: svg.path),
+                settings: FinderPreviewSettings(), scriptConsent: .constant([])))
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+        let content = try XCTUnwrap(window.contentView)
+        let previewLoaded = try await PreviewFixtures.waitUntil {
+            Self.first(PreviewWKWebView.self, in: content) != nil
+        }
+        XCTAssertTrue(previewLoaded)
+
+        XCTAssertFalse(window.performKeyEquivalent(with: try key("f", modifiers: .command)))
+        XCTAssertNil(Self.searchField(in: content))
+
+        let picker = try XCTUnwrap(Self.first(NSSegmentedControl.self, in: content))
+        picker.selectedSegment = 1
+        picker.sendAction(picker.action, to: picker.target)
+        let sourceLoaded = try await PreviewFixtures.waitUntil { Self.first(PreviewTextView.self, in: content) != nil }
+        XCTAssertTrue(sourceLoaded)
+        XCTAssertTrue(window.performKeyEquivalent(with: try key("f", modifiers: .command)))
+        let findOpened = try await PreviewFixtures.waitUntil { Self.searchField(in: content) != nil }
+        XCTAssertTrue(findOpened)
+
+        picker.selectedSegment = 0
+        picker.sendAction(picker.action, to: picker.target)
+        let findClosed = try await PreviewFixtures.waitUntil { Self.searchField(in: content) == nil }
+        XCTAssertTrue(findClosed)
+    }
+
     private func submit(_ password: String, in window: NSWindow) async throws {
         let field = try XCTUnwrap(window.contentView.flatMap { Self.first(NSSecureTextField.self, in: $0) })
         XCTAssertTrue(window.makeFirstResponder(field))

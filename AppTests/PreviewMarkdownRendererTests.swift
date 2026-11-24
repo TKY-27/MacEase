@@ -287,6 +287,8 @@ final class PreviewMarkdownRendererTests: XCTestCase {
             let html = try PreviewMarkdownRenderer.html(markdown, markdownURL: markdownURL, restricted: restricted)
             XCTAssertTrue(html.contains(##"<a href="#install">Install</a>"##), html)
             XCTAssertTrue(html.contains(#"<a title="https://example.com/a?b=1&amp;c=2""#), html)
+            XCTAssertTrue(html.contains(#"<a title="https://example.com/a?b=1&amp;c=2">site</a>"#), html)
+            XCTAssertFalse(html.contains(#"title="Home""#), html)
             XCTAssertTrue(html.contains(#"<a title="https://example.org">"#), html)
             XCTAssertTrue(html.contains(#"<a title="other.md">page</a>"#), html)
             XCTAssertTrue(html.contains("&lt;a href=&quot;kept&quot;&gt;"), html)

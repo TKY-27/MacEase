@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import XCTest
 
 @testable import MacEase
@@ -197,7 +198,14 @@ final class PreviewRenderedPageTests: XCTestCase {
         try PreviewFixtures.quarantine(downloaded)
         let restricted = try PreviewHTMLSnapshot.prepare(url: downloaded, trustedFolders: [], scriptConsent: [])
         XCTAssertTrue(restricted.truncated)
+        XCTAssertEqual(restricted.limitBytes, Int64(PreviewTextSource.maximumBytes))
         XCTAssertNil(restricted.page)
+
+        let directHome = try PreviewHTMLSnapshot.prepare(
+            url: large, trustedFolders: [], scriptConsent: [], homeDirectory: directory)
+        XCTAssertTrue(directHome.truncated)
+        XCTAssertEqual(directHome.limitBytes, Int64(PreviewTextSource.maximumBytes))
+        XCTAssertNil(directHome.page)
 
         let oversized = directory.appendingPathComponent("oversized.html")
         XCTAssertTrue(FileManager.default.createFile(atPath: oversized.path, contents: Data("<p>".utf8)))
@@ -206,6 +214,7 @@ final class PreviewRenderedPageTests: XCTestCase {
         try writer.close()
         let refused = try PreviewHTMLSnapshot.prepare(url: oversized, trustedFolders: [], scriptConsent: [])
         XCTAssertTrue(refused.truncated)
+        XCTAssertEqual(refused.limitBytes, PreviewHTMLSnapshot.maximumFileBytes)
         XCTAssertNil(refused.page)
     }
 
@@ -254,5 +263,54 @@ final class PreviewRenderedPageTests: XCTestCase {
             source: try PreviewTextSource.read(markdown), encoding: .automatic, rich: true, kind: .markdown,
             url: markdown, restricted: false)
         XCTAssertNil(rendered.decodedAs, "rendered pages hide the encoding menu")
+
+        let utf16LE = directory.appendingPathComponent("le.txt")
+        try Data([0xFF, 0xFE, 0x41, 0x00]).write(to: utf16LE)
+        let renderedLE = try PreviewTextRendering.make(
+            source: try PreviewTextSource.read(utf16LE), encoding: .automatic, rich: false, kind: .text, url: utf16LE,
+            restricted: false)
+        XCTAssertEqual(renderedLE.decodedAs, .utf16LE)
+
+        let utf16BE = directory.appendingPathComponent("be.txt")
+        try Data([0xFE, 0xFF, 0x00, 0x41]).write(to: utf16BE)
+        let renderedBE = try PreviewTextRendering.make(
+            source: try PreviewTextSource.read(utf16BE), encoding: .automatic, rich: false, kind: .text, url: utf16BE,
+            restricted: false)
+        XCTAssertEqual(renderedBE.decodedAs, .utf16BE)
+    }
+
+    func testQuarantinedFiveMiBHTMLReportsFourMegabyteLimit() async throws {
+        try await PreviewFixtures.withAccessibilityEnabled {
+            let directory = try PreviewFixtures.directory(self)
+            let downloaded = directory.appendingPathComponent("downloaded.html")
+            let body = String(repeating: "<p>row</p>\n", count: (PreviewTextSource.maximumBytes / 11) + 2048)
+            try Data("<html><body>\(body)</body></html>".utf8).write(to: downloaded)
+            try PreviewFixtures.quarantine(downloaded)
+
+            let window = NSWindow(
+                contentRect: NSRect(x: -2000, y: -2000, width: 420, height: 320), styleMask: [.titled],
+                backing: .buffered, defer: false)
+            let trust = PreviewTrust.evaluate(downloaded, trustedFolders: [])
+            window.contentView = NSHostingView(
+                rootView: PreviewTextViewer(
+                    url: downloaded, kind: .html, trust: trust, settings: FinderPreviewSettings(),
+                    scriptConsent: .constant([])))
+            window.orderBack(nil)
+            defer { window.orderOut(nil) }
+            let content = try XCTUnwrap(window.contentView)
+            // Switch from Source to Preview mode.
+            let segmentedReady = try await PreviewFixtures.waitUntil {
+                PreviewFindTests.first(NSSegmentedControl.self, in: content) != nil
+            }
+            XCTAssertTrue(segmentedReady)
+            let picker = try XCTUnwrap(PreviewFindTests.first(NSSegmentedControl.self, in: content))
+            picker.selectedSegment = 0
+            picker.sendAction(picker.action, to: picker.target)
+
+            let reportedFourMB = try await PreviewFixtures.waitUntil(timeout: .seconds(2)) {
+                PreviewFixtures.visibleTexts(in: content).contains("Files larger than 4 MB can't be previewed here.")
+            }
+            XCTAssertTrue(reportedFourMB, "\(PreviewFixtures.visibleTexts(in: content))")
+        }
     }
 }

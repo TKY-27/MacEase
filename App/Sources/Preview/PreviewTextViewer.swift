@@ -20,7 +20,9 @@ enum PreviewHTMLSnapshot {
         let trust: PreviewTrust
         let policy: PreviewWebPolicy
         let page: PreviewWebViewer.Page?
-        let truncated: Bool
+        let limitBytes: Int64?
+
+        var truncated: Bool { limitBytes != nil }
     }
 
     static func prepare(
@@ -38,19 +40,21 @@ enum PreviewHTMLSnapshot {
             let readAccess = PreviewWebConfiguration.folderReadAccess(for: resolved, homeDirectory: homeDirectory)
         {
             guard let size = stamp.stamp.size, size <= maximumFileBytes else {
-                return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
+                return Prepared(
+                    id: UUID(), trust: trust, policy: policy, page: nil, limitBytes: maximumFileBytes)
             }
             return Prepared(
                 id: UUID(), trust: trust, policy: policy,
                 page: .file(resolved, readAccess: readAccess, policy, expectedStamp: stamp),
-                truncated: false)
+                limitBytes: nil)
         }
         if source.truncated {
-            return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
+            return Prepared(
+                id: UUID(), trust: trust, policy: policy, page: nil, limitBytes: Int64(PreviewTextSource.maximumBytes))
         }
         let html = try source.decoded(as: encoding)
         let page: PreviewWebViewer.Page = trust.restricted ? .generated(html) : .inline(html, policy)
-        return Prepared(id: UUID(), trust: trust, policy: policy, page: page, truncated: false)
+        return Prepared(id: UUID(), trust: trust, policy: policy, page: page, limitBytes: nil)
     }
 }
 
@@ -99,7 +103,7 @@ struct PreviewTextRendering: Sendable {
         } else {
             let decoded = try source.decoded(as: encoding)
             if !html {
-                decodedAs = encoding == .automatic ? try detectedEncoding(of: source, decoded: decoded) : encoding
+                decodedAs = encoding == .automatic ? source.detectedEncoding : encoding
             }
             if rich && kind == .json {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
@@ -129,19 +133,6 @@ struct PreviewTextRendering: Sendable {
         return Self(text: text, tokens: tokens, lineStarts: lineStarts, html: html, decodedAs: decodedAs)
     }
 
-    // First encoding reproducing the shown text.
-    private static func detectedEncoding(of source: PreviewTextSource, decoded: String) throws -> PreviewEncoding? {
-        for candidate in PreviewEncoding.allCases where candidate != .automatic {
-            try Task.checkCancellation()
-            do {
-                if try source.decoded(as: candidate) == decoded { return candidate }
-            } catch EngineError.invalidInput(.textEncodingUndetected) {
-                continue
-            }
-        }
-        return nil
-    }
-
     // An image element never runs SVG scripts.
     static func svgPage(_ svg: Data) -> String {
         """
@@ -157,7 +148,8 @@ struct PreviewTextRendering: Sendable {
 }
 
 private enum PreviewTextFailure: Equatable {
-    case tooLarge, unreadable
+    case tooLarge(limitBytes: Int64)
+    case unreadable
 }
 
 struct PreviewTextViewer: View {
@@ -195,7 +187,7 @@ struct PreviewTextViewer: View {
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar { HStack(spacing: 8) { controls }.layoutPriority(1) }
-            if find.isPresented { PreviewFindBar(find: find) }
+            if supportsFind && find.isPresented { PreviewFindBar(find: find) }
             notes
             Group {
                 if let failure {
@@ -208,7 +200,8 @@ struct PreviewTextViewer: View {
                     }
                 } else if let rendering {
                     if rendering.html {
-                        PreviewWebViewer(page: .generated(rendering.text), find: find).id(rendering.id)
+                        PreviewWebViewer(page: .generated(rendering.text), find: supportsFind ? find : nil)
+                            .id(rendering.id)
                     } else {
                         PreviewCodeView(
                             rendering: rendering,
@@ -227,6 +220,7 @@ struct PreviewTextViewer: View {
         }
         .onChange(of: rich) { _, isRich in
             if !isRich { htmlLoad = nil }
+            if !supportsFind { find.dismiss() }
         }
         .onDisappear {
             source = nil
@@ -240,6 +234,8 @@ struct PreviewTextViewer: View {
     private var activePolicy: PreviewWebPolicy? { htmlLoad?.policy }
 
     private var offersModes: Bool { kind != .text && source?.binaryPropertyList != true }
+
+    private var supportsFind: Bool { !(kind == .svg && rich) }
 
     private var showsEncodingMenu: Bool {
         source?.binaryPropertyList != true && !(rich && (kind == .html || kind == .markdown || kind == .svg))
@@ -300,7 +296,7 @@ struct PreviewTextViewer: View {
             encodingMenu
         }
         Spacer(minLength: 0)
-        PreviewFindButton(find: find)
+        if supportsFind { PreviewFindButton(find: find) }
     }
 
     private var modePicker: some View {
@@ -364,9 +360,8 @@ struct PreviewTextViewer: View {
     private func failureMessage(_ failure: PreviewTextFailure) -> Text {
         let formats = kind == .json || kind == .propertyList
         switch failure {
-        case .tooLarge:
-            let limit = kind == .html ? PreviewHTMLSnapshot.maximumFileBytes : Int64(PreviewTextSource.maximumBytes)
-            let size = ByteCountFormatter.string(fromByteCount: limit, countStyle: .memory)
+        case .tooLarge(let limitBytes):
+            let size = ByteCountFormatter.string(fromByteCount: limitBytes, countStyle: .memory)
             return formats
                 ? Text("Files larger than \(size) can't be formatted.")
                 : Text("Files larger than \(size) can't be previewed here.")
@@ -435,7 +430,7 @@ struct PreviewTextViewer: View {
         } catch is CancellationError {
         } catch CocoaError.fileReadTooLarge {
             guard !Task.isCancelled else { return }
-            failure = .tooLarge
+            failure = .tooLarge(limitBytes: Int64(PreviewTextSource.maximumBytes))
         } catch {
             guard !Task.isCancelled else { return }
             failure = .unreadable
@@ -455,8 +450,8 @@ struct PreviewTextViewer: View {
             }
             try Task.checkCancellation()
             currentTrust = prepared.trust
-            if prepared.truncated {
-                failure = .tooLarge
+            if let limitBytes = prepared.limitBytes {
+                failure = .tooLarge(limitBytes: limitBytes)
                 return
             }
             htmlLoad = prepared
@@ -565,11 +560,13 @@ private struct PreviewCodeView: NSViewRepresentable {
 }
 
 final class PreviewTextView: NSTextView, PreviewFindTarget {
+    private var contentVersion: UInt64 = 0
     private var matchedQuery: String?
     private var matches: [NSRange] = []
     private var matchIndex: Int?
 
     func show(_ rendering: PreviewTextRendering, font: NSFont) {
+        contentVersion &+= 1
         let styled = NSMutableAttributedString(
             string: rendering.text, attributes: [.font: font, .foregroundColor: NSColor.textColor])
         for token in rendering.tokens {
@@ -590,10 +587,13 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
     }
 
     func find(_ query: String, direction: PreviewFindDirection, restart: Bool) async -> PreviewFindOutcome {
+        guard !Task.isCancelled else { return .notFound }
         if query != matchedQuery {
             let text = string
+            let version = contentVersion
+            let found: [NSRange]
             do {
-                matches = try await offMain { try Self.ranges(of: query, in: text) }
+                found = try await offMain { try Self.ranges(of: query, in: text) }
             } catch is CancellationError {
                 return .notFound
             } catch {
@@ -601,10 +601,12 @@ final class PreviewTextView: NSTextView, PreviewFindTarget {
                     "Preview text find failed: \(error.localizedDescription, privacy: .private)")
                 return .notFound
             }
+            guard !Task.isCancelled, contentVersion == version else { return .notFound }
+            matches = found
             matchedQuery = query
             matchIndex = nil
         }
-        guard !matches.isEmpty else { return .notFound }
+        guard !Task.isCancelled, !matches.isEmpty else { return .notFound }
         let index: Int
         if let current = matchIndex, !restart {
             let step = direction == .forward ? 1 : -1
