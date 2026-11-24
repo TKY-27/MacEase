@@ -10,6 +10,23 @@ struct TestDiskImageTests {
         return metadata.st_dev
     }
 
+    @Test func imageCreationLockTimesOutAndReclaimsItsDirectory() throws {
+        let temporary = FileManager.default.temporaryDirectory
+        let lock = temporary.appending(path: "MacEaseTests-Engine-images.lock")
+        let descriptor = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        try #require(descriptor >= 0)
+        defer { Darwin.close(descriptor) }
+        try #require(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        let before = try Set(FileManager.default.contentsOfDirectory(atPath: temporary.path))
+        let acquisitionTimeout: TimeInterval = 0.05
+        let started = ContinuousClock.now
+        #expect(throws: POSIXError(.ETIMEDOUT)) { _ = try TestDiskImage(lockTimeout: acquisitionTimeout) }
+        #expect(started.duration(to: .now) < .seconds(5))
+        let after = try Set(FileManager.default.contentsOfDirectory(atPath: temporary.path))
+        let ownerPrefix = "\(TestDiskImage.familyPrefix)\(getpid())-"
+        #expect(after.subtracting(before).filter { $0.hasPrefix(ownerPrefix) }.isEmpty)
+    }
+
     @Test func processExitDetachesAndRemovesItsImage() async throws {
         let result = try await #require(processExitsWith: .success, observing: [\.standardOutputContent]) {
             let volume = try TestDiskImage()

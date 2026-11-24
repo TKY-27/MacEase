@@ -60,8 +60,7 @@ import Testing
         let movedFolder = destDir.appending(path: "project")
         #expect(
             outcome.outcomes == [
-                .succeeded(outputs: [movedFile], warnings: []),
-                .succeeded(outputs: [movedFolder], warnings: []),
+                .succeeded(outputs: [movedFile], warnings: []), .succeeded(outputs: [movedFolder], warnings: []),
             ])
         #expect(try entryStat(movedFile).st_ino == fileInode)
         #expect(try entryStat(movedFolder).st_ino == folderInode)
@@ -302,7 +301,7 @@ import Testing
         #expect(try String(contentsOf: destDir.appending(path: "second.txt"), encoding: .utf8) == "two")
     }
 
-    @Test func crossVolumeMovesVerifyCopyBeforeRemovingSourceAndUndoAcrossVolumes() async throws {
+    @Test func crossVolumeCopiesVerifyContentAndUndoLeavesOriginals() async throws {
         let bootWorkspace = try makeTempFolder()
         let diskWorkspace = try TestVolume.makeFolder()
         let sourceDir = bootWorkspace.appending(path: "src", directoryHint: .isDirectory)
@@ -339,9 +338,13 @@ import Testing
         let movedLink = destDir.appending(path: "top-dangling")
         #expect(
             outcome.outcomes == [
-                .succeeded(outputs: [movedFile], warnings: []),
-                .succeeded(outputs: [movedFolder], warnings: []),
-                .succeeded(outputs: [movedLink], warnings: []),
+                .succeeded(
+                    outputs: [movedFile], warnings: [.copiedAcrossVolumes(original: file, destination: movedFile)]),
+                .succeeded(
+                    outputs: [movedFolder], warnings: [.copiedAcrossVolumes(original: folder, destination: movedFolder)]
+                ),
+                .succeeded(
+                    outputs: [movedLink], warnings: [.copiedAcrossVolumes(original: topLink, destination: movedLink)]),
             ])
         #expect(try Data(contentsOf: movedFile) == payload)
         #expect(outcome.details[0].outputStamps[movedFile]?.matchesIdentity(movedFile.path) == true)
@@ -358,11 +361,16 @@ import Testing
                 == "/missing/cross-target")
         #expect(try entryStat(movedLink).st_mode & S_IFMT == S_IFLNK)
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: movedLink.path) == "/missing/top")
-        #expect(try FileManager.default.contentsOfDirectory(atPath: sourceDir.path).isEmpty)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: sourceDir.path).sorted() == [
+                "bundle", "payload.bin", "top-dangling",
+            ])
 
         let record = try #require(outcome.record)
+        #expect(record.items.count == 3)
+        #expect(record.items.allSatisfy { if case .derived = $0 { true } else { false } })
         let reopened = try makeEngine(in: bootWorkspace)
-        #expect(try await reopened.undo(record.id) == Array(repeating: .restored, count: 6))
+        #expect(try await reopened.undo(record.id) == Array(repeating: .restored, count: 3))
         #expect(try Data(contentsOf: file) == payload)
         #expect(try String(contentsOf: nestedDir.appending(path: "doc.txt"), encoding: .utf8) == "nested")
         #expect(
@@ -430,12 +438,15 @@ import Testing
             }
         }
         let outcome = await runMove([try MoveItem.capture(source)], to: disk, engine: engine)
-        #expect(outcome.outcomes == [.succeeded(outputs: [moved], warnings: [])])
-        #expect(!FileManager.default.fileExists(atPath: source.path))
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [moved], warnings: [.copiedAcrossVolumes(original: source, destination: moved)])
+            ])
+        #expect(FileManager.default.fileExists(atPath: source.path))
         #expect(
             try String(contentsOf: moved.appending(path: "readonly/locked.txt"), encoding: .utf8) == "locked payload")
         try expectNoStaging(in: boot)
-        #expect(try await engine.undo(outcome.batchID) == [.restored, .restored])
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
         #expect(try String(contentsOf: child, encoding: .utf8) == "locked payload")
         #expect(try entryStat(child).st_flags & UInt32(UF_IMMUTABLE) != 0)
         #expect(try entryStat(nested).st_mode & 0o777 == 0o555)
@@ -459,30 +470,17 @@ import Testing
         let request = OperationRequest(
             op: .filesMove,
             options: .move(MovePlan(items: [cut], destination: disk)), inputs: [source])
-        let running = Task {
-            await engine.run(
-                OperationPlanner.batch(for: request, settings: Settings()),
-                settings: Settings()
-            ) { _ in }
+        let cancelledDuringCopy = Mutex(false)
+        let outcome = await engine.run(
+            OperationPlanner.batch(for: request, settings: Settings()), settings: Settings()
+        ) { progress in
+            guard let fraction = progress.currentFileFraction, fraction > 0, fraction < 1,
+                progress.itemPhases.contains(.preparing)
+            else { return }
+            cancelledDuringCopy.withLock { $0 = true }
+            withUnsafeCurrentTask { $0?.cancel() }
         }
-        let registry = boot.appending(path: "support/staging.json")
-        var copiedBytes: Int64 = 0
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            if let contents = try? Data(contentsOf: registry),
-                let paths = try? JSONDecoder().decode([String].self, from: contents),
-                let directory = paths.first,
-                let metadata = try? entryStat(URL(fileURLWithPath: directory).appending(path: "large.bin")),
-                metadata.st_size > 0, metadata.st_size < payloadBytes
-            {
-                copiedBytes = metadata.st_size
-                running.cancel()
-                break
-            }
-            try await Task.sleep(for: .milliseconds(1))
-        }
-        let outcome = await running.value
-        #expect(copiedBytes > 0 && copiedBytes < payloadBytes)
+        #expect(cancelledDuringCopy.withLock { $0 })
         #expect(outcome.outcomes == [.failed(.cancelled)])
         #expect(try entryStat(source).st_size == payloadBytes)
         #expect(try Data(contentsOf: source) == Data(repeating: 0x5A, count: payloadBytes))
@@ -530,7 +528,7 @@ import Testing
         try expectNoStaging(in: boot)
     }
 
-    @Test func immutableOriginalKeepsBothWhenTrashFails() async throws {
+    @Test func immutableOriginalRemainsUntouchedAfterCopy() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
         let source = boot.appending(path: "locked.txt")
@@ -540,7 +538,10 @@ import Testing
         defer { _ = chflags(source.path, 0); _ = chflags(moved.path, 0) }
         let engine = try makeEngine(in: boot)
         let outcome = await runMove([try MoveItem.capture(source)], to: disk, engine: engine)
-        #expect(outcome.outcomes == [.succeeded(outputs: [moved], warnings: [.originalKept])])
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [moved], warnings: [.copiedAcrossVolumes(original: source, destination: moved)])
+            ])
         #expect(try Data(contentsOf: moved) == Data(contentsOf: source))
         try expectNoStaging(in: boot)
         #expect(try #require(outcome.record).items.count == 1)
@@ -586,7 +587,7 @@ import Testing
         #expect(try String(contentsOf: source, encoding: .utf8) == "source")
     }
 
-    @Test func publishedCopySurvivesRestartBeforeTrashingOriginal() async throws {
+    @Test func publishedCopySurvivesRestartWithOriginalUntouched() async throws {
         let boot = try makeTempFolder()
         let disk = try TestVolume.makeFolder()
         let source = boot.appending(path: "original.txt")

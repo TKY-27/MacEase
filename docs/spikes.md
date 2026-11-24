@@ -1112,7 +1112,7 @@ On FAT32, plain rename atomically replaced both an empty file reservation and
 an empty directory reservation. The exFAT integration regressions exercise the
 same reservation publication through FileCommitter, including collisions.
 
-The shared publisher first attempts RENAME_EXCL. Only ENOTSUP selects the
+The shared publisher first attempts RENAME_EXCL. ENOTSUP or EOPNOTSUPP selects the
 fallback: open with O_CREAT | O_EXCL for files and symbolic links, or mkdir
 for directories. An occupied name advances collision numbering. The publisher
 holds the reservation descriptor, compares device/inode and kind, confirms
@@ -1122,8 +1122,9 @@ Metadata equality is not required across filesystems; content verification
 checks kinds, bytes, directory entries and link targets before publication.
 
 This fallback has a residual race: an uncoordinated process can replace the
-empty reservation after the identity/emptiness check and before rename. The
-rename could then overwrite that replacement. Reservation cleanup likewise
+empty reservation, or write into its existing inode, after the identity/emptiness
+check and before rename. The rename could then overwrite that replacement or
+those new bytes. Reservation cleanup likewise
 has a check-to-removal interval. Directory reservation acquisition has a
 mkdir-to-open interval because mkdir does not return a descriptor. These
 limits are accepted for filesystems lacking RENAME_EXCL: an exclusive
@@ -1140,26 +1141,37 @@ succeeded in the exFAT platform probe, but its internal implementation and
 atomicity were not assumed. Those exclusive publication paths now share the
 reservation fallback. Same-name Replace continues to use the existing
 clone/copy, trashItem and replaceItemAt sequence. Real exFAT regressions pass
-for text conversion in both new-file and same-name Replace modes, New File,
-cross-volume Move, collision retry and Undo after destination remount. Newly
-captured FileStamp values carry an optional volume UUID. Undo compares it
-before interpreting a missing output as an edited/deleted file, so an empty
-mountpoint remaining after detach does not consume the Undo entry. Legacy
-stamps without this field continue to decode and compare their original fields.
+for text conversion in both new-file and same-name Replace modes and New File.
+Ordinary Derived (with or without an input read coordination) and different-name
+Replace retain their previous FileManager.moveItem behavior for EXDEV when
+Foundation supplies staging on another volume. That fallback is separate from
+the reservation path; FileManager is never the ENOTSUP fallback. New File and
+grouped Derived retain their prior refusal of cross-volume staging.
 
-Platform copyfile copies content without following symbolic links. Copy
-callbacks check cancellation during writes. Staging directories retain owner
-write/search permissions and receive no source immutability or ACLs. After
-publication, platform metadata copying runs outside the naming lock and
-history gate; unsupported metadata is logged and dropped. The durable Derived
-record is updated with the post-metadata stamp before trashing the original.
-Cross-volume Undo composes existing Removed and Derived records, restoring the
-original by its Trash stamp and trashing an unchanged destination output.
+Cross-volume Move now makes a verified copy and always leaves the source in
+place. It records one ordinary Derived entry and a typed warning containing
+both paths. Undo trashes an unchanged copy; the original is never involved.
+Same-volume Move records the existing Renamed entry and preserves identity.
+A missing output, including one beneath a deleted parent or absent volume,
+uses the existing skipped/consumed Undo behavior. No volume UUID is added to
+FileStamp equality, hashing or history encoding.
 
+Platform copyfile copies sparse content without following symbolic links.
+Callbacks report copy progress and check cancellation during writes. Dataless
+files and folders are coordinated for hydration before entering the root copy
+coordination; no descendant coordination is nested inside it. Staging directories
+retain owner write/search permissions and receive no source immutability or
+ACLs. After publication, best-effort metadata runs in the normal commit section
+before its final stamp and history record. There is no detached finalization or
+post-seal history update. Unsupported metadata is logged and dropped.
+
+Real disk-image regressions cover directory publication, concurrent directory
+collisions, symbolic-link publication and Undo on exFAT and FAT32. macOS copyfile
+can represent symbolic links on both filesystems; the earlier refusal claim was
+incorrect. FIFO and Unix sockets are refused before opening their content.
 No SMB/NFS mount, real cloud-provider hydration, forced process kill or power
-failure was exercised. Crash recovery is a publication/history/relaunch
-simulation. Filesystems that cannot represent a source kind, including
-symbolic links on exFAT/FAT32, are refused before the original is trashed.
+failure was exercised. Recovery proof is a publication/history/relaunch
+simulation with both complete copies retained.
 
 
 ### Engine test-image lifecycle
@@ -1167,7 +1179,7 @@ symbolic links on exFAT/FAT32, are refused before the original is trashed.
 Engine fixtures now share TestDiskImage. Backing folders use
 MacEaseTests-Engine-PID-UUID under the system temporary directory, with distinct
 short MACEASE filesystem labels. An interprocess flock serializes image
-creation; the APFS capability probe is evaluated once per process. Concurrent
+creation with a 90-second acquisition deadline; the APFS capability probe is evaluated once per process. Concurrent
 probe creation previously left a newfs_apfs operation waiting beyond a minute.
 Each hdiutil command now has a 60-second bound and terminates its own command
 on timeout. Timeout, interruption and cleanup failure remain test failures;
@@ -1180,7 +1192,8 @@ Before new image creation, the helper identifies older images from the same
 Engine family, checks that the encoded owner PID no longer exists, and only
 then attempts non-forcing detach after a 15-minute grace period. Active or
 new images are preserved. Stale backing files are preserved, as are images
-whose detach is refused. A busy image is reported for later cleanup.
+whose detach is refused. A busy image is reported for later cleanup. A stale
+root disappearing during inspection is treated as an already-removed fixture.
 
 Real exit regressions verify ordinary exit cleanup, throwing-scope cleanup,
 and next-family recovery after _exit skips teardown. Recovery checks native

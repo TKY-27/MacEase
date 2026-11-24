@@ -199,7 +199,9 @@ import Testing
         try Data("original".utf8).write(to: source)
         let collision = destination.appending(path: "report.txt")
         let occupied = Mutex(false)
+        let publishing = Mutex(false)
         let presenter = CommitCancellationPresenter(url: source) {
+            guard publishing.withLock({ $0 }) else { return }
             occupied.withLock { created in
                 if !created {
                     #expect(throws: Never.self) {
@@ -216,18 +218,25 @@ import Testing
         let request = OperationRequest(
             op: .filesMove, options: .move(MovePlan(items: [entry], destination: destination)), inputs: [source])
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
-        { _ in }
+        { progress in
+            if progress.itemPhases.contains(.saving) { publishing.withLock { $0 = true } }
+        }
         let numbered = destination.appending(path: "report (2).txt")
-        #expect(outcome.outcomes == [.succeeded(outputs: [numbered], warnings: [])])
+        #expect(
+            outcome.outcomes == [
+                .succeeded(
+                    outputs: [numbered],
+                    warnings: crossVolume ? [.copiedAcrossVolumes(original: source, destination: numbered)] : [])
+            ])
         #expect(presenter.relinquished.withLock { $0 })
         #expect(try String(contentsOf: collision, encoding: .utf8) == "concurrent")
         #expect(try String(contentsOf: numbered, encoding: .utf8) == "original")
         NSFileCoordinator.removeFilePresenter(presenter)
-        #expect(try await engine.undo(outcome.batchID) == Array(repeating: .restored, count: crossVolume ? 2 : 1))
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
         #expect(try String(contentsOf: source, encoding: .utf8) == "original")
     }
 
-    @Test func moveHistoryIsDurableBeforeTrashingAndUndoKeepsEditedOutput() async throws {
+    @Test func copiedOutputHistorySurvivesRestartAndUndoKeepsEditedOutput() async throws {
         let destination = try TestVolume.makeFolder()
         let root = FileManager.default.temporaryDirectory.appending(path: "MacEaseMoveHistory-\(UUID().uuidString)")
         TestTemporaryFolders.register(root)
@@ -235,9 +244,6 @@ import Testing
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
         let source = root.appending(path: "original.txt")
         try Data("original bytes".utf8).write(to: source)
-        let presenter = MoveHistoryPresenter(source: source, support: support)
-        NSFileCoordinator.addFilePresenter(presenter)
-        defer { NSFileCoordinator.removeFilePresenter(presenter) }
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         let cut = try MoveItem.capture(source)
         let request = OperationRequest(
@@ -245,12 +251,15 @@ import Testing
             options: .move(MovePlan(items: [cut], destination: destination)), inputs: [source])
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
         { _ in }
-        #expect(presenter.durableBeforeTrash.withLock { $0 })
+        let reopened = try JobEngine(supportDirectory: support, concurrency: 1)
+        #expect((await reopened.history.records).first?.id == outcome.batchID)
         let output = destination.appending(path: "original.txt")
-        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
-        NSFileCoordinator.removeFilePresenter(presenter)
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [output], warnings: [.copiedAcrossVolumes(original: source, destination: output)])
+            ])
         try Data("edited output".utf8).write(to: output)
-        #expect(try await engine.undo(outcome.batchID) == [.restored, .skipped(.undoOutputChanged, path: output.path)])
+        #expect(try await engine.undo(outcome.batchID) == [.skipped(.undoOutputChanged, path: output.path)])
         #expect(try Data(contentsOf: source) == Data("original bytes".utf8))
         #expect(try Data(contentsOf: output) == Data("edited output".utf8))
     }
@@ -271,12 +280,7 @@ import Testing
         let record = try #require(outcome.record)
         let moved = destination.appending(path: "original.txt")
         let pending = Mutex<Task<[UndoOutcome], any Error>?>(nil)
-        let trashed = try #require(
-            record.items.compactMap { entry -> String? in
-                if case .removed(_, let path, _) = entry { return path }
-                return nil
-            }.first)
-        let presenter = CommitCancellationPresenter(url: URL(fileURLWithPath: trashed)) {
+        let presenter = CommitCancellationPresenter(url: moved) {
             pending.withLock { $0?.cancel() }
         }
         NSFileCoordinator.addFilePresenter(presenter)
@@ -288,11 +292,11 @@ import Testing
         pending.withLock { $0 = undoing }
         ready.continuation.yield(())
         ready.continuation.finish()
-        #expect(try await undoing.value == [.failed(.cancelled, path: trashed), .failed(.cancelled, path: moved.path)])
+        #expect(try await undoing.value == [.failed(.cancelled, path: moved.path)])
         NSFileCoordinator.removeFilePresenter(presenter)
         #expect(try String(contentsOf: moved, encoding: .utf8) == "original")
-        #expect(!FileManager.default.fileExists(atPath: source.path))
-        #expect(try await engine.undo(record.id) == [.restored, .restored])
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(try await engine.undo(record.id) == [.restored])
         #expect(try String(contentsOf: source, encoding: .utf8) == "original")
     }
 
@@ -347,41 +351,6 @@ private final class ClearHistoryPresenter: NSObject, NSFilePresenter, Sendable {
             completed.signal()
         }
         completed.wait()
-        writer(nil)
-    }
-}
-
-private final class MoveHistoryPresenter: NSObject, NSFilePresenter, Sendable {
-    let presentedItemURL: URL?
-    let presentedItemOperationQueue = OperationQueue()
-    let durableBeforeTrash = Mutex(false)
-    private let writes = Mutex(0)
-    private let support: URL
-
-    init(source: URL, support: URL) {
-        presentedItemURL = source
-        self.support = support
-    }
-
-    func relinquishPresentedItem(toWriter writer: @Sendable ((@Sendable () -> Void)?) -> Void) {
-        let count = writes.withLock {
-            $0 += 1; return $0
-        }
-        if count == 2 {
-            do {
-                let snapshot = try JSONDecoder().decode(
-                    HistorySnapshot.self,
-                    from: Data(contentsOf: support.appending(path: "history.json")))
-                let paths = snapshot.batches.flatMap(\.outputPaths)
-                let source = try #require(presentedItemURL)
-                #expect(try Data(contentsOf: source) == Data("original bytes".utf8))
-                #expect(paths.count == 1)
-                if let path = paths.first {
-                    #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == Data("original bytes".utf8))
-                    durableBeforeTrash.withLock { $0 = true }
-                }
-            } catch { Issue.record(error) }
-        }
         writer(nil)
     }
 }

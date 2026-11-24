@@ -6471,6 +6471,16 @@
         }
       }
     },
+    "Copied to another disk at %@. Original kept at %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のディスクの%1$@にコピーしました。元のファイルは%2$@に保持しました。"
+          }
+        }
+      }
+    },
     "Both files kept: the original could not be moved to the Trash.": {
       "localizations": {
         "ja": {

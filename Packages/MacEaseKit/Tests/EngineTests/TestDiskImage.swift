@@ -5,6 +5,8 @@ import Synchronization
 final class TestDiskImage: Sendable {
     static let familyPrefix = "MacEaseTests-Engine-"
     static let staleAge: TimeInterval = 15 * 60
+    private static let lockTimeout: TimeInterval = 90
+    private static let lockPollInterval: TimeInterval = 0.05
     private static let commandTimeout: TimeInterval = 60
     private static let terminationTimeout: TimeInterval = 5
     private static let hdiutil = URL(fileURLWithPath: "/usr/bin/hdiutil")
@@ -51,7 +53,7 @@ final class TestDiskImage: Sendable {
     private let image: URL
     private let closed = Mutex(false)
 
-    init(filesystem: String = "APFS") throws {
+    init(filesystem: String = "APFS", lockTimeout: TimeInterval = TestDiskImage.lockTimeout) throws {
         directory = FileManager.default.temporaryDirectory.appending(
             path: "\(Self.familyPrefix)\(getpid())-\(UUID().uuidString)")
         mount = directory.appending(path: "mount")
@@ -64,8 +66,13 @@ final class TestDiskImage: Sendable {
             let descriptor = open(lock.path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, S_IRUSR | S_IWUSR)
             guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             defer { Darwin.close(descriptor) }
-            guard flock(descriptor, LOCK_EX) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            let deadline = Date().addingTimeInterval(lockTimeout)
+            while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+                guard errno == EWOULDBLOCK else {
+                    throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                }
+                guard Date() < deadline else { throw POSIXError(.ETIMEDOUT) }
+                Thread.sleep(forTimeInterval: Self.lockPollInterval)
             }
             try Self.removeStale(using: directory)
             let label = "MACEASE\(UUID().uuidString.prefix(4))"
@@ -110,9 +117,11 @@ final class TestDiskImage: Sendable {
         }
     }
 
-    func attach() throws {
+    func attach(readOnly: Bool = false) throws {
         try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
-        _ = try Self.run(["attach", "-nobrowse", "-noautoopen", "-mountpoint", mount.path, image.path], in: directory)
+        let options = readOnly ? ["-readonly"] : []
+        _ = try Self.run(
+            ["attach", "-nobrowse", "-noautoopen"] + options + ["-mountpoint", mount.path, image.path], in: directory)
     }
 
     func unmount() throws {
@@ -140,7 +149,13 @@ final class TestDiskImage: Sendable {
                 let owner = owner(of: root), owner != getpid(),
                 kill(owner, 0) != 0, errno == ESRCH
             else { continue }
-            let created = try root.resourceValues(forKeys: [.creationDateKey]).creationDate
+            let created: Date?
+            do { created = try root.resourceValues(forKeys: [.creationDateKey]).creationDate } catch let error
+                as CocoaError
+                where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile
+            { continue } catch let error as POSIXError where error.code == .ENOENT {
+                continue
+            }
             guard let created, Date().timeIntervalSince(created) >= staleAge else { continue }
             do {
                 try detach(attached, in: directory)

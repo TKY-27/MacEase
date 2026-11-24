@@ -423,37 +423,7 @@ public final class JobEngine: Sendable {
                 break
             }
             records.append(.derived(output: published.output.path, stamp: published.stamp))
-            await recordCommits(&records, batch: batch, tracker: tracker)
-            do {
-                try await history.flush()
-                try await history.checkAcceptingCommits()
-            } catch {
-                tracker.markHistoryFailed()
-                context.warn(.originalKept)
-                break
-            }
-            await history.commitGate.release()
-            let finalized = await Task.detached {
-                Result { try self.committer.finishMoveCopy(entry, copied: published) }
-            }.value
-            try await Task.detached { try await self.history.commitGate.acquire() }.value
-            do {
-                let completed = try finalized.get()
-                recordOutput(completed.output, stamp: completed.stamp, context: context)
-                do { try await history.updateDerived(completed, batch: batch.id) } catch {
-                    tracker.markHistoryFailed()
-                    throw error
-                }
-                try await history.checkAcceptingCommits()
-                let trashed = try committer.trashMovedOriginal(entry)
-                records.append(
-                    .removed(
-                        original: entry.url.path, trashed: trashed.url.path,
-                        trashStamp: trashed.stamp))
-            } catch {
-                context.warn(.originalKept)
-                logger.error("Move kept original: \(error.localizedDescription, privacy: .private)")
-            }
+            context.warn(.copiedAcrossVolumes(original: entry.url, destination: published.output))
         case .trash(let urls, let permanently, let condition):
             for url in urls {
                 try await history.checkAcceptingCommits()

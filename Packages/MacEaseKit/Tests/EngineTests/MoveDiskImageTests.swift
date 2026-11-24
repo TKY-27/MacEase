@@ -7,7 +7,7 @@ import Testing
 
 @Suite(.serialized, .enabled("Requires disk-image creation", { try TestDiskImage.probe() }))
 struct MoveDiskImageTests {
-    @Test func exFATMoveVerifiesBytesAndUndoRestoresOriginal() async throws {
+    @Test func exFATCopyVerifiesBytesAndUndoKeepsOriginal() async throws {
         let volume = try TestDiskImage(filesystem: "ExFAT")
         defer { #expect(throws: Never.self) { try volume.close() } }
         let sourceDirectory = try TestVolume.makeFolder()
@@ -22,10 +22,13 @@ struct MoveDiskImageTests {
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
         { _ in }
         let output = volume.mount.appending(path: "payload.bin")
-        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [output], warnings: [.copiedAcrossVolumes(original: source, destination: output)])
+            ])
         #expect(try Data(contentsOf: output) == bytes)
-        #expect(!FileManager.default.fileExists(atPath: source.path))
-        #expect(try await engine.undo(outcome.batchID) == [.restored, .restored])
+        #expect(FileManager.default.fileExists(atPath: source.path))
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
         #expect(try Data(contentsOf: source) == bytes)
         #expect(!FileManager.default.fileExists(atPath: output.path))
     }
@@ -92,24 +95,31 @@ struct MoveDiskImageTests {
             op: .filesMove,
             options: .move(MovePlan(items: [entry], destination: volume.mount)), inputs: [source])
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
-        { _ in }
+        { progress in
+            if progress.itemPhases.contains(.saving) { presenter.beginPublication() }
+        }
         let output = volume.mount.appending(path: "note (2).txt")
-        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [])])
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [output], warnings: [.copiedAcrossVolumes(original: source, destination: output)])
+            ])
         #expect(try Data(contentsOf: output) == Data("original".utf8))
         #expect(try Data(contentsOf: collision) == Data("concurrent".utf8))
         NSFileCoordinator.removeFilePresenter(presenter)
-        #expect(try await engine.undo(outcome.batchID) == [.restored, .restored])
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
         #expect(try Data(contentsOf: source) == Data("original".utf8))
         #expect(try Data(contentsOf: collision) == Data("concurrent".utf8))
     }
 
-    @Test func unavailableTrashKeepsBothCompleteCopiesAndReportsIt() async throws {
+    @Test func readOnlySourceNeedsNoTrashOrWriteAccess() async throws {
         let volume = try TestDiskImage(filesystem: "ExFAT")
         defer { #expect(throws: Never.self) { try volume.close() } }
         try Data("blocks the volume Trash".utf8).write(to: volume.mount.appending(path: ".Trashes"))
         let destination = try TestVolume.makeFolder()
         let source = volume.mount.appending(path: "keep.txt")
         try Data("keep complete".utf8).write(to: source)
+        try volume.unmount()
+        try volume.attach(readOnly: true)
         let engine = try JobEngine(supportDirectory: destination.appending(path: "support"), concurrency: 1)
         let entry = try MoveItem.capture(source)
         let request = OperationRequest(
@@ -118,7 +128,10 @@ struct MoveDiskImageTests {
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
         { _ in }
         let output = destination.appending(path: "keep.txt")
-        #expect(outcome.outcomes == [.succeeded(outputs: [output], warnings: [.originalKept])])
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [output], warnings: [.copiedAcrossVolumes(original: source, destination: output)])
+            ])
         #expect(try Data(contentsOf: source) == Data("keep complete".utf8))
         #expect(try Data(contentsOf: output) == Data("keep complete".utf8))
         #expect(try #require(outcome.record).items.count == 1)
@@ -126,54 +139,164 @@ struct MoveDiskImageTests {
         #expect(try Data(contentsOf: source) == Data("keep complete".utf8))
     }
 
-    @Test func undoWithUnmountedDestinationRemainsRetryableAfterRemount() async throws {
+    @Test(arguments: ["ExFAT", "MS-DOS FAT32"], [false, true])
+    func directoryCopiesAndPublicationCollisionsPreserveBothTrees(filesystem: String, collision: Bool) async throws {
+        let volume = try TestDiskImage(filesystem: filesystem)
+        defer { #expect(throws: Never.self) { try volume.close() } }
+        let sourceDirectory = try TestVolume.makeFolder()
+        let source = sourceDirectory.appending(path: "project")
+        try FileManager.default.createDirectory(
+            at: source.appending(path: "nested/empty"), withIntermediateDirectories: true)
+        try Data("nested payload".utf8).write(to: source.appending(path: "nested/contents.txt"))
+        let occupied = volume.mount.appending(path: "project")
+        let presenter = MoveCollisionPresenter(source: source, collision: occupied, directory: true)
+        if collision { NSFileCoordinator.addFilePresenter(presenter) }
+        defer { if collision { NSFileCoordinator.removeFilePresenter(presenter) } }
+        let engine = try JobEngine(supportDirectory: sourceDirectory.appending(path: "support"), concurrency: 1)
+        let request = OperationRequest(
+            op: .filesMove,
+            options: .move(MovePlan(items: [try MoveItem.capture(source)], destination: volume.mount)), inputs: [source]
+        )
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        { progress in
+            if progress.itemPhases.contains(.saving) { presenter.beginPublication() }
+        }
+        let output = volume.mount.appending(path: collision ? "project (2)" : "project")
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [output], warnings: [.copiedAcrossVolumes(original: source, destination: output)])
+            ])
+        #expect(try Data(contentsOf: output.appending(path: "nested/contents.txt")) == Data("nested payload".utf8))
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: output.appending(path: "nested/empty").path).isEmpty)
+        #expect(try Data(contentsOf: source.appending(path: "nested/contents.txt")) == Data("nested payload".utf8))
+        if collision {
+            #expect(try Data(contentsOf: occupied.appending(path: "concurrent.txt")) == Data("concurrent".utf8))
+            NSFileCoordinator.removeFilePresenter(presenter)
+        }
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+        if collision { #expect(FileManager.default.fileExists(atPath: occupied.path)) }
+        #expect(try Data(contentsOf: source.appending(path: "nested/contents.txt")) == Data("nested payload".utf8))
+    }
+
+    @Test(arguments: ["ExFAT", "MS-DOS FAT32"])
+    func symbolicLinkCopiesKeepTheirTargetsOnPortableFilesystems(filesystem: String) async throws {
+        let volume = try TestDiskImage(filesystem: filesystem)
+        defer { #expect(throws: Never.self) { try volume.close() } }
+        let sourceDirectory = try TestVolume.makeFolder()
+        let source = sourceDirectory.appending(path: "link")
+        let target = "/missing/target"
+        try FileManager.default.createSymbolicLink(atPath: source.path, withDestinationPath: target)
+        let engine = try JobEngine(supportDirectory: sourceDirectory.appending(path: "support"), concurrency: 1)
+        let request = OperationRequest(
+            op: .filesMove,
+            options: .move(MovePlan(items: [try MoveItem.capture(source)], destination: volume.mount)), inputs: [source]
+        )
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
+        { _ in }
+        let output = volume.mount.appending(path: "link")
+        #expect(
+            outcome.outcomes == [
+                .succeeded(outputs: [output], warnings: [.copiedAcrossVolumes(original: source, destination: output)])
+            ])
+        var metadata = stat()
+        #expect(lstat(output.path, &metadata) == 0)
+        #expect(metadata.st_mode & S_IFMT == S_IFLNK)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: output.path) == target)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: source.path) == target)
+        #expect(try await engine.undo(outcome.batchID) == [.restored])
+    }
+
+    @Test func readOnlyPublicationReportsTheDestinationLocation() async throws {
+        let volume = try TestDiskImage(filesystem: "ExFAT")
+        defer { #expect(throws: Never.self) { try volume.close() } }
+        let staged = volume.mount.appending(path: "staged.txt")
+        try Data().write(to: staged)
+        let destination = volume.mount.appending(path: ".Trashes/output")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        try volume.unmount()
+        try volume.attach(readOnly: true)
+        do {
+            _ = try await FileCommitter().create(
+                [StagedFile(url: staged, name: "Untitled.txt", check: .newFile(.empty))], in: destination)
+            Issue.record("Expected read-only destination refusal")
+        } catch let failure as FileCommitter.CreationFailure {
+            #expect(failure.reason == .permissionDenied(.trash))
+            #expect(failure.retained.isEmpty)
+        } catch let failure as EngineError {
+            #expect(failure == .permissionDenied(.trash))
+        }
+        #expect(try Data(contentsOf: staged).isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
+    }
+
+    @Test func undoWithUnmountedDestinationKeepsOriginalAndSkipsMissingCopy() async throws {
         let volume = try TestDiskImage(filesystem: "ExFAT")
         defer { #expect(throws: Never.self) { try volume.close() } }
         let sourceDirectory = try TestVolume.makeFolder()
         let source = sourceDirectory.appending(path: "original.txt")
         try Data("original content".utf8).write(to: source)
-        let support = sourceDirectory.appending(path: "support")
-        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
-        let entry = try MoveItem.capture(source)
+        let engine = try JobEngine(supportDirectory: sourceDirectory.appending(path: "support"), concurrency: 1)
         let request = OperationRequest(
             op: .filesMove,
-            options: .move(MovePlan(items: [entry], destination: volume.mount)), inputs: [source])
+            options: .move(MovePlan(items: [try MoveItem.capture(source)], destination: volume.mount)), inputs: [source]
+        )
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: Settings()), settings: Settings())
         { _ in }
-        #expect(outcome.outcomes == [.succeeded(outputs: [volume.mount.appending(path: "original.txt")], warnings: [])])
+        let output = volume.mount.appending(path: "original.txt")
         try volume.unmount()
-        #expect(FileManager.default.fileExists(atPath: volume.mount.path))
-        let firstAttempt = try await engine.undo(outcome.batchID)
-        #expect(firstAttempt.contains { if case .failed = $0 { true } else { false } })
-        #expect((await engine.history.records).first?.undone == false)
-        let reopened = try JobEngine(supportDirectory: support, concurrency: 1)
-        try volume.attach()
-        #expect(try await reopened.undo(outcome.batchID) == [.restored])
+        #expect(try await engine.undo(outcome.batchID) == [.skipped(.undoOutputChanged, path: output.path)])
+        #expect((await engine.history.records).first?.undone == true)
         #expect(try Data(contentsOf: source) == Data("original content".utf8))
-        #expect(!FileManager.default.fileExists(atPath: volume.mount.appending(path: "original.txt").path))
+        try volume.attach()
+        #expect(try Data(contentsOf: output) == Data("original content".utf8))
     }
+
 }
 
 private final class MoveCollisionPresenter: NSObject, NSFilePresenter, Sendable {
     let presentedItemURL: URL?
     let presentedItemOperationQueue = OperationQueue()
     private let collision: URL
+    private let directory: Bool
     private let created = Mutex(false)
+    private let publishing = Mutex(false)
 
-    init(source: URL, collision: URL) {
+    init(source: URL, collision: URL, directory: Bool = false) {
         presentedItemURL = source
         self.collision = collision
+        self.directory = directory
+    }
+
+    func beginPublication() { publishing.withLock { $0 = true } }
+
+    func relinquishPresentedItem(toReader reader: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        createCollision()
+        reader(nil)
     }
 
     func relinquishPresentedItem(toWriter writer: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        createCollision()
+        writer(nil)
+    }
+
+    private func createCollision() {
+        guard publishing.withLock({ $0 }) else { return }
         created.withLock { occupied in
             if !occupied {
-                do { try Data("concurrent".utf8).write(to: collision, options: .withoutOverwriting) } catch {
+                do {
+                    if directory {
+                        try FileManager.default.createDirectory(at: collision, withIntermediateDirectories: false)
+                        try Data("concurrent".utf8).write(to: collision.appending(path: "concurrent.txt"))
+                    } else {
+                        try Data("concurrent".utf8).write(to: collision, options: .withoutOverwriting)
+                    }
+                } catch {
                     Issue.record(error)
                 }
                 occupied = true
             }
         }
-        writer(nil)
     }
 }

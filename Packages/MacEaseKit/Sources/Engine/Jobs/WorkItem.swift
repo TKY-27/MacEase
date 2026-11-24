@@ -152,6 +152,7 @@ public enum ItemWarning: Equatable, Sendable {
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
     case originalKept
+    case copiedAcrossVolumes(original: URL, destination: URL)
     case outputNameUnchanged
     case metadataDropped
     case archiveFolderAttributesNotRestored

@@ -92,7 +92,7 @@ import Testing
         }
     }
 
-    @Test func crossVolumeMoveKeepsSupportedMetadataAndUndoRestoresOriginalMetadata() async throws {
+    @Test func crossVolumeCopyKeepsSupportedMetadataAndOriginalMetadata() async throws {
         let boot = FileManager.default.temporaryDirectory.appending(path: "MacEaseMetadata-\(UUID().uuidString)")
         TestTemporaryFolders.register(boot)
         let disk = try TestVolume.makeFolder()
@@ -120,7 +120,11 @@ import Testing
         #expect(
             outcome.outcomes
                 == [file, topLink, tree].map {
-                    .succeeded(outputs: [disk.appending(path: $0.lastPathComponent)], warnings: [])
+                    .succeeded(
+                        outputs: [disk.appending(path: $0.lastPathComponent)],
+                        warnings: [
+                            .copiedAcrossVolumes(original: $0, destination: disk.appending(path: $0.lastPathComponent))
+                        ])
                 })
         for (index, entry) in entries.enumerated() {
             let relative = String(entry.path.dropFirst(source.path.count + 1))
@@ -143,7 +147,7 @@ import Testing
             }
         }
         let record = try #require(outcome.record)
-        #expect(try await engine.undo(record.id) == Array(repeating: .restored, count: 6))
+        #expect(try await engine.undo(record.id) == Array(repeating: .restored, count: 3))
         for (index, entry) in entries.enumerated() {
             try expectMetadata(entry, original: snapshots[index].0, originalACL: snapshots[index].1)
         }

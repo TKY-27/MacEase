@@ -461,6 +461,8 @@ enum UserMessages {
             )
         case .keptAsDerived:
             String(localized: "Saved as a new file: this volume has no Trash.")
+        case .copiedAcrossVolumes(let original, let destination):
+            String(localized: "Copied to another disk at \(destination.path). Original kept at \(original.path).")
         case .originalKept:
             String(localized: "Both files kept: the original could not be moved to the Trash.")
         case .outputNameUnchanged:
