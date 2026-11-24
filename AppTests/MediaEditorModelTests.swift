@@ -1929,6 +1929,9 @@ final class MediaEditorModelTests: XCTestCase {
         model.invalidFields.insert("speed")
         XCTAssertEqual(model.saveFrameUnavailableReason, "Enter a valid number first.")
         model.invalidFields.removeAll()
+        model.invalidFields.insert(MediaEditorModel.overlayTextField)
+        XCTAssertEqual(model.saveFrameUnavailableReason, "Enter valid markup text first.")
+        model.invalidFields.removeAll()
         model.beginTimelineTrim(first, start: false)
         XCTAssertEqual(model.saveFrameUnavailableReason, "Wait for the current edit to finish.")
         XCTAssertFalse(model.canSaveFrame)
@@ -1987,21 +1990,21 @@ final class MediaEditorModelTests: XCTestCase {
                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
             return try XCTUnwrap(canvas.menu(for: click))
         }
-        func item(_ action: TimelineAction, in menu: NSMenu) throws -> NSMenuItem {
+        func menuItem(_ action: TimelineAction, in menu: NSMenu) throws -> NSMenuItem {
             try XCTUnwrap(menu.items.first { $0.title == action.title })
         }
         let reversed = try menu(atSecond: 0.3)
-        XCTAssertEqual(try item(.reverse, in: reversed).state, .on, "matches the inspector toggle")
-        XCTAssertTrue(try item(.reverse, in: reversed).isEnabled)
+        XCTAssertEqual(try menuItem(.reverse, in: reversed).state, .on, "matches the inspector toggle")
+        XCTAssertTrue(try menuItem(.reverse, in: reversed).isEnabled)
         let frozen = try menu(
             atSecond: try XCTUnwrap(model.timelineRange(for: model.values.segments[1])).lowerBound + 0.1)
-        XCTAssertEqual(try item(.reverse, in: frozen).state, .off)
-        XCTAssertFalse(try item(.reverse, in: frozen).isEnabled)
-        XCTAssertEqual(try item(.reverse, in: frozen).toolTip, "A freeze frame can’t be reversed.")
-        XCTAssertEqual(try item(.setIn, in: frozen).toolTip, "A freeze frame can’t be trimmed.")
-        XCTAssertEqual(try item(.split, in: frozen).toolTip, "A freeze frame can’t be split.")
-        XCTAssertTrue(try item(.duplicate, in: frozen).isEnabled)
-        XCTAssertNil(try item(.duplicate, in: frozen).toolTip)
+        XCTAssertEqual(try menuItem(.reverse, in: frozen).state, .off)
+        XCTAssertFalse(try menuItem(.reverse, in: frozen).isEnabled)
+        XCTAssertEqual(try menuItem(.reverse, in: frozen).toolTip, "A freeze frame can’t be reversed.")
+        XCTAssertEqual(try menuItem(.setIn, in: frozen).toolTip, "A freeze frame can’t be trimmed.")
+        XCTAssertEqual(try menuItem(.split, in: frozen).toolTip, "A freeze frame can’t be split.")
+        XCTAssertTrue(try menuItem(.duplicate, in: frozen).isEnabled)
+        XCTAssertNil(try menuItem(.duplicate, in: frozen).toolTip)
     }
 
     func testReverseDisablesNativeTimelineInputThroughTheViewEnvironment() async throws {

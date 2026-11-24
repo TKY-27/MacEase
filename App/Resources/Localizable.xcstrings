@@ -15277,7 +15277,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プレビューをミュート"
+            "value": "プレビューを消音"
           }
         }
       }
@@ -17342,7 +17342,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "分析"
+            "value": "解析"
           }
         }
       }
@@ -18038,7 +18038,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始を再生位置に合わせる（I）"
+            "value": "再生ヘッドの位置を開始点に設定（I）"
           }
         }
       }
@@ -18048,7 +18048,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了を再生位置に合わせる（O）"
+            "value": "再生ヘッドの位置を終了点に設定（O）"
           }
         }
       }
@@ -18198,7 +18198,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ミュートを解除"
+            "value": "消音を解除"
           }
         }
       }
@@ -18278,7 +18278,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プレビューのミュートを解除"
+            "value": "プレビューの消音を解除"
           }
         }
       }
@@ -18358,7 +18358,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択範囲を再生 (スペース)"
+            "value": "選択範囲を再生（スペースバー）"
           }
         }
       }
@@ -22319,6 +22319,33 @@
           "stringUnit": {
             "state": "translated",
             "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
+    "editor.silence.analyze": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析"
+          }
+        }
+      }
+    },
+    "Enter valid markup text first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に有効なマークアップテキストを入力してください。"
           }
         }
       }

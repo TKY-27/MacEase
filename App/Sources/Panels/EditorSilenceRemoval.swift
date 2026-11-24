@@ -195,7 +195,8 @@ struct EditorSilencePopover: View {
             } else if showsControls {
                 controls(preview: try? preview?.get())
             } else {
-                Button("Analyze", action: model.analyzeSilence)
+                Button(
+                    String(localized: "editor.silence.analyze", defaultValue: "Analyze"), action: model.analyzeSilence)
             }
             if let problem = problemMessage(for: preview) { ProblemLabel(text: problem) }
         }

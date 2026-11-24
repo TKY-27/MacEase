@@ -33,7 +33,12 @@ extension MediaEditorModel {
 
     var saveFrameUnavailableReason: String? {
         guard isVideo, !editingLocked, frameBatchID == nil else { return nil }
-        if !invalidFields.isEmpty { return String(localized: "Enter a valid number first.") }
+        if invalidFields.contains(where: { $0 != Self.overlayTextField }) {
+            return String(localized: "Enter a valid number first.")
+        }
+        if invalidFields.contains(Self.overlayTextField) {
+            return String(localized: "Enter valid markup text first.")
+        }
         if editPending { return String(localized: "Wait for the current edit to finish.") }
         return nil
     }

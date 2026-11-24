@@ -493,4 +493,45 @@ extension MediaEditorModelTests {
         configure()
         XCTAssertEqual(scroll.contentView.bounds.minX, originBeforeTrim, "trimming never scrolls the timeline")
     }
+
+    func testCShortcutSelectsSegmentAtPlayheadAndDefersToTextAndLock() async throws {
+        let model = try await videoModel(count: 2)
+        let firstID = model.values.segments[0].id
+        let secondID = model.values.segments[1].id
+        model.selectSegment(firstID)
+        model.seek(2.5)
+
+        let shortcut = EditorKeyboardShortcuts.ShortcutView()
+        shortcut.model = model
+        let field = NSTextField(frame: CGRect(x: 0, y: 0, width: 150, height: 24))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 200, height: 80))
+        container.addSubview(shortcut)
+        container.addSubview(field)
+        window.contentView = container
+        defer { shortcut.stopMonitoring(); window.close() }
+
+        try sendEditorKey("c", window: window)
+        XCTAssertEqual(model.values.selectedID, secondID, "C selects the segment under the playhead")
+
+        model.seek(0.5)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        try sendEditorKey("c", window: window)
+        XCTAssertEqual(model.values.selectedID, secondID, "C is ignored while a text field has focus")
+
+        window.makeFirstResponder(nil)
+        model.toggleReverse()
+        XCTAssertTrue(model.editingLocked)
+        try sendEditorKey("c", window: window)
+        XCTAssertEqual(model.values.selectedID, secondID, "C is ignored while editing is locked")
+        model.cancelReverse()
+        await model.reverseTask?.value
+        XCTAssertFalse(model.editingLocked)
+
+        try sendEditorKey("c", window: window)
+        XCTAssertEqual(model.values.selectedID, firstID)
+    }
 }
