@@ -444,7 +444,7 @@ func benchmark(chip: String, volume: URL) async throws {
         titles: titles)
     let selection = (0..<Targets.menuItems).map { volume.appending(path: "photo-\($0).heic") }
     try await measure("Menu for \(Targets.menuItems) items", target: Targets.menuSeconds) {
-        _ = MenuLayout.nodes(for: menu, selection: selection)
+        _ = MenuLayout.tree(for: menu, selection: selection)
     }
 
     let paths = (0..<Targets.transportPaths).map { "/Users/someone/Pictures/photo-\($0).heic" }

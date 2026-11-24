@@ -61,6 +61,14 @@ final class SettingsStore {
         }
     }
 
+    /// Derived from legacy placements until stored.
+    var menuArrangement: MenuArrangement {
+        MenuArrangement.migrating(
+            placements: menuPlacements, hiddenEntries: hiddenEntries, newInstallHidden: Self.newInstallHiddenEntries,
+            extraAngleEnabled: settings.extraRotationEnabled
+        ).arrangement
+    }
+
     var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: Key.notificationsEnabled) }
     }
@@ -220,23 +228,5 @@ final class SettingsStore {
                 "Settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
             )
         }
-    }
-}
-
-extension OperationID {
-    static let extraAnglePreset = "extra-angle"
-
-    /// Includes Custom Size and the extra angle.
-    var menuPresetIDs: [String] {
-        let extra = self == .imageRotate || self == .videoRotate ? [Self.extraAnglePreset] : []
-        return presetGroups.flatMap { $0 } + extra + (offersCustom ? [MenuEntry.customPreset] : [])
-    }
-
-    var menuEntryKeys: [String] {
-        menuPresetIDs.isEmpty ? [menuEntryKey("")] : menuPresetIDs.map(menuEntryKey)
-    }
-
-    func menuEntryKey(_ preset: String) -> String {
-        "\(rawValue)/\(preset)"
     }
 }

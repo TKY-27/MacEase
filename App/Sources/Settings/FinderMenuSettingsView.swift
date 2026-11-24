@@ -13,6 +13,10 @@ struct FinderMenuSettingsView: View {
         .image, .video, .audio, .pdf, .text, .document, .plist, .folder, .archive, .jar, .any,
     ]
 
+    /// Lists items in catalog, not menu, order.
+    private static let catalogOrder = Dictionary(
+        uniqueKeysWithValues: OperationID.menuOrder.flatMap(\.menuEntryKeys).enumerated().map { ($1, $0) })
+
     /// Adjacent slots sharing an operation and unit.
     private static let slotRows: [[MenuValueSlot]] = MenuValues.slots.reduce(into: []) { rows, slot in
         if let last = rows.last?.last, last.unit == slot.unit, last.operation == slot.operation {
@@ -34,7 +38,10 @@ struct FinderMenuSettingsView: View {
                     MenuTreeRow(name: MenuStrings.kind(kind), sources: visibility(of: kind.menuOperations)) {
                         Text(MenuStrings.kind(kind))
                     } children: {
-                        let entries = catalog.entries.filter { $0.kind == kind }
+                        let entries = catalog.entries.filter { $0.kind == kind }.sorted {
+                            Self.catalogOrder[$0.op.menuEntryKey($0.preset ?? "")] ?? 0
+                                < Self.catalogOrder[$1.op.menuEntryKey($1.preset ?? "")] ?? 0
+                        }
                         let groups = entries.reduce(into: [String]()) { groups, entry in
                             if groups.last != entry.resolvedGroupID { groups.append(entry.resolvedGroupID) }
                         }

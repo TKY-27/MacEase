@@ -34,56 +34,44 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 }
 
 @Suite struct MenuFileTests {
-    @Test func schemaThreeWithoutUpdateTitleRemainsReadable() throws {
+    @Test func schemaThreeFilesAreRejected() {
         let json = Data(
             #"{"schema":3,"catalogVersion":"legacy","token":"token","hostAvailable":true,"entries":[],"kinds":{}}"#.utf8
         )
-        let decoded = try MenuFile(json: json)
-        #expect(decoded.schema == 3)
-        #expect(decoded.updateTitle == nil)
-        #expect(decoded.previewTitle == nil)
-        #expect(decoded.catalogVersion == "legacy")
+        #expect(throws: MenuFileError.unsupportedSchema(3)) { try MenuFile(json: json) }
     }
 
-    @Test func previewTitleRoundTripsAndInvalidatesTheCatalog() throws {
+    @Test(arguments: [HostCommand.preview, .update])
+    func commandTitlesRoundTripAndInvalidateTheCatalog(command: HostCommand) throws {
         let original = menuFile()
         var versions: Set<String> = [original.catalogVersion]
-        for title in ["Finder Preview", "Finderプレビュー"] {
-            let preview = MenuFile(
+        for title in ["Finder Preview", "Finderプレビュー", "Update Available (v3.2.0)"] {
+            let titled = MenuFile(
                 token: original.token, hostAvailable: true, visibleOperations: OperationID.allCases, titles: titles,
-                previewTitle: title)
-            let decoded = try MenuFile(json: preview.encoded())
-            #expect(decoded.schema == 3)
-            #expect(decoded.previewTitle == title)
+                commandTitles: [command: title])
+            let decoded = try MenuFile(json: titled.encoded())
+            #expect(decoded.schema == 4)
+            #expect(
+                decoded.commands.filter { $0.command != nil }
+                    == [MenuCommandItem(group: MenuGroupID(command), title: title, placement: .primary)])
             #expect(decoded.entries == original.entries)
-            #expect(decoded == preview)
-            #expect(versions.insert(preview.catalogVersion).inserted)
-            let withUpdate = MenuFile(
-                token: original.token, hostAvailable: true, entries: original.entries, kinds: [:],
-                updateTitle: "Update", previewTitle: title)
-            #expect(withUpdate.catalogVersion != preview.catalogVersion)
+            #expect(decoded == titled)
+            #expect(versions.insert(titled.catalogVersion).inserted)
         }
-        let cleared = MenuFile(token: original.token, hostAvailable: true, entries: original.entries, kinds: [:])
+        let cleared = MenuFile(
+            token: original.token, hostAvailable: true, entries: original.entries, kinds: [:],
+            commands: original.commands)
         #expect(cleared.catalogVersion == original.catalogVersion)
     }
 
-    @Test func updateTitleRoundTripsAndChangesInvalidateCatalogs() throws {
-        let original = menuFile()
-        var versions: Set<String> = [original.catalogVersion]
-        for title in ["Update Available (v3.1.0)", "Update Available (v3.2.0)", "MacEase v3.1.0 Is Available"] {
-            let updated = MenuFile(
-                token: original.token, hostAvailable: true, visibleOperations: OperationID.allCases, titles: titles,
-                updateTitle: title)
-            let decoded = try MenuFile(json: updated.encoded())
-            #expect(decoded.schema == 3)
-            #expect(decoded.updateTitle == title)
-            #expect(decoded.entries == original.entries)
-            #expect(decoded == updated)
-            #expect(versions.insert(updated.catalogVersion).inserted)
+    @Test func commandOrderAndPlacementInvalidateTheCatalog() {
+        let update = MenuCommandItem(group: MenuGroupID(.update), title: "Update", placement: .primary)
+        let preview = MenuCommandItem(group: MenuGroupID(.preview), title: "Preview", placement: .primary)
+        let moved = MenuCommandItem(group: MenuGroupID(.preview), title: "Preview", placement: .more)
+        let versions = [[update, preview], [preview, update], [update, moved], [update], []].map {
+            MenuFile.version(of: [], commands: $0)
         }
-        let withoutUpdate = MenuFile(
-            token: original.token, hostAvailable: true, entries: original.entries, kinds: [:], updateTitle: nil)
-        #expect(withoutUpdate.catalogVersion == original.catalogVersion)
+        #expect(Set(versions).count == versions.count)
     }
 
     @Test func duplicateTitleChangesInvalidatePreviousCatalogs() {
@@ -114,7 +102,9 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(full.catalogVersion.count == 64)
         let decoded = try MenuFile(json: try full.encoded())
         #expect(decoded == full)
-        #expect(MenuFile.version(of: decoded.entries) == full.catalogVersion)
+        #expect(
+            MenuFile.version(of: decoded.entries, moreTitle: decoded.moreTitle, commands: decoded.commands)
+                == full.catalogVersion)
     }
 }
 
@@ -125,7 +115,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 
     @Test func singleKindListsPrimariesThenMore() throws {
         let file = menuFile()
-        let nodes = MenuLayout.nodes(for: file, selection: [url("a.png"), url("b.jpg")])
+        let nodes = MenuLayout.tree(for: file, selection: [url("a.png"), url("b.jpg")]).macEase
         guard case .action(_, let editIndex) = try #require(nodes.first) else {
             Issue.record("expected photo editing first")
             return
@@ -143,15 +133,15 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test func mixedSelectionGroupsByKindWithCounts() {
-        let nodes = MenuLayout.nodes(for: menuFile(), selection: [url("a.png"), url("b.mov"), url("c.mp4")])
+        let nodes = MenuLayout.tree(for: menuFile(), selection: [url("a.png"), url("b.mov"), url("c.mp4")]).macEase
         let titles = nodes.compactMap { if case .submenu(let title, _) = $0 { title } else { nil } }
         #expect(titles == ["Image (1)", "Video (2)", "More"])
     }
 
     @Test func pdfMergeNeedsTwoPDFs() {
         let file = menuFile([.pdfMerge, .pdfSplit])
-        let one = MenuLayout.nodes(for: file, selection: [url("a.pdf")])
-        let two = MenuLayout.nodes(for: file, selection: [url("a.pdf"), url("b.pdf")])
+        let one = MenuLayout.tree(for: file, selection: [url("a.pdf")]).macEase
+        let two = MenuLayout.tree(for: file, selection: [url("a.pdf"), url("b.pdf")]).macEase
         func operations(_ nodes: [MenuNode]) -> [OperationID] {
             nodes.compactMap { node in
                 if case .action(_, let index) = node { return file.entries[index].op }
@@ -163,7 +153,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     }
 
     @Test func foldersGetNoAllFilesSection() {
-        let nodes = MenuLayout.nodes(for: menuFile(), selection: [url("Docs", directory: true)])
+        let nodes = MenuLayout.tree(for: menuFile(), selection: [url("Docs", directory: true)]).macEase
         #expect(nodes.filter { $0 == .separator }.count == 2)
         #expect(!nodes.contains { if case .submenu("any.checksum", _) = $0 { true } else { false } })
         #expect(!nodes.isEmpty)
@@ -176,15 +166,15 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
                 switch node {
                 case .submenu(_, let children): leaves(children)
                 case .action(let title, let index): [(title, index)]
-                case .separator: []
+                case .command, .separator: []
                 }
             }
         }
-        for (title, index) in leaves(MenuLayout.nodes(for: file, selection: [url("a.wav"), url("b.txt")])) {
+        for (title, index) in leaves(MenuLayout.tree(for: file, selection: [url("a.wav"), url("b.txt")]).macEase) {
             let entry = file.entries[index]
             let leafTitle = entry.path.last ?? ""
             let expected =
-                entry.path.count == 1 && entry.resolvedPlacement == .more
+                entry.path.count == 1 && entry.placement == .more
                 ? "\(file.kindTitle(entry.kind)) (\(entry.kind == .any ? 2 : 1)): \(leafTitle)" : leafTitle
             #expect(title == expected)
         }
@@ -194,7 +184,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         let file = menuFile()
         let selection = (0..<1000).map { url("file \($0).\(["png", "mov", "mp3", "pdf"][$0 % 4])") }
         let clock = ContinuousClock()
-        let elapsed = clock.measure { _ = MenuLayout.nodes(for: file, selection: selection) }
+        let elapsed = clock.measure { _ = MenuLayout.tree(for: file, selection: selection).macEase }
         #expect(elapsed < .milliseconds(30))
     }
 }
@@ -209,7 +199,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
             switch node {
             case .action(_, let index): [index]
             case .submenu(_, let children): leaves(children)
-            case .separator: []
+            case .command, .separator: []
             }
         }
     }
@@ -217,7 +207,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     private func presets(_ op: OperationID, _ names: [String]) -> Set<String> {
         let file = menuFile()
         return Set(
-            leaves(MenuLayout.nodes(for: file, selection: selection(names))).compactMap {
+            leaves(MenuLayout.tree(for: file, selection: selection(names)).macEase).compactMap {
                 file.entries[$0].op == op ? file.entries[$0].preset : nil
             })
     }
@@ -245,7 +235,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
                     ["video.convert", "video.toAnimatedWebP/settings"], ["video.convert", "video.toAPNG/settings"],
                 ])
         #expect(file.entries.filter { $0.op == .textJSON }.allSatisfy { $0.path.count == 1 })
-        let rotate = MenuLayout.nodes(for: file, selection: selection(["photo.png"])).first {
+        let rotate = MenuLayout.tree(for: file, selection: selection(["photo.png"])).macEase.first {
             if case .submenu("image.rotate", _) = $0 { true } else { false }
         }
         guard case .submenu(_, let children) = try #require(rotate) else {
@@ -258,7 +248,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 
     @Test func hiddenFlipDoesNotHideRotate() {
         let file = menuFile(OperationID.allCases.filter { $0 != .imageFlip })
-        let indices = leaves(MenuLayout.nodes(for: file, selection: selection(["photo.png"])))
+        let indices = leaves(MenuLayout.tree(for: file, selection: selection(["photo.png"])).macEase)
         #expect(indices.contains { file.entries[$0].op == .imageRotate })
         #expect(!indices.contains { file.entries[$0].op == .imageFlip })
     }
@@ -278,7 +268,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     @Test func schemaOneIsRejectedBeforeEntriesDecode() throws {
         let legacy = Data(#"{"schema":1,"entries":[]}"#.utf8)
         #expect(throws: MenuFileError.unsupportedSchema(1)) { try MenuFile(json: legacy) }
-        #expect(MenuFile.currentSchema == 3)
+        #expect(MenuFile.currentSchema == 4)
         let previous = Data(#"{"schema":2,"entries":[]}"#.utf8)
         #expect(throws: MenuFileError.unsupportedSchema(2)) { try MenuFile(json: previous) }
     }
@@ -314,7 +304,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
 
     @Test func hiddenGroupLeadersKeepOperationSeparators() {
         let file = menuFile([.imageResize, .imageIconSet, .imageAIRename])
-        let nodes = MenuLayout.nodes(for: file, selection: selection(["photo.png"]))
+        let nodes = MenuLayout.tree(for: file, selection: selection(["photo.png"])).macEase
         #expect(nodes.filter { $0 == .separator }.count == 1)
         guard case .submenu("More", let overflow) = nodes.last else {
             Issue.record("Expected More submenu")
@@ -326,7 +316,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
             token: "token", hostAvailable: true,
             visibleOperations: [.textEncoding, .textJSON], titles: titles,
             hiddenEntries: ["text.json/pretty"])
-        let json = MenuLayout.nodes(for: hiddenLeaf, selection: selection(["notes.json"]))
+        let json = MenuLayout.tree(for: hiddenLeaf, selection: selection(["notes.json"])).macEase
         #expect(json.filter { $0 == .separator }.count == 1)
         checkSeparators(json)
     }
@@ -397,9 +387,9 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     ])
     func singleOnlyOperationsUsePerKindCounts(op: OperationID, suffix: String) {
         let file = menuFile([op])
-        let mixed = MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)", "unknown.bin"]))
+        let mixed = MenuLayout.tree(for: file, selection: selection(["a.\(suffix)", "unknown.bin"])).macEase
         #expect(leaves(mixed).contains { file.entries[$0].op == op })
-        #expect(MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)", "b.\(suffix)"])).isEmpty)
+        #expect(MenuLayout.tree(for: file, selection: selection(["a.\(suffix)", "b.\(suffix)"])).macEase.isEmpty)
     }
 
     @Test func chooseFrameOnlyNeedsOneVideoButPresetsAllowBatches() {
@@ -411,7 +401,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     @Test func analyzeSupportsMultipleFolders() {
         let folders = ["one", "two"].map { URL(fileURLWithPath: "/missing/\($0)", isDirectory: true) }
         let file = menuFile([.folderAnalyze])
-        let nodes = MenuLayout.nodes(for: file, selection: folders)
+        let nodes = MenuLayout.tree(for: file, selection: folders).macEase
         #expect(leaves(nodes).contains { file.entries[$0].op == .folderAnalyze })
         #expect(OperationID.folderAnalyze.maximumSelection == nil)
     }
@@ -423,7 +413,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
                 "image.resize/percent-75", "image.resize/percent-50", "image.resize/percent-25",
                 "image.resize/long-3840", "image.resize/custom",
             ])
-        let nodes = MenuLayout.nodes(for: file, selection: selection(["a.png"]))
+        let nodes = MenuLayout.tree(for: file, selection: selection(["a.png"])).macEase
         #expect(
             Set(leaves(nodes).compactMap { file.entries[$0].preset }) == [
                 "long-360", "long-480", "long-720", "long-1080", "long-1920", "long-2560",
@@ -435,7 +425,7 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
             MenuEntry(op: .imageConvert, preset: "webp", path: ["Convert", "WebP"]),
         ]
         let pruned = MenuFile(token: "token", hostAvailable: true, entries: entries, kinds: [:])
-        let result = MenuLayout.nodes(for: pruned, selection: selection(["a.png"]))
+        let result = MenuLayout.tree(for: pruned, selection: selection(["a.png"])).macEase
         guard case .submenu(_, let children) = result.first else {
             Issue.record("Expected Convert submenu")
             return
@@ -448,11 +438,11 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
     @Test func allMenusMeetDepthAndSeparatorContracts() {
         let file = menuFile()
         for suffix in ["png", "mov", "wav", "pdf", "json", "csv", "swift", "zip", "jar"] {
-            let nodes = MenuLayout.nodes(for: file, selection: selection(["a.\(suffix)"]))
+            let nodes = MenuLayout.tree(for: file, selection: selection(["a.\(suffix)"])).macEase
             #expect(depth(nodes) + 1 <= 4)
             checkSeparators(nodes)
         }
-        let mixed = MenuLayout.nodes(for: file, selection: selection(["a.png", "b.mov", "c.json"]))
+        let mixed = MenuLayout.tree(for: file, selection: selection(["a.png", "b.mov", "c.json"])).macEase
         #expect(depth(mixed) + 1 <= 4)
         checkSeparators(mixed)
     }
