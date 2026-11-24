@@ -91,7 +91,7 @@ scripts/                  build-deps.sh, make-dmg.sh, create-signing-identity.sh
                           generate-notices.sh, bench.sh
 docs/                     SPEC.md, adr/, spikes.md
 project.yml               XcodeGen project
-Makefile                  Developer entry points (see AGENTS.md)
+Makefile                  Developer entry points (see CONTRIBUTING.md)
 ```
 
 ### 3.3 Extension and host protocol
@@ -265,7 +265,7 @@ under the saved keep policy. It never authorizes permanent deletion.
 ### 3.5 File commit model
 
 Each operation resolves to one commit mode before processing. Settings > General
-has **When converting or editing** with two choices:
+has **Saving Results** with two **Save results** choices:
 
 - **Save as new file** (default). Transform operations use Derived commits.
 - **Replace original (move original to Trash, Undo)**. Transform operations use
@@ -497,8 +497,9 @@ ordinary temporary staging. It reserves a collision-safe permanent folder on the
 source volume, validates the archive, and durably publishes each extracted unit
 before releasing its source bytes. Its private session records and upstream
 checkpoints survive pause, failure, app exit and ordinary staging/history cleanup.
-Completed extraction records are not undoable. RAR extraction and ZIP member
-exports retain the ordinary Derived behavior. See section 8.5 and ADR 0040.
+Completed extraction records are not undoable. RAR extraction, ZIP member
+exports and new extractions of archives whose names need CP932 retain the
+ordinary Derived behavior. See section 8.5 and ADRs 0040 and 0083.
 
 ### 3.6 History and undo
 
@@ -617,6 +618,14 @@ SHA-256 are pinned in `Vendor/deps.lock`; it needs no download or xcframework.
 | libFLAC | BSD-3-Clause | FLAC encode | CMake, library only (the command line tools are GPL and are not built) |
 | libarchive | BSD-2-Clause | Archive read and write | CMake with zlib and bzip2 from the SDK, plus xz (0BSD) and zstd (BSD); iconv, libxml2, expat and OpenSSL off |
 | xz (liblzma), zstd | 0BSD, BSD-3-Clause | libarchive codecs | CMake |
+
+Archive readers register decompression filters explicitly, and every
+registration must return `ARCHIVE_OK` before a source opens (ADR 0083).
+General readers enable gzip, bzip2, xz and zstd only; ZIP-based document
+validation enables none. No reader enables program filters or a filter that
+can fall back to an external executable, so no archive operation starts a
+decompressor process. ZIP's own compression methods belong to the ZIP format
+reader and need no outer filter.
 | libdeflate | MIT | Optimized DEFLATE for PNG and ZIP | CMake |
 | CFR | MIT | JAR decompilation (bundled `cfr.jar`, run with the user's Java) | Downloaded jar |
 | toml++ 3.4.0 | MIT | TOML parsing and emitting | Vendored single header, C++17 behind an owned C bridge |
@@ -644,9 +653,10 @@ The app shows the generated notices in Settings > About.
 pngquant, libimagequant, and Clop, may be read to study architecture and
 algorithms. Their code must never be copied, translated, adapted, or incorporated
 into MacEase source or linked libraries. Section 22 explicitly permits isolated
-LGPL FFmpeg executables and their required LGPL dependencies for downloads
-and, under section 23, local MP3 encoding. Keep them separate processes with
-corresponding source and license notices. Section 24 additionally permits the
+LGPL FFmpeg executables and their required LGPL dependencies for downloads,
+under section 23 local MP3 encoding, and under section 25.3 decoding local
+media the native engine cannot read into a staged intermediate. Keep them
+separate processes with corresponding source and license notices. Section 24 additionally permits the
 unmodified standalone GPL-2.0-only gallery-dl runtime through its public CLI,
 with its own license and exact corresponding source. Never link or incorporate
 its GPL implementation into the MIT app. Local enhancement uses separately
@@ -1053,16 +1063,16 @@ file and the file version that was inspected. It runs once per result;
 afterwards the row reads **Continued without {kinds}. The new result is
 below.** and the new batch appears as its own row. Leaving or dismissing the
 row declines; nothing is written before the button is pressed. Such a result
-makes Activity appear without activating MacEase, even when Show progress
-window is off or the batch ended within two seconds; it never closes
+makes Activity appear without activating MacEase, even when Show Activity
+automatically is off or the batch ended within two seconds; it never closes
 automatically, and no notification banner is posted for it. **Retry Failed…**
 never resubmits files that only await this question.
 
-General settings default to close after success on, after cancel on, after
-failure off. Success with notes reports Done and stays visible; skips also
+General settings default to close After success on, After cancellation on,
+After failure off. Success with notes reports Done and stays visible; skips also
 stay visible. The window closes
 when no rows remain. Closing Activity hides it without cancelling jobs. Stop
-cancels the chosen batch. Turning Show progress window off keeps menu-bar and
+cancels the chosen batch. Turning Show Activity automatically off keeps menu-bar and
 notification feedback.
 
 The menu bar keeps active batches, Cancel, Results, and the last 10 batches
@@ -1114,23 +1124,26 @@ Remove Empty confirmation, and permanent-delete confirmation.
 ## 7. Settings
 
 Settings uses a resizable `NavigationSplitView` sidebar and grouped detail forms,
-with a minimum size of 720 × 520 pt. Changes apply immediately and persist in
+with a minimum size of 720 × 520 pt. The sidebar lists pages in four unlabeled
+groups separated by spacing: General, Finder Menu, Finder Windows, Folder
+Access; Images, Video, Audio, Text & PDF, Folders, Text Recognition & AI;
+Organization, Finishing Recipes; Advanced, About. Changes apply immediately and persist in
 host `UserDefaults`, except preset overrides in section 9. There are no Apply
 or OK buttons. Language changes ask before relaunch because active jobs stop.
 
 | Page | Settings and defaults |
 | --- | --- |
-| General | Language (System, English, Japanese), launch at login (on), notifications, check for updates automatically (on), When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Menu Bar: Show in menu bar (on), Show recent operations (on, disabled while the status item is hidden), Allow permanent delete (off), Show Welcome Window… |
-| Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
-| Finder Menu | One organizer per scope, chosen with **Menu for** (Commands, then each kind and All Files). One list shows MacEase Menu, More and Hidden, plus Finder Menu for Commands, with drag reordering within and across sections and multiple selection, Move Up / Move Down (Option-Command-Up/Down), Move To, a context menu, expandable leaf checkboxes with "n of m items", capability and fixed-item notes, VoiceOver position values, and per-scope Restore Defaults… with confirmation. The last checked leaf of a group cannot be unchecked ("Hide it instead to remove it from the menu."). Options… sheets hold Images/Videos Resolution slots, Videos Compress MB slots and platform presets, Images Compress platform presets, Images/Videos Rotate extra angle (45°), Videos Frame Rate values and Audio Normalize Loudness values, each with one Reset for the sheet. |
-| Finder Windows | Finder Preview: Show Finder Preview beside Finder windows (off). Storage Bar: Show storage bar in Finder windows (on), with the hint "To see it, choose View > Show Status Bar in Finder." while Finder's status bar is hidden. Permissions: Accessibility and Automation status, read without prompting, with Open Settings… when not allowed. File Types: Source code and text, HTML, Markdown, SVG, PDF, Fonts, Images, Video, Audio (all on; off uses the macOS preview). Text: code font (System Monospaced or an installed monospaced family), code font size (12, 9–24), wrap long lines (on). Fonts: sample text (empty uses the built-in sample). Trusted Folders: Add Folder… and Remove. Section 25. |
-| Images | Per-format quality, PNG optimization, independent target-size downscale and frame-rate reduction, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
-| Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. Frame-rate menu values are in Finder Menu > Videos > Frame Rate > Options…. |
-| Audio | Per-format bitrate, MP3 CBR/VBR, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode). Loudness menu values are in Finder Menu > Audio > Normalize Loudness > Options…. |
-| Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), excluded folder names plus an Exclusion Rules sheet for folder, file, and extension patterns per scope (all folder scans, Remove Duplicates, Remove Empty Folders, Folder Tree, Analyze, Rename), folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
-| Text | Shift_JIS policy (fail default, ?, numeric references, or validated custom substitute), JSON indent (2, 4, tab), comparison (ordinal default, case-insensitive, natural), ascending/descending (ascending), recursive/root-only (recursive), pinned keys (empty), primitive-array sorting (off), CSV type inference (off). PDF section: page image resolution (144 dpi), layout (pages folder default, loose files optional). |
-| Text Recognition & AI | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, AI on/off. Audio and video share subtitle settings. |
-| Advanced | Concurrency, token rotation, clear history, logs, diagnostics, Full Disk Access, Reset All Settings… with confirmation. Reset preserves history and preset overrides unless explicitly selected. |
+| General | Language (System, English, Japanese), Open at login (on), notifications, Check for updates automatically (on). Saving Results: Save results — Save as new file (default) / Replace original (move original to Trash, Undo); If some content can’t be kept — Ask (default) / Save without it (applies only to results saved as new files and to Finishing Recipes; Replace always asks; section 8.2). Show Activity automatically (on); Close automatically After success (on), After cancellation (on), After failure (off). Menu Bar: Show in menu bar (on), Show recent operations (on, disabled while the status item is hidden). Allow permanent deletion (off). Show Welcome Window… |
+| Folder Access | Locations: standard and additional folders with access-check status, Add Folder…, Remove from List, Check Access, Show in Finder. Access and Availability: Extension Settings…, Files & Folders…, Full Disk Access…, Refresh. |
+| Finder Menu | One organizer per scope, chosen with **Menu for** (Commands, then each kind and All Files). One list shows MacEase Menu, More and Hidden, plus Finder Menu for Commands, with drag reordering within and across sections and multiple selection, Move Up / Move Down (Option-Command-Up/Down), Move To, a context menu, expandable leaf checkboxes with "n of m items", capability and fixed-item notes, VoiceOver position values, and per-scope Restore Defaults… with confirmation. The last checked leaf of a group cannot be unchecked ("Hide it instead to remove it from the menu."). Options… sheets hold Images/Videos Resolution slots, Videos Compress MB slots and platform presets, Images Compress platform presets, Images/Videos Rotate extra angle (45°), Videos Frame Rate values and Audio Normalize Loudness values, each with one Reset for the sheet. In Commands, Open Terminal Here ▸ Options… chooses the app (Terminal by default; iTerm, Ghostty, Warp, WezTerm and kitty when installed, found by bundle identifier without launching them; Other… opens an application panel); a saved app that no longer exists shows "“name” can’t be found. Choose another application." New File ▸ Options… has Text, Markdown, Rich Text and Word template checkboxes, all on; with none checked New File is left out of menu.json and its row reads "No templates selected". |
+| Finder Windows | Finder Preview: Show Finder Preview beside Finder windows (off). Storage Bar: Show storage bar in Finder windows (on), with the hint "To see it, choose View > Show Status Bar in Finder." while Finder's status bar is hidden. Permissions: Accessibility and Automation status, read without prompting, with Open Settings… when not allowed. File Types: Source code and text, HTML, Markdown, SVG, PDF, Fonts, Images, Video, Audio, Archives (all on; off uses the macOS preview). Text: code font (System Monospaced or an installed monospaced family), code font size (12, 9–24), wrap long lines (on). Fonts: sample text (empty uses the built-in sample). Trusted Folders: Add Folder… and Remove. Section 25. |
+| Images | Default Quality per format, Optimize PNG files when converting, Target-Size Compression (Allow lower resolution, Allow lower frame rate), GIF dithering, Remove Metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Background: Subject to keep (Subject default, or Person), Green Screen color (#00B140), Blue Screen color (#0047BB), Custom Color and blur radius, Color key and its tolerance, Corner color for rotation (transparent when possible or a chosen color), SVG Method (Trace shapes or Embed PNG) and Colors (1–8). |
+| Video | Codec for re-encoding (Auto, H.264, HEVC), Priority (speed or quality), Allow lower resolution and Allow lower frame rate, Corner color, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, Subject to keep (Person default), transparent-video format. Frame-rate menu values are in Finder Menu > Videos > Frame Rate > Options…. |
+| Audio | Default Bitrate per format, MP3 mode (CBR/VBR) and VBR quality, extracted-audio bitrate (Automatic (keep original when possible) copies the stream, explicit rates re-encode). Loudness menu values are in Finder Menu > Audio > Normalize Loudness > Options…. |
+| Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), Ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), excluded folder names plus an Exclusion Rules sheet for folder, file, and extension patterns per scope (all folder scans, Remove Duplicates, Remove Empty Folders, Folder Tree, Analyze, Rename), folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
+| Text & PDF | Characters Shift_JIS cannot encode (fail default, ?, numeric references, or validated custom substitute), JSON indent (2, 4, tab), Sort keys comparison (ordinal default, case-insensitive, natural), ascending/descending (ascending), recursive/root-only (recursive), Keys to put first (empty), primitive-array sorting (off), CSV type inference (off). PDF section: page image resolution (144 dpi), layout (pages folder default, loose files optional). |
+| Text Recognition & AI | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, Use Apple Intelligence. Audio and video share subtitle settings. |
+| Advanced | Concurrency, Security: Create New Token, History: Clear History…, Reset All Settings… with confirmation, Troubleshooting: Logs (Open Console), Copy Diagnostics. Full Disk Access stays on Folder Access and Welcome. Reset preserves history and preset overrides unless explicitly selected. |
 | About | Version, links, MIT license, third-party notices. |
 
 Rarely changed options sit one click deeper: duplicate matching filters
@@ -1221,9 +1234,14 @@ Video adds a transport bar under the viewer (position/duration clock, previous
 frame, play/pause, next frame, preview mute, loop and Save Frame) and a
 full-width timeline with Split, Freeze Frame, Reverse, Duplicate, Delete, a
 segment menu, Remove Silence…, Add Music…, Add Videos… and zoom. Clicking the
-clock makes its time editable; Return seeks there. Photos show Fit/200%/400%
-zoom under the viewer, plus pinch zoom and Command-plus, Command-minus and
-Command-0. The inspector groups adjustments into Light, Color and
+clock makes its time editable; Return seeks there. Photos show Fit, 100%, 200%
+and 400% under the viewer, plus pinch zoom and Command-plus, Command-minus and
+Command-0. Percentages count real pixels: 100% is one image pixel per screen
+pixel, as in the Finder Preview image viewer. Fit is an explicit state; at Fit,
+and at any pinch or keyboard level between the steps, the current percentage
+appears beside the control. Resizing the window keeps a chosen percentage, an
+image smaller than the viewer can still zoom out to 100%, and Crop always
+previews at Fit. The inspector groups adjustments into Light, Color and
 Detail, lists styles as selectable rows, and uses tiles for rotation, flips and
 aspect ratios. Video's inspector holds only selected-segment controls (Start,
 End and Length as m:ss.sss timecode, speed, volume, fade) and source notes.
@@ -1263,8 +1281,7 @@ noise reduction and vignette. Styles are Original, Vivid, Warm, Cool, Dramatic
 and Monochrome with adjustable intensity; these are independent presets and
 claim no compatibility with Apple's Photographic Styles. Photo Auto Enhance
 analyzes the original once per source and retains its correction before manual
-adjustments. Photos offer Fit/2×/4× preview zoom. Histograms and slider tick
-rows are not displayed or computed.
+adjustments. Histograms and slider tick rows are not displayed or computed.
 
 Crop supports corner/edge drags, moving the selection, percentage fields,
 free/original aspect, 1:1, 4:3, 3:2, 4:5, 16:9 and portrait/landscape switching.
@@ -1288,7 +1305,38 @@ boundary edit. Up Arrow and Down Arrow move the playhead to the previous or next
 segment boundary. "Preparing preview…" appears only when preparation takes
 longer than 300 ms. Editor shortcuts match characters rather than key
 positions, except named arrow keys, and leave text fields alone. Text editors keep
-their normal editing keys. Empty timelines disable playback and Save, retaining Undo.
+their normal editing keys. C selects the segment under the playhead. Empty
+timelines disable playback and Save, retaining Undo.
+
+The timeline follows the playhead. An explicit move (arrow keys, J/K/L, a
+ruler click, the clock or a VoiceOver adjustment) scrolls the playhead into
+view. Playback pages forward only while following is on: starting playback
+with the playhead visible turns it on, and a manual scroll or pinch zoom turns
+it off. The timeline never scrolls during a trim or playhead drag.
+
+For VoiceOver the timeline is a layout area labelled "Timeline" (Audio Trim's
+is "Waveform"). The playhead is an adjustable element whose increments step one
+frame, valued "time of duration". Each segment reads "Segment 2 of 4", with the
+source file name when several videos are joined, then its start, end and length
+and Freeze Frame, Reversed, a speed such as 2× or Selected. Markup bars read
+their item, such as "Box 1", with "part 1 of 2" when one item shows in several
+places; the music bar reads "Music" with the song, range and volume; and while
+Remove Silence… is open, each hatched range reads "Pause to remove, 1 of 3".
+Pressing an element selects it. Segments offer the context menu's edits as
+VoiceOver actions (Set In Point, Set Out Point, Split, Insert Freeze Frame,
+Reverse Segment or Play Segment Forward, Duplicate, Move Left, Move Right and
+Delete), each one Undo step and none while a reverse or save runs. Music and
+segment volume sliders speak percentages, and the playhead clock says that its
+time can be edited. These semantics have not been checked in a real VoiceOver
+session.
+
+A control disabled for a reason the user cannot see states the reason in its
+tooltip and VoiceOver hint, for example "Place the playhead inside this
+segment to split it.", "A freeze frame can’t be reversed.", "Reverse works on
+segments up to 1:00 long. Split this segment first.", "This video has no
+sound." or "Up to 50 items." Remove Silence… is disabled when nothing audible
+remains, and the timeline context menu shows Reverse Segment checked on
+reversed segments.
 
 Speed (0.5–4×, pitch preserving), volume (0–100%), fades, color and styles belong
 to the selected segment. Fade In and Fade Out (presets None, 0.25, 0.5, 1, 2, 3
@@ -1472,9 +1520,13 @@ the in-house demuxers. Video codecs: H.264, HEVC, ProRes, MPEG-4 Part 2 and
 MJPEG through VideoToolbox; VP8 and VP9 through libvpx; AV1 through VideoToolbox
 when `VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)` is true, otherwise
 dav1d. Audio codecs: AAC, MP3, PCM, ALAC, AC-3 through AudioToolbox; Opus and
-Vorbis through libopus and libvorbis; FLAC through AudioToolbox. Unsupported
-codecs (DTS, WMA, WMV, Sorenson H.263, VP6, Screen Video, RealVideo) fail with
-a message naming the codec.
+Vorbis through libopus and libvorbis; FLAC through AudioToolbox. Inputs the
+native engine cannot decode, such as WMV, ASF, MPEG program and transport
+streams, VOB, RealMedia, MXF, DV, 3GP, Ogg video, or DTS, E-AC-3, WMA and other
+audio inside a supported container, are decoded through the staged fallback of
+section 25.3, and their results are always saved as new files. The native
+error, naming the codec, is kept when the fallback cannot decode the file
+either.
 
 Transform operations in either output mode refuse inputs with more than one
 video track or more than one audio track before writing an output, because the
@@ -1502,6 +1554,19 @@ file and the content and says that nothing was changed. Removing audio only
 permits the requested audio omission.
 Explicit Derived exports report other stream omissions while keeping the
 original. No frame, stream, metadata, alpha, or channel loss is silent.
+
+Settings > General > **If some content can’t be kept** defaults to **Ask**
+(ADR 0086). **Save without it** is carried on the operation request, or on
+the Finishing Recipe batch request, and enforced by the engine before encoding against the
+item's actual commit disposition: an item whose result is saved as a new file
+continues once without the reported kinds, keeping its ordinary warnings, a
+`streamsOmitted` note, history, Undo and notification; a real replacement
+always asks. Continuation checks the identity-bearing input stamps again, and
+an input that changed stops as changed without running again. A refusal after
+encoding has begun is not continued automatically. Finishing Recipes always
+derive and pass the same policy to their engine batch. The editor's open and
+Add Videos… sheets, Trim and Enhance keep their own questions. Settings saved
+before this choice existed decode as Ask, and Reset All restores Ask.
 
 MOV outputs of timing-preserving operations carry an AVFoundation-readable
 timecode track natively in the same AVAssetWriter session as the video; no
@@ -1693,7 +1758,10 @@ Undo remains available. Internal trimming used by VideoEdits is retained.
 | `audio.trim` | — (panel) | Transform | Sample-accurate for PCM and lossless; frame-accurate re-encode for lossy; optional linear fade in/out within the kept range |
 | `audio.subtitles` | SRT, VTT, TXT, Translated SRT | Derived | Same on-device transcription, translation, settings, and cue rules as video subtitles; no video track required |
 
-Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF/AIFF-C, CAF, FLAC, Ogg Vorbis, Opus. WMA is not supported.
+Inputs: MP3, AAC, M4A, ALAC, WAV, AIFF/AIFF-C, CAF, FLAC, Ogg Vorbis, Opus
+natively; WMA, AC-3, DTS, MP2, WavPack, Monkey's Audio, TTA, AMR, RealAudio,
+MKA and other audio the native engine cannot decode through the staged
+fallback of section 25.3, whose results are always saved as new files.
 WAV input includes RF64 and BW64. Their mandatory first `ds64` chunk supplies
 64-bit RIFF and audio lengths and optional oversized-chunk lengths. Chunk
 ranges are checked against those lengths and the file before replacement.
@@ -1787,6 +1855,38 @@ the save panel offers replacement, and remain undoable.
 | `archive.extract` | — | Derived | The Finder menu is RAR-only; legacy internal requests retain their existing decoder coverage. RAR (read only) uses libarchive into a fresh collision-safe folder named after the archive stem, including when the archive has a single top-level folder; extraction flags `SECURE_NODOTDOT` and `SECURE_SYMLINKS`, absolute and `..` entry names refused before writing, `__MACOSX` skipped, quarantine copied from the archive, output capped at the larger of 1 GiB and 1000× the archive (ADR 0010); encrypted entries open the Password panel |
 | `archive.browse` | — | Report / Derived export | One ZIP; hierarchical listing, name/path search, selected-file preview and explicit selective save; section 8.14 |
 
+Ordinary extraction and archive output verification enable the ZIP, TAR, 7z,
+RAR and RAR5 formats explicitly, plus raw streams after a supported filter for
+single compressed files. Unfiltered raw input, plain text and images are
+refused as "This file isn’t a supported archive or compressed file." LZ4,
+LZOP, LRZIP and GRZIP signatures are refused rather than published as a raw
+payload. TAR with zstd remains readable. A ZIP inside another compression
+layer is refused with "ZIP archives wrapped in another compression format
+can’t be extracted. Decompress the outer layer first." These rules do not
+change Finder menu eligibility.
+
+**Entry names.** UTF-8 always wins: libarchive's UTF-8 pathname, a ZIP Unicode
+path field whose CRC matches, and raw bytes that are valid UTF-8, even when
+they are also valid CP932. Other names are decoded by one archive-wide choice
+(ADR 0083). When any of the user's preferred languages has the language code
+`ja` (region or script subtags allowed, not necessarily first; `en-JP` does
+not count), names are decoded as Windows CP932 if every non-UTF-8 name in the
+archive passes a strict check: valid lead and trail bytes, an assigned code
+point, Foundation's decoding, and no private-use characters or controls other
+than tab, line feed and carriage return. Otherwise ZIP decodes every non-UTF-8
+name as CP437, never mixing the two; TAR refuses non-UTF-8 names with "This
+archive uses a text encoding for file names that MacEase can’t read.", so
+different names cannot collapse into the same replacement-character name.
+Windows-1252, Latin-1, EUC-JP and other encodings are never guessed. Link
+targets use the same choice. The language preference is read once at each
+operation, reader or browser-session boundary and passed down; a Browse
+Contents session keeps its choice for listing, preview and export. ZIP
+extraction checks every name before writing anything; TAR, 7z and RAR decode
+per entry, and any failure discards the staged output. ZIP name fields are
+checked for embedded NUL before conversion. Path checks are unchanged:
+absolute and parent-traversing names are refused, and the extractor applies
+no extra Unicode normalization.
+
 **HatchZip extraction.** `archive.hatchExtract` appears as **Extract with HatchZip**
 for ZIP, 7z, TAR, tar.gz/tgz and recognized
 `.zip.NNN`, `.7z.NNN`, `.tar.gz.NNN` volumes. Bare numeric extensions are not
@@ -1799,7 +1899,8 @@ ZIP Browse Contents remains independent and non-destructive.
 The app bundles a pinned Rust helper using `hatchzip-core`, with UnRAR disabled.
 Requests and events use structured local pipes; archive passwords are not stored
 or placed in arguments/logs. Extraction starts immediately without confirmation
-or an original-preserving option. Preflight verifies the complete archive, free
+or an original-preserving option, except for the legacy-name route below.
+Preflight verifies the complete archive, free
 space, archive paths, expansion limits and all volumes before destructive work.
 Hard-linked inputs, unsupported File Provider/network locations and untrusted
 recovery records fail before mutation. Existing outputs are never replaced.
@@ -1812,6 +1913,52 @@ History cleanup does not remove incomplete sessions, and completed extractions
 have no Undo action. Upstream restore is not presented as original-file recovery.
 The source and output stay on the same volume; snapshot-held blocks and
 unsupported hole punching may limit actual reclaimed space.
+
+**Legacy-name route.** A new HatchZip request first inspects every name: ZIP
+reads the central directory and bounded link payloads, never file bodies; TAR
+reads every header, inflating gzip as it goes. Inspection is limited to
+100,000 entries, 32 MiB of name, extra-field and comment bytes, path depth 256,
+link payloads of 64 KiB, the extraction expansion limit and 10 seconds, with
+cancellation; exceeding a limit refuses with "Couldn’t inspect “…”: it reached
+…. Use another archive app or create a smaller archive. The original was not
+changed.", naming the limit. A compressed TAR is the exception, because its
+names can only be read by inflating it: when the limit is reached and every
+name seen so far was UTF-8, extraction proceeds on the helper route as before
+(names after the limit are not checked first); when a CP932 name was already
+seen with Japanese preferred, it proceeds on the native route, where a later
+undecodable name fails the extraction with staging removed and the archive
+kept. The inspection itself writes nothing to disk. When the archive-wide
+choice above selects CP932, the native
+extractor runs instead of the helper: staged extraction, the collision-safe
+Derived commit, quarantine, verification and history, keeping the archive in
+both save modes with Undo removing only the output. Every native extraction,
+on this route and for RAR and explicit native extraction alike, refuses an
+archive in which two entries would become the same file on the destination
+volume: identical decoded names, names that differ only by case on a
+case-insensitive volume, or names that differ only by Unicode normalisation.
+Each path is checked against what the extraction already wrote in its
+staging directory (by path and by file identity); a collision fails the
+extraction with "Couldn’t extract “…”: entries “…” and “…” have the same name
+on this disk. …", staging is removed and nothing reaches the destination.
+libarchive's own no-overwrite option is not relied on, because it skips the
+second entry and reports success. Regular encrypted ZIPs
+(ZipCrypto, WinZip AES-128, -192 and -256) use the typed password, ZIP64 has
+no separate size cutoff, and the expansion limit of section 8.5 applies.
+Activity shows Stop, which cancels and removes staging, rather than Pause.
+Split volumes, unsupported ZIP compression methods (including Deflate64),
+strong encryption, backslash separators, encrypted ZIP links and link
+compression other than stored, deflate or LZMA refuse before any change with
+"Couldn’t extract “…”: CP932 file names cannot be combined with …. Re-create
+it as a single ZIP with UTF-8 file names and Deflate compression, or use
+another archive app. The original was not changed." All other archives, including
+CP437 ZIPs, keep the helper route and its in-place behaviour. TAR whose names
+are neither UTF-8 nor accepted CP932 refuses before any change. Before
+starting the helper, a new session saves a private versioned proof of the
+inspected input, the language snapshot and the route. A paused session
+resumes on the route it started with, without inspection, whether or not it
+has a proof and even if the preferred languages changed, so partly consumed
+input stays reachable and names do not change partway. The helper itself is
+unchanged.
 
 ### 8.6 PDFs
 
@@ -2168,8 +2315,10 @@ These are target pairs, not evidence of an implemented or tested codec path.
 Each row defines all source-to-target pairs in that row. Availability requires
 a native macOS framework or the approved permissive/in-house backend in
 sections 3.7–3.8. Container extensions do not guarantee that every contained
-codec works. The host validates actual codecs before writing. No FFmpeg CLI,
-Windows component, or unapproved dependency is introduced to fill a pair.
+codec works. The host validates actual codecs before writing. No Windows
+component or unapproved dependency is introduced to fill a pair. The bundled
+FFmpeg CLI only decodes inputs into a verified intermediate (section 25.3); it
+never writes a user's output.
 
 For still images, **I** is PNG, JPEG, HEIC, WebP, AVIF, JPEG XL, GIF, TIFF,
 BMP, TGA, ICO, ICNS, SVG, and PDF. For video, **V** is MP4, MOV, M4V, MKV, WebM,
@@ -2234,7 +2383,8 @@ M4A. Audio-only M4A stays in Audio and never pretends to contain video.
 Lossy rates and MP3 CBR/VBR come from Settings. Lossless output retains source
 precision and speaker layout where supported, rather than forcing 16-bit PCM.
 Unsupported layout, extra stream, or metadata preservation fails as specified
-in sections 3.5 and 8.3. WMA is excluded from both A and the input list.
+in sections 3.5 and 8.3. WMA and the other fallback-decoded formats of
+section 8.3 are inputs only, never targets, and always produce new files.
 
 | Text source | Structural or decoded-text targets |
 | --- | --- |
@@ -2315,7 +2465,11 @@ coordinated export commit. A changed source produces no new output.
 lists central-directory metadata without expanding all members. A cancellable
 preflight counts actual central records before libarchive allocates its index.
 Listing is limited to 100,000 entries, 32 MiB of names, extra fields and comments,
-and 256 path components. The hierarchy also limits retained paths to 32 MiB.
+and 256 path components. End-of-central-directory search covers the largest
+65,535-byte comment; a valid comment of that size is read through a logical
+view ending after the end record. Entry names are decoded as in section 8.5
+and displayed through the inert-text rule of the Finder Preview archive list
+(section 25.1). The hierarchy also limits retained paths to 32 MiB.
 Empty ZIPs are valid. Hierarchical rows distinguish duplicate paths by stable entry identifiers.
 AppleDouble members remain visible and are not implicitly expanded.
 Search uses names and paths without opening member contents.
@@ -2420,13 +2574,13 @@ availability changes.
 ## 11. Onboarding and first launch
 
 One **Welcome** window replaces the multi-page wizard. It shows the app icon,
-**Right-click and done.**, one sentence describing the Finder workflow, and a
+**Set Up MacEase**, one sentence describing the Finder workflow, and a
 static MacEase screenshot of Resize > 50%, with descriptive alternative text.
 No Flect tagline, illustration, or asset is reused.
 
 The Welcome window also offers Add Folder… using the same folder picker as Settings.
 The checklist contains Finder extension status with Turn On…, Notifications
-with Allow, and Launch at login with its default-on switch. A short note explains
+with Allow, and Open at login with its default-on switch. A short note explains
 first-use protected-folder prompts for Desktop, Documents, Downloads, removable,
 and network volumes, plus a Full Disk Access shortcut. Status refreshes when
 the app activates. Done permits incomplete permission rows.
@@ -2595,6 +2749,11 @@ ignored until the next check.
   language, so the Finder menu always matches the app's language setting.
 - Formats and units use the current locale; file sizes use `ByteCountFormatter`
   with decimal units.
+- Every catalog key has a Japanese value with the same placeholders, and every
+  `NS…UsageDescription` of the app and its extensions has English and
+  Japanese; an app-hosted test enforces both. Japanese uses one term per
+  concept, no space between Latin and Japanese text, full-width parentheses
+  and `：` before a reason, and 取り消す for Undo (元に戻す remains Revert).
 
 ## 16. Non-functional requirements
 
@@ -3042,8 +3201,9 @@ Launch Python with isolated imports and bytecode writes disabled. Never depend
 on the user's Python or Homebrew.
 Bundle FFmpeg and ffprobe as independent processes, built without GPL or nonfree
 features, for downloading, merging, converting and repairing newly downloaded
-media, plus local MP3 encoding under section 23. Their required LGPL dependencies
-share this narrow exception.
+media, local MP3 encoding under section 23, and decoding unreadable local
+inputs into a staged intermediate under section 25.3. Their required LGPL
+dependencies share this narrow exception.
 MacEase source remains MIT; third-party executables retain their own licenses.
 Strip debug and local symbols from media/audio native helpers before signing,
 while preserving external symbols and all executable sections. Keep audio model
@@ -3410,19 +3570,26 @@ the focused control. Tooltips name the shortcuts.
 named like a file. Regular files resolve by UTType conformance and extension:
 PDF; HTML (`html`, `htm`, `xhtml`); property lists; JSON; Markdown (`md`,
 `markdown`, `mdx`); SVG; fonts (`ttf`, `otf`, `ttc`, `otc`, `woff`, `woff2`);
-images; audio; video, including MKV, WebM, AVI, WMV, FLV, Ogg video, MPEG and
-M2TS; and text, covering source code, plain text, XML and a list of
-configuration, script and source extensions plus the dotfiles `.env`,
-`.editorconfig`, `.gitignore`, `.gitattributes`, `.gitmodules` and
-`.dockerfile`. `.ts` and `.mts` open as text unless their content is an MPEG
-transport stream, which opens as video. A type switched off in Settings >
-Finder Windows uses Quick Look, and unknown types keep Quick Look.
+images; audio; video, including MKV, WebM, AVI, WMV, ASF, FLV, Ogg video, MPEG,
+VOB, M2TS, 3GP and RealMedia; archives (`zip`, `tar`, `tgz`, `tbz`, `tbz2`, `txz`, `gz`, `bz2`, `xz`);
+and text, covering source code, plain text, CSV and TSV, XML and a list of
+configuration, script and source extensions. Files without a telling extension
+open as text by exact name, case-insensitively: `Makefile`, `GNUmakefile`,
+`CMakeLists.txt`, `Dockerfile`, `Containerfile`, `Gemfile`, `Rakefile`,
+`Podfile`, `Brewfile`, `Fastfile`, `Vagrantfile`, `Jenkinsfile`, the shell
+startup files `.bashrc`, `.zshrc`, `.bash_profile`, `.zprofile`, `.zshenv` and
+`.profile`, and the dotfiles `.env`, `.editorconfig`, `.gitignore`,
+`.gitattributes`, `.gitmodules`, `.gitconfig`, `.npmrc` and `.dockerfile`, plus
+any name starting with `.env.` or `Dockerfile.`. `.ts` and `.mts` open as text
+unless their content is an MPEG transport stream, which opens as video. `.7z`
+and `.rar` keep Quick Look. A type switched off in Settings > Finder Windows
+uses Quick Look, and unknown types keep Quick Look.
 
 Before a specialized viewer opens, the first bytes are identified. An empty file
 shows "This file is empty." A file named as text, HTML, Markdown, JSON, a
-property list or SVG whose content is binary shows "This file doesn't look like
-text, so it isn't shown." and is never decoded. Other mismatches keep the viewer
-and show "The file name doesn't match its content (PNG)." with the detected
+property list or SVG whose content is binary shows "This file doesn’t appear
+to be text." and is never decoded. Other mismatches keep the viewer and show
+"The file name doesn’t match its content (PNG)." with the detected
 format's localized name. Identification reports PDF only with `%PDF-` at offset
 zero, distinguishes Mach-O and universal binaries from Java class files, treats
 C0 control bytes other than tab, line breaks, form feed and ESC as binary, and
@@ -3435,7 +3602,7 @@ resolved path lies inside a folder listed in Settings > Finder Windows > Trusted
 Folders; the stored paths are standardized and deduplicated. The HTML rules
 below and ADR 0073 describe what each state permits. Restricted Markdown embeds
 no images, and restricted media is not converted: "This file is from the
-internet, so MacEase doesn't convert it. Open it in a media player."
+internet, so MacEase doesn’t convert it. Open it in a media player."
 
 Specialized viewers:
 
@@ -3443,13 +3610,121 @@ Specialized viewers:
   code font and size from Settings (System Monospaced, 12 points, 9–24) and line
   wrapping from Settings (on). Text is selectable and read-only; editing was
   removed. Reads take at most 4 MiB; larger files display the first 256 KiB with
-  a note. An excerpt may omit an incomplete final encoded character. Highlighting
-  covers the first 512 KiB using a local tokenizer for Swift, JavaScript and
-  TypeScript, Python, C-family languages, JSON, HTML/XML, CSS, shell, YAML and
-  Markdown, with quote rules scoped per language: single quotes never start
-  strings in Swift, JSON or Markdown, markup quotes count only inside tags,
-  YAML and TOML strings start only at scalar boundaries, and C++ digit
-  separators are not character literals. Colors are adaptive system colors.
+  a note. An excerpt may omit an incomplete final encoded character.
+- **Highlighting** covers the first 512 KiB, cut back to a whole UTF-8 scalar,
+  off the main actor and cancelled with the selection. A local declarative
+  tokenizer has 47 grammars, chosen by exact file name first and then by
+  extension (ADR 0084): Swift, C, C++, Objective-C, Objective-C++, Go, Rust,
+  Java, Kotlin, C#, Scala, Dart, F#, Visual Basic, Solidity, JavaScript and
+  TypeScript, Python, Ruby, PHP, Groovy and Gradle, Lua, Perl, R, Julia,
+  Elixir, Clojure, shell, PowerShell, Windows Batch, SQL, JSON (with JSONC and
+  JSON5), YAML, TOML, INI-style configuration (including `.properties`, `.env`
+  and Git configuration files), Dockerfile, Makefile, CMake, Terraform/HCL,
+  Protocol Buffers, GraphQL, CSS (with SCSS, Sass and Less), markup (HTML, XML,
+  SVG, property lists, Vue, Svelte and Astro, with embedded `<script>` as
+  JavaScript and `<style>` as CSS), Markdown and MDX, LaTeX, reStructuredText,
+  AsciiDoc, and diff/patch. PHP starts in markup and switches to PHP between
+  `<?php`, `<?=` or `<?` and `?>`. Plain text, logs, CSV, TSV, subtitles,
+  `.sln` and Git ignore and attributes files stay uncoloured. Token kinds are
+  keyword, type (types and built-ins), string, comment and number, plus added
+  and removed diff lines. A word right after `.` is not a keyword unless the
+  dot belongs to `...`. Delimiters that cannot be mistaken (block comments,
+  triple quotes, Markdown and AsciiDoc fences, raw strings, Lua long brackets,
+  heredocs and here-strings) run to their closer or the end of the scanned
+  text; single-line strings stop at a line break; multi-line strings opened by
+  one quote character stop after 256 lines or 16,384 UTF-16 units. Colours are
+  adaptive sRGB values with Increase Contrast variants. In diff and patch
+  files, added and removed lines keep their green or red text and get a tint
+  across the full width of the view, including empty `+` and `-` lines and
+  every wrapped line; the tint lies beneath glyphs and is cut out where the
+  selection is drawn, and the empty line after a final line break is not
+  tinted.
+- **Hidden and direction-changing characters** are marked in the source view
+  (ADR 0084). One scanner, `PreviewInvisibleScanner`, decides which characters
+  are flagged:
+  - Always: C0 controls other than tab, line feed and carriage return; DEL and
+    C1 controls (U+007F–009F); U+034F; Hangul fillers (U+115F, U+1160, U+3164,
+    U+FFA0); U+17B4–17B5; U+180E; U+2028 and U+2029; bidirectional embeddings
+    and overrides (U+202A–202E) and isolates (U+2066–2069); U+2060–2064;
+    U+2800; U+FFF9–FFFB; and tag characters (U+E0000–E007F) except inside a
+    subdivision flag: U+1F3F4, two lowercase tag letters, one to four lowercase
+    tag letters or digits, then U+E007F.
+  - U+FEFF anywhere but the first character of the file.
+  - Variation selectors U+FE00–FE0F without a base that can carry them: after
+    an ASCII character only U+FE0E and U+FE0F after `0`–`9`, `#` or `*` are
+    exempt; after other characters they are exempt unless the base is white
+    space, default-ignorable or itself flagged. Ideographic variation selectors
+    (U+E0100–E01EF) are flagged unless they follow an ideograph.
+  - U+200B, except in prose kinds (plain text, Markdown, reStructuredText,
+    AsciiDoc, LaTeX and markup) between two non-ASCII letters or marks, as in
+    Thai, Khmer or Japanese word breaks.
+  - U+200C and U+200D, except next to a virama, next to a right-to-left letter
+    or between two emoji.
+  - U+200E, U+200F and U+061C: in code and configuration kinds, unless the
+    nearest letter on each side within the line is right-to-left; in prose
+    kinds, when next to an ASCII letter or on a line without right-to-left
+    script. Right-to-left script includes U+10800–10FFF and U+1E800–1EFFF.
+  - U+00AD in prose kinds outside a word, and in code next to ASCII or outside
+    a word.
+
+  The scan covers the same 512 KiB as highlighting. Marks are drawn by a
+  TextKit 2 layout fragment and never stored as text attributes, so
+  characters, shaping, Copy, Find, selection, line numbers and wrapping are
+  unchanged. Each flagged character gets a 2-point orange bar with a small
+  triangle head at its caret position, full line height, above glyphs and the
+  selection (adaptive sRGB: #BF5200 light, #FF9E33 dark, #993D00 and #FFBD61
+  with Increase Contrast). A character at a line end or wrap break is drawn
+  after the last glyph of its visual line. Pointing at a mark shows its code
+  point and Unicode name, for example "U+202E RIGHT-TO-LEFT OVERRIDE", with
+  `<control>` for unnamed controls and "×2" for stacked characters at one
+  position. Bidirectional controls and tag characters are always drawn and
+  get a tooltip; other flagged characters are capped at 100 per visible line
+  fragment, and the last drawn one then adds "N more hidden characters on
+  this line aren’t marked." In Source mode only, when the shown text contains
+  a bidirectional control or a tag character outside a flag, an orange note
+  says "This file contains N hidden or direction-changing characters.", where
+  N counts every flagged character, and "at least N" when the file was cut to
+  an excerpt or its text is longer than the 512 KiB scan. Other classes are
+  marked without the note. VoiceOver reads the note; marks have no
+  per-character accessibility. Files with nothing to mark and no diff lines
+  use TextKit's plain layout.
+- **CSV and TSV** offer Table and Source; Table is the default for every newly
+  selected file. The table is built from the text the viewer decoded, so the
+  encoding menu applies to both and a new encoding rebuilds it. Parsing
+  follows RFC 4180 (quoted fields, doubled quotes, line breaks inside quotes,
+  CRLF, LF or CR record ends, a last line without a break) and accepts ragged
+  rows, showing missing cells empty; a quote opens a quoted field only at the
+  start of a field, text after a closing quote is kept, an unterminated quote
+  runs to the end, and no file is rejected. `.tsv` uses tab. `.csv` honours a
+  first line `sep=,`, `sep=;` or `sep=` followed by a tab, which is not shown
+  as a row; otherwise the first record is read with comma, semicolon and tab,
+  and the separator yielding the most fields wins, ties preferring comma, then
+  semicolon. The first row is the column header and stays visible. Columns
+  are sized off the main actor from the header and the first 20 rows, measuring
+  at most 80 scalars per cell, within 40–240 points, can be resized, and scroll
+  horizontally. A column is numeric, right-aligned and sorted by value when
+  every non-blank cell is a decimal number (optional sign, digits with at most
+  one decimal point, optional exponent; hexadecimal, `nan` and `inf` are
+  text). Clicking a header sorts numeric columns by value with empty cells
+  first when ascending and other columns with Finder's localized comparison;
+  equal values keep file order, and a third click restores file order. Cells
+  show one line: line breaks, tabs and other C0 controls appear as Unicode
+  control pictures, DEL as ␡, and every character the source view would mark
+  as U+FFFD, except that a U+FEFF at the start of a cell is also replaced; a
+  cell shows at most 1,000 scalars, cut at a grapheme boundary with an
+  ellipsis, and its tooltip holds the cleaned text. Rows can be selected;
+  Command-C copies the selected rows, without the header, as tab-separated
+  text, quoting cells that contain a tab, a line break or a double quote.
+  Table mode shows no hidden-character note. The table holds at most 50,000
+  data rows and 256 columns; a note says "Showing the first 50,000 rows",
+  "Showing the first 256 columns" or both. Files over 4 MiB open in Source,
+  and Table then shows "Files larger than 4 MB can’t be shown as a table."
+  with Show Source. A decode failure shows its message without Show Source.
+  Parsing, measuring, sorting and Find run off the main actor, are cancelled
+  when the selection or encoding changes, and never show a table built from an
+  older rendering. Clicking the table makes the panel key; Full Keyboard
+  Access reaches it by Tab, and VoiceOver gets a native table labelled
+  "Table". Quarantined files are shown.
 - **Encodings.** Automatic detection is strict: a candidate must decode with no
   disallowed control, private-use, unassigned, surrogate or replacement
   characters. Byte order marks win, then UTF-32 and UTF-16 by NUL position,
@@ -3501,7 +3776,7 @@ Specialized viewers:
   file pickers and camera or microphone requests are denied. HTML loaded from
   its file may be up to 64 MiB; HTML rendered from text (restricted or in the
   home folder) is limited by the 4 MiB text read and shows "Files larger than
-  4 MB can't be previewed here." with Show Source. Notes under the bar state
+  4 MB can’t be previewed here." with Show Source. Notes under the bar state
   the active state in plain words.
 - **Markdown** offers Preview and Source through the safe cmark conversion and
   its 1 MiB input limit, rendered as a sealed generated page with the static
@@ -3514,15 +3789,19 @@ Specialized viewers:
   embedded. Source remains available when rendering fails.
 - **JSON and property lists** offer Formatted and Source using the engine
   formatters. Binary plists display formatted JSON only. Files over 4 MB show
-  "Files larger than 4 MB can't be formatted." with Show Source. Source bytes
+  "Files larger than 4 MB can’t be formatted." with Show Source. Source bytes
   are never rewritten.
 - **SVG** offers Preview and Source. Preview draws the file as an image element
   over a checkerboard in a sealed generated page, so scripts and external
   references in the SVG never run; Find is available in Source. A binary file
   named `.svg` is refused as above.
-- **Fonts** load the first face of TTF, OTF, TTC/OTC, WOFF and WOFF2 files
-  through Core Text and show the face name, "First of N faces" for collections,
-  and the sample text from Settings at 12, 16, 20, 28, 40 and 64 points. Files
+- **Fonts** load TTF, OTF, TTC/OTC, WOFF and WOFF2 files through Core Text and
+  show the face name; below it the style name when Core Text has one, the glyph
+  count ("Italic · 2,490 glyphs", "1 glyph") and, for collections, "Face 3 of
+  4"; and the sample text from Settings at 12, 16, 20, 28, 40 and 64 points.
+  Collections add a pop-up menu of every face name with Previous Face and
+  Next Face buttons, and the sample switches to the chosen face; single-face fonts show
+  no control. Every newly selected file starts at its first face. Files
   over 64 MiB, collections over 64 faces, and WOFF/WOFF2 files whose declared
   or decompressed sizes exceed those limits are refused with a message before
   Core Text sees them; decompression is streamed and bounded. Fonts Core Text
@@ -3560,15 +3839,27 @@ Specialized viewers:
   a full-width scrubber with elapsed time and duration, a play button and a
   mute button (**Mute** / **Unmute**) with a volume slider; volume and mute last
   for the app session. Media that AVFoundation cannot play, such as MKV, WebM,
-  Ogg, FLAC or multi-track Matroska, shows "This format can't be played
+  Ogg, FLAC or multi-track Matroska, shows "This format can’t be played
   directly." with **Convert and Play**, which converts a temporary copy with
   progress and plays it: compact 192 kbps AAC (ALAC in CAF above six channels)
   for audio, at most 30 minutes of audio, 10 minutes of video and 512 MiB of
-  input. Changing the selection cancels the conversion and deletes the copy.
-  These throwaway copies skip the stream-consent question of section 8.2 because
-  nothing is saved. Codecs MacEase cannot decode show their specific error
-  instead of the button. Every preview asset forbids external references and
-  shows the message of section 8.2.
+  input. Media the native engine cannot decode at all, such as WMV, ASF, MPEG
+  program streams, VOB, RealMedia, WMA, WavPack, Monkey's Audio, DTS or AC-3,
+  also shows the button; pressing it converts through the staged fallback of
+  section 25.3 (ADR 0082). Selecting such a file runs nothing from the
+  fallback, not even `ffprobe`: the viewer shows the button after the size
+  limit and the quarantine rule. When the button is pressed, `ffprobe` reads
+  the duration first, the 10- and 30-minute limits apply ("This file is too
+  long to convert for preview. Open it in a media player."), and the
+  conversion then has five minutes of wall-clock time. A file whose name
+  matches but whose content cannot be read shows the button and fails after
+  it is pressed. Playback uses the first video and first audio track; other
+  tracks, subtitles and chapters are not played. Quarantined files are never
+  converted. Changing the selection cancels the conversion and deletes the
+  copy. These throwaway copies skip the stream-consent question of section
+  8.2 because nothing is saved. Errors other than a decoding failure show
+  their specific message instead of the button. Every preview asset forbids
+  external references and shows the message of section 8.2.
 - **PDF** uses PDFView with an editable page readout ("3 / 24"; Return jumps;
   invalid entries reset), a table-of-contents popover when the document has an
   outline (at most 2,000 entries), Fit Width and Actual Size, which show their
@@ -3576,13 +3867,56 @@ Specialized viewers:
   highlighted, and an inline password field for locked PDFs: "This PDF is
   locked with a password.", then "The password is incorrect." until new input
   is typed.
+- **Archives** show a read-only contents list (ADR 0085). ZIP, TAR, TAR behind
+  exactly one of gzip, bzip2 or xz (`tgz`, `tbz`, `tbz2`, `txz` and
+  `.tar.gz`-style names), and single `gz`, `bz2` or `xz` files are listed in
+  process with libarchive; 7z and RAR keep Quick Look. Nothing is extracted,
+  staged or written. ZIP uses the seekable reader with the central-directory
+  preflight of section 8.14 and must yield as many headers as the validated
+  directory holds. Compressed input passes through two stages: one
+  decompression layer reading 4 KiB of input at a time, then a filterless
+  TAR or raw reader taking decoded blocks of at most 64 KiB; chained filters
+  and filters that would need an external program are refused. Every block
+  checks the deadline, cancellation and a 64 MiB decoded-byte budget, with no
+  exemption for links, sparse files or PAX headers. Listing stops at 100,000
+  entries, 32 MiB of names, 64 MiB of decoded bytes or 10 seconds and says
+  which limit stopped it, for example "Showing the first N items." or
+  "Listing timed out. Showing the first N items."; with no rows it says why,
+  such as "This archive has too many items to list." A damaged archive shows
+  the rows read before the damage with a note, or "This archive is damaged,
+  so its contents can't be listed." "This archive is empty." is reserved for
+  containers with no entries. An all-zero `.tar` of 1,024 bytes to 1 MiB in
+  512-byte blocks is listed as an empty TAR. Encrypted ZIP entries show a lock
+  and a note. Quarantined archives are listed. Display names are inert:
+  controls, line and paragraph separators and bidirectional formatting
+  characters show as U+FFFD, names longer than 1,024 scalars are shortened in
+  the middle, empty and `.` components are dropped, and `..` and absolute
+  paths appear literally as folders. Nesting deeper than 256 levels keeps the
+  file under its 256th-level folder with the rest of the path in its name.
+  The list is an outline with Name, Size, Date Modified and Kind; Kind hides
+  below 600 points and Date Modified below 460. Folders sort first when
+  Finder's Keep Folders on Top is set. Sorting and filtering run off the main
+  actor; Size and Date Modified keep folders and unknown values last and break
+  ties by name. A summary such as "128 items, 45.2 MB uncompressed" sits under
+  the bar, counting implied folders as items. The bar holds a Search field for
+  names and paths and, for ZIPs, a Browse Contents button that opens the
+  section 8.14 window. Rows cannot be opened, dragged or previewed; Copy Path
+  (Command-C or the row's context menu) copies the stored entry path byte for
+  byte. VoiceOver reads name, kind, size, date and Encrypted for each row, the
+  path as help, and announces the summary when listing finishes. Settings >
+  Finder Windows has an Archives type, on by default, including for settings
+  saved before it existed.
 
-**Find.** One Find bar serves text and source views, rendered Markdown and HTML,
-and PDF. The magnifying-glass button or Command-F opens it while the panel is
-key; Return and Shift-Return or Command-G and Shift-Command-G move between
-matches; text and PDF show "3 of 12", while web pages report only "Not found"
-because WebKit gives no count. Escape or Done closes the bar and returns focus
-to the content. The query persists while the same file stays selected.
+**Find.** One Find bar serves text and source views, CSV and TSV tables,
+rendered Markdown and HTML, and PDF. The magnifying-glass button or Command-F
+opens it while the panel is key; Return and Shift-Return or Command-G and
+Shift-Command-G move between matches; text, tables and PDF show "3 of 12",
+while web pages report only "Not found" because WebKit gives no count. In a
+table, Find counts matching cells case- and diacritic-insensitively, skips
+the header, selects and scrolls to the match and marks its cell with the
+system find highlight; sorting recounts in the new order and keeps the current
+match. Escape or Done closes the bar and returns focus to the content. The
+query persists while the same file stays selected.
 
 File reads, text conversion, image decoding, font validation, PDF opening and
 media conversion run outside the main actor; WebKit and AVFoundation use
@@ -3592,7 +3926,9 @@ results, release viewer content, pause playback and remove time observers.
 
 Full screen, Spaces, Finder tabs, live AX-driven docking, native Quick Look
 controls and Increase Contrast rendering require real-host validation with a
-trusted build.
+trusted build. The CSV and TSV table, font face switching, hidden-character
+marks and the archive list were rendered offscreen only; their behaviour in a
+real Finder window and with VoiceOver is still to be checked.
 
 ### 25.2 Finder storage bar
 
@@ -3663,7 +3999,142 @@ privacy-protected folders and removable or network volumes on every selection
 change and cause file-access prompts. Finder's status bar metrics, colour match,
 Spaces, full screen, Mission Control and tabs still need checking on a real Mac.
 
+### 25.3 Media decode fallback
+
+The native engine always reads a video or audio input first. When it cannot
+open or decode the file (`decodeFailed` or `unsupportedCodec`), the operation
+decodes the file with the bundled LGPL `ffmpeg` and `ffprobe` (section 22.2)
+into a temporary intermediate in staging and runs unchanged on that
+intermediate (ADR 0082). FFmpeg never writes a user's output and is not used
+for Extract Original Audio. Container decodability is checked by scanning at
+most 256 packets; frame-rate measurement scans at most 30,000 packets and
+fails instead of assuming a rate. Undecodable audio in MOV or MP4 is checked
+through `ExtAudioFile` first, so it raises a typed error rather than an
+Objective-C exception. The fallback serves Finder operations that read media:
+convert, compress by quality, preset or target size, resolution, speed, frame
+rate, rotate, trim, remove audio, extract audio, thumbnails, animations,
+subtitles, background removal, audio conversion, compression, normalization,
+trim, Enhance Audio and Finishing Recipes, plus Finder Preview's Convert and
+Play. The photo and video editor opens only what the native engine reads.
+
+`FileKind` classifies `wmv`, `asf`, `mpg`, `mpeg`, `m2ts`, `mts`, `vob`, `rm`,
+`rmvb`, `3gp`, `3g2`, `mxf`, `dv` and `ogv` as video and `wma`, `ac3`, `dts`,
+`mp2`, `wv`, `ape`, `tta`, `amr`, `ra` and `mka` as audio; `.ts` stays
+TypeScript in the menu. Finder Preview offers Convert and Play through the same
+fallback (section 25.1). Content identification accepts their signatures; an
+MPEG transport stream needs three consecutive sync packets of 188 or 192 bytes,
+four when the header covers four.
+
+**A fallback-backed input never replaces its original.** Whatever the
+operation or save mode, the result is committed as a new file beside the
+original under the operation's ordinary new-file name (`_compressed`,
+`_trimmed` and so on), Undo removes only that file, and in Replace mode the
+item carries "Saved as a new file: MacEase cannot write the original format."
+Replace-only loss refusals therefore become the warnings of a new file. The
+decision is made in one place, when the engine settles the item's result.
+
+**Every intermediate is verified.** After staging, `ffprobe` reads the
+intermediate and one fixed list of twelve facts is compared with the
+original's probe: mapped streams; each stream's start relative to the
+earliest; video display dimensions, accounting for rotation, which is baked
+into the intermediate's pixels; pixel bit depth and chroma subsampling, each
+at least the original's; alpha presence; video frame count within one frame,
+or duration within the larger of one frame and 0.05 seconds; audio channel
+count; channel layout; sample rate within 1 Hz; audio precision class (lossy,
+16-, 24- or 32-bit integer, 32- or 64-bit float); and audio duration within
+0.1 seconds, accepting both Matroska `DURATION` conventions. Any unexplained
+difference fails the item before the operation runs with "Couldn’t process
+“name”: the file couldn’t be converted faithfully. Nothing was changed."
+
+**Intermediates.** Video is written to MOV: 8-bit 4:2:0 SDR as HEVC
+(`hevc_videotoolbox`, quality 90, keyframe every 30 frames, no B-frames); 10-bit
+or PQ/HLG 4:2:0 as HEVC Main 10; 4:2:2 as ProRes 422; 4:4:4, RGB or odd
+dimensions as ProRes 4444; alpha as ProRes 4444 with alpha, decoding VP9 alpha
+with libvpx. Other alpha the decoder cannot read fails as unfaithful. Video
+soundtracks become uncompressed PCM at 16, 24 or 32 bits or 32- or 64-bit
+float. Audio-only input becomes ALAC in M4A when the layout round-trips exactly
+(mono, stereo, 3.0, 4.0, 5.0, 5.1 or unlabeled up to two channels) at no more
+than 24 bits, and PCM in CAF otherwise. Attached cover art is extracted
+separately, at most 16 MiB and 25,000,000 pixels with no side over 16,384;
+larger, non-image or undecodable covers are dropped with a metadata warning.
+
+**Losses are reported, not silent.** Facts the intermediate cannot show are
+read from the original: Dolby Vision configuration feeds the existing
+Dolby Vision warning; track enabled state, preferred volume and alternate
+groups, an interlaced field-order change, and differing video tags (key and
+value) warn about dropped track metadata; for title, artist and album the
+container tag wins over a different stream tag with a metadata warning; an
+APEv2 tag larger than FFmpeg's 16 MiB limit or with skipped items warns that
+metadata was dropped. A fallback video with variable frame timing (a frame
+interval deviating more than 15%, ignoring differences under 2.5 ms) that is
+re-encoded without a requested frame-rate change warns "Variable frame timing
+converted to a constant frame rate; original kept." Streams the intermediate
+cannot carry follow section 8.2: transforms ask, or omit them for new files
+under Save without it, before staging; explicit exports take the first video
+and audio stream, as the native path does, and report the other streams they
+leave out.
+
+**Hardening.** Every `ffprobe` and `ffmpeg` call uses `-protocol_whitelist
+file`, an explicit single-family `-format_whitelist` (QuickTime demuxers with
+`-enable_drefs 0 -use_absolute_path 0`, or the non-QuickTime list), `file:`
+URIs, `-nostdin -hide_banner -n -threads 4`, a clean environment with `HOME`
+and `TMPDIR` in staging and `PATH=/usr/bin:/bin`, and no certificate bundle.
+External references are rejected on the original before probing and on every
+staged output. A probe has a 30-second wall-clock limit; a transcode fails
+after 60 seconds without its reported output time advancing. Before staging,
+the estimated intermediate plus a margin of up to 512 MB must fit on the
+staging volume, and free space and the staged size are rechecked every second;
+a shortfall fails with "Couldn’t process “name”: not enough disk space (needs
+about …, … available). Free up space and retry." The same message serves
+reverse rendering. Child-process failures are typed (timed out, output limit,
+disk full, permission denied, signalled, exited), and disk-full or
+permission errors are recognised only from the line-final error text, so file
+names cannot imitate them. The native error is restored only when FFmpeg also
+rejects the media. A missing converter fails with "Couldn’t read “name”: the
+media converter component is missing. Reinstall MacEase and retry." Activity
+shows **Converting input** with progress before the operation's own phases.
+Staging is removed on completion, cancellation and the next launch.
+
 ## Changelog
+
+- 2026-11-25: Decode local video and audio that the native engine cannot read
+  through the bundled LGPL `ffmpeg` and `ffprobe` into a staged intermediate,
+  verified against the original by one fixed fact list, with hardened
+  invocations, typed child failures and live disk checks. A fallback-backed
+  input never replaces its original; losses it cannot carry are warned.
+  Finder Preview's Convert and Play uses the fallback only after the button is
+  pressed. This extends the isolated FFmpeg exception beyond downloads and MP3
+  encoding (section 25.3, ADR 0082).
+
+- 2026-11-25: Register only in-process gzip, bzip2, xz and zstd archive filters
+  and the supported formats. Decode non-UTF-8 entry names archive-wide as
+  strict CP932 when Japanese is a preferred language, otherwise CP437 for ZIP
+  and a refusal for TAR. Route new CP932 Finder extractions through the native
+  staged extractor, which keeps the archive; paused HatchZip sessions resume
+  on the route they started with. Native extraction refuses entries that
+  would become the same file on the destination volume (ADR 0083).
+
+- 2026-11-25: List ZIP, TAR, compressed TAR and single compressed files in
+  Finder Preview in process, with fixed entry, name, decoded-byte and time
+  limits; 7z and RAR keep Quick Look. Add the Archives file type (ADR 0085).
+
+- 2026-11-25: Highlight 47 languages in Finder Preview with declarative
+  grammars, route Makefile, Dockerfile and similar names to the text viewer,
+  tint whole diff rows, and mark hidden and direction-changing characters with
+  a notice for bidirectional and tag characters (ADR 0084). Show CSV and TSV as
+  a sortable, searchable table, and switch between the faces of a font
+  collection.
+
+- 2026-11-25: Expose the editor timeline to VoiceOver with segment actions, add
+  C to select the segment under the playhead, follow the playhead during
+  playback only while it was visible, count photo zoom in real pixels with Fit,
+  100%, 200% and 400%, and state the reason on disabled editor controls.
+
+- 2026-11-25: Group the Settings sidebar, rename Text to Text & PDF, add
+  Options… for Open Terminal Here and New File, and add If some content can’t
+  be kept (Ask, or Save without it for new files only; Replace always asks)
+  (ADR 0086). Quote current setting, menu and Welcome names after the copy
+  pass, and require complete Japanese catalogs.
 
 - 2026-11-24: Add a display-only Finder storage bar over Finder's own status
   bar, shown only while Finder shows it. It reads volume capacity from the
