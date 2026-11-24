@@ -142,7 +142,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     return false
                 }
             case "0" where modifiers == .command && !model.isVideo && model.category != .crop:
-                model.setPhotoZoom(1)
+                model.setPhotoZoomStep(.fit)
             default: return false
             }
             return true

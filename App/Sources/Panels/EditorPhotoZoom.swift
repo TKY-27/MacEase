@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum PhotoZoomState: Equatable {
+    case fit
+    case magnification(Double)
+    case factor(Double)
+}
+
 /// Percentages are screen pixels per image pixel.
 enum PhotoZoomStep: Hashable, CaseIterable {
     case fit, actual, double, quadruple
@@ -23,8 +29,14 @@ enum PhotoZoomStep: Hashable, CaseIterable {
 }
 
 extension MediaEditorModel {
-    /// `zoom` multiplies Fit; this counts real pixels.
-    var photoMagnification: Double? { photoFitScale.map { $0 * zoom } }
+    /// Real screen pixels per image pixel.
+    var photoMagnification: Double? {
+        switch photoZoom {
+        case .fit: photoFitScale
+        case .magnification(let level): level
+        case .factor(let factor): photoFitScale.map { $0 * factor }
+        }
+    }
 
     var photoZoomBounds: ClosedRange<Double> {
         guard let fit = photoFitScale else { return Self.photoZoomRange }
@@ -32,8 +44,28 @@ extension MediaEditorModel {
         return min(Self.photoZoomRange.lowerBound, 1 / fit)...max(Self.photoZoomRange.upperBound, largestStep / fit)
     }
 
+    func clampedPhotoZoom(_ value: Double) -> Double {
+        guard value.isFinite else { return zoom }
+        return min(photoZoomBounds.upperBound, max(photoZoomBounds.lowerBound, value))
+    }
+
+    func clampedPhotoMagnification(_ level: Double, fit: Double) -> Double {
+        let largestStep = PhotoZoomStep.quadruple.magnification ?? Self.photoZoomRange.upperBound
+        let lower = min(fit * Self.photoZoomRange.lowerBound, 1)
+        let upper = max(fit * Self.photoZoomRange.upperBound, largestStep)
+        return min(upper, max(lower, level))
+    }
+
+    func livePhotoZoom(pinch: Double) -> Double {
+        clampedPhotoZoom(zoom * pinch)
+    }
+
+    func livePhotoMagnification(pinch: Double) -> Double? {
+        photoFitScale.map { $0 * livePhotoZoom(pinch: pinch) }
+    }
+
     var photoZoomStep: PhotoZoomStep? {
-        if zoom == Self.photoZoomRange.lowerBound { return .fit }
+        if case .fit = photoZoom { return .fit }
         guard let magnification = photoMagnification else { return nil }
         return PhotoZoomStep.allCases.first { step in
             step.magnification.map { abs($0 - magnification) <= $0 * Self.photoZoomStepTolerance } ?? false
@@ -41,12 +73,13 @@ extension MediaEditorModel {
     }
 
     func setPhotoZoomStep(_ step: PhotoZoomStep) {
+        guard !editingLocked else { return }
         guard let magnification = step.magnification else {
-            setPhotoZoom(Self.photoZoomRange.lowerBound)
+            photoZoom = .fit
             return
         }
         guard let fit = photoFitScale else { return }
-        setPhotoZoom(magnification / fit)
+        photoZoom = .magnification(clampedPhotoMagnification(magnification, fit: fit))
     }
 
     /// Pixels the preview needs at this zoom.
@@ -66,7 +99,7 @@ struct PhotoZoomControl: View {
     @Bindable var model: MediaEditorModel
     let pinch: Double
 
-    private var liveMagnification: Double? { model.photoMagnification.map { $0 * pinch } }
+    private var liveMagnification: Double? { model.livePhotoMagnification(pinch: pinch) }
     /// Cropping always shows the whole picture.
     private var cropping: Bool { model.category == .crop }
     private var shownStep: PhotoZoomStep? { cropping ? .fit : pinch == 1 ? model.photoZoomStep : nil }

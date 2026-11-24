@@ -223,7 +223,7 @@ struct MediaEditorView: View {
                     let scale = min(
                         (proxy.size.width - Self.previewInset.width) / imageSize.width,
                         (proxy.size.height - Self.previewInset.height) / imageSize.height)
-                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom * pinch
+                    let zoom = model.category == .crop || model.isVideo ? 1 : model.livePhotoZoom(pinch: pinch)
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
                         ZStack {

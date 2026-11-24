@@ -100,7 +100,17 @@ final class MediaEditorModel {
     var initialVideoRange: ClosedRange<Double>?
     var category: EditorCategory
     var original = false
-    var zoom = 1.0
+    var photoZoom: PhotoZoomState = .fit
+    var zoom: Double {
+        get {
+            switch photoZoom {
+            case .fit: Self.photoZoomRange.lowerBound
+            case .magnification(let level): photoFitScale.map { level / $0 } ?? Self.photoZoomRange.lowerBound
+            case .factor(let factor): factor
+            }
+        }
+        set { setPhotoZoom(newValue) }
+    }
     /// Real magnification at Fit, from the preview.
     private(set) var photoFitScale: Double?
     var timelineZoom = 1.0
@@ -295,17 +305,26 @@ final class MediaEditorModel {
     static let photoZoomRange = 1.0...8.0
 
     func setPhotoZoom(_ value: Double) {
-        guard !editingLocked else { return }
-        guard value.isFinite else { return }
-        zoom = min(photoZoomBounds.upperBound, max(photoZoomBounds.lowerBound, value))
+        guard !editingLocked, value.isFinite else { return }
+        let clamped = clampedPhotoZoom(value)
+        if let fit = photoFitScale {
+            photoZoom = .magnification(clamped * fit)
+        } else {
+            photoZoom = .factor(clamped)
+        }
     }
 
     /// Resizing keeps a chosen percentage, like Preview.
     func updatePhotoFitScale(_ fit: Double) {
         guard fit.isFinite, fit > 0, fit != photoFitScale else { return }
-        let kept = zoom == Self.photoZoomRange.lowerBound ? nil : photoMagnification
         photoFitScale = fit
-        if let kept { zoom = min(photoZoomBounds.upperBound, max(photoZoomBounds.lowerBound, kept / fit)) }
+        switch photoZoom {
+        case .fit: break
+        case .magnification(let level):
+            photoZoom = .magnification(clampedPhotoMagnification(level, fit: fit))
+        case .factor(let factor):
+            photoZoom = .magnification(clampedPhotoMagnification(factor * fit, fit: fit))
+        }
     }
 
     func zoomTimeline(by factor: Double) {

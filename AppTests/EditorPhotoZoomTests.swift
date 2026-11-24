@@ -54,4 +54,40 @@ extension MediaEditorModelTests {
         model.setPhotoZoomStep(.actual)
         XCTAssertEqual(model.photoRenderDimension, 80, "100% renders every source pixel")
     }
+
+    func testPhotoZoomExplicitStateHoldsChosenLevelAcrossFitScaleMatches() async throws {
+        let model = try await photoModel()
+        for (fitScale, step, target) in [(1.0, PhotoZoomStep.actual, 1.0), (2.0, .double, 2.0), (4.0, .quadruple, 4.0)]
+        {
+            model.setPhotoZoomStep(.fit)
+            model.updatePhotoFitScale(fitScale)
+            XCTAssertEqual(model.photoZoomStep, .fit)
+            model.setPhotoZoomStep(step)
+            XCTAssertEqual(model.photoZoomStep, step, "choosing a step equal to Fit must stay on that step")
+            model.updatePhotoFitScale(fitScale * 0.5)
+            XCTAssertEqual(model.photoZoomStep, step, "resizing must hold the chosen level instead of following Fit")
+            XCTAssertEqual(try XCTUnwrap(model.photoMagnification), target, accuracy: 1e-9)
+        }
+
+        model.setPhotoZoomStep(.fit)
+        model.updatePhotoFitScale(0.8)
+        model.setPhotoZoomStep(.actual)
+        XCTAssertEqual(model.photoZoomStep, .actual)
+        model.updatePhotoFitScale(1.0)
+        XCTAssertEqual(model.photoZoomStep, .actual, "crossing fit scale 1.0 must not revert to Fit")
+        model.updatePhotoFitScale(1.25)
+        XCTAssertEqual(model.photoZoomStep, .actual, "widening past fit scale 1.0 still holds 100%")
+        XCTAssertEqual(try XCTUnwrap(model.photoMagnification), 1.0, accuracy: 1e-9)
+        model.setPhotoZoomStep(.fit)
+        XCTAssertEqual(model.photoZoomStep, .fit)
+    }
+
+    func testPhotoPinchLiveZoomAndReadoutClampToBounds() async throws {
+        let model = try await photoModel()
+        model.updatePhotoFitScale(0.5)
+        XCTAssertEqual(model.livePhotoZoom(pinch: 0.24), 1.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(model.livePhotoMagnification(pinch: 0.24)), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(model.livePhotoZoom(pinch: 100), 8.0, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(model.livePhotoMagnification(pinch: 100)), 4.0, accuracy: 1e-9)
+    }
 }
