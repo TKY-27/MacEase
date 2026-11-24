@@ -20,7 +20,7 @@ import Testing
         let titles = nodes.compactMap { node -> String? in
             switch node {
             case .action(let title, _), .submenu(let title, _): title
-            case .command(_, let title): title
+            case .command(_, let title, _): title
             case .separator: nil
             }
         }

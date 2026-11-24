@@ -486,6 +486,19 @@ private func menuFile(_ operations: [OperationID] = OperationID.allCases) -> Men
         #expect(throws: RunRequestError.missingField("t")) { try RunRequest(url: noToken, scheme: "macease") }
         let relative = try #require(URL(string: "macease://run?v=a&e=1&t=b&path=x"))
         #expect(throws: RunRequestError.invalidPaths) { try RunRequest(url: relative, scheme: "macease") }
+        for badQuery in [
+            "v=a&e=1&t=b&path=/tmp/sym/.",
+            "v=a&e=1&t=b&path=/tmp/sym/..",
+            "v=a&e=1&t=b&path=/tmp/./x",
+            "v=a&e=1&t=b&path=/tmp/../x",
+            "v=a&e=1&t=b&path=%00/x",
+            "v=a&e=1&t=b&path=/x&path",
+        ] {
+            let bad = try #require(URL(string: "macease://run?\(badQuery)"))
+            #expect(throws: RunRequestError.invalidPaths) { try RunRequest(url: bad, scheme: "macease") }
+        }
+        let upperHost = try #require(URL(string: "macease://RUN?v=a&e=1&t=b&path=/x"))
+        #expect(try RunRequest(url: upperHost, scheme: "macease").paths == ["/x"])
     }
 }
 

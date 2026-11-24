@@ -34,6 +34,7 @@ public struct AudioEnhancement: Sendable {
     /// `nil` when nothing would be left out.
     public static func streamOmission(for source: URL) async throws -> StreamOmission? {
         let stamp = try MediaSourceStamp(url: source)
+        try await UntrustedMediaAsset.rejectExternalReferences(in: source)
         let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
         let streams = try await AudioJob.unpreservedStreams(in: input)
         return streams.isEmpty ? nil : StreamOmission(stamp: stamp, streams: Set(streams))
@@ -66,6 +67,7 @@ public struct AudioEnhancement: Sendable {
 
     private func enhance(_ source: URL, mode: AudioEnhancementMode, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
+        try await UntrustedMediaAsset.rejectExternalReferences(in: source)
         let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
         try await AudioJob.requirePreservableContent(input, context: context)
         guard let duration = input.duration, duration.isFinite, duration > 0 else {

@@ -24,6 +24,13 @@ final class SettingsStore {
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
         static let finderPreviewEnabled = "finderPreview.enabled"
+        static let checksForUpdatesAutomatically = "updates.checksAutomatically"
+        static let showsStatusItem = "menuBar.showsStatusItem"
+        static let showsRecentOperations = "menuBar.showsRecentOperations"
+        static let terminalApplication = "finderCommands.terminalApplication"
+        static let newFileTemplates = "finderCommands.newFileTemplates"
+        static let finderPreviewSettings = FinderPreviewSettings.defaultsKey
+        static let unreadableFinderPreviewSettings = "finderPreview.settings.unreadable"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -89,6 +96,42 @@ final class SettingsStore {
         didSet { defaults.set(finderPreviewEnabled, forKey: Key.finderPreviewEnabled) }
     }
 
+    var checksForUpdatesAutomatically: Bool {
+        didSet { defaults.set(checksForUpdatesAutomatically, forKey: Key.checksForUpdatesAutomatically) }
+    }
+
+    var showsStatusItem: Bool {
+        didSet { defaults.set(showsStatusItem, forKey: Key.showsStatusItem) }
+    }
+
+    var showsRecentOperations: Bool {
+        didSet { defaults.set(showsRecentOperations, forKey: Key.showsRecentOperations) }
+    }
+
+    static let defaultTerminalApplicationURL = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+
+    var terminalApplicationURL: URL {
+        didSet {
+            guard terminalApplicationURL != oldValue else { return }
+            defaults.set(terminalApplicationURL.path, forKey: Key.terminalApplication)
+        }
+    }
+
+    var enabledNewFileTemplates: Set<NewFileTemplate.BuiltIn> {
+        didSet {
+            guard enabledNewFileTemplates != oldValue else { return }
+            defaults.set(enabledNewFileTemplates.map(\.rawValue).sorted(), forKey: Key.newFileTemplates)
+            onChange?()
+        }
+    }
+
+    var finderPreview: FinderPreviewSettings {
+        didSet {
+            guard finderPreview != oldValue else { return }
+            saveFinderPreview()
+        }
+    }
+
     var onboardingCompleted: Bool {
         didSet { defaults.set(onboardingCompleted, forKey: Key.onboardingCompleted) }
     }
@@ -109,6 +152,7 @@ final class SettingsStore {
         defaults.register(defaults: [
             Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
+            Key.checksForUpdatesAutomatically: true, Key.showsStatusItem: true, Key.showsRecentOperations: true,
         ])
         let settings = Self.decodeSettings(from: defaults)
         self.settings = settings
@@ -149,7 +193,19 @@ final class SettingsStore {
         activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
         activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
+        terminalApplicationURL =
+            defaults.string(forKey: Key.terminalApplication)
+            .flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
+            ?? Self.defaultTerminalApplicationURL
+        enabledNewFileTemplates =
+            defaults.stringArray(forKey: Key.newFileTemplates).map {
+                Set($0.compactMap(NewFileTemplate.BuiltIn.init(rawValue:)))
+            } ?? Set(NewFileTemplate.BuiltIn.allCases)
         finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
+        checksForUpdatesAutomatically = defaults.bool(forKey: Key.checksForUpdatesAutomatically)
+        showsStatusItem = defaults.bool(forKey: Key.showsStatusItem)
+        showsRecentOperations = defaults.bool(forKey: Key.showsRecentOperations)
+        finderPreview = Self.decodeFinderPreview(from: defaults)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
         hideEmptiedGroups()
@@ -217,6 +273,12 @@ final class SettingsStore {
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false
         finderPreviewEnabled = false
+        checksForUpdatesAutomatically = true
+        showsStatusItem = true
+        showsRecentOperations = true
+        terminalApplicationURL = Self.defaultTerminalApplicationURL
+        enabledNewFileTemplates = Set(NewFileTemplate.BuiltIn.allCases)
+        finderPreview = FinderPreviewSettings()
     }
 
     /// SPEC 4.4 defaults for new installs.
@@ -281,6 +343,21 @@ final class SettingsStore {
         }
     }
 
+    private static func decodeFinderPreview(from defaults: UserDefaults) -> FinderPreviewSettings {
+        guard let stored = defaults.data(forKey: Key.finderPreviewSettings) else { return FinderPreviewSettings() }
+        do {
+            return try FinderPreviewSettings.decode(stored)
+        } catch {
+            let failure = error as NSError
+            Logger(category: "settings")
+                .error(
+                    "Stored Finder Preview settings unreadable, using defaults (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
+            defaults.set(stored, forKey: Key.unreadableFinderPreviewSettings)
+            return FinderPreviewSettings()
+        }
+    }
+
     /// Unreadable arrangements are kept aside.
     private static func decodeMenuArrangement(from defaults: UserDefaults) -> MenuArrangement {
         let stored = defaults.object(forKey: Key.menuArrangement)
@@ -316,6 +393,17 @@ final class SettingsStore {
             let failure = error as NSError
             logger.error(
                 "Settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
+        }
+    }
+
+    private func saveFinderPreview() {
+        do {
+            defaults.set(try JSONEncoder().encode(finderPreview), forKey: Key.finderPreviewSettings)
+        } catch {
+            let failure = error as NSError
+            logger.error(
+                "Finder Preview settings encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
             )
         }
     }

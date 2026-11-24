@@ -3,7 +3,7 @@ import Foundation
 public indirect enum MenuNode: Equatable, Sendable {
     case submenu(title: String, children: [MenuNode])
     case action(title: String, entryIndex: Int)
-    case command(HostCommand, title: String)
+    case command(HostCommand, title: String, preset: String? = nil)
     case separator
 }
 
@@ -14,13 +14,26 @@ public struct MenuTree: Equatable, Sendable {
 }
 
 public enum MenuLayout {
-    public static func tree(for file: MenuFile, selection: [URL]) -> MenuTree {
+    public static func tree(for file: MenuFile, selection: [URL], isContainer: Bool = false) -> MenuTree {
         let summary = SelectionSummary(selection)
         let commandGroups = Set(file.commands.map(\.group.rawValue))
         let indexed = Array(file.entries.enumerated())
         func commands(_ placement: MenuPlacement) -> [MenuNode] {
             file.commands.filter { $0.placement == placement }.flatMap { item -> [MenuNode] in
-                if let command = item.command { return [.command(command, title: item.title)] }
+                if let command = item.command {
+                    guard summary.allows(command, isContainer: isContainer) else { return [] }
+                    if let leaves = item.leaves {
+                        guard !leaves.isEmpty else { return [] }
+                        return [
+                            .submenu(
+                                title: item.title,
+                                children: leaves.map {
+                                    .command(command, title: $0.title, preset: $0.preset)
+                                })
+                        ]
+                    }
+                    return [.command(command, title: item.title)]
+                }
                 return operationNodes(indexed.filter { $0.1.resolvedGroupID == item.group.rawValue }, summary: summary)
             }
         }
@@ -163,6 +176,16 @@ struct SelectionSummary {
     }
 
     func count(for kind: FileKind) -> Int { counts[kind] ?? 0 }
+
+    func allows(_ command: HostCommand, isContainer: Bool) -> Bool {
+        switch command {
+        case .update, .preview: true
+        case .newFile, .moveHere: totalCount == 1 && count(for: .folder) == 1
+        case .cut: totalCount > 0 && !isContainer
+        case .copyPath: totalCount > 0
+        case .openTerminal: totalCount == 1
+        }
+    }
 
     func allows(_ entry: MenuEntry) -> Bool {
         if entry.op == .folderDownloadMedia { return totalCount == 1 && count(for: .folder) == 1 }

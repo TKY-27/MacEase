@@ -12,6 +12,7 @@ public struct WorkItem: Sendable {
     public let inputs: [URL]
     public let lane: Lane
     let durableArchive: Bool
+    let managesInputStamps: Bool
     var requiredInputStamps: [URL: FileStamp]?
     var newFileNaming: NewFileNaming?
     var omittedStreams: Set<UnpreservedStream> = []
@@ -19,14 +20,19 @@ public struct WorkItem: Sendable {
 
     public init(inputs: [URL], lane: Lane = .cpu, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {
         durableArchive = false
+        managesInputStamps = false
         self.inputs = inputs
         self.lane = lane
         self.body = body
     }
-    init(inputs: [URL], durableArchive: Bool, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {
+    init(
+        inputs: [URL], durableArchive: Bool = false, managesInputStamps: Bool = false,
+        body: @escaping @Sendable (ItemContext) async throws -> ItemResult
+    ) {
         self.inputs = inputs
         lane = .cpu
         self.durableArchive = durableArchive
+        self.managesInputStamps = managesInputStamps
         self.body = body
     }
 }
@@ -65,6 +71,13 @@ public struct AgeAuthenticationProof: Sendable {
     init() {}
 }
 
+public enum NewFileCheck: Sendable {
+    case empty
+    case templateBytes(expectedCount: Int)
+    case richText
+    case wordDocument
+}
+
 public enum OutputCheck: Sendable {
     case image
     case media
@@ -84,6 +97,7 @@ public enum OutputCheck: Sendable {
     /// Its decompressor decoded it without error.
     case decompressed
     case ageAuthenticatedPlaintext(AgeAuthenticationProof)
+    case newFile(NewFileCheck)
 }
 
 public struct RenamePlan: Codable, Hashable, Sendable {
@@ -116,6 +130,7 @@ public enum ItemResult: Sendable {
     case exported(
         from: URL, stamp: FileStamp, to: URL, outputs: [StagedFile], preservingAttributes: Bool = true)
     case rename([RenamePlan])
+    case move(MoveItem, to: URL)
     case text(String, TextDestination)
     case trash([URL], permanently: Bool, condition: RemovalCondition? = nil)
     case trashDuplicates([DuplicateRemoval])
@@ -137,6 +152,7 @@ public enum ItemWarning: Equatable, Sendable {
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
     case originalKept
+    case copiedAcrossVolumes(original: URL, destination: URL)
     case outputNameUnchanged
     case metadataDropped
     case archiveFolderAttributesNotRestored

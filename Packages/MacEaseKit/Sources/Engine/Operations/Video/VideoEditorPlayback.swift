@@ -39,7 +39,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         frameIndexes: EditorFrameIndexes
     ) async throws -> VideoEditorPlayback {
         guard let first = urls.first else { throw EngineError.invalidInput(.emptyInput) }
-        let source = AVURLAsset(url: first)
+        let source = UntrustedMediaAsset.make(first)
         guard let sourceVideo = try await source.loadTracks(withMediaType: .video).first else {
             throw EngineError.decodeFailed("no playback video track")
         }
@@ -53,7 +53,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         var audioTracks: [AVMutableCompositionTrack?] = []
         var audioParameters: [AVMutableAudioMixInputParameters?] = []
         for url in urls {
-            if try await AVURLAsset(url: url).loadTracks(withMediaType: .audio).isEmpty {
+            if try await UntrustedMediaAsset.make(url).loadTracks(withMediaType: .audio).isEmpty {
                 audioTracks.append(nil)
                 audioParameters.append(nil)
                 continue
@@ -73,7 +73,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             try Task.checkCancellation()
             let audio = audioTracks[segment.sourceIndex]
             let parameters = audioParameters[segment.sourceIndex]
-            let asset = AVURLAsset(url: urls[segment.sourceIndex])
+            let asset = UntrustedMediaAsset.make(urls[segment.sourceIndex])
             guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else {
                 throw EngineError.decodeFailed("no playback video track")
             }
@@ -301,7 +301,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     private static func addMusicTrack(
         _ url: URL, music: BackgroundMusic, to composition: AVMutableComposition, duration: Double
     ) async throws -> AVMutableAudioMixInputParameters {
-        let asset = AVURLAsset(url: url)
+        let asset = UntrustedMediaAsset.make(url)
         guard let source = try await asset.loadTracks(withMediaType: .audio).first,
             let track = composition.addMutableTrack(
                 withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)

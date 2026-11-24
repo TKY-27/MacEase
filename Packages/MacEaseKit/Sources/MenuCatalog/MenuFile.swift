@@ -102,13 +102,35 @@ public struct KindTitle: Codable, Hashable, Sendable {
     }
 }
 
+public struct MenuCommandLeaf: Codable, Hashable, Sendable {
+    public let preset: String
+    public let title: String
+
+    public init(preset: String, title: String) {
+        self.preset = preset
+        self.title = title
+    }
+}
+
+public struct MenuCommandAction: Hashable, Sendable {
+    public let command: HostCommand
+    public let preset: String?
+
+    public init(command: HostCommand, preset: String? = nil) {
+        self.command = command
+        self.preset = preset
+    }
+}
+
 /// A Commands scope row, in display order.
 public struct MenuCommandItem: Codable, Hashable, Sendable {
     public let group: MenuGroupID
     public let title: String
     public let placement: MenuPlacement
+    public let leaves: [MenuCommandLeaf]?
 
-    public init(group: MenuGroupID, title: String, placement: MenuPlacement) {
+    public init(group: MenuGroupID, title: String, placement: MenuPlacement, leaves: [MenuCommandLeaf]? = nil) {
+        self.leaves = leaves
         self.group = group
         self.title = title
         self.placement = placement
@@ -129,6 +151,14 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public let kinds: [String: KindTitle]
     public let moreTitle: String?
     public let commands: [MenuCommandItem]
+    public var commandActions: [MenuCommandAction] {
+        commands.flatMap { row -> [MenuCommandAction] in
+            guard let command = row.command else { return [] }
+            return row.leaves.map { $0.map { MenuCommandAction(command: command, preset: $0.preset) } }
+                ?? [MenuCommandAction(command: command)]
+        }
+    }
+
     public var monitoredDirectoryPaths: [String]?
 
     public init(
@@ -169,6 +199,13 @@ public struct MenuFile: Codable, Equatable, Sendable {
         hash.add(count: commands.count)
         for item in commands {
             hash.add(item.group.rawValue, item.title, item.placement.rawValue)
+        }
+        if commands.contains(where: { $0.leaves != nil }) {
+            hash.add("commandLeaves")
+            for row in commands {
+                hash.add(count: row.leaves?.count ?? -1)
+                for leaf in row.leaves ?? [] { hash.add(leaf.preset, leaf.title) }
+            }
         }
         return hash.finalized
     }
@@ -268,7 +305,7 @@ extension MenuFile {
         frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
         sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil,
         arrangement: MenuArrangement = MenuArrangement(), moreTitle: String? = nil,
-        commandTitles: [HostCommand: String] = [:]
+        commandTitles: [HostCommand: String] = [:], commandLeaves: [HostCommand: [MenuCommandLeaf]] = [:]
     ) {
         let catalog = MenuGroupCatalog.current
         let scopes = Dictionary(
@@ -339,7 +376,9 @@ extension MenuFile {
         let kinds = Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, titles.kind($0)) })
         self.init(
             token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds, moreTitle: moreTitle,
-            commands: scopes[.commands].map { Self.commands($0, titles: commandTitles, groups: groups) } ?? [])
+            commands: scopes[.commands].map {
+                Self.commands($0, titles: commandTitles, leaves: commandLeaves, groups: groups)
+            } ?? [])
     }
 
     private struct PlacedGroup {
@@ -365,14 +404,19 @@ extension MenuFile {
     }
 
     private static func commands(
-        _ scope: ScopeArrangement, titles: [HostCommand: String], groups: [String: [MenuEntry]]
+        _ scope: ScopeArrangement, titles: [HostCommand: String], leaves: [HostCommand: [MenuCommandLeaf]],
+        groups: [String: [MenuEntry]]
     ) -> [MenuCommandItem] {
         scope.scope.sections.flatMap { section -> [MenuCommandItem] in
             guard let placement = section.placement else { return [] }
             return scope[section].compactMap { group in
                 let title =
                     HostCommand(group: group).flatMap { titles[$0] } ?? groups[group.rawValue]?.first?.path.first
-                return title.map { MenuCommandItem(group: group, title: $0, placement: placement) }
+                return title.map {
+                    MenuCommandItem(
+                        group: group, title: $0, placement: placement,
+                        leaves: HostCommand(group: group).flatMap { leaves[$0] })
+                }
             }
         }
     }

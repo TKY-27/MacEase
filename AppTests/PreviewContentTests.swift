@@ -11,7 +11,7 @@ final class PreviewContentTests: XCTestCase {
             (.html, "html", .html), (.json, "json", .json), (.xml, "xml", .text),
             (.propertyList, "plist", .propertyList), (.pdf, "pdf", .pdf), (.png, "png", .image),
             (.audio, "wav", .audio), (.movie, "mov", .media), (.sourceCode, "swift", .text),
-            (.plainText, "txt", .text), (.plainText, "MD", .markdown), (.svg, "svg", .quickLook), (nil, "yaml", .text),
+            (.plainText, "txt", .text), (.plainText, "MD", .markdown), (.svg, "svg", .svg), (nil, "yaml", .text),
             (nil, "toml", .text), (nil, "csv", .text), (nil, "LOG", .text), (nil, "unknown", .quickLook),
         ]
         for (type, suffix, expected) in cases {
@@ -77,6 +77,16 @@ final class PreviewContentTests: XCTestCase {
         XCTAssertThrowsError(try PreviewTextSource(bytes: oddUTF16, truncated: false).decoded(as: .automatic))
         XCTAssertThrowsError(try PreviewTextSource(bytes: oddUTF16, truncated: false).decoded(as: .utf16LE))
         XCTAssertEqual(try PreviewTextSource(bytes: oddUTF16, truncated: true).decoded(as: .automatic), "A")
+
+        // Truncated BOM-less UTF-16LE Cyrillic decodes automatically.
+        let cyrillic = "Привет, мир!\n"
+        let cyrillicLE = Data(cyrillic.utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: cyrillicLE.dropLast(1), truncated: true).decoded(as: .automatic),
+            "Привет, мир!")
+        let mixed = "Hello Привет مرحبا दुनिया"
+        let mixedBE = Data(mixed.utf16.flatMap { [UInt8($0 >> 8), UInt8($0 & 0xFF)] })
+        XCTAssertEqual(try PreviewTextSource(bytes: mixedBE, truncated: false).decoded(as: .automatic), mixed)
     }
 
     func testTokenizerRecognizesSmallSamplesForEverySupportedLanguage() throws {
@@ -135,30 +145,58 @@ final class PreviewContentTests: XCTestCase {
 
     @MainActor
     func testOfflineRulesCompileAndConfigurationDisablesScriptsByDefault() async throws {
-        let configuration = try await PreviewWebConfiguration.make()
+        let directory = try PreviewFixtures.directory(self)
+        let source = directory.appendingPathComponent("index.html")
+        try Data("<p>x</p>".utf8).write(to: source)
+        let stamp = try PreviewFileStamp(of: source)
+
+        let staticPage = PreviewWebViewer.Page.file(
+            source, readAccess: directory, .staticPreview, expectedStamp: stamp)
+        let configuration = try await PreviewWebConfiguration.make(for: staticPage)
         XCTAssertFalse(configuration.websiteDataStore.isPersistent)
         XCTAssertFalse(configuration.defaultWebpagePreferences.allowsContentJavaScript)
         XCTAssertFalse(configuration.preferences.javaScriptCanOpenWindowsAutomatically)
+        XCTAssertFalse(configuration.websiteDataStore.proxyConfigurations.isEmpty)
         let store = try XCTUnwrap(WKContentRuleListStore.default())
         let rules = try await store.contentRuleList(forIdentifier: "MacEasePreviewOffline")
         XCTAssertNotNil(rules)
-        let allowed = try await PreviewWebConfiguration.make(scripts: true, network: true)
+
+        let interactivePage = PreviewWebViewer.Page.file(
+            source, readAccess: directory, .interactive, expectedStamp: stamp)
+        let allowed = try await PreviewWebConfiguration.make(for: interactivePage)
         XCTAssertTrue(allowed.defaultWebpagePreferences.allowsContentJavaScript)
         XCTAssertFalse(allowed.websiteDataStore.isPersistent)
-        let reset = try await PreviewWebConfiguration.make()
-        XCTAssertFalse(reset.defaultWebpagePreferences.allowsContentJavaScript)
+        XCTAssertTrue(allowed.websiteDataStore.proxyConfigurations.isEmpty)
+
+        let sealed = try await PreviewWebConfiguration.make(for: .generated("<p>x</p>"))
+        XCTAssertFalse(sealed.defaultWebpagePreferences.allowsContentJavaScript)
+        XCTAssertFalse(sealed.websiteDataStore.proxyConfigurations.isEmpty)
     }
 
     @MainActor
     func testNavigationRejectsExternalHostsSchemesAndSiblingFiles() throws {
-        let source = URL(fileURLWithPath: "/tmp/example/index.html")
-        XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, source: source, generated: false))
+        let directory = try PreviewFixtures.directory(self)
+        let source = directory.appendingPathComponent("index.html")
+        try Data("<p>x</p>".utf8).write(to: source)
+        let stamp = try PreviewFileStamp(of: source)
+        let page = PreviewWebViewer.Page.file(
+            source, readAccess: directory,
+            PreviewWebPolicy(
+                trust: PreviewTrust(level: .standard, resolvedPath: source.path, stamp: stamp),
+                interactiveConsented: false),
+            expectedStamp: stamp)
+        XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, page: page))
+        let sibling = directory.appendingPathComponent("other.html").absoluteString
         for address in [
-            "https://example.com", "macease://run", "file:///tmp/example/other.html",
-            "file://remote/tmp/example/index.html", "data:text/html,hi",
+            "https://example.com", "macease://run", sibling,
+            "file://remote\(source.path)", "data:text/html,hi",
         ] {
             let destination = try XCTUnwrap(URL(string: address))
-            XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: destination, source: source, generated: false))
+            XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: destination, page: page))
         }
+        let generated = PreviewWebViewer.Page.generated("<p>x</p>")
+        XCTAssertTrue(
+            PreviewWebConfiguration.permitsNavigation(to: try XCTUnwrap(URL(string: "about:blank")), page: generated))
+        XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: source, page: generated))
     }
 }

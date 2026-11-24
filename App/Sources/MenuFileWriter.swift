@@ -10,7 +10,8 @@ struct MenuFileWriter {
     func write(
         visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings, monitoredPaths: [String] = [],
         recipes: [Recipe] = [], arrangement: MenuArrangement = MenuArrangement(), availableVersion: String? = nil,
-        previewOpen: Bool = false
+        previewOpen: Bool = false, cutCount: Int = 0,
+        newFileTemplates: Set<NewFileTemplate.BuiltIn> = Set(NewFileTemplate.BuiltIn.allCases)
     ) throws -> MenuFile {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -48,7 +49,22 @@ struct MenuFileWriter {
             commandTitles: [
                 .update: availableVersion.map { String(localized: "Update Available (v\($0))") },
                 .preview: MenuStrings.previewTitle(open: previewOpen),
-            ].compactMapValues { $0 }
+                .newFile: newFileTemplates.isEmpty ? nil : MenuStrings.command(.newFile),
+                .cut: MenuStrings.command(.cut),
+                .moveHere: cutCount > 0 ? MenuStrings.moveHereTitle(count: cutCount) : nil,
+                .copyPath: MenuStrings.command(.copyPath),
+                .openTerminal: MenuStrings.command(.openTerminal),
+            ].compactMapValues { $0 },
+            commandLeaves: [
+                .newFile: NewFileTemplate.BuiltIn.allCases.filter(newFileTemplates.contains).map {
+                    MenuCommandLeaf(preset: $0.rawValue, title: MenuStrings.newFileTitle($0))
+                },
+                .copyPath: [
+                    MenuCommandLeaf(preset: PathFormat.posix.rawValue, title: String(localized: "Copy Path")),
+                    MenuCommandLeaf(
+                        preset: PathFormat.shellQuoted.rawValue, title: String(localized: "Copy Path for Terminal")),
+                ],
+            ]
         )
         if file.entries.contains(where: { $0.op == .filesFinish }), !recipes.isEmpty {
             let title = MenuStrings.operationName(.filesFinish)

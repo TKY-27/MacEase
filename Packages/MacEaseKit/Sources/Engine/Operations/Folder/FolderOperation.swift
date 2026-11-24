@@ -1,3 +1,4 @@
+import Darwin
 import Formats
 import Foundation
 import MenuCatalog
@@ -29,6 +30,7 @@ public enum FolderOperation: Codable, Hashable, Sendable {
     case tree(TreeOutput)
     case exportAnalysis(FolderAnalysis, format: AnalysisExportFormat = .markdown)
     case compress(ArchiveFormat)
+    case newFile(NewFileTemplate)
 }
 
 enum FolderPlanner {
@@ -96,6 +98,33 @@ enum FolderPlanner {
             return Batch(operation: op, items: [analysisItem(analysis, format: format)])
         case .compress(let format):
             return Batch(operation: op, items: folders.isEmpty ? [] : [compressItem(folders, format: format)])
+        case .newFile(let template):
+            return Batch(operation: op, items: folders.map { newFileItem($0, template: template) })
+        }
+    }
+
+    private static func newFileItem(_ folder: URL, template: NewFileTemplate) -> WorkItem {
+        WorkItem(inputs: [folder], managesInputStamps: true) { context in
+            let name = try template.candidateName()
+            guard folder.isFileURL else {
+                throw EngineError.invalidInput(.malformed("New file target must be a file URL"))
+            }
+            var metadata = stat()
+            guard lstat(folder.path, &metadata) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            guard metadata.st_mode & S_IFMT == S_IFDIR,
+                try folder.resourceValues(forKeys: [.isPackageKey]).isPackage != true
+            else {
+                return .skipped(.notADirectory)
+            }
+            guard access(folder.path, W_OK | X_OK) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EACCES)
+            }
+            let staged = try context.stagingURL(for: folder, name: name)
+            try template.initialBytes.write(to: staged, options: .withoutOverwriting)
+            return .created(
+                in: folder, outputs: [StagedFile(url: staged, name: name, check: template.outputCheck(for: name))])
         }
     }
 

@@ -6,7 +6,7 @@ import SwiftUI
 
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let jobs: JobCenter
     private let settings: SettingsStore
     private let updates: UpdateChecker
@@ -47,11 +47,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+        statusItem.isVisible = settings.showsStatusItem
         checkFinderExtension()
         track({ [jobs] in _ = jobs.isBusy }) { [weak self] in self?.updateImage() }
         track({ [jobs] in _ = jobs.completed }) { [weak self] in self?.batchCompleted() }
         track({ [updates] in _ = updates.availableVersion }) { [weak self] in self?.updateImage() }
         track({ [settings] in _ = settings.onboardingCompleted }) { [weak self] in self?.checkFinderExtension() }
+        track({ [settings] in _ = settings.showsStatusItem }) { [weak self, settings] in
+            self?.statusItem.isVisible = settings.showsStatusItem
+        }
     }
 
     private func track(_ read: @escaping @MainActor () -> Void, onChange: @escaping @MainActor () -> Void) {
@@ -164,7 +168,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             menu.addItem(.separator())
         }
-        if !jobs.recent.isEmpty {
+        if settings.showsRecentOperations, !jobs.recent.isEmpty {
             menu.addItem(
                 NSMenuItem.sectionHeader(title: String(localized: "Recent", comment: "Menu bar section title")))
             for record in jobs.recent {

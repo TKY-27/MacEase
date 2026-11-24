@@ -47,7 +47,12 @@ private func id(_ name: String) -> MenuGroupID {
                 "folder.removeEmpty")
         ),
         (.archive, ids("archive.hatchExtract", "archive.extract", "archive.browse")), (.jar, []), (.any, []),
-        (.commands, ids("command.update", "command.preview")),
+        (
+            .commands,
+            ids(
+                "command.update", "command.preview", "command.newFile", "command.cut", "command.moveHere",
+                "command.copyPath", "command.openTerminal")
+        ),
     ])
     func defaultsReproduceTheFixedPrimaryTable(scope: MenuScope, menu: [MenuGroupID]) {
         let defaults = catalog.defaultArrangement(scope)
@@ -74,6 +79,13 @@ private func id(_ name: String) -> MenuGroupID {
         #expect(!catalog.groups(in: .folder).contains(id("folder.downloadMedia")))
         #expect(catalog.groups(in: .image).first == id("image.edit"))
         #expect(catalog.groups(in: .image).filter { $0 == id("image.convert") }.count == 1)
+    }
+
+    @Test func engineOnlyFinderActionsHaveNoArrangedMenuLeaves() {
+        for operation in [OperationID.folderNewFile, .anyCopyPath, .filesMove] {
+            #expect(operation.menuEntryKeys.isEmpty)
+            #expect(!OperationID.menuOrder.contains(operation))
+        }
     }
 
     @Test func entryKeysCoverEveryLeafOfTheGroup() {

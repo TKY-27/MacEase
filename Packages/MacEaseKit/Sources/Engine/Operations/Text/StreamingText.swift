@@ -93,17 +93,22 @@ enum StreamingText {
 
     static func equalContents(_ first: URL, _ second: URL) throws -> Bool {
         let left = try FileHandle(forReadingFrom: first)
+        defer { left.closeFile() }
         let right = try FileHandle(forReadingFrom: second)
+        defer { right.closeFile() }
         while true {
             try Task.checkCancellation()
-            let leftBytes = try left.readChunk(upToCount: chunkBytes)
-            let rightBytes = try right.readChunk(upToCount: chunkBytes)
+            let leftBytes = try left.readChunk(upToCount: chunkBytes) ?? Data()
+            if leftBytes.isEmpty { return try right.readChunk(upToCount: 1)?.isEmpty != false }
+            var rightBytes = Data()
+            while rightBytes.count < leftBytes.count {
+                try Task.checkCancellation()
+                guard let chunk = try right.readChunk(upToCount: leftBytes.count - rightBytes.count), !chunk.isEmpty
+                else { return false }
+                rightBytes.append(chunk)
+            }
             if leftBytes != rightBytes { return false }
-            if leftBytes?.isEmpty != false { break }
         }
-        try left.close()
-        try right.close()
-        return true
     }
 
     private static func prefix(of url: URL) throws -> Data {

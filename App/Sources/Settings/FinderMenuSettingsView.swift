@@ -318,6 +318,10 @@ private struct MenuGroupContent {
             title: String(localized: "Update Available"), operation: nil, leaves: [])
         contents[MenuGroupID(.preview)] = MenuGroupContent(
             title: MenuStrings.previewTitle(open: store.finderPreviewEnabled), operation: nil, leaves: [])
+        for command in [HostCommand.newFile, .cut, .moveHere, .copyPath, .openTerminal] {
+            contents[MenuGroupID(command)] = MenuGroupContent(
+                title: MenuStrings.command(command), operation: nil, leaves: [])
+        }
         return contents
     }
 

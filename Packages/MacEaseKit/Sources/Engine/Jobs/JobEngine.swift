@@ -50,7 +50,7 @@ public final class JobEngine: Sendable {
     public init(supportDirectory: URL, concurrency: Int, hatchExtractions: HatchExtractionStore? = nil) throws {
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         history = HistoryStore(supportDirectory: supportDirectory)
-        staging = StagingArea(supportDirectory: supportDirectory)
+        staging = history.staging
         self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: supportDirectory)
         cpuGate = LaneGate(width: concurrency)
     }
@@ -167,6 +167,7 @@ public final class JobEngine: Sendable {
         let path = workItem.inputs.first?.path ?? ""
         defer { context.removeStaging() }
         let result: ItemResult
+        var preparedMove: FileCommitter.PreparedMove?
         var inputStamps: [URL: FileStamp] = [:]
         do {
             try await gate.acquire()
@@ -180,8 +181,9 @@ public final class JobEngine: Sendable {
                         try ActivitySession.validate(input, stamp: stamp)
                     }
                 }
-                if !workItem.durableArchive { try Self.downloadIfNeeded(workItem.inputs) }
-                for input in workItem.inputs where !workItem.durableArchive && workItem.requiredInputStamps == nil {
+                let scansInputs = !workItem.durableArchive && !workItem.managesInputStamps
+                if scansInputs { try Self.downloadIfNeeded(workItem.inputs) }
+                for input in workItem.inputs where scansInputs && workItem.requiredInputStamps == nil {
                     var metadata = stat()
                     guard lstat(input.path, &metadata) == 0 else {
                         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -196,12 +198,17 @@ public final class JobEngine: Sendable {
                     context.recordInputs(identities)
                 }
                 result = try await workItem.body(context)
+                if case .move(let entry, let destination) = result {
+                    preparedMove = try committer.prepareMove(entry, to: destination, context: context)
+                }
                 await gate.release()
             } catch {
                 await gate.release()
                 throw error
             }
             if !workItem.durableArchive { try Task.checkCancellation() }
+        } catch FileCommitter.Failure.changedSinceScan {
+            return (.skipped(.changedSinceScan), nil)
         } catch {
             return (.failed(logged(EngineError.wrapping(error, path: path), batch: batch, workItem: workItem)), nil)
         }
@@ -221,7 +228,7 @@ public final class JobEngine: Sendable {
             try await history.checkAcceptingWork()
             outcome = try await commit(
                 result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs,
-                inputStamps: inputStamps,
+                inputStamps: inputStamps, preparedMove: preparedMove,
                 context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
             outcome = (.skipped(.changedSinceScan), nil)
@@ -288,7 +295,7 @@ public final class JobEngine: Sendable {
         _ result: ItemResult,
         newFileNaming: NewFileNaming?,
         inputs: [URL],
-        inputStamps: [URL: FileStamp],
+        inputStamps: [URL: FileStamp], preparedMove: FileCommitter.PreparedMove?,
         context: ItemContext,
         batch: Batch,
         tracker: BatchTracker,
@@ -404,6 +411,19 @@ public final class JobEngine: Sendable {
                 recordOutput(renamed.output, stamp: renamed.stamp, context: context)
                 await recordCommits(&records, batch: batch, tracker: tracker)
             }
+        case .move(let entry, let destination):
+            try await history.checkAcceptingCommits()
+            guard let preparedMove else { return (.skipped(.alreadyDone), nil) }
+            context.phase(.saving)
+            let published = try committer.move(entry, to: destination, prepared: preparedMove)
+            outputs.append(published.output)
+            recordOutput(published.output, stamp: published.stamp, context: context)
+            if preparedMove.copy == nil {
+                records.append(.renamed(from: entry.url.path, to: published.output.path, stamp: published.stamp))
+                break
+            }
+            records.append(.derived(output: published.output.path, stamp: published.stamp))
+            context.warn(.copiedAcrossVolumes(original: entry.url, destination: published.output))
         case .trash(let urls, let permanently, let condition):
             for url in urls {
                 try await history.checkAcceptingCommits()

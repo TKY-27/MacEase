@@ -49,6 +49,15 @@ final class FinderSelectionReader {
         }
     }
 
+    // Blocks until Finder answers.
+    nonisolated static func automationPermission(asking: Bool) -> OSStatus {
+        let finder = NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder")
+        return withExtendedLifetime(finder) {
+            guard let target = finder.aeDesc else { return OSStatus(paramErr) }
+            return AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard, asking)
+        }
+    }
+
     private final class ScriptWorker: Sendable {
         private let script = Mutex<NSAppleScript?>(nil)
         private let logger = Logger(category: "finder-preview")
@@ -70,11 +79,7 @@ final class FinderSelectionReader {
             """
 
         func requestConsent(asking: Bool) -> Failure? {
-            let finder = NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder")
-            let permission = withExtendedLifetime(finder) {
-                guard let target = finder.aeDesc else { return OSStatus(paramErr) }
-                return AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard, asking)
-            }
+            let permission = FinderSelectionReader.automationPermission(asking: asking)
             return permission == noErr ? nil : rejected(Int(permission))
         }
 

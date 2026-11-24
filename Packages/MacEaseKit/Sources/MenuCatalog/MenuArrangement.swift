@@ -15,12 +15,28 @@ public struct MenuGroupID: RawRepresentable, Hashable, Codable, Sendable {
 /// Raw values are the host URL routes.
 public enum HostCommand: String, CaseIterable, Codable, Sendable {
     case update, preview
+    case newFile, cut, moveHere, copyPath, openTerminal
 
     fileprivate static let groupPrefix = "command."
 
     public init?(group: MenuGroupID) {
         guard group.rawValue.hasPrefix(Self.groupPrefix) else { return nil }
         self.init(rawValue: String(group.rawValue.dropFirst(Self.groupPrefix.count)))
+    }
+
+    public var urlHost: String { rawValue.lowercased() }
+
+    public var requiresSelection: Bool {
+        switch self {
+        case .update, .preview: false
+        case .newFile, .cut, .moveHere, .copyPath, .openTerminal: true
+        }
+    }
+
+    public init?(urlHost: String) {
+        let lowered = urlHost.lowercased()
+        guard let match = Self.allCases.first(where: { $0.urlHost == lowered }) else { return nil }
+        self = match
     }
 }
 

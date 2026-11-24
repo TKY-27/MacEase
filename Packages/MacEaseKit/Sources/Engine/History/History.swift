@@ -34,7 +34,8 @@ public struct FileStamp: Codable, Hashable, Sendable {
         }
     }
 
-    public init(of url: URL, includingIdentity: Bool = false) throws {
+    public init(of url: URL, includingIdentity: Bool = false, checkCancellation: Bool = false) throws {
+        if checkCancellation { try Task.checkCancellation() }
         let metadata = try Self.metadata(of: url)
         let isDirectory = metadata.st_mode & S_IFMT == S_IFDIR
         size = isDirectory ? nil : metadata.st_size
@@ -42,7 +43,19 @@ public struct FileStamp: Codable, Hashable, Sendable {
             timeIntervalSinceReferenceDate: TimeInterval(metadata.st_mtimespec.tv_sec)
                 - Date.timeIntervalBetween1970AndReferenceDate
                 + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
-        directorySummary = isDirectory ? Self.snapshot(of: url) : nil
+        directorySummary = isDirectory ? try Self.snapshot(of: url, checkCancellation: checkCancellation) : nil
+        identity =
+            includingIdentity
+            ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
+    }
+
+    public init(fileStatus metadata: stat, includingIdentity: Bool = false) {
+        size = metadata.st_size
+        modified = Date(
+            timeIntervalSinceReferenceDate: TimeInterval(metadata.st_mtimespec.tv_sec)
+                - Date.timeIntervalBetween1970AndReferenceDate
+                + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
+        directorySummary = nil
         identity =
             includingIdentity
             ? FileIdentity(device: UInt64(UInt32(bitPattern: metadata.st_dev)), inode: metadata.st_ino) : nil
@@ -53,7 +66,8 @@ public struct FileStamp: Codable, Hashable, Sendable {
             return false
         }
         do {
-            return try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil) == self
+            let current = try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil)
+            return current == self
         } catch {
             return false
         }
@@ -77,7 +91,7 @@ public struct FileStamp: Codable, Hashable, Sendable {
                 + TimeInterval(metadata.st_mtimespec.tv_nsec) / 1_000_000_000)
     }
 
-    private static func snapshot(of root: URL) -> DirectorySummary {
+    private static func snapshot(of root: URL, checkCancellation: Bool) throws -> DirectorySummary {
         var summary = DirectorySummary()
         let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
         guard
@@ -92,6 +106,7 @@ public struct FileStamp: Codable, Hashable, Sendable {
             return summary
         }
         for case let child as URL in entries {
+            if checkCancellation { try Task.checkCancellation() }
             let path = String(child.path.dropFirst(prefix.count))
             summary.descendantCount += 1
             do {
@@ -229,6 +244,7 @@ public actor HistoryStore {
     private var pending: [HistoryJournal.Entry] = []
     private var loadFailure: Error?
     private var organizationIntent: OrganizationMoveIntent?
+    nonisolated let staging: StagingArea
     private let committer = FileCommitter()
     private let logger = Logger(category: "history")
     private var lastSave = Date.distantPast
@@ -239,6 +255,7 @@ public actor HistoryStore {
     public private(set) var setAsideFile: URL?
 
     public init(supportDirectory: URL) {
+        staging = StagingArea(supportDirectory: supportDirectory)
         var persistence = HistoryJournal(supportDirectory: supportDirectory)
         do {
             snapshot = try persistence.load()

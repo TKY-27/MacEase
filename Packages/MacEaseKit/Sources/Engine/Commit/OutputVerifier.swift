@@ -24,6 +24,9 @@ enum OutputVerifier {
                 throw EngineError.encodeFailed("expected an archive selection folder")
             }
             return
+        case .newFile(let check):
+            try verifyNewFile(file.url, values: values, check: check)
+            return
         default: break
         }
         if values.isDirectory == true {
@@ -79,8 +82,24 @@ enum OutputVerifier {
             }
         case .folder, .archiveSelectionFolder:
             throw EngineError.encodeFailed("expected a folder")
-        case .decompressed, .archiveMember, .ageAuthenticatedPlaintext:
+        case .decompressed, .archiveMember, .ageAuthenticatedPlaintext, .newFile:
             return
+        }
+    }
+
+    private static func verifyNewFile(_ url: URL, values: URLResourceValues, check: NewFileCheck) throws {
+        guard values.isRegularFile == true, values.isSymbolicLink != true, let fileSize = values.fileSize else {
+            throw EngineError.encodeFailed("expected a regular new file")
+        }
+        switch check {
+        case .empty:
+            guard fileSize == 0 else { throw EngineError.encodeFailed("expected an empty file") }
+        case .templateBytes(let expectedCount):
+            guard fileSize == expectedCount else { throw EngineError.encodeFailed("new file size mismatch") }
+        case .richText:
+            try NewFileTemplate.verifyDocument(url, type: .rtf)
+        case .wordDocument:
+            try NewFileTemplate.verifyDocument(url, type: .officeOpenXML)
         }
     }
 
@@ -106,7 +125,7 @@ enum OutputVerifier {
             try verifyPackets(demuxer)
             return
         }
-        let asset = AVURLAsset(url: url)
+        let asset = UntrustedMediaAsset.make(url)
         let tracks = try await asset.load(.tracks)
         var playable = false
         for track in tracks where try await track.load(.isPlayable) {

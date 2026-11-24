@@ -12,6 +12,7 @@ final class RequestRouter {
     private let openApp: () -> Void
     private let openUpdate: () -> Void
     private let openPreview: () -> Void
+    private let finderCommand: (HostCommandRequest) -> Void
     private let logger = Logger(category: "requests")
     /// The extension's Open MacEase fallback.
     private static let openHost = "open"
@@ -19,7 +20,7 @@ final class RequestRouter {
     init(
         configuration: HostConfiguration, jobs: JobCenter, notifier: BatchNotifier,
         menuFile: @escaping () -> MenuFile?, openApp: @escaping () -> Void, openUpdate: @escaping () -> Void,
-        openPreview: @escaping () -> Void
+        openPreview: @escaping () -> Void, finderCommand: @escaping (HostCommandRequest) -> Void
     ) {
         self.configuration = configuration
         self.jobs = jobs
@@ -28,6 +29,7 @@ final class RequestRouter {
         self.openApp = openApp
         self.openUpdate = openUpdate
         self.openPreview = openPreview
+        self.finderCommand = finderCommand
     }
 
     func route(_ url: URL) {
@@ -36,12 +38,15 @@ final class RequestRouter {
             request = try RunRequest(url: url, scheme: configuration.urlScheme)
         } catch .notARunRequest {
             guard url.scheme?.lowercased() == configuration.urlScheme.lowercased() else { return }
-            if url.host() == Self.openHost {
+            switch url.host()?.lowercased() {
+            case Self.openHost:
                 openApp()
-            } else if url.host() == "update" {
+            case HostCommand.update.urlHost:
                 routeUpdate(url)
-            } else if url.host() == "preview" {
+            case HostCommand.preview.urlHost:
                 routePreview(url)
+            default:
+                routeFinderCommand(url)
             }
             return
         } catch {
@@ -60,8 +65,28 @@ final class RequestRouter {
             return
         }
         let entry = file.entries[request.entryIndex]
-        let inputs = request.paths.map { URL(fileURLWithPath: $0) }
+        let inputs = request.paths.compactMap(RequestPath.fileURL)
+        guard inputs.count == request.paths.count else {
+            logger.error("Request with invalid paths rejected")
+            return
+        }
         jobs.start(entry: entry, inputs: inputs)
+    }
+
+    private func routeFinderCommand(_ url: URL) {
+        guard let request = HostCommandRequest(url: url, scheme: configuration.urlScheme) else {
+            logger.error("Malformed Finder command request rejected")
+            return
+        }
+        guard let file = menuFile(), file.hostAvailable, RequestToken.matches(request.token, file.token) else {
+            logger.error("Finder command request with an invalid token or unavailable host rejected")
+            return
+        }
+        guard request.catalogVersion == file.catalogVersion, file.commandActions.contains(request.action) else {
+            notifier.notifyStaleMenu()
+            return
+        }
+        finderCommand(request)
     }
 
     private func routeUpdate(_ url: URL) {

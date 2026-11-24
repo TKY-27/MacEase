@@ -1,4 +1,5 @@
 import AppKit
+import Engine
 import Observation
 import Quartz
 import SwiftUI
@@ -16,6 +17,10 @@ final class FinderPreviewState {
     var selectedIndex = 0
     var notice: Notice?
     var kind: PreviewKind?
+    var trust: PreviewTrust?
+    var detected: DetectedContent?
+    // Script consent for this session.
+    var scriptConsent: Set<PreviewScriptConsentKey> = []
     var fileFailure: String?
     var dock: FinderPreviewGeometry.Dock = .right
     var docked = true
@@ -25,6 +30,8 @@ final class FinderPreviewState {
 
 struct FinderPreviewView: View {
     let state: FinderPreviewState
+    let settings: SettingsStore
+    let staging: StagingArea
     let close: () -> Void
     let retry: () -> Void
     let select: (Int) -> Void
@@ -118,8 +125,14 @@ struct FinderPreviewView: View {
         } else if let failure = state.fileFailure {
             barred { PreviewMessage(symbol: "exclamationmark.triangle", message: Text(failure)) { EmptyView() } }
         } else if let url = state.selectedURL {
-            if let kind = state.kind {
-                PreviewContent(url: url, kind: kind).id(state.generation)
+            if let kind = state.kind, let trust = state.trust {
+                @Bindable var state = state
+                PreviewContent(
+                    url: url, kind: kind, trust: trust, detected: state.detected, settings: settings.finderPreview,
+                    staging: staging,
+                    scriptConsent: $state.scriptConsent
+                )
+                .id(state.generation)
             } else {
                 barred { Color.clear }
             }

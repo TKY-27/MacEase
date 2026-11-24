@@ -35,10 +35,27 @@ public actor VideoEditorSource {
     public static func open(
         _ url: URL, staging: StagingArea, omission: StreamOmission? = nil
     ) async throws -> VideoEditorSource {
+        try await open(url, staging: staging) { input, stamp in
+            let omitted = omission?.streams(covering: stamp) ?? []
+            try input.requirePreservableStreams(omitting: omitted)
+            return omitted
+        }
+    }
+
+    /// Throwaway playback copies only; edits use `open`.
+    public static func openForPreviewPlayback(_ url: URL, staging: StagingArea) async throws -> VideoEditorSource {
+        try await open(url, staging: staging) { input, _ in
+            _ = try input.displayOrientation
+            return []
+        }
+    }
+
+    private static func open(
+        _ url: URL, staging: StagingArea, validate: (MediaInput, MediaSourceStamp) throws -> Set<UnpreservedStream>
+    ) async throws -> VideoEditorSource {
         let stamp = try MediaSourceStamp(url: url)
         let input = try await MediaInput.open(url)
-        let omittedStreams = omission?.streams(covering: stamp) ?? []
-        try input.requirePreservableStreams(omitting: omittedStreams)
+        let omittedStreams = try validate(input, stamp)
         guard input.video != nil, input.duration > 0 else { throw EngineError.decodeFailed("no video track") }
         let hdr = try await VideoProperties.hdrConfiguration(input)
         let preview = MediaPreview(input: input, url: url)
@@ -202,7 +219,9 @@ public actor VideoEditorSource {
         return frameTimes
     }
 
-    public func playbackURL(sdr: Bool, normalized: Bool = false) async throws -> URL {
+    public func playbackURL(
+        sdr: Bool, normalized: Bool = false, progress: @Sendable (Double) -> Void = { _ in }
+    ) async throws -> URL {
         guard !closed else { throw CancellationError() }
         try details.stamp.validate(url)
         let toneMap = sdr && details.containsHDR
@@ -213,7 +232,8 @@ public actor VideoEditorSource {
         directories.append(directory)
         let output = directory.appending(path: "preview.mp4")
         do {
-            try await Self.makePreview(url: url, output: output, toneMap: toneMap, normalized: normalized)
+            try await Self.makePreview(
+                url: url, output: output, toneMap: toneMap, normalized: normalized, progress: progress)
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
             try details.stamp.validate(url)
@@ -296,10 +316,9 @@ public actor VideoEditorSource {
         guard !closed else { throw CancellationError() }
         guard let music else { return nil }
         try music.validateSource()
-        let asset = AVURLAsset(url: music.url)
-        if try AudioInput(url: music.url).container != .ogg,
-            try await asset.load(.isPlayable), !(try await asset.loadTracks(withMediaType: .audio)).isEmpty
-        {
+        try await UntrustedMediaAsset.rejectExternalReferences(in: music.url)
+        let input = try AudioInput(url: music.url)
+        if try await AudioPreviewSource.canPlayDirectly(input) {
             return music.url
         }
         if let cached = musicProxies[music.stamp] { return cached }
@@ -359,10 +378,12 @@ public actor VideoEditorSource {
 
     private nonisolated static func canPlay(_ url: URL) async throws -> Bool {
         guard ["mov", "mp4", "m4v"].contains(url.pathExtension.lowercased()) else { return false }
-        return try await AVURLAsset(url: url).load(.isPlayable)
+        return try await UntrustedMediaAsset.make(url).load(.isPlayable)
     }
 
-    private nonisolated static func makePreview(url: URL, output: URL, toneMap: Bool, normalized: Bool) async throws {
+    private nonisolated static func makePreview(
+        url: URL, output: URL, toneMap: Bool, normalized: Bool, progress: (Double) -> Void
+    ) async throws {
         let input = try await MediaInput.open(url)
         guard let source = input.video else { throw EngineError.decodeFailed("no video track") }
         if toneMap, case .asset(_, let track?, _) = input.backend {
@@ -381,7 +402,8 @@ public actor VideoEditorSource {
         plan.toneMapToSDR = toneMap
         plan.range = 0..<input.duration
         if source.hasAlpha, !normalized { throw EngineError.videoAlphaUnsupported }
-        try await Transcoder.run(input, plan: plan, to: output) { _ in }
+        // Priming packets can fall outside the range.
+        try await Transcoder.run(input, plan: plan, to: output) { progress(min(max($0, 0), 1)) }
     }
 
     public func reverse(

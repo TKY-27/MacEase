@@ -142,7 +142,7 @@ struct VideoMetadata {
             return VideoMetadataProperty.allCases.filter { unsupported.contains($0) }
         }
 
-        let asset = AVURLAsset(url: output)
+        let asset = UntrustedMediaAsset.make(output)
         if !(try await preserves(assetMetadata, in: asset.load(.metadata), container: container)) {
             unsupported.insert(.descriptiveMetadata)
         }

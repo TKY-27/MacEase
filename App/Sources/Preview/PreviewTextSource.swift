@@ -1,9 +1,11 @@
 import CoreFoundation
+import Darwin
 import Engine
 import Foundation
 
 enum PreviewEncoding: String, CaseIterable, Sendable {
-    case automatic, utf8, utf16, utf16LE, utf16BE, shiftJIS, eucJP, iso2022JP, windows1252, latin1
+    case automatic, utf8, utf16, utf16LE, utf16BE, utf32, utf32LE, utf32BE, shiftJIS, eucJP, iso2022JP,
+        windows1252, latin1
 
     var title: String {
         switch self {
@@ -12,6 +14,9 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
         case .utf16: String(localized: "UTF-16")
         case .utf16LE: String(localized: "UTF-16 LE")
         case .utf16BE: String(localized: "UTF-16 BE")
+        case .utf32: String(localized: "UTF-32")
+        case .utf32LE: String(localized: "UTF-32 LE")
+        case .utf32BE: String(localized: "UTF-32 BE")
         case .shiftJIS: String(localized: "Shift_JIS")
         case .eucJP: String(localized: "EUC-JP")
         case .iso2022JP: String(localized: "ISO-2022-JP")
@@ -32,6 +37,9 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
         case .utf16: return .utf16
         case .utf16LE: return .utf16LittleEndian
         case .utf16BE: return .utf16BigEndian
+        case .utf32: return .utf32
+        case .utf32LE: return .utf32LittleEndian
+        case .utf32BE: return .utf32BigEndian
         case .shiftJIS:
             return String.Encoding(
                 rawValue: CFStringConvertEncodingToNSStringEncoding(
@@ -45,49 +53,111 @@ enum PreviewEncoding: String, CaseIterable, Sendable {
 
 }
 
+// Keeps one open folder descriptor across rendering.
+final class PreviewDirectoryDescriptor: @unchecked Sendable {
+    let rawValue: Int32
+
+    init(rawValue: Int32) {
+        self.rawValue = rawValue
+    }
+
+    deinit {
+        close(rawValue)
+    }
+}
+
 struct PreviewTextSource: Sendable {
     static let maximumBytes = 4 * 1024 * 1024
     static let excerptBytes = 256 * 1024
     static let highlightBytes = 512 * 1024
+    private static let readChunkBytes = 64 * 1024
     let bytes: Data
     let truncated: Bool
+    let parentDirectory: PreviewDirectoryDescriptor?
+    let trust: PreviewTrust?
+
+    init(
+        bytes: Data, truncated: Bool, parentDirectory: PreviewDirectoryDescriptor? = nil, trust: PreviewTrust? = nil
+    ) {
+        self.bytes = bytes
+        self.truncated = truncated
+        self.parentDirectory = parentDirectory
+        self.trust = trust
+    }
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
 
-    static func read(_ url: URL) throws -> Self {
-        let file = try FileHandle(forReadingFrom: url)
-        do {
-            let size = try file.seekToEnd()
-            try file.seek(toOffset: 0)
-            let truncated = size > maximumBytes
-            let limit = truncated ? excerptBytes : maximumBytes
-            var bytes = Data()
-            while bytes.count < limit {
-                try Task.checkCancellation()
-                guard let chunk = try file.read(upToCount: min(64 * 1024, limit - bytes.count)), !chunk.isEmpty else {
-                    break
-                }
-                bytes.append(chunk)
-            }
-            try Task.checkCancellation()
-            try file.close()
-            return Self(bytes: bytes, truncated: truncated)
-        } catch {
-            try file.close()
-            throw error
+    static func read(
+        _ url: URL, trustedFolders: [String] = [], keepParentDirectory: Bool = false
+    ) throws -> Self {
+        try readSnapshot(url, trustedFolders: trustedFolders, keepParentDirectory: keepParentDirectory).source
+    }
+
+    static func readSnapshot(
+        _ url: URL, trustedFolders: [String] = [], keepParentDirectory: Bool = false
+    ) throws -> (source: Self, trust: PreviewTrust, stamp: PreviewFileStamp) {
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        let folderPath = resolved.deletingLastPathComponent().path
+        let folderFD = open(folderPath, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard folderFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+        let retainedFolder = PreviewDirectoryDescriptor(rawValue: folderFD)
+        // Nonblocking: a FIFO must not hang.
+        let fileFD = openat(folderFD, resolved.lastPathComponent, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fileFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(fileFD) }
+        var status = stat()
+        guard fstat(fileFD, &status) == 0, status.st_mode & S_IFMT == S_IFREG else {
+            throw CocoaError(.fileReadUnsupportedScheme)
+        }
+        let stamp = PreviewFileStamp(fileStatus: status)
+        let trust = PreviewTrust.evaluate(
+            linkURL: url, resolvedURL: resolved, fileDescriptor: fileFD, status: status,
+            trustedFolders: trustedFolders)
+        let truncated = Int64(status.st_size) > Int64(maximumBytes)
+        let limit = truncated ? excerptBytes : maximumBytes
+        var bytes = Data()
+        var chunk = [UInt8](repeating: 0, count: readChunkBytes)
+        while bytes.count < limit {
+            try Task.checkCancellation()
+            let wanted = min(readChunkBytes, limit - bytes.count)
+            let received = chunk.withUnsafeMutableBytes { Darwin.read(fileFD, $0.baseAddress, wanted) }
+            if received == 0 { break }
+            if received < 0 {
+                if errno == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            bytes.append(contentsOf: chunk[..<received])
+        }
+        try Task.checkCancellation()
+        let source = Self(
+            bytes: bytes, truncated: truncated, parentDirectory: keepParentDirectory ? retainedFolder : nil,
+            trust: trust)
+        return (source, trust, stamp)
     }
 
     func decoded(as encoding: PreviewEncoding) throws -> String {
+        if encoding == .automatic {
+            return try TextEncoding.detectedString(from: bytes, truncated: truncated)
+        }
         guard truncated else { return try encoding.decode(bytes) }
         let selected: PreviewEncoding
-        if encoding == .automatic || encoding == .utf16 {
-            if bytes.starts(with: [0xFF, 0xFE]) {
+        if encoding == .utf16 || encoding == .utf32 {
+            if bytes.starts(with: [0xFF, 0xFE, 0x00, 0x00]) {
+                selected = .utf32LE
+            } else if bytes.starts(with: [0x00, 0x00, 0xFE, 0xFF]) {
+                selected = .utf32BE
+            } else if bytes.starts(with: [0xFF, 0xFE]) {
                 selected = .utf16LE
             } else if bytes.starts(with: [0xFE, 0xFF]) {
                 selected = .utf16BE
+            } else if encoding == .utf32 {
+                selected = .utf32BE
             } else {
-                selected = encoding == .automatic ? .utf8 : .utf16BE
+                selected = .utf16BE
             }
         } else {
             selected = encoding
@@ -99,11 +169,7 @@ struct PreviewTextSource: Sendable {
         }
         let omitted = incompleteSuffixLength(encoding: selected)
         if omitted > 0 {
-            let prefix = bytes.dropLast(omitted)
-            if encoding == .automatic && selected == .utf8 && String(data: prefix, encoding: .utf8) == nil {
-                return try encoding.decode(bytes)
-            }
-            return try selected.decode(prefix)
+            return try selected.decode(bytes.dropLast(omitted))
         }
         return try encoding.decode(bytes)
     }
@@ -157,7 +223,9 @@ struct PreviewTextSource: Sendable {
                 (0x21...0x7E).contains(last)
             else { return 0 }
             return (bytes.endIndex - escape - 3) % 2
-        case .automatic, .utf16, .windows1252, .latin1: return 0
+        case .utf32LE, .utf32BE:
+            return bytes.count % 4
+        case .automatic, .utf16, .utf32, .windows1252, .latin1: return 0
         }
     }
 
@@ -166,19 +234,25 @@ struct PreviewTextSource: Sendable {
 enum PreviewLanguage: Sendable {
     case plain, swift, javascript, python, c, json, markup, css, shell, yaml, markdown
 
-    static func resolve(_ suffix: String) -> Self {
-        switch suffix.lowercased() {
-        case "swift": .swift
-        case "js", "jsx", "ts", "tsx", "mjs", "cjs": .javascript
-        case "py", "pyw": .python
-        case "c", "h", "cpp", "hpp", "cc", "m", "mm", "java", "cs": .c
-        case "json": .json
-        case "html", "htm", "xml", "plist", "svg": .markup
-        case "css", "scss": .css
-        case "sh", "bash", "zsh", "fish": .shell
-        case "yaml", "yml", "toml": .yaml
-        case "md", "markdown": .markdown
-        default: .plain
+    static func resolve(_ suffix: String, fileName: String? = nil) -> Self {
+        let lowered = suffix.lowercased()
+        if lowered.isEmpty, fileName?.lowercased() == ".env" { return .shell }
+        switch lowered {
+        case "swift": return .swift
+        case "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx": return .javascript
+        case "py", "pyw", "pyi": return .python
+        case "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl", "m", "mm",
+            "java", "kt", "kts", "gradle", "groovy", "scala", "cs", "csx", "dart":
+            return .c
+        case "json", "jsonc", "json5": return .json
+        case "html", "htm", "xhtml", "xml", "xaml", "csproj", "vcxproj", "fsproj", "vbproj",
+            "props", "targets", "plist", "manifest", "svg", "vue", "svelte", "astro":
+            return .markup
+        case "css", "scss", "sass", "less": return .css
+        case "sh", "bash", "zsh", "fish", "env": return .shell
+        case "yaml", "yml", "toml": return .yaml
+        case "md", "markdown", "mdx": return .markdown
+        default: return .plain
         }
     }
 

@@ -85,6 +85,7 @@ final class JobCenter {
     /// `false` when no panel can answer it.
     @ObservationIgnored var askAgain: ((OperationRequest, [URL], InvalidInput) -> Bool)?
     @ObservationIgnored var presentFailure: ((OperationID, String) -> Void)?
+    @ObservationIgnored var onUndo: (() -> Void)?
     @ObservationIgnored var onStart: ((ActiveBatch) -> Void)?
     @ObservationIgnored var onScanEnd: ((UUID) -> Void)?
     /// `true` when Activity keeps the result visible.
@@ -345,7 +346,15 @@ final class JobCenter {
         }
     }
 
+    func undoBatch(_ id: UUID) async throws -> [UndoOutcome] {
+        onUndo?()
+        let outcomes = try await engine.undo(id)
+        await refreshRecent()
+        return outcomes
+    }
+
     func undo(_ id: UUID) {
+        onUndo?()
         guard !terminating, undoTasks[id] == nil else { return }
         undoTasks[id] = Task {
             defer { undoTasks[id] = nil }

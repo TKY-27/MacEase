@@ -113,6 +113,7 @@ public enum InvalidInput: Equatable, Sendable {
     case cannotReverseFreeze
     case segmentAlreadyReversed
     case invalidNumericParameter
+    case externalMediaReference
 }
 
 public enum Capability: String, Equatable, Sendable {
@@ -177,19 +178,24 @@ extension EngineError {
         if let archiveError = error as? ArchiveError { return ArchivePlanner.engineError(archiveError) }
         if let format = error as? FormatError { return EngineError(format) }
         if error is CancellationError { return .cancelled }
+        if UntrustedMediaAsset.isReferenceForbidden(error) {
+            return .invalidInput(.externalMediaReference)
+        }
         let nsError = error as NSError
         if isPermissionError(nsError)
             || (nsError.userInfo[NSUnderlyingErrorKey] as? NSError).map(isPermissionError) == true
         {
-            return .permissionDenied(PermissionLocation(path: path))
+            return .permissionDenied(PermissionLocation(path: nsError.userInfo[NSFilePathErrorKey] as? String ?? path))
         }
         return otherwise("\(nsError.domain) \(nsError.code)")
     }
 
     private static func isPermissionError(_ error: NSError) -> Bool {
         switch error.domain {
-        case NSCocoaErrorDomain: [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)
-        case NSPOSIXErrorDomain: [Int(EPERM), Int(EACCES)].contains(error.code)
+        case NSCocoaErrorDomain:
+            [NSFileReadNoPermissionError, NSFileWriteNoPermissionError, NSFileWriteVolumeReadOnlyError].contains(
+                error.code)
+        case NSPOSIXErrorDomain: [Int(EPERM), Int(EACCES), Int(EROFS)].contains(error.code)
         default: false
         }
     }
