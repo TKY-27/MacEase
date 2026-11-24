@@ -256,7 +256,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func makeView() -> FinderPreviewView {
         FinderPreviewView(
-            state: state, close: { [weak self] in self?.settings.finderPreviewEnabled = false },
+            state: state, settings: settings, close: { [weak self] in self?.settings.finderPreviewEnabled = false },
             retry: { [weak self] in self?.retry() },
             select: { [weak self] in self?.select($0) },
             resize: { [weak self] in self?.resize(by: $0) })

@@ -76,19 +76,23 @@ struct PreviewTextViewer: View {
     let url: URL
     let kind: PreviewKind
     let trust: PreviewTrust
+    let settings: FinderPreviewSettings
     @Binding var scriptConsent: Set<String>
     @State private var source: PreviewTextSource?
     @State private var rendering: PreviewTextRendering?
     @State private var encoding = PreviewEncoding.automatic
     @State private var rich: Bool
-    @State private var wrap = true
     @State private var policy: PreviewWebPolicy
     @State private var failed = false
 
-    init(url: URL, kind: PreviewKind, trust: PreviewTrust, scriptConsent: Binding<Set<String>>) {
+    init(
+        url: URL, kind: PreviewKind, trust: PreviewTrust, settings: FinderPreviewSettings,
+        scriptConsent: Binding<Set<String>>
+    ) {
         self.url = url
         self.kind = kind
         self.trust = trust
+        self.settings = settings
         _scriptConsent = scriptConsent
         let policy = PreviewWebPolicy(
             trust: trust, scriptsConsented: scriptConsent.wrappedValue.contains(trust.resolvedPath))
@@ -123,7 +127,8 @@ struct PreviewTextViewer: View {
                     } else {
                         PreviewCodeView(
                             text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts,
-                            wrap: wrap)
+                            font: PreviewCodeFont.font(family: settings.codeFontFamily, size: settings.codeFontSize),
+                            wrap: settings.wrapLines)
                     }
                 } else {
                     ProgressView().controlSize(.small)
@@ -164,10 +169,6 @@ struct PreviewTextViewer: View {
                 .accessibilityLabel(Text("Encoding"))
                 .help(Text("Encoding"))
             }
-            Toggle(isOn: $wrap) {
-                Label("Soft Wrap", systemImage: "arrow.turn.down.left")
-            }
-            .toggleStyle(.button).labelStyle(.iconOnly).help(Text("Soft Wrap"))
         }
     }
 
@@ -258,10 +259,31 @@ struct PreviewTextViewer: View {
     }
 }
 
+@MainActor
+enum PreviewCodeFont {
+    static let families = NSFontManager.shared.availableFontFamilies.filter { family in
+        NSFontManager.shared.font(withFamily: family, traits: [], weight: regularWeight, size: probeSize)?
+            .isFixedPitch == true
+    }
+    // NSFontManager weight scale; 5 is regular.
+    private static let regularWeight = 5
+    private static let probeSize: CGFloat = 12
+
+    // Uninstalled families use the system font.
+    static func font(family: String, size: Int) -> NSFont {
+        let points = CGFloat(size)
+        guard !family.isEmpty,
+            let font = NSFontManager.shared.font(withFamily: family, traits: [], weight: regularWeight, size: points)
+        else { return .monospacedSystemFont(ofSize: points, weight: .regular) }
+        return font
+    }
+}
+
 private struct PreviewCodeView: NSViewRepresentable {
     let text: String
     let tokens: [PreviewToken]
     let lineStarts: [Int]
+    let font: NSFont
     let wrap: Bool
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -271,7 +293,6 @@ private struct PreviewCodeView: NSViewRepresentable {
         let textView = PreviewTextView(usingTextLayoutManager: true)
         textView.usesFindBar = true
         textView.isEditable = false
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         textView.isSelectable = true
         textView.isRichText = false
         textView.isAutomaticLinkDetectionEnabled = false
@@ -297,11 +318,11 @@ private struct PreviewCodeView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let textView = scroll.documentView as? NSTextView else { return }
-        if !textView.string.utf8.elementsEqual(text.utf8) {
+        if textView.font != font || !textView.string.utf8.elementsEqual(text.utf8) {
             let styled = NSMutableAttributedString(
                 string: text,
                 attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .font: font,
                     .foregroundColor: NSColor.textColor,
                 ])
             for token in tokens {
@@ -315,8 +336,12 @@ private struct PreviewCodeView: NSViewRepresentable {
                 styled.addAttribute(.foregroundColor, value: color, range: token.range)
             }
             textView.textStorage?.setAttributedString(styled)
+            textView.font = font
         }
-        (scroll.verticalRulerView as? PreviewLineRuler)?.lineStarts = lineStarts
+        if let ruler = scroll.verticalRulerView as? PreviewLineRuler {
+            ruler.lineStarts = lineStarts
+            ruler.codeFont = font
+        }
         scroll.hasHorizontalScroller = !wrap
         textView.isHorizontallyResizable = !wrap
         textView.autoresizingMask = wrap ? [.width] : []
@@ -344,11 +369,31 @@ private final class PreviewTextView: NSTextView {
 }
 
 private final class PreviewLineRuler: NSRulerView {
+    private static let minimumThickness: CGFloat = 40
+    private static let labelPadding: CGFloat = 8
     var lineStarts = [0] {
         didSet {
-            ruleThickness = max(40, CGFloat(String(lineStarts.count).count) * 8 + 16)
-            needsDisplay = true
+            if lineStarts != oldValue { measure() }
         }
+    }
+    var codeFont = NSFont.monospacedSystemFont(
+        ofSize: CGFloat(FinderPreviewSettings.defaultCodeFontSize), weight: .regular)
+    {
+        didSet {
+            if codeFont != oldValue { measure() }
+        }
+    }
+    private var labelAttributes: [NSAttributedString.Key: Any] = [:]
+
+    private func measure() {
+        labelAttributes = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: max(1, codeFont.pointSize - 1), weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let widest = String(repeating: "8", count: String(lineStarts.count).count) as NSString
+        ruleThickness = max(
+            Self.minimumThickness, ceil(widest.size(withAttributes: labelAttributes).width) + Self.labelPadding * 2)
+        needsDisplay = true
     }
 
     override var isFlipped: Bool { true }
@@ -373,15 +418,14 @@ private final class PreviewLineRuler: NSRulerView {
             }
             guard let first = fragment.textLineFragments.first else { return true }
             let label = String(max(1, lower)) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
-                .foregroundColor: NSColor.secondaryLabelColor,
-            ]
+            let attributes = self.labelAttributes
             let origin = self.convert(
                 NSPoint(x: 0, y: frame.minY + first.typographicBounds.minY + editor.textContainerOrigin.y), from: editor
             )
             label.draw(
-                at: NSPoint(x: self.ruleThickness - label.size(withAttributes: attributes).width - 8, y: origin.y),
+                at: NSPoint(
+                    x: self.ruleThickness - label.size(withAttributes: attributes).width - Self.labelPadding,
+                    y: origin.y),
                 withAttributes: attributes)
             return true
         }

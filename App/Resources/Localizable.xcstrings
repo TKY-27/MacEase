@@ -241,16 +241,6 @@
         }
       }
     },
-    "Soft Wrap": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "折り返し"
-          }
-        }
-      }
-    },
     "Showing the first 256 KB": {
       "localizations": {
         "ja": {
@@ -18406,6 +18396,206 @@
           "stringUnit": {
             "state": "translated",
             "value": "インターネットからコンテンツを読み込みます。スクリプトも実行されます。"
+          }
+        }
+      }
+    },
+    "Finder Windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウ"
+          }
+        }
+      }
+    },
+    "Show Finder Preview beside Finder windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウの横にFinderプレビューを表示"
+          }
+        }
+      }
+    },
+    "File Types": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの種類"
+          }
+        }
+      }
+    },
+    "Types that are off use the macOS preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにした種類はmacOSのプレビューで表示します。"
+          }
+        }
+      }
+    },
+    "Code font": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォント"
+          }
+        }
+      }
+    },
+    "System Monospaced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムの等幅フォント"
+          }
+        }
+      }
+    },
+    "Code font size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォントサイズ"
+          }
+        }
+      }
+    },
+    "Wrap long lines to the panel width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長い行をパネルの幅で折り返す"
+          }
+        }
+      }
+    },
+    "Font sample text": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントの見本テキスト"
+          }
+        }
+      }
+    },
+    "Fonts": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォント"
+          }
+        }
+      }
+    },
+    "No trusted folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するフォルダはありません"
+          }
+        }
+      }
+    },
+    "Trusted Folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するフォルダ"
+          }
+        }
+      }
+    },
+    "HTML files in these folders open in Preview with scripts on. Files from the internet stay restricted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのフォルダ内のHTMLファイルは、スクリプトを有効にしてプレビューで開きます。インターネットから入手したファイルは制限されたままです。"
+          }
+        }
+      }
+    },
+    "Trust": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼する"
+          }
+        }
+      }
+    },
+    "HTML in the chosen folders opens with scripts on.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したフォルダ内のHTMLは、スクリプトを有効にして開きます。"
+          }
+        }
+      }
+    },
+    "Not Set Up": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定"
+          }
+        }
+      }
+    },
+    "Not Allowed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可されていません"
+          }
+        }
+      }
+    },
+    "Unknown": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
+          }
+        }
+      }
+    },
+    "Source code and text": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースコードとテキスト"
+          }
+        }
+      }
+    },
+    "Built-in sample": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準の見本"
           }
         }
       }

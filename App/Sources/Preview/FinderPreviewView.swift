@@ -28,6 +28,7 @@ final class FinderPreviewState {
 
 struct FinderPreviewView: View {
     let state: FinderPreviewState
+    let settings: SettingsStore
     let close: () -> Void
     let retry: () -> Void
     let select: (Int) -> Void
@@ -123,8 +124,11 @@ struct FinderPreviewView: View {
         } else if let url = state.selectedURL {
             if let kind = state.kind, let trust = state.trust {
                 @Bindable var state = state
-                PreviewContent(url: url, kind: kind, trust: trust, scriptConsent: $state.scriptConsent)
-                    .id(state.generation)
+                PreviewContent(
+                    url: url, kind: kind, trust: trust, settings: settings.finderPreview,
+                    scriptConsent: $state.scriptConsent
+                )
+                .id(state.generation)
             } else {
                 barred { Color.clear }
             }

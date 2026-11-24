@@ -108,12 +108,13 @@ struct PreviewContent: View {
     let url: URL
     let kind: PreviewKind
     let trust: PreviewTrust
+    let settings: FinderPreviewSettings
     @Binding var scriptConsent: Set<String>
 
     var body: some View {
         switch kind {
         case .text, .html, .markdown, .json, .propertyList:
-            PreviewTextViewer(url: url, kind: kind, trust: trust, scriptConsent: $scriptConsent)
+            PreviewTextViewer(url: url, kind: kind, trust: trust, settings: settings, scriptConsent: $scriptConsent)
         case .image: PreviewImageViewer(url: url)
         case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
         case .pdf: PreviewPDFViewer(url: url)
