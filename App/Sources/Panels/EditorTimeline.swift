@@ -107,6 +107,7 @@ struct EditorTimeline: View {
                 actionBar.labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
+            .disabled(model.reverseProgress != nil)
             MediaTimeline(
                 duration: max(model.timelineDuration, model.frameDuration), position: model.position,
                 clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
@@ -120,6 +121,7 @@ struct EditorTimeline: View {
                     case .setOut: model.setTrimBoundaryAtPlayhead(start: false)
                     case .split: model.split()
                     case .freeze: model.insertFreezeFrame()
+                    case .reverse: model.toggleReverse()
                     case .duplicate: model.duplicateSelection()
                     case .left: model.moveSelection(-1)
                     case .right: model.moveSelection(1)
@@ -156,6 +158,12 @@ struct EditorTimeline: View {
                 Label("Freeze Frame", systemImage: "snowflake")
             }
             .help("Insert a Freeze Frame at the Playhead (⌥F)").disabled(!model.canInsertFreezeFrame)
+            Toggle(isOn: reversed) {
+                Label("Reverse", systemImage: "backward")
+            }
+            .toggleStyle(.button)
+            .help(model.reverseUnavailableReason ?? String(localized: "Play the Selected Segment Backward"))
+            .disabled(!model.canToggleReverse)
             Button {
                 model.duplicateSelection()
             } label: {
@@ -203,11 +211,16 @@ struct EditorTimeline: View {
             Button("Insert Freeze Frame at Playhead") { model.insertFreezeFrame() }
                 .keyboardShortcut("f", modifiers: .option)
                 .disabled(!model.canInsertFreezeFrame)
+            Toggle("Reverse Segment", isOn: reversed).disabled(!model.canToggleReverse)
             Divider()
             Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
                 .disabled(model.values.selectedIndex == model.values.segments.count - 1)
         }
+    }
+
+    private var reversed: Binding<Bool> {
+        Binding(get: { model.selectedSegment?.isReversed == true }, set: { _ in model.toggleReverse() })
     }
 
     private func available(_ id: UUID, _ action: TimelineAction) -> Bool {
@@ -217,6 +230,7 @@ struct EditorTimeline: View {
         case .setIn, .setOut: return !segment.isFreeze
         case .split: return model.canSplitSegment(id)
         case .freeze: return model.canInsertFreezeFrame && model.timeline?.segment(at: model.position).id == id
+        case .reverse: return model.values.selectedID == id && model.canToggleReverse
         case .left: return index > 0
         case .right: return index < model.values.segments.count - 1
         case .duplicate, .delete: return true
@@ -241,14 +255,14 @@ struct EditorTimeline: View {
         let numbered = model.values.segments.count > 1
         return model.values.segments.enumerated().map { index, segment in
             let range = model.timelineRange(for: segment)
-            let name =
-                model.values.sources.indices.contains(segment.sourceIndex)
-                ? model.values.sources[segment.sourceIndex].url.lastPathComponent : model.url.lastPathComponent
+            let name = model.sourceName(segment)
             let fade = FadeRamp(
                 duration: range.upperBound - range.lowerBound, fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
             var badges: [TimelineBadge] = []
             if segment.isFreeze {
                 badges.append(TimelineBadge(symbol: "snowflake", title: String(localized: "Freeze")))
+            } else if segment.isReversed {
+                badges.append(TimelineBadge(symbol: "backward.fill", title: String(localized: "Reversed")))
             }
             return TimelineClip(
                 id: segment.id, range: range,

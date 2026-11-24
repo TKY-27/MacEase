@@ -9,7 +9,7 @@ struct MediaEditorView: View {
     let runFrame: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
     let progress: (UUID) -> JobCenter.ActiveBatch?
 
-    private var editable: Bool { model.ready && model.savingBatchID == nil }
+    private var editable: Bool { model.ready && !model.editingLocked }
 
     var body: some View {
         Group {
@@ -284,6 +284,7 @@ struct MediaEditorView: View {
                 .disabled(model.loadingPhoto)
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
             }
+            .disabled(model.reverseProgress != nil)
             if model.isVideo {
                 Divider()
                 exportSettings
@@ -320,6 +321,19 @@ struct MediaEditorView: View {
         .accessibilityElement(children: .combine)
     }
 
+    @ViewBuilder private var reverseStatus: some View {
+        if let fraction = model.reverseProgress {
+            HStack(spacing: 8) {
+                ProgressView(value: fraction).controlSize(.small)
+                Text("Reversing…").font(.callout).foregroundStyle(.secondary).fixedSize()
+                Button("Cancel", action: model.cancelReverse).controlSize(.small)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Reversing segment"))
+        }
+        if let failure = model.reverseFailure { ProblemLabel(text: failure) }
+    }
+
     @ViewBuilder private var frameNote: some View {
         switch model.frameNote {
         case .saved(let output):
@@ -344,6 +358,7 @@ struct MediaEditorView: View {
             if let id = model.savingBatchID { saveProgress(id, title: Text("Saving…")) }
             if let id = model.frameBatchID { saveProgress(id, title: Text("Saving Frame…")) }
             frameNote
+            reverseStatus
             if let failure = model.saveFailure ?? model.failure {
                 ProblemLabel(text: failure)
             }
@@ -591,6 +606,24 @@ struct MediaEditorView: View {
                 Text("Pitch is preserved.").font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.hasSelection || freeze)
+            InspectorSection(String(localized: "Direction")) {
+                Toggle(
+                    "Play Backward",
+                    isOn: Binding(
+                        get: { model.selectedSegment?.isReversed == true }, set: { _ in model.toggleReverse() })
+                )
+                .disabled(!model.canToggleReverse)
+                Text(
+                    model.reverseUnavailableReason
+                        ?? String(
+                            localized:
+                                "Reversing prepares a backward copy, which takes about as long as the segment plays. Saving then makes a new H.264 MP4 file."
+                        )
+                )
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .disabled(!model.hasSelection)
             InspectorSection(String(localized: "Volume")) {
                 HStack(spacing: 10) {
                     Button {
@@ -629,10 +662,10 @@ struct MediaEditorView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.hasSelection)
-            if model.values.sources.count > 1 {
+            if model.originalSources.count > 1 {
                 InspectorSection(String(localized: "Source Videos")) {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(model.values.sources.enumerated()), id: \.offset) { index, source in
+                        ForEach(Array(model.originalSources.enumerated()), id: \.offset) { index, source in
                             Text("\(index + 1). \(source.url.lastPathComponent)").font(.callout).lineLimit(1)
                                 .truncationMode(.middle)
                         }

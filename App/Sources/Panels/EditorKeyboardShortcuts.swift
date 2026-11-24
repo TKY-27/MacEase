@@ -41,7 +41,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     if let audio = self.audio, audio.ready {
                         return self.audioShortcut(event, modifiers: modifiers, audio: audio)
                     }
-                    guard let model = self.model, model.ready, model.savingBatchID == nil else { return false }
+                    guard let model = self.model, model.ready, !model.editingLocked else { return false }
                     if model.category == .markup, self.markupShortcut(event, modifiers: modifiers, model: model) {
                         return true
                     }

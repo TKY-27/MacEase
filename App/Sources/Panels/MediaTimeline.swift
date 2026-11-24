@@ -34,7 +34,7 @@ struct TimelineOverlayMark {
 }
 
 enum TimelineAction: Int, CaseIterable {
-    case setIn, setOut, split, freeze, duplicate, left, right, delete
+    case setIn, setOut, split, freeze, reverse, duplicate, left, right, delete
 
     var title: String {
         switch self {
@@ -42,6 +42,7 @@ enum TimelineAction: Int, CaseIterable {
         case .setOut: String(localized: "Set Out Point at Playhead")
         case .split: String(localized: "Split at Playhead")
         case .freeze: String(localized: "Insert Freeze Frame at Playhead")
+        case .reverse: String(localized: "Reverse Segment")
         case .duplicate: String(localized: "Duplicate Segment")
         case .left: String(localized: "Move Segment Left")
         case .right: String(localized: "Move Segment Right")

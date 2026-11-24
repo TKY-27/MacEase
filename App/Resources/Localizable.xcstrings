@@ -19849,6 +19849,116 @@
           }
         }
       }
+    },
+    "Reverse": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生"
+          }
+        }
+      }
+    },
+    "Reverse Segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメントを逆再生"
+          }
+        }
+      }
+    },
+    "Reversed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生"
+          }
+        }
+      }
+    },
+    "Play the Selected Segment Backward": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したセグメントを逆再生"
+          }
+        }
+      }
+    },
+    "Reversing…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生を準備中…"
+          }
+        }
+      }
+    },
+    "Reversing segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメントの逆再生を準備中"
+          }
+        }
+      }
+    },
+    "Direction": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生方向"
+          }
+        }
+      }
+    },
+    "Play Backward": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生"
+          }
+        }
+      }
+    },
+    "Reversing prepares a backward copy, which takes about as long as the segment plays. Saving then makes a new H.264 MP4 file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生では逆向きのコピーを作成します。セグメントの再生時間と同じくらいかかります。保存すると新しいH.264 MP4ファイルになります。"
+          }
+        }
+      }
+    },
+    "A freeze frame can’t be reversed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームは逆再生できません。"
+          }
+        }
+      }
+    },
+    "Reverse works on segments up to %@ long. Split this segment first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生できるのは%@までのセグメントです。先にこのセグメントを分割してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

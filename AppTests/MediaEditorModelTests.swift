@@ -907,6 +907,110 @@ final class MediaEditorModelTests: XCTestCase {
             "フリーズフレームは1枚の画像を無音で表示するため、トリミング、分割、速度、音量は使えません。")
     }
 
+    func testReverseLocksEditingDisclosesTheNewFileAndUndoesThroughStagedSources() async throws {
+        let model = try await videoModel()
+        let original = try XCTUnwrap(model.values.segments.first)
+        XCTAssertTrue(model.canToggleReverse)
+        model.toggleReverse()
+        XCTAssertEqual(model.reverseProgress, 0)
+        XCTAssertTrue(model.editingLocked)
+        XCTAssertFalse(model.canSave)
+        XCTAssertFalse(model.canToggleReverse)
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        XCTAssertEqual(model.values.photo.geometry.quarterTurns, 0, "edits wait for the reverse")
+        try await eventually { model.reverseProgress == nil }
+        XCTAssertNil(model.reverseFailure)
+        let reversed = try XCTUnwrap(model.values.segments.first)
+        XCTAssertTrue(reversed.isReversed)
+        XCTAssertEqual(model.values.sources.count, 2)
+        let staged = model.values.sources[1].url
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+        XCTAssertEqual(model.outputDuration, original.end - original.start, accuracy: 0.05)
+        XCTAssertEqual(model.sourceName(reversed), "clip-0.mp4")
+        XCTAssertEqual(model.originalSources.map(\.url), [model.url])
+        let notice = try XCTUnwrap(model.values.video.joinedExportNotice)
+        XCTAssertEqual(model.newFileReason, notice)
+        XCTAssertEqual(
+            notice,
+            "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR."
+        )
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: true))
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure, "the staged source previews")
+
+        model.undo()
+        XCTAssertEqual(model.values.segments, [original], "reversing is one Undo step")
+        XCTAssertFalse(model.forcesNewFile)
+        model.redo()
+        XCTAssertTrue(model.values.segments[0].isReversed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path), "Undo history keeps the staged file")
+
+        model.toggleReverse()
+        let restored = try XCTUnwrap(model.values.segments.first)
+        XCTAssertFalse(restored.isReversed)
+        XCTAssertEqual(restored.start, original.start, accuracy: model.frameDuration)
+        XCTAssertEqual(restored.end, original.end, accuracy: model.frameDuration)
+        XCTAssertEqual(model.values.sources.count, 1, "restoring drops the unused staged source")
+        XCTAssertNil(model.newFileReason)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+        model.undo()
+        XCTAssertTrue(model.values.segments[0].isReversed)
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure)
+
+        await model.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path), "closing releases staged files")
+    }
+
+    func testCancellingReverseLeavesTheEditUntouched() async throws {
+        let directory = try workspace()
+        let model = try await videoModel(fixture: try synthesizedVideoFixture(in: directory))
+        let original = model.values
+        model.toggleReverse()
+        XCTAssertNotNil(model.reverseProgress)
+        model.cancelReverse()
+        try await eventually { model.reverseProgress == nil }
+        XCTAssertEqual(model.values, original)
+        XCTAssertFalse(model.canUndo)
+        XCTAssertNil(model.reverseFailure, "cancelling is not a failure")
+        XCTAssertTrue(model.canToggleReverse)
+    }
+
+    func testReverseExplainsFreezeAndLengthLimits() async throws {
+        let directory = try workspace()
+        let long = directory.appending(path: "long.mp4")
+        let encoding = Process()
+        encoding.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        encoding.arguments = [
+            "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=64x48:r=10:d=61",
+            "-c:v", "h264_videotoolbox", long.path,
+        ]
+        try encoding.run()
+        encoding.waitUntilExit()
+        XCTAssertEqual(encoding.terminationStatus, 0)
+        let model = try await videoModel(fixture: long)
+        XCTAssertEqual(
+            model.reverseUnavailableReason, "Reverse works on segments up to 1:00 long. Split this segment first.")
+        XCTAssertFalse(model.canToggleReverse)
+        model.toggleReverse()
+        XCTAssertNil(model.reverseProgress)
+        model.seek(30)
+        model.insertFreezeFrame()
+        try await eventually { model.selectedSegment?.isFreeze == true }
+        XCTAssertEqual(model.reverseUnavailableReason, "A freeze frame can’t be reversed.")
+        XCTAssertFalse(model.canToggleReverse)
+        XCTAssertEqual(
+            japanese("Reverse works on segments up to %@ long. Split this segment first."),
+            "逆再生できるのは%@までのセグメントです。先にこのセグメントを分割してください。")
+        XCTAssertEqual(japanese("A freeze frame can’t be reversed."), "フリーズフレームは逆再生できません。")
+        XCTAssertEqual(
+            japanese(
+                "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR."
+            ),
+            "結合・逆再生した動画はH.264のMP4形式で新規保存されます。透明部分は背景色で塗りつぶされ、HDRはSDRに変換されます。")
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
@@ -962,12 +1066,14 @@ final class MediaEditorModelTests: XCTestCase {
     }
 
     private func videoModel(
-        count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil
+        count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil,
+        fixture: URL? = nil
     ) async throws
         -> MediaEditorModel
     {
         let directory = try workspace()
-        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "ffmpeg-h264-aac", withExtension: "mp4"))
+        let bundled = Bundle(for: Self.self).url(forResource: "ffmpeg-h264-aac", withExtension: "mp4")
+        let fixture = try XCTUnwrap(fixture ?? bundled)
         let sources = try (0..<count).map { index in
             let source = directory.appending(path: "clip-\(index).mp4")
             try FileManager.default.copyItem(at: fixture, to: source)
