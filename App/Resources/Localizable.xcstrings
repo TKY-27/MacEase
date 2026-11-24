@@ -21805,6 +21805,126 @@
           }
         }
       }
+    },
+    "A freeze frame can’t be split.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームは分割できません。"
+          }
+        }
+      }
+    },
+    "Place the playhead inside this segment to split it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割するには、このセグメントの中に再生ヘッドを置いてください。"
+          }
+        }
+      }
+    },
+    "The playhead is already on a freeze frame.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドはすでにフリーズフレーム上にあります。"
+          }
+        }
+      }
+    },
+    "Place the playhead inside this segment first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先にこのセグメントの中に再生ヘッドを置いてください。"
+          }
+        }
+      }
+    },
+    "A freeze frame can’t be trimmed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームはトリミングできません。"
+          }
+        }
+      }
+    },
+    "Enter a valid number first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に有効な数値を入力してください。"
+          }
+        }
+      }
+    },
+    "Wait for the current edit to finish.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いまの編集が終わるまでお待ちください。"
+          }
+        }
+      }
+    },
+    "This video has no sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画には音声がありません。"
+          }
+        }
+      }
+    },
+    "This segment’s video has no sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセグメントの動画には音声がありません。"
+          }
+        }
+      }
+    },
+    "Every segment already has this style.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのセグメントがすでにこのスタイルです。"
+          }
+        }
+      }
+    },
+    "Every segment already has these adjustments.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのセグメントがすでにこの調整になっています。"
+          }
+        }
+      }
+    },
+    "Choose a ratio other than Freeform or 1:1.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自由と1:1以外の比率を選んでください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

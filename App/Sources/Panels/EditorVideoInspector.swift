@@ -81,6 +81,7 @@ extension MediaEditorView {
         InspectorSection(String(localized: "Direction")) {
             Toggle("Play Backward", isOn: model.reversedBinding)
                 .disabled(!model.canToggleReverse)
+                .help(model.reverseUnavailableReason ?? "")
             Text(
                 model.reverseUnavailableReason
                     ?? String(
@@ -118,6 +119,7 @@ extension MediaEditorView {
             }
         }
         .disabled(!model.selectedHasAudio || freeze)
+        .help(model.segmentVolumeUnavailableReason ?? "")
     }
 
     private var fadeSection: some View {

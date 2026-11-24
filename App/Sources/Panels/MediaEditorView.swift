@@ -144,6 +144,7 @@ struct MediaEditorView: View {
                     Text("The original goes to the Trash and can be undone.")
                 }
                 .disabled(model.forcesNewFile)
+                .help(model.newFileReason ?? "")
             } label: {
                 Text("Save")
             } primaryAction: {
@@ -430,8 +431,10 @@ struct MediaEditorView: View {
             }
             .disabled(!model.canApplyToAllSegments(styleOnly: styleOnly))
             .help(
-                styleOnly
-                    ? "Give every segment this segment’s style" : "Give every segment this segment’s adjustments")
+                model.applyToAllUnavailableReason(styleOnly: styleOnly)
+                    ?? (styleOnly
+                        ? String(localized: "Give every segment this segment’s style")
+                        : String(localized: "Give every segment this segment’s adjustments")))
         }
     }
 
@@ -554,7 +557,8 @@ struct MediaEditorView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .toggleStyle(.button)
-                .disabled(model.cropAspect == 0 || model.cropAspect == 1)
+                .disabled(model.swapCropSidesUnavailableReason != nil)
+                .help(model.swapCropSidesUnavailableReason ?? "")
             }
             InspectorSection(String(localized: "Straighten")) {
                 LabeledSlider(

@@ -15,6 +15,7 @@ struct EditorMarkupInspector: View {
                     Button(addTitle(model.markupTool)) { model.addDefaultOverlay(model.markupTool) }
                         .frame(maxWidth: .infinity)
                         .disabled(!model.canAddOverlay)
+                        .help(model.addOverlayUnavailableReason ?? "")
                     Text(hint(model.markupTool)).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -184,9 +185,10 @@ struct EditorMarkupInspector: View {
             }
             HStack(spacing: 8) {
                 Button("Start at Playhead") { model.setOverlayBoundaryAtPlayhead(start: true) }
-                    .help("Show from the playhead (I)")
+                    .help(model.overlayBoundaryUnavailableReason ?? String(localized: "Show from the playhead (I)"))
                 Button("End at Playhead") { model.setOverlayBoundaryAtPlayhead(start: false) }
-                    .help("Show through the playhead (O)")
+                    .help(
+                        model.overlayBoundaryUnavailableReason ?? String(localized: "Show through the playhead (O)"))
             }
             .disabled(!model.canSetOverlayBoundary)
             .frame(maxWidth: .infinity)

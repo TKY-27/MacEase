@@ -1898,6 +1898,112 @@ final class MediaEditorModelTests: XCTestCase {
         try await eventually { !model.editingLocked }
     }
 
+    func testDisabledEditorControlsExplainWhy() async throws {
+        let model = try await videoModel()
+        XCTAssertEqual(model.splitUnavailableReason, "Place the playhead inside this segment to split it.")
+        model.seek(1)
+        XCTAssertNil(model.splitUnavailableReason)
+        XCTAssertNil(model.freezeFrameUnavailableReason(for: nil))
+        XCTAssertEqual(model.applyToAllUnavailableReason(styleOnly: false), nil, "one segment hides the button")
+        model.insertFreezeFrame()
+        try await eventually { model.selectedSegment?.isFreeze == true && !model.splitting }
+        let freeze = try XCTUnwrap(model.values.selectedID)
+        XCTAssertEqual(model.freezeFrameUnavailableReason(for: nil), "The playhead is already on a freeze frame.")
+        XCTAssertEqual(model.splitUnavailableReason, "A freeze frame can’t be split.")
+        XCTAssertEqual(model.trimUnavailableReason(for: freeze), "A freeze frame can’t be trimmed.")
+        XCTAssertEqual(model.reverseUnavailableReason, "A freeze frame can’t be reversed.")
+        let first = model.values.segments[0].id
+        XCTAssertEqual(model.freezeFrameUnavailableReason(for: first), "The playhead is already on a freeze frame.")
+        model.seek(0.2)
+        XCTAssertEqual(model.freezeFrameUnavailableReason(for: freeze), "Place the playhead inside this segment first.")
+        XCTAssertNil(model.freezeFrameUnavailableReason(for: first))
+        XCTAssertNil(model.trimUnavailableReason(for: first))
+        XCTAssertEqual(
+            model.applyToAllUnavailableReason(styleOnly: false), "Every segment already has these adjustments.")
+        XCTAssertEqual(model.applyToAllUnavailableReason(styleOnly: true), "Every segment already has this style.")
+        model.selectSegment(first)
+        model.setAdjustment(.exposure, to: 0.5)
+        XCTAssertNil(model.applyToAllUnavailableReason(styleOnly: false))
+
+        XCTAssertNil(model.saveFrameUnavailableReason)
+        model.invalidFields.insert("speed")
+        XCTAssertEqual(model.saveFrameUnavailableReason, "Enter a valid number first.")
+        model.invalidFields.removeAll()
+        model.beginTimelineTrim(first, start: false)
+        XCTAssertEqual(model.saveFrameUnavailableReason, "Wait for the current edit to finish.")
+        XCTAssertFalse(model.canSaveFrame)
+        await model.endTimelineTrim()
+        XCTAssertNil(model.saveFrameUnavailableReason)
+
+        XCTAssertNil(model.previewMuteUnavailableReason)
+        XCTAssertNil(model.segmentVolumeUnavailableReason)
+        model.cropAspect = 0
+        XCTAssertEqual(model.swapCropSidesUnavailableReason, "Choose a ratio other than Freeform or 1:1.")
+        model.cropAspect = 4.0 / 3
+        XCTAssertNil(model.swapCropSidesUnavailableReason)
+        XCTAssertNil(model.addOverlayUnavailableReason)
+        for _ in 0..<EditOverlay.maximumCount { model.addDefaultOverlay(.box) }
+        XCTAssertFalse(model.canAddOverlay)
+        XCTAssertEqual(model.addOverlayUnavailableReason, "Up to \(EditOverlay.maximumCount) items.")
+
+        let silent = try await videoModel(fixture: try synthesizedSilentVideoFixture(in: try workspace()))
+        XCTAssertEqual(silent.previewMuteUnavailableReason, "This video has no sound.")
+        XCTAssertEqual(silent.segmentVolumeUnavailableReason, "This segment’s video has no sound.")
+        XCTAssertEqual(silent.silenceUnavailableReason, "There’s no audible sound to analyze in this video.")
+
+        let joined = try await videoModel(count: 2)
+        joined.seek(0.5)
+        joined.addDefaultOverlay(.box)
+        XCTAssertNil(joined.overlayBoundaryUnavailableReason)
+        joined.seek(3)
+        XCTAssertFalse(joined.canSetOverlayBoundary)
+        XCTAssertEqual(
+            joined.overlayBoundaryUnavailableReason, "Move the playhead into this video to set the range from it.")
+    }
+
+    func testTimelineContextMenuChecksReversedSegmentsAndExplainsDisabledItems() async throws {
+        let model = try await videoModel()
+        model.toggleReverse()
+        try await eventually { model.reverseTask == nil }
+        XCTAssertTrue(model.selectedSegment?.isReversed == true)
+        model.seek(1)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 3 && !model.splitting }
+        let host = NSHostingView(rootView: EditorTimeline(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1200, height: 200), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let canvas = try XCTUnwrap(timelineView(in: host)?.canvas)
+        func menu(atSecond seconds: Double) throws -> NSMenu {
+            let x = seconds / max(model.outputDuration, model.frameDuration) * canvas.bounds.width
+            let point = canvas.convert(CGPoint(x: x, y: TimelineCanvas.rulerHeight + 20), to: nil)
+            let click = try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            return try XCTUnwrap(canvas.menu(for: click))
+        }
+        func item(_ action: TimelineAction, in menu: NSMenu) throws -> NSMenuItem {
+            try XCTUnwrap(menu.items.first { $0.title == action.title })
+        }
+        let reversed = try menu(atSecond: 0.3)
+        XCTAssertEqual(try item(.reverse, in: reversed).state, .on, "matches the inspector toggle")
+        XCTAssertTrue(try item(.reverse, in: reversed).isEnabled)
+        let frozen = try menu(
+            atSecond: try XCTUnwrap(model.timelineRange(for: model.values.segments[1])).lowerBound + 0.1)
+        XCTAssertEqual(try item(.reverse, in: frozen).state, .off)
+        XCTAssertFalse(try item(.reverse, in: frozen).isEnabled)
+        XCTAssertEqual(try item(.reverse, in: frozen).toolTip, "A freeze frame can’t be reversed.")
+        XCTAssertEqual(try item(.setIn, in: frozen).toolTip, "A freeze frame can’t be trimmed.")
+        XCTAssertEqual(try item(.split, in: frozen).toolTip, "A freeze frame can’t be split.")
+        XCTAssertTrue(try item(.duplicate, in: frozen).isEnabled)
+        XCTAssertNil(try item(.duplicate, in: frozen).toolTip)
+    }
+
     func testReverseDisablesNativeTimelineInputThroughTheViewEnvironment() async throws {
         let model = try await videoModel()
         model.toggleReverse()
