@@ -366,8 +366,7 @@ public enum VideoSegmentReverser {
 
     static func requireCapacity(required: Int64, available: Int64) throws {
         guard available >= required else {
-            throw EngineError.invalidInput(
-                .insufficientReverseSpace(requiredBytes: required, availableBytes: available))
+            throw EngineError.insufficientDiskSpace(requiredBytes: required, availableBytes: available)
         }
     }
 

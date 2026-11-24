@@ -11,7 +11,8 @@ enum VideoProperties {
     }
 
     static func prepare(
-        _ plan: TranscodePlan, input: MediaInput, context: ItemContext, allowsCodecChange: Bool = true
+        _ plan: TranscodePlan, input: MediaInput, context: ItemContext, allowsCodecChange: Bool = true,
+        warnsVariableFrameRate: Bool = true
     ) async throws -> TranscodePlan {
         guard input.video?.hasContainerHDR != true else { throw EngineError.hdrConversionUnsupported }
         var prepared = plan
@@ -27,7 +28,7 @@ enum VideoProperties {
             adjustsHDR = false
         }
         if adjustsHDR { prepared.derived = true }
-        let keepsOriginal = prepared.derived || context.settings.outputMode == .newFile
+        let keepsOriginal = prepared.derived || context.savesNewFile
         if hdr?.dolbyVision == true {
             guard keepsOriginal else { throw EngineError.videoDolbyVisionUnsupported }
             warn(.dolbyVisionRemoved, context: context)
@@ -73,6 +74,9 @@ enum VideoProperties {
             }
             edit.preservesAlpha = encoding.alpha
             prepared.video = .encode(encoding, edit)
+            if warnsVariableFrameRate, input.fallbackOrigin?.hasVariableFrameTiming == true {
+                warn(.videoVariableFrameRateConverted, context: context)
+            }
         }
         return try await prepareMetadata(prepared, input: input, context: context)
     }
@@ -84,7 +88,16 @@ enum VideoProperties {
         let metadata = try await VideoMetadata.load(from: input)
         var losses = metadata.losses(for: prepared.container, includingAudio: prepared.audio != nil)
         let losesDisplay = try await losesDisplayGeometry(plan, input: input)
-        if losesDisplay, !losses.contains(.trackMetadata) {
+        let losesOddDimensions: Bool
+        if case .encode(let encoding, let edit) = plan.video, edit.size == nil, edit.editorGeometry == nil,
+            input.displaySize != input.displaySize.evened(), !edit.preservesOddDimensions,
+            encoding.width != input.displaySize.width || encoding.height != input.displaySize.height
+        {
+            losesOddDimensions = true
+        } else {
+            losesOddDimensions = false
+        }
+        if (losesDisplay || losesOddDimensions), !losses.contains(.trackMetadata) {
             losses.append(.trackMetadata)
         }
         if case .copy = plan.video,
@@ -99,7 +112,7 @@ enum VideoProperties {
             }
         }
         if !losses.isEmpty {
-            guard prepared.derived || context.settings.outputMode == .newFile else {
+            guard prepared.derived || context.savesNewFile else {
                 throw EngineError.videoMetadataUnsupported(losses)
             }
             warn(.videoMetadataDropped(losses), context: context)
@@ -127,7 +140,7 @@ enum VideoProperties {
             losses.append(.trackMetadata)
         }
         guard !losses.isEmpty else { return }
-        guard plan.derived || context.settings.outputMode == .newFile else {
+        guard plan.derived || context.savesNewFile else {
             throw EngineError.videoMetadataUnsupported(losses)
         }
         warn(.videoMetadataDropped(losses), context: context)
@@ -209,6 +222,10 @@ enum VideoProperties {
             try await track.load(.mediaCharacteristics).contains(.containsHDRVideo)
         {
             throw EngineError.hdrConversionUnsupported
+        }
+        if input.fallbackOrigin?.hasDolbyVision == true {
+            guard let hdr else { throw EngineError.hdrConversionUnsupported }
+            return HDRSource(configuration: hdr.configuration, dolbyVision: true)
         }
         return hdr
     }

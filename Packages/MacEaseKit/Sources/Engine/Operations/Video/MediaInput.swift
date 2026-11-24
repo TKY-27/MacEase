@@ -13,7 +13,7 @@ struct MediaInput {
 
     let url: URL
     let backend: Backend
-    let video: MediaTrack?
+    var video: MediaTrack?
     let audio: MediaTrack?
     let hasMultipleTracks: Bool
     let skippedStreams: Set<SkippedMediaStream>
@@ -21,6 +21,8 @@ struct MediaInput {
     var hasContainerDescriptiveMetadata = false
     var hasContainerTrackMetadata = false
     var disabledTrackNumbers: Set<Int> = []
+    var fallbackOrigin: FallbackSourceDescription?
+    var isFallback: Bool { fallbackOrigin != nil }
     /// MP4 and MOV store rotation separately.
     let transform: CGAffineTransform
 
@@ -30,6 +32,147 @@ struct MediaInput {
         case .matroska: try openContainer(url, backend: .matroska) { try MatroskaDemuxer(url: url) }
         case .avi: try openContainer(url, backend: .avi) { try AVIDemuxer(url: url) }
         case .flv: try openContainer(url, backend: .flv) { try FLVDemuxer(url: url) }
+        }
+    }
+
+    static func openWithFallback(
+        _ originalURL: URL, context: ItemContext, enforceStreamConsent: Bool = true,
+        consentedStreams: Set<UnpreservedStream>? = nil,
+        tools: MediaDownloadTools? = nil,
+        availableBytes: (@Sendable (URL) throws -> Int64)? = nil,
+        noProgressTimeout: Duration = StagedMediaFallback.transcodeNoProgressTimeout,
+        probeNoProgressTimeout: Duration = StagedMediaFallback.probeNoProgressTimeout
+    ) async throws -> MediaInput {
+        let nativeError: EngineError
+        do {
+            let opened = try await open(originalURL)
+            if enforceStreamConsent, opened.hasMultipleTracks {
+                throw EngineError.invalidInput(.multipleTracks)
+            }
+            try await opened.verifyDecodable()
+            return opened
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: originalURL.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                nativeError = wrapped
+            default:
+                throw wrapped
+            }
+        }
+        let staged = try await StagedMediaFallback.prepareVideo(
+            originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
+            consentedStreams: consentedStreams, tools: tools, availableBytes: availableBytes,
+            noProgressTimeout: noProgressTimeout, probeNoProgressTimeout: probeNoProgressTimeout,
+            nativeError: nativeError)
+        var fallback = try await open(staged.stagedURL)
+        fallback.fallbackOrigin = staged.origin
+        if var video = fallback.video {
+            video.hasAlpha = staged.origin.hasAlpha
+            fallback.video = video
+        }
+        return fallback
+    }
+
+    private static let decodabilityProbePacketLimit = 32
+    private static let audioProbePacketLimit = 8
+    private static let totalPacketScanLimit = 256
+    /// 300 s lead-in at 100 audio packets/s.
+    static let frameRateProbePacketLimit = 30_000
+
+    // Catches partial-open traps before transcoding starts.
+    func verifyDecodable() async throws {
+        if let video {
+            switch backend {
+            case .asset(let asset, let videoTrack?, _):
+                let reader = try AssetTrackReader(asset: asset, track: videoTrack, number: video.number, mode: .frames)
+                _ = try await reader.nextSample()
+            default:
+                try verifyContainerVideoDecodable(video)
+            }
+        }
+        if let audio {
+            switch backend {
+            case .asset(let asset, _, let audioTrack?):
+                let reader = try AssetTrackReader(asset: asset, track: audioTrack, number: audio.number, mode: .pcm)
+                _ = try await reader.nextSample()
+            default:
+                try verifyContainerAudioDecodable(audio)
+            }
+        }
+    }
+
+    // Synthetic remux-only containers lack full decoder headers.
+    private static func classifyProbeError(_ error: any Error, path: String) throws {
+        if let format = error as? FormatError {
+            switch format {
+            case .unsupported(let name):
+                throw EngineError.unsupportedCodec(name)
+            case .corrupt, .decoderFailure:
+                return
+            case .nonFiniteAudioSample, .frameMemoryExceeded, .inputTooLarge, .encoderFailure, .io:
+                throw EngineError(format)
+            }
+        }
+        let wrapped = EngineError.wrapping(error, path: path)
+        switch wrapped {
+        case .unsupportedCodec:
+            throw wrapped
+        case .decodeFailed:
+            return
+        default:
+            throw wrapped
+        }
+    }
+
+    private func verifyContainerVideoDecodable(_ video: MediaTrack) throws {
+        var decoder: any VideoFrameDecoder
+        do {
+            decoder = try VideoDecoders.make(for: video)
+        } catch {
+            try Self.classifyProbeError(error, path: url.path)
+            return
+        }
+        guard var packetDemuxer = try demuxer else { return }
+        var fed = 0
+        var scanned = 0
+        do {
+            while fed < Self.decodabilityProbePacketLimit, scanned < Self.totalPacketScanLimit,
+                let packet = try packetDemuxer.nextPacket()
+            {
+                scanned += 1
+                guard packet.track == video.number else { continue }
+                fed += 1
+                if !(try decoder.decode(packet)).isEmpty { return }
+            }
+            if fed > 0 { _ = try decoder.finish() }
+        } catch {
+            try Self.classifyProbeError(error, path: url.path)
+        }
+    }
+
+    private func verifyContainerAudioDecodable(_ audio: MediaTrack) throws {
+        let decoder: AudioPacketDecoder
+        do {
+            decoder = try AudioPacketDecoder(track: audio)
+        } catch {
+            try Self.classifyProbeError(error, path: url.path)
+            return
+        }
+        guard var packetDemuxer = try demuxer else { return }
+        var fed = 0
+        var scanned = 0
+        do {
+            while fed < Self.audioProbePacketLimit, scanned < Self.totalPacketScanLimit,
+                let packet = try packetDemuxer.nextPacket()
+            {
+                scanned += 1
+                guard packet.track == audio.number else { continue }
+                fed += 1
+                if !(try decoder.decode(packet)).isEmpty { return }
+            }
+        } catch {
+            try Self.classifyProbeError(error, path: url.path)
         }
     }
 
@@ -63,8 +206,19 @@ struct MediaInput {
     private static func measuredFrameDuration(_ demuxer: any MediaDemuxer, track: Int) throws -> Int64? {
         var demuxer = demuxer
         var times: [Int64] = []
-        while times.count < frameRateProbe, let packet = try demuxer.nextPacket() {
+        var scanned = 0
+        var reachedEnd = false
+        while times.count < frameRateProbe, scanned < frameRateProbePacketLimit {
+            try Task.checkCancellation()
+            guard let packet = try demuxer.nextPacket() else {
+                reachedEnd = true
+                break
+            }
+            scanned += 1
             if packet.track == track { times.append(packet.timestamp) }
+        }
+        if !reachedEnd, times.count < 2 {
+            throw EngineError.decodeFailed("video frame rate could not be measured within packet limit")
         }
         times.sort()
         var gaps: [Int64] = []
@@ -190,13 +344,21 @@ struct MediaInput {
     /// Single-frame clips have no spacing to measure.
     private static let fallbackFrameDuration = Nanoseconds.perSecond / 30
 
+    var originalContainer: OutputContainer? {
+        isFallback ? nil : container
+    }
+
     var container: OutputContainer {
+        if isFallback {
+            return video?.hasAlpha == true ? .mov : .mp4
+        }
         switch backend {
         case .asset:
-            OutputContainer(rawValue: url.pathExtension.lowercased()).flatMap { $0.fileType == nil ? nil : $0 } ?? .mp4
-        case .matroska: url.pathExtension.lowercased() == "webm" ? .webm : .mkv
-        case .avi: .avi
-        case .flv: .flv
+            return OutputContainer(rawValue: url.pathExtension.lowercased()).flatMap { $0.fileType == nil ? nil : $0 }
+                ?? .mp4
+        case .matroska: return url.pathExtension.lowercased() == "webm" ? .webm : .mkv
+        case .avi: return .avi
+        case .flv: return .flv
         }
     }
 

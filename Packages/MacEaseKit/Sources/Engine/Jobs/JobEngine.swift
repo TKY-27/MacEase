@@ -166,7 +166,7 @@ public final class JobEngine: Sendable {
             guard savesNewFile else { throw EngineError.invalidInput(.unpreservedStreams(streams)) }
             context.omitStreams(Set(streams))
             let result = try await workItem.body(context)
-            if case .replace = result, workItem.newFileNaming == nil {
+            if case .replace = result, workItem.newFileNaming == nil, !context.usedFallbackInput {
                 throw EngineError.invalidInput(.unpreservedStreams(streams))
             }
             for (input, stamp) in stamps { try ActivitySession.validate(input, stamp: stamp) }
@@ -267,7 +267,8 @@ public final class JobEngine: Sendable {
         do {
             try await history.checkAcceptingWork()
             outcome = try await commit(
-                result, newFileNaming: workItem.newFileNaming, inputs: workItem.inputs,
+                result, newFileNaming: workItem.newFileNaming, fallbackNewFileNaming: workItem.fallbackNewFileNaming,
+                inputs: workItem.inputs,
                 inputStamps: inputStamps, preparedMove: preparedMove,
                 context: context, batch: batch, tracker: tracker, records: &records)
         } catch FileCommitter.Failure.changedSinceScan {
@@ -331,9 +332,28 @@ public final class JobEngine: Sendable {
         return error
     }
 
+    private func settleFallback(
+        _ result: ItemResult, newFileNaming: NewFileNaming?, context: ItemContext
+    ) -> ItemResult {
+        guard context.usedFallbackInput else { return result }
+        switch result {
+        case .replace(let original, let output):
+            if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
+            let outputName = newFileNaming?.name(for: original, outputName: output.name) ?? output.name
+            let named = StagedFile(url: output.url, name: outputName, check: output.check)
+            return .derived(nextTo: original, outputs: [named])
+        case .derived, .exported, .groupedDerived:
+            if context.settings.outputMode == .replace { context.warn(.keptAsNewFileForFormat) }
+            return result
+        default:
+            return result
+        }
+    }
+
     private func commit(
         _ result: ItemResult,
         newFileNaming: NewFileNaming?,
+        fallbackNewFileNaming: NewFileNaming?,
         inputs: [URL],
         inputStamps: [URL: FileStamp], preparedMove: FileCommitter.PreparedMove?,
         context: ItemContext,
@@ -341,12 +361,14 @@ public final class JobEngine: Sendable {
         tracker: BatchTracker,
         records: inout [CommitRecord]
     ) async throws -> (ItemOutcome, (String, TextDestination)?) {
+        let settled = settleFallback(
+            result, newFileNaming: newFileNaming ?? fallbackNewFileNaming, context: context)
         var outputs: [URL] = []
-        switch result {
+        switch settled {
         case .replace, .derived, .created, .exported, .groupedDerived: break
         default: context.phase(.saving)
         }
-        switch result {
+        switch settled {
         case .organize(let plan):
             let output = try await history.organize(plan, batch: batch)
             outputs.append(output)

@@ -15,6 +15,7 @@ public struct WorkItem: Sendable {
     let managesInputStamps: Bool
     var requiredInputStamps: [URL: FileStamp]?
     var newFileNaming: NewFileNaming?
+    var fallbackNewFileNaming: NewFileNaming?
     var omittedStreams: Set<UnpreservedStream> = []
     var unpreservedStreams = Settings.UnpreservedStreamsChoice.ask
     var omissionOptions: OperationOptions?
@@ -147,6 +148,7 @@ public enum ItemWarning: Equatable, Sendable {
     case imageMetadataDropped([MetadataField])
     case videoTransparencyFlattened
     case videoToneMappedToSDR
+    case videoVariableFrameRateConverted
     case videoMetadataDropped([VideoMetadataProperty])
     case streamsOmitted([UnpreservedStream])
     case pngOptimizationSkipped
@@ -154,6 +156,7 @@ public enum ItemWarning: Equatable, Sendable {
     case imageDimensionsReduced
     case loudnessLimitedByPeak(reachedLUFS: Double)
     case keptAsDerived
+    case keptAsNewFileForFormat
     case originalKept
     case copiedAcrossVolumes(original: URL, destination: URL)
     case outputNameUnchanged
@@ -183,6 +186,7 @@ public final class ItemContext: Sendable {
         var directories: [URL] = []
         var warnings: [ItemWarning] = []
         var details = ItemDetails()
+        var usedFallbackInput = false
     }
 
     init(
@@ -204,7 +208,7 @@ public final class ItemContext: Sendable {
     }
 
     public func phase(_ phase: ItemPhase) {
-        if phase == .encoding || phase == .optimizing || phase == .verifying {
+        if phase == .convertingInput || phase == .encoding || phase == .optimizing || phase == .verifying {
             state.withLock { $0.beganEncoding = true }
         }
         phaseHandler(phase)
@@ -237,6 +241,12 @@ public final class ItemContext: Sendable {
     }
 
     var details: ItemDetails { state.withLock { $0.details } }
+
+    var usedFallbackInput: Bool { state.withLock { $0.usedFallbackInput } }
+
+    var savesNewFile: Bool { settings.outputMode == .newFile || usedFallbackInput }
+
+    func markFallbackInputUsed() { state.withLock { $0.usedFallbackInput = true } }
 
     func recordInputs(_ stamps: [URL: FileStamp]) { state.withLock { $0.details.inputStamps = stamps } }
 

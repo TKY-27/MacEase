@@ -49,9 +49,20 @@ public struct AudioInput: Sendable {
     /// `nil` when the container does not say.
     public let frameCount: Int64?
     let multiplexedOggStreams: Set<SkippedMediaStream>
+    let fallbackOrigin: FallbackSourceDescription?
+    var isFallback: Bool { fallbackOrigin != nil }
+    var sourceIsLossy: Bool {
+        if let fallbackOrigin { return !fallbackOrigin.isLosslessAudio }
+        return codec.isLossy
+    }
 
     public init(url: URL, allowsMultiplexedOgg: Bool = false) throws {
+        try self.init(url: url, allowsMultiplexedOgg: allowsMultiplexedOgg, fallbackOrigin: nil)
+    }
+
+    init(url: URL, allowsMultiplexedOgg: Bool, fallbackOrigin: FallbackSourceDescription?) throws {
         self.url = url
+        self.fallbackOrigin = fallbackOrigin
         do {
             container = try Self.sniff(url)
             if container == .ogg {
@@ -65,6 +76,7 @@ public struct AudioInput: Sendable {
                 frameCount = reader.frameCount
                 multiplexedOggStreams = reader.multiplexedStreams
             } else {
+                try Self.validateAudioToolbox(url)
                 let file: AVAudioFile
                 do {
                     file = try AVAudioFile(forReading: url)
@@ -76,8 +88,15 @@ public struct AudioInput: Sendable {
                 sampleRate = description.mSampleRate
                 channels = Int(description.mChannelsPerFrame)
                 channelLayoutTag = file.fileFormat.channelLayout?.layout.pointee.mChannelLayoutTag
-                isFloat = codec == .pcm && description.mFormatFlags & kAudioFormatFlagIsFloat != 0
-                bitDepth = Self.bitDepth(codec: codec, description: description)
+                let nativeFloat = codec == .pcm && description.mFormatFlags & kAudioFormatFlagIsFloat != 0
+                let nativeBitDepth = Self.bitDepth(codec: codec, description: description)
+                if let fallbackOrigin {
+                    isFloat = fallbackOrigin.isFloat
+                    bitDepth = fallbackOrigin.isLosslessAudio ? (fallbackOrigin.bitDepth ?? nativeBitDepth) : nil
+                } else {
+                    isFloat = nativeFloat
+                    bitDepth = nativeBitDepth
+                }
                 frameCount = file.length
                 multiplexedOggStreams = []
             }
@@ -85,6 +104,34 @@ public struct AudioInput: Sendable {
             throw EngineError.fromAudio(error)
         }
         try AudioMetadata.validate(sampleRate: sampleRate, channels: channels, bitDepth: bitDepth)
+    }
+
+    static func openWithFallback(
+        _ originalURL: URL, context: ItemContext, allowsMultiplexedOgg: Bool = true, enforceStreamConsent: Bool = true,
+        tools: MediaDownloadTools? = nil,
+        availableBytes: (@Sendable (URL) throws -> Int64)? = nil,
+        noProgressTimeout: Duration = StagedMediaFallback.transcodeNoProgressTimeout,
+        probeNoProgressTimeout: Duration = StagedMediaFallback.probeNoProgressTimeout
+    ) async throws -> AudioInput {
+        try await UntrustedMediaAsset.rejectExternalReferences(in: originalURL)
+        let nativeError: EngineError
+        do {
+            return try AudioInput(url: originalURL, allowsMultiplexedOgg: allowsMultiplexedOgg)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: originalURL.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                nativeError = wrapped
+            default:
+                throw wrapped
+            }
+        }
+        let staged = try await StagedMediaFallback.prepareAudio(
+            originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
+            tools: tools, availableBytes: availableBytes,
+            noProgressTimeout: noProgressTimeout, probeNoProgressTimeout: probeNoProgressTimeout,
+            nativeError: nativeError)
+        return try AudioInput(url: staged.stagedURL, allowsMultiplexedOgg: false, fallbackOrigin: staged.origin)
     }
 
     /// A fresh decoder positioned at the start.
@@ -100,12 +147,23 @@ public struct AudioInput: Sendable {
 
     public func tags() async throws -> AudioTags {
         do {
+            var loaded: AudioTags
             switch container {
             case .ogg:
-                return try OggAudioReader(url: url, allowsMultiplexedStreams: !multiplexedOggStreams.isEmpty).tags
-            case .flac: return try FLACMetadata.tags(in: url)
-            default: return try await Self.commonTags(url)
+                loaded = try OggAudioReader(url: url, allowsMultiplexedStreams: !multiplexedOggStreams.isEmpty).tags
+            case .flac:
+                loaded = try FLACMetadata.tags(in: url)
+            default:
+                loaded = try await Self.commonTags(url)
             }
+            if let origin = fallbackOrigin {
+                let fallbackTags = origin.fallbackAudioTags
+                loaded.title = fallbackTags.title ?? loaded.title
+                loaded.artist = fallbackTags.artist ?? loaded.artist
+                loaded.album = fallbackTags.album ?? loaded.album
+                loaded.artwork = origin.attachedPictureDropped ? nil : (fallbackTags.artwork ?? loaded.artwork)
+            }
+            return loaded
         } catch {
             throw EngineError.fromAudio(error)
         }
@@ -113,7 +171,8 @@ public struct AudioInput: Sendable {
 
     /// The writable format reproducing container and codec.
     var exactFormat: AudioFormat? {
-        switch (container, codec) {
+        guard !isFallback else { return nil }
+        return switch (container, codec) {
         case (.mp3, .mp3): .mp3
         case (.mpeg4, .aac): .m4aAAC
         case (.mpeg4, .alac): .m4aALAC
@@ -207,6 +266,54 @@ public struct AudioInput: Sendable {
     private static func mimeType(of image: Data) -> String {
         image.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
     }
+
+    // AVAudioFile raises NSException on undecodable tracks.
+    static func validateAudioToolbox(_ url: URL) throws {
+        var audioFile: ExtAudioFileRef?
+        let openStatus = ExtAudioFileOpenURL(url as CFURL, &audioFile)
+        guard openStatus == noErr, let audioFile else {
+            throw EngineError.decodeFailed("AudioToolbox cannot open the file: \(openStatus)")
+        }
+        defer { ExtAudioFileDispose(audioFile) }
+        var fileFormat = AudioStreamBasicDescription()
+        var formatSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let formatStatus = ExtAudioFileGetProperty(
+            audioFile, kExtAudioFileProperty_FileDataFormat, &formatSize, &fileFormat)
+        guard formatStatus == noErr else {
+            throw EngineError.decodeFailed("AudioToolbox cannot read the format: \(formatStatus)")
+        }
+        guard fileFormat.mChannelsPerFrame > 0, fileFormat.mSampleRate.isFinite, fileFormat.mSampleRate > 0 else {
+            throw EngineError.decodeFailed("AudioToolbox reported invalid audio parameters")
+        }
+        let sampleBytes = UInt32(MemoryLayout<Float>.size)
+        let frameBytes = fileFormat.mChannelsPerFrame * sampleBytes
+        var clientFormat = AudioStreamBasicDescription(
+            mSampleRate: fileFormat.mSampleRate, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: frameBytes,
+            mFramesPerPacket: 1, mBytesPerFrame: frameBytes, mChannelsPerFrame: fileFormat.mChannelsPerFrame,
+            mBitsPerChannel: sampleBytes * 8, mReserved: 0)
+        let clientStatus = ExtAudioFileSetProperty(
+            audioFile, kExtAudioFileProperty_ClientDataFormat,
+            UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &clientFormat)
+        guard clientStatus == noErr else {
+            if case .other(let name) = codec(fileFormat.mFormatID) {
+                throw EngineError.unsupportedCodec(name)
+            }
+            throw EngineError.decodeFailed("AudioToolbox cannot decode the file: \(clientStatus)")
+        }
+        var frameLength: Int64 = 0
+        var lengthSize = UInt32(MemoryLayout<Int64>.size)
+        let lengthStatus = ExtAudioFileGetProperty(
+            audioFile, kExtAudioFileProperty_FileLengthFrames, &lengthSize, &frameLength)
+        guard lengthStatus == noErr else {
+            throw EngineError.decodeFailed("AudioToolbox cannot read the file length: \(lengthStatus)")
+        }
+        var position: Int64 = 0
+        let tellStatus = ExtAudioFileTell(audioFile, &position)
+        guard tellStatus == noErr else {
+            throw EngineError.decodeFailed("AudioToolbox cannot seek the file: \(tellStatus)")
+        }
+    }
 }
 
 /// `AVAudioFile` decoding, in WAV channel order.
@@ -221,6 +328,7 @@ final class AudioFileReader: PCMSource {
     let channels: Int
 
     init(url: URL) throws {
+        try AudioInput.validateAudioToolbox(url)
         file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: true)
         let format = file.processingFormat
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: Self.chunkFrames) else {

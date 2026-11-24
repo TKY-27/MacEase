@@ -10,7 +10,8 @@ enum UserMessages {
     static func technicalDetail(_ error: EngineError) -> String? {
         switch error {
         case .decodeFailed(let detail), .encodeFailed(let detail), .commitFailed(let detail),
-            .unexpected(let detail), .unsupportedCodec(let detail), .invalidInput(.malformed(let detail)):
+            .unexpected(let detail), .unsupportedCodec(let detail), .fallbackConversionUnfaithful(let detail),
+            .invalidInput(.malformed(let detail)):
             detail.isEmpty ? nil : detail
         default: nil
         }
@@ -55,6 +56,7 @@ enum UserMessages {
         switch phase {
         case .queued: String(localized: "Queued")
         case .preparing: String(localized: "Preparing")
+        case .convertingInput: String(localized: "Converting input")
         case .decoding: String(localized: "Decoding")
         case .searching: String(localized: "Finding target size")
         case .encoding: String(localized: "Encoding")
@@ -222,6 +224,21 @@ enum UserMessages {
             )
         case .protectionDiskFull:
             String(localized: "Couldn’t protect “\(file)”: there is not enough disk space. Free up space, then retry.")
+        case .insufficientDiskSpace(let required, let available):
+            String(
+                localized:
+                    "Couldn’t process “\(file)”: not enough disk space (needs about \(byteCount(required)), \(byteCount(available)) available). Free up space and retry."
+            )
+        case .fallbackToolMissing:
+            String(
+                localized:
+                    "Couldn’t read “\(file)”: the media converter component is missing. Reinstall MacEase and retry."
+            )
+        case .fallbackConversionUnfaithful:
+            String(
+                localized:
+                    "Couldn’t process “\(file)”: the file couldn’t be converted faithfully. Nothing was changed."
+            )
         case .nonFiniteAudioSample:
             String(
                 localized:
@@ -425,6 +442,10 @@ enum UserMessages {
         case .videoToneMappedToSDR:
             String(
                 localized: "HDR tone-mapped to SDR: this output cannot preserve HDR.")
+        case .videoVariableFrameRateConverted:
+            String(
+                localized: "Variable frame timing converted to a constant frame rate; original kept.",
+                comment: "Discloses variable frame rate conversion")
         case .videoTransparencyFlattened:
             String(
                 localized: "Transparency flattened onto the video background color.")
@@ -461,6 +482,8 @@ enum UserMessages {
             )
         case .keptAsDerived:
             String(localized: "Saved as a new file: this volume has no Trash.")
+        case .keptAsNewFileForFormat:
+            String(localized: "Saved as a new file: MacEase cannot write the original format.")
         case .copiedAcrossVolumes(let original, let destination):
             String(localized: "Copied to another disk at \(destination.path). Original kept at \(original.path).")
         case .originalKept:
@@ -582,12 +605,6 @@ enum UserMessages {
             )
         case .videoSegmentNotFound:
             String(localized: "The selected video segment no longer exists. Select another segment.")
-        case .insufficientReverseSpace(let required, let available):
-            String(
-                localized:
-                    "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume."
-            )
-                + " " + String(localized: "Required: \(byteCount(required)); available: \(byteCount(available)).")
         case .cannotReverseFreeze:
             String(localized: "A freeze frame cannot be reversed. Select a moving segment.")
         case .segmentAlreadyReversed:

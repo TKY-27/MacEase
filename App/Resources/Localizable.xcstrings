@@ -7829,6 +7829,17 @@
         }
       }
     },
+    "Variable frame timing converted to a constant frame rate; original kept.": {
+      "comment": "Discloses variable frame rate conversion",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可変フレームレートを固定フレームレートに変換しました。元のファイルは保持されています。"
+          }
+        }
+      }
+    },
     "Version %@ (%@)": {
       "localizations": {
         "ja": {
@@ -22525,6 +22536,62 @@
           "stringUnit": {
             "state": "translated",
             "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
+    "Converting input": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converting input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力を変換中"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: not enough disk space (needs about %@, %@ available). Free up space and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@」を処理できませんでした：ディスクの空き容量が不足しています（約%2$@必要、空き%3$@）。容量を確保して再試行してください。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: the file couldn’t be converted faithfully. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を処理できませんでした：元の状態を保ったまま変換できませんでした。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Couldn’t read “%@”: the media converter component is missing. Reinstall MacEase and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を読み込めませんでした：メディア変換コンポーネントが見つかりません。MacEaseを再インストールして再試行してください。"
+          }
+        }
+      }
+    },
+    "Saved as a new file: MacEase cannot write the original format.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の形式では書き出せないため、新しいファイルとして保存しました。"
           }
         }
       }
