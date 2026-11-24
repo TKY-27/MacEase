@@ -3546,16 +3546,6 @@
         }
       }
     },
-    "Full Disk Access": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フルディスクアクセス"
-          }
-        }
-      }
-    },
     "Full Disk Access…": {
       "extractionState": "manual",
       "localizations": {
@@ -5209,16 +5199,6 @@
         }
       }
     },
-    "Open Settings": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定を開く"
-          }
-        }
-      }
-    },
     "Open Settings…": {
       "localizations": {
         "ja": {
@@ -5246,16 +5226,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "変換時に PNG ファイルを最適化"
-          }
-        }
-      }
-    },
-    "Optional. Stops macOS from asking about each protected folder.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意です。保護されたフォルダごとの macOS によるアクセス確認を省略できます。"
           }
         }
       }
@@ -5640,16 +5610,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "PDFの前のページ"
-          }
-        }
-      }
-    },
-    "Privacy and Security": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライバシーとセキュリティ"
           }
         }
       }
@@ -6357,16 +6317,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ルールはセミコロンで区切ります。* は任意の文字列、? は任意の 1 文字に一致します。大文字と小文字は区別しません。"
-          }
-        }
-      }
-    },
-    "Settings": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定"
           }
         }
       }
@@ -20414,6 +20364,27 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ファイル"
+          }
+        }
+      }
+    },
+    "Text & PDF": {
+      "comment": "Settings page",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストとPDF"
+          }
+        }
+      }
+    },
+    "Security": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セキュリティ"
           }
         }
       }

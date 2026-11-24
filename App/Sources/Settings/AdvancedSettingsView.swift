@@ -31,18 +31,12 @@ struct AdvancedSettingsView: View {
                     Text("Lower values keep your Mac more responsive.")
                 }
             }
-            Section("Privacy and Security") {
+            Section("Security") {
                 LabeledContent {
                     Button("Rotate Token", action: rotate)
                 } label: {
                     Text("Finder menu token")
                     Text("Creates a new secret shared with the Finder extension.")
-                }
-                LabeledContent {
-                    Button("Open Settings") { SystemSettingsPane.open(SystemSettingsPane.fullDiskAccess) }
-                } label: {
-                    Text("Full Disk Access")
-                    Text("Optional. Stops macOS from asking about each protected folder.")
                 }
             }
             Section("History") {
@@ -57,8 +51,8 @@ struct AdvancedSettingsView: View {
                 LabeledContent {
                     Button("Reset All Settings…", role: .destructive) { confirmsReset = true }
                 } label: {
-                    Text("Settings")
                     Text("History and edited presets are kept.")
+                        .foregroundStyle(.secondary)
                 }
             }
             Section("Troubleshooting") {
