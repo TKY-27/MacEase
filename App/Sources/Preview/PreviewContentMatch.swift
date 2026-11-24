@@ -20,7 +20,11 @@ enum PreviewContentMatch: Equatable, Sendable {
             default: return .binaryWithTextExtension(detectedName: detected.displayName)
             }
         case .svg:
-            return detected.family == .svg ? .matches : .mismatch(detectedName: detected.displayName)
+            switch detected.family {
+            case .svg: return .matches
+            case .text: return .mismatch(detectedName: detected.displayName)
+            default: return .binaryWithTextExtension(detectedName: detected.displayName)
+            }
         case .image:
             return detected.family == .image ? .matches : .mismatch(detectedName: detected.displayName)
         case .media:
