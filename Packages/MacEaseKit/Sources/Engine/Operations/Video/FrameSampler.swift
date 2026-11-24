@@ -6,6 +6,7 @@ import Foundation
 /// Edited frames at a constant rate.
 final class FrameSampler {
     private static let hdrWorkingFrames: Int64 = 4
+    private static let timestampTolerance: Int64 = 1
     private static let hdrBytesPerPixel = 8
     private enum Source {
         case asset(AssetTrackReader)
@@ -20,6 +21,7 @@ final class FrameSampler {
     let frameDuration: Int64
     private let sourceFrameDuration: Int64
     private let sourceCodec: MediaCodec
+    private let frameIndex: EditorFrameIndex?
     private let end: Int64
     private let holdsLastFrame: Bool
     private let timing: VideoTiming
@@ -55,12 +57,14 @@ final class FrameSampler {
         position = start
         switch input.backend {
         case .asset(let asset, let video?, _):
+            frameIndex = EditorFrameIndex(track: video, end: Double(input.duration) / Double(Nanoseconds.perSecond))
             let range = CMTimeRange(
                 start: CMTime(value: start, timescale: SampleBuffers.nanosecondScale),
                 end: Transcoder.readerTime(end))
             let mode: AssetTrackReader.Mode = toneMapToSDR ? .sdrFrames : hdr != nil ? .hdrFrames : .frames
             source = .asset(try AssetTrackReader(asset: asset, track: video, number: 1, mode: mode, range: range))
         default:
+            frameIndex = nil
             if toneMapToSDR { throw EngineError.hdrConversionUnsupported }
             guard let demuxer = try input.demuxer else { throw EngineError.decodeFailed("no demuxer") }
             let decodeFrom = start > 0 ? try await Transcoder.keyframe(atOrBefore: start, in: input) : 0
@@ -92,11 +96,33 @@ final class FrameSampler {
         return frame
     }
 
-    func next(sourceTime: Int64, timestamp: Int64, fade: Double = 1) async throws -> DecodedFrame? {
+    func next(
+        sourceTime: Int64, timestamp: Int64, fade: Double = 1, overlays: [EditOverlay] = [],
+        overlaySelection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])? = nil
+    ) async throws
+        -> DecodedFrame?
+    {
         while true {
             try Task.checkCancellation()
             if let chosen = try ready(center: sourceTime) {
-                let image = try processor(for: chosen.image).process(chosen.image, fade: fade)
+                let active: [EditOverlay]
+                if let overlaySelection {
+                    let range: ClosedRange<Double>
+                    if let frameIndex {
+                        range = try frameIndex.range(
+                            at: CMTime(value: chosen.timestamp, timescale: SampleBuffers.nanosecondScale))
+                    } else {
+                        let upper = decoded.count > 1 ? decoded[1].timestamp : end
+                        range =
+                            Double(chosen.timestamp) / Double(Nanoseconds.perSecond)...Double(upper)
+                            / Double(Nanoseconds.perSecond)
+                    }
+                    active = overlaySelection(range)
+
+                } else {
+                    active = overlays
+                }
+                let image = try processor(for: chosen.image).process(chosen.image, fade: fade, overlays: active)
                 return DecodedFrame(image: image, timestamp: timestamp)
             }
             if sourceEnded { return nil }
@@ -118,8 +144,9 @@ final class FrameSampler {
     }
 
     private func ready(center: Int64) throws -> DecodedFrame? {
-        while decoded.count >= 2, decoded[1].timestamp <= center { decoded.removeFirst() }
-        guard center < end, let first = decoded.first else { return nil }
+        guard center < end else { return nil }
+        while decoded.count >= 2, decoded[1].timestamp <= center + Self.timestampTolerance { decoded.removeFirst() }
+        guard let first = decoded.first else { return nil }
         if decoded.count >= 2 { return first }
         guard sourceEnded else { return nil }
         // Editor segments may outlast the video track.
@@ -146,6 +173,37 @@ final class FrameSampler {
             }
             if sourceQueue.isEmpty { sourceQueue = try decoder.finish() }
             return sourceQueue.isEmpty ? nil : sourceQueue.removeFirst()
+        }
+    }
+}
+
+// Cursors are isolated per locked lookup.
+final class EditorFrameIndex: @unchecked Sendable {
+    private static let timestampTolerance = 1.0 / Double(Nanoseconds.perSecond)
+
+    private let track: AVAssetTrack
+    private let end: Double
+    private let lock = NSLock()
+
+    init(track: AVAssetTrack, end: Double) {
+        self.track = track
+        self.end = end
+    }
+
+    func range(at requested: CMTime) throws -> ClosedRange<Double> {
+        try lock.withLock {
+            guard let cursor = track.makeSampleCursor(presentationTimeStamp: requested) else {
+                throw EngineError.decodeFailed("source has no frame index")
+            }
+            while cursor.presentationTimeStamp.seconds - requested.seconds > Self.timestampTolerance {
+                guard cursor.stepInPresentationOrder(byCount: -1) == -1 else { break }
+            }
+            while true {
+                let lower = cursor.presentationTimeStamp.seconds
+                guard cursor.stepInPresentationOrder(byCount: 1) == 1 else { return lower...end }
+                let upper = cursor.presentationTimeStamp.seconds
+                if upper - requested.seconds > Self.timestampTolerance { return lower...upper }
+            }
         }
     }
 }

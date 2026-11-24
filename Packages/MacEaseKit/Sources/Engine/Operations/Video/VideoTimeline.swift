@@ -13,7 +13,21 @@ public struct VideoEditSource: Codable, Hashable, Sendable {
     }
 }
 
+public struct ReversedSegmentOrigin: Codable, Hashable, Sendable {
+    public var sourceIndex: Int
+    public var start: Double
+    public var end: Double
+
+    public init(sourceIndex: Int, start: Double, end: Double) {
+        self.sourceIndex = sourceIndex
+        self.start = start
+        self.end = end
+    }
+}
+
 public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
+    public static let freezeDurationRange = 0.1...30.0
+
     public var id: UUID
     public var sourceIndex: Int
     public var start: Double
@@ -24,10 +38,20 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
     /// Output seconds.
     public var fadeIn = 0.0
     public var fadeOut = 0.0
+    public var freezeDuration: Double?
+    public var reversedOrigin: ReversedSegmentOrigin?
+
+    public var isFreeze: Bool { freezeDuration != nil }
+    public var isReversed: Bool { reversedOrigin != nil }
+
+    public var outputDuration: Double {
+        freezeDuration ?? (end - start) / speed
+    }
 
     public init(
         id: UUID = UUID(), start: Double, end: Double, speed: Double = 1,
-        volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments(), sourceIndex: Int = 0
+        volume: Double = 1, adjustments: MediaAdjustments = MediaAdjustments(), sourceIndex: Int = 0,
+        freezeDuration: Double? = nil, reversedOrigin: ReversedSegmentOrigin? = nil
     ) {
         self.id = id
         self.sourceIndex = sourceIndex
@@ -36,9 +60,11 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         self.speed = speed
         self.volume = volume
         self.adjustments = adjustments
+        self.freezeDuration = freezeDuration
+        self.reversedOrigin = reversedOrigin
     }
     private enum CodingKeys: String, CodingKey {
-        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut
+        case id, sourceIndex, start, end, speed, volume, adjustments, fadeIn, fadeOut, freezeDuration, reversedOrigin
     }
 
     public init(from decoder: Decoder) throws {
@@ -52,16 +78,26 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
         adjustments = try values.decode(MediaAdjustments.self, forKey: .adjustments)
         fadeIn = try values.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
         fadeOut = try values.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
+        freezeDuration = try values.decodeIfPresent(Double.self, forKey: .freezeDuration)
+        reversedOrigin = try values.decodeIfPresent(ReversedSegmentOrigin.self, forKey: .reversedOrigin)
     }
 }
 
 public struct VideoTimeline: Hashable, Sendable {
+    private static let rangeMergeTolerance = 1e-9
+
     public let segments: [VideoSegment]
+    public let overlays: [TimedOverlay]
+    public let music: BackgroundMusic?
     public let duration: Double
     private let starts: [Double]
+    private let sourceDurations: [Double]
 
     public init(edit: VideoEdit, sourceDuration: Double) throws {
         guard sourceDuration.isFinite, sourceDuration > 0 else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        if edit.segments == nil, !edit.overlays.isEmpty {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
         let segments =
@@ -90,18 +126,111 @@ public struct VideoTimeline: Hashable, Sendable {
             else { throw EngineError.invalidInput(.invalidNumericParameter) }
             try segment.adjustments.validate()
             try FadeRamp.validate(fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
+            if let freezeDuration = segment.freezeDuration {
+                guard freezeDuration.isFinite, VideoSegment.freezeDurationRange.contains(freezeDuration),
+                    segment.speed == 1, segment.volume == 0
+                else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            }
+            if let origin = segment.reversedOrigin {
+                guard segment.freezeDuration == nil,
+                    durations.indices.contains(origin.sourceIndex),
+                    origin.sourceIndex != segment.sourceIndex,
+                    origin.start.isFinite, origin.end.isFinite,
+                    origin.start >= 0, origin.end > origin.start, origin.end <= durations[origin.sourceIndex]
+                else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            }
             let start = try Nanoseconds.from(seconds: segment.start)
             let end = try Nanoseconds.from(seconds: segment.end)
             guard end > start else { throw EngineError.invalidInput(.invalidNumericParameter) }
             starts.append(duration)
-            duration += (segment.end - segment.start) / segment.speed
+            duration += segment.outputDuration
         }
         guard try Nanoseconds.from(seconds: duration) > 0 else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
+        guard edit.overlays.count <= EditOverlay.maximumCount else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        var overlayIDs = Set<UUID>()
+        for timed in edit.overlays {
+            guard overlayIDs.insert(timed.id).inserted,
+                durations.indices.contains(timed.sourceIndex),
+                timed.start.isFinite, timed.end.isFinite,
+                timed.start >= 0, timed.start < timed.end, timed.end <= durations[timed.sourceIndex]
+            else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            try timed.overlay.validate()
+        }
+        try edit.music?.validate()
         self.segments = segments
+        self.overlays = edit.overlays
+        self.music = edit.music
         self.duration = duration
         self.starts = starts
+        sourceDurations = durations
+    }
+
+    public func overlays(
+        at outputSeconds: Double, sourceRange: ClosedRange<Double>? = nil
+    ) -> [EditOverlay] {
+        guard !overlays.isEmpty else { return [] }
+        let index = index(at: outputSeconds)
+        let segment = segments[index]
+        let source = sourceRange?.lowerBound ?? sourceTime(at: outputSeconds)
+        let upper = sourceRange?.upperBound ?? source
+        return overlays.compactMap { timed in
+            let lowerBound: Double
+            let upperBound: Double
+            if timed.sourceIndex == segment.sourceIndex {
+                lowerBound = source
+                upperBound = upper
+            } else if let origin = segment.reversedOrigin, timed.sourceIndex == origin.sourceIndex {
+                let scale = (origin.end - origin.start) / sourceDurations[segment.sourceIndex]
+                lowerBound = origin.end - upper * scale
+                upperBound = origin.end - source * scale
+            } else {
+                return nil
+            }
+            if case .redaction = timed.overlay.mark, sourceRange != nil {
+                // Boundary uncertainty must favor privacy.
+                return timed.start <= upperBound && timed.end >= lowerBound ? timed.overlay : nil
+            }
+            return lowerBound >= timed.start && lowerBound < timed.end ? timed.overlay : nil
+        }
+    }
+
+    public func outputRanges(of overlay: TimedOverlay) -> [ClosedRange<Double>] {
+        guard overlay.start.isFinite, overlay.end.isFinite, overlay.start < overlay.end else { return [] }
+        var ranges: [ClosedRange<Double>] = []
+        for (index, segment) in segments.enumerated() {
+            let sourceRange: Range<Double>
+            if segment.sourceIndex == overlay.sourceIndex {
+                sourceRange = overlay.start..<overlay.end
+            } else if let origin = segment.reversedOrigin, origin.sourceIndex == overlay.sourceIndex {
+                let scale = sourceDurations[segment.sourceIndex] / (origin.end - origin.start)
+                sourceRange = (origin.end - overlay.end) * scale..<(origin.end - overlay.start) * scale
+            } else {
+                continue
+            }
+            let outStart: Double
+            let outEnd: Double
+            if segment.freezeDuration != nil {
+                guard sourceRange.contains(segment.start) else { continue }
+                outStart = starts[index]
+                outEnd = starts[index] + segment.outputDuration
+            } else {
+                let lower = max(segment.start, sourceRange.lowerBound)
+                let upper = min(segment.end, sourceRange.upperBound)
+                guard lower < upper else { continue }
+                outStart = starts[index] + (lower - segment.start) / segment.speed
+                outEnd = starts[index] + (upper - segment.start) / segment.speed
+            }
+            if let previous = ranges.last, outStart <= previous.upperBound + Self.rangeMergeTolerance {
+                ranges[ranges.count - 1] = previous.lowerBound...max(previous.upperBound, outEnd)
+            } else {
+                ranges.append(outStart...outEnd)
+            }
+        }
+        return ranges
     }
 
     public func segment(at outputSeconds: Double) -> VideoSegment {
@@ -111,6 +240,7 @@ public struct VideoTimeline: Hashable, Sendable {
     public func sourceTime(at outputSeconds: Double) -> Double {
         let index = index(at: outputSeconds)
         let segment = segments[index]
+        if segment.freezeDuration != nil { return segment.start }
         let time = outputSeconds.isFinite ? min(max(0, outputSeconds), duration) : 0
         return min(segment.end, segment.start + max(0, time - starts[index]) * segment.speed)
     }
@@ -121,6 +251,7 @@ public struct VideoTimeline: Hashable, Sendable {
         }
         let segment = segments[index]
         guard (segment.start...segment.end).contains(sourceSeconds) else { return nil }
+        if segment.freezeDuration != nil { return starts[index] }
         return starts[index] + (sourceSeconds - segment.start) / segment.speed
     }
 

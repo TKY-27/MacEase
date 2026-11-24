@@ -32,6 +32,7 @@ public enum VideoStill: Codable, Hashable, Sendable {
     case first
     case middle
     case at(seconds: Double)
+    case edited(VideoEdit, outputSeconds: Double)
 }
 
 public struct AnimationRendering: Codable, Hashable, Sendable {

@@ -70,13 +70,16 @@ public actor PhotoEditorSource {
         let output = cropPreview ? edit.geometry.canvasSize(dimensions) : edit.geometry.outputSize(dimensions)
         let sourceScale = min(1, Double(maximumDimension) / max(output.width, output.height))
         let sourceDimension = min(8192, max(1, Int(ceil(max(dimensions.width, dimensions.height) * sourceScale))))
-        let source = try previewImage(
-            reference.first, maximumDimension: sourceDimension, isSDR: usesSDR, interactive: maximumDimension <= 960)
-        var image = try PhotoEditing.image(
+        let source =
+            try edit.overlays.isEmpty
+            ? previewImage(
+                reference.first, maximumDimension: sourceDimension, isSDR: usesSDR, interactive: maximumDimension <= 960
+            )
+            : reference.first
+        let image = try PhotoEditing.image(
             source, edit: edit,
-            automaticFilters: edit.autoEnhance ? automaticFilters ?? [] : [], includingCrop: !cropPreview)
-        let scale = min(1, Double(maximumDimension) / max(image.extent.width, image.extent.height))
-        image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            automaticFilters: edit.autoEnhance ? automaticFilters ?? [] : [], includingCrop: !cropPreview,
+            maximumDimension: maximumDimension)
         guard
             let rendered = context.createCGImage(
                 image, from: image.extent.integral,
@@ -134,16 +137,30 @@ enum PhotoEditing {
         ])
     }
 
-    static func image(_ source: CGImage, edit: ImageEdit, automaticFilters: [CIFilter], includingCrop: Bool = true)
-        throws -> CIImage
-    {
-        var image = edit.geometry.applying(to: CIImage(cgImage: source), includingCrop: includingCrop)
+    static func image(
+        _ source: CGImage, edit: ImageEdit, automaticFilters: [CIFilter], includingCrop: Bool = true,
+        maximumDimension: Int? = nil
+    ) throws -> CIImage {
+        let sourceImage = CIImage(cgImage: source)
+        let canvasSize = sourceImage.extent.size
+        let redacted = edit.overlays.redacting(sourceImage)
+        var image = edit.geometry.applying(to: redacted, includingCrop: includingCrop)
         for filter in automaticFilters {
             filter.setValue(image, forKey: kCIInputImageKey)
             guard let output = filter.outputImage else { throw EngineError.encodeFailed("automatic correction") }
             image = output
         }
-        return edit.adjustments.applying(to: image)
+        image = edit.adjustments.applying(to: image)
+        let fullOutputSize = image.extent.size
+        if let maximumDimension {
+            let scale = min(1, Double(maximumDimension) / max(image.extent.width, image.extent.height))
+            if scale < 1 {
+                image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            }
+        }
+        return edit.overlays.annotating(
+            image, geometry: edit.geometry, canvas: canvasSize, includingCrop: includingCrop,
+            fullOutputSize: fullOutputSize)
     }
 
     static func run(_ edit: ImageEdit, url: URL, context: ItemContext) async throws -> ItemResult {

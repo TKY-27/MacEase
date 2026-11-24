@@ -843,6 +843,123 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
+    func testFreezeAndReversedPlaybackKeepRenderingAudioAcrossReplays() async throws {
+        let directory = try workspace()
+        let source = try synthesizedVideoFixture(in: directory)
+        let support = directory.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let staging = StagingArea(supportDirectory: support)
+        let target = VideoSegment(start: 1.5, end: 2.5)
+        var edit = VideoEdit()
+        edit.segments = [
+            VideoSegment(start: 0, end: 1),
+            VideoSegment(start: 1.013, end: 1.046, volume: 0, freezeDuration: 0.5),
+            target,
+            VideoSegment(start: 3, end: 4),
+        ]
+        let reversed = try await VideoSegmentReverser.reverse(
+            segmentID: target.id, in: edit, primaryURL: source, staging: staging)
+        let sources = try XCTUnwrap(reversed.sources)
+        addTeardownBlock {
+            for clip in sources.dropFirst() {
+                VideoSegmentReverser.cleanupStagedSource(clip.url, in: staging)
+            }
+        }
+        let playback = try await VideoEditorPlayback.joined(
+            urls: sources.map(\.url), edit: reversed, sourceSize: CGSize(width: 160, height: 120))
+        let playerItem = AVPlayerItem(asset: playback.asset)
+        playerItem.videoComposition = playback.videoComposition
+        playerItem.audioMix = playback.audioMix
+        let player = AVPlayer(playerItem: playerItem)
+        addTeardownBlock { player.pause() }
+        try await eventually { playerItem.status == .readyToPlay }
+        let meter = PlaybackAudioMeter()
+        try meter.install(on: playerItem)
+        for target in [0.1, 1.6, 2.6, 1.7, 0.2, 2.7] {
+            player.pause()
+            await player.seek(
+                to: CMTime(seconds: target, preferredTimescale: 60_000),
+                toleranceBefore: .zero, toleranceAfter: .zero)
+            meter.reset()
+            player.play()
+            try await eventually { player.rate == 1 && player.timeControlStatus == .playing }
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertNil(playerItem.error)
+            XCTAssertGreaterThan(meter.peak(), 0.01, "Replay at \(target)s rendered silence")
+        }
+    }
+
+    func testBackgroundMusicPlaybackStaysAudibleAcrossReplays() async throws {
+        let directory = try workspace()
+        let source = try synthesizedVideoFixture(in: directory)
+        let silentSource = try synthesizedSilentVideoFixture(in: directory)
+        let songURL = try audioFixture(in: directory)
+        let support = directory.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let staging = StagingArea(supportDirectory: support)
+        var music = try BackgroundMusic.load(from: songURL)
+        music.volume = 0.4
+
+        var edit = VideoEdit()
+        edit.segments = [
+            VideoSegment(start: 0, end: 0.6),
+            VideoSegment(start: 0.6, end: 0.634, volume: 0, freezeDuration: 0.8),
+            VideoSegment(start: 0.6, end: 1.4),
+        ]
+        edit.music = music
+        let editor = try await VideoEditorSource.open(source, staging: staging)
+        addTeardownBlock { await editor.close() }
+        let playback = try await editor.playback(edit: edit)
+        let playerItem = AVPlayerItem(asset: playback.asset)
+        playerItem.videoComposition = playback.videoComposition
+        playerItem.audioMix = playback.audioMix
+        let player = AVPlayer(playerItem: playerItem)
+        addTeardownBlock { player.pause() }
+        try await eventually { playerItem.status == .readyToPlay }
+        let meter = PlaybackAudioMeter()
+        try meter.install(on: playerItem)
+        for target in [0.1, 0.75, 1.5, 0.8, 0.2] {
+            player.pause()
+            await player.seek(
+                to: CMTime(seconds: target, preferredTimescale: 60_000),
+                toleranceBefore: .zero, toleranceAfter: .zero)
+            meter.reset()
+            player.play()
+            try await eventually { player.rate == 1 && player.timeControlStatus == .playing }
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertNil(playerItem.error)
+            XCTAssertGreaterThan(meter.peak(), 0.01, "Music replay at \(target)s rendered silence")
+        }
+        player.pause()
+
+        var silentEdit = VideoEdit()
+        silentEdit.segments = [VideoSegment(start: 0, end: 2.0)]
+        silentEdit.music = music
+        let silentEditor = try await VideoEditorSource.open(silentSource, staging: staging)
+        addTeardownBlock { await silentEditor.close() }
+        let silentPlayback = try await silentEditor.playback(edit: silentEdit)
+        let silentItem = AVPlayerItem(asset: silentPlayback.asset)
+        silentItem.videoComposition = silentPlayback.videoComposition
+        silentItem.audioMix = silentPlayback.audioMix
+        let silentPlayer = AVPlayer(playerItem: silentItem)
+        addTeardownBlock { silentPlayer.pause() }
+        try await eventually { silentItem.status == .readyToPlay }
+        let silentMeter = PlaybackAudioMeter()
+        try silentMeter.install(on: silentItem)
+        for target in [0.1, 0.9, 0.3] {
+            silentPlayer.pause()
+            await silentPlayer.seek(
+                to: CMTime(seconds: target, preferredTimescale: 60_000),
+                toleranceBefore: .zero, toleranceAfter: .zero)
+            silentMeter.reset()
+            silentPlayer.play()
+            try await eventually { silentPlayer.rate == 1 && silentPlayer.timeControlStatus == .playing }
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertNil(silentItem.error)
+            XCTAssertGreaterThan(silentMeter.peak(), 0.01, "Silent video music replay at \(target)s rendered silence")
+        }
+    }
+
     func testClipboardSuggestionDetectsLinksBeforeReadingThem() async throws {
         let name = NSPasteboard.Name("MacEaseTests-\(UUID().uuidString)")
         let pasteboard = NSPasteboard(name: name)
@@ -909,6 +1026,28 @@ final class MediaEditorModelTests: XCTestCase {
         return output
     }
 
+    private func synthesizedSilentVideoFixture(in directory: URL) throws -> URL {
+        let resources = try XCTUnwrap(Bundle.main.resourceURL)
+        let ffmpeg = resources.appending(path: "media-tools/bin/ffmpeg")
+        let output = directory.appending(path: "silent-video.mp4")
+        let encoding = Process()
+        encoding.executableURL = ffmpeg
+        encoding.arguments = [
+            "-nostdin", "-y", "-v", "error",
+            "-f", "lavfi", "-i", "color=c=green:s=160x120:r=30:d=3",
+            "-an", "-c:v", "h264_videotoolbox", "-b:v", "400k", output.path,
+        ]
+        encoding.standardInput = FileHandle.nullDevice
+        encoding.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        encoding.standardError = stderr
+        try encoding.run()
+        encoding.waitUntilExit()
+        let details = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        XCTAssertEqual(encoding.terminationStatus, 0, details)
+        return output
+    }
+
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(30)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
@@ -942,6 +1081,15 @@ private final class PlaybackAudioMeter: @unchecked Sendable {
     func install(on playerItem: AVPlayerItem) throws {
         let currentMix = try XCTUnwrap(playerItem.audioMix)
         let mutableMix = try XCTUnwrap(currentMix.mutableCopy() as? AVMutableAudioMix)
+        mutableMix.inputParameters = try mutableMix.inputParameters.map { parameter in
+            let editable = try XCTUnwrap(parameter.mutableCopy() as? AVMutableAudioMixInputParameters)
+            editable.audioTapProcessor = try makeTap()
+            return editable
+        }
+        playerItem.audioMix = try XCTUnwrap(mutableMix.copy() as? AVAudioMix)
+    }
+
+    private func makeTap() throws -> MTAudioProcessingTap {
         var callbacks = MTAudioProcessingTapCallbacks(
             version: kMTAudioProcessingTapCallbacksVersion_0,
             clientInfo: Unmanaged.passRetained(self).toOpaque(),
@@ -973,12 +1121,7 @@ private final class PlaybackAudioMeter: @unchecked Sendable {
         let status = MTAudioProcessingTapCreate(
             kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PostEffects, &tap)
         XCTAssertEqual(status, noErr)
-        let processor = try XCTUnwrap(tap)
-        mutableMix.inputParameters = mutableMix.inputParameters.map { parameter in
-            guard let editable = parameter.mutableCopy() as? AVMutableAudioMixInputParameters else { return parameter }
-            editable.audioTapProcessor = processor
-            return editable
-        }
-        playerItem.audioMix = mutableMix.copy() as? AVAudioMix
+        return try XCTUnwrap(tap)
+
     }
 }

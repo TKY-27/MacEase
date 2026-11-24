@@ -10,25 +10,27 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     public let audioMix: AVAudioMix?
     public let timeline: VideoTimeline
 
-    public static func joined(urls: [URL], edit: VideoEdit, sourceSize: CGSize) async throws -> VideoEditorPlayback {
+    public static func joined(
+        urls: [URL], edit: VideoEdit, sourceSize: CGSize, musicURL: URL? = nil
+    ) async throws -> VideoEditorPlayback {
         guard let first = edit.sources?.first, urls.count == edit.sources?.count,
             sourceSize.width.isFinite, sourceSize.height.isFinite, sourceSize.width > 0, sourceSize.height > 0
         else {
             throw EngineError.invalidInput(.emptyInput)
         }
         let timeline = try VideoTimeline(edit: edit, sourceDuration: first.duration)
-        return try await make(urls: urls, timeline: timeline, edit: edit, sourceSize: sourceSize)
+        return try await make(urls: urls, timeline: timeline, edit: edit, sourceSize: sourceSize, musicURL: musicURL)
     }
 
-    static func make(url: URL, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize) async throws
-        -> VideoEditorPlayback
-    {
-        try await make(urls: [url], timeline: timeline, edit: edit, sourceSize: sourceSize)
+    static func make(
+        url: URL, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, musicURL: URL? = nil
+    ) async throws -> VideoEditorPlayback {
+        try await make(urls: [url], timeline: timeline, edit: edit, sourceSize: sourceSize, musicURL: musicURL)
     }
 
-    private static func make(urls: [URL], timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize) async throws
-        -> VideoEditorPlayback
-    {
+    private static func make(
+        urls: [URL], timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, musicURL: URL?
+    ) async throws -> VideoEditorPlayback {
         guard let first = urls.first else { throw EngineError.invalidInput(.emptyInput) }
         let source = AVURLAsset(url: first)
         guard let sourceVideo = try await source.loadTracks(withMediaType: .video).first else {
@@ -39,71 +41,99 @@ public struct VideoEditorPlayback: @unchecked Sendable {
             let video = composition.addMutableTrack(
                 withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
         else { throw EngineError.decodeFailed("cannot create playback video track") }
-        video.preferredTransform = try await sourceVideo.load(.preferredTransform)
-        let sourceAudio = try await source.loadTracks(withMediaType: .audio).first
-        let audio: AVMutableCompositionTrack?
-        var anyAudio = sourceAudio != nil
-        for url in urls.dropFirst() {
-            if try await !AVURLAsset(url: url).loadTracks(withMediaType: .audio).isEmpty { anyAudio = true }
-        }
-        if anyAudio {
+        video.naturalTimeScale = compositionTimescale
+        video.preferredTransform = urls.count > 1 ? .identity : try await sourceVideo.load(.preferredTransform)
+        var audioTracks: [AVMutableCompositionTrack?] = []
+        var audioParameters: [AVMutableAudioMixInputParameters?] = []
+        for url in urls {
+            if try await AVURLAsset(url: url).loadTracks(withMediaType: .audio).isEmpty {
+                audioTracks.append(nil)
+                audioParameters.append(nil)
+                continue
+            }
             guard
                 let track = composition.addMutableTrack(
                     withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
             else { throw EngineError.decodeFailed("cannot create playback audio track") }
-            audio = track
-        } else {
-            audio = nil
+            track.naturalTimeScale = compositionTimescale
+            let parameters = AVMutableAudioMixInputParameters(track: track)
+            parameters.audioTimePitchAlgorithm = .timeDomain
+            audioTracks.append(track)
+            audioParameters.append(parameters)
         }
 
-        let parameters = audio.map { AVMutableAudioMixInputParameters(track: $0) }
-        parameters?.audioTimePitchAlgorithm = .timeDomain
         for (index, segment) in timeline.segments.enumerated() {
             try Task.checkCancellation()
+            let audio = audioTracks[segment.sourceIndex]
+            let parameters = audioParameters[segment.sourceIndex]
             let asset = AVURLAsset(url: urls[segment.sourceIndex])
             guard let sourceVideo = try await asset.loadTracks(withMediaType: .video).first else {
                 throw EngineError.decodeFailed("no playback video track")
             }
             let sourceAudio = try await asset.loadTracks(withMediaType: .audio).first
-            let audioRange = try await sourceAudio?.load(.timeRange)
-            let sourceRange = CMTimeRange(start: time(segment.start), end: time(segment.end))
+            let audioRange: CMTimeRange?
+            if let range = try await sourceAudio?.load(.timeRange) {
+                audioRange = CMTimeRange(start: time(range.start.seconds), end: time(range.end.seconds))
+            } else {
+                audioRange = nil
+            }
+            let sourceRange: CMTimeRange
+            if segment.freezeDuration != nil {
+                // One tick isolates a single source frame.
+                let tick = CMTime(value: 1, timescale: compositionTimescale)
+                let sliceDuration = CMTimeMinimum(tick, time(segment.end) - time(segment.start))
+                sourceRange = CMTimeRange(start: time(segment.start), duration: sliceDuration)
+            } else {
+                sourceRange = CMTimeRange(start: time(segment.start), end: time(segment.end))
+            }
             let outputStart = time(timeline.outputStart(at: index))
             let outputDuration = time(timeline.outputEnd(at: index)) - outputStart
             let insertedRange = CMTimeRange(start: outputStart, duration: sourceRange.duration)
             try video.insertTimeRange(sourceRange, of: sourceVideo, at: outputStart)
             video.scaleTimeRange(insertedRange, toDuration: outputDuration)
             if let audio {
-                audio.insertEmptyTimeRange(insertedRange)
-                if let sourceAudio, let audioRange {
-                    let intersection = CMTimeRangeGetIntersection(sourceRange, otherRange: audioRange)
-                    if intersection.isValid, intersection.duration > .zero {
-                        let start = outputStart + intersection.start - sourceRange.start
-                        audio.removeTimeRange(CMTimeRange(start: start, duration: intersection.duration))
-                        try audio.insertTimeRange(intersection, of: sourceAudio, at: start)
-                    }
-                }
-                audio.scaleTimeRange(insertedRange, toDuration: outputDuration)
-                let fade = timeline.fade(at: index)
-                let volume = Float(segment.volume)
-                if fade.fadeIn > 0 {
-                    parameters?.setVolumeRamp(
-                        fromStartVolume: 0, toEndVolume: volume,
-                        timeRange: CMTimeRange(start: outputStart, duration: time(fade.fadeIn)))
+                if segment.freezeDuration != nil {
+                    audio.insertEmptyTimeRange(CMTimeRange(start: outputStart, duration: outputDuration))
+                    parameters?.setVolume(0, at: outputStart)
                 } else {
-                    parameters?.setVolume(volume, at: outputStart)
-                }
-                if fade.fadeOut > 0 {
-                    parameters?.setVolumeRamp(
-                        fromStartVolume: volume, toEndVolume: 0,
-                        timeRange: CMTimeRange(
-                            start: outputStart + outputDuration - time(fade.fadeOut), duration: time(fade.fadeOut)))
+                    audio.insertEmptyTimeRange(insertedRange)
+                    if let sourceAudio, let audioRange {
+                        let intersection = CMTimeRangeGetIntersection(sourceRange, otherRange: audioRange)
+                        if intersection.isValid, intersection.duration > .zero {
+                            let start = outputStart + intersection.start - sourceRange.start
+                            audio.removeTimeRange(CMTimeRange(start: start, duration: intersection.duration))
+                            try audio.insertTimeRange(intersection, of: sourceAudio, at: start)
+                        }
+                    }
+                    audio.scaleTimeRange(insertedRange, toDuration: outputDuration)
+                    let fade = timeline.fade(at: index)
+                    let volume = Float(segment.volume)
+                    if fade.fadeIn > 0 {
+                        parameters?.setVolumeRamp(
+                            fromStartVolume: 0, toEndVolume: volume,
+                            timeRange: CMTimeRange(start: outputStart, duration: time(fade.fadeIn)))
+                    } else {
+                        parameters?.setVolume(volume, at: outputStart)
+                    }
+                    if fade.fadeOut > 0 {
+                        parameters?.setVolumeRamp(
+                            fromStartVolume: volume, toEndVolume: 0,
+                            timeRange: CMTimeRange(
+                                start: outputStart + outputDuration - time(fade.fadeOut), duration: time(fade.fadeOut)))
+                    }
                 }
             }
         }
+        if let music = timeline.music {
+            audioParameters.append(
+                try await addMusicTrack(
+                    music, playbackURL: musicURL ?? music.url, to: composition, outputDuration: timeline.duration))
+        }
         let mix: AVAudioMix?
-        if let parameters {
+        let parameters = audioParameters.compactMap { $0 }
+        if !parameters.isEmpty {
             let audioMix = AVMutableAudioMix()
-            audioMix.inputParameters = [parameters]
+            audioMix.inputParameters = parameters
             guard let snapshot = audioMix.copy() as? AVAudioMix else {
                 throw EngineError.decodeFailed("cannot snapshot playback audio mix")
             }
@@ -113,7 +143,8 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         let videoComposition: AVVideoComposition?
         if edit.changesAppearance || urls.count > 1 || timeline.hasFades {
-            videoComposition = try await filtered(composition, timeline: timeline, edit: edit, sourceSize: sourceSize)
+            videoComposition = try await filtered(
+                composition, timeline: timeline, edit: edit, sourceSize: sourceSize, urls: urls)
         } else {
             videoComposition = nil
         }
@@ -125,7 +156,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     }
 
     private static func filtered(
-        _ asset: AVAsset, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize
+        _ asset: AVAsset, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, urls: [URL]
     ) async throws -> AVVideoComposition {
         let geometry = edit.geometry
         let original = geometry.outputSize(sourceSize)
@@ -138,10 +169,33 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         let context = CIContext(options: [.cacheIntermediates: false, .outputColorSpace: colorSpace])
         let presentation = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+        let hasOverlays = !timeline.overlays.isEmpty
+        let annotationCache = EditAnnotationCache()
+        let fullOutputSize = CGSize(width: selected.width, height: selected.height)
+        let source = try await MediaInput.open(urls[0])
+        var sourceOrientations: [VideoDisplayOrientation] = []
+        var sourceIndexes: [EditorFrameIndex] = []
+        for url in urls {
+            let input = try await MediaInput.open(url)
+            sourceOrientations.append(try input.displayOrientation)
+            guard case .asset(_, let track?, _) = input.backend else {
+                throw EngineError.decodeFailed("preview source has no native video track")
+            }
+            sourceIndexes.append(
+                EditorFrameIndex(track: track, end: Double(input.duration) / Double(Nanoseconds.perSecond)))
+        }
+        let orientations = sourceOrientations
+        let frameIndexes = sourceIndexes
+        let frameSeconds = Double(source.frameDuration) / Double(Nanoseconds.perSecond)
+        let renderBounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let filtered = try await AVVideoComposition(applyingFiltersTo: asset) { request in
+            let outputTime = request.compositionTime.seconds
+            let segment = timeline.segment(at: outputTime)
             let input = request.sourceImage
-            let normalized = input.transformed(
-                by: CGAffineTransform(translationX: -input.extent.minX, y: -input.extent.minY))
+            let oriented =
+                urls.count > 1 ? input.transformed(by: orientations[segment.sourceIndex].pixelTransform) : input
+            let normalized = oriented.transformed(
+                by: CGAffineTransform(translationX: -oriented.extent.minX, y: -oriented.extent.minY))
             var canvas = normalized
             if (edit.sources?.count ?? 0) > 1 {
                 let bounds = CGRect(origin: .zero, size: sourceSize)
@@ -153,34 +207,111 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                         y: (bounds.height - canvas.extent.height) / 2))
                 canvas = canvas.composited(over: CIImage(color: .black).cropped(to: bounds)).cropped(to: bounds)
             }
+            let activeOverlays: [EditOverlay]
+            if hasOverlays {
+                let sourceRange = try frameIndexes[segment.sourceIndex].range(
+                    at: time(timeline.sourceTime(at: outputTime)))
+                activeOverlays = timeline.overlays(at: outputTime, sourceRange: sourceRange)
+            } else {
+                activeOverlays = []
+            }
+            let canvasSize = canvas.extent.size
+            if !activeOverlays.isEmpty { canvas = activeOverlays.redacting(canvas, fullCanvasSize: sourceSize) }
             var image = geometry.applying(to: canvas)
-            let adjustments = timeline.segment(at: request.compositionTime.seconds).adjustments
+            let adjustments = segment.adjustments
             image = adjustments.applying(to: image)
-            let fade = timeline.fadeGain(at: request.compositionTime.seconds)
-            if fade < 1 { image = image.fadedToBlack(fade) }
             image = image.transformed(
                 by: CGAffineTransform(
                     scaleX: CGFloat(size.width) / image.extent.width,
-                    y: CGFloat(size.height) / image.extent.height))
-            if adjustments.isIdentity { return AVCIImageFilteringResult(resultImage: image) }
+                    y: CGFloat(size.height) / image.extent.height)
+            ).cropped(to: renderBounds)
+            if let layer = annotationCache.layer(
+                for: activeOverlays, size: renderBounds.size, geometry: geometry, canvas: canvasSize,
+                fullOutputSize: fullOutputSize)
+            {
+                image = layer.composited(over: image).cropped(to: renderBounds)
+            }
+            let fade = timeline.fadeGain(at: outputTime)
+            if fade < 1 { image = image.fadedToBlack(fade) }
+            if adjustments.isIdentity && !hasOverlays { return AVCIImageFilteringResult(resultImage: image) }
             // Match export transfer values before compositor presentation.
             guard
-                let rendered = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: colorSpace)
+                let rendered = context.createCGImage(image, from: renderBounds, format: .RGBA8, colorSpace: colorSpace)
             else {
                 throw EngineError.encodeFailed("video preview rendering failed")
             }
             return AVCIImageFilteringResult(
                 resultImage: CIImage(cgImage: rendered, options: [.colorSpace: NSNull()]), ciContext: presentation)
         }
+        // Scaled freeze samples otherwise pause fades.
+        let hasFreeze = timeline.segments.contains(where: \.isFreeze)
+        let frameDuration = time(frameSeconds)
         var configuration = AVVideoComposition.Configuration(
             colorPrimaries: filtered.colorPrimaries,
             colorTransferFunction: filtered.colorTransferFunction,
             colorYCbCrMatrix: filtered.colorYCbCrMatrix,
             customVideoCompositorClass: filtered.customVideoCompositorClass,
-            frameDuration: filtered.frameDuration, instructions: filtered.instructions,
+            frameDuration: frameDuration, instructions: filtered.instructions,
             renderSize: CGSize(width: size.width, height: size.height))
-        configuration.sourceTrackIDForFrameTiming = filtered.sourceTrackIDForFrameTiming
+        configuration.sourceTrackIDForFrameTiming =
+            hasFreeze ? kCMPersistentTrackID_Invalid : filtered.sourceTrackIDForFrameTiming
         return AVVideoComposition(configuration: configuration)
+    }
+
+    private static func addMusicTrack(
+        _ music: BackgroundMusic, playbackURL: URL, to composition: AVMutableComposition, outputDuration: Double
+    ) async throws -> AVMutableAudioMixInputParameters {
+        try music.validateSource()
+        let musicAsset = AVURLAsset(url: playbackURL)
+        guard let sourceTrack = try await musicAsset.loadTracks(withMediaType: .audio).first else {
+            throw EngineError.decodeFailed("no playback music track")
+        }
+        let assetRange = try await sourceTrack.load(.timeRange)
+        guard assetRange.isValid, assetRange.start.isNumeric, assetRange.duration.isNumeric, assetRange.duration > .zero
+        else {
+            throw EngineError.decodeFailed("music track has no playable range")
+        }
+        let musicBounds = CMTimeRange(start: time(assetRange.start.seconds), end: time(assetRange.end.seconds))
+        let fade = music.fade(forOutputDuration: outputDuration)
+        let playEnd = time(fade.duration)
+        let requestedRange = CMTimeRange(start: time(music.start), duration: playEnd)
+        let intersection = CMTimeRangeGetIntersection(requestedRange, otherRange: musicBounds)
+        guard playEnd == .zero || (intersection.isValid && intersection.duration > .zero) else {
+            throw EngineError.decodeFailed("music range has no playable audio")
+        }
+        guard
+            let track = composition.addMutableTrack(
+                withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        else { throw EngineError.decodeFailed("cannot create playback music track") }
+        track.naturalTimeScale = compositionTimescale
+        if intersection.isValid, intersection.duration > .zero {
+            let insertAt = intersection.start - requestedRange.start
+            if insertAt > .zero {
+                track.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: insertAt))
+            }
+            try track.insertTimeRange(intersection, of: sourceTrack, at: insertAt)
+        }
+        let parameters = AVMutableAudioMixInputParameters(track: track)
+        parameters.audioTimePitchAlgorithm = .timeDomain
+        let musicVolume = Float(music.volume)
+        if fade.fadeOut > 0 {
+            let fadeDuration = time(fade.fadeOut)
+            let fadeStart = CMTimeMaximum(.zero, playEnd - fadeDuration)
+            let rampDuration = playEnd - fadeStart
+            if fadeStart > .zero {
+                parameters.setVolume(musicVolume, at: .zero)
+            }
+            if rampDuration > .zero {
+                parameters.setVolumeRamp(
+                    fromStartVolume: musicVolume, toEndVolume: 0,
+                    timeRange: CMTimeRange(start: fadeStart, duration: rampDuration))
+            } else {
+                parameters.setVolume(musicVolume, at: .zero)
+            }
+        } else {
+            parameters.setVolume(musicVolume, at: .zero)
+        }
+        return parameters
     }
 
     // Nanosecond timescales overflow CoreMedia audio alignment.
