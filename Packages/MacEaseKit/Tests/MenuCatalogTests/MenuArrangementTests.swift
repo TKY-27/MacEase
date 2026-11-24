@@ -76,6 +76,13 @@ private func id(_ name: String) -> MenuGroupID {
         #expect(catalog.groups(in: .image).filter { $0 == id("image.convert") }.count == 1)
     }
 
+    @Test func engineOnlyFinderActionsHaveNoArrangedMenuLeaves() {
+        for operation in [OperationID.folderNewFile, .anyCopyPath, .filesMove] {
+            #expect(operation.menuEntryKeys.isEmpty)
+            #expect(!OperationID.menuOrder.contains(operation))
+        }
+    }
+
     @Test func entryKeysCoverEveryLeafOfTheGroup() {
         #expect(
             id("image.rotate").entryKeys == [

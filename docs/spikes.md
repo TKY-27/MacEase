@@ -1097,3 +1097,109 @@ Automation consent were not exercised. Two pinned ONNX Runtime notice URLs
 returned HTTP 404; the local build uses copies from the installed app whose
 SHA-256 values exactly match `Vendor/ai-audio.lock`. Cold-network bootstrap
 and remote CI remain unverified.
+
+
+## 2026-11-24: Exclusive publication on exFAT and FAT32
+
+Measured on Apple M5, macOS 27.2.1 (26B131), using disposable disk images
+created by hdiutil and mounted under a temporary directory. Both exFAT and
+MS-DOS FAT32 returned ENOTSUP (45) for renamex_np with RENAME_EXCL. exFAT
+renameatx_np with RENAME_EXCL also returned ENOTSUP. Plain rename succeeded.
+An exFAT xattr probe confirmed that plain rename also moves the AppleDouble
+sidecar: the named attribute remained readable at the destination. exFAT
+reported a stable volume UUID through Foundation's volumeUUIDStringKey.
+On FAT32, plain rename atomically replaced both an empty file reservation and
+an empty directory reservation. The exFAT integration regressions exercise the
+same reservation publication through FileCommitter, including collisions.
+
+The shared publisher first attempts RENAME_EXCL. ENOTSUP or EOPNOTSUPP selects the
+fallback: open with O_CREAT | O_EXCL for files and symbolic links, or mkdir
+for directories. An occupied name advances collision numbering. The publisher
+holds the reservation descriptor, compares device/inode and kind, confirms
+emptiness, then uses plain rename over that reservation. Failure cleanup
+rechecks identity and emptiness and removes only a matching reservation.
+Metadata equality is not required across filesystems; content verification
+checks kinds, bytes, directory entries and link targets before publication.
+
+This fallback has a residual race: an uncoordinated process can replace the
+empty reservation, or write into its existing inode, after the identity/emptiness
+check and before rename. The rename could then overwrite that replacement or
+those new bytes. Reservation cleanup likewise
+has a check-to-removal interval. Directory reservation acquisition has a
+mkdir-to-open interval because mkdir does not return a descriptor. These
+limits are accepted for filesystems lacking RENAME_EXCL: an exclusive
+reservation rejects ordinary concurrent creators, and NSFileCoordinator and
+the naming lock serialize cooperating writers. This narrows ordinary collision
+risk compared with a bare existence check followed by rename; it does not
+provide a hostile-process atomic no-overwrite guarantee. A crash within the
+reservation step can leave an empty reservation; the original remains intact.
+
+Previously, New File and grouped derived publication directly required
+RENAME_EXCL, so these paths failed with ENOTSUP on exFAT. Ordinary Derived
+publication and different-name Replace used FileManager.moveItem; that API
+succeeded in the exFAT platform probe, but its internal implementation and
+atomicity were not assumed. Those exclusive publication paths now share the
+reservation fallback. Same-name Replace continues to use the existing
+clone/copy, trashItem and replaceItemAt sequence. Real exFAT regressions pass
+for text conversion in both new-file and same-name Replace modes and New File.
+Ordinary Derived (with or without an input read coordination) and different-name
+Replace retain their previous FileManager.moveItem behavior for EXDEV when
+Foundation supplies staging on another volume. That fallback is separate from
+the reservation path; FileManager is never the ENOTSUP fallback. New File and
+grouped Derived retain their prior refusal of cross-volume staging.
+
+Cross-volume Move now makes a verified copy and always leaves the source in
+place. It records one ordinary Derived entry and a typed warning containing
+both paths. Undo trashes an unchanged copy; the original is never involved.
+Same-volume Move records the existing Renamed entry and preserves identity.
+A missing output, including one beneath a deleted parent or absent volume,
+uses the existing skipped/consumed Undo behavior. No volume UUID is added to
+FileStamp equality, hashing or history encoding.
+
+Platform copyfile copies sparse content without following symbolic links.
+Callbacks report copy progress and check cancellation during writes. Dataless
+files and folders are coordinated for hydration before entering the root copy
+coordination; no descendant coordination is nested inside it. Staging directories
+retain owner write/search permissions and receive no source immutability or
+ACLs. After publication, best-effort metadata runs in the normal commit section
+before its final stamp and history record. There is no detached finalization or
+post-seal history update. Unsupported metadata is logged and dropped.
+
+Real disk-image regressions cover directory publication, concurrent directory
+collisions, symbolic-link publication and Undo on exFAT and FAT32. macOS copyfile
+can represent symbolic links on both filesystems; the earlier refusal claim was
+incorrect. FIFO and Unix sockets are refused before opening their content.
+No SMB/NFS mount, real cloud-provider hydration, forced process kill or power
+failure was exercised. Recovery proof is a publication/history/relaunch
+simulation with both complete copies retained.
+
+
+### Engine test-image lifecycle
+
+Engine fixtures now share TestDiskImage. Backing folders use
+MacEaseTests-Engine-PID-UUID under the system temporary directory, with distinct
+short MACEASE filesystem labels. An interprocess flock serializes image
+creation with a 90-second acquisition deadline; the APFS capability probe is evaluated once per process. Concurrent
+probe creation previously left a newfs_apfs operation waiting beyond a minute.
+Each hdiutil command now has a 60-second bound and terminates its own command
+on timeout. Timeout, interruption and cleanup failure remain test failures;
+only a failed normal APFS creation probe can disable disk-image tests. An
+unexpected exFAT/FAT32 failure never becomes a capability skip.
+
+Scope teardown and a registered process-exit hook detach an owned image before
+removing its backing folder. Abrupt process death cannot run those hooks.
+Before new image creation, the helper identifies older images from the same
+Engine family, checks that the encoded owner PID no longer exists, and only
+then attempts non-forcing detach after a 15-minute grace period. Active or
+new images are preserved. Stale backing files are preserved, as are images
+whose detach is refused. A busy image is reported for later cleanup. A stale
+root disappearing during inspection is treated as an already-removed fixture.
+
+Real exit regressions verify ordinary exit cleanup, throwing-scope cleanup,
+and next-family recovery after _exit skips teardown. Recovery checks native
+filesystem device IDs before and after detach, avoiding cached URL volume
+properties. A separate test protects an older image with a live owner.
+During this redesign, nine older legacy MacEase test-image mounts were
+detached without force and their backing files preserved. Two younger mounts
+were left untouched. See /tmp/macease-design/test-image-cleanup-3.txt for the
+observed inventory; no user, Xcode or simulator images were selected.

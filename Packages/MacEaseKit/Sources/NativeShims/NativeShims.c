@@ -3,6 +3,10 @@
 #include <vpx/vp8cx.h>
 #include <vpx/vp8dx.h>
 
+int macease_copyfile_set_callback(copyfile_state_t state, copyfile_callback_t callback) {
+    return copyfile_state_set(state, COPYFILE_STATE_STATUS_CB, callback);
+}
+
 int macease_opus_set_bitrate(OpusEncoder *encoder, opus_int32 bitrate) {
     return opus_encoder_ctl(encoder, OPUS_SET_BITRATE(bitrate));
 }

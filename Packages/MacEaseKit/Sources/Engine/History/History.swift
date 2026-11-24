@@ -53,7 +53,8 @@ public struct FileStamp: Codable, Hashable, Sendable {
             return false
         }
         do {
-            return try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil) == self
+            let current = try FileStamp(of: URL(fileURLWithPath: path), includingIdentity: identity != nil)
+            return current == self
         } catch {
             return false
         }
@@ -229,6 +230,7 @@ public actor HistoryStore {
     private var pending: [HistoryJournal.Entry] = []
     private var loadFailure: Error?
     private var organizationIntent: OrganizationMoveIntent?
+    nonisolated let staging: StagingArea
     private let committer = FileCommitter()
     private let logger = Logger(category: "history")
     private var lastSave = Date.distantPast
@@ -239,6 +241,7 @@ public actor HistoryStore {
     public private(set) var setAsideFile: URL?
 
     public init(supportDirectory: URL) {
+        staging = StagingArea(supportDirectory: supportDirectory)
         var persistence = HistoryJournal(supportDirectory: supportDirectory)
         do {
             snapshot = try persistence.load()

@@ -177,15 +177,17 @@ extension EngineError {
         if isPermissionError(nsError)
             || (nsError.userInfo[NSUnderlyingErrorKey] as? NSError).map(isPermissionError) == true
         {
-            return .permissionDenied(PermissionLocation(path: path))
+            return .permissionDenied(PermissionLocation(path: nsError.userInfo[NSFilePathErrorKey] as? String ?? path))
         }
         return otherwise("\(nsError.domain) \(nsError.code)")
     }
 
     private static func isPermissionError(_ error: NSError) -> Bool {
         switch error.domain {
-        case NSCocoaErrorDomain: [NSFileReadNoPermissionError, NSFileWriteNoPermissionError].contains(error.code)
-        case NSPOSIXErrorDomain: [Int(EPERM), Int(EACCES)].contains(error.code)
+        case NSCocoaErrorDomain:
+            [NSFileReadNoPermissionError, NSFileWriteNoPermissionError, NSFileWriteVolumeReadOnlyError].contains(
+                error.code)
+        case NSPOSIXErrorDomain: [Int(EPERM), Int(EACCES), Int(EROFS)].contains(error.code)
         default: false
         }
     }

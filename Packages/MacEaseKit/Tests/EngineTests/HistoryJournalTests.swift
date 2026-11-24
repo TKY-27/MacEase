@@ -145,6 +145,25 @@ import Testing
         #expect(try String(contentsOf: original, encoding: .utf8) == "backup")
     }
 
+    @Test func legacyDerivedStampWithoutVolumeStillAuthorizesUndo() async throws {
+        let folder = try TestVolume.makeFolder()
+        let output = folder.appending(path: "legacy.txt")
+        let contents = Data("legacy output".utf8)
+        try contents.write(to: output)
+        let stamp = try FileStamp(of: output)
+        let id = UUID()
+        let encoded = """
+            {"version":1,"batches":[{"id":"\(id.uuidString)","operation":"\(OperationID.textLineEndings.rawValue)",
+            "date":0,"items":[{"derived":{"output":"\(output.path)",
+            "stamp":{"size":\(contents.count),"modified":\(stamp.modified.timeIntervalSinceReferenceDate)}}}],"undone":false}]}
+            """
+        try Data(encoded.utf8).write(to: folder.appending(path: "history.json"))
+        let store = HistoryStore(supportDirectory: folder)
+        #expect(try await store.undo(id) == [.restored])
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+        #expect((await store.records).first?.undone == true)
+    }
+
     @Test func everyTornTailPreservesCompletedRecordsAndAllowsNewCommits() async throws {
         let folder = try Self.makeFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
