@@ -164,6 +164,7 @@ final class AssetTrackReader: @unchecked Sendable {
     enum Mode {
         case packets
         case frames
+        case nativeFrames
         case hdrFrames
         case sdrFrames
         /// Interleaved 32-bit float.
@@ -187,6 +188,11 @@ final class AssetTrackReader: @unchecked Sendable {
             case .frames:
                 [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                    kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+                ]
+            case .nativeFrames:
+                [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
                     kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
                 ]
             case .hdrFrames:

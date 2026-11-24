@@ -580,6 +580,18 @@ enum UserMessages {
                 localized: "Choose an animation range within “\(file)” and a supported frame rate.",
                 comment: "Range must fit the source"
             )
+        case .videoSegmentNotFound:
+            String(localized: "The selected video segment no longer exists. Select another segment.")
+        case .insufficientReverseSpace(let required, let available):
+            String(
+                localized:
+                    "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume."
+            )
+                + " " + String(localized: "Required: \(byteCount(required)); available: \(byteCount(available)).")
+        case .cannotReverseFreeze:
+            String(localized: "A freeze frame cannot be reversed. Select a moving segment.")
+        case .segmentAlreadyReversed:
+            String(localized: "This segment is already reversed. Restore forward playback first.")
         case .invalidNumericParameter:
             String(localized: "Choose finite numeric values within the supported range.")
         case .externalMediaReference:

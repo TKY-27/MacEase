@@ -402,6 +402,15 @@ final class StreamConsentTests: XCTestCase {
             return XCTFail("editor save failed: \(saved.outcomes)")
         }
         XCTAssertEqual(warnings, [.streamsOmitted([.timecode])])
+        let original = try Data(contentsOf: timecoded)
+        await model.saveFrame { batch, settings in
+            Task { await engine.run(batch, settings: settings) { _ in } }
+        }
+        guard case .saved(let frame) = model.frameNote else {
+            return XCTFail("consented single-video frame save failed: \(String(describing: model.frameNote))")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: frame.path))
+        XCTAssertEqual(try Data(contentsOf: timecoded), original)
     }
 
     func testEditorAsksBeforeAddingAVideoThatLosesStreams() async throws {
@@ -425,7 +434,30 @@ final class StreamConsentTests: XCTestCase {
         model.continueWithoutStreams(request)
         try await eventually { model.values.sources.count == 2 || model.failure != nil }
         XCTAssertNil(model.failure)
-        XCTAssertEqual(try model.makeSave(replacingOriginal: false).batch.items.map(\.omittedStreams), [[.timecode]])
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure, "the joined preview keeps the consented omission")
+        let original = try Data(contentsOf: timecoded)
+        let engine = try JobEngine(supportDirectory: directory.appending(path: "engine"), concurrency: 1)
+        let planned = try model.makeSave(replacingOriginal: false)
+        let saved = await engine.run(planned.batch, settings: planned.settings) { _ in }
+        guard case .succeeded(let outputs, _) = saved.outcomes.first else {
+            return XCTFail("consented joined save failed: \(saved.outcomes)")
+        }
+        XCTAssertEqual(outputs.count, 1)
+        model.seek(model.values.segments[0].outputDuration + 0.1)
+        await model.saveFrame { batch, settings in
+            Task { await engine.run(batch, settings: settings) { _ in } }
+        }
+        guard case .saved(let frame) = model.frameNote else {
+            return XCTFail("consented frame save failed: \(String(describing: model.frameNote))")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: frame.path))
+        model.selectSegment(try XCTUnwrap(model.values.segments.last).id)
+        model.toggleReverse()
+        try await eventually { model.reverseProgress == nil }
+        XCTAssertNil(model.reverseFailure)
+        XCTAssertTrue(model.selectedSegment?.isReversed == true)
+        XCTAssertEqual(try Data(contentsOf: timecoded), original)
     }
 
     func testAudioTrimAsksBeforeOpeningAndTrimsWithTheSameConsent() async throws {
