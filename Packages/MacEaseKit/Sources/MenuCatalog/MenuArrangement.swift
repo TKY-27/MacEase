@@ -142,6 +142,34 @@ public struct ScopeArrangement: Equatable, Sendable {
         move(fromOffsets: [row], toOffset: min(row + 2, rows.count))
     }
 
+    /// Blocked groups block the group below.
+    public mutating func moveUp(_ groups: [MenuGroupID]) {
+        var blocked: Set<MenuGroupID> = []
+        for group in self.groups.filter(groups.contains) {
+            let rows = rows
+            guard let row = rows.firstIndex(of: .group(group)) else { preconditionFailure("Unknown group") }
+            if row == 1 || blocked.contains(where: { rows[row - 1] == .group($0) }) {
+                blocked.insert(group)
+            } else {
+                moveUp(group)
+            }
+        }
+    }
+
+    /// Blocked groups block the group above.
+    public mutating func moveDown(_ groups: [MenuGroupID]) {
+        var blocked: Set<MenuGroupID> = []
+        for group in self.groups.filter(groups.contains).reversed() {
+            let rows = rows
+            guard let row = rows.firstIndex(of: .group(group)) else { preconditionFailure("Unknown group") }
+            if row == rows.count - 1 || blocked.contains(where: { rows[row + 1] == .group($0) }) {
+                blocked.insert(group)
+            } else {
+                moveDown(group)
+            }
+        }
+    }
+
     public mutating func hide(_ groups: [MenuGroupID]) {
         move(groups, to: .hidden)
     }
@@ -256,9 +284,8 @@ extension MenuArrangement {
                 migrated = ScopeArrangement(
                     scope: scope, groups: [.menu: menu, .more: groups.filter { !menu.contains($0) }])
             }
-            let folded = migrated.groups.filter { group in
-                let keys = group.entryKeys.filter { extraAngleEnabled || !$0.hasSuffix(extraAngleKeySuffix) }
-                return !keys.isEmpty && keys.allSatisfy(hiddenEntries.contains)
+            let folded = migrated.groups.filter {
+                $0.isEmptied(by: hiddenEntries, extraAngleEnabled: extraAngleEnabled)
             }
             migrated.hide(folded)
             remainingHidden.subtract(folded.flatMap(\.entryKeys).filter { !newInstallHidden.contains($0) })
@@ -266,6 +293,4 @@ extension MenuArrangement {
         }
         return (arrangement, remainingHidden)
     }
-
-    private static let extraAngleKeySuffix = "/\(OperationID.extraAnglePreset)"
 }

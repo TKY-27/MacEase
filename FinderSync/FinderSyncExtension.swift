@@ -9,6 +9,7 @@ final class FinderSyncExtension: FIFinderSync {
         var file: MenuFile?
         var modified: Date?
         var lastMenuKind = FIMenuKind.contextualMenuForItems
+        var builds = MenuBuilds()
     }
 
     private static let rootImageName = "FinderRoot"
@@ -85,10 +86,10 @@ final class FinderSyncExtension: FIFinderSync {
         cache.withLock { $0.lastMenuKind = menuKind }
         let menu = NSMenu(title: "")
         let submenu = NSMenu(title: "MacEase")
-        if let file, file.hostAvailable {
+        if let file, file.hostAvailable, let firstTag = cache.withLock({ $0.builds.record(file) }) {
             let tree = MenuLayout.tree(for: file, selection: selection)
-            add(tree.finder, to: menu)
-            add(tree.macEase, to: submenu)
+            add(tree.finder, to: menu, firstTag: firstTag)
+            add(tree.macEase, to: submenu, firstTag: firstTag)
         } else {
             let open = NSMenuItem(title: openTitle, action: #selector(openHost(_:)), keyEquivalent: "")
             open.target = self
@@ -101,7 +102,7 @@ final class FinderSyncExtension: FIFinderSync {
         return menu.items.isEmpty ? nil : menu
     }
 
-    private func add(_ nodes: [MenuNode], to menu: NSMenu) {
+    private func add(_ nodes: [MenuNode], to menu: NSMenu, firstTag: Int) {
         for node in nodes {
             switch node {
             case .separator:
@@ -109,7 +110,7 @@ final class FinderSyncExtension: FIFinderSync {
             case .action(let title, let entryIndex):
                 let menuItem = NSMenuItem(title: title, action: #selector(runEntry(_:)), keyEquivalent: "")
                 menuItem.target = self
-                menuItem.tag = entryIndex
+                menuItem.tag = firstTag + entryIndex
                 menu.addItem(menuItem)
             case .command(let command, let title):
                 guard let tag = HostCommand.allCases.firstIndex(of: command) else { continue }
@@ -121,7 +122,7 @@ final class FinderSyncExtension: FIFinderSync {
             case .submenu(let title, let children):
                 let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
                 let submenu = NSMenu(title: title)
-                add(children, to: submenu)
+                add(children, to: submenu, firstTag: firstTag)
                 menuItem.submenu = submenu
                 menu.addItem(menuItem)
             }
@@ -134,11 +135,10 @@ final class FinderSyncExtension: FIFinderSync {
 
     @objc func runEntry(_ sender: NSMenuItem) {
         let tag = sender.tag
-        let (file, menuKind) = cache.withLock { ($0.file, $0.lastMenuKind) }
-        guard let file else { return }
+        let (builds, menuKind) = cache.withLock { ($0.builds, $0.lastMenuKind) }
         let paths = selection(for: menuKind).map(\.path)
-        let request = RunRequest(catalogVersion: file.catalogVersion, entryIndex: tag, token: file.token, paths: paths)
-        guard !paths.isEmpty, let url = request.url(scheme: scheme) else { return }
+        // Tags keep the version their menu showed.
+        guard !paths.isEmpty, let url = builds.request(tag: tag, paths: paths)?.url(scheme: scheme) else { return }
         NSWorkspace.shared.open(url)
     }
 
