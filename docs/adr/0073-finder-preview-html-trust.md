@@ -51,9 +51,8 @@ searchable and copyable but inert. Stated limits: an interactive or trusted page
 can load files from its own folder, including quarantined ones, because the
 quarantine rule covers the file the user opened; the proxy does not cover
 loopback or local-interface IP literals, which `Network.framework` exempts, so
-an assistive-technology press on a link inside a closed declarative shadow root
-aimed at such an address could still preconnect while the navigation is
-cancelled; input-method composition inside a closed shadow root can change
+for those addresses the guard, the neutralizer and the content rules are the
+only layers; input-method composition inside a closed shadow root can change
 local, transient text; Look Up may contact Apple when Siri Suggestions are on.
 The measurements come from app-hosted probes with loopback listeners in
 `PreviewTrustTests`, `PreviewSealedPageTests` and `PreviewRenderedPageTests`.
