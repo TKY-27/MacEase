@@ -18,6 +18,13 @@ struct TimelineClip {
     var badges: [TimelineBadge] = []
 }
 
+struct TimelineMusicBar {
+    let range: ClosedRange<Double>
+    let label: String
+    /// Output seconds at the end.
+    let fadeOut: Double
+}
+
 struct TimelineBadge {
     let symbol: String
     let title: String
@@ -138,6 +145,12 @@ struct MediaTimeline: NSViewRepresentable {
     var selectOverlay: ((UUID) -> Void)?
     /// Ranges a pending edit would remove.
     var hatched: [ClosedRange<Double>] = []
+    var music: TimelineMusicBar?
+    var selectMusic: (() -> Void)?
+
+    var lanesHeight: Double {
+        (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0) + (music == nil ? 0 : TimelineCanvas.musicLaneHeight)
+    }
 
     func makeNSView(context: Context) -> TimelineScrollView {
         let scroll = TimelineScrollView()
@@ -195,8 +208,7 @@ final class TimelineScrollView: NSScrollView {
         appliedZoom = configuration.zoom
         canvas.frame = CGRect(
             x: 0, y: 0, width: viewportWidth * configuration.zoom,
-            height: TimelineCanvas.contentHeight
-                + (configuration.showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0))
+            height: TimelineCanvas.contentHeight + configuration.lanesHeight)
         canvas.configuration = configuration
         if let anchor {
             contentView.scroll(
@@ -256,6 +268,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private static let rulerMinorTicks = 4
     private static let waveformLaneHeight = 18.0
     static let overlayLaneHeight = 30.0
+    static let musicLaneHeight = 26.0
     private static let overlayRowLimit = 3
     private static let overlayRowGap = 2.0
     private static let overlayLabelMinimumWidth = 36.0
@@ -357,6 +370,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         }
         drawHatching(configuration)
         if configuration.showsOverlayLane { drawOverlayLane(configuration) }
+        if let music = configuration.music { drawMusicLane(music, configuration: configuration) }
         if !configuration.playing, let hoverTime { drawSkimmer(hoverTime, configuration: configuration) }
         drawPlayhead(configuration.position, configuration: configuration)
     }
@@ -385,6 +399,45 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             CGRect(x: visible.minX, y: visible.minY, width: visible.width, height: 2).fill()
             CGRect(x: visible.minX, y: visible.maxY - 2, width: visible.width, height: 2).fill()
         }
+    }
+
+    private func musicLane(_ configuration: MediaTimeline) -> CGRect {
+        CGRect(
+            x: 0,
+            y: Self.rulerHeight + Self.clipHeight + 6
+                + (configuration.showsOverlayLane ? Self.overlayLaneHeight : 0),
+            width: bounds.width, height: Self.musicLaneHeight - 4)
+    }
+
+    private func drawMusicLane(_ music: TimelineMusicBar, configuration: MediaTimeline) {
+        let lane = musicLane(configuration)
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.5).setFill()
+        NSBezierPath(roundedRect: lane, xRadius: 4, yRadius: 4).fill()
+        let span = rectangle(music.range, duration: configuration.duration)
+        let bar = CGRect(x: span.minX, y: lane.minY, width: max(2, span.width), height: lane.height)
+        let shape = NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4)
+        NSColor.systemPurple.withAlphaComponent(0.6).setFill()
+        shape.fill()
+        let fadeWidth = music.fadeOut / configuration.duration * bounds.width
+        if fadeWidth >= 1 {
+            let ramp = NSBezierPath()
+            ramp.move(to: CGPoint(x: bar.maxX - fadeWidth, y: bar.minY))
+            ramp.line(to: CGPoint(x: bar.maxX, y: bar.maxY))
+            ramp.line(to: CGPoint(x: bar.maxX, y: bar.minY))
+            ramp.close()
+            NSColor.black.withAlphaComponent(0.45).setFill()
+            ramp.fill()
+        }
+        guard bar.width >= Self.overlayLabelMinimumWidth else { return }
+        let label = NSAttributedString(
+            string: "♪ " + music.label,
+            attributes: [.font: NSFont.systemFont(ofSize: 10, weight: .semibold), .foregroundColor: NSColor.white])
+        let size = label.size()
+        label.draw(
+            with: CGRect(
+                x: bar.minX + 6, y: bar.midY - size.height / 2, width: bar.width - 12 - fadeWidth,
+                height: size.height),
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
     private var overlayLane: CGRect {
@@ -661,7 +714,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let line = CGRect(
             x: min(max(actual - Self.playheadWidth / 2, 0), bounds.width - Self.playheadWidth),
             y: Self.rulerHeight - 6, width: Self.playheadWidth,
-            height: Self.clipHeight + 12 + (configuration.showsOverlayLane ? Self.overlayLaneHeight - 4 : 0))
+            height: Self.clipHeight + 12 + max(0, configuration.lanesHeight - 4))
         NSColor.black.withAlphaComponent(0.5).setFill()
         line.insetBy(dx: -0.5, dy: 0).fill()
         NSColor.white.setFill()
@@ -736,6 +789,11 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let location = convert(event.locationInWindow, from: nil)
         mouseOrigin = location
         leave()
+        if configuration.music != nil, musicLane(configuration).contains(location) {
+            configuration.selectMusic?()
+            configuration.seek(seconds(at: location.x))
+            return
+        }
         if configuration.showsOverlayLane, overlayLane.contains(location) {
             if let bar = overlayBars(configuration).last(where: { $0.rect.insetBy(dx: -2, dy: 0).contains(location) }) {
                 configuration.selectOverlay?(bar.mark.id)

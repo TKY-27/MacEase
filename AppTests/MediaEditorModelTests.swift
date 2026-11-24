@@ -1071,6 +1071,82 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertNil(model.silenceTask)
     }
 
+    func testBackgroundMusicAddsReplacesAndRemovesAsUndoSteps() async throws {
+        let model = try await videoModel()
+        let directory = try workspace()
+        let song = try audioFixture(in: directory)
+        XCTAssertTrue(MediaEditorModel.musicTypes.contains(.wav))
+        XCTAssertTrue(MediaEditorModel.musicTypes.contains(.mp3))
+        model.setMusic(song)
+        try await eventually { model.musicTask == nil }
+        XCTAssertNil(model.musicFailure)
+        let music = try XCTUnwrap(model.values.music)
+        XCTAssertEqual(music.url, song)
+        XCTAssertEqual(music.volume, BackgroundMusic.defaultVolume)
+        XCTAssertEqual(music.duration, 2, accuracy: 0.01)
+        XCTAssertEqual(model.values.video.music, music)
+        XCTAssertNotNil(model.musicRevealRequest)
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure)
+
+        model.musicBinding(\.volume).wrappedValue = 0.8
+        model.musicBinding(\.start).wrappedValue = 0.5
+        XCTAssertEqual(model.values.music?.volume, 0.8)
+        let replacement = directory.appending(path: "second.wav")
+        try FileManager.default.copyItem(at: song, to: replacement)
+        model.setMusic(replacement)
+        try await eventually { model.musicTask == nil }
+        XCTAssertEqual(model.values.music?.url, replacement)
+        XCTAssertEqual(model.values.music?.volume, 0.8, "Replace keeps the mix")
+        XCTAssertEqual(model.values.music?.start, 0.5)
+        model.removeMusic()
+        XCTAssertNil(model.values.music)
+        model.undo()
+        XCTAssertEqual(model.values.music?.url, replacement)
+        model.undo()
+        XCTAssertEqual(model.values.music?.url, song, "replacing is one Undo step")
+        model.undo()
+        model.undo()
+        model.undo()
+        XCTAssertNil(model.values.music, "adding is one Undo step")
+    }
+
+    func testBackgroundMusicExplainsUnsupportedAndChangedFiles() async throws {
+        let model = try await videoModel()
+        let directory = try workspace()
+        let text = directory.appending(path: "notes.mp3")
+        try Data("not audio".utf8).write(to: text)
+        model.setMusic(text)
+        try await eventually { model.musicTask == nil }
+        XCTAssertNil(model.values.music)
+        XCTAssertEqual(
+            model.musicFailure,
+            "“notes.mp3” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file.")
+
+        let song = try audioFixture(in: directory)
+        model.setMusic(song)
+        try await eventually { model.musicTask == nil }
+        XCTAssertNil(model.musicFailure, "a new choice clears the old message")
+        try await eventually { model.canSave || model.failure != nil }
+        try Data(count: 4_096).write(to: song)
+        XCTAssertTrue(model.musicChanged)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: false))
+        model.musicBinding(\.volume).wrappedValue = 0.5
+        try await eventually { model.failure != nil }
+        XCTAssertEqual(model.failure, "The background music file changed while editing. Choose it again.")
+        XCTAssertFalse(model.canSave)
+        model.removeMusic()
+        try await eventually { model.canPlay || model.failure != nil }
+        XCTAssertNil(model.failure, "removing the changed song recovers")
+
+        XCTAssertEqual(
+            japanese("“%@” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file."),
+            "“%@”は音楽として使えません。MP3、AAC、WAV、AIFF、FLAC、Ogg、Opusのいずれかを選んでください。")
+        XCTAssertEqual(
+            japanese("The background music file changed while editing. Choose it again."),
+            "編集中に音楽ファイルが変更されました。もう一度選んでください。")
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))

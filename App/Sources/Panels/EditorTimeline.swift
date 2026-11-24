@@ -135,9 +135,16 @@ struct EditorTimeline: View {
                     model.category = .markup
                     model.selectOverlay(id)
                 },
-                hatched: model.silenceHatching
+                hatched: model.silenceHatching, music: musicBar,
+                selectMusic: {
+                    model.category = .video
+                    model.musicRevealRequest = UUID()
+                }
             )
-            .frame(height: MediaTimeline.height + (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0))
+            .frame(
+                height: MediaTimeline.height + (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0)
+                    + (musicBar == nil ? 0 : TimelineCanvas.musicLaneHeight)
+            )
             .accessibilityLabel(Text("Timeline"))
         }
         .padding(.horizontal, 16)
@@ -199,6 +206,14 @@ struct EditorTimeline: View {
                 EditorSilencePopover(model: model)
             }
             Button {
+                model.category = .video
+                model.chooseMusic()
+            } label: {
+                Label(model.values.music == nil ? "Add Music…" : "Replace Music…", systemImage: "music.note")
+            }
+            .help("Play a song under the video")
+            .disabled(model.musicTask != nil)
+            Button {
                 let panel = NSOpenPanel()
                 panel.allowsMultipleSelection = true
                 panel.canChooseDirectories = false
@@ -246,6 +261,14 @@ struct EditorTimeline: View {
         case .right: return index < model.values.segments.count - 1
         case .duplicate, .delete: return true
         }
+    }
+
+    private var musicBar: TimelineMusicBar? {
+        guard let music = model.values.music else { return nil }
+        let duration = model.outputDuration
+        return TimelineMusicBar(
+            range: 0...music.playDuration(forOutputDuration: duration), label: music.url.lastPathComponent,
+            fadeOut: music.fade(forOutputDuration: duration).fadeOut)
     }
 
     private var showsOverlayLane: Bool { model.category == .markup || !model.values.overlays.isEmpty }

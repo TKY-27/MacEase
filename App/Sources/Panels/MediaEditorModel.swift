@@ -40,6 +40,7 @@ struct EditorValues: Equatable {
     var selectedID: UUID?
     var overlays: [TimedOverlay] = []
     var selectedOverlayID: UUID?
+    var music: BackgroundMusic?
 
     var selectedIndex: Int? { segments.firstIndex { $0.id == selectedID } }
     var start: Double {
@@ -84,6 +85,7 @@ struct EditorValues: Equatable {
         edit.sources = sources.isEmpty ? nil : sources
         edit.sourceStamp = photo.sourceStamp
         edit.overlays = overlays
+        edit.music = music
         return edit
     }
 }
@@ -136,6 +138,9 @@ final class MediaEditorModel {
     var silenceFailure: String?
     var silenceRule = SilenceRule()
     var showsSilencePreview = false
+    var musicTask: Task<Void, Never>?
+    var musicFailure: String?
+    var musicRevealRequest: UUID?
     var streamConsent: StreamConsentRequest?
     private(set) var consents: [URL: StreamOmission] = [:]
     var invalidFields: Set<String> = []
@@ -1189,6 +1194,7 @@ final class MediaEditorModel {
         try values.photo.sourceStamp?.validate(url)
         try values.photo.validate()
         if isVideo { _ = try VideoTimeline(edit: values.video, sourceDuration: duration) }
+        try values.music?.validateSource()
     }
 
     func makeSave(replacingOriginal: Bool) throws -> (batch: Batch, settings: Engine.Settings) {
@@ -1461,7 +1467,10 @@ final class MediaEditorModel {
 
     func report(_ error: Error) {
         preparingPlayback = false
-        failure = UserMessages.describe(EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+        failure =
+            musicChanged
+            ? BackgroundMusic.changedErrorMessage
+            : UserMessages.describe(EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
     }
 
     func close() async {
@@ -1469,6 +1478,7 @@ final class MediaEditorModel {
         loadTask?.cancel()
         reverseTask?.cancel()
         silenceTask?.cancel()
+        musicTask?.cancel()
         previewTask?.cancel()
         playbackTask?.cancel()
         splitTask?.cancel()
@@ -1488,6 +1498,7 @@ final class MediaEditorModel {
         await loadTask?.value
         await reverseTask?.value
         await silenceTask?.value
+        await musicTask?.value
         await previewTask?.value
         await playbackTask?.value
         await splitTask?.value

@@ -20097,6 +20097,126 @@
           }
         }
       }
+    },
+    "The background music file changed while editing. Choose it again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集中に音楽ファイルが変更されました。もう一度選んでください。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”は音楽として使えません。MP3、AAC、WAV、AIFF、FLAC、Ogg、Opusのいずれかを選んでください。"
+          }
+        }
+      }
+    },
+    "Background Music": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BGM"
+          }
+        }
+      }
+    },
+    "Music Volume": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽の音量"
+          }
+        }
+      }
+    },
+    "Start in Song": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "曲の開始位置"
+          }
+        }
+      }
+    },
+    "Plays once from the start of the video. A longer song fades out over the last second.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の先頭から1回だけ再生します。動画より長い曲は最後の1秒でフェードアウトします。"
+          }
+        }
+      }
+    },
+    "Replace…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置き換える…"
+          }
+        }
+      }
+    },
+    "Add Music…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽を追加…"
+          }
+        }
+      }
+    },
+    "Replace Music…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽を置き換える…"
+          }
+        }
+      }
+    },
+    "Plays under the video’s own sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の音声に重ねて再生します。"
+          }
+        }
+      }
+    },
+    "Opening music…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽を開いています…"
+          }
+        }
+      }
+    },
+    "Play a song under the video": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画に音楽を重ねて再生します"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

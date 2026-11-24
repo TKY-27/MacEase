@@ -262,29 +262,32 @@ struct MediaEditorView: View {
         let needsSegment =
             model.isVideo && !model.hasSelection && model.category != .crop && model.category != .markup
         return VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if needsSegment {
-                        Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    Group {
-                        switch model.category {
-                        case .video: videoControls
-                        case .adjust: adjustmentControls
-                        case .styles: styleControls
-                        case .crop: cropControls
-                        case .markup: EditorMarkupInspector(model: model)
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if needsSegment {
+                            Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
+                        Group {
+                            switch model.category {
+                            case .video: videoControls
+                            case .adjust: adjustmentControls
+                            case .styles: styleControls
+                            case .crop: cropControls
+                            case .markup: EditorMarkupInspector(model: model)
+                            }
+                        }
+                        .disabled(needsSegment && model.category != .video)
                     }
-                    .disabled(needsSegment && model.category != .video)
+                    .id(model.isVideo ? model.values.selectedID : nil)
+                    .disabled(model.loadingPhoto)
+                    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .id(model.isVideo ? model.values.selectedID : nil)
-                .disabled(model.loadingPhoto)
-                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(model.reverseProgress != nil)
+                .onChange(of: model.musicRevealRequest) { _, _ in reader.scrollTo(Self.musicSectionID) }
             }
-            .disabled(model.reverseProgress != nil)
             if model.isVideo {
                 Divider()
                 exportSettings
@@ -662,6 +665,7 @@ struct MediaEditorView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.hasSelection)
+            EditorMusicSection(model: model).id(Self.musicSectionID)
             if model.originalSources.count > 1 {
                 InspectorSection(String(localized: "Source Videos")) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -714,6 +718,7 @@ struct MediaEditorView: View {
         .disabled(!model.hasSelection)
     }
 
+    private static let musicSectionID = "music"
     private static let speedPresets: [Double] = [0.5, 1, 1.5, 2]
     private static let timecodeDigits = 3
 }
