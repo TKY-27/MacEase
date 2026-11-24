@@ -52,7 +52,31 @@ Then enable the "MacEase Dev" Finder extension in onboarding, or open System
 Settings > General > Login Items & Extensions and enable it under Finder
 Extensions.
 
-The full list of commands is in [AGENTS.md](AGENTS.md#2-commands).
+## Commands
+
+Run from the repository root.
+
+| Purpose | Command |
+| --- | --- |
+| Install tools, build native dependencies, generate the Xcode project | `make bootstrap` |
+| Build the age helper and local AI resources | `make toolkit` |
+| Rebuild native dependencies only | `scripts/build-deps.sh` |
+| Generate the Xcode project | `xcodegen generate` |
+| Build the app (Debug) | `make build` |
+| Unit tests (package) | `make test` (verifies JS isolation, then runs sequential package tests with the pinned media runtime) |
+| App-hosted editor regression tests | `make test-app` |
+| Full tests on a real Mac, including capability-gated and app-hosted tests | `make test-device` |
+| Lint | `make lint` (runs `swift format lint --strict --recursive App AppTests FinderSync Packages`) |
+| Format | `make format` (runs `swift format format --in-place --recursive App AppTests FinderSync Packages`) |
+| Create the release signing identity (into `build/signing/`) | `scripts/create-signing-identity.sh [--set-secrets] [dir]` |
+| Release DMG locally (identity from an unlocked keychain file) | `MACEASE_SIGNING_KEYCHAIN=<path> make dmg` |
+| Ad-hoc signed DMG for local testing | `MACEASE_ALLOW_ADHOC=1 make dmg` |
+| Benchmarks | `scripts/bench.sh` |
+| Regenerate the app icon and template glyph assets | `swift scripts/make-app-icon.swift` |
+| Regenerate the DMG window background | `swift scripts/make-dmg-window.swift background` |
+
+Builds treat warnings as errors. Keep these commands working; if one changes,
+update this table and README.md in the same commit.
 
 ## Code style
 
@@ -61,8 +85,8 @@ The full list of commands is in [AGENTS.md](AGENTS.md#2-commands).
 - Comments explain why, never what, and stay short.
 - No force unwraps, no dead code, no debug prints.
 
-The complete rules are in [AGENTS.md](AGENTS.md#3-code-quality-rules) and apply
-to human contributors too.
+The binding rules are in [AGENTS.md](AGENTS.md) and apply to human
+contributors too.
 
 ## Tests
 

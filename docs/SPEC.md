@@ -91,7 +91,7 @@ scripts/                  build-deps.sh, make-dmg.sh, create-signing-identity.sh
                           generate-notices.sh, bench.sh
 docs/                     SPEC.md, adr/, spikes.md
 project.yml               XcodeGen project
-Makefile                  Developer entry points (see AGENTS.md)
+Makefile                  Developer entry points (see CONTRIBUTING.md)
 ```
 
 ### 3.3 Extension and host protocol
