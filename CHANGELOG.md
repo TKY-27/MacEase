@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Restrict the bundled JavaScript solver to a CLI without file, process, network
+  or native-module APIs. Verify denied capabilities during builds and tests.
+
 - Strip debug/local symbols from bundled media and audio helpers before signing,
   retaining dynamic exports and the original offline models.
 

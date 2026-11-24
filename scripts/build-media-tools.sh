@@ -13,11 +13,14 @@ deployment_target="26.0"
 python_version="3.14"
 jobs=4
 stamp="$(cat "$lock" "$0" "$root/scripts/sign-bundled-code.sh" "$root/scripts/verify-signing.py" "$root"/scripts/entitlements/*.plist \
-    "$root/docs/media-tools.md" "$root/Vendor/patches/lame-media-tools-export.patch" | shasum -a 256 | cut -d' ' -f1)"
+    "$root/docs/media-tools.md" "$root/Vendor/patches/lame-media-tools-export.patch" \
+    "$root/Vendor/patches/quickjs-solver-only.patch" "$root/Vendor/patches/quickjs-solver.c" \
+    "$root/scripts/verify-js-isolation.py" "$root/Tests/JavaScriptIsolation/capabilities.js" "$root/LICENSE" | shasum -a 256 | cut -d' ' -f1)"
 
 if [[ "${1:-}" != --force && -f "$stamp_file" && -f "$source_archive" \
     && "$(cat "$stamp_file")" == "$stamp" && -x "$runtime/bin/python3" \
     && -x "$runtime/bin/qjs" && -x "$runtime/bin/ffmpeg" && -x "$runtime/bin/ffprobe" ]]; then
+    "$runtime/bin/python3" -I -B "$root/scripts/verify-js-isolation.py" "$runtime/bin/qjs"
     echo "Media tools are up to date."
     exit 0
 fi
@@ -126,9 +129,12 @@ rm -rf "$site_packages/certifi/tests"
 find "$runtime/lib/python$python_version" -type d -name __pycache__ -prune -exec rm -rf {} +
 
 unpack quickjs-ng
+patch -d "$work/quickjs-ng" -p1 < "$root/Vendor/patches/quickjs-solver-only.patch"
+cp "$root/Vendor/patches/quickjs-solver.c" "$work/quickjs-ng/"
+cp "$root/LICENSE" "$runtime/licenses/quickjs-ng/MACEASE_LICENSE.txt"
 run quickjs-configure cmake -S "$work/quickjs-ng" -B "$work/quickjs-ng/_build" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment_target" -DBUILD_SHARED_LIBS=OFF
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$deployment_target" -DBUILD_SHARED_LIBS=OFF -DQJS_BUILD_LIBC=OFF
 run quickjs-build cmake --build "$work/quickjs-ng/_build" --target qjs_exe --parallel "$jobs"
 cp "$work/quickjs-ng/_build/qjs" "$runtime/bin/"
 
@@ -225,6 +231,7 @@ env -i HOME="$work" PATH=/usr/bin:/bin "$runtime/bin/python3" -I -B -c \
     'import ssl,yt_dlp,yt_dlp_ejs.yt.solver; assert ssl.create_default_context().cert_store_stats()["x509_ca"] > 0; assert yt_dlp_ejs.yt.solver.core()'
 env -i HOME="$work" PATH=/usr/bin:/bin "$runtime/bin/python3" -I -B -m yt_dlp --ignore-config --version
 env -i HOME="$work" PATH=/usr/bin:/bin "$runtime/bin/qjs" --version
+"$runtime/bin/python3" -I -B "$root/scripts/verify-js-isolation.py" "$runtime/bin/qjs"
 "$runtime/bin/python3" -I -B -c \
     'import yt_dlp_ejs.yt.solver as solver; print(solver.lib()); print("Object.assign(globalThis, lib);"); print(solver.core()); print("if (typeof jsc !== \"function\") throw new Error(\"Missing solver\")")' \
     > "$work/solver-smoke.js"
@@ -263,6 +270,11 @@ cp "$root/scripts/verify-signing.py" "$source_bundle/scripts/"
 cp "$root"/scripts/entitlements/*.plist "$source_bundle/scripts/entitlements/"
 cp "$lock" "$source_bundle/Vendor/"
 cp "$root/Vendor/patches/lame-media-tools-export.patch" "$source_bundle/Vendor/patches/"
+cp "$root"/Vendor/patches/quickjs-solver* "$source_bundle/Vendor/patches/"
+cp "$root/scripts/verify-js-isolation.py" "$source_bundle/scripts/"
+mkdir -p "$source_bundle/Tests/JavaScriptIsolation"
+cp "$root/Tests/JavaScriptIsolation/capabilities.js" "$source_bundle/Tests/JavaScriptIsolation/"
+cp "$root/LICENSE" "$source_bundle/"
 cp "$root/docs/media-tools.md" "$source_bundle/docs/"
 tar --options xz:compression-level=0,xz:threads=4 -cJf "$source_archive.part" -C "$source_bundle" .
 mv "$source_archive.part" "$source_archive"

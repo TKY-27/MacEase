@@ -492,7 +492,9 @@ exports retain the ordinary Derived behavior. See section 8.5 and ADR 0040.
 ### 3.7 Native dependencies
 
 The isolated download runtime includes MIT-licensed QuickJS-NG 0.18.0, built
-from source and pinned by SHA-256 in `Vendor/media-tools.lock` (section 22).
+from source with a solver-only CLI and pinned by SHA-256 in
+`Vendor/media-tools.lock` (section 22). Its patch, CLI source and license accompany
+the source distribution.
 
 Libraries linked into MacEase are permissively licensed and compatible with MIT
 distribution. Sections 22–24 permit separately licensed isolated tools and
@@ -2612,7 +2614,13 @@ Completed downloads support Show in Finder and Undo through normal history.
 
 Bundle source-distributed Unlicense yt-dlp, a private Python runtime, EJS and a
 source-built QuickJS-NG 0.18.0 runtime. EJS 0.8.0 runs only through that explicit
-runtime, without remote components or automatic fallback. Solver temporary
+runtime, without remote components or automatic fallback. Do not link the stock
+CLI or `quickjs-libc`. The solver CLI reads only its caller-selected input script
+before evaluation, exposes `console.log` and ordinary language/base64/clock
+intrinsics, and rejects every module load. JavaScript cannot access files,
+environment variables, processes, workers or the network. Gate the media build
+and package test command with real denied-I/O probes and a global allowlist.
+This is an API boundary, not an OS sandbox or a CPU/memory limit. Solver temporary
 files stay in per-request staging and are removed on completion or cancellation.
 QuickJS-NG needs no JIT entitlement. Omit Python GUI/bootstrap packages, unused
 certifi tests and bytecode caches; retain runtime source and extension modules.
@@ -3052,6 +3060,9 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-24: Require a solver-only QuickJS CLI without native I/O modules, with
+  real capability-denial checks in builds and tests (ADR 0074).
 
 - 2026-11-24: Strip debug/local symbols from media/audio helpers before signing,
   preserving executable sections and exports (ADR 0074).

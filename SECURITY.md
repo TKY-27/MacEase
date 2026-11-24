@@ -39,7 +39,12 @@ In normal Debug and Release builds, library validation is disabled only for
 the bundled Python, FFmpeg, ffprobe
 and two sherpa audio executables, which load bundled libraries without an
 Apple Team ID. No bundled executable has a JIT entitlement. The host and extension keep
-library validation. These settings do not provide Apple notarization.
+library validation. The bundled QuickJS solver CLI omits native I/O modules and
+rejects all imports. Its only added host callback is console output; JavaScript
+cannot read/write files, spawn processes or access the network. The Python
+parent supplies its single script before evaluation. This is an API capability
+boundary, not an OS sandbox or protection against native engine vulnerabilities.
+These settings do not provide Apple notarization.
 App-hosted tests use a separate `DebugTests` configuration whose host disables
 library validation for unteamed XCTest/package bundles; this host is not shipped.
 See [ADR 0069](docs/adr/0069-hardened-runtime.md) and the

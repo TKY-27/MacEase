@@ -23,7 +23,8 @@ scripts/build-media-tools.sh
 
 The script verifies every archive against `Vendor/media-tools.lock`, then builds
 CPython, OpenSSL, FFmpeg, LAME, libvpx, dav1d, Opus and QuickJS-NG from the exact pinned sources.
-QuickJS-NG is built as a static arm64 executable from its MIT-licensed source.
+QuickJS-NG uses a static arm64 solver-only CLI from its pinned MIT-licensed
+engine source. The stock CLI and `quickjs-libc` are not linked.
 yt-dlp is installed from its
 Unlicense Python source distribution, rather than its GPL-containing macOS
 standalone executable. The pinned EJS wheel contains offline solver JavaScript;
@@ -59,8 +60,26 @@ QuickJS 2023-12-09 or newer and every QuickJS-NG release; its recommended
 performance floors are QuickJS 2025-04-26 and QuickJS-NG 0.12.0.
 EJS 0.8.0 remains bundled, with remote components disabled. There is one explicit
 runtime and no fallback. QuickJS-NG needs no JIT entitlement under Hardened Runtime.
-Unlike Node's restricted permission mode, QuickJS exposes its standard OS modules.
-It executes only the pinned EJS solver and the player code processed by that solver.
+The stock CLI exposes host I/O through native modules. MacEase instead applies
+`Vendor/patches/quickjs-solver-only.patch` and supplies `quickjs-solver.c`.
+The C entrypoint accepts only `--script FILE`, `--help` and `--version`.
+It reads and closes the caller-selected script before evaluating any JavaScript.
+The only installed host callback is `console.log`; ordinary language intrinsics,
+base64, promises and clocks remain available. There are no JavaScript file,
+environment, process, worker or network APIs, no `std`/`os`/`bjson` modules,
+and no loader for other files or URLs. Dynamic imports always reject. Static
+imports are syntax errors in the forced script mode; `--std` is rejected.
+The trusted Python process retains download and staging access.
+
+This is an API capability boundary, not an OS process sandbox. It does not
+protect against native engine vulnerabilities, CPU exhaustion or memory exhaustion.
+No wrapper process, sandbox profile or additional entitlement is required.
+
+The pinned provider embeds the EJS library, core, player string and challenge JSON
+inside one script, ending with `console.log(JSON.stringify(jsc(...)))`.
+It launches `qjs --script TEMPFILE`, supplies no stdin content, and parses stdout
+as JSON. A nonzero exit or nonempty stderr is a provider failure. The solver
+needs no module loading or host API beyond its final console output.
 
 The pinned provider creates a mode-0600 JavaScript file using Python's
 `NamedTemporaryFile` and unlinks it in `finally`. `MediaToolProcess` sets `TMPDIR`
@@ -73,20 +92,38 @@ No temporary JavaScript files remained. Solver timings exclude network and media
 transfer: `time.perf_counter()` surrounds the upstream provider's
 `_run_js_runtime`, with disk cache disabled, once per video/runtime.
 
-| Video | Node 26.13.1 | QuickJS-NG 0.18.0 |
-| --- | ---: | ---: |
-| jNQXAC9IVRw | 0.873 s | 3.119 s |
-| aqz-KE-bpKQ | 0.871 s | 3.572 s |
-| M7lc1UVf-VE | 0.819 s | 2.999 s |
+| Video | Node 26.13.1 | Stock QuickJS-NG | Solver-only QuickJS-NG |
+| --- | ---: | ---: | ---: |
+| jNQXAC9IVRw | 0.873 s | 3.119 s | 3.051 s |
+| aqz-KE-bpKQ | 0.871 s | 3.572 s | 3.177 s |
+| M7lc1UVf-VE | 0.819 s | 2.999 s | 2.837 s |
 
 The upstream EJS integration tests also passed for QuickJS-NG (bulk challenges
 and cached-player reuse). These single-run measurements establish a size/latency trade-off, not a general
 performance benchmark. Player changes can change either runtime's timing.
 
+## Isolation verification
+
+`make test` and the media build run `scripts/verify-js-isolation.py` through the
+private isolated Python. The fixture executes with the exact provider arguments,
+empty stdin and a private TMPDIR. It checks normal evaluation first, then real
+attempts to read/write a sibling-directory sentinel, spawn processes, fetch a
+loopback HTTP endpoint, enumerate files, read environment variables, load a file
+module, use bjson and start a worker. It also rejects unexpected globals,
+static imports and the `--std` option. A future runtime restoring these APIs fails.
+
+The stock 0.18.0 negative control succeeded at read/write, process, HTTP,
+directory, environment, file-module, bjson and worker operations. Its native
+module names are `qjs:std`, `qjs:os` and `qjs:bjson`; bare names fail in this build.
+The solver-only build denied every attempt, modified no sibling files and made
+zero HTTP requests. All three real downloads above match the earlier Node and
+stock runtime SHA-256. Upstream bulk-challenge and cached-player EJS tests pass.
+
 ## Source distribution
 
 `Vendor/build/media-tools-sources.tar.xz` contains the exact source archives,
-build script, lock manifest and this document. Release packaging copies it
+build script, lock manifest, isolation patch/CLI/check/fixture, MIT license and
+this document. Release packaging copies it
 alongside the signed DMG. It must be published on the same release as the DMG.
 The application contains the manifest, build configuration and license texts.
 
