@@ -21,6 +21,10 @@ The upstream provider unlinks them normally; request cleanup removes leftovers
 on cancellation. Record real-download evidence and solver timing in
 `docs/media-tools.md`.
 
+Remove Python GUI/bootstrap packages, certifi tests and bytecode caches. Keep
+all remaining source and extension modules, and retain isolated `-I -B` launches.
+Standard-library test support remains available for runtime verification.
+
 ## Consequences
 
 Three public YouTube videos downloaded with both runtimes. Their observed

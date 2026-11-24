@@ -2614,7 +2614,10 @@ Bundle source-distributed Unlicense yt-dlp, a private Python runtime, EJS and a
 source-built QuickJS-NG 0.18.0 runtime. EJS 0.8.0 runs only through that explicit
 runtime, without remote components or automatic fallback. Solver temporary
 files stay in per-request staging and are removed on completion or cancellation.
-QuickJS-NG needs no JIT entitlement. Never depend on the user's Python or Homebrew.
+QuickJS-NG needs no JIT entitlement. Omit Python GUI/bootstrap packages, unused
+certifi tests and bytecode caches; retain runtime source and extension modules.
+Launch Python with isolated imports and bytecode writes disabled. Never depend
+on the user's Python or Homebrew.
 Bundle FFmpeg and ffprobe as independent processes, built without GPL or nonfree
 features, for downloading, merging, converting and repairing newly downloaded
 media, plus local MP3 encoding under section 23. Their required LGPL dependencies
@@ -3046,6 +3049,9 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-24: Omit Python GUI/bootstrap packages, certifi tests and bytecode
+  caches while retaining runtime modules and source (ADR 0074).
 
 - 2026-11-24: Replace Node with source-built QuickJS-NG 0.18.0, remove its JIT
   exception, and confine solver temporary files to request staging (ADR 0074).

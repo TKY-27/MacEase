@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Omit unused Python GUI/bootstrap packages, certifi tests and bytecode caches
+  from the private download runtime.
+
 - Reduce the bundled JavaScript runtime from Node to source-built QuickJS-NG,
   removing the JIT entitlement. YouTube challenge solving may take a few seconds
   longer; the pinned offline EJS solver and explicit runtime selection remain.

@@ -119,6 +119,12 @@ cp -R "$work/requests/src/requests" "$work/urllib3/src/urllib3" \
     'import yt_dlp_ejs.yt.solver as solver; print(solver.lib().split("*/", 1)[0] + "*/")' \
     > "$runtime/licenses/ejs/BUNDLED_DEPENDENCIES.txt"
 
+for directory in idlelib tkinter turtledemo ensurepip; do
+    rm -rf "$runtime/lib/python$python_version/$directory"
+done
+rm -rf "$site_packages/certifi/tests"
+find "$runtime/lib/python$python_version" -type d -name __pycache__ -prune -exec rm -rf {} +
+
 unpack quickjs-ng
 run quickjs-configure cmake -S "$work/quickjs-ng" -B "$work/quickjs-ng/_build" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
