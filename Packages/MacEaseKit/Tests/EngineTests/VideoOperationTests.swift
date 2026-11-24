@@ -529,7 +529,7 @@ import Testing
         #expect(frames.map(\.width) == [80, 80])
     }
 
-    private func videoWithExtraTracks(
+    func videoWithExtraTracks(
         includeTimecode: Bool = false, includeChapter: Bool = false, includeMetadata: Bool = false,
         includeClosedCaption: Bool = false, sourceURL: URL? = nil, timecodeRate: Int32 = 24, leadingSeconds: Double = 0,
         timecodeDuration: CMTime? = nil, associateTimecode: Bool = true

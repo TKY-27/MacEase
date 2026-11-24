@@ -24,8 +24,10 @@ public enum RecipePlanner {
 
     /// Videos whose recompressed copies would leave streams out.
     public static func streamOmissions(
-        recipe: Recipe, inputs: [URL], unavailable: Set<UnpreservedStream> = []
+        recipe: Recipe, inputs: [URL], unavailable: Set<UnpreservedStream> = [],
+        unpreservedStreams: Settings.UnpreservedStreamsChoice = .ask
     ) async throws -> [URL: StreamOmission] {
+        guard !unpreservedStreams.permitsAutomaticOmission else { return [:] }
         let variants = recipe.variants.filter { $0.output.videoFormat != nil }
         guard !variants.isEmpty else { return [:] }
         var omissions: [URL: StreamOmission] = [:]
@@ -49,7 +51,8 @@ public enum RecipePlanner {
 
     public static func batch(
         recipe: Recipe, inputs: [URL], destination: URL? = nil, settings: Settings,
-        omissions: [URL: StreamOmission] = [:]
+        omissions: [URL: StreamOmission] = [:],
+        unpreservedStreams: Settings.UnpreservedStreamsChoice = .ask
     ) throws -> Batch {
         try recipe.validate()
         guard let first = inputs.first else { throw EngineError.invalidInput(.emptyInput) }
@@ -63,12 +66,14 @@ public enum RecipePlanner {
         fixedSettings.text.pdfImageLayout = .pagesFolder
         fixedSettings.video.thumbnailFormat = .png
         let execution = RecipeExecution(recipe: recipe, settings: fixedSettings)
-        let work = WorkItem(
+        var work = WorkItem(
             inputs: inputs, lane: inputs.contains { FileKind(fileURL: $0) == .video } ? .hardwareVideo : .cpu
         ) {
             context in
             try await run(execution, inputs: inputs, destination: output, omissions: omissions, context: context)
         }
+        work.derivesOutput = true
+        work.unpreservedStreams = unpreservedStreams
         return Batch(operation: .filesFinish, items: [work], recipeExecution: execution)
     }
 
@@ -98,12 +103,13 @@ public enum RecipePlanner {
             throw RecipeError.sourceChanged(input.lastPathComponent)
         }
         let required = try await streamOmissions(recipe: execution.recipe, inputs: inputs)
-        for (source, omission) in required {
-            let unconsented = omission.streams.subtracting(omissions[source]?.streams ?? [])
-            if !unconsented.isEmpty {
-                throw EngineError.invalidInput(
-                    .unpreservedStreams(UnpreservedStream.allCases.filter(unconsented.contains)))
-            }
+        let unconsented = Set(
+            required.flatMap { source, omission in
+                omission.streams.subtracting((omissions[source]?.streams ?? []).union(context.omittedStreams))
+            })
+        if !unconsented.isEmpty {
+            throw EngineError.invalidInput(
+                .unpreservedStreams(UnpreservedStream.allCases.filter(unconsented.contains)))
         }
         let workspace = try context.stagingDirectory(for: destination)
         let sources = try clone(inputs, into: workspace)
@@ -113,7 +119,7 @@ public enum RecipePlanner {
                 .map {
                     VariantRun(
                         source: source, variant: $0,
-                        omittedStreams: omissions[source.original]?.streams ?? [])
+                        omittedStreams: (omissions[source.original]?.streams ?? []).union(context.omittedStreams))
                 }
         }
         var targets: [Int64?] = runs.map { $0.variant.targetBytes }

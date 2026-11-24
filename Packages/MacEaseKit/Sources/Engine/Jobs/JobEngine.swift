@@ -152,6 +152,39 @@ public final class JobEngine: Sendable {
         )
     }
 
+    private func produce(_ workItem: WorkItem, context: ItemContext) async throws -> ItemResult {
+        do {
+            return try await workItem.body(context)
+        } catch EngineError.invalidInput(.unpreservedStreams(let streams)) {
+            guard workItem.unpreservedStreams.permitsAutomaticOmission,
+                !streams.isEmpty, context.canContinueBeforeEncoding,
+                try await workItem.savesNewFile(context: context)
+            else { throw EngineError.invalidInput(.unpreservedStreams(streams)) }
+            let stamps = context.details.inputStamps
+            do {
+                for input in workItem.inputs {
+                    guard let stamp = stamps[input] else { throw ActivityAvailability.unavailable }
+                    try ActivitySession.validate(input, stamp: stamp)
+                }
+            } catch ActivityAvailability.changed {
+                context.removeStaging()
+                var inspected: [URL: FileStamp] = [:]
+                for input in workItem.inputs { inspected[input] = try FileStamp(of: input, includingIdentity: true) }
+                context.recordInputs(inspected)
+                _ = try await workItem.body(context)
+                throw FileCommitter.Failure.changedSinceScan
+            }
+            context.omitStreams(Set(streams))
+            let result = try await workItem.body(context)
+            if case .replace = result, workItem.newFileNaming == nil {
+                throw EngineError.invalidInput(.unpreservedStreams(streams))
+            }
+            for (input, stamp) in stamps { try ActivitySession.validate(input, stamp: stamp) }
+            context.warnStreamsOmitted(streams)
+            return result
+        }
+    }
+
     private func perform(
         _ workItem: WorkItem,
         of batch: Batch,
@@ -197,7 +230,8 @@ public final class JobEngine: Sendable {
                     }
                     context.recordInputs(identities)
                 }
-                result = try await workItem.body(context)
+                result = try await produce(workItem, context: context)
+                if context.omittedStreams != workItem.omittedStreams { inputStamps = context.details.inputStamps }
                 if case .move(let entry, let destination) = result {
                     preparedMove = try committer.prepareMove(entry, to: destination, context: context)
                 }

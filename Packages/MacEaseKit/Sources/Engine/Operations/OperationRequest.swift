@@ -5,14 +5,17 @@ public struct OperationRequest: Sendable {
     public let op: OperationID
     public let options: OperationOptions
     public let inputs: [URL]
+    public let unpreservedStreams: Settings.UnpreservedStreamsChoice
     public let omittedStreams: Set<UnpreservedStream>
     /// Inputs must still match these when their item starts.
     public let inputStamps: [URL: MediaSourceStamp]
 
     public init(
         op: OperationID, options: OperationOptions, inputs: [URL], omittedStreams: Set<UnpreservedStream> = [],
-        inputStamps: [URL: MediaSourceStamp] = [:]
+        inputStamps: [URL: MediaSourceStamp] = [:],
+        unpreservedStreams: Settings.UnpreservedStreamsChoice = .ask
     ) {
+        self.unpreservedStreams = unpreservedStreams
         self.op = op
         self.options = options
         self.inputs = inputs
@@ -54,9 +57,14 @@ public enum OperationPlanner {
     public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
         let planned = plannedBatch(for: request, settings: settings)
         let naming = settings.outputMode == .newFile ? NewFileNaming(options: request.options) : nil
-        guard naming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty else { return planned }
+        guard
+            naming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty
+                || request.unpreservedStreams == .omitFromNewFiles
+        else { return planned }
         let workItems = planned.items.map { workItem in
             var configured = workItem
+            configured.unpreservedStreams = request.unpreservedStreams
+            configured.omissionOptions = request.options
             configured.newFileNaming = naming
             configured.omittedStreams = request.omittedStreams
             if !request.inputStamps.isEmpty {
