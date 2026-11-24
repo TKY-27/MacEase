@@ -110,22 +110,11 @@ struct TransportClock: View {
                 .onExitCommand { self.draft = nil }
                 .onChange(of: editing) { _, focused in if !focused { self.draft = nil } }
                 .help("Type a time such as 1:05.25, then press Return")
-        } else if seek != nil {
-            Button {
-                draft = Timecode.string(position, fractionDigits: Self.editingDigits)
-            } label: {
-                clock
-            }
-            .buttonStyle(.plain)
-            .help("Click to Go to a Time")
-            .accessibilityLabel(Text("Playhead"))
-            .accessibilityValue(spokenTime)
-            .accessibilityHint(Text("Type a time to move the playhead."))
         } else {
-            clock
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Playhead"))
-                .accessibilityValue(spokenTime)
+            TransportClockReadout(
+                position: position, duration: duration,
+                edit: seek == nil
+                    ? nil : { draft = Timecode.string(position, fractionDigits: Self.editingDigits) })
         }
     }
 
@@ -141,18 +130,93 @@ struct TransportClock: View {
 
     private static let fieldWidth: CGFloat = 96
     private static let editingDigits = 3
+}
 
-    private var clock: some View {
-        HStack(spacing: 4) {
-            Text(Timecode.string(position)).foregroundStyle(.primary)
-            Text(verbatim: "/").foregroundStyle(.tertiary)
-            Text(Timecode.string(duration)).foregroundStyle(.secondary)
-        }
-        .font(.callout.monospacedDigit())
+/// Formats spoken time only when VoiceOver asks.
+private struct TransportClockReadout: NSViewRepresentable {
+    let position: Double
+    let duration: Double
+    let edit: (() -> Void)?
+
+    func makeNSView(context: Context) -> ClockReadoutView {
+        let view = ClockReadoutView()
+        updateNSView(view, context: context)
+        return view
     }
 
-    private var spokenTime: Text {
-        Text("\(Timecode.spoken(position)) of \(Timecode.spoken(duration))")
+    func updateNSView(_ view: ClockReadoutView, context: Context) {
+        view.configure(position: position, duration: duration, enabled: context.environment.isEnabled, edit: edit)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ClockReadoutView, context: Context) -> CGSize? {
+        nsView.fittingSize
+    }
+}
+
+final class ClockReadoutView: NSView {
+    private var position = 0.0
+    private var duration = 0.0
+    private var isEnabled = true
+    private var edit: (() -> Void)?
+    private var displayedText = ""
+    private var attributedText = NSAttributedString()
+
+    override var intrinsicContentSize: NSSize { attributedText.size() }
+    override var fittingSize: NSSize { attributedText.size() }
+
+    func configure(position: Double, duration: Double, enabled: Bool, edit: (() -> Void)?) {
+        self.position = position
+        self.duration = duration
+        self.isEnabled = enabled
+        self.edit = edit
+        let tip = edit != nil ? String(localized: "Click to Go to a Time") : nil
+        if toolTip != tip { toolTip = tip }
+        let formattedPosition = Timecode.string(position)
+        let formattedDuration = Timecode.string(duration)
+        let combined = "\(formattedPosition) / \(formattedDuration)"
+        guard combined != displayedText else { return }
+        displayedText = combined
+        let font = NSFont.monospacedDigitSystemFont(
+            ofSize: NSFont.preferredFont(forTextStyle: .callout).pointSize, weight: .regular)
+        let text = NSMutableAttributedString(
+            string: formattedPosition, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
+        text.append(
+            NSAttributedString(string: " / ", attributes: [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]))
+        text.append(
+            NSAttributedString(
+                string: formattedDuration, attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
+        attributedText = text
+        invalidateIntrinsicContentSize()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let size = attributedText.size()
+        attributedText.draw(at: CGPoint(x: 0, y: (bounds.height - size.height) / 2))
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled, let edit else { super.mouseDown(with: event); return }
+        edit()
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { edit != nil ? .button : .staticText }
+    override func accessibilityLabel() -> String? { String(localized: "Playhead") }
+    override func accessibilityValue() -> Any? {
+        String(localized: "\(Timecode.spoken(position)) of \(Timecode.spoken(duration))")
+    }
+    override func accessibilityHelp() -> String? {
+        edit != nil ? String(localized: "Type a time to move the playhead.") : nil
+    }
+    override func isAccessibilityEnabled() -> Bool { isEnabled }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled, let edit else { return false }
+        edit()
+        return true
     }
 }
 
@@ -167,12 +231,13 @@ struct EditorTimeline: View {
             }
             .buttonStyle(.borderless)
             MediaTimeline(
-                duration: max(model.timelineDuration, model.frameDuration), position: model.position,
+                duration: model.timelineDuration, position: model.position,
                 clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
                 seek: model.seek, hover: model.skim, select: model.selectSegment,
                 beginTrim: model.beginTimelineTrim, trim: model.updateTimelineTrim,
                 endTrim: { Task { await model.endTimelineTrim() } }, move: model.moveSegment,
                 action: { id, action in
+                    guard actionState(id, action).available else { return }
                     model.selectSegment(id)
                     switch action {
                     case .setIn: model.setTrimBoundaryAtPlayhead(start: true)
@@ -335,7 +400,7 @@ struct EditorTimeline: View {
     }
 
     private var musicBar: TimelineMusicBar? {
-        guard let music = model.values.music else { return nil }
+        guard let music = model.values.music, model.outputDuration > 0 else { return nil }
         let duration = model.outputDuration
         return TimelineMusicBar(
             range: 0...music.playDuration(forOutputDuration: duration), label: music.url.lastPathComponent,
@@ -360,8 +425,9 @@ struct EditorTimeline: View {
         let count = model.values.segments.count
         let numbered = count > 1
         let joined = model.originalSources.count > 1
+        let ranges = model.timelineRanges()
         return model.values.segments.enumerated().map { index, segment in
-            let range = model.timelineRange(for: segment)
+            let range = ranges[segment.id] ?? 0...0
             let name = model.sourceName(segment)
             let fade = FadeRamp(
                 duration: range.upperBound - range.lowerBound, fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
@@ -377,22 +443,10 @@ struct EditorTimeline: View {
                 label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment),
                 waveform: model.waveform(for: segment, in: range), fadeIn: fade.fadeIn, fadeOut: fade.fadeOut,
                 freeze: segment.isFreeze, badges: badges,
-                accessibilityName: joined
-                    ? String(localized: "Segment \(index + 1) of \(count), \(name)")
-                    : String(localized: "Segment \(index + 1) of \(count)"),
-                accessibilityStates: Self.spokenStates(segment))
+                accessibility: .segment(
+                    index: index, count: count, sourceName: joined ? name : nil, freeze: segment.isFreeze,
+                    reversed: segment.isReversed, speed: segment.speed))
         }
-    }
-
-    private static func spokenStates(_ segment: VideoSegment) -> [String] {
-        var states: [String] = []
-        if segment.isFreeze { states.append(String(localized: "Freeze Frame")) }
-        if segment.isReversed { states.append(String(localized: "Reversed")) }
-        if !segment.isFreeze, segment.speed != 1 {
-            states.append(
-                String(localized: "Speed \(segment.speed.formatted(.number.precision(.fractionLength(0...2))))×"))
-        }
-        return states
     }
 
     private func frames(for segment: VideoSegment) -> [CGImage] {

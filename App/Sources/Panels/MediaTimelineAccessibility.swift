@@ -9,6 +9,45 @@ enum TimelinePart: Hashable {
     case silence(Int)
 }
 
+struct TimelineOverlayKey: Hashable {
+    let id: UUID
+    let part: Int
+}
+
+/// Shared layout geometry; invalidated with configuration or size.
+final class TimelineLayout {
+    let size: CGSize
+    let overlayBars: [(mark: TimelineOverlayMark, part: Int, rect: CGRect)]
+    private var clipIndices: [UUID: Int]?
+    private var overlayIndices: [TimelineOverlayKey: Int]?
+
+    init(size: CGSize, overlayBars: [(mark: TimelineOverlayMark, part: Int, rect: CGRect)]) {
+        self.size = size
+        self.overlayBars = overlayBars
+    }
+
+    func clipIndex(for id: UUID, in clips: [TimelineClip]) -> Int? {
+        if clipIndices == nil {
+            clipIndices = Dictionary(
+                clips.enumerated().map { ($0.element.id, $0.offset) },
+                uniquingKeysWith: { first, _ in first })
+        }
+        return clipIndices?[id]
+    }
+
+    func overlayBar(id: UUID, part: Int) -> (mark: TimelineOverlayMark, part: Int, rect: CGRect)? {
+        if overlayIndices == nil {
+            overlayIndices = Dictionary(
+                overlayBars.enumerated().map {
+                    (TimelineOverlayKey(id: $0.element.mark.id, part: $0.element.part), $0.offset)
+                },
+                uniquingKeysWith: { first, _ in first })
+        }
+        guard let index = overlayIndices?[TimelineOverlayKey(id: id, part: part)] else { return nil }
+        return overlayBars[index]
+    }
+}
+
 extension Timecode {
     /// Units VoiceOver reads naturally.
     static func spoken(_ seconds: Double) -> String {
@@ -40,18 +79,19 @@ final class TimelineAccessibilityElement: NSAccessibilityElement, @unchecked Sen
         return MainActor.assumeIsolated { canvas.flatMap(body) }
     }
 
-    private var details: TimelineCanvas.PartDetails? { onCanvas { [part] in $0.details(of: part) } }
-
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { part == .playhead ? .slider : .layoutItem }
-    override func accessibilityLabel() -> String? { details?.label }
-    override func accessibilityValue() -> Any? { details?.value }
-    override func isAccessibilitySelected() -> Bool { details?.selected ?? false }
+    override func accessibilityLabel() -> String? { onCanvas { [part] in $0.accessibilityLabel(of: part) } }
+    override func accessibilityValue() -> Any? {
+        let value: String? = onCanvas { [part] in $0.accessibilityValue(of: part) }
+        return value
+    }
+    override func isAccessibilitySelected() -> Bool { onCanvas { [part] in $0.isPartSelected(part) } ?? false }
     override func isAccessibilityEnabled() -> Bool { onCanvas { $0.interactionEnabled } ?? false }
 
     override func accessibilityFrame() -> NSRect {
         onCanvas { [part] canvas in
-            canvas.details(of: part).map { NSAccessibility.screenRect(fromView: canvas, rect: $0.frame) }
+            canvas.partFrame(of: part).map { NSAccessibility.screenRect(fromView: canvas, rect: $0) }
         } ?? .zero
     }
 
@@ -76,65 +116,138 @@ final class TimelineAccessibilityElement: NSAccessibilityElement, @unchecked Sen
 }
 
 extension TimelineCanvas {
-    struct PartDetails {
-        let label: String
-        let value: String
-        let frame: CGRect
-        var selected = false
+    func hasAccessibleContent(_ configuration: MediaTimeline) -> Bool {
+        configuration.duration > 0 && !configuration.clips.isEmpty
     }
 
     /// Front to back, as hit-testing sees them.
     func accessibleParts(_ configuration: MediaTimeline) -> [TimelinePart] {
-        guard configuration.duration > 0 else { return [] }
+        guard hasAccessibleContent(configuration) else { return [] }
         var parts: [TimelinePart] = [.playhead]
         if configuration.showsOverlayLane {
-            parts += overlayBars(configuration).reversed().map { .overlay($0.mark.id, part: $0.part) }
+            parts += currentLayout().overlayBars.reversed().map { .overlay($0.mark.id, part: $0.part) }
         }
-        if configuration.music != nil { parts.append(.music) }
+        if let music = configuration.music, music.range.upperBound > music.range.lowerBound {
+            parts.append(.music)
+        }
         parts += configuration.hatched.indices.map(TimelinePart.silence)
-        parts += configuration.clips.filter { $0.accessibilityName != nil }.map { .clip($0.id) }
+        parts += configuration.clips.filter(\.isAccessible).map { .clip($0.id) }
         return parts
     }
 
-    func details(of part: TimelinePart) -> PartDetails? {
-        guard let configuration, configuration.duration > 0 else { return nil }
+    func partFrame(of part: TimelinePart) -> CGRect? {
+        guard let configuration, hasAccessibleContent(configuration) else { return nil }
         switch part {
         case .playhead:
-            let time = String(
-                localized: "\(Timecode.spoken(configuration.position)) of \(Timecode.spoken(configuration.duration))")
-            return PartDetails(
-                label: String(localized: "Playhead"), value: time, frame: playheadFrame(configuration))
+            return playheadFrame(configuration)
         case .clip(let id):
-            guard let clip = configuration.clips.first(where: { $0.id == id }), let name = clip.accessibilityName
-            else { return nil }
-            let selected = clip.selection != nil
-            let states = clip.accessibilityStates + (selected ? [String(localized: "Selected")] : [])
-            return PartDetails(
-                label: name, value: Self.spokenList([Timecode.spokenRange(clip.range)] + states),
-                frame: rectangle(clip.range, duration: configuration.duration), selected: selected)
+            guard let clip = accessibleClip(id, in: configuration) else { return nil }
+            return rectangle(clip.range, duration: configuration.duration)
         case .overlay(let id, let index):
-            guard let bar = overlayBars(configuration).first(where: { $0.mark.id == id && $0.part == index })
-            else { return nil }
-            let count = bar.mark.ranges.count
-            let label =
-                count > 1 ? String(localized: "\(bar.mark.label), part \(index + 1) of \(count)") : bar.mark.label
-            let states = bar.mark.selected ? [String(localized: "Selected")] : []
-            return PartDetails(
-                label: label, value: Self.spokenList([Timecode.spokenRange(bar.mark.ranges[index])] + states),
-                frame: bar.rect, selected: bar.mark.selected)
+            guard configuration.showsOverlayLane else { return nil }
+            return currentLayout().overlayBar(id: id, part: index)?.rect
         case .music:
-            guard let music = configuration.music else { return nil }
-            let volume = String(localized: "Volume \(music.volume.formatted(.percent.precision(.fractionLength(0))))")
-            return PartDetails(
-                label: String(localized: "Music, \(music.label)"),
-                value: Self.spokenList([Timecode.spokenRange(music.range), volume]),
-                frame: musicBar(music, configuration: configuration))
+            guard let music = configuration.music, music.range.upperBound > music.range.lowerBound else { return nil }
+            return musicBar(music, configuration: configuration)
         case .silence(let index):
             guard configuration.hatched.indices.contains(index) else { return nil }
-            let range = configuration.hatched[index]
-            return PartDetails(
-                label: String(localized: "Pause to remove, \(index + 1) of \(configuration.hatched.count)"),
-                value: Timecode.spokenRange(range), frame: hatchRect(range, configuration: configuration))
+            return hatchRect(configuration.hatched[index], configuration: configuration)
+        }
+    }
+
+    func isPartSelected(_ part: TimelinePart) -> Bool {
+        guard let configuration, hasAccessibleContent(configuration) else { return false }
+        switch part {
+        case .clip(let id):
+            return accessibleClip(id, in: configuration)?.selection != nil
+        case .overlay(let id, let index):
+            guard configuration.showsOverlayLane else { return false }
+            return currentLayout().overlayBar(id: id, part: index)?.mark.selected ?? false
+        case .playhead, .music, .silence:
+            return false
+        }
+    }
+
+    func accessibilityLabel(of part: TimelinePart) -> String? {
+        guard let configuration, hasAccessibleContent(configuration) else { return nil }
+        switch part {
+        case .playhead:
+            return String(localized: "Playhead")
+        case .clip(let id):
+            guard let accessibility = accessibleClip(id, in: configuration)?.accessibility else { return nil }
+            return Self.clipLabel(accessibility)
+        case .overlay(let id, let index):
+            guard configuration.showsOverlayLane,
+                let bar = currentLayout().overlayBar(id: id, part: index)
+            else { return nil }
+            let count = bar.mark.ranges.count
+            return count > 1 ? String(localized: "\(bar.mark.label), part \(index + 1) of \(count)") : bar.mark.label
+        case .music:
+            guard let music = configuration.music, music.range.upperBound > music.range.lowerBound else { return nil }
+            return String(localized: "Music, \(music.label)")
+        case .silence(let index):
+            guard configuration.hatched.indices.contains(index) else { return nil }
+            return String(localized: "Pause to remove, \(index + 1) of \(configuration.hatched.count)")
+        }
+    }
+
+    func accessibilityValue(of part: TimelinePart) -> String? {
+        guard let configuration, hasAccessibleContent(configuration) else { return nil }
+        switch part {
+        case .playhead:
+            return String(
+                localized: "\(Timecode.spoken(configuration.position)) of \(Timecode.spoken(configuration.duration))")
+        case .clip(let id):
+            guard let clip = accessibleClip(id, in: configuration), let accessibility = clip.accessibility else {
+                return nil
+            }
+            let selected = clip.selection != nil
+            let states = Self.clipStates(accessibility) + (selected ? [String(localized: "Selected")] : [])
+            return Self.spokenList([Timecode.spokenRange(clip.range)] + states)
+        case .overlay(let id, let index):
+            guard configuration.showsOverlayLane,
+                let bar = currentLayout().overlayBar(id: id, part: index)
+            else { return nil }
+            let states = bar.mark.selected ? [String(localized: "Selected")] : []
+            return Self.spokenList([Timecode.spokenRange(bar.mark.ranges[index])] + states)
+        case .music:
+            guard let music = configuration.music, music.range.upperBound > music.range.lowerBound else { return nil }
+            let volume = String(localized: "Volume \(music.volume.formatted(.percent.precision(.fractionLength(0))))")
+            return Self.spokenList([Timecode.spokenRange(music.range), volume])
+        case .silence(let index):
+            guard configuration.hatched.indices.contains(index) else { return nil }
+            return Timecode.spokenRange(configuration.hatched[index])
+        }
+    }
+
+    private func accessibleClip(_ id: UUID, in configuration: MediaTimeline) -> TimelineClip? {
+        guard let index = currentLayout().clipIndex(for: id, in: configuration.clips) else { return nil }
+        let clip = configuration.clips[index]
+        return clip.isAccessible ? clip : nil
+    }
+
+    private static func clipLabel(_ accessibility: TimelineClipAccessibility) -> String {
+        switch accessibility {
+        case .text(let name, _):
+            return name
+        case .segment(let index, let count, let sourceName, _, _, _):
+            if let sourceName { return String(localized: "Segment \(index + 1) of \(count), \(sourceName)") }
+            return String(localized: "Segment \(index + 1) of \(count)")
+        }
+    }
+
+    private static func clipStates(_ accessibility: TimelineClipAccessibility) -> [String] {
+        switch accessibility {
+        case .text(_, let states):
+            return states
+        case .segment(_, _, _, let freeze, let reversed, let speed):
+            var states: [String] = []
+            if freeze { states.append(String(localized: "Freeze Frame")) }
+            if reversed { states.append(String(localized: "Reversed")) }
+            if !freeze, speed != 1 {
+                states.append(String(localized: "Speed \(speed.formatted(.number.precision(.fractionLength(0...2))))×"))
+            }
+            return states
         }
     }
 
@@ -143,31 +256,58 @@ extension TimelineCanvas {
     }
 
     func press(_ part: TimelinePart) -> Bool {
-        guard interactionEnabled, let configuration else { return false }
+        guard interactionEnabled, let configuration, hasAccessibleContent(configuration) else { return false }
         switch part {
-        case .clip(let id): configuration.select(id)
-        case .overlay(let id, _):
-            guard let selectOverlay = configuration.selectOverlay else { return false }
+        case .clip(let id):
+            guard accessibleClip(id, in: configuration) != nil else { return false }
+            configuration.select(id)
+        case .overlay(let id, let partIndex):
+            guard configuration.showsOverlayLane,
+                currentLayout().overlayBar(id: id, part: partIndex) != nil,
+                let selectOverlay = configuration.selectOverlay
+            else { return false }
             selectOverlay(id)
         case .music:
-            guard let selectMusic = configuration.selectMusic else { return false }
+            guard let music = configuration.music, music.range.upperBound > music.range.lowerBound,
+                let selectMusic = configuration.selectMusic
+            else { return false }
             selectMusic()
-        case .playhead, .silence: return false
+        case .playhead, .silence:
+            return false
         }
         return true
     }
 
     func stepPlayhead(_ part: TimelinePart, by frames: Int) -> Bool {
-        guard part == .playhead, interactionEnabled, let step = configuration?.step else { return false }
+        guard part == .playhead, interactionEnabled, let configuration,
+            hasAccessibleContent(configuration), let step = configuration.step
+        else { return false }
         step(frames)
         return true
     }
 
+    /// Single availability check shared by menus and VoiceOver.
+    func actionState(for id: UUID, action: TimelineAction) -> TimelineActionState {
+        guard interactionEnabled, let configuration, configuration.action != nil,
+            hasAccessibleContent(configuration),
+            currentLayout().clipIndex(for: id, in: configuration.clips) != nil
+        else { return TimelineActionState(available: false) }
+        return configuration.actionState?(id, action) ?? TimelineActionState()
+    }
+
+    @discardableResult
+    func performAction(_ action: TimelineAction, on id: UUID) -> Bool {
+        guard actionState(for: id, action: action).available, let perform = configuration?.action else { return false }
+        perform(id, action)
+        return true
+    }
+
     func availableActions(for part: TimelinePart) -> [(TimelineAction, String)] {
-        guard interactionEnabled, case .clip(let id) = part, let configuration, configuration.action != nil
-        else { return [] }
+        guard case .clip(let id) = part, let configuration, accessibleClip(id, in: configuration) != nil else {
+            return []
+        }
         return TimelineAction.allCases.compactMap { action in
-            let state = configuration.actionState?(id, action) ?? TimelineActionState()
+            let state = actionState(for: id, action: action)
             guard state.available else { return nil }
             let name =
                 action == .reverse && state.checked ? String(localized: "Play Segment Forward") : action.title
@@ -176,8 +316,9 @@ extension TimelineCanvas {
     }
 
     func perform(_ action: TimelineAction, on part: TimelinePart) -> Bool {
-        guard interactionEnabled, case .clip(let id) = part, let perform = configuration?.action else { return false }
-        perform(id, action)
-        return true
+        guard case .clip(let id) = part, let configuration, accessibleClip(id, in: configuration) != nil else {
+            return false
+        }
+        return performAction(action, on: id)
     }
 }

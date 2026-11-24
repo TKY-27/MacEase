@@ -380,15 +380,16 @@ struct AudioTrimPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             MediaTimeline(
-                duration: max(model.duration, 0.001), position: model.position,
-                clips: [
-                    TimelineClip(
-                        id: model.clipID, range: 0...max(0, model.duration),
-                        selection: model.ready ? model.start...model.end : nil, label: "",
-                        waveform: model.waveform, detailWaveform: model.detailWaveform,
-                        fadeIn: min(model.fadeIn, model.end - model.start),
-                        fadeOut: min(model.fadeOut, max(0, model.end - model.start - model.fadeIn)))
-                ],
+                duration: model.ready ? model.duration : 0, position: model.position,
+                clips: model.ready
+                    ? [
+                        TimelineClip(
+                            id: model.clipID, range: 0...max(0, model.duration),
+                            selection: model.start...model.end, label: "",
+                            waveform: model.waveform, detailWaveform: model.detailWaveform,
+                            fadeIn: min(model.fadeIn, model.end - model.start),
+                            fadeOut: min(model.fadeOut, max(0, model.end - model.start - model.fadeIn)))
+                    ] : [],
                 playing: model.playing, zoom: $model.zoom, maximumZoom: model.maximumZoom,
                 seek: model.seek, hover: { _ in }, select: { _ in },
                 beginTrim: model.beginTrim, trim: model.trim, endTrim: model.endTrim,

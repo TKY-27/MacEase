@@ -205,4 +205,218 @@ extension MediaEditorModelTests {
             scroll.contentView.bounds.contains(CGPoint(x: playhead, y: 10)),
             "a keyboard step past the edge scrolls the playhead into view")
     }
+
+    private final class ObservedTimelineCanvas: TimelineCanvas {
+        var notifications: [NSAccessibility.Notification] = []
+
+        override func postAccessibility(_ notification: NSAccessibility.Notification, on element: Any) {
+            notifications.append(notification)
+            super.postAccessibility(notification, on: element)
+        }
+    }
+
+    func testStaleAccessibilityActionsAndPressesRevalidateAtPerformTime() async throws {
+        let model = try await videoModel(count: 2)
+        model.seek(0.5)
+        let host = NSHostingView(rootView: EditorTimeline(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1200, height: 220), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let canvas = try XCTUnwrap(timelineView(in: host)?.canvas)
+        let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
+        let firstSegment = try XCTUnwrap(children.first { $0.accessibilityLabel() == "Segment 1 of 2, clip-0.mp4" })
+        let cachedFreeze = try XCTUnwrap(
+            firstSegment.accessibilityCustomActions()?.first { $0.name == TimelineAction.freeze.title })
+
+        let secondID = model.values.segments[1].id
+        model.selectSegment(secondID)
+        model.seek(2.5)
+        host.layoutSubtreeIfNeeded()
+        let before = model.values.segments
+        XCTAssertFalse(cachedFreeze.handler?() ?? true, "cached freeze action must fail once playhead left segment 1")
+        XCTAssertEqual(model.values.segments, before)
+        XCTAssertEqual(model.values.selectedID, secondID)
+
+        let clipID = UUID(), overlayID = UUID()
+        var zoom = 1.0
+        var recorder = CanvasRecorder()
+        let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 900, height: 180))
+        scroll.documentView = TimelineCanvas()
+        scroll.configuration = MediaTimeline(
+            duration: 6, position: 1,
+            clips: [
+                TimelineClip(
+                    id: clipID, range: 0...6, selection: nil, label: "", accessibilityName: "Segment 1 of 1")
+            ],
+            playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in },
+            hover: { _ in }, select: { recorder.selected.append($0) }, beginTrim: { _, _ in }, trim: { _ in },
+            endTrim: {}, action: { recorder.actions.append(($0, $1)) },
+            overlays: [
+                TimelineOverlayMark(
+                    id: overlayID, ranges: [1...2], label: "Box 1", fill: .systemRed, text: .white, selected: false)
+            ],
+            showsOverlayLane: true, selectOverlay: { recorder.overlays.append($0) },
+            music: TimelineMusicBar(range: 0...3, label: "tone.wav", fadeOut: 0, volume: 0.3),
+            selectMusic: { recorder.musicSelections += 1 })
+        scroll.updateTimeline()
+        let detachedCanvas = try XCTUnwrap(scroll.canvas)
+        let detachedChildren = try XCTUnwrap(detachedCanvas.accessibilityChildren() as? [NSAccessibilityElement])
+        let clipElement = try XCTUnwrap(detachedChildren.first { $0.accessibilityLabel() == "Segment 1 of 1" })
+        let overlayElement = try XCTUnwrap(detachedChildren.first { $0.accessibilityLabel() == "Box 1" })
+        let musicElement = try XCTUnwrap(detachedChildren.first { $0.accessibilityLabel() == "Music, tone.wav" })
+        let duplicateAction = try XCTUnwrap(
+            clipElement.accessibilityCustomActions()?.first { $0.name == TimelineAction.duplicate.title })
+
+        scroll.configuration = MediaTimeline(
+            duration: 6, position: 1,
+            clips: [
+                TimelineClip(
+                    id: UUID(), range: 0...6, selection: nil, label: "", accessibilityName: "Segment 1 of 1")
+            ],
+            playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in },
+            hover: { _ in }, select: { recorder.selected.append($0) }, beginTrim: { _, _ in }, trim: { _ in },
+            endTrim: {}, action: { recorder.actions.append(($0, $1)) }, overlays: [], showsOverlayLane: true,
+            selectOverlay: { recorder.overlays.append($0) }, music: nil,
+            selectMusic: { recorder.musicSelections += 1 })
+        scroll.updateTimeline()
+
+        XCTAssertFalse(clipElement.accessibilityPerformPress())
+        XCTAssertFalse(overlayElement.accessibilityPerformPress())
+        XCTAssertFalse(musicElement.accessibilityPerformPress())
+        XCTAssertFalse(duplicateAction.handler?() ?? true)
+        XCTAssertTrue(recorder.selected.isEmpty)
+        XCTAssertTrue(recorder.overlays.isEmpty)
+        XCTAssertEqual(recorder.musicSelections, 0)
+        XCTAssertTrue(recorder.actions.isEmpty)
+    }
+
+    func testEmptyTimelineExposesNoChildrenAndAnnouncesWhenPopulated() async throws {
+        let directory = try workspace()
+        let model = try await videoModel()
+        model.setMusic(try audioFixture(in: directory))
+        await model.musicTask?.value
+        model.deleteSelection()
+        let host = NSHostingView(rootView: EditorTimeline(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1000, height: 220), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let editorCanvas = try XCTUnwrap(timelineView(in: host)?.canvas)
+        XCTAssertEqual((editorCanvas.accessibilityChildren() as? [NSAccessibilityElement])?.count, 0)
+
+        let audioModel = AudioTrimModel(
+            url: try audioFixture(in: directory), staging: StagingArea(supportDirectory: directory), prefill: nil)
+        addTeardownBlock { await audioModel.close() }
+        let audioHost = NSHostingView(rootView: AudioTrimPanel(model: audioModel, cancel: {}, run: { _ in }))
+        let audioWindow = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 800, height: 320), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        audioWindow.isReleasedWhenClosed = false
+        audioWindow.contentView = audioHost
+        defer { audioWindow.close() }
+        audioHost.layoutSubtreeIfNeeded()
+        let audioCanvas = try XCTUnwrap(timelineView(in: audioHost)?.canvas)
+        XCTAssertEqual((audioCanvas.accessibilityChildren() as? [NSAccessibilityElement])?.count, 0)
+
+        var zoom = 1.0
+        let observed = ObservedTimelineCanvas(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
+        observed.configuration = MediaTimeline(
+            duration: 0, position: 0, clips: [], playing: false,
+            zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in }, hover: { _ in },
+            select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
+        XCTAssertEqual((observed.accessibilityChildren() as? [NSAccessibilityElement])?.count, 0)
+        observed.notifications.removeAll()
+        observed.configuration = MediaTimeline(
+            duration: 5, position: 0,
+            clips: [
+                TimelineClip(
+                    id: UUID(), range: 0...5, selection: nil, label: "", accessibilityName: "Segment 1 of 1")
+            ],
+            playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in },
+            hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {})
+        XCTAssertEqual(observed.notifications, [.layoutChanged])
+        XCTAssertEqual((observed.accessibilityChildren() as? [NSAccessibilityElement])?.count, 2)
+    }
+
+    func testTimelineAccessibilitySharesLayoutAndStaysSilentOnPlaybackTicks() throws {
+        var zoom = 4.0
+        var position = 1.0
+        let clips = (0..<300).map { index in
+            TimelineClip(
+                id: UUID(), range: Double(index)...Double(index + 1), selection: nil, label: "\(index + 1)",
+                accessibility: .segment(
+                    index: index, count: 300, sourceName: nil, freeze: false, reversed: false, speed: 1))
+        }
+        let overlays = (0..<50).map { index -> TimelineOverlayMark in
+            let start = Double(index * 5)
+            return TimelineOverlayMark(
+                id: UUID(), ranges: [start...(start + 3), (start + 4)...(start + 6)],
+                label: "Box \(index + 1)", fill: .systemRed, text: .white, selected: index == 49)
+        }
+        let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 1200, height: 180))
+        let canvas = ObservedTimelineCanvas()
+        scroll.documentView = canvas
+        func makeConfig(playing: Bool) -> MediaTimeline {
+            MediaTimeline(
+                duration: 300, position: position, clips: clips, playing: playing,
+                zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in }, hover: { _ in },
+                select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {}, overlays: overlays,
+                showsOverlayLane: true, selectOverlay: { _ in })
+        }
+        scroll.configuration = makeConfig(playing: false)
+        let window = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 1200, height: 180), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.close() }
+        scroll.updateTimeline()
+
+        for tick in 1...10 {
+            position = Double(tick) / 30.0
+            scroll.configuration = makeConfig(playing: true)
+            scroll.updateTimeline()
+        }
+        XCTAssertTrue(canvas.notifications.isEmpty, "no notifications before VoiceOver queries children")
+
+        let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
+        XCTAssertEqual(children.count, 401)
+        let lastClipPoint = window.convertToScreen(
+            canvas.convert(
+                CGRect(x: 299.5 / 300.0 * canvas.bounds.width, y: TimelineCanvas.rulerHeight + 30, width: 1, height: 1),
+                to: nil
+            )
+        ).origin
+        let hitClip = try XCTUnwrap(canvas.accessibilityHitTest(lastClipPoint) as? NSAccessibilityElement)
+        XCTAssertEqual(hitClip.accessibilityLabel(), "Segment 300 of 300")
+        XCTAssertTrue(hitClip === children.last)
+
+        canvas.notifications.removeAll()
+        for tick in 11...20 {
+            position = Double(tick) / 30.0
+            scroll.configuration = makeConfig(playing: true)
+            scroll.updateTimeline()
+        }
+        XCTAssertTrue(canvas.notifications.isEmpty, "playback ticks with unchanged structure post no notifications")
+
+        position = 5.0
+        scroll.configuration = makeConfig(playing: false)
+        scroll.updateTimeline()
+        XCTAssertEqual(canvas.notifications, [.valueChanged])
+
+        let readout = ClockReadoutView()
+        readout.configure(position: 65.25, duration: 300, enabled: true, edit: {})
+        XCTAssertEqual(readout.accessibilityRole(), .button)
+        XCTAssertEqual(readout.accessibilityLabel(), "Playhead")
+        XCTAssertEqual(
+            readout.accessibilityValue() as? String, "\(Timecode.spoken(65.25)) of \(Timecode.spoken(300))")
+        XCTAssertEqual(readout.accessibilityHelp(), "Type a time to move the playhead.")
+    }
 }

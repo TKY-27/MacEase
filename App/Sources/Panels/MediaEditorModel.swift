@@ -257,6 +257,29 @@ final class MediaEditorModel {
     }
     var trimming: Bool { trimSegment != nil }
 
+    func timelineRanges() -> [UUID: ClosedRange<Double>] {
+        guard let reference = trimBaseline ?? timeline else { return [:] }
+        var offsets: [UUID: (start: Double, original: VideoSegment)] = [:]
+        offsets.reserveCapacity(reference.segments.count)
+        var cursor = 0.0
+        for original in reference.segments {
+            offsets[original.id] = (cursor, original)
+            cursor += original.outputDuration
+        }
+        var ranges: [UUID: ClosedRange<Double>] = [:]
+        ranges.reserveCapacity(values.segments.count)
+        for segment in values.segments {
+            guard let entry = offsets[segment.id] else { continue }
+            let left = entry.start + (segment.start - entry.original.start) / segment.speed
+            let right =
+                segment.isFreeze
+                ? entry.start + segment.outputDuration
+                : entry.start + (segment.end - entry.original.start) / segment.speed
+            ranges[segment.id] = left...max(left, right)
+        }
+        return ranges
+    }
+
     func timelineRange(for segment: VideoSegment) -> ClosedRange<Double> {
         let reference = trimBaseline ?? timeline
         guard let reference,
