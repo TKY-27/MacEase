@@ -221,16 +221,6 @@
         }
       }
     },
-    "Rendered": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "レンダリング"
-          }
-        }
-      }
-    },
     "Formatted": {
       "localizations": {
         "ja": {
@@ -247,16 +237,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "先頭256 KBを表示しています"
-          }
-        }
-      }
-    },
-    "The text could not be decoded or formatted. Try Source or another encoding.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "テキストの読み込みまたは整形に失敗しました。ソース表示や別の文字コードをお試しください。"
           }
         }
       }
@@ -14754,7 +14734,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ミュート"
+            "value": "消音"
           }
         }
       }
@@ -21682,6 +21662,561 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレビューの拡大（⌘+、⌘−、⌘0またはピンチ）"
+          }
+        }
+      }
+    },
+    "storageBar.startupDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (Startup Disk)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（起動ディスク）"
+          }
+        }
+      }
+    },
+    "storageBar.noCapacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capacity unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "容量を取得できません"
+          }
+        }
+      }
+    },
+    "storageBar.available": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ available of %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@中%1$@空き"
+          }
+        }
+      }
+    },
+    "storageBar.selection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目を選択"
+          }
+        }
+      }
+    },
+    "Storage": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストレージ"
+          }
+        }
+      }
+    },
+    "Storage Bar": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストレージバー"
+          }
+        }
+      }
+    },
+    "Show storage bar in Finder windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウにストレージバーを表示"
+          }
+        }
+      }
+    },
+    "Shows available space and the number of selected items at the bottom of Finder windows.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウの下端に、空き容量と選択した項目の数を表示します。"
+          }
+        }
+      }
+    },
+    "To see it, choose View > Show Status Bar in Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示するには、Finderで「表示」＞「ステータスバーを表示」を選択してください。"
+          }
+        }
+      }
+    },
+    "Permissions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセス許可"
+          }
+        }
+      }
+    },
+    "Places the preview and the storage bar on Finder windows.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューとストレージバーをFinderウインドウに表示します。"
+          }
+        }
+      }
+    },
+    "Lets the preview and the storage bar follow the selection in Finder.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで選択した項目をプレビューとストレージバーに反映します。"
+          }
+        }
+      }
+    },
+    "Fit shows the whole image and 100% shows actual pixels. Double-click the image to switch.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“全体表示”は画像全体を、“100%”は実際のピクセルを表示します。画像をダブルクリックすると切り替わります。"
+          }
+        }
+      }
+    },
+    "Image Info": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像の情報"
+          }
+        }
+      }
+    },
+    "Reduced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小表示"
+          }
+        }
+      }
+    },
+    "This image is shown at a reduced size. Open it in Preview to see every pixel.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画像は縮小して表示されています。すべてのピクセルを見るには“プレビュー”で開いてください。"
+          }
+        }
+      }
+    },
+    "Dimensions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きさ"
+          }
+        }
+      }
+    },
+    "Color Profile": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラープロファイル"
+          }
+        }
+      }
+    },
+    "Bit Depth": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビット深度"
+          }
+        }
+      }
+    },
+    "Dynamic Range": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイナミックレンジ"
+          }
+        }
+      }
+    },
+    "Camera": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ"
+          }
+        }
+      }
+    },
+    "Lens": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンズ"
+          }
+        }
+      }
+    },
+    "Captured": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撮影日時"
+          }
+        }
+      }
+    },
+    "Location": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置情報"
+          }
+        }
+      }
+    },
+    "Included in the file": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルに含まれています"
+          }
+        }
+      }
+    },
+    "Shown At": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示サイズ"
+          }
+        }
+      }
+    },
+    "%lld × %lld (reduced)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld × %2$lld（縮小）"
+          }
+        }
+      }
+    },
+    "%@ dpi": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dpi"
+          }
+        }
+      }
+    },
+    "%@ × %@ dpi": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ × %2$@ dpi"
+          }
+        }
+      }
+    },
+    "%lld-bit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldビット"
+          }
+        }
+      }
+    },
+    "HDR, %@× headroom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR（ヘッドルーム %@倍）"
+          }
+        }
+      }
+    },
+    "Previous File (⌥⌘←)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のファイル (⌥⌘←)"
+          }
+        }
+      }
+    },
+    "Next File (⌥⌘→)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のファイル (⌥⌘→)"
+          }
+        }
+      }
+    },
+    "%@, %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$@"
+          }
+        }
+      }
+    },
+    "Loading": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中"
+          }
+        }
+      }
+    },
+    "Find Previous": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前を検索"
+          }
+        }
+      }
+    },
+    "Find Next": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次を検索"
+          }
+        }
+      }
+    },
+    "Not found": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該当なし"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can't be formatted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルは整形できません。"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can't be previewed here.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルはここではプレビューできません。"
+          }
+        }
+      }
+    },
+    "This file could not be formatted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルを整形できませんでした。"
+          }
+        }
+      }
+    },
+    "The text could not be decoded. Try another encoding.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを読み込めませんでした。別のエンコードをお試しください。"
+          }
+        }
+      }
+    },
+    "The text could not be decoded.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "Show Source": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースを表示"
+          }
+        }
+      }
+    },
+    "Table of Contents": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目次"
+          }
+        }
+      }
+    },
+    "Page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ"
+          }
+        }
+      }
+    },
+    "Go to Page": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページへ移動"
+          }
+        }
+      }
+    },
+    "Fit Width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幅に合わせる"
+          }
+        }
+      }
+    },
+    "Actual Size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のサイズ"
+          }
+        }
+      }
+    },
+    "Unlock": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロックを解除"
+          }
+        }
+      }
+    },
+    "The password is incorrect.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワードが正しくありません。"
+          }
+        }
+      }
+    },
+    "preview.mode.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース"
           }
         }
       }

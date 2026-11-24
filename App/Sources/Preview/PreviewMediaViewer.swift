@@ -191,10 +191,10 @@ final class PreviewPlayback {
     }
 
     private func play(_ asset: AVURLAsset) {
-        let item = AVPlayerItem(asset: asset)
-        statusObservation = item.observe(\.status) { [weak self] item, _ in
-            guard item.status == .failed else { return }
-            let error = item.error
+        let playerItem = AVPlayerItem(asset: asset)
+        statusObservation = playerItem.observe(\.status) { [weak self] observed, _ in
+            guard observed.status == .failed else { return }
+            let error = observed.error
             let reason = error?.localizedDescription ?? ""
             let forbidden = PreviewMediaAsset.isReferenceForbidden(error)
             Task { @MainActor in
@@ -206,7 +206,7 @@ final class PreviewPlayback {
                 }
             }
         }
-        player = AVPlayer(playerItem: item)
+        player = AVPlayer(playerItem: playerItem)
         phase = .playing
     }
 
@@ -258,7 +258,6 @@ struct PreviewMediaViewer: View {
     let staging: StagingArea
     @State private var playback = PreviewPlayback()
     private static let audioControlsWidth: CGFloat = 420
-    private static let audioIconSize: CGFloat = 128
     private static let progressWidth: CGFloat = 200
 
     var body: some View {
@@ -308,16 +307,11 @@ struct PreviewMediaViewer: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var audio: some View {
-        VStack(spacing: PreviewLayout.margin) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
-                .frame(width: Self.audioIconSize, height: Self.audioIconSize)
-                .accessibilityHidden(true)
-            if let player = playback.player {
-                PreviewAudioControls(player: player).frame(maxWidth: Self.audioControlsWidth)
-            }
+    @ViewBuilder private var audio: some View {
+        if let player = playback.player {
+            PreviewAudioControls(player: player, url: url).frame(maxWidth: Self.audioControlsWidth)
+                .padding(PreviewLayout.margin)
         }
-        .padding(PreviewLayout.margin)
     }
 }
 
@@ -340,44 +334,142 @@ private struct PreviewPlayer: NSViewRepresentable {
     }
 }
 
+// One level for the whole session.
+@MainActor
+private enum PreviewAudioLevel {
+    static var volume: Float = 1
+    static var muted = false
+}
+
 // AVPlayerView draws a dark backdrop for audio.
-private struct PreviewAudioControls: View {
+struct PreviewAudioControls: View {
     let player: AVPlayer
+    let url: URL
+    var loadFileIcon: (URL) -> NSImage = { NSWorkspace.shared.icon(forFile: $0.path) }
     @State private var playing = false
     @State private var position = 0.0
     @State private var duration = 0.0
     @State private var scrubbing = false
     @State private var observer: Any?
+    @State private var metadata: PreviewAudioMetadata?
+    @State private var fileIcon: NSImage?
+    @State private var volume = PreviewAudioLevel.volume
+    @State private var muted = PreviewAudioLevel.muted
     private static let updateInterval = CMTime(value: 1, timescale: 10)
     private static let hourSeconds = 3600.0
     private static let minimumDuration = 0.01
-    private static let playButtonSize: CGFloat = 28
+    static let maximumDisplayDurationSeconds = 365.0 * 24.0 * 3600.0
     private static let seekTimescale: CMTimeScale = 600
+    private static let artworkSize: CGFloat = 168
+    private static let iconSize: CGFloat = 128
+    private static let artworkCornerRadius: CGFloat = 6
+    private static let playButtonSize: CGFloat = 40
+    private static let volumeWidth: CGFloat = 220
+    private static let quietVolume: Float = 0.5
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 12) {
+            artwork
+            if metadata?.title != nil || metadata?.artist != nil {
+                VStack(spacing: 2) {
+                    if let title = metadata?.title {
+                        Text(verbatim: title).font(.headline).lineLimit(2)
+                    }
+                    if let artist = metadata?.artist {
+                        Text(verbatim: artist).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .multilineTextAlignment(.center)
+                .accessibilityElement(children: .combine)
+            }
+            VStack(spacing: 2) {
+                Slider(value: $position, in: 0...max(duration, Self.minimumDuration)) { editing in
+                    scrubbing = editing
+                    if !editing { player.seek(to: CMTime(seconds: position, preferredTimescale: Self.seekTimescale)) }
+                }
+                .controlSize(.small)
+                .accessibilityLabel(Text("Position"))
+                .accessibilityValue(Text("\(Self.format(position)) of \(Self.format(duration))"))
+                HStack {
+                    Text(verbatim: Self.format(position))
+                    Spacer(minLength: 8)
+                    Text(verbatim: Self.format(duration))
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            }
             Button(action: toggle) {
-                Image(systemName: playing ? "pause.fill" : "play.fill").font(.title3).foregroundStyle(.primary)
+                Image(systemName: playing ? "pause.fill" : "play.fill").font(.title).foregroundStyle(.primary)
                     .frame(width: Self.playButtonSize, height: Self.playButtonSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel(playing ? Text("Pause") : Text("Play"))
-            Text(verbatim: Self.format(position)).accessibilityHidden(true)
-            Slider(value: $position, in: 0...max(duration, Self.minimumDuration)) { editing in
-                scrubbing = editing
-                if !editing { player.seek(to: CMTime(seconds: position, preferredTimescale: Self.seekTimescale)) }
+            .previewShortcut(.playPause) {
+                toggle()
+                return true
             }
-            .controlSize(.small)
-            .accessibilityLabel(Text("Position"))
-            .accessibilityValue(Text(verbatim: Self.format(position)))
-            Text(verbatim: Self.format(duration)).accessibilityHidden(true)
+            .help(playing ? Text("Pause (Space)") : Text("Play (Space)"))
+            .accessibilityLabel(playing ? Text("Pause") : Text("Play"))
+            volumeControl
         }
-        .font(.caption.monospacedDigit())
-        .foregroundStyle(.secondary)
-        .onAppear(perform: observe)
+        .onAppear {
+            applyLevel()
+            observe()
+        }
         .onDisappear(perform: stopObserving)
-        .task { await loadDuration() }
+        .onChange(of: volume) { applyLevel() }
+        .onChange(of: muted) { applyLevel() }
+        .task { await loadDetails() }
+    }
+
+    // Fixed slot avoids layout shift while loading.
+    private var artwork: some View {
+        Group {
+            if let artwork = metadata?.artwork {
+                Image(decorative: artwork, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: Self.artworkCornerRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Self.artworkCornerRadius, style: .continuous)
+                            .strokeBorder(Color(nsColor: .separatorColor))
+                    }
+            } else if let fileIcon {
+                Image(nsImage: fileIcon).resizable()
+                    .frame(width: Self.iconSize, height: Self.iconSize)
+            }
+        }
+        .frame(width: Self.artworkSize, height: Self.artworkSize)
+        .accessibilityHidden(true)
+    }
+
+    private var volumeControl: some View {
+        HStack(spacing: 6) {
+            Button {
+                muted.toggle()
+            } label: {
+                Image(systemName: speakerSymbol).frame(width: 20, alignment: .leading)
+            }
+            .buttonStyle(.borderless)
+            .help(muted ? Text("Unmute") : Text("Mute"))
+            .accessibilityLabel(muted ? Text("Unmute") : Text("Mute"))
+            Slider(value: $volume, in: 0...1).controlSize(.mini)
+                .accessibilityLabel(Text("Volume"))
+                .accessibilityValue(Text(Double(volume).formatted(.percent.precision(.fractionLength(0)))))
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: Self.volumeWidth)
+    }
+
+    private var speakerSymbol: String {
+        if muted || volume == 0 { return "speaker.slash.fill" }
+        return volume < Self.quietVolume ? "speaker.wave.1.fill" : "speaker.wave.3.fill"
+    }
+
+    private func applyLevel() {
+        player.volume = volume
+        player.isMuted = muted
+        PreviewAudioLevel.volume = volume
+        PreviewAudioLevel.muted = muted
     }
 
     private func toggle() {
@@ -405,18 +497,51 @@ private struct PreviewAudioControls: View {
         self.observer = nil
     }
 
-    private func loadDuration() async {
-        guard let asset = player.currentItem?.asset else { return }
+    private func loadDetails() async {
+        guard !Task.isCancelled, let asset = player.currentItem?.asset else { return }
         do {
-            let loaded = try await asset.load(.duration).seconds
-            if loaded.isFinite { duration = loaded }
+            let loaded = try await Self.loadDetails(asset: asset)
+            guard !Task.isCancelled else { return }
+            if let loadedDuration = loaded.duration { duration = loadedDuration }
+            if loaded.metadata.artwork == nil { fileIcon = loadFileIcon(url) }
+            metadata = loaded.metadata
+        } catch is CancellationError {
         } catch {
+            guard !Task.isCancelled else { return }
             Logger(category: "finder-preview").error(
-                "Preview audio duration failed: \(error.localizedDescription, privacy: .private)")
+                "Preview audio details failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
-    private static func format(_ seconds: Double) -> String {
-        Duration.seconds(seconds).formatted(.time(pattern: seconds >= hourSeconds ? .hourMinuteSecond : .minuteSecond))
+    @MainActor
+    static func loadDetails(asset: AVAsset) async throws -> (duration: Double?, metadata: PreviewAudioMetadata) {
+        try Task.checkCancellation()
+        var loadedDuration: Double?
+        do {
+            let seconds = try await asset.load(.duration).seconds
+            try Task.checkCancellation()
+            if seconds.isFinite, seconds >= 0 { loadedDuration = clampedDurationSeconds(seconds) }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if Task.isCancelled { throw CancellationError() }
+            Logger(category: "finder-preview").error(
+                "Preview audio duration failed: \(error.localizedDescription, privacy: .private)")
+        }
+        try Task.checkCancellation()
+        let loadedMetadata = await PreviewAudioMetadata.load(asset)
+        try Task.checkCancellation()
+        return (loadedDuration, loadedMetadata)
+    }
+
+    static func clampedDurationSeconds(_ seconds: Double) -> Double {
+        guard seconds.isFinite, seconds >= 0 else { return 0 }
+        return min(seconds, maximumDisplayDurationSeconds)
+    }
+
+    static func format(_ seconds: Double) -> String {
+        let clamped = clampedDurationSeconds(seconds)
+        return Duration.seconds(clamped).formatted(
+            .time(pattern: clamped >= hourSeconds ? .hourMinuteSecond : .minuteSecond))
     }
 }
