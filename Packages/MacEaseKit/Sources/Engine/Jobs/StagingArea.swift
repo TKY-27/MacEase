@@ -6,6 +6,7 @@ import os
 public final class StagingArea: Sendable {
     private struct Paths {
         var live: Set<String> = []
+        var retained: Set<String> = []
         var tracked: Set<String> = []
         var registryLoaded = false
     }
@@ -44,11 +45,20 @@ public final class StagingArea: Sendable {
 
     func remove(_ directory: URL) {
         paths.withLock { paths in
-            guard paths.tracked.contains(directory.path) else { return }
+            guard paths.tracked.contains(directory.path), !paths.retained.contains(directory.path) else { return }
             if delete(directory) { paths.tracked.remove(directory.path) }
             paths.live.remove(directory.path)
             persistLogging(paths.tracked)
         }
+    }
+
+    func retain(_ directory: URL) {
+        paths.withLock { paths in _ = paths.retained.insert(directory.path) }
+    }
+
+    func release(_ directory: URL) {
+        paths.withLock { paths in _ = paths.retained.remove(directory.path) }
+        remove(directory)
     }
 
     /// Removes directories left by a previous run.

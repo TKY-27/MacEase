@@ -11,13 +11,14 @@ public struct MediaSourceStamp: Codable, Hashable, Sendable {
         stamp = try FileStamp(of: url, includingIdentity: true)
     }
 
-    public func validate(_ url: URL) throws {
+    public func validate(_ url: URL, message: String? = nil) throws {
         guard stamp.matchesIdentity(url.path) else {
             throw EngineError.invalidInput(
                 .malformed(
-                    String(
-                        localized:
-                            "The original changed while editing. Close the editor and reopen the file.")))
+                    message
+                        ?? String(
+                            localized:
+                                "The original changed while editing. Close the editor and reopen the file.")))
         }
     }
 }
@@ -117,6 +118,31 @@ public struct EditGeometry: Codable, Hashable, Sendable {
             .transformed(by: CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
         return output
     }
+
+    public func outputPoint(_ point: EditPoint, canvas: CGSize, includingCrop: Bool = true) -> CGPoint {
+        guard canvas.width > 0, canvas.height > 0 else { return CGPoint(x: point.x, y: point.y) }
+        let rotated = canvasSize(canvas)
+        let bounds = includingCrop ? crop.rect(in: rotated) : CGRect(origin: .zero, size: rotated)
+        guard bounds.width > 0, bounds.height > 0 else { return CGPoint(x: point.x, y: point.y) }
+        let source = CGPoint(x: point.x * canvas.width, y: (1 - point.y) * canvas.height)
+        let mapped = source.applying(transform(canvas))
+        return CGPoint(
+            x: (mapped.x - bounds.minX) / bounds.width,
+            y: 1 - (mapped.y - bounds.minY) / bounds.height)
+    }
+
+    public func canvasPoint(_ point: CGPoint, canvas: CGSize, includingCrop: Bool = true) -> EditPoint {
+        guard canvas.width > 0, canvas.height > 0 else { return EditPoint(x: Double(point.x), y: Double(point.y)) }
+        let rotated = canvasSize(canvas)
+        let bounds = includingCrop ? crop.rect(in: rotated) : CGRect(origin: .zero, size: rotated)
+        guard bounds.width > 0, bounds.height > 0 else { return EditPoint(x: Double(point.x), y: Double(point.y)) }
+        let mapped = CGPoint(
+            x: bounds.minX + point.x * bounds.width,
+            y: bounds.minY + (1 - point.y) * bounds.height)
+        let source = mapped.applying(transform(canvas).inverted())
+        return EditPoint(x: Double(source.x / canvas.width), y: Double(1 - source.y / canvas.height))
+    }
+
 }
 
 public enum MediaStyle: String, Codable, CaseIterable, Sendable {
@@ -258,15 +284,30 @@ public struct ImageEdit: Codable, Hashable, Sendable {
     public var adjustments = MediaAdjustments()
     public var autoEnhance = false
     public var sourceStamp: MediaSourceStamp?
+    public var overlays: [EditOverlay] = []
 
     public init() {}
 
-    public var changesColor: Bool { autoEnhance || !adjustments.isIdentity }
+    private enum CodingKeys: String, CodingKey {
+        case geometry, adjustments, autoEnhance, sourceStamp, overlays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        geometry = try values.decodeIfPresent(EditGeometry.self, forKey: .geometry) ?? EditGeometry()
+        adjustments = try values.decodeIfPresent(MediaAdjustments.self, forKey: .adjustments) ?? MediaAdjustments()
+        autoEnhance = try values.decodeIfPresent(Bool.self, forKey: .autoEnhance) ?? false
+        sourceStamp = try values.decodeIfPresent(MediaSourceStamp.self, forKey: .sourceStamp)
+        overlays = try values.decodeIfPresent([EditOverlay].self, forKey: .overlays) ?? []
+    }
+
+    public var changesColor: Bool { autoEnhance || !adjustments.isIdentity || !overlays.isEmpty }
     public var isIdentity: Bool { geometry.isIdentity && !changesColor }
 
     public func validate() throws {
         try geometry.validate()
         try adjustments.validate()
+        try overlays.validate()
     }
 }
 
@@ -308,5 +349,21 @@ public enum MediaEditing {
         }
         work.omittedStreams = omittedStreams
         return Batch(operation: .videoEdit, items: [work])
+    }
+
+    public static func frame(url: URL, edit: VideoEdit, outputSeconds: Double, settings: Settings) -> Batch {
+        if (edit.sources?.count ?? 0) <= 1 {
+            return OperationPlanner.batch(
+                for: OperationRequest(
+                    op: .videoThumbnail, options: .video(.still(.edited(edit, outputSeconds: outputSeconds))),
+                    inputs: [url]),
+                settings: settings)
+        }
+        let inputs = edit.sources?.map(\.url) ?? [url]
+        let work = WorkItem(inputs: inputs, lane: .cpu) { context in
+            for input in inputs { try OperationPlanner.validateInput(input) }
+            return try await VideoStills.run(.edited(edit, outputSeconds: outputSeconds), url: url, context: context)
+        }
+        return Batch(operation: .videoThumbnail, items: [work])
     }
 }

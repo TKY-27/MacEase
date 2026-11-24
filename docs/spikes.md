@@ -1097,3 +1097,153 @@ Automation consent were not exercised. Two pinned ONNX Runtime notice URLs
 returned HTTP 404; the local build uses copies from the installed app whose
 SHA-256 values exactly match `Vendor/ai-audio.lock`. Cold-network bootstrap
 and remote CI remain unverified.
+## Freeze-frame composition scaling (2026-11-24)
+
+Environment: macOS 27, Apple Silicon, Swift 6.4. Verified with a 30 fps H.264/AAC
+MOV fixture with distinct per-frame colors through `VideoEditorPlayback`,
+`AVAssetImageGenerator`, and `AVPlayer` with `AVPlayerItemVideoOutput`.
+
+| Question | Result |
+| --- | --- |
+| Does `insertTimeRange` + `scaleTimeRange` hold a single frame in `AVPlayer`? | Yes, for both 2 s and 30 s freezes, including transitions from normal segments before and after the freeze. |
+| What happens when `start..<end` spans one frame duration from a non-frame-aligned `start`? | `insertTimeRange` captures both the frame covering `start` and the following frame, so `scaleTimeRange` flips to the next frame partway through the freeze. Inserting a 1-nanosecond slice at `start` (`min(1 ns, end - start)`) and scaling it to `freezeDuration` isolates strictly the single frame covering `start`. |
+| Does `AVVideoComposition(applyingFiltersTo:)` animate fades during `AVPlayer.play()` over a scaled freeze? | Not with defaults: `filtered.frameDuration` reflects the scaled sample duration and `sourceTrackIDForFrameTiming` tracks the single video sample, freezing filter output across playback. Setting `frameDuration = 1/30 s` and `sourceTrackIDForFrameTiming = kCMPersistentTrackID_Invalid` when the timeline contains a freeze segment makes real playback animate fades identically to export. |
+
+## Integrated editor playback timing (2026-11-24)
+
+The freeze slice also works at one tick of the 60,000 composition timescale.
+The existing unaligned-start test holds the same frame through 30 seconds;
+the 2-second freeze animates fades during actual AVPlayer playback.
+Composition track scales, inserted ranges, audio intersections, ramps and filter
+frame timing now use 60,000 rather than nanoseconds.
+
+On macOS 27, mixing AAC source audio and reversed float-PCM staged audio on
+one composition track produces a ready-to-play item but no rendered audio.
+Separate audio tracks per source restore rendering. An app-hosted audio tap
+measures nonzero samples across six seeks/replays spanning a freeze and the
+staged reversed source. The staged source remains lossless PCM.
+
+## Editor annotation rasterization (2026-11-24)
+
+Apple M5, macOS 27.2.1, Swift 6.4.2, Debug. The measurement renders heavy
+system-font text into a 1280 by 720 bitmap, using a 1920 by 1080 reference.
+Each case runs 10 warmups and 120 measured iterations.
+
+| Text annotations | Content cache | Median ms | p95 ms |
+| --- | --- | --- | --- |
+| 1 | Miss | 0.3045 | 0.8542 |
+| 1 | Hit | 0.0010 | 0.0010 |
+| 50 | Miss | 59.8582 | 105.5526 |
+| 50 | Hit | 0.0208 | 0.0216 |
+
+Rebuilding 50 annotations exceeds a 30 fps frame budget. Preview and export
+now share a content-keyed one-entry bitmap cache. Content, geometry or output
+size changes still incur a miss. These measurements include bitmap generation,
+Core Text and cache lookup, excluding decoding, frame-index lookup, Core Image
+GPU compositing, encoding and UI latency. They are not end-to-end frame times.
+These were baseline measurements from the former EditorOverlayMeasurements
+suite. Current editor measurements run through `scripts/bench.sh editor.photo`.
+
+## Editor reverse and overlay frame timing (2026-11-24)
+
+Verified on Apple M5, macOS 27.2.1 (26B131), using the installed Xcode SDK.
+The synthesized `reverse-open-gop-vfr.mp4` fixture contains HEVC open GOPs,
+leading B frames and variable presentation intervals. For example, the
+0.75-second I frame decodes before B frames presented at 0.625 and 0.583333
+seconds. Stopping a decode-order index at that I frame omits displayed frames.
+
+An edit list also changes compressed sample timing. On this fixture,
+`AVSampleCursor.presentationTimeStamp` and a compressed sample's
+`presentationTimeStamp` include the 0.25-second media offset; decoded frames
+start at output time zero. A compressed sample at 0.541666667 seconds has
+`outputPresentationTimeStamp` 0.291666667 seconds. Zero-duration edit-list
+markers and non-presented samples must not enter the display-frame index.
+Indexing positive output durations and output presentation timestamps matched
+all six selected frames of the 0.26–0.70-second reverse range. The regression
+compares every reversed frame with all forward candidates and checks variable
+frame durations. Container proxies additionally use the original source's
+frame intervals for redaction selection.
+
+At 23.976 fps, `CMTime(seconds:preferredTimescale: 60000)` truncates the
+first frame boundary plus four microseconds into the preceding frame. The
+boundary is 1001/24000 seconds. Nanosecond lookup preserves the intended frame;
+the regression checks both the rendered freeze preview and frame-fetch output
+against a patterned source with a redaction active only in that source frame.
+
+The reverse implementation reads compressed timing once, then decodes forward
+once into independent LZ4-compressed pixel frames. It reads these frames in
+reverse order and preserves their presentation intervals. Compression operates
+in 64 KiB blocks and never retains a decoded GOP. The container decoder's
+presentation reorder queue is disabled for this operation; disk metadata
+supplies ordering. Each retained source pixel buffer is checked against the
+256 MiB budget. Native codec reference surfaces, GPU workspaces and the optional
+geometry processor are separate from that retained-frame budget; process peak
+memory is measured separately. Streaming uses Apple's Compression filters:
+https://developer.apple.com/documentation/compression/outputfilter
+
+The 8K PQ regression uses four 7680×4320, 10-bit biplanar frames. Native HDR
+reads use about three bytes per pixel, not eight-byte RGBA. Thus the earlier
+4K-HDR estimate of eight 66 MB frames did not describe the reader's actual
+buffers. Eight 8K biplanar frames, and the container decoder's old minimum-four
+BGRA reorder queue, still exceeded 256 MiB. Both paths now spill without that
+minimum-frame retention. A separate 8K SDR Matroska regression exercises the
+container decoder. Raw reversed staging remains unredacted by design; preview,
+still export and video export apply source-time overlays from immutable source
+provenance. All staged directories remain registered and session-owned.
+
+Native audio-mix volume keys can interpolate into a future freeze's zero gain.
+The app-hosted placement test measured RMS 0.007569 in a preceding audible
+window; explicit constant-volume intervals prevented that unintended ramp.
+Two coherent 0.8-amplitude tones produced preview RMS 1.131371 but export RMS
+0.850146 because the export mixer clamps samples. Music preview now uses that
+same mixer in a cached float CAF, retaining separate source-format composition
+tracks and a 60000 timescale. Rendered-audio tests cover saturation, offset,
+fades, freeze silence, reversed frequency placement and final A/V duration.
+
+### Measured reverse cost
+
+Release builds used the same 60-second, 1920×1080, 60 fps, video-only H.264
+Matroska inputs before and after the change. FFprobe counted exactly 3600 video
+packets in each, with one keyframe or 60 keyframes respectively. The baseline
+was the integrated renderer with decode/cache counters; final measurements use
+the session-owned public reverse API. `/usr/bin/time -l` wrapped the compiled
+Benchmarks executable, excluding compilation. The machine also ran other
+worktrees, so wall times are observations under shared load, not latency bounds.
+
+| Source | Renderer | Wall seconds | Decoded frames | Retained pixel cache MB | OS max RSS MB |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Single keyframe | Before | 713.506 | 406800 | 265.423 | 51.347 |
+| Single keyframe | After | 45.056 | 3600 | 8.294 | 68.485 |
+| One-second GOP | Before | 28.437 | 7200 | 265.423 | 51.986 |
+| One-second GOP | After | 40.890 | 3600 | 8.294 | 69.124 |
+
+OS peak memory footprints were 57.296/57.640 MB before and 76.301/77.710 MB
+after, in table order. These process counters do not cover every shared GPU or
+codec-service allocation. The retained pixel cache and process RSS measure
+different resources. The spill adds compression and disk I/O: this run was
+15.8 times faster for a single keyframe but 43.8% slower for normal GOPs. Decode
+work became one frame per source frame in both cases; the old single-keyframe
+case decoded each GOP 113 times. Lossless spilling avoids another lossy
+intermediate and removes GOP-length-dependent repeated decoding. Temporary disk
+requirements depend on pixel entropy and can approach uncompressed frame size.
+Only the encoded reversed source remains after success; closing removes it.
+
+The `editor.photo` benchmark used a 12 MP HEIC, 960-pixel previews, five warmups
+and twenty distinct exposure updates. One blurred redaction measured median
+1.669 ms / p95 6.367 ms. One redaction plus 49 text annotations measured median
+37.700 ms / p95 65.242 ms. The benchmark checks output dimensions. Original
+resolution controls font/stroke minima, while annotation bitmaps remain bounded
+by preview dimensions. Max process RSS was 387.318 MB and peak footprint
+310.445 MB; this includes the full decoded source and Core Image workspaces.
+These are measured samples, not a 60 fps guarantee for fifty annotations.
+
+Reproduce the video inputs with FFmpeg's `testsrc2=size=1920x1080:rate=60:duration=60`,
+`libx264 -preset ultrafast -qp 26 -g 36000 -keyint_min 36000 -sc_threshold 0`.
+Re-encode that result with `-g 60 -keyint_min 60 -sc_threshold 0` for normal GOPs.
+Run `scripts/bench.sh editor.reverse <input.mkv>` or
+`scripts/bench.sh editor.photo`. For process memory, first build Release and
+wrap `Packages/MacEaseKit/.build/release/Benchmarks` directly with
+`/usr/bin/time -l`. The single-keyframe fixture SHA-256 is
+`d81a7f22e20c7530e1279018606f0e9ae5301a3e0eb61b21b2b7eaaf8fc96d72`;
+the normal-GOP fixture is
+`c8453c83acd0c32ede3217c370d84adb336de5b5e26b91b1d17de156b5c64bd4`.

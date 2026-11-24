@@ -1,6 +1,91 @@
 import Formats
 import Foundation
 
+public struct BackgroundMusic: Codable, Hashable, Sendable {
+    public static let defaultVolume = 0.3
+    public static let fadeOutSeconds = 1.0
+    public static let changedErrorMessage = String(
+        localized: "The background music file changed while editing. Choose it again.")
+
+    public var url: URL
+    public var stamp: MediaSourceStamp
+    public var duration: Double
+    public var start: Double
+    public var volume: Double
+
+    public init(
+        url: URL, stamp: MediaSourceStamp, duration: Double,
+        start: Double = 0, volume: Double = defaultVolume
+    ) {
+        self.url = url
+        self.stamp = stamp
+        self.duration = duration
+        self.start = start
+        self.volume = volume
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case url, stamp, duration, start, volume
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        url = try values.decode(URL.self, forKey: .url)
+        stamp = try values.decode(MediaSourceStamp.self, forKey: .stamp)
+        duration = try values.decode(Double.self, forKey: .duration)
+        start = try values.decodeIfPresent(Double.self, forKey: .start) ?? 0
+        volume = try values.decodeIfPresent(Double.self, forKey: .volume) ?? Self.defaultVolume
+    }
+
+    public static func load(from url: URL) throws -> BackgroundMusic {
+        do {
+            let stamp = try MediaSourceStamp(url: url)
+            let input = try AudioInput(url: url)
+            guard let duration = input.duration, duration.isFinite, duration > 0 else {
+                throw EngineError.decodeFailed("unknown audio duration")
+            }
+            _ = try input.open()
+            try stamp.validate(url, message: Self.changedErrorMessage)
+            let music = BackgroundMusic(url: url, stamp: stamp, duration: duration)
+            try music.validate()
+            return music
+        } catch {
+            throw EngineError.wrapping(error, path: url.path)
+        }
+    }
+
+    public func validate() throws {
+        guard url.isFileURL,
+            duration.isFinite, duration > 0,
+            start.isFinite, start >= 0, start < duration,
+            volume.isFinite, (0...1).contains(volume)
+        else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        let startTime = try Nanoseconds.from(seconds: start)
+        let durationTime = try Nanoseconds.from(seconds: duration)
+        guard durationTime > startTime else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+    }
+
+    public func validateSource() throws {
+        try stamp.validate(url, message: Self.changedErrorMessage)
+    }
+
+    public func playDuration(forOutputDuration outputDuration: Double) -> Double {
+        guard outputDuration.isFinite, outputDuration > 0 else { return 0 }
+        return min(outputDuration, max(0, duration - start))
+    }
+
+    public func fade(forOutputDuration outputDuration: Double) -> FadeRamp {
+        let remaining = max(0, duration - start)
+        let played = playDuration(forOutputDuration: outputDuration)
+        let fadeOut = remaining > outputDuration ? Self.fadeOutSeconds : 0
+        return FadeRamp(duration: played, fadeIn: 0, fadeOut: fadeOut)
+    }
+}
+
 public struct VideoEdit: Codable, Hashable, Sendable {
     public static let speedRange = 0.5...4.0
     public var start: Double
@@ -14,9 +99,23 @@ public struct VideoEdit: Codable, Hashable, Sendable {
     public var sourceStamp: MediaSourceStamp?
     public var segments: [VideoSegment]?
     public var sources: [VideoEditSource]?
+    public var overlays: [TimedOverlay] = []
+    public var music: BackgroundMusic?
+
+    public var requiresJoinedExport: Bool { (sources?.count ?? 0) > 1 }
+
+    public var joinedExportNotice: String? {
+        requiresJoinedExport
+            ? String(
+                localized:
+                    "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR."
+            )
+            : nil
+    }
 
     public var changesColor: Bool {
-        segments.map { $0.contains { !$0.adjustments.isIdentity } } ?? !adjustments.isIdentity
+        !overlays.isEmpty
+            || (segments.map { $0.contains { !$0.adjustments.isIdentity } } ?? !adjustments.isIdentity)
     }
 
     public var changesAppearance: Bool { !geometry.isIdentity || changesColor }
@@ -34,6 +133,7 @@ public struct VideoEdit: Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case start, end, speed, resize, trimMode, geometry, adjustments, volume, sourceStamp, segments, sources
+        case overlays, music
     }
 
     public init(from decoder: Decoder) throws {
@@ -49,6 +149,8 @@ public struct VideoEdit: Codable, Hashable, Sendable {
         sourceStamp = try values.decodeIfPresent(MediaSourceStamp.self, forKey: .sourceStamp)
         segments = try values.decodeIfPresent([VideoSegment].self, forKey: .segments)
         sources = try values.decodeIfPresent([VideoEditSource].self, forKey: .sources)
+        overlays = try values.decodeIfPresent([TimedOverlay].self, forKey: .overlays) ?? []
+        music = try values.decodeIfPresent(BackgroundMusic.self, forKey: .music)
     }
 }
 
