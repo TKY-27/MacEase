@@ -101,16 +101,19 @@ enum PreviewLayout {
     static let margin: CGFloat = 16
     // Matches the height of Finder's toolbar.
     static let barHeight: CGFloat = 52
+    static let noteHeight: CGFloat = 24
 }
 
 struct PreviewContent: View {
     let url: URL
     let kind: PreviewKind
+    let trust: PreviewTrust
+    @Binding var scriptConsent: Set<String>
 
     var body: some View {
         switch kind {
         case .text, .html, .markdown, .json, .propertyList:
-            PreviewTextViewer(url: url, kind: kind)
+            PreviewTextViewer(url: url, kind: kind, trust: trust, scriptConsent: $scriptConsent)
         case .image: PreviewImageViewer(url: url)
         case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
         case .pdf: PreviewPDFViewer(url: url)
@@ -130,6 +133,34 @@ struct PreviewFailure: View {
         message.font(.callout).foregroundStyle(.secondary)
             .multilineTextAlignment(.center).padding(PreviewLayout.margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// Single line; full text in the tooltip.
+struct PreviewNote: View {
+    let symbol: String
+    let text: Text
+    var shortText: Text?
+    var tint: Color = .secondary
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).foregroundStyle(tint).accessibilityHidden(true)
+                ViewThatFits(in: .horizontal) {
+                    text.fixedSize()
+                    (shortText ?? text).lineLimit(1)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, PreviewLayout.margin)
+            .frame(maxWidth: .infinity, minHeight: PreviewLayout.noteHeight, alignment: .leading)
+            .help(text)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text)
+            Divider()
+        }
     }
 }
 

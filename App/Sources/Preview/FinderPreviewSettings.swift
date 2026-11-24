@@ -74,9 +74,9 @@ struct FinderPreviewSettings: Codable, Equatable, Sendable {
     }
 
     static func standardizeFolderPath(_ path: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-        let expanded = (trimmed as NSString).expandingTildeInPath
+        // Folder names may contain spaces.
+        let expanded = (path as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") else { return "" }
         return URL(fileURLWithPath: expanded).standardizedFileURL.path
     }
 

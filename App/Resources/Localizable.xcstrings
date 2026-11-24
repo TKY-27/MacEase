@@ -18369,6 +18369,46 @@
           }
         }
       }
+    },
+    "This file is from the internet. Scripts, external content and other files are disabled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットから入手したものです。スクリプト、外部コンテンツ、ほかのファイルの読み込みは無効です。"
+          }
+        }
+      }
+    },
+    "From the internet: limited preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットから入手：制限付きプレビュー"
+          }
+        }
+      }
+    },
+    "Runs this page's scripts until MacEase quits.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseを終了するまで、このページのスクリプトを実行します。"
+          }
+        }
+      }
+    },
+    "Loads content from the internet. Scripts run too.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットからコンテンツを読み込みます。スクリプトも実行されます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

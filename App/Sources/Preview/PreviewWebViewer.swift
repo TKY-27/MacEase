@@ -3,6 +3,32 @@ import SwiftUI
 import WebKit
 import os
 
+// One-way; network resets on reselection.
+struct PreviewWebPolicy: Hashable {
+    let restricted: Bool
+    private(set) var scripts: Bool
+    private(set) var network = false
+
+    init(trust: PreviewTrust, scriptsConsented: Bool) {
+        restricted = trust.restricted
+        scripts = !restricted && (trust.level == .trusted || scriptsConsented)
+    }
+
+    var offersScripts: Bool { !restricted && !scripts }
+    var offersNetwork: Bool { !restricted && !network }
+
+    mutating func allowScripts() {
+        guard !restricted else { return }
+        scripts = true
+    }
+
+    mutating func allowNetwork() {
+        guard !restricted else { return }
+        scripts = true
+        network = true
+    }
+}
+
 @MainActor
 enum PreviewWebConfiguration {
     static let offlineRules = """
@@ -13,6 +39,14 @@ enum PreviewWebConfiguration {
           {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}},
           {"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}},
           {"trigger":{"url-filter":"^wss?://"},"action":{"type":"block"}}
+        ]
+        """
+    // Generated pages may only use inline data.
+    private static let inlineRules = """
+        [
+          {"trigger":{"url-filter":".*"},"action":{"type":"block"}},
+          {"trigger":{"url-filter":"^data:"},"action":{"type":"ignore-previous-rules"}},
+          {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}}
         ]
         """
     private static let onlineRules = """
@@ -26,11 +60,20 @@ enum PreviewWebConfiguration {
         ]
         """
 
-    static func make(scripts: Bool = false, network: Bool = false) async throws -> WKWebViewConfiguration {
+    enum Reach {
+        case inline, localFiles, network
+    }
+
+    static func make(scripts: Bool = false, reach: Reach = .localFiles) async throws -> WKWebViewConfiguration {
+        let (identifier, encoded) =
+            switch reach {
+            case .inline: ("MacEasePreviewInline", inlineRules)
+            case .localFiles: ("MacEasePreviewOffline", offlineRules)
+            case .network: ("MacEasePreviewOnline", onlineRules)
+            }
         guard let store = WKContentRuleListStore.default(),
             let rules = try await store.compileContentRuleList(
-                forIdentifier: network ? "MacEasePreviewOnline" : "MacEasePreviewOffline",
-                encodedContentRuleList: network ? onlineRules : offlineRules)
+                forIdentifier: identifier, encodedContentRuleList: encoded)
         else { throw CocoaError(.featureUnsupported) }
         try Task.checkCancellation()
         let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: scripts)
@@ -38,18 +81,39 @@ enum PreviewWebConfiguration {
         return configuration
     }
 
-    static func permitsNavigation(to destination: URL, source: URL, generated: Bool) -> Bool {
-        if generated { return destination.absoluteString == "about:blank" }
-        return destination.isFileURL && destination.host == source.host
-            && destination.standardizedFileURL.path == source.standardizedFileURL.path
+    static func make(for page: PreviewWebViewer.Page) async throws -> WKWebViewConfiguration {
+        switch page {
+        case .file(_, let policy):
+            try await make(scripts: policy.scripts, reach: policy.network ? .network : .localFiles)
+        case .generated: try await make(reach: .inline)
+        }
+    }
+
+    static func load(_ page: PreviewWebViewer.Page, in browser: WKWebView) {
+        switch page {
+        case .file(let url, _): browser.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        case .generated(let html): browser.loadHTMLString(html, baseURL: nil)
+        }
+    }
+
+    static func permitsNavigation(to destination: URL, page: PreviewWebViewer.Page) -> Bool {
+        switch page {
+        case .generated: destination.absoluteString == "about:blank"
+        case .file(let source, _):
+            destination.isFileURL && destination.host == source.host
+                && destination.standardizedFileURL.path == source.standardizedFileURL.path
+        }
     }
 }
 
 struct PreviewWebViewer: View {
-    let url: URL
-    let html: String?
-    let scripts: Bool
-    let network: Bool
+    // Generated pages are sealed and scriptless.
+    enum Page: Hashable {
+        case file(URL, PreviewWebPolicy)
+        case generated(String)
+    }
+
+    let page: Page
     @State private var configuration: WKWebViewConfiguration?
     @State private var failed = false
 
@@ -58,14 +122,14 @@ struct PreviewWebViewer: View {
             if failed {
                 PreviewFailure()
             } else if let configuration {
-                PreviewBrowser(url: url, html: html, configuration: configuration, failed: $failed)
+                PreviewBrowser(page: page, configuration: configuration, failed: $failed)
             } else {
                 ProgressView().controlSize(.small)
             }
         }
         .task {
             do {
-                let configured = try await PreviewWebConfiguration.make(scripts: scripts, network: network)
+                let configured = try await PreviewWebConfiguration.make(for: page)
                 try Task.checkCancellation()
                 configuration = configured
             } catch is CancellationError {
@@ -81,12 +145,11 @@ struct PreviewWebViewer: View {
 }
 
 private struct PreviewBrowser: NSViewRepresentable {
-    let url: URL
-    let html: String?
+    let page: PreviewWebViewer.Page
     let configuration: WKWebViewConfiguration
     @Binding var failed: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(source: url, generated: html != nil, failed: $failed) }
+    func makeCoordinator() -> Coordinator { Coordinator(page: page, failed: $failed) }
 
     func makeNSView(context: Context) -> WKWebView {
         let browser = WKWebView(frame: .zero, configuration: configuration)
@@ -94,11 +157,7 @@ private struct PreviewBrowser: NSViewRepresentable {
         browser.uiDelegate = context.coordinator
         browser.allowsBackForwardNavigationGestures = false
         browser.allowsLinkPreview = false
-        if let html {
-            browser.loadHTMLString(html, baseURL: nil)
-        } else {
-            browser.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
-        }
+        PreviewWebConfiguration.load(page, in: browser)
         return browser
     }
 
@@ -113,13 +172,11 @@ private struct PreviewBrowser: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        let source: URL
-        let generated: Bool
+        let page: PreviewWebViewer.Page
         var failed: Binding<Bool>
 
-        init(source: URL, generated: Bool, failed: Binding<Bool>) {
-            self.source = source
-            self.generated = generated
+        init(page: PreviewWebViewer.Page, failed: Binding<Bool>) {
+            self.page = page
             self.failed = failed
         }
 
@@ -130,7 +187,7 @@ private struct PreviewBrowser: NSViewRepresentable {
                 navigationAction.navigationType != .formSubmitted,
                 navigationAction.navigationType != .formResubmitted,
                 let destination = navigationAction.request.url,
-                PreviewWebConfiguration.permitsNavigation(to: destination, source: source, generated: generated)
+                PreviewWebConfiguration.permitsNavigation(to: destination, page: page)
             else { return .cancel }
             return .allow
         }
@@ -140,7 +197,7 @@ private struct PreviewBrowser: NSViewRepresentable {
         {
             guard navigationResponse.canShowMIMEType, navigationResponse.isForMainFrame,
                 let destination = navigationResponse.response.url,
-                PreviewWebConfiguration.permitsNavigation(to: destination, source: source, generated: generated),
+                PreviewWebConfiguration.permitsNavigation(to: destination, page: page),
                 (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
                     == nil
             else { return .cancel }

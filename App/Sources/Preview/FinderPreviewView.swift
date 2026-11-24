@@ -16,6 +16,9 @@ final class FinderPreviewState {
     var selectedIndex = 0
     var notice: Notice?
     var kind: PreviewKind?
+    var trust: PreviewTrust?
+    // Script consent for this session.
+    var scriptConsent: Set<String> = []
     var fileFailure: String?
     var dock: FinderPreviewGeometry.Dock = .right
     var docked = true
@@ -118,8 +121,10 @@ struct FinderPreviewView: View {
         } else if let failure = state.fileFailure {
             barred { PreviewMessage(symbol: "exclamationmark.triangle", message: Text(failure)) { EmptyView() } }
         } else if let url = state.selectedURL {
-            if let kind = state.kind {
-                PreviewContent(url: url, kind: kind).id(state.generation)
+            if let kind = state.kind, let trust = state.trust {
+                @Bindable var state = state
+                PreviewContent(url: url, kind: kind, trust: trust, scriptConsent: $state.scriptConsent)
+                    .id(state.generation)
             } else {
                 barred { Color.clear }
             }

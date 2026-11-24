@@ -9,7 +9,7 @@ private struct PreviewTextRequest: Equatable {
     let rich: Bool
 }
 
-private struct PreviewTextRendering: Sendable {
+struct PreviewTextRendering: Sendable {
     private static let markdownStyle = """
         <style>
         :root { color-scheme: light dark; }
@@ -32,11 +32,12 @@ private struct PreviewTextRendering: Sendable {
     let html: Bool
 
     static func make(
-        source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL
+        source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
+        restricted: Bool
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
-        let html = rich && kind == .markdown
+        let html = rich && (kind == .markdown || (kind == .html && restricted))
         var language = PreviewLanguage.resolve(url.pathExtension, fileName: url.lastPathComponent)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
@@ -48,9 +49,12 @@ private struct PreviewTextRendering: Sendable {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
                 text = try JSONFormatter.formatted(decoded)
                 language = .json
-            } else if html {
+            } else if html && kind == .markdown {
                 text = try MarkdownConversion.html(decoded, title: url.lastPathComponent)
                     .replacingOccurrences(of: "</head>", with: markdownStyle + "</head>")
+            } else if html {
+                guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
+                text = decoded
             } else {
                 text = decoded
             }
@@ -71,35 +75,51 @@ private struct PreviewTextRendering: Sendable {
 struct PreviewTextViewer: View {
     let url: URL
     let kind: PreviewKind
+    let trust: PreviewTrust
+    @Binding var scriptConsent: Set<String>
     @State private var source: PreviewTextSource?
     @State private var rendering: PreviewTextRendering?
     @State private var encoding = PreviewEncoding.automatic
-    @State private var rich = true
+    @State private var rich: Bool
     @State private var wrap = true
-    @State private var scripts = false
-    @State private var network = false
+    @State private var policy: PreviewWebPolicy
     @State private var failed = false
+
+    init(url: URL, kind: PreviewKind, trust: PreviewTrust, scriptConsent: Binding<Set<String>>) {
+        self.url = url
+        self.kind = kind
+        self.trust = trust
+        _scriptConsent = scriptConsent
+        let policy = PreviewWebPolicy(
+            trust: trust, scriptsConsented: scriptConsent.wrappedValue.contains(trust.resolvedPath))
+        _policy = State(initialValue: policy)
+        // Source first unless scripts are allowed.
+        _rich = State(initialValue: kind != .html || policy.scripts)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar { controls }
-            if source?.truncated == true && !(kind == .html && rich) {
-                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24)
-                Divider()
+            if trust.restricted && (kind == .html || kind == .markdown) {
+                PreviewNote(
+                    symbol: "shield.lefthalf.filled",
+                    text: Text(
+                        "This file is from the internet. Scripts, external content and other files are disabled."),
+                    shortText: Text("From the internet: limited preview"))
+            }
+            if source?.truncated == true && !fileBackedPage {
+                PreviewNote(symbol: "scissors", text: Text("Showing the first 256 KB"))
             }
             Group {
-                if kind == .html && rich {
-                    PreviewWebViewer(url: url, html: nil, scripts: scripts, network: network)
-                        .id("\(scripts)-\(network)")
+                if fileBackedPage {
+                    PreviewWebViewer(page: .file(url, policy)).id(policy)
                 } else if failed {
                     Text("The text could not be decoded or formatted. Try Source or another encoding.")
                         .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .padding(PreviewLayout.margin)
                 } else if let rendering {
                     if rendering.html {
-                        PreviewWebViewer(url: url, html: rendering.text, scripts: false, network: false)
-                            .id(rendering.text)
+                        PreviewWebViewer(page: .generated(rendering.text)).id(rendering.text)
                     } else {
                         PreviewCodeView(
                             text: rendering.text, tokens: rendering.tokens, lineStarts: rendering.lineStarts,
@@ -127,9 +147,11 @@ struct PreviewTextViewer: View {
             }
         }
         if kind == .html && rich {
-            ViewThatFits(in: .horizontal) {
-                webPermissions.labelStyle(.titleOnly)
-                webPermissions.labelStyle(.iconOnly)
+            if fileBackedPage {
+                ViewThatFits(in: .horizontal) {
+                    webPermissions.labelStyle(.titleOnly)
+                    webPermissions.labelStyle(.iconOnly)
+                }
             }
         } else if !(rich && kind == .markdown) {
             if source?.binaryPropertyList != true {
@@ -148,6 +170,9 @@ struct PreviewTextViewer: View {
             .toggleStyle(.button).labelStyle(.iconOnly).help(Text("Soft Wrap"))
         }
     }
+
+    // Downloaded HTML renders sealed, from its text.
+    private var fileBackedPage: Bool { kind == .html && rich && !trust.restricted }
 
     private var modePicker: some View {
         Picker("View", selection: $rich) {
@@ -172,12 +197,25 @@ struct PreviewTextViewer: View {
 
     private var webPermissions: some View {
         HStack(spacing: 6) {
-            Toggle(isOn: $scripts) { Label("Run Scripts", systemImage: "curlybraces") }
-                .help(Text("Run Scripts"))
-            Toggle(isOn: $network) { Label("Allow Network", systemImage: "network") }
-                .help(Text("Allow Network"))
+            if policy.offersScripts {
+                Button {
+                    policy.allowScripts()
+                    scriptConsent.insert(trust.resolvedPath)
+                } label: {
+                    Label("Run Scripts", systemImage: "curlybraces")
+                }
+                .help(Text("Runs this page's scripts until MacEase quits."))
+            }
+            if policy.offersNetwork {
+                Button {
+                    policy.allowNetwork()
+                    scriptConsent.insert(trust.resolvedPath)
+                } label: {
+                    Label("Allow Network", systemImage: "network")
+                }
+                .help(Text("Loads content from the internet. Scripts run too."))
+            }
         }
-        .toggleStyle(.button)
         .fixedSize()
     }
 
@@ -200,12 +238,13 @@ struct PreviewTextViewer: View {
         guard let source else { return }
         rendering = nil
         failed = false
-        guard !(kind == .html && rich) else { return }
+        guard !fileBackedPage else { return }
         let encoding = encoding
         let rich = rich
         do {
-            let rendered = try await offMain { [kind, url] in
-                try PreviewTextRendering.make(source: source, encoding: encoding, rich: rich, kind: kind, url: url)
+            let rendered = try await offMain { [kind, url, restricted = trust.restricted] in
+                try PreviewTextRendering.make(
+                    source: source, encoding: encoding, rich: rich, kind: kind, url: url, restricted: restricted)
             }
             try Task.checkCancellation()
             rendering = rendered

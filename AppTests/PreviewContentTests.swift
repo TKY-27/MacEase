@@ -142,7 +142,7 @@ final class PreviewContentTests: XCTestCase {
         let store = try XCTUnwrap(WKContentRuleListStore.default())
         let rules = try await store.contentRuleList(forIdentifier: "MacEasePreviewOffline")
         XCTAssertNotNil(rules)
-        let allowed = try await PreviewWebConfiguration.make(scripts: true, network: true)
+        let allowed = try await PreviewWebConfiguration.make(scripts: true, reach: .network)
         XCTAssertTrue(allowed.defaultWebpagePreferences.allowsContentJavaScript)
         XCTAssertFalse(allowed.websiteDataStore.isPersistent)
         let reset = try await PreviewWebConfiguration.make()
@@ -152,13 +152,20 @@ final class PreviewContentTests: XCTestCase {
     @MainActor
     func testNavigationRejectsExternalHostsSchemesAndSiblingFiles() throws {
         let source = URL(fileURLWithPath: "/tmp/example/index.html")
-        XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, source: source, generated: false))
+        let page = PreviewWebViewer.Page.file(
+            source,
+            PreviewWebPolicy(trust: PreviewTrust(level: .standard, resolvedPath: source.path), scriptsConsented: false))
+        XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, page: page))
         for address in [
             "https://example.com", "macease://run", "file:///tmp/example/other.html",
             "file://remote/tmp/example/index.html", "data:text/html,hi",
         ] {
             let destination = try XCTUnwrap(URL(string: address))
-            XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: destination, source: source, generated: false))
+            XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: destination, page: page))
         }
+        let generated = PreviewWebViewer.Page.generated("<p>x</p>")
+        XCTAssertTrue(
+            PreviewWebConfiguration.permitsNavigation(to: try XCTUnwrap(URL(string: "about:blank")), page: generated))
+        XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: source, page: generated))
     }
 }
