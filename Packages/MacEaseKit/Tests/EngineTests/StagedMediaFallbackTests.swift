@@ -182,11 +182,11 @@ private enum FallbackFixtures {
             ])
         }
         func atom(_ type: String, _ payload: Data) -> Data {
-            var data = Data()
-            appendUInt32BE(&data, UInt32(8 + payload.count))
-            data.append(contentsOf: type.utf8)
-            data.append(payload)
-            return data
+            var buffer = Data()
+            appendUInt32BE(&buffer, UInt32(8 + payload.count))
+            buffer.append(contentsOf: type.utf8)
+            buffer.append(payload)
+            return buffer
         }
         var rdrf = Data([0, 0, 0, 0])
         rdrf.append(contentsOf: "url ".utf8)
@@ -266,7 +266,7 @@ private enum FallbackFixtures {
             defer { context.removeStaging() }
             let staged = try await StagedMediaFallback.prepareAudio(audio, context: context)
             #expect(staged.profile == .alacM4A)
-            #expect(staged.sourceIsLossy == expectedLossy)
+            #expect(!staged.origin.isLosslessAudio == expectedLossy)
             let opened = try AudioInput(url: staged.stagedURL)
             #expect(opened.codec == .alac)
             #expect(opened.sampleRate == 48_000)
@@ -298,9 +298,10 @@ private enum FallbackFixtures {
     @Test func profileSelectionUsesExplicitPixelFormatFor422And444() {
         let stream422 = StagedMediaFallback.Probe.Stream(
             index: 0, codecType: "video", codecName: "prores", codecTagString: nil,
-            width: 1920, height: 1080, pixelFormat: "yuv422p10le", bitsPerRawSample: "10",
+            width: 1920, height: 1080, pixelFormat: "yuv422p10le", bitsPerRawSample: "10", bitsPerSample: nil,
             colorPrimaries: nil, colorTransfer: nil, colorSpace: nil, colorRange: nil,
-            channels: nil, sampleFormat: nil, sampleRate: nil, duration: "1.0", disposition: nil, tags: nil)
+            channels: nil, channelLayout: nil, sampleFormat: nil, sampleRate: nil, duration: "1.0",
+            disposition: nil, tags: nil)
         #expect(StagedMediaFallback.selectVideoProfile(for: stream422) == .proresStandard422)
         let probe = StagedMediaFallback.Probe(format: nil, streams: [stream422], chapters: nil)
         let args = StagedMediaFallback.videoTranscodeArguments(
@@ -344,13 +345,20 @@ private enum FallbackFixtures {
         let support = try TestVolume.makeFolder()
         let subtitled = try await FallbackFixtures.makeSubtitledMKV(in: folder)
 
-        let unconsented = FallbackFixtures.context(in: support)
+        let phases = Mutex<[ItemPhase]>([])
+        let unconsented = FallbackFixtures.context(
+            in: support, phase: { phase in phases.withLock { $0.append(phase) } })
         defer { unconsented.removeStaging() }
         await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.subtitle]))) {
             _ = try await StagedMediaFallback.prepareVideo(subtitled, context: unconsented)
         }
-        let stagingDirs = try FileManager.default.contentsOfDirectory(at: support, includingPropertiesForKeys: nil)
-        #expect(!stagingDirs.contains { $0.lastPathComponent.hasSuffix(".mov") })
+        #expect(!phases.withLock { $0.contains(.convertingInput) })
+        #expect(!FileManager.default.fileExists(atPath: support.appending(path: "staging.json").path))
+        let stagingMatches =
+            FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.lastPathComponent == "fallback.mov" } ?? []
+        #expect(stagingMatches.isEmpty)
 
         let consented = FallbackFixtures.context(in: support, omittedStreams: [.subtitle])
         defer { consented.removeStaging() }
@@ -440,40 +448,111 @@ private enum FallbackFixtures {
         let folder = try TestVolume.makeFolder()
         let support = try TestVolume.makeFolder()
         let tools = try mediaFixtureTools()
-        let longClip = folder.appending(path: "long.wmv")
+        let uniqueName = "cancel-\(UUID().uuidString).wmv"
+        let longClip = folder.appending(path: uniqueName)
         try await FallbackFixtures.runFFmpeg(
             [
-                "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=12",
+                "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=20",
                 "-c:v", "wmv2", longClip.path,
             ], in: folder, tools: tools)
 
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        let settings = Settings()
+        let request = OperationRequest(op: .videoConvert, options: .video(.convert(.mp4)), inputs: [longClip])
+        let batch = OperationPlanner.batch(for: request, settings: settings)
         let started = Mutex(false)
-        let context = FallbackFixtures.context(
-            in: support,
-            phase: { phase in
-                if phase == .convertingInput { started.withLock { $0 = true } }
-            })
         let task = Task {
-            try await StagedMediaFallback.prepareVideo(longClip, context: context)
+            await engine.run(batch, settings: settings) { progress in
+                if progress.itemPhases.first == .convertingInput {
+                    started.withLock { $0 = true }
+                }
+            }
         }
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(10)
         while !started.withLock({ $0 }) && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(5))
         }
+        #expect(started.withLock { $0 }, "expected convertingInput phase before cancel")
         task.cancel()
-        do {
-            _ = try await task.value
-        } catch is CancellationError {
-            // Expected cancellation.
-        } catch EngineError.cancelled {
-            // Expected cancellation.
+        let outcome = await task.value
+        guard case .failed(.cancelled) = outcome.outcomes.first else {
+            Issue.record("expected cancellation, got \(String(describing: outcome.outcomes))")
+            return
         }
-        context.removeStaging()
+        let checker = Process()
+        checker.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        checker.arguments = ["-f", uniqueName]
+        try checker.run()
+        checker.waitUntilExit()
+        #expect(checker.terminationStatus != 0, "ffmpeg child must exit after cancellation")
         let registryURL = support.appending(path: "staging.json")
         if FileManager.default.fileExists(atPath: registryURL.path) {
             let remaining = try JSONDecoder().decode([String].self, from: Data(contentsOf: registryURL))
             #expect(remaining.isEmpty)
         }
+        let leftovers =
+            FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.lastPathComponent == "fallback.mov" } ?? []
+        #expect(leftovers.isEmpty)
+    }
+
+    @Test func watchdogTerminatesStalledChildAndLiveDiskMonitorAborts() async throws {
+        let folder = try TestVolume.makeFolder()
+        let support = try TestVolume.makeFolder()
+        let tools = try mediaFixtureTools()
+        let stub = folder.appending(path: "stalled-tool.sh")
+        try Data("#!/bin/sh\nsleep 30\n".utf8).write(to: stub)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+
+        let started = ContinuousClock.now
+        var timedOutError: EngineError?
+        do {
+            _ = try await MediaToolProcess().run(
+                executable: stub, arguments: [], directory: folder, tools: tools,
+                captureOutput: false, includeTLSCertificate: false, noProgressTimeout: .milliseconds(250))
+            Issue.record("expected stalled child to time out")
+        } catch let error as EngineError {
+            timedOutError = error
+        }
+        let elapsed = ContinuousClock.now - started
+        #expect(elapsed < .seconds(5))
+        guard case .decodeFailed(let detail) = timedOutError else {
+            Issue.record("expected decodeFailed timeout, got \(String(describing: timedOutError))")
+            return
+        }
+        #expect(detail.lowercased().contains("timed out"))
+
+        let longClip = folder.appending(path: "disk-drop.wmv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=20",
+                "-c:v", "wmv2", longClip.path,
+            ], in: folder, tools: tools)
+        let queries = Mutex(0)
+        let context = FallbackFixtures.context(in: support)
+        defer { context.removeStaging() }
+        var diskError: EngineError?
+        do {
+            _ = try await StagedMediaFallback.prepareVideo(
+                longClip, context: context,
+                availableBytes: { _ in
+                    let count = queries.withLock { value -> Int in
+                        value += 1
+                        return value
+                    }
+                    return count == 1 ? 10_000_000_000 : 1_000
+                },
+                diskMonitorInterval: .milliseconds(25))
+            Issue.record("expected live disk drop to abort transcode")
+        } catch let error as EngineError {
+            diskError = error
+        }
+        guard case .insufficientDiskSpace(_, let available) = diskError else {
+            Issue.record("expected insufficientDiskSpace on live drop, got \(String(describing: diskError))")
+            return
+        }
+        #expect(available == 1_000)
     }
 }
 
@@ -510,10 +589,12 @@ private enum FallbackFixtures {
         #expect(FileKind(fileURL: URL(fileURLWithPath: "/tmp/component.ts", isDirectory: false)) == .text)
 
         let folder = try TestVolume.makeFolder()
+        let m2tsPacket = [UInt8](repeating: 0, count: 4) + [0x47] + [UInt8](repeating: 0, count: 187)
+        let m2tsBytes = m2tsPacket + m2tsPacket + m2tsPacket + m2tsPacket
         let samples: [(String, [UInt8], FileKind)] = [
             ("clip.wmv", AudioInput.asfSignature + [0, 0, 0, 0], .video),
             ("clip.mpg", [0x00, 0x00, 0x01, 0xBA, 0x44, 0x00], .video),
-            ("clip.m2ts", [0, 0, 0, 0, 0x47] + Array(repeating: UInt8(0), count: 191) + [0x47, 0], .video),
+            ("clip.m2ts", m2tsBytes, .video),
             ("clip.rm", Array(".RMF".utf8) + [0, 0, 0, 0], .video),
             ("clip.mxf", [0x06, 0x0E, 0x2B, 0x34, 0x02, 0x05], .video),
             ("audio.ac3", [0x0B, 0x77, 0x00, 0x00], .audio),
@@ -527,6 +608,10 @@ private enum FallbackFixtures {
             try Data(bytes).write(to: file)
             #expect(try ContentSniffer.matches(file, kind: kind), "\(name)")
         }
+        let falseTS = folder.appending(path: "coincidence.m2ts")
+        let twoSyncOnly = [UInt8(0x47)] + [UInt8](repeating: 0, count: 187) + [0x47] + [UInt8](repeating: 0, count: 400)
+        try Data(twoSyncOnly).write(to: falseTS)
+        #expect(try !ContentSniffer.matches(falseTS, kind: .video))
     }
 
     @Test func endToEndVideoConversionsThroughJobEnginePreserveOriginalsAndCleanStaging() async throws {
@@ -722,11 +807,503 @@ private enum FallbackFixtures {
         try corruptBytes.write(to: corruptWMV)
         let (failedOutcome, failedSupport) = try await runJob(
             op: .videoConvert, options: .video(.convert(.mp4)), inputs: [corruptWMV])
-        guard case .failed(.decodeFailed) = failedOutcome.outcomes.first else {
+        guard case .failed(.decodeFailed(let detail)) = failedOutcome.outcomes.first else {
             Issue.record("expected decodeFailed on corrupt WMV, got \(String(describing: failedOutcome.outcomes))")
             return
         }
+        #expect(detail == "unrecognized video container")
         #expect(try Data(contentsOf: corruptWMV) == corruptBytes)
         try assertStagingEmpty(in: failedSupport)
+    }
+
+    @Test func sameFormatFallbackOperationsSaveNewFileInReplaceMode() async throws {
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let folder = try TestVolume.makeFolder()
+            let wma = try await FallbackFixtures.makeWMA(named: "voice.wma", duration: 0.8, in: folder)
+            let wmaBytes = try Data(contentsOf: wma)
+            let (audioOutcome, audioSupport) = try await runJob(
+                op: .audioTrim, options: .audio(.trim(start: 0.1, end: 0.5)), inputs: [wma], mode: mode)
+            guard case .succeeded(let audioOutputs, let audioWarnings) = audioOutcome.outcomes.first,
+                let trimmed = audioOutputs.first
+            else {
+                Issue.record("expected WMA trim success in \(mode), got \(String(describing: audioOutcome.outcomes))")
+                continue
+            }
+            #expect(trimmed.pathExtension.lowercased() == "m4a")
+            #expect(FileManager.default.fileExists(atPath: wma.path))
+            #expect(try Data(contentsOf: wma) == wmaBytes)
+            #expect(audioWarnings.contains(.keptAsNewFileForFormat) == (mode == .replace))
+            try assertStagingEmpty(in: audioSupport)
+
+            let wmv = try await FallbackFixtures.makeWMV(named: "clip.wmv", duration: 0.6, in: folder)
+            let wmvBytes = try Data(contentsOf: wmv)
+            let (videoOutcome, videoSupport) = try await runJob(
+                op: .videoRemoveAudio, options: .video(.removeAudio), inputs: [wmv], mode: mode)
+            guard case .succeeded(let videoOutputs, let videoWarnings) = videoOutcome.outcomes.first,
+                let muted = videoOutputs.first
+            else {
+                Issue.record(
+                    "expected WMV removeAudio success in \(mode), got \(String(describing: videoOutcome.outcomes))")
+                continue
+            }
+            #expect(muted.pathExtension.lowercased() == "mp4")
+            #expect(FileManager.default.fileExists(atPath: wmv.path))
+            #expect(try Data(contentsOf: wmv) == wmvBytes)
+            #expect(videoWarnings.contains(.keptAsNewFileForFormat) == (mode == .replace))
+            try assertStagingEmpty(in: videoSupport)
+        }
+    }
+
+    @Test func coverArtSurvivesIntermediateOrTriggersLossPolicy() async throws {
+        let tools = try mediaFixtureTools()
+        func makeWavPackWithCoverArt(in folder: URL) async throws -> URL {
+            let base = try await FallbackFixtures.makeWavPack(named: "base.wv", in: folder)
+            let cover = folder.appending(path: "cover.png")
+            try await FallbackFixtures.runFFmpeg(
+                ["-f", "lavfi", "-i", "color=c=blue:size=16x16:duration=0.1", "-frames:v", "1", cover.path],
+                in: folder, tools: tools)
+            let audioBytes = try Data(contentsOf: base)
+            let imageBytes = try Data(contentsOf: cover)
+            var value = Data("cover.png".utf8)
+            value.append(0)
+            value.append(imageBytes)
+            var entry = Data()
+            func appendUInt32LE(_ destination: inout Data, _ number: UInt32) {
+                var little = number.littleEndian
+                withUnsafeBytes(of: &little) { destination.append(contentsOf: $0) }
+            }
+            appendUInt32LE(&entry, UInt32(value.count))
+            appendUInt32LE(&entry, 2)
+            entry.append(contentsOf: "Cover Art (Front)".utf8)
+            entry.append(0)
+            entry.append(value)
+            let tagSize = UInt32(entry.count + 32)
+            var header = Data("APETAGEX".utf8)
+            for field: UInt32 in [2_000, tagSize, 1, (1 << 31) | (1 << 29), 0, 0] { appendUInt32LE(&header, field) }
+            var footer = Data("APETAGEX".utf8)
+            for field: UInt32 in [2_000, tagSize, 1, 1 << 31, 0, 0] { appendUInt32LE(&footer, field) }
+            let tagged = folder.appending(path: "album.wv")
+            try (audioBytes + header + entry + footer).write(to: tagged)
+            try FileManager.default.removeItem(at: base)
+            try FileManager.default.removeItem(at: cover)
+            return tagged
+        }
+
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let flacFolder = try TestVolume.makeFolder()
+            let sourceFLAC = try await makeWavPackWithCoverArt(in: flacFolder)
+            let originalBytes = try Data(contentsOf: sourceFLAC)
+            let (flacOutcome, flacSupport) = try await runJob(
+                op: .audioConvert, options: .audio(.convert(.flac)), inputs: [sourceFLAC], mode: mode)
+            guard case .succeeded(let flacOutputs, let flacWarnings) = flacOutcome.outcomes.first,
+                let flacURL = flacOutputs.first
+            else {
+                Issue.record(
+                    "expected FLAC cover art success in \(mode), got \(String(describing: flacOutcome.outcomes))")
+                continue
+            }
+            let tags = try await AudioInput(url: flacURL).tags()
+            #expect(tags.artwork != nil)
+            #expect(!flacWarnings.contains(.metadataDropped))
+            if mode == .newFile {
+                #expect(try Data(contentsOf: sourceFLAC) == originalBytes)
+            } else {
+                #expect(!FileManager.default.fileExists(atPath: sourceFLAC.path))
+            }
+            try assertStagingEmpty(in: flacSupport)
+
+            let wavFolder = try TestVolume.makeFolder()
+            let sourceWAV = try await makeWavPackWithCoverArt(in: wavFolder)
+            let wavOriginal = try Data(contentsOf: sourceWAV)
+            let (wavOutcome, wavSupport) = try await runJob(
+                op: .audioConvert, options: .audio(.convert(.wav)), inputs: [sourceWAV], mode: mode)
+            if mode == .replace {
+                #expect(wavOutcome.outcomes == [.failed(.audioMetadataUnsupported)])
+                #expect(try Data(contentsOf: sourceWAV) == wavOriginal)
+            } else {
+                guard case .succeeded(let wavOutputs, let wavWarnings) = wavOutcome.outcomes.first, !wavOutputs.isEmpty
+                else {
+                    Issue.record("expected WAV new-file success, got \(String(describing: wavOutcome.outcomes))")
+                    continue
+                }
+                #expect(wavWarnings.contains(.metadataDropped))
+                #expect(try Data(contentsOf: sourceWAV) == wavOriginal)
+            }
+            try assertStagingEmpty(in: wavSupport)
+        }
+    }
+
+    @Test func droppedOriginalMetadataTriggersLossPolicyInBothModes() async throws {
+        let tools = try mediaFixtureTools()
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let folder = try TestVolume.makeFolder()
+            let taggedMKV = folder.appending(path: "tagged.mkv")
+            try await FallbackFixtures.runFFmpeg(
+                [
+                    "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=0.3",
+                    "-c:v", "ffv1", "-metadata", "title=MyClip", "-metadata", "custom_note=secret",
+                    taggedMKV.path,
+                ], in: folder, tools: tools)
+            let mkvBytes = try Data(contentsOf: taggedMKV)
+            let (videoOutcome, videoSupport) = try await runJob(
+                op: .videoConvert, options: .video(.convert(.mov)), inputs: [taggedMKV], mode: mode)
+            if mode == .replace {
+                #expect(videoOutcome.outcomes == [.failed(.videoMetadataUnsupported([.descriptiveMetadata]))])
+                #expect(try Data(contentsOf: taggedMKV) == mkvBytes)
+            } else {
+                guard case .succeeded(let outputs, let warnings) = videoOutcome.outcomes.first, !outputs.isEmpty else {
+                    Issue.record("expected new-file MOV success, got \(String(describing: videoOutcome.outcomes))")
+                    continue
+                }
+                #expect(warnings.contains(.videoMetadataDropped([.descriptiveMetadata])))
+                #expect(try Data(contentsOf: taggedMKV) == mkvBytes)
+            }
+            try assertStagingEmpty(in: videoSupport)
+
+            let taggedWV = folder.appending(path: "tagged.wv")
+            try await FallbackFixtures.runFFmpeg(
+                [
+                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.3",
+                    "-c:a", "wavpack", "-metadata", "custom_note=secret", taggedWV.path,
+                ], in: folder, tools: tools)
+            let wvBytes = try Data(contentsOf: taggedWV)
+            let (audioOutcome, audioSupport) = try await runJob(
+                op: .audioConvert, options: .audio(.convert(.flac)), inputs: [taggedWV], mode: mode)
+            if mode == .replace {
+                #expect(audioOutcome.outcomes == [.failed(.audioMetadataUnsupported)])
+                #expect(try Data(contentsOf: taggedWV) == wvBytes)
+            } else {
+                guard case .succeeded(let outputs, let warnings) = audioOutcome.outcomes.first, !outputs.isEmpty else {
+                    Issue.record("expected new-file FLAC success, got \(String(describing: audioOutcome.outcomes))")
+                    continue
+                }
+                #expect(warnings.contains(.metadataDropped))
+                #expect(try Data(contentsOf: taggedWV) == wvBytes)
+            }
+            try assertStagingEmpty(in: audioSupport)
+        }
+    }
+
+    @Test func highBitDepthAndFloatAudioPreservePrecisionAndEnforceLosslessRule() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+        let support = try TestVolume.makeFolder()
+
+        let int32WAV = folder.appending(path: "src32.wav")
+        let int32WV = folder.appending(path: "src32.wv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.3",
+                "-c:a", "pcm_s32le", int32WAV.path,
+            ], in: folder, tools: tools)
+        try await FallbackFixtures.runFFmpeg(
+            ["-i", int32WAV.path, "-c:a", "wavpack", int32WV.path], in: folder, tools: tools)
+
+        let int32Context = FallbackFixtures.context(in: support)
+        defer { int32Context.removeStaging() }
+        let stagedInt32 = try await StagedMediaFallback.prepareAudio(int32WV, context: int32Context)
+        #expect(stagedInt32.profile == .cafPCM32)
+        let refInt32File = try AVAudioFile(forReading: int32WAV, commonFormat: .pcmFormatInt32, interleaved: true)
+        let stagedInt32File = try AVAudioFile(
+            forReading: stagedInt32.stagedURL, commonFormat: .pcmFormatInt32, interleaved: true)
+        #expect(refInt32File.length == stagedInt32File.length)
+        func readAllInt32(_ file: AVAudioFile) throws -> [Int32] {
+            var samples: [Int32] = []
+            samples.reserveCapacity(Int(file.length))
+            let chunk: AVAudioFrameCount = 4_096
+            while file.framePosition < file.length {
+                let remaining = AVAudioFrameCount(min(Int64(chunk), file.length - file.framePosition))
+                let buffer = try #require(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: remaining))
+                try file.read(into: buffer, frameCount: remaining)
+                if buffer.frameLength == 0 { break }
+                let channel = try #require(buffer.int32ChannelData?[0])
+                samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+            }
+            return samples
+        }
+        func readAllFloat32(_ file: AVAudioFile) throws -> [Float] {
+            var samples: [Float] = []
+            samples.reserveCapacity(Int(file.length))
+            let chunk: AVAudioFrameCount = 4_096
+            while file.framePosition < file.length {
+                let remaining = AVAudioFrameCount(min(Int64(chunk), file.length - file.framePosition))
+                let buffer = try #require(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: remaining))
+                try file.read(into: buffer, frameCount: remaining)
+                if buffer.frameLength == 0 { break }
+                let channel = try #require(buffer.floatChannelData?[0])
+                samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+            }
+            return samples
+        }
+
+        let refInt32Samples = try readAllInt32(refInt32File)
+        let stgInt32Samples = try readAllInt32(stagedInt32File)
+        #expect(refInt32Samples.count == 14_400)
+        #expect(refInt32Samples == stgInt32Samples)
+
+        let floatWAV = folder.appending(path: "srcf32.wav")
+        let floatWV = folder.appending(path: "srcf32.wv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.3",
+                "-c:a", "pcm_f32le", floatWAV.path,
+            ], in: folder, tools: tools)
+        try await FallbackFixtures.runFFmpeg(
+            ["-i", floatWAV.path, "-c:a", "wavpack", floatWV.path], in: folder, tools: tools)
+        let floatContext = FallbackFixtures.context(in: support)
+        defer { floatContext.removeStaging() }
+        let stagedFloat = try await StagedMediaFallback.prepareAudio(floatWV, context: floatContext)
+        #expect(stagedFloat.profile == .cafPCMFloat32)
+        let refFloatFile = try AVAudioFile(forReading: floatWAV, commonFormat: .pcmFormatFloat32, interleaved: true)
+        let stagedFloatFile = try AVAudioFile(
+            forReading: stagedFloat.stagedURL, commonFormat: .pcmFormatFloat32, interleaved: true)
+        #expect(refFloatFile.length == stagedFloatFile.length)
+        let refFloatSamples = try readAllFloat32(refFloatFile)
+        let stgFloatSamples = try readAllFloat32(stagedFloatFile)
+        #expect(refFloatSamples.count == 14_400)
+        #expect(refFloatSamples == stgFloatSamples)
+
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let runFolder = try TestVolume.makeFolder()
+            let copy32 = runFolder.appending(path: "master32.wv")
+            try FileManager.default.copyItem(at: int32WV, to: copy32)
+            let orig32 = try Data(contentsOf: copy32)
+            let (refused, refusedSupport) = try await runJob(
+                op: .audioConvert, options: .audio(.convert(.flac)), inputs: [copy32], mode: mode)
+            guard case .failed(.unsupportedCodec) = refused.outcomes.first else {
+                Issue.record(
+                    "expected >24-bit lossless refusal in \(mode), got \(String(describing: refused.outcomes))")
+                continue
+            }
+            #expect(try Data(contentsOf: copy32) == orig32)
+            try assertStagingEmpty(in: refusedSupport)
+
+            let copyFloat = runFolder.appending(path: "masterf32.wv")
+            try FileManager.default.copyItem(at: floatWV, to: copyFloat)
+            let origFloat = try Data(contentsOf: copyFloat)
+            let (floatOutcome, floatSupport) = try await runJob(
+                op: .audioConvert, options: .audio(.convert(.cafPCM)), inputs: [copyFloat], mode: mode)
+            guard case .succeeded(let floatOutputs, let floatWarnings) = floatOutcome.outcomes.first,
+                let floatOut = floatOutputs.first
+            else {
+                Issue.record("expected float CAF success in \(mode), got \(String(describing: floatOutcome.outcomes))")
+                continue
+            }
+            #expect(try AudioInput(url: floatOut).isFloat)
+            #expect(floatWarnings.isEmpty)
+            if mode == .newFile {
+                #expect(try Data(contentsOf: copyFloat) == origFloat)
+            } else {
+                #expect(!FileManager.default.fileExists(atPath: copyFloat.path))
+            }
+            try assertStagingEmpty(in: floatSupport)
+        }
+    }
+
+    @Test func vp9AlphaWithUnsupportedAudioPreservesAlphaOrAppliesLossPolicy() async throws {
+        let tools = try mediaFixtureTools()
+        func makeVP9AlphaDTS(in folder: URL) async throws -> URL {
+            let url = folder.appending(path: "vp9_alpha_dts.mkv")
+            try await FallbackFixtures.runFFmpeg(
+                [
+                    "-f", "lavfi", "-i", "color=c=red@0.5:size=128x128:rate=24:duration=0.3,format=yuva420p",
+                    "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.3",
+                    "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-c:a", "dca", "-strict", "-2", url.path,
+                ], in: folder, tools: tools)
+            return url
+        }
+
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let movFolder = try TestVolume.makeFolder()
+            let sourceMOV = try await makeVP9AlphaDTS(in: movFolder)
+            let origMOV = try Data(contentsOf: sourceMOV)
+            let (movOutcome, movSupport) = try await runJob(
+                op: .videoConvert, options: .video(.convert(.mov)), inputs: [sourceMOV], mode: mode)
+            guard case .succeeded(let movOutputs, let movWarnings) = movOutcome.outcomes.first,
+                let movOut = movOutputs.first
+            else {
+                Issue.record(
+                    "expected VP9 alpha MOV success in \(mode), got \(String(describing: movOutcome.outcomes))")
+                continue
+            }
+            let opened = try await MediaInput.open(movOut)
+            #expect(opened.video?.hasAlpha == true)
+            #expect(!movWarnings.contains(.videoTransparencyFlattened))
+            let sampler = try await FrameSampler(
+                input: opened, frameDuration: opened.frameDuration,
+                edit: FrameEdit(displayOrientation: try opened.displayOrientation, preservesAlpha: true),
+                start: 0, end: opened.duration)
+            let decoded = try #require(try await sampler.next())
+            CVPixelBufferLockBaseAddress(decoded.image, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(decoded.image, .readOnly) }
+            let base = try #require(CVPixelBufferGetBaseAddress(decoded.image))
+            let bytesPerRow = CVPixelBufferGetBytesPerRow(decoded.image)
+            let centerAlpha = base.assumingMemoryBound(to: UInt8.self)[(64 * bytesPerRow) + (64 * 4) + 3]
+            #expect(centerAlpha > 10 && centerAlpha < 245, "expected semi-transparent alpha, got \(centerAlpha)")
+            if mode == .newFile {
+                #expect(try Data(contentsOf: sourceMOV) == origMOV)
+            } else {
+                #expect(!FileManager.default.fileExists(atPath: sourceMOV.path))
+            }
+            try assertStagingEmpty(in: movSupport)
+
+            let mp4Folder = try TestVolume.makeFolder()
+            let sourceMP4 = try await makeVP9AlphaDTS(in: mp4Folder)
+            let origMP4 = try Data(contentsOf: sourceMP4)
+            let (mp4Outcome, mp4Support) = try await runJob(
+                op: .videoConvert, options: .video(.convert(.mp4)), inputs: [sourceMP4], mode: mode)
+            if mode == .replace {
+                #expect(mp4Outcome.outcomes == [.failed(.videoAlphaUnsupported)])
+                #expect(try Data(contentsOf: sourceMP4) == origMP4)
+            } else {
+                guard case .succeeded(let mp4Outputs, let mp4Warnings) = mp4Outcome.outcomes.first, !mp4Outputs.isEmpty
+                else {
+                    Issue.record(
+                        "expected VP9 alpha MP4 new-file success, got \(String(describing: mp4Outcome.outcomes))")
+                    continue
+                }
+                #expect(mp4Warnings.contains(.videoTransparencyFlattened))
+                #expect(try Data(contentsOf: sourceMP4) == origMP4)
+            }
+            try assertStagingEmpty(in: mp4Support)
+        }
+    }
+
+    @Test func vp9FourFourFourWebMTriggersFallbackThroughRealDecoderCheck() async throws {
+        let tools = try mediaFixtureTools()
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let folder = try TestVolume.makeFolder()
+            let webm = folder.appending(path: "vp9_444.webm")
+            try await FallbackFixtures.runFFmpeg(
+                [
+                    "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=0.3,format=yuv444p",
+                    "-c:v", "libvpx-vp9", "-profile:v", "1", "-pix_fmt", "yuv444p", webm.path,
+                ], in: folder, tools: tools)
+            let origBytes = try Data(contentsOf: webm)
+            let native = try await MediaInput.open(webm)
+            await #expect(throws: EngineError.unsupportedCodec("VPX image format")) {
+                try await native.verifyDecodable()
+            }
+            let (outcome, support) = try await runJob(
+                op: .videoConvert, options: .video(.convert(.mp4)), inputs: [webm], mode: mode)
+            guard case .succeeded(let outputs, _) = outcome.outcomes.first, let output = outputs.first else {
+                Issue.record("expected VP9 4:4:4 MP4 success in \(mode), got \(String(describing: outcome.outcomes))")
+                continue
+            }
+            let verified = try await MediaInput.open(output)
+            #expect(verified.codedSize == PixelSize(width: 128, height: 128))
+            if mode == .newFile {
+                #expect(try Data(contentsOf: webm) == origBytes)
+            } else {
+                #expect(!FileManager.default.fileExists(atPath: webm.path))
+            }
+            try assertStagingEmpty(in: support)
+        }
+    }
+
+    @Test func oddDimensionsPreservedInMOVAndHandledExplicitlyIn420() async throws {
+        let tools = try mediaFixtureTools()
+        func makeOddMKV(in folder: URL) async throws -> URL {
+            let url = folder.appending(path: "odd.mkv")
+            try await FallbackFixtures.runFFmpeg(
+                [
+                    "-f", "lavfi", "-i", "color=c=red:size=129x127:rate=24:duration=0.3",
+                    "-c:v", "ffv1", "-pix_fmt", "yuv420p", url.path,
+                ], in: folder, tools: tools)
+            return url
+        }
+
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let movFolder = try TestVolume.makeFolder()
+            let oddMOV = try await makeOddMKV(in: movFolder)
+            let origMOV = try Data(contentsOf: oddMOV)
+            let (movOutcome, movSupport) = try await runJob(
+                op: .videoConvert, options: .video(.convert(.mov)), inputs: [oddMOV], mode: mode)
+            guard case .succeeded(let movOutputs, let movWarnings) = movOutcome.outcomes.first,
+                let movOut = movOutputs.first
+            else {
+                Issue.record("expected 129x127 MOV success in \(mode), got \(String(describing: movOutcome.outcomes))")
+                continue
+            }
+            let verifiedMOV = try await MediaInput.open(movOut)
+            #expect(verifiedMOV.codedSize == PixelSize(width: 129, height: 127))
+            #expect(verifiedMOV.displaySize == PixelSize(width: 129, height: 127))
+            #expect(movWarnings.isEmpty)
+            if mode == .newFile {
+                #expect(try Data(contentsOf: oddMOV) == origMOV)
+            } else {
+                #expect(!FileManager.default.fileExists(atPath: oddMOV.path))
+            }
+            try assertStagingEmpty(in: movSupport)
+
+            let mp4Folder = try TestVolume.makeFolder()
+            let oddMP4 = try await makeOddMKV(in: mp4Folder)
+            let origMP4 = try Data(contentsOf: oddMP4)
+            let (mp4Outcome, mp4Support) = try await runJob(
+                op: .videoConvert, options: .video(.convert(.mp4)), inputs: [oddMP4], mode: mode)
+            if mode == .replace {
+                #expect(mp4Outcome.outcomes == [.failed(.videoMetadataUnsupported([.trackMetadata]))])
+                #expect(try Data(contentsOf: oddMP4) == origMP4)
+            } else {
+                guard case .succeeded(let mp4Outputs, let mp4Warnings) = mp4Outcome.outcomes.first, !mp4Outputs.isEmpty
+                else {
+                    Issue.record(
+                        "expected 129x127 MP4 new-file success, got \(String(describing: mp4Outcome.outcomes))")
+                    continue
+                }
+                #expect(mp4Warnings.contains(.videoMetadataDropped([.trackMetadata])))
+                #expect(try Data(contentsOf: oddMP4) == origMP4)
+            }
+            try assertStagingEmpty(in: mp4Support)
+        }
+    }
+
+    @Test func nativeDecodeErrorDetailSurvivesWhenFallbackAlsoFails() async throws {
+        let folder = try TestVolume.makeFolder()
+        let support = try TestVolume.makeFolder()
+        let brokenVideo = folder.appending(path: "corrupt.mkv")
+        try Data("not a valid matroska container".utf8).write(to: brokenVideo)
+        let brokenAudio = folder.appending(path: "corrupt.wav")
+        try Data("RIFF\u{24}\0\0\0WAVEfmt \u{10}\0\0\0\0\0\0\0".utf8).write(to: brokenAudio)
+
+        let expectedVideoDetail: String
+        do {
+            _ = try await MediaInput.open(brokenVideo)
+            Issue.record("expected native MediaInput.open to fail")
+            return
+        } catch {
+            guard case .decodeFailed(let detail) = EngineError.wrapping(error, path: brokenVideo.path) else {
+                Issue.record("expected native decodeFailed, got \(error)")
+                return
+            }
+            expectedVideoDetail = detail
+        }
+        let context = FallbackFixtures.context(in: support)
+        defer { context.removeStaging() }
+        do {
+            _ = try await MediaInput.openWithFallback(brokenVideo, context: context)
+            Issue.record("expected openWithFallback to fail on corrupt video")
+        } catch let error as EngineError {
+            #expect(error == .decodeFailed(expectedVideoDetail))
+        }
+
+        let expectedAudioDetail: String
+        do {
+            _ = try AudioInput(url: brokenAudio)
+            Issue.record("expected native AudioInput to fail")
+            return
+        } catch {
+            guard case .decodeFailed(let detail) = EngineError.wrapping(error, path: brokenAudio.path) else {
+                Issue.record("expected native audio decodeFailed, got \(error)")
+                return
+            }
+            expectedAudioDetail = detail
+        }
+        do {
+            _ = try await AudioInput.openWithFallback(brokenAudio, context: context)
+            Issue.record("expected AudioInput.openWithFallback to fail on corrupt audio")
+        } catch let error as EngineError {
+            #expect(error == .decodeFailed(expectedAudioDetail))
+        }
     }
 }

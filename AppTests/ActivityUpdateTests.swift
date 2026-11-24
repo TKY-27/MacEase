@@ -122,6 +122,9 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertEqual(
             UserMessages.describe(.fallbackToolMissing, file: "movie.wmv"),
             "Couldn’t read “movie.wmv”: the media converter component is missing. Reinstall MacEase and retry.")
+        XCTAssertEqual(
+            UserMessages.describe(ItemWarning.keptAsNewFileForFormat),
+            "Saved as a new file: MacEase cannot write the original format.")
         XCTAssertNil(UserMessages.technicalDetail(.insufficientDiskSpace(requiredBytes: 1, availableBytes: 0)))
         XCTAssertNil(UserMessages.technicalDetail(.fallbackToolMissing))
     }
