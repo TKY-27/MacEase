@@ -18,7 +18,7 @@ final class PreviewFontFaceSwitchTests: XCTestCase {
         var postScriptNames: Set<String> = []
         var styles: Set<String> = []
         for index in collection.faceNames.indices {
-            let face = collection.selecting(index)
+            let face = try XCTUnwrap(collection.selecting(index))
             let font = face.font(size: 20)
             XCTAssertEqual(face.index, index)
             XCTAssertEqual(face.faceCount, collection.faceCount)
@@ -35,6 +35,17 @@ final class PreviewFontFaceSwitchTests: XCTestCase {
         let single = try PreviewFontFace.load(URL(fileURLWithPath: "/System/Library/Fonts/Geneva.ttf"))
         XCTAssertEqual(single.faceNames, ["Geneva"])
         XCTAssertGreaterThan(single.glyphCount, 0)
+    }
+
+    func testOutOfRangeFacesAreRefusedAndGlyphCountsUsePlurals() throws {
+        let collection = try PreviewFontFace.load(Self.menlo)
+        XCTAssertNil(collection.selecting(-1))
+        XCTAssertNil(collection.selecting(collection.faceCount))
+        XCTAssertNotNil(collection.selecting(collection.faceCount - 1))
+        XCTAssertEqual(String(localized: "\(1) glyphs"), "1 glyph")
+        XCTAssertEqual(String(localized: "\(2) glyphs"), "2 glyphs")
+        XCTAssertEqual(String(localized: "\("Bold") · \(1) glyphs"), "Bold · 1 glyph")
+        XCTAssertEqual(String(localized: "\("Bold") · \(3) glyphs"), "Bold · 3 glyphs")
     }
 
     func testFaceButtonsStepThroughFacesAndANewFileStartsAtTheFirstFace() async throws {

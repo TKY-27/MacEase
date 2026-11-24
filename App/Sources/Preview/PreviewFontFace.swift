@@ -44,7 +44,8 @@ struct PreviewFontFace: @unchecked Sendable {
         self.descriptors = descriptors
         self.faceNames = faceNames
         displayName = faceNames[index]
-        styleName = CTFontCopyLocalizedName(font, kCTFontStyleNameKey, nil) as String?
+        let style = CTFontCopyLocalizedName(font, kCTFontStyleNameKey, nil) as String?
+        styleName = style?.isEmpty == false ? style : nil
         glyphCount = CTFontGetGlyphCount(font)
     }
 
@@ -70,8 +71,9 @@ struct PreviewFontFace: @unchecked Sendable {
         return Self(index: 0, descriptors: descriptors, faceNames: names)
     }
 
-    func selecting(_ index: Int) -> Self {
-        Self(index: index, descriptors: descriptors, faceNames: faceNames)
+    func selecting(_ index: Int) -> Self? {
+        guard descriptors.indices.contains(index) else { return nil }
+        return Self(index: index, descriptors: descriptors, faceNames: faceNames)
     }
 
     func font(size: CGFloat) -> CTFont {

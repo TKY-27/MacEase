@@ -22334,7 +22334,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フェイス"
+            "value": "書体"
           }
         }
       }
@@ -22344,7 +22344,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前のフェイス"
+            "value": "前の書体"
           }
         }
       }
@@ -22354,27 +22354,63 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のフェイス"
+            "value": "次の書体"
           }
         }
       }
     },
-    "%@ · %@ glyphs": {
+    "%@ · %lld glyphs": {
       "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyphs"
+                }
+              }
+            }
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ · %2$@グリフ"
+            "value": "%1$@ · %2$lldグリフ"
           }
         }
       }
     },
-    "%@ glyphs": {
+    "%lld glyphs": {
       "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyphs"
+                }
+              }
+            }
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@グリフ"
+            "value": "%lldグリフ"
           }
         }
       }
@@ -22384,7 +22420,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フェイス %1$lld / %2$lld"
+            "value": "書体 %1$lld / %2$lld"
           }
         }
       }

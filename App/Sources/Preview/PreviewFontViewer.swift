@@ -58,12 +58,13 @@ struct PreviewFontViewer: View {
     }
 
     private func select(_ index: Int) {
-        face = face?.selecting(index)
+        guard let chosen = face?.selecting(index) else { return }
+        face = chosen
     }
 
     // Reads current state; quick clicks outrun rendering.
     private func step(by offset: Int) {
-        guard let face, face.faceNames.indices.contains(face.index + offset) else { return }
+        guard let face else { return }
         select(face.index + offset)
     }
 
@@ -75,9 +76,9 @@ struct PreviewFontViewer: View {
                         .accessibilityAddTraits(.isHeader)
                     Group {
                         if let style = face.styleName {
-                            Text("\(style) · \(face.glyphCount.formatted()) glyphs")
+                            Text("\(style) · \(face.glyphCount) glyphs")
                         } else {
-                            Text("\(face.glyphCount.formatted()) glyphs")
+                            Text("\(face.glyphCount) glyphs")
                         }
                         if face.faceCount > 1 {
                             Text("Face \(face.index + 1) of \(face.faceCount)")
