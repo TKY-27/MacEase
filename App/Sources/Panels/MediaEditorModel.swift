@@ -19,6 +19,11 @@ enum EditorCategory: String, CaseIterable {
     }
 }
 
+enum FrameNote: Equatable {
+    case saved(URL)
+    case failed(String)
+}
+
 struct EditorValues: Equatable {
     private var singlePhoto = ImageEdit()
     var photoEdits: [URL: ImageEdit] = [:]
@@ -114,6 +119,9 @@ final class MediaEditorModel {
     private var saveTask: Task<BatchOutcome?, Never>?
     private(set) var savingBatchID: UUID?
     private(set) var saveFailure: String?
+    private var frameTask: Task<BatchOutcome?, Never>?
+    private(set) var frameBatchID: UUID?
+    private(set) var frameNote: FrameNote?
     var streamConsent: StreamConsentRequest?
     private(set) var consents: [URL: StreamOmission] = [:]
     var invalidFields: Set<String> = []
@@ -145,7 +153,7 @@ final class MediaEditorModel {
     private var undoValues: [EditorValues] = []
     private var redoValues: [EditorValues] = []
     private var interactionStart: EditorValues?
-    private var closed = false
+    private(set) var closed = false
     private var timeObserver: Any?
     private var playbackEndObserver: (any NSObjectProtocol)?
     private var loadTask: Task<Void, Never>?
@@ -1055,6 +1063,39 @@ final class MediaEditorModel {
         return saveFailure == nil
     }
 
+    var canSaveFrame: Bool {
+        isVideo && ready && !closed && savingBatchID == nil && frameBatchID == nil && failure == nil
+            && invalidFields.isEmpty && timeline != nil && !values.segments.isEmpty
+    }
+
+    /// Exports the edited frame without blocking editing.
+    func saveFrame(run: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>) async {
+        guard canSaveFrame else { return }
+        let file = initialURLs[0].lastPathComponent
+        frameNote = nil
+        do {
+            try validateForSave()
+        } catch {
+            frameNote = .failed(UserMessages.describe(EngineError.wrapping(error, path: url.path), file: file))
+            return
+        }
+        pause()
+        let batch = MediaEditing.frame(
+            url: initialURLs[0], edit: values.video, outputSeconds: position, settings: settings)
+        frameBatchID = batch.id
+        let task = run(batch, settings)
+        frameTask = task
+        let outcome = await task.value
+        frameTask = nil
+        frameBatchID = nil
+        guard let outcome, !outcome.wasCancelled, let result = outcome.outcomes.first else { return }
+        switch result {
+        case .succeeded(let outputs, _): frameNote = outputs.first.map(FrameNote.saved)
+        case .skipped(let reason): frameNote = .failed(UserMessages.describe(reason, file: file))
+        case .failed(let error): frameNote = .failed(UserMessages.describeResult(error, file: file))
+        }
+    }
+
     private func finishSavedPhotos(_ outcome: BatchOutcome) {
         guard !isVideo else { return }
         let saved = Set(
@@ -1264,6 +1305,7 @@ final class MediaEditorModel {
         selectionTask?.cancel()
         await selectionTask?.value
         _ = await saveTask?.value
+        _ = await frameTask?.value
         for source in videoSources.values { await source.close() }
         videoSources.removeAll()
         photoCache.removeAll()

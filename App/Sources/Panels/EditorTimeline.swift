@@ -4,6 +4,7 @@ import SwiftUI
 /// Playback controls centred under the viewer.
 struct EditorTransportBar: View {
     @Bindable var model: MediaEditorModel
+    let saveFrame: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -33,6 +34,12 @@ struct EditorTransportBar: View {
             }
             .disabled(!model.canPlay)
             HStack(spacing: 14) {
+                Button(action: saveFrame) {
+                    Label("Save Frame", systemImage: "camera")
+                }
+                .help("Save Frame at Playhead as an Image (⇧⌘S)")
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!model.canSaveFrame)
                 if model.playing, model.playbackRate != 1 {
                     Text(Self.rateText(model.playbackRate))
                         .font(.caption.monospacedDigit().weight(.semibold))

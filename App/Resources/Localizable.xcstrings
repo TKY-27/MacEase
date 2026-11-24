@@ -19729,6 +19729,46 @@
           }
         }
       }
+    },
+    "Save Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームを保存"
+          }
+        }
+      }
+    },
+    "Save Frame at Playhead as an Image (⇧⌘S)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドのフレームを画像として保存（⇧⌘S）"
+          }
+        }
+      }
+    },
+    "Saving Frame…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームを保存中…"
+          }
+        }
+      }
+    },
+    "Saved “%@”": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を保存しました"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

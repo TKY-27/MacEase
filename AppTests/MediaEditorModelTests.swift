@@ -389,7 +389,8 @@ final class MediaEditorModelTests: XCTestCase {
         let model = try await videoModel()
         let host = NSHostingView(
             rootView: MediaEditorView(
-                model: model, close: {}, save: { _, _ in Task { nil } }, progress: { _ in nil }))
+                model: model, close: {}, save: { _, _ in Task { nil } }, runFrame: { _, _ in Task { nil } },
+                progress: { _ in nil }))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1_280, height: 720), styleMask: [.titled],
             backing: .buffered, defer: false)
@@ -423,7 +424,8 @@ final class MediaEditorModelTests: XCTestCase {
         await model.finishBoundaryInput()
         let host = NSHostingView(
             rootView: MediaEditorView(
-                model: model, close: {}, save: { _, _ in Task { nil } }, progress: { _ in nil }))
+                model: model, close: {}, save: { _, _ in Task { nil } }, runFrame: { _, _ in Task { nil } },
+                progress: { _ in nil }))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1_280, height: 720), styleMask: [.titled],
             backing: .buffered, defer: false)
@@ -796,6 +798,59 @@ final class MediaEditorModelTests: XCTestCase {
             XCTAssertLessThan(left.max() ?? 1, 0.06, "\(model.isVideo ? "video" : "photo") redaction is saved")
             XCTAssertGreaterThan(right.max() ?? 0, 0.2, "outside the redaction stays visible")
         }
+    }
+
+    func testSaveFrameExportsTheEditedPlayheadFrameWhileEditingContinues() async throws {
+        let model = try await videoModel()
+        model.addOverlay(.redaction(rect: EditCrop(x: 0, y: 0, width: 0.5, height: 1), style: .solid))
+        try await eventually { model.canSaveFrame }
+        model.seek(1)
+        let engine = try JobEngine(supportDirectory: try workspace(), concurrency: 1)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let saving = Task {
+            await model.saveFrame { batch, settings in
+                Task {
+                    for await _ in gate { break }
+                    return await engine.run(batch, settings: settings) { _ in }
+                }
+            }
+        }
+        try await eventually { model.frameBatchID != nil }
+        XCTAssertFalse(model.canSaveFrame)
+        XCTAssertNil(model.savingBatchID)
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        XCTAssertEqual(model.values.photo.geometry.quarterTurns, 1, "editing continues during the frame export")
+        open.yield()
+        await saving.value
+        XCTAssertNil(model.frameBatchID)
+        guard case .saved(let output) = model.frameNote else {
+            return XCTFail("frame not saved: \(String(describing: model.frameNote))")
+        }
+        XCTAssertEqual(output.deletingLastPathComponent(), model.url.deletingLastPathComponent())
+        XCTAssertTrue(output.lastPathComponent.hasPrefix("clip-0_frame_0-01.000"), output.lastPathComponent)
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        XCTAssertEqual(CGSize(width: image.width, height: image.height), model.sourceSize, "planned before rotating")
+        XCTAssertLessThan(try rgb(image, x: image.width / 4, y: image.height / 2).max() ?? 1, 0.06)
+        XCTAssertGreaterThan(try rgb(image, x: image.width * 3 / 4, y: image.height / 2).max() ?? 0, 0.2)
+    }
+
+    func testSaveFrameReportsAFailedExport() async throws {
+        let model = try await videoModel()
+        await model.saveFrame { batch, _ in
+            let inputs = [[model.url]]
+            return Task {
+                BatchOutcome(
+                    batchID: batch.id, operation: batch.operation, inputs: inputs,
+                    outcomes: [.failed(.protectionDiskFull)], clipboardText: nil, reportText: nil, record: nil,
+                    historyFailed: false, details: [ItemDetails()])
+            }
+        }
+        XCTAssertEqual(
+            model.frameNote, .failed(UserMessages.describeResult(.protectionDiskFull, file: "clip-0.mp4")))
+        XCTAssertTrue(model.canSaveFrame, "a failed frame export can be retried")
+        XCTAssertEqual(japanese("Saving Frame…"), "フレームを保存中…")
+        XCTAssertEqual(japanese("Saved “%@”"), "“%@”を保存しました")
     }
 
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
@@ -1375,6 +1430,11 @@ final class MediaEditorModelTests: XCTestCase {
         let details = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         XCTAssertEqual(encoding.terminationStatus, 0, details)
         return output
+    }
+
+    private func japanese(_ key: String) -> String {
+        let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
+        return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"
     }
 
     private func eventually(_ condition: () -> Bool) async throws {

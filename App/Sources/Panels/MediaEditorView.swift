@@ -6,6 +6,7 @@ struct MediaEditorView: View {
     @Bindable var model: MediaEditorModel
     let close: () -> Void
     let save: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
+    let runFrame: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
     let progress: (UUID) -> JobCenter.ActiveBatch?
 
     private var editable: Bool { model.ready && model.savingBatchID == nil }
@@ -56,7 +57,11 @@ struct MediaEditorView: View {
                 VStack(spacing: 0) {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
-                    if model.isVideo { EditorTransportBar(model: model) } else { photoBar }
+                    if model.isVideo {
+                        EditorTransportBar(model: model) { Task { await model.saveFrame(run: runFrame) } }
+                    } else {
+                        photoBar
+                    }
                 }
                 Divider()
                 inspector.frame(width: 300)
@@ -305,21 +310,40 @@ struct MediaEditorView: View {
         .padding(.vertical, 12)
     }
 
-    @ViewBuilder private var saveProgress: some View {
-        if let id = model.savingBatchID {
-            let batch = progress(id)
-            let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
-            HStack(spacing: 8) {
-                ProgressView(value: fraction).controlSize(.small)
-                Text("Saving…").font(.callout).foregroundStyle(.secondary).fixedSize()
+    private func saveProgress(_ id: UUID, title: Text) -> some View {
+        let batch = progress(id)
+        let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
+        return HStack(spacing: 8) {
+            ProgressView(value: fraction).controlSize(.small)
+            title.font(.callout).foregroundStyle(.secondary).fixedSize()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var frameNote: some View {
+        switch model.frameNote {
+        case .saved(let output):
+            HStack(spacing: 6) {
+                Label("Saved “\(output.lastPathComponent)”", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+                    .buttonStyle(.link)
+                    .fixedSize()
             }
-            .accessibilityElement(children: .combine)
+            .font(.callout)
+        case .failed(let message): ProblemLabel(text: message)
+        case nil: EmptyView()
         }
     }
 
     private var outputSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            saveProgress
+            if let id = model.savingBatchID { saveProgress(id, title: Text("Saving…")) }
+            if let id = model.frameBatchID { saveProgress(id, title: Text("Saving Frame…")) }
+            frameNote
             if let failure = model.saveFailure ?? model.failure {
                 ProblemLabel(text: failure)
             }
