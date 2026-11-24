@@ -8,16 +8,29 @@ import os
 public struct ArchiveEntry: Identifiable, Sendable {
     public let id: Int
     public let path: String
+    public let rawPath: String
     public let isDirectory: Bool
     public let size: Int64?
     public let isEncrypted: Bool
+    public let modified: Date?
+
+    public init(
+        id: Int, path: String, isDirectory: Bool, size: Int64?, isEncrypted: Bool, modified: Date? = nil,
+        rawPath: String? = nil
+    ) {
+        self.id = id
+        self.path = path
+        self.rawPath = rawPath ?? path
+        self.isDirectory = isDirectory
+        self.size = size
+        self.isEncrypted = isEncrypted
+        self.modified = modified
+    }
 
     init(_ entry: ZIPBrowserEntry) {
-        id = entry.id
-        path = entry.path
-        isDirectory = entry.isDirectory
-        size = entry.size
-        isEncrypted = entry.isEncrypted
+        self.init(
+            id: entry.id, path: entry.path, isDirectory: entry.isDirectory, size: entry.size,
+            isEncrypted: entry.isEncrypted)
     }
 }
 

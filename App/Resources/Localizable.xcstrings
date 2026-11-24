@@ -22497,6 +22497,7 @@
       }
     },
     "Deflate64 compression": {
+<<<<<<< HEAD
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23029,6 +23030,863 @@
       }
     },
     "editor.silence.analyze": {
+=======
+>>>>>>> t3/archive-contents-preview-fixes
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+<<<<<<< HEAD
+            "value": "Analyze"
+=======
+            "value": "Deflate64 compression"
+>>>>>>> t3/archive-contents-preview-fixes
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+<<<<<<< HEAD
+            "value": "分析"
+=======
+            "value": "Deflate64圧縮"
+>>>>>>> t3/archive-contents-preview-fixes
+          }
+        }
+      }
+    },
+<<<<<<< HEAD
+    "Enter valid markup text first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マークアップのテキストを1行で入力してください。"
+          }
+        }
+      }
+    },
+    "Table": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can’t be shown as a table.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルは表として表示できません。"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@行を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@列を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows and %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%1$@行、%2$@列を表示しています"
+          }
+        }
+      }
+    },
+    "Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書体"
+          }
+        }
+      }
+    },
+    "Previous Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の書体"
+          }
+        }
+      }
+    },
+    "Next Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の書体"
+          }
+        }
+      }
+    },
+    "%@ · %lld glyphs": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyphs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$lldグリフ"
+          }
+        }
+      }
+    },
+    "%lld glyphs": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyphs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldグリフ"
+          }
+        }
+      }
+    },
+    "Face %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書体%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "The action couldn’t be completed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を完了できませんでした"
+          }
+        }
+      }
+    },
+    "the file changed while it was being processed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "処理中にファイルが変更されました"
+          }
+        }
+      }
+    },
+    "“%@” changed after it was checked": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”は確認後に変更されました"
+          }
+        }
+      }
+    },
+    "This file contains %lld hidden or direction-changing characters.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains %lld hidden or direction-changing character."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains %lld hidden or direction-changing characters."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルには、見えない文字や表示の向きを変える文字が%lld個含まれています。"
+          }
+        }
+      }
+    },
+    "%lld hidden or direction-changing characters": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hidden or direction-changing character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hidden or direction-changing characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見えない文字・向きを変える文字：%lld個"
+          }
+        }
+      }
+    },
+    "This file contains at least %lld hidden or direction-changing characters.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains at least %lld hidden or direction-changing character."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains at least %lld hidden or direction-changing characters."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルには、見えない文字や表示の向きを変える文字が少なくとも%lld個含まれています。"
+          }
+        }
+      }
+    },
+    "At least %lld hidden or direction-changing characters": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "At least %lld hidden or direction-changing character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "At least %lld hidden or direction-changing characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見えない文字・向きを変える文字：%lld個以上"
+          }
+        }
+      }
+    },
+    "%lld more hidden characters on this line aren’t marked.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden character on this line isn't marked."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden characters on this line aren't marked."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この行には、マークしていない見えない文字がほかに%lld個あります。"
+          }
+        }
+      }
+    },
+    "DTS audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DTSオーディオ"
+=======
+    "Implode compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implode compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implode圧縮"
+>>>>>>> t3/archive-contents-preview-fixes
+          }
+        }
+      }
+    },
+<<<<<<< HEAD
+    "AC-3 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AC-3オーディオ"
+=======
+    "Shrink compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shrink compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shrink圧縮"
+>>>>>>> t3/archive-contents-preview-fixes
+          }
+        }
+      }
+    },
+    "Extracting": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開中"
+          }
+        }
+      }
+    },
+    "ZIP archives wrapped in another compression format can’t be extracted. Decompress the outer layer first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の圧縮形式で包まれたZIPは展開できません。先に外側の圧縮を解除してください。"
+          }
+        }
+      }
+    },
+    "This file isn’t a supported archive or compressed file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは、対応するアーカイブまたは圧縮ファイルではありません。"
+          }
+        }
+      }
+    },
+    "split archive volumes": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割アーカイブ"
+          }
+        }
+      }
+    },
+    "This archive uses a text encoding for file names that MacEase can’t read.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+<<<<<<< HEAD
+=======
+            "value": "未対応のZIP圧縮形式"
+          }
+        }
+      }
+    },
+    "PKWARE Strong Encryption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PKWARE Strong Encryption"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PKWARE Strong Encryption"
+          }
+        }
+      }
+    },
+    "Windows-style ZIP path separators": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows-style ZIP path separators"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows形式のZIP内のパス区切り"
+          }
+        }
+      }
+    },
+    "encrypted symbolic links inside ZIP": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "encrypted symbolic links inside ZIP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内の暗号化されたシンボリックリンク"
+          }
+        }
+      }
+    },
+    "symbolic links using %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "symbolic links using %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を使用するシンボリックリンク"
+          }
+        }
+      }
+    },
+    "the 10-second inspection time limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 10-second inspection time limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検査時間の上限（10秒）"
+          }
+        }
+      }
+    },
+    "the 100,000-entry inspection limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 100,000-entry inspection limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目数の検査上限（100,000件）"
+          }
+        }
+      }
+    },
+    "the 32 MiB name-metadata limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 32 MiB name-metadata limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名情報の上限（32 MiB）"
+          }
+        }
+      }
+    },
+    "the 256-component path limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 256-component path limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスの階層数の上限（256）"
+          }
+        }
+      }
+    },
+    "the 10,000-volume inspection limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 10,000-volume inspection limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ファイル数の検査上限（10,000）"
+          }
+        }
+      }
+    },
+    "the 64 KiB ZIP link-target limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the 64 KiB ZIP link-target limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPのリンク先情報の上限（64 KiB）"
+          }
+        }
+      }
+    },
+    "the single outer compression layer limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the single outer compression layer limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外側の圧縮の上限（1層）"
+          }
+        }
+      }
+    },
+    "the %@ expanded-size inspection limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the %@ expanded-size inspection limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開サイズの検査上限（%@）"
+          }
+        }
+      }
+    },
+    "Couldn’t extract “%@”: its file-name encoding is not supported with the current language preferences. Re-create it with UTF-8 file names or use an app that lets you choose the encoding. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t extract “%@”: its file-name encoding is not supported with the current language preferences. Re-create it with UTF-8 file names or use an app that lets you choose the encoding. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は現在の優先言語ではファイル名の文字コードを読み取れないため、展開できません。UTF-8のファイル名で作り直すか、文字コードを選べるアプリで展開してください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Couldn’t inspect “%@”: it reached %@. Use another archive app or create a smaller archive. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t inspect “%@”: it reached %@. Use another archive app or create a smaller archive. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は%@に達したため、検査できません。別のアーカイブアプリを使うか、小さなアーカイブに作り直してください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Couldn’t extract “%@”: entries “%@” and “%@” have the same name on this disk. Re-create the archive with distinct file and folder names. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t extract “%@”: entries “%@” and “%@” have the same name on this disk. Re-create the archive with distinct file and folder names. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の項目「%@」と「%@」は、このディスクでは同じ名前になるため展開できません。重複しないファイル名とフォルダ名で作り直してください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Couldn’t extract “%@”: CP932 file names cannot be combined with %@. Re-create it as a single ZIP with UTF-8 file names and Deflate compression, or use another archive app. The original was not changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t extract “%@”: CP932 file names cannot be combined with %@. Re-create it as a single ZIP with UTF-8 file names and Deflate compression, or use another archive app. The original was not changed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」はWindowsの日本語ファイル名と%@の組み合わせに対応していないため、展開できません。UTF-8のファイル名とDeflate圧縮で単一のZIPに作り直すか、別のアーカイブアプリを使ってください。元のファイルは変更していません。"
+          }
+        }
+      }
+    },
+    "Bzip2 compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2 compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2圧縮"
+          }
+        }
+      }
+    },
+    "Zstandard compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zstandard compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zstandard圧縮"
+          }
+        }
+      }
+    },
+    "XZ compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XZ compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XZ圧縮"
+          }
+        }
+      }
+    },
+    "PPMd compression": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PPMd compression"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PPMd圧縮"
+          }
+        }
+      }
+    },
+    "Converting input": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converting input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力を変換中"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: not enough disk space (needs about %@, %@ available). Free up space and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”を処理できませんでした：ディスクの空き容量が不足しています（約%2$@必要、空き%3$@）。容量を確保して再試行してください。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: the file couldn’t be converted faithfully. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を処理できませんでした：元の状態を保ったまま変換できませんでした。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Couldn’t read “%@”: the media converter component is missing. Reinstall MacEase and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を読み込めませんでした：メディア変換コンポーネントが見つかりません。MacEaseを再インストールして再試行してください。"
+          }
+        }
+      }
+    },
+    "Saved as a new file: MacEase cannot write the original format.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の形式では書き出せないため、新しいファイルとして保存しました。"
+          }
+        }
+      }
+    },
+    "editor.silence.analyze": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -23395,6 +24253,428 @@
         }
       }
     },
+    "%lld items, %@ uncompressed": {
+      "comment": "Archive preview summary",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld item, %@ uncompressed"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld items, %@ uncompressed"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目、展開後%@"
+          }
+        }
+      }
+    },
+    "%lld items": {
+      "comment": "Archive preview summary for narrow panels",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld items"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld項目"
+          }
+        }
+      }
+    },
+    "Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "First %lld items": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "First %lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "First %lld items"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の%lld項目"
+          }
+        }
+      }
+    },
+    "This archive is damaged. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This archive is damaged. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This archive is damaged. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは破損しています。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "Damaged · first %lld items": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Damaged · first %lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Damaged · first %lld items"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "破損 · 最初の%lld項目"
+          }
+        }
+      }
+    },
+    "Items with a lock are password-protected.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鍵マークの付いた項目はパスワードで保護されています。"
+          }
+        }
+      }
+    },
+    "MacEase can’t list this kind of archive.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この種類のアーカイブはMacEaseで一覧表示できません。"
+          }
+        }
+      }
+    },
+    "This archive is damaged, so its contents can’t be listed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは破損しているため、内容を表示できません。"
+          }
+        }
+      }
+    },
+    "This archive has too many items to list.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは項目が多すぎるため、一覧表示できません。"
+          }
+        }
+      }
+    },
+    "This archive could not be read.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブを読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "This archive is empty.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは空です。"
+          }
+        }
+      }
+    },
+    "No items match.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致する項目はありません。"
+          }
+        }
+      }
+    },
+    "Date Modified": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更日"
+          }
+        }
+      }
+    },
+    "Kind": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類"
+          }
+        }
+      }
+    },
+    "Document": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書類"
+          }
+        }
+      }
+    },
+    "Search": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        }
+      }
+    },
+    "This archive couldn’t be listed in time.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは時間内に一覧表示できませんでした。"
+          }
+        }
+      }
+    },
+    "This archive’s item names are too large to list.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブの項目名が大きすぎるため、一覧表示できません。"
+          }
+        }
+      }
+    },
+    "This archive is too large to list.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは大きすぎるため、一覧表示できません。"
+          }
+        }
+      }
+    },
+    "Item names are too large to list all items. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Item names are too large to list all items. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Item names are too large to list all items. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目名が大きすぎるためすべて表示できません。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "This archive is too large to list in full. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This archive is too large to list in full. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This archive is too large to list in full. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは大きすぎるためすべて表示できません。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "Listing timed out. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Listing timed out. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Listing timed out. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧の取得がタイムアウトしました。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "Timed out · first %lld items": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Timed out · first %lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Timed out · first %lld items"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウト · 最初の%lld項目"
+          }
+        }
+      }
+    },
     "Extracting": {
       "localizations": {
         "ja": {
@@ -23440,6 +24720,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
+>>>>>>> t3/archive-contents-preview-fixes
             "value": "このアーカイブのファイル名は、MacEaseで読み取れない文字コードを使用しています。"
           }
         }

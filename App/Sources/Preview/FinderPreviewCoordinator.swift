@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Engine
+import MenuCatalog
 import SwiftUI
 import os
 
@@ -70,6 +71,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var observedTrustedFolders: [String]
     private(set) var retryAfter = Date.distantPast
     var enabledChanged: (() -> Void)?
+    var presentPanel: ((MenuEntry, [URL]) -> Void)?
 
     init(
         settings: SettingsStore, staging: StagingArea, storageBar: FinderStorageBar = FinderStorageBar(),
@@ -405,7 +407,9 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             panel.delegate = nil
             panel.close()
         }
-        let content = NSHostingView(rootView: makeView())
+        let content = NSHostingView(
+            rootView: makeView().environment(
+                \.presentPanel, PreviewPanelAction { [weak self] in self?.presentPanel?($0, $1) }))
         content.sizingOptions = []
         let panel = FinderPreviewPanel(content: content, docked: docked)
         panel.delegate = self

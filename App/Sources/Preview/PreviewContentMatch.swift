@@ -35,6 +35,8 @@ enum PreviewContentMatch: Equatable, Sendable {
             return detected.family == .pdf ? .matches : .mismatch(detectedName: detected.displayName)
         case .font:
             return detected.family == .font ? .matches : .mismatch(detectedName: detected.displayName)
+        case .archive:
+            return detected.family == .archive ? .matches : .mismatch(detectedName: detected.displayName)
         case .quickLook:
             return .matches
         }

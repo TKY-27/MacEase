@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.panels = panels
         let finderPreview = FinderPreviewCoordinator(settings: settings, staging: engine.staging)
         finderPreview.enabledChanged = { [weak self] in self?.refreshMenuFile() }
+        finderPreview.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         self.finderPreview = finderPreview
         jobs.presentPanel = { [weak panels] in panels?.present($0, inputs: $1) }
         jobs.presentReport = { [weak panels] in panels?.presentReport($0, operation: $1) }

@@ -189,6 +189,12 @@ import Testing
         #expect(try ArchiveBrowserZIP.list(archive).map(\.path) == ["one.txt"])
     }
 
+    @Test func longZIPCommentListsSuccessfully() throws {
+        let (_, archive) = try fixture([Member(name: "one.txt", payload: [], checksum: 0)])
+        try appendComment([UInt8](repeating: 0x41, count: 60_000), to: archive)
+        #expect(try ArchiveBrowserZIP.list(archive).map(\.path) == ["one.txt"])
+    }
+
     @Test func EOCDSignatureInsideCommentIsRejected() throws {
         let (_, archive) = try fixture([Member(name: "one.txt", payload: [], checksum: 0)])
         try appendComment([0x50, 0x4b, 0x05, 0x06] + [UInt8](repeating: 0x41, count: 22), to: archive)

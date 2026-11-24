@@ -13,27 +13,6 @@ private enum ArchivePreviewLimit {
     static let rasterSide: CGFloat = 2048
 }
 
-private enum ArchiveBrowserPanelError: LocalizedError {
-    case treeTooLarge
-
-    var errorDescription: String? {
-        switch self {
-        case .treeTooLarge:
-            String(localized: "Archive folder paths exceed the 32 MiB display limit.", comment: "Archive tree limit")
-        }
-    }
-}
-
-fileprivate struct ArchiveNode: Identifiable, Sendable {
-    let id: String
-    let path: String
-    let name: String
-    let entry: ArchiveEntry?
-    let children: [ArchiveNode]?
-
-    var isDirectory: Bool { children != nil }
-}
-
 fileprivate enum ArchivePreview: Sendable {
     case image(CGImage)
     case pdf(CGImage, page: Int, count: Int)
@@ -87,15 +66,7 @@ final class ArchiveBrowserPanelModel {
 
     fileprivate var visibleNodes: [ArchiveNode] {
         guard !search.isEmpty else { return nodes }
-        let query = search.localizedLowercase
-        func matching(_ node: ArchiveNode) -> ArchiveNode? {
-            let children = node.children?.compactMap(matching)
-            guard node.path.localizedLowercase.contains(query) || !(children?.isEmpty ?? true) else { return nil }
-            return ArchiveNode(
-                id: node.id, path: node.path, name: node.name, entry: node.entry,
-                children: node.children == nil ? nil : children)
-        }
-        return nodes.compactMap(matching)
+        return ArchiveTree.filtered(nodes, query: search)
     }
 
     var selectedEntries: [ArchiveEntry] {
@@ -108,11 +79,11 @@ final class ArchiveBrowserPanelModel {
                 row.hasPrefix("folder:") ? String(row.dropFirst("folder:".count)) : nil
             })
         folders.formUnion(
-            entries.filter { entryIDs.contains($0.id) && $0.isDirectory }.map { Self.normalized($0.path) })
+            entries.filter { entryIDs.contains($0.id) && $0.isDirectory }.map { ArchiveTree.normalized($0.path) })
         return entries.filter { entry in
             if entryIDs.contains(entry.id) { return true }
             var ancestor = ""
-            for part in Self.normalized(entry.path).split(separator: "/").dropLast() {
+            for part in ArchiveTree.normalized(entry.path).split(separator: "/").dropLast() {
                 ancestor += ancestor.isEmpty ? String(part) : "/" + part
                 if folders.contains(ancestor) { return true }
             }
@@ -135,7 +106,7 @@ final class ArchiveBrowserPanelModel {
             do {
                 let listed = try await session.entries()
                 guard !Task.isCancelled, !closed, expected == loadGeneration else { return }
-                let tree = try await offMain { try Self.makeNodes(listed) }
+                let tree = try await offMain { try ArchiveTree.nodes(listed) }
                 guard !Task.isCancelled, !closed, expected == loadGeneration else { return }
                 entries = listed
                 nodes = tree
@@ -483,71 +454,9 @@ final class ArchiveBrowserPanelModel {
     }
 
     private static func message(_ error: any Error, source: URL) -> String {
-        if let panelError = error as? ArchiveBrowserPanelError { return panelError.localizedDescription }
+        if let treeError = error as? ArchiveTreeError { return treeError.localizedDescription }
         if let browserError = error as? ArchiveBrowserError { return browserError.localizedDescription }
         return UserMessages.describe(EngineError.wrapping(error, path: source.path), file: source.lastPathComponent)
-    }
-
-    nonisolated private static func normalized(_ path: String) -> String {
-        String(path.drop(while: { $0 == "/" }).dropLast(path.hasSuffix("/") ? 1 : 0))
-    }
-
-    nonisolated private static func makeNodes(_ entries: [ArchiveEntry]) throws -> [ArchiveNode] {
-        let pathLimit = 32 * 1024 * 1024
-        var retainedPathBytes = 0
-        var folders: [String: Set<String>] = [:]
-        var directoryEntries: [String: [ArchiveEntry]] = [:]
-        var files: [String: [ArchiveEntry]] = [:]
-        func retain(_ path: String) throws {
-            let bytes = path.utf8.count
-            guard bytes <= pathLimit - retainedPathBytes else { throw ArchiveBrowserPanelError.treeTooLarge }
-            retainedPathBytes += bytes
-        }
-        for entry in entries {
-            try Task.checkCancellation()
-            let path = normalized(entry.path)
-            let components = path.split(separator: "/")
-            var parent = ""
-            for component in components.prefix(entry.isDirectory ? components.count : max(components.count - 1, 0)) {
-                let child = parent.isEmpty ? String(component) : parent + "/" + component
-                if folders[parent, default: []].insert(child).inserted { try retain(child) }
-                parent = child
-            }
-            if entry.isDirectory {
-                if !(directoryEntries[path] ?? []).isEmpty { try retain(path) }
-                directoryEntries[path, default: []].append(entry)
-                if folders[path] == nil { folders[path] = [] }
-            } else {
-                try retain(path)
-                files[parent, default: []].append(entry)
-            }
-        }
-        func nodes(in parent: String) -> [ArchiveNode] {
-            let directories = (folders[parent] ?? []).sorted { lhs, rhs in
-                return lhs.localizedStandardCompare(rhs) == .orderedAscending
-            }.flatMap { path -> [ArchiveNode] in
-                let records = directoryEntries[path] ?? []
-                let name = String(path.split(separator: "/").last ?? "")
-                let owner = ArchiveNode(
-                    id: records.first.map { "entry:\($0.id)" } ?? ("folder:" + path),
-                    path: path, name: name, entry: records.first, children: nodes(in: path))
-                let duplicates = records.dropFirst().map { entry in
-                    ArchiveNode(id: "entry:\(entry.id)", path: path, name: name, entry: entry, children: [])
-                }
-                return [owner] + duplicates
-            }
-            let leaves = (files[parent] ?? []).sorted { lhs, rhs in
-                let order = lhs.path.localizedStandardCompare(rhs.path)
-                return order == .orderedSame ? lhs.id < rhs.id : order == .orderedAscending
-            }.map { entry in
-                ArchiveNode(
-                    id: "entry:\(entry.id)", path: normalized(entry.path),
-                    name: String(normalized(entry.path).split(separator: "/").last ?? ""),
-                    entry: entry, children: nil)
-            }
-            return directories + leaves
-        }
-        return nodes(in: "")
     }
 }
 
@@ -589,8 +498,11 @@ struct ArchiveBrowserPanel: View {
                         List(selection: $model.selection) {
                             OutlineGroup(model.visibleNodes, children: \.children) { node in
                                 HStack {
-                                    Label(node.name, systemImage: node.isDirectory ? "folder" : "doc")
-                                        .lineLimit(1)
+                                    Label(
+                                        ArchiveTree.displayText(node.name),
+                                        systemImage: node.isDirectory ? "folder" : "doc"
+                                    )
+                                    .lineLimit(1)
                                     Spacer()
                                     if let size = node.entry?.size, !node.isDirectory {
                                         Text(size.formatted(.byteCount(style: .file)))
@@ -603,7 +515,7 @@ struct ArchiveBrowserPanel: View {
                                 }
                                 .tag(node.id)
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(node.path)
+                                .accessibilityLabel(ArchiveTree.displayText(node.path))
                                 .accessibilityValue(accessibilityDetails(for: node))
                             }
                         }
@@ -721,14 +633,15 @@ struct ArchiveBrowserPanel: View {
                     folder.hasPrefix("folder:")
                 {
                     Text(
-                        "\(String(folder.dropFirst("folder:".count))) · Use Save… to export.",
+                        "\(ArchiveTree.displayText(String(folder.dropFirst("folder:".count)))) · Use Save… to export.",
                         comment: "Archive folder details")
                 } else if model.selection.count == 1, let row = model.selection.first,
                     row.hasPrefix("entry:"), let id = Int(row.dropFirst("entry:".count)),
                     let selected = model.entries.first(where: { $0.id == id })
                 {
                     Text(
-                        "\(selected.path) · Preview unavailable. Use Save… to export.", comment: "Archive file details")
+                        "\(ArchiveTree.displayText(selected.path)) · Preview unavailable. Use Save… to export.",
+                        comment: "Archive file details")
                 } else {
                     Text("Select one supported file to preview.", comment: "Archive preview guidance")
                 }
