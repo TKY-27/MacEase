@@ -191,7 +191,7 @@ extension MediaEditorModel {
     }
 
     @discardableResult
-    func addOverlay(_ mark: EditMark) -> UUID? {
+    func addOverlay(_ mark: EditMark, in interaction: EditorInteraction? = nil) -> UUID? {
         guard canAddOverlay, (try? mark.validate()) != nil else { return nil }
         let overlay = EditOverlay(mark: mark)
         if isVideo {
@@ -199,12 +199,12 @@ extension MediaEditorModel {
             let sourceIndex = timeline.segment(at: position).sourceIndex
             guard values.sources.indices.contains(sourceIndex) else { return nil }
             let duration = values.sources[sourceIndex].duration
-            change {
+            change(in: interaction) {
                 $0.overlays.append(TimedOverlay(overlay: overlay, sourceIndex: sourceIndex, start: 0, end: duration))
                 $0.selectedOverlayID = overlay.id
             }
         } else {
-            change {
+            change(in: interaction) {
                 $0.photo.overlays.append(overlay)
                 $0.selectedOverlayID = overlay.id
             }
@@ -212,9 +212,9 @@ extension MediaEditorModel {
         return overlay.id
     }
 
-    func updateOverlay(_ id: UUID, _ mark: EditMark) {
+    func updateOverlay(_ id: UUID, _ mark: EditMark, in interaction: EditorInteraction? = nil) {
         guard (try? mark.validate()) != nil else { return }
-        change { values in
+        change(in: interaction) { values in
             if let index = values.overlays.firstIndex(where: { $0.id == id }) {
                 values.overlays[index].overlay.mark = mark
             }
@@ -235,7 +235,7 @@ extension MediaEditorModel {
     /// Seeks to hidden overlays.
     func selectOverlay(_ id: UUID?) {
         guard !editingLocked else { return }
-        endInteraction()
+        closeInteraction()
         values.selectedOverlayID = id
         guard let id, let timed = values.overlays.first(where: { $0.id == id }), !visibleOverlayIDs.contains(id),
             let first = timeline?.outputRanges(of: timed).first
@@ -295,11 +295,11 @@ extension MediaEditorModel {
         }
     }
 
-    func setOverlayRange(_ id: UUID, start: Double, end: Double) {
+    func setOverlayRange(_ id: UUID, start: Double, end: Double, in interaction: EditorInteraction? = nil) {
         guard start.isFinite, end.isFinite, start < end,
             let index = values.overlays.firstIndex(where: { $0.id == id })
         else { return }
-        change {
+        change(in: interaction) {
             $0.overlays[index].start = start
             $0.overlays[index].end = end
         }
@@ -384,11 +384,20 @@ struct EditorMarkupOverlay: View {
 
     private enum MarkupDrag {
         case pending(CGPoint)
-        case creating(UUID, CGPoint)
-        case moving(UUID, EditMark, EditPoint)
-        case resizing(UUID, EditCrop, Handle, CGPoint)
-        case endpoint(UUID, EditMark, from: Bool)
+        case creating(UUID, CGPoint, EditorInteraction)
+        case moving(UUID, EditMark, EditPoint, EditorInteraction)
+        case resizing(UUID, EditCrop, Handle, CGPoint, EditorInteraction)
+        case endpoint(UUID, EditMark, from: Bool, EditorInteraction)
         case ignored
+
+        var interaction: EditorInteraction? {
+            switch self {
+            case .creating(_, _, let token), .moving(_, _, _, let token), .resizing(_, _, _, _, let token),
+                .endpoint(_, _, _, let token):
+                token
+            case .pending, .ignored: nil
+            }
+        }
     }
 
     var body: some View {
@@ -415,6 +424,10 @@ struct EditorMarkupOverlay: View {
                     accessibilityElement(overlay, size: size)
                 }
             }
+        }
+        .onDisappear {
+            if let token = drag?.interaction { model.endInteraction(token) }
+            drag = nil
         }
     }
 
@@ -622,15 +635,15 @@ struct EditorMarkupOverlay: View {
     private func begin(at point: CGPoint, size: CGSize) -> MarkupDrag {
         switch target(at: point, size: size) {
         case .handle(let id, let rect, let handle, let location):
-            model.beginInteraction()
-            return .resizing(id, rect, handle, normalized(location, size))
+            let token = model.beginInteraction()
+            return .resizing(id, rect, handle, normalized(location, size), token)
         case .endpoint(let id, let mark, let from):
-            model.beginInteraction()
-            return .endpoint(id, mark, from: from)
+            let token = model.beginInteraction()
+            return .endpoint(id, mark, from: from, token)
         case .body(let id, let mark):
             if model.values.selectedOverlayID != id { model.selectOverlay(id) }
-            model.beginInteraction()
-            return .moving(id, mark, model.canvasPoint(normalized(point, size), clamped: false))
+            let token = model.beginInteraction()
+            return .moving(id, mark, model.canvasPoint(normalized(point, size), clamped: false), token)
         case .empty:
             if model.markupTool == .select {
                 model.selectOverlay(nil)
@@ -654,38 +667,38 @@ struct EditorMarkupOverlay: View {
             guard model.markupTool != .text, hypot(point.x - start.x, point.y - start.y) >= Self.createThreshold,
                 let mark = model.newMark(model.markupTool, outputRect: outputRect(from: start, to: point, size: size))
             else { return }
-            model.beginInteraction()
-            if let id = model.addOverlay(mark) {
-                drag = .creating(id, start)
+            let token = model.beginInteraction()
+            if let id = model.addOverlay(mark, in: token) {
+                drag = .creating(id, start, token)
             } else {
-                model.endInteraction()
+                model.endInteraction(token)
                 drag = .ignored
             }
-        case .creating(let id, let start):
+        case .creating(let id, let start, let token):
             if let mark = model.newMark(model.markupTool, outputRect: outputRect(from: start, to: point, size: size)) {
-                model.updateOverlay(id, mark)
+                model.updateOverlay(id, mark, in: token)
             }
-        case .moving(let id, let mark, let origin):
+        case .moving(let id, let mark, let origin, let token):
             let current = model.canvasPoint(normalized(point, size), clamped: false)
-            model.updateOverlay(id, mark.translated(dx: current.x - origin.x, dy: current.y - origin.y))
-        case .resizing(let id, let rect, let handle, let origin):
+            model.updateOverlay(id, mark.translated(dx: current.x - origin.x, dy: current.y - origin.y), in: token)
+        case .resizing(let id, let rect, let handle, let origin, let token):
             guard let overlay = model.markupOverlays.first(where: { $0.id == id }) else { return }
             switch overlay.mark {
             case .redaction(_, let style):
                 let resized = resizedMarkupRect(
                     rect, horizontal: handle.x, vertical: handle.y, to: model.canvasPoint(normalized(point, size)))
-                model.updateOverlay(id, .redaction(rect: resized, style: style))
+                model.updateOverlay(id, .redaction(rect: resized, style: style), in: token)
             case .box(_, let color, let markSize):
                 let resized = model.resizeBox(
                     rect, horizontal: handle.x, vertical: handle.y, from: origin, to: normalized(point, size))
-                model.updateOverlay(id, .box(rect: resized, color: color, size: markSize))
+                model.updateOverlay(id, .box(rect: resized, color: color, size: markSize), in: token)
             case .arrow, .text: break
             }
-        case .endpoint(let id, let mark, let from):
+        case .endpoint(let id, let mark, let from, let token):
             guard case .arrow(let start, let end, let color, let markSize) = mark else { return }
             let moved = model.canvasPoint(normalized(point, size))
             model.updateOverlay(
-                id, .arrow(from: from ? moved : start, to: from ? end : moved, color: color, size: markSize))
+                id, .arrow(from: from ? moved : start, to: from ? end : moved, color: color, size: markSize), in: token)
         case .ignored, .none: break
         }
     }
@@ -701,7 +714,9 @@ struct EditorMarkupOverlay: View {
             } else {
                 model.selectOverlay(nil)
             }
-        case .creating, .moving, .resizing, .endpoint: model.endInteraction()
+        case .creating(_, _, let token), .moving(_, _, _, let token), .resizing(_, _, _, _, let token),
+            .endpoint(_, _, _, let token):
+            model.endInteraction(token)
         case .ignored, .none: break
         }
         drag = nil

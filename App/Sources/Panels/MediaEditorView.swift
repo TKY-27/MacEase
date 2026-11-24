@@ -486,9 +486,11 @@ struct MediaEditorView: View {
                 }
             }
             LabeledSlider(
-                title: String(localized: "Intensity"), value: model.adjustmentBinding(\.styleIntensity), range: 0...1,
+                title: String(localized: "Intensity"), value: model.adjustments.styleIntensity, range: 0...1,
                 display: "\(Int((model.adjustments.styleIntensity * 100).rounded()))%", model: model
-            )
+            ) { amount, interaction in
+                model.adjustmentBinding(\.styleIntensity, in: interaction).wrappedValue = amount
+            }
             .disabled(model.adjustments.style == .original)
             applyToAllSegments(styleOnly: true)
         }
@@ -558,10 +560,13 @@ struct MediaEditorView: View {
             }
             InspectorSection(String(localized: "Straighten")) {
                 LabeledSlider(
-                    title: String(localized: "Angle"), value: model.binding(\.photo.geometry.straighten),
+                    title: String(localized: "Angle"), value: model.values.photo.geometry.straighten,
                     range: -45...45,
                     display: model.values.photo.geometry.straighten.formatted(.number.precision(.fractionLength(1)))
-                        + "°", model: model)
+                        + "°", model: model
+                ) { angle, interaction in
+                    model.change(in: interaction) { $0.photo.geometry.straighten = angle }
+                }
             }
             DisclosureGroup("Exact Selection (%)") {
                 VStack(spacing: 8) {
@@ -583,10 +588,10 @@ struct MediaEditorView: View {
         LabeledContent(title) {
             EditorNumberField(
                 model: model, title: title, id: "crop-\(keyPath)",
-                value: Binding(
-                    get: { model.values.photo.geometry.crop[keyPath: keyPath] * 100 },
-                    set: { model.setCropPercentage($0, keyPath: keyPath) }), range: 0...100, precision: 1
-            )
+                value: model.values.photo.geometry.crop[keyPath: keyPath] * 100, range: 0...100, precision: 1
+            ) { percent, interaction in
+                model.setCropPercentage(percent, keyPath: keyPath, in: interaction)
+            }
             .frame(width: 70)
         }
     }
@@ -719,12 +724,45 @@ struct InspectorSection<Content: View>: View {
     }
 }
 
+struct EditorSlider: View {
+    @Bindable var model: MediaEditorModel
+    let title: String
+    let value: Double
+    let range: ClosedRange<Double>
+    let commit: (Double, EditorInteraction?) -> Void
+    @State private var interaction: EditorInteraction?
+
+    var body: some View {
+        Slider(
+            value: Binding(get: { value }, set: { commit($0, interaction) }),
+            in: range
+        ) {
+            Text(title)
+        } onEditingChanged: { active in
+            if active {
+                interaction = model.beginInteraction()
+            } else if let token = interaction {
+                interaction = nil
+                model.endInteraction(token)
+            }
+        }
+        .labelsHidden()
+        .onDisappear {
+            if let token = interaction {
+                interaction = nil
+                model.endInteraction(token)
+            }
+        }
+    }
+}
+
 private struct LabeledSlider: View {
     let title: String
-    @Binding var value: Double
+    let value: Double
     let range: ClosedRange<Double>
     let display: String
     @Bindable var model: MediaEditorModel
+    let commit: (Double, EditorInteraction?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -733,12 +771,7 @@ private struct LabeledSlider: View {
                 Spacer()
                 Text(display).monospacedDigit().foregroundStyle(.secondary)
             }
-            Slider(value: $value, in: range) {
-                Text(title)
-            } onEditingChanged: { active in
-                active ? model.beginInteraction() : model.endInteraction()
-            }
-            .labelsHidden()
+            EditorSlider(model: model, title: title, value: value, range: range, commit: commit)
         }
     }
 }
@@ -747,14 +780,41 @@ struct EditorNumberField: View {
     @Bindable var model: MediaEditorModel
     let title: String
     let id: String
-    @Binding var value: Double
+    let value: Double
     let range: ClosedRange<Double>
     let precision: Int
     var timecode = false
+    let commit: (Double, EditorInteraction) -> Void
+
+    init(
+        model: MediaEditorModel, title: String, id: String, value: Double, range: ClosedRange<Double>, precision: Int,
+        timecode: Bool = false, commit: @escaping (Double, EditorInteraction) -> Void
+    ) {
+        self.model = model
+        self.title = title
+        self.id = id
+        self.value = value
+        self.range = range
+        self.precision = precision
+        self.timecode = timecode
+        self.commit = commit
+    }
+
+    init(
+        model: MediaEditorModel, title: String, id: String, keyPath: WritableKeyPath<EditorValues, Double>,
+        range: ClosedRange<Double>, precision: Int, timecode: Bool = false
+    ) {
+        self.init(
+            model: model, title: title, id: id, value: model.values[keyPath: keyPath], range: range,
+            precision: precision, timecode: timecode
+        ) { amount, interaction in
+            model.change(in: interaction) { $0[keyPath: keyPath] = amount }
+        }
+    }
 
     var body: some View {
         EditorNumberControl(
-            model: model, title: title, id: id, current: value, value: $value,
+            model: model, title: title, id: id, value: value, commit: commit,
             range: range, precision: precision, timecode: timecode)
     }
 }
@@ -764,8 +824,8 @@ private struct EditorNumberControl: NSViewRepresentable {
     let model: MediaEditorModel
     let title: String
     let id: String
-    let current: Double
-    @Binding var value: Double
+    let value: Double
+    let commit: (Double, EditorInteraction) -> Void
     let range: ClosedRange<Double>
     let precision: Int
     let timecode: Bool
@@ -856,6 +916,7 @@ private struct EditorNumberControl: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: EditorNumberControl
         var editing = false
+        private var interaction: EditorInteraction?
 
         init(parent: EditorNumberControl) { self.parent = parent }
 
@@ -863,12 +924,12 @@ private struct EditorNumberControl: NSViewRepresentable {
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
-            beginEditing()
+            editing = true
             // Input methods apply only committed text.
             if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
             if let amount = parent.parse(field.stringValue) {
                 parent.model.invalidFields.remove(parent.id)
-                if amount != parent.value { parent.value = amount }
+                if amount != parent.value { parent.commit(amount, ensureInteraction()) }
             } else {
                 parent.model.invalidFields.insert(parent.id)
             }
@@ -888,27 +949,38 @@ private struct EditorNumberControl: NSViewRepresentable {
         func teardown() {
             let model = parent.model
             let id = parent.id
+            let token = interaction
+            interaction = nil
             let wasEditing = editing
             editing = false
-            guard wasEditing || model.invalidFields.contains(id) else { return }
+            guard wasEditing || token != nil || model.invalidFields.contains(id) else { return }
             guard !model.closed else { return }
             model.invalidFields.remove(id)
-            if wasEditing { model.endInteraction(owner: id) }
+            if let token { model.endInteraction(token) }
         }
 
         private func beginEditing() {
             editing = true
-            parent.model.beginInteraction(owner: parent.id)
+            _ = ensureInteraction()
+        }
+
+        private func ensureInteraction() -> EditorInteraction {
+            if let interaction, parent.model.isActiveInteraction(interaction) { return interaction }
+            let token = parent.model.beginInteraction()
+            interaction = token
+            return token
         }
 
         private func finishEditing(_ field: NSTextField?) {
             editing = false
+            let token = interaction
+            interaction = nil
             if let field {
                 let formatted = parent.formattedValue
                 if field.stringValue != formatted { field.stringValue = formatted }
             }
             parent.model.invalidFields.remove(parent.id)
-            parent.model.endInteraction(owner: parent.id)
+            if let token { parent.model.endInteraction(token) }
         }
     }
 }
@@ -953,21 +1025,7 @@ private struct EditorAdjustmentRow: View {
     @Bindable var model: MediaEditorModel
     let adjustment: MediaAdjustment
 
-    private var value: Binding<Double> {
-        Binding(
-            get: { model.adjustments[adjustment] },
-            set: { amount in
-                guard amount.isFinite else { return }
-                model.change {
-                    let bounded = min(max(adjustment.range.lowerBound, amount), adjustment.range.upperBound)
-                    if model.isVideo {
-                        $0.videoAdjustments[adjustment] = bounded
-                    } else {
-                        $0.photo.adjustments[adjustment] = bounded
-                    }
-                }
-            })
-    }
+    private var currentValue: Double { model.adjustments[adjustment] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -975,28 +1033,28 @@ private struct EditorAdjustmentRow: View {
                 Text(adjustment.editorTitle)
                 Spacer()
                 Button {
-                    value.wrappedValue = 0
+                    model.setAdjustment(adjustment, to: 0)
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                 }
                 .buttonStyle(.borderless)
                 .help("Reset adjustment")
-                .opacity(value.wrappedValue == 0 ? 0 : 1)
-                .disabled(value.wrappedValue == 0)
+                .opacity(currentValue == 0 ? 0 : 1)
+                .disabled(currentValue == 0)
                 .accessibilityLabel(Text("Reset \(adjustment.editorTitle)"))
                 EditorNumberField(
                     model: model, title: adjustment.editorTitle, id: adjustment.rawValue,
-                    value: value, range: adjustment.range, precision: 2
-                )
+                    value: currentValue, range: adjustment.range, precision: 2
+                ) { amount, interaction in
+                    model.setAdjustment(adjustment, to: amount, in: interaction)
+                }
                 .controlSize(.small)
                 .frame(width: 52)
             }
-            Slider(value: value, in: adjustment.range) {
-                Text(adjustment.editorTitle)
-            } onEditingChanged: { active in
-                active ? model.beginInteraction() : model.endInteraction()
+            EditorSlider(model: model, title: adjustment.editorTitle, value: currentValue, range: adjustment.range) {
+                amount, interaction in
+                model.setAdjustment(adjustment, to: amount, in: interaction)
             }
-            .labelsHidden()
             .controlSize(.small)
             .tint(adjustment.range.lowerBound < 0 ? .secondary : nil)
         }

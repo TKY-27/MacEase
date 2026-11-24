@@ -61,10 +61,12 @@ extension MediaEditorModel {
         change { $0.music = nil }
     }
 
-    func musicBinding(_ keyPath: WritableKeyPath<BackgroundMusic, Double>) -> Binding<Double> {
+    func musicBinding(
+        _ keyPath: WritableKeyPath<BackgroundMusic, Double>, in interaction: EditorInteraction? = nil
+    ) -> Binding<Double> {
         Binding(
             get: { self.values.music?[keyPath: keyPath] ?? 0 },
-            set: { value in self.change { $0.music?[keyPath: keyPath] = value } })
+            set: { value in self.change(in: interaction) { $0.music?[keyPath: keyPath] = value } })
     }
 
     @concurrent private static func loadMusic(_ url: URL) async throws -> BackgroundMusic {
@@ -99,12 +101,11 @@ struct EditorMusicSection: View {
                     .truncationMode(.middle)
                 HStack(spacing: 10) {
                     Text("Volume").foregroundStyle(.secondary)
-                    Slider(value: model.musicBinding(\.volume), in: 0...1) {
-                        Text("Music Volume")
-                    } onEditingChanged: { active in
-                        active ? model.beginInteraction() : model.endInteraction()
+                    EditorSlider(
+                        model: model, title: String(localized: "Music Volume"), value: music.volume, range: 0...1
+                    ) { volume, interaction in
+                        model.change(in: interaction) { $0.music?.volume = volume }
                     }
-                    .labelsHidden()
                     Text("\(Int((music.volume * 100).rounded()))%")
                         .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                 }
@@ -112,9 +113,12 @@ struct EditorMusicSection: View {
                     Text("Start in Song").foregroundStyle(.secondary)
                     EditorNumberField(
                         model: model, title: String(localized: "Start in Song"), id: "music-start",
-                        value: model.musicBinding(\.start),
+                        value: music.start,
                         range: 0...max(0, music.duration - MediaEditorModel.musicStartMargin), precision: 3,
-                        timecode: true)
+                        timecode: true
+                    ) { start, interaction in
+                        model.change(in: interaction) { $0.music?.start = start }
+                    }
                 }
                 Text("Plays once from the start of the video. A longer song fades out over the last second.")
                     .font(.caption).foregroundStyle(.secondary)

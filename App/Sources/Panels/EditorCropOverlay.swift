@@ -20,7 +20,9 @@ extension MediaEditorModel {
         if abs(actual * expected - 1) < tolerance { cropPortrait.toggle() } else { cropAspect = 0 }
     }
 
-    func setCropPercentage(_ percent: Double, keyPath: WritableKeyPath<EditCrop, Double>) {
+    func setCropPercentage(
+        _ percent: Double, keyPath: WritableKeyPath<EditCrop, Double>, in interaction: EditorInteraction? = nil
+    ) {
         guard !editingLocked, percent.isFinite else { return }
         var crop = values.photo.geometry.crop
         let amount = percent / 100
@@ -41,7 +43,7 @@ extension MediaEditorModel {
             crop.width *= fit
             crop.height *= fit
         }
-        change { $0.photo.geometry.crop = crop }
+        change(in: interaction) { $0.photo.geometry.crop = crop }
     }
 
     func fitCropAspect() {
@@ -59,6 +61,7 @@ extension MediaEditorModel {
 struct EditorCropOverlay: View {
     @Bindable var model: MediaEditorModel
     @State private var dragStart: EditCrop?
+    @State private var dragInteraction: EditorInteraction?
     private let minimumSize = 0.02
 
     private enum Edge: CaseIterable {
@@ -119,6 +122,13 @@ struct EditorCropOverlay: View {
                 }
             }
         }
+        .onDisappear {
+            dragStart = nil
+            if let token = dragInteraction {
+                dragInteraction = nil
+                model.endInteraction(token)
+            }
+        }
     }
 
     private func move(x: Double, y: Double) {
@@ -132,7 +142,10 @@ struct EditorCropOverlay: View {
 
     private func drag(edge: Edge?, size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0).onChanged { gesture in
-            if dragStart == nil { dragStart = model.values.photo.geometry.crop; model.beginInteraction() }
+            if dragStart == nil {
+                dragStart = model.values.photo.geometry.crop
+                dragInteraction = model.beginInteraction()
+            }
             guard let start = dragStart else { return }
             let dx = gesture.translation.width / size.width
             let dy = gesture.translation.height / size.height
@@ -168,9 +181,13 @@ struct EditorCropOverlay: View {
                 crop.x = min(max(0, start.x + dx), 1 - start.width)
                 crop.y = min(max(0, start.y + dy), 1 - start.height)
             }
-            model.change { $0.photo.geometry.crop = crop }
+            model.change(in: dragInteraction) { $0.photo.geometry.crop = crop }
         }.onEnded { _ in
-            dragStart = nil; model.endInteraction()
+            dragStart = nil
+            if let token = dragInteraction {
+                dragInteraction = nil
+                model.endInteraction(token)
+            }
         }
     }
 }

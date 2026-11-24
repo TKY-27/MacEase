@@ -16,7 +16,7 @@ extension MediaEditorView {
                     HStack(spacing: 6) {
                         EditorNumberField(
                             model: model, title: String(localized: "Freeze Duration"), id: "freeze",
-                            value: model.binding(\.freezeDuration), range: VideoSegment.freezeDurationRange,
+                            keyPath: \.freezeDuration, range: VideoSegment.freezeDurationRange,
                             precision: 1)
                         Text("sec").foregroundStyle(.secondary).accessibilityHidden(true)
                     }
@@ -58,7 +58,7 @@ extension MediaEditorView {
                     Spacer()
                     EditorNumberField(
                         model: model, title: String(localized: "Custom speed"), id: "speed",
-                        value: model.binding(\.speed), range: VideoEdit.speedRange, precision: 2
+                        keyPath: \.speed, range: VideoEdit.speedRange, precision: 2
                     ).frame(width: 58)
                     Text(verbatim: "×").foregroundStyle(.secondary).accessibilityHidden(true)
                 }
@@ -94,12 +94,11 @@ extension MediaEditorView {
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
                     .frame(width: 22)
-                    Slider(value: model.binding(\.volume), in: 0...1) {
-                        Text("Volume")
-                    } onEditingChanged: { active in
-                        active ? model.beginInteraction() : model.endInteraction()
+                    EditorSlider(
+                        model: model, title: String(localized: "Volume"), value: model.values.volume, range: 0...1
+                    ) { volume, interaction in
+                        model.change(in: interaction) { $0.volume = volume }
                     }
-                    .labelsHidden()
                     Text("\(Int((model.values.volume * 100).rounded()))%")
                         .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                 }
@@ -144,21 +143,25 @@ extension MediaEditorView {
                 Text("Start").foregroundStyle(.secondary)
                 EditorNumberField(
                     model: model, title: String(localized: "Start"), id: "start",
-                    value: model.videoBoundaryBinding(start: true),
+                    value: model.values.start,
                     range: 0...max(0, model.values.end - model.sourceFrameDuration),
                     precision: Self.timecodeDigits, timecode: true
-                )
+                ) { seconds, interaction in
+                    model.setVideoBoundary(seconds, start: true, in: interaction)
+                }
             }
             GridRow {
                 Text("End").foregroundStyle(.secondary)
                 EditorNumberField(
                     model: model, title: String(localized: "End"), id: "end",
-                    value: model.videoBoundaryBinding(start: false),
+                    value: model.values.end,
                     range: min(
                         model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
                         .sourceDuration,
                     precision: Self.timecodeDigits, timecode: true
-                )
+                ) { seconds, interaction in
+                    model.setVideoBoundary(seconds, start: false, in: interaction)
+                }
             }
             GridRow {
                 Text("Length").foregroundStyle(.secondary)

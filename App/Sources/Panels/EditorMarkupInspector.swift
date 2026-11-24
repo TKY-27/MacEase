@@ -162,22 +162,24 @@ struct EditorMarkupInspector: View {
                     Text("Start").foregroundStyle(.secondary)
                     EditorNumberField(
                         model: model, title: String(localized: "Start"), id: "overlay-start",
-                        value: Binding(
-                            get: { timed.start },
-                            set: { model.setOverlayRange(timed.id, start: $0, end: timed.end) }),
+                        value: timed.start,
                         range: 0...max(0, timed.end - model.frameDuration(ofSource: timed.sourceIndex)),
                         precision: Self.timecodeDigits,
-                        timecode: true)
+                        timecode: true
+                    ) { start, interaction in
+                        model.setOverlayRange(timed.id, start: start, end: timed.end, in: interaction)
+                    }
                 }
                 GridRow {
                     Text("End").foregroundStyle(.secondary)
                     EditorNumberField(
                         model: model, title: String(localized: "End"), id: "overlay-end",
-                        value: Binding(
-                            get: { timed.end },
-                            set: { model.setOverlayRange(timed.id, start: timed.start, end: $0) }),
+                        value: timed.end,
                         range: min(duration, timed.start + model.frameDuration(ofSource: timed.sourceIndex))...duration,
-                        precision: Self.timecodeDigits, timecode: true)
+                        precision: Self.timecodeDigits, timecode: true
+                    ) { end, interaction in
+                        model.setOverlayRange(timed.id, start: timed.start, end: end, in: interaction)
+                    }
                 }
             }
             HStack(spacing: 8) {
@@ -330,21 +332,21 @@ private struct EditorMarkupPosition: View {
             Text(title).foregroundStyle(.secondary)
             EditorNumberField(
                 model: model, title: title, id: "overlay-\(key)",
-                value: Binding(
-                    get: { value * 100 },
-                    set: { model.updateOverlay(overlay.id, mark($0 / 100)) }),
-                range: minimum * 100...100, precision: 1
-            )
+                value: value * 100, range: minimum * 100...100, precision: 1
+            ) { percent, interaction in
+                model.updateOverlay(overlay.id, mark(percent / 100), in: interaction)
+            }
             .frame(width: 70)
         }
     }
 }
 
-private struct MarkupTextField: View {
+struct MarkupTextField: View {
     @Bindable var model: MediaEditorModel
     let id: UUID
     let text: String
     @State private var draft = ""
+    @State private var interaction: EditorInteraction?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -361,7 +363,7 @@ private struct MarkupTextField: View {
                         let mark = EditMark.text(draft, at: at, color: color, size: size)
                         if (try? mark.validate()) != nil {
                             model.invalidFields.remove(MediaEditorModel.overlayTextField)
-                            model.updateOverlay(id, mark)
+                            model.updateOverlay(id, mark, in: ensureInteraction())
                         } else {
                             model.invalidFields.insert(MediaEditorModel.overlayTextField)
                         }
@@ -383,18 +385,31 @@ private struct MarkupTextField: View {
         .onChange(of: text) { _, text in if !focused { draft = text } }
         .onChange(of: focused) { _, focused in
             if focused {
-                model.beginInteraction()
+                _ = ensureInteraction()
             } else {
                 model.overlayTextFocusRequest = nil
                 draft = text
                 model.invalidFields.remove(MediaEditorModel.overlayTextField)
-                model.endInteraction()
+                finishInteraction()
             }
         }
         .onDisappear {
             model.invalidFields.remove(MediaEditorModel.overlayTextField)
-            if focused { model.endInteraction() }
+            finishInteraction()
         }
+    }
+
+    private func ensureInteraction() -> EditorInteraction {
+        if let interaction, model.isActiveInteraction(interaction) { return interaction }
+        let token = model.beginInteraction()
+        interaction = token
+        return token
+    }
+
+    private func finishInteraction() {
+        guard let token = interaction else { return }
+        interaction = nil
+        model.endInteraction(token)
     }
 }
 
