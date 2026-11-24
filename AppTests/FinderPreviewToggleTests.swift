@@ -91,4 +91,34 @@ final class FinderPreviewToggleTests: XCTestCase {
             XCTAssertEqual(closeRequests, expected, characters)
         }
     }
+
+    func testClampedDockKeepsSavedPreferredWidthSeparateFromDisplayedWidth() throws {
+        let suite = "FinderPreviewToggleTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let panel = FinderPreviewPanel(content: NSView(), docked: true, defaults: defaults)
+        addTeardownBlock { panel.close() }
+        panel.setPreviewWidth(500)
+        XCTAssertEqual(panel.previewWidth, 500)
+        XCTAssertEqual(defaults.double(forKey: "finderPreviewWidth"), 500)
+
+        let smallScreen = CGRect(x: 0, y: 0, width: 840, height: 600)
+        let smallWindow = CGRect(x: 40, y: 40, width: 360, height: 500)
+        let clamped = FinderPreviewGeometry.placement(
+            window: smallWindow, screen: smallScreen, width: panel.previewWidth)
+        XCTAssertEqual(clamped.frame.width, 420)
+        panel.dock(clamped, above: 0, animate: false)
+        XCTAssertEqual(panel.displayedWidth, 420)
+        XCTAssertEqual(panel.previewWidth, 500)
+        XCTAssertEqual(defaults.double(forKey: "finderPreviewWidth"), 500)
+
+        let largeScreen = CGRect(x: 0, y: 0, width: 2560, height: 1400)
+        let largeWindow = CGRect(x: 100, y: 100, width: 900, height: 800)
+        let restored = FinderPreviewGeometry.placement(
+            window: largeWindow, screen: largeScreen, width: panel.previewWidth)
+        XCTAssertEqual(restored.frame.width, 500)
+        panel.dock(restored, above: 0, animate: false)
+        XCTAssertEqual(panel.displayedWidth, 500)
+        XCTAssertEqual(panel.previewWidth, 500)
+    }
 }
