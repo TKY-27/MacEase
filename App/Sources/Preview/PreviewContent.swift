@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Engine
 import Foundation
 import SwiftUI
@@ -123,7 +124,40 @@ enum PreviewKind: Equatable, Hashable, Sendable {
                 type: values.contentType, extension: suffix, fileName: url.lastPathComponent,
                 detected: detected, disabled: disabled)
             : initial
+        if resolved == .archive, suffix == "tar", detected?.family == .binary, isAllZeroEmptyTAR(url) {
+            return (.archive, DetectedContent(family: .archive, displayName: "TAR archive"))
+        }
         return (resolved, resolved == .quickLook ? nil : detected)
+    }
+
+    private static let tarBlockBytes: Int64 = 512
+    private static let minimumEmptyTARBytes: Int64 = 1_024
+    private static let maximumEmptyTARBytes: Int64 = 1_048_576
+    private static let zeroCheckChunkBytes = 8_192
+
+    // Valid empty TARs are all-zero 512-byte blocks.
+    private static func isAllZeroEmptyTAR(_ url: URL) -> Bool {
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG,
+            metadata.st_size >= minimumEmptyTARBytes, metadata.st_size <= maximumEmptyTARBytes,
+            metadata.st_size % tarBlockBytes == 0
+        else { return false }
+        var buffer = [UInt8](repeating: 0, count: zeroCheckChunkBytes)
+        var totalRead: Int64 = 0
+        while totalRead < metadata.st_size {
+            let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+            if count < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            if count == 0 { return false }
+            if buffer.prefix(count).contains(where: { $0 != 0 }) { return false }
+            totalRead += Int64(count)
+        }
+        return totalRead == metadata.st_size
     }
 }
 

@@ -7,7 +7,6 @@ import os
 
 struct PreviewArchiveListing: Sendable {
     let nodes: [ArchiveNode]
-    let entryCount: Int
     let itemCount: Int
     let expandedBytes: Int64
     let ending: ArchiveContents.Ending
@@ -23,11 +22,10 @@ struct PreviewArchiveListing: Sendable {
         }
         let entries = contents.entries.enumerated().map { index, entry in
             ArchiveEntry(
-                id: index, path: entry.path, isDirectory: entry.isDirectory, size: entry.size,
-                isEncrypted: entry.isEncrypted, modified: entry.modified)
+                id: index, path: entry.path, isDirectory: entry.isDirectory,
+                size: entry.size, isEncrypted: entry.isEncrypted, modified: entry.modified, rawPath: entry.rawPath)
         }
         nodes = try ArchiveTree.nodes(entries, foldersFirst: foldersFirst)
-        entryCount = entries.count
         itemCount = ArchiveTree.count(nodes)
         // Hostile headers may declare sizes that overflow.
         expandedBytes = entries.reduce(0) { total, entry in
@@ -45,7 +43,8 @@ struct PreviewArchiveListing: Sendable {
         case .complete: return nil
         case .timeLimit: return .timedOut
         case .nameLimit: return .namesTooLarge
-        case .entryLimit, .skipLimit: return .tooLarge
+        case .entryLimit: return .tooLarge
+        case .decodedLimit: return .decodedTooLarge
         case .damaged: return .damaged
         }
     }
@@ -63,8 +62,14 @@ struct PreviewArchiveListing: Sendable {
     var noteText: String {
         switch ending {
         case .complete: summary
-        case .entryLimit, .nameLimit, .skipLimit, .timeLimit:
+        case .entryLimit:
             String(localized: "Showing the first \(itemCount) items.")
+        case .nameLimit:
+            String(localized: "Item names are too large to list all items. Showing the first \(itemCount) items.")
+        case .decodedLimit:
+            String(localized: "This archive is too large to list in full. Showing the first \(itemCount) items.")
+        case .timeLimit:
+            String(localized: "Listing timed out. Showing the first \(itemCount) items.")
         case .damaged:
             String(localized: "This archive is damaged. Showing the first \(itemCount) items.")
         }
@@ -73,8 +78,10 @@ struct PreviewArchiveListing: Sendable {
     var shortNoteText: String {
         switch ending {
         case .complete: shortSummary
-        case .entryLimit, .nameLimit, .skipLimit, .timeLimit:
+        case .entryLimit, .nameLimit, .decodedLimit:
             String(localized: "First \(itemCount) items")
+        case .timeLimit:
+            String(localized: "Timed out · first \(itemCount) items")
         case .damaged:
             String(localized: "Damaged · first \(itemCount) items")
         }
@@ -82,7 +89,7 @@ struct PreviewArchiveListing: Sendable {
 }
 
 enum PreviewArchiveFailure: Equatable {
-    case unsupported, damaged, tooLarge, namesTooLarge, timedOut, unreadable
+    case unsupported, damaged, tooLarge, namesTooLarge, decodedTooLarge, timedOut, unreadable
 
     init(_ error: any Error) {
         switch error {
@@ -100,6 +107,7 @@ enum PreviewArchiveFailure: Equatable {
         case .damaged: Text("This archive is damaged, so its contents can't be listed.")
         case .tooLarge: Text("This archive has too many items to list.")
         case .namesTooLarge: Text("This archive's item names are too large to list.")
+        case .decodedTooLarge: Text("This archive is too large to list.")
         case .timedOut: Text("This archive couldn't be listed in time.")
         case .unreadable: Text("This archive could not be read.")
         }
@@ -352,7 +360,7 @@ struct PreviewArchiveViewer: View {
             PreviewNote(
                 symbol: "archivebox", text: Text(verbatim: listing.noteText),
                 shortText: Text(verbatim: listing.shortNoteText))
-        case .entryLimit, .nameLimit, .skipLimit, .timeLimit:
+        case .entryLimit, .nameLimit, .decodedLimit, .timeLimit:
             PreviewNote(
                 symbol: "info.circle", text: Text(verbatim: listing.noteText),
                 shortText: Text(verbatim: listing.shortNoteText))

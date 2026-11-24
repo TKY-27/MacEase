@@ -16,6 +16,7 @@ final class PreviewArchiveRow {
         nodes.map(PreviewArchiveRow.init)
     }
 
+    var copyPath: String { node.entry?.rawPath ?? node.path }
     var fileExtension: String { node.fileExtension }
 }
 
@@ -83,16 +84,6 @@ struct PreviewArchiveSort: Equatable, Sendable {
         UserDefaults(suiteName: finderDomain)?.bool(forKey: foldersFirstKey) ?? false
     }
 
-    static func nameOrdered(_ lhs: ArchiveNode, _ rhs: ArchiveNode, foldersFirst: Bool) -> Bool {
-        if foldersFirst, lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
-        return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-    }
-
-    // Stable: equal names keep archive order.
-    static func nameSorted(_ nodes: [ArchiveNode], foldersFirst: Bool) throws -> [ArchiveNode] {
-        try PreviewArchiveSort(column: .name, ascending: true, foldersFirst: foldersFirst).sorted(nodes)
-    }
-
     func sorted(
         _ nodes: [ArchiveNode], check: () throws -> Void = { try Task.checkCancellation() }
     ) throws -> [ArchiveNode] {
@@ -125,12 +116,6 @@ struct PreviewArchiveSort: Equatable, Sendable {
             }
         }
         return try sortLevel(nodes)
-    }
-
-    func ordered(_ lhs: PreviewArchiveRow, _ rhs: PreviewArchiveRow, kinds: PreviewArchiveKinds) -> Bool {
-        isOrderedBefore(lhs.node, 0, rhs.node, 1) { node in
-            PreviewArchiveKindDescriptions.describe(isDirectory: node.isDirectory, fileExtension: node.fileExtension)
-        }
     }
 
     private func isOrderedBefore(
@@ -313,7 +298,7 @@ struct PreviewArchiveOutline: NSViewRepresentable {
         func copy(_ rows: [PreviewArchiveRow]) {
             guard !rows.isEmpty else { return }
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(rows.map(\.path).joined(separator: "\n"), forType: .string)
+            NSPasteboard.general.setString(rows.map(\.copyPath).joined(separator: "\n"), forType: .string)
         }
 
         private func children(of row: Any?) -> [PreviewArchiveRow] {

@@ -1,26 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "逆再生に必要な空き容量がありません。選択範囲を短くするか、元のファイルがあるボリュームの空き容量を増やしてください。"
-          }
-        }
-      }
-    },
-    "Required: %@; available: %@.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "必要容量：%1$@、空き容量：%2$@。"
-          }
-        }
-      }
-    },
     "Analyze Links (⌘R)": {
       "localizations": {
         "ja": {
@@ -22289,6 +22269,26 @@
         }
       }
     },
+    "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生に必要な空き容量がありません。選択範囲を短くするか、元のファイルがあるボリュームの空き容量を増やしてください。"
+          }
+        }
+      }
+    },
+    "Required: %@; available: %@.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
     "%lld items, %@ uncompressed": {
       "comment": "Archive preview summary",
       "localizations": {
@@ -22585,6 +22585,128 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアーカイブの項目名が大きすぎるため、一覧表示できません。"
+          }
+        }
+      }
+    },
+    "This archive is too large to list.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは大きすぎるため、一覧表示できません。"
+          }
+        }
+      }
+    },
+    "Item names are too large to list all items. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Item names are too large to list all items. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Item names are too large to list all items. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目名が大きすぎるためすべて表示できません。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "This archive is too large to list in full. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This archive is too large to list in full. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This archive is too large to list in full. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーカイブは大きすぎるためすべて表示できません。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "Listing timed out. Showing the first %lld items.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Listing timed out. Showing the first %lld item."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Listing timed out. Showing the first %lld items."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧の取得がタイムアウトしました。最初の%lld項目を表示しています。"
+          }
+        }
+      }
+    },
+    "Timed out · first %lld items": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Timed out · first %lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Timed out · first %lld items"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムアウト · 最初の%lld項目"
           }
         }
       }

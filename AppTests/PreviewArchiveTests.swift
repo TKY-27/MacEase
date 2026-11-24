@@ -76,10 +76,33 @@ final class PreviewArchiveTests: XCTestCase {
 
         let emptyTAR = directory.appending(path: "empty.tar")
         try tar(emptyTAR, members: "    pass\n")
+        XCTAssertEqual(
+            ContentSniffer.identify(header: [UInt8](repeating: 0, count: 4_096)),
+            DetectedContent(family: .binary, displayName: "Binary file"))
+        XCTAssertEqual(
+            try ContentSniffer.identify(emptyTAR),
+            DetectedContent(family: .binary, displayName: "Binary file"))
         let emptyResult = try PreviewKind.inspectContent(emptyTAR)
         XCTAssertEqual(emptyResult.kind, .archive)
         XCTAssertEqual(
             PreviewContentMatch.evaluate(kind: .archive, detected: try XCTUnwrap(emptyResult.detected)), .matches)
+
+        let isoAsTAR = directory.appending(path: "image.tar")
+        var isoBytes = Data(repeating: 0, count: 32_768)
+        isoBytes.append(contentsOf: [0x01, 0x43, 0x44, 0x30, 0x30, 0x31, 0x01])
+        isoBytes.append(Data(repeating: 0, count: 2_041))
+        try isoBytes.write(to: isoAsTAR)
+        let isoDetected = try XCTUnwrap(PreviewKind.inspectContent(isoAsTAR).detected)
+        XCTAssertEqual(
+            PreviewContentMatch.evaluate(kind: .archive, detected: isoDetected),
+            .mismatch(detectedName: "Binary file"))
+
+        let oddZeroTAR = directory.appending(path: "odd.tar")
+        try Data(repeating: 0, count: 1_500).write(to: oddZeroTAR)
+        let oddDetected = try XCTUnwrap(PreviewKind.inspectContent(oddZeroTAR).detected)
+        XCTAssertEqual(
+            PreviewContentMatch.evaluate(kind: .archive, detected: oddDetected),
+            .mismatch(detectedName: "Binary file"))
 
         let fake = directory.appending(path: "fake.tar")
         try Data("plain words".utf8).write(to: fake)
@@ -156,11 +179,37 @@ final class PreviewArchiveTests: XCTestCase {
             ["c", "a.txt", "b.txt", "file9.txt", "file10.txt"])
         let nodes = try ArchiveTree.nodes(entries)
         XCTAssertEqual(
-            try PreviewArchiveSort.nameSorted(nodes, foldersFirst: false).map(\.name),
+            try PreviewArchiveSort(column: .name, ascending: true, foldersFirst: false).sorted(nodes).map(\.name),
             ["a.txt", "b.txt", "c", "file9.txt", "file10.txt"])
         XCTAssertEqual(
-            try PreviewArchiveSort.nameSorted(nodes, foldersFirst: true).map(\.name),
+            try PreviewArchiveSort(column: .name, ascending: true, foldersFirst: true).sorted(nodes).map(\.name),
             ["c", "a.txt", "b.txt", "file9.txt", "file10.txt"])
+    }
+
+    func testDeepPathsCapTreeDepthWithoutDroppingFileName() throws {
+        let deepPath = Array(repeating: "d", count: 299).joined(separator: "/") + "/leaf.txt"
+        let nodes = try ArchiveTree.nodes([
+            ArchiveEntry(
+                id: 0, path: deepPath, isDirectory: false, size: 7, isEncrypted: false, rawPath: "/" + deepPath)
+        ])
+        var depth = 0
+        var current = nodes
+        var leaf: ArchiveNode?
+        while let first = current.first {
+            depth += 1
+            if let children = first.children {
+                current = children
+            } else {
+                leaf = first
+                break
+            }
+        }
+        XCTAssertEqual(depth, ArchiveContents.maximumPathDepth)
+        let unwrappedLeaf = try XCTUnwrap(leaf)
+        XCTAssertTrue(unwrappedLeaf.name.hasSuffix("/leaf.txt"), unwrappedLeaf.name)
+        XCTAssertEqual(unwrappedLeaf.fileExtension, "txt")
+        XCTAssertEqual(unwrappedLeaf.path, deepPath)
+        XCTAssertEqual(PreviewArchiveRow(node: unwrappedLeaf).copyPath, "/" + deepPath)
     }
 
     func testColumnSortingKeepsFoldersAndUnknownsLastAndBreaksTiesAscending() throws {
@@ -203,7 +252,6 @@ final class PreviewArchiveTests: XCTestCase {
         try tar(archive, members: "    add('folder/only.bin', 2048)\n")
         let listing = try PreviewArchiveListing(reading: archive, foldersFirst: false)
         XCTAssertEqual(listing.ending, .complete)
-        XCTAssertEqual(listing.entryCount, 1)
         XCTAssertEqual(listing.itemCount, 2)
         XCTAssertEqual(listing.expandedBytes, 2_048)
         XCTAssertFalse(listing.hasEncryptedItems)
@@ -217,7 +265,6 @@ final class PreviewArchiveTests: XCTestCase {
         try raw.prefix(512 * 4).write(to: damaged)
         let brokenListing = try PreviewArchiveListing(reading: damaged, foldersFirst: false)
         XCTAssertEqual(brokenListing.ending, .damaged)
-        XCTAssertEqual(brokenListing.entryCount, 2)
         XCTAssertEqual(brokenListing.itemCount, 3)
         XCTAssertEqual(
             brokenListing.noteText,
@@ -232,7 +279,6 @@ final class PreviewArchiveTests: XCTestCase {
                 + "        add('photos/%03d/%06d.jpg' % (number // 1000, number))\n")
         let listing = try PreviewArchiveListing(reading: archive, foldersFirst: false)
         XCTAssertEqual(listing.ending, .entryLimit)
-        XCTAssertEqual(listing.entryCount, ArchiveContents.maximumEntries)
         XCTAssertEqual(listing.itemCount, ArchiveContents.maximumEntries + 101)
         XCTAssertEqual(
             listing.noteText,
@@ -240,12 +286,12 @@ final class PreviewArchiveTests: XCTestCase {
     }
 
     @MainActor
-    func testEncryptedDamagedTimedOutNamesTooLargeAndUnknownArchivesReachTheirStates() async throws {
+    func testEncryptedDamagedTimedOutDecodedLimitNamesTooLargeAndUnknownArchivesReachTheirStates() async throws {
         let directory = try folder()
         let locked = try zip(in: directory, password: "secret")
         let listing = try PreviewArchiveListing(reading: locked, foldersFirst: false)
         XCTAssertTrue(listing.hasEncryptedItems)
-        XCTAssertEqual(listing.entryCount, 3)
+        XCTAssertEqual(listing.itemCount, 3)
 
         let damaged = directory.appending(path: "damaged.zip")
         try Data([0x50, 0x4B, 0x03, 0x04] + [UInt8](repeating: 0xEE, count: 200)).write(to: damaged)
@@ -275,6 +321,70 @@ final class PreviewArchiveTests: XCTestCase {
             return XCTFail("zero-entry timeout must not show empty archive")
         }
         XCTAssertEqual(timedOutFailure, .timedOut)
+
+        let xattrBomb = directory.appending(path: "xattr-bomb.tar.bz2")
+        let bombScript = """
+            import bz2, sys, tarfile
+            MiB = 1024 * 1024
+            def pad(n): return b'\\0' * ((-n) % 512)
+            value_len = 16 * MiB - 1
+            lines = []
+            for number in range(6):
+                key = f'SCHILY.xattr.user.a{number:03d}'.encode()
+                payload_len = len(key) + value_len + 3
+                total = len(str(payload_len)) + payload_len
+                while len(str(total)) + payload_len != total:
+                    total = len(str(total)) + payload_len
+                lines.append((total, key))
+            body_len = sum(total for total, _ in lines)
+            x_member = tarfile.TarInfo('././@PaxHeader')
+            x_member.type = tarfile.XHDTYPE
+            x_member.size = body_len
+            reg_member = tarfile.TarInfo('after.bin')
+            reg_member.size = 0
+            compressor = bz2.BZ2Compressor(9)
+            chunk = b'a' * value_len
+            with open(sys.argv[1], 'wb') as out:
+                out.write(compressor.compress(x_member.tobuf(format=tarfile.USTAR_FORMAT)))
+                for total, key in lines:
+                    out.write(compressor.compress(str(total).encode() + b' ' + key + b'='))
+                    out.write(compressor.compress(chunk))
+                    out.write(compressor.compress(b'\\n'))
+                out.write(compressor.compress(pad(body_len) + reg_member.tobuf(format=tarfile.USTAR_FORMAT) + b'\\0' * 1024))
+                out.write(compressor.flush())
+            """
+        try run("/usr/bin/python3", ["-c", bombScript, xattrBomb.path])
+        let bombModel = PreviewArchiveModel()
+        await bombModel.load(xattrBomb)
+        guard case .failed(let bombFailure) = bombModel.phase else {
+            return XCTFail("decoded-limit zero-entry archive must fail with decodedTooLarge")
+        }
+        XCTAssertEqual(bombFailure, .decodedTooLarge)
+
+        let partialBomb = directory.appending(path: "partial-bomb.tar.bz2")
+        let partialScript = """
+            import bz2, io, sys, tarfile
+            MiB = 1024 * 1024
+            with bz2.open(sys.argv[1], 'wb', compresslevel=9) as compressed:
+                with tarfile.open(fileobj=compressed, mode='w|') as archive:
+                    first = tarfile.TarInfo('huge.bin')
+                    first.size = 80 * MiB
+                    class Zeros(io.RawIOBase):
+                        def __init__(self, remaining): self.remaining = remaining
+                        def read(self, size=-1):
+                            if self.remaining <= 0: return b''
+                            take = self.remaining if size is None or size < 0 else min(self.remaining, size)
+                            self.remaining -= take
+                            return b'\\0' * take
+                    archive.addfile(first, Zeros(first.size))
+            """
+        try run("/usr/bin/python3", ["-c", partialScript, partialBomb.path])
+        let partialListing = try PreviewArchiveListing(reading: partialBomb, foldersFirst: false)
+        XCTAssertEqual(partialListing.ending, .decodedLimit)
+        XCTAssertEqual(partialListing.itemCount, 1)
+        XCTAssertEqual(
+            partialListing.noteText,
+            String(localized: "This archive is too large to list in full. Showing the first \(1) items."))
     }
 
     @MainActor
@@ -341,7 +451,7 @@ final class PreviewArchiveTests: XCTestCase {
         await cancelModel.load(secondURL)
         await cancelled.value
         guard case .listed(let afterCancel) = cancelModel.phase else { return XCTFail("second archive not listed") }
-        XCTAssertEqual(afterCancel.entryCount, 3)
+        XCTAssertEqual(afterCancel.itemCount, 3)
 
         let staleGate = Gate()
         let staleModel = PreviewArchiveModel { url in
@@ -354,7 +464,7 @@ final class PreviewArchiveTests: XCTestCase {
         staleGate.finish(with: .success(firstListing))
         await late.value
         guard case .listed(let current) = staleModel.phase else { return XCTFail("second archive not listed") }
-        XCTAssertEqual(current.entryCount, 3)
+        XCTAssertEqual(current.itemCount, 3)
     }
 
     @MainActor
@@ -417,22 +527,30 @@ final class PreviewArchiveTests: XCTestCase {
     }
 
     @MainActor
-    func testCopyPathDisablesOnEmptySpaceAndHandlesCommandCWithCapsLock() throws {
-        let nodes = try ArchiveTree.nodes([
-            entry(0, "Docs/bell\u{07}name.txt", size: 5),
-            entry(1, "readme.txt", size: 3),
-        ])
+    func testCopyPathCopiesRealRawPathsDisablesOnEmptySpaceAndHandlesCommandCWithCapsLock() throws {
+        let directory = try folder()
+        let archive = directory.appending(path: "raw-paths.tar")
+        let longName = String(repeating: "x", count: 1_500) + ".txt"
+        try tar(
+            archive,
+            members: """
+                    add('Docs/bell\\x07name.txt', 5)
+                    add('/etc/passwd', 3)
+                    add('\(longName)', 2)
+
+                """)
+        let listing = try PreviewArchiveListing(reading: archive, foldersFirst: true)
         let window = NSWindow(
             contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300), styleMask: [.titled],
             backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         addTeardownBlock { @MainActor in window.close() }
         window.contentView = NSHostingView(
-            rootView: PreviewArchiveOutline(roots: nodes, revision: 1, expandsAll: true))
+            rootView: PreviewArchiveOutline(roots: listing.nodes, revision: 1, expandsAll: true))
         window.contentView?.layoutSubtreeIfNeeded()
         let outline = try XCTUnwrap(Self.outline(in: window.contentView) as? PreviewArchiveOutlineView)
         var copied: [[String]] = []
-        outline.copyPaths = { rows in copied.append(rows.map(\.path)) }
+        outline.copyPaths = { rows in copied.append(rows.map(\.copyPath)) }
 
         let contextItem = try XCTUnwrap(outline.menu?.items.first)
         XCTAssertFalse(outline.validateMenuItem(contextItem))
@@ -459,7 +577,13 @@ final class PreviewArchiveTests: XCTestCase {
                 windowNumber: window.windowNumber, context: nil, characters: "C", charactersIgnoringModifiers: "C",
                 isARepeat: false, keyCode: 8))
         XCTAssertTrue(outline.performKeyEquivalent(with: capsLockCmdC))
-        XCTAssertEqual(copied, [["Docs/bell\u{FFFD}name.txt"], ["Docs/bell\u{FFFD}name.txt"]])
+        XCTAssertEqual(copied, [["Docs/bell\u{07}name.txt"], ["Docs/bell\u{07}name.txt"]])
+
+        let etcPasswdRow = try XCTUnwrap(outline.item(atRow: 3) as? PreviewArchiveRow)
+        XCTAssertEqual(etcPasswdRow.copyPath, "/etc/passwd")
+        let longRow = try XCTUnwrap(outline.item(atRow: 4) as? PreviewArchiveRow)
+        XCTAssertEqual(longRow.copyPath, longName)
+        XCTAssertLessThan(longRow.name.count, longName.count)
     }
 
     @MainActor
@@ -507,7 +631,11 @@ final class PreviewArchiveTests: XCTestCase {
             "%lld items, %@ uncompressed",
             "%lld items",
             "Showing the first %lld items.",
+            "Item names are too large to list all items. Showing the first %lld items.",
+            "This archive is too large to list in full. Showing the first %lld items.",
+            "Listing timed out. Showing the first %lld items.",
             "First %lld items",
+            "Timed out · first %lld items",
             "This archive is damaged. Showing the first %lld items.",
             "Damaged · first %lld items",
         ]
@@ -516,12 +644,14 @@ final class PreviewArchiveTests: XCTestCase {
             XCTAssertTrue(localized.contains("%lld項目"), "\(key) -> \(localized)")
             XCTAssertFalse(localized.contains(" 項目"), "\(key) -> \(localized)")
         }
-        let timedOut = japanese.localizedString(
-            forKey: "This archive couldn't be listed in time.", value: nil, table: nil)
-        XCTAssertNotEqual(timedOut, "This archive couldn't be listed in time.")
-        let namesTooLarge = japanese.localizedString(
-            forKey: "This archive's item names are too large to list.", value: nil, table: nil)
-        XCTAssertNotEqual(namesTooLarge, "This archive's item names are too large to list.")
+        for key in [
+            "This archive couldn't be listed in time.",
+            "This archive's item names are too large to list.",
+            "This archive is too large to list.",
+        ] {
+            let localized = japanese.localizedString(forKey: key, value: nil, table: nil)
+            XCTAssertNotEqual(localized, key, key)
+        }
     }
 
     private func snapshot(_ directory: URL) throws -> [String: Date] {
@@ -554,7 +684,7 @@ final class PreviewArchiveTests: XCTestCase {
         let model = PreviewArchiveModel()
         await model.load(archive)
         guard case .listed(let listing) = model.phase else { return XCTFail("quarantined archive not listed") }
-        XCTAssertEqual(listing.entryCount, 3)
+        XCTAssertEqual(listing.itemCount, 3)
 
         XCTAssertEqual(try snapshot(directory), before)
         XCTAssertEqual(quarantineValue(archive), quarantine)

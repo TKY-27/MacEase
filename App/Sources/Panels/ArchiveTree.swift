@@ -77,6 +77,7 @@ enum ArchiveTree {
 
     static func nodes(_ entries: [ArchiveEntry], foldersFirst: Bool = true) throws -> [ArchiveNode] {
         let pathLimit = ArchiveContents.maximumNameBytes
+        let maxAncestorDepth = ArchiveContents.maximumPathDepth - 1
         var retainedPathBytes = 0
         var folders: [String: Set<String>] = [:]
         var directoryEntries: [String: [ArchiveEntry]] = [:]
@@ -92,12 +93,19 @@ enum ArchiveTree {
             guard !components.isEmpty else { continue }
             let path = components.joined(separator: "/")
             var parent = ""
-            for component in components.prefix(entry.isDirectory ? components.count : max(components.count - 1, 0)) {
+            let ancestorDepth =
+                entry.isDirectory
+                ? (components.count > ArchiveContents.maximumPathDepth ? maxAncestorDepth : components.count)
+                : min(max(components.count - 1, 0), maxAncestorDepth)
+            for component in components.prefix(ancestorDepth) {
                 let child = parent.isEmpty ? String(component) : parent + "/" + component
                 if folders[parent, default: []].insert(child).inserted { try retain(child) }
                 parent = child
             }
             if entry.isDirectory {
+                if components.count > ArchiveContents.maximumPathDepth {
+                    if folders[parent, default: []].insert(path).inserted { try retain(path) }
+                }
                 if !(directoryEntries[path] ?? []).isEmpty { try retain(path) }
                 directoryEntries[path, default: []].append(entry)
                 if folders[path] == nil { folders[path] = [] }
@@ -106,13 +114,17 @@ enum ArchiveTree {
                 files[parent, default: []].append(entry)
             }
         }
+        func relativeName(_ path: String, under parent: String) -> String {
+            guard !parent.isEmpty else { return path }
+            return String(path.dropFirst(parent.count + 1))
+        }
         func nodes(in parent: String) throws -> [ArchiveNode] {
             try Task.checkCancellation()
             let directories = try (folders[parent] ?? []).sorted { lhs, rhs in
                 lhs.localizedStandardCompare(rhs) == .orderedAscending
             }.flatMap { path -> [ArchiveNode] in
                 let records = directoryEntries[path] ?? []
-                let name = String(path.split(separator: "/").last ?? "")
+                let name = relativeName(path, under: parent)
                 let owner = ArchiveNode(
                     id: records.first.map { "entry:\($0.id)" } ?? ("folder:" + path),
                     path: path, name: name, entry: records.first, children: try nodes(in: path))
@@ -128,7 +140,7 @@ enum ArchiveTree {
                 let path = normalized(entry.path).split(separator: "/").filter { $0 != "." }.joined(separator: "/")
                 return ArchiveNode(
                     id: "entry:\(entry.id)", path: path,
-                    name: String(path.split(separator: "/").last ?? ""),
+                    name: relativeName(path, under: parent),
                     entry: entry, children: nil)
             }
             let combined = directories + leaves
