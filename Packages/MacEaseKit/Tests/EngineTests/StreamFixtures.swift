@@ -6,9 +6,10 @@ import Testing
 @testable import Engine
 @testable import Formats
 
-func timecodedClip(named name: String, in folder: URL) async throws -> URL {
-    let source = try #require(
-        Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
+func timecodedClip(named name: String, in folder: URL, source suppliedSource: URL? = nil) async throws -> URL {
+    let source =
+        try suppliedSource ?? #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
     let asset = AVURLAsset(url: source)
     let videoTrack = try #require(try await asset.loadTracks(withMediaType: .video).first)
     let duration = try await asset.load(.duration)

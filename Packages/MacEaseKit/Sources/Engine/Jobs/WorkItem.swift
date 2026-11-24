@@ -17,6 +17,9 @@ public struct WorkItem: Sendable {
     var newFileNaming: NewFileNaming?
     var fallbackNewFileNaming: NewFileNaming?
     var omittedStreams: Set<UnpreservedStream> = []
+    var unpreservedStreams = Settings.UnpreservedStreamsChoice.ask
+    var omissionOptions: OperationOptions?
+    var derivesOutput = false
     let body: @Sendable (ItemContext) async throws -> ItemResult
 
     public init(inputs: [URL], lane: Lane = .cpu, body: @escaping @Sendable (ItemContext) async throws -> ItemResult) {
@@ -169,7 +172,7 @@ public enum ItemWarning: Equatable, Sendable {
 
 public final class ItemContext: Sendable {
     public let settings: Settings
-    public let omittedStreams: Set<UnpreservedStream>
+    public var omittedStreams: Set<UnpreservedStream> { state.withLock { $0.omittedStreams } }
     let staging: StagingArea
     let hatchExtractions: HatchExtractionStore
     private let state = Mutex(State())
@@ -177,6 +180,8 @@ public final class ItemContext: Sendable {
     private let progressHandler: @Sendable (Double) -> Void
 
     private struct State {
+        var omittedStreams: Set<UnpreservedStream> = []
+        var beganEncoding = false
         var directories: [URL] = []
         var warnings: [ItemWarning] = []
         var details = ItemDetails()
@@ -190,7 +195,7 @@ public final class ItemContext: Sendable {
         progress: @escaping @Sendable (Double) -> Void
     ) {
         self.settings = settings
-        self.omittedStreams = omittedStreams
+        state.withLock { $0.omittedStreams = omittedStreams }
         self.staging = staging
         self.hatchExtractions = hatchExtractions ?? HatchExtractionStore(supportDirectory: staging.supportDirectory)
         self.progressHandler = progress
@@ -201,7 +206,24 @@ public final class ItemContext: Sendable {
         progressHandler(min(max(fraction, 0), 1))
     }
 
-    public func phase(_ phase: ItemPhase) { phaseHandler(phase) }
+    public func phase(_ phase: ItemPhase) {
+        if phase == .convertingInput || phase == .encoding || phase == .optimizing || phase == .verifying {
+            state.withLock { $0.beganEncoding = true }
+        }
+        phaseHandler(phase)
+    }
+
+    // Staging may already contain encoded media.
+    var canContinueBeforeEncoding: Bool {
+        state.withLock { !$0.beganEncoding && $0.directories.isEmpty }
+    }
+
+    func omitStreams(_ streams: Set<UnpreservedStream>) {
+        state.withLock {
+            $0.warnings = []
+            $0.omittedStreams.formUnion(streams)
+        }
+    }
 
     public func reportImageResult(
         originalWidth: Int, originalHeight: Int, outputWidth: Int, outputHeight: Int,
@@ -232,7 +254,11 @@ public final class ItemContext: Sendable {
     }
 
     public func warn(_ warning: ItemWarning) {
-        state.withLock { $0.warnings.append(warning) }
+        if case .streamsOmitted(let streams) = warning {
+            warnStreamsOmitted(streams)
+        } else {
+            state.withLock { $0.warnings.append(warning) }
+        }
     }
 
     func warnStreamsOmitted(_ streams: [UnpreservedStream]) {
@@ -250,7 +276,7 @@ public final class ItemContext: Sendable {
         }
     }
 
-    /// On `original`'s volume.
+    // Automatic omission consent ends when staging starts.
     public func stagingDirectory(for original: URL) throws -> URL {
         let directory = try staging.makeDirectory(for: original)
         state.withLock { $0.directories.append(directory) }

@@ -1135,6 +1135,7 @@ enum StagedMediaFallback {
         let omitted = try await restoringNativeError(nativeError) {
             try videoUnpreservedStreams(in: probed)
         }
+        context.markFallbackInputUsed()
         if enforceStreamConsent {
             try requireConsent(for: omitted, consented: consentedStreams ?? context.omittedStreams)
         }
@@ -1176,7 +1177,6 @@ enum StagedMediaFallback {
         try verifyIntermediate(
             original: probed, intermediate: intermediateProbe, kind: .video(hasAudio: audioStream != nil))
         let trackAttributes = try await inspectOriginalTrackAttributes(originalURL, probe: probed)
-        context.markFallbackInputUsed()
         if enforceStreamConsent, !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
         return StagedVideo(
             originalURL: originalURL, stagedURL: outputURL, profile: videoProfile,
@@ -1203,6 +1203,7 @@ enum StagedMediaFallback {
         let omitted = try await restoringNativeError(nativeError) {
             try audioUnpreservedStreams(in: probed)
         }
+        context.markFallbackInputUsed()
         if enforceStreamConsent {
             try requireConsent(for: omitted, consented: context.omittedStreams)
         }
@@ -1241,7 +1242,6 @@ enum StagedMediaFallback {
                 from: originalURL, probe: probed, stream: attachedPictureStream,
                 workingDirectory: stagingDirectory, tools: resolvedTools, noProgressTimeout: noProgressTimeout)
         }
-        context.markFallbackInputUsed()
         if enforceStreamConsent, !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
         return StagedAudio(
             originalURL: originalURL, stagedURL: outputURL, profile: profile,

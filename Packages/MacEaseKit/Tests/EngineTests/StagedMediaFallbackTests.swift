@@ -2001,4 +2001,223 @@ private enum FallbackFixtures {
         // Terminates cleanly within totalPacketScanLimit.
         try await opened.verifyDecodable()
     }
+
+    @Test func contentDefaultPolicyContinuesFallbackInNewFileAndReplaceModeWithoutPrematureStaging() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+        let subtitle = folder.appending(path: "captions.srt")
+        try Data("1\n00:00:00,000 --> 00:00:00,300\nHello\n".utf8).write(to: subtitle)
+
+        let subtitledAudioMKV = folder.appending(path: "subtitled_av.mkv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=0.4",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.4",
+                "-i", subtitle.path,
+                "-c:v", "ffv1", "-c:a", "dca", "-strict", "-2", "-c:s", "srt", subtitledAudioMKV.path,
+            ], in: folder, tools: tools)
+        let originalVideoBytes = try Data(contentsOf: subtitledAudioMKV)
+
+        // Ask policy still blocks before staging.
+        do {
+            let askSupport = try TestVolume.makeFolder()
+            let engine = try JobEngine(supportDirectory: askSupport, concurrency: 1)
+            var settings = Settings()
+            settings.outputMode = .replace
+            let request = OperationRequest(
+                op: .videoConvert, options: .video(.convert(.mp4)), inputs: [subtitledAudioMKV],
+                unpreservedStreams: .ask)
+            let batch = OperationPlanner.batch(for: request, settings: settings)
+            let phases = Mutex<[ItemPhase]>([])
+            let outcome = await engine.run(batch, settings: settings) { progress in
+                phases.withLock { $0.append(contentsOf: progress.itemPhases) }
+            }
+            #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.subtitle])))])
+            #expect(!phases.withLock { $0.contains(.convertingInput) })
+            #expect(try Data(contentsOf: subtitledAudioMKV) == originalVideoBytes)
+            try assertStagingEmpty(in: askSupport)
+        }
+
+        // Automatic omission continues in both modes.
+        let videoCases: [(Settings.OutputMode, OperationID, OperationOptions, String)] = [
+            (.newFile, .videoConvert, .video(.convert(.mp4)), "subtitled_av.mp4"),
+            (.replace, .videoConvert, .video(.convert(.mp4)), "subtitled_av.mp4"),
+            (.replace, .videoRemoveAudio, .video(.removeAudio), "subtitled_av_noaudio.mp4"),
+        ]
+        for (mode, op, options, expectedName) in videoCases {
+            let runFolder = try TestVolume.makeFolder()
+            let source = runFolder.appending(path: "subtitled_av.mkv")
+            try FileManager.default.copyItem(at: subtitledAudioMKV, to: source)
+            let support = try TestVolume.makeFolder()
+            let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+            var settings = Settings()
+            settings.outputMode = mode
+            let request = OperationRequest(
+                op: op, options: options, inputs: [source], unpreservedStreams: .omitFromNewFiles)
+            let batch = OperationPlanner.batch(for: request, settings: settings)
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            #expect(outcome.batchID == batch.id)
+            guard case .succeeded(let outputs, let warnings) = outcome.outcomes.first, let output = outputs.first else {
+                Issue.record(
+                    "expected automatic omission in \(mode) \(op), got \(String(describing: outcome.outcomes))")
+                continue
+            }
+            #expect(output.lastPathComponent == expectedName)
+            #expect(warnings.contains(.streamsOmitted([.subtitle])))
+            #expect(warnings.contains(.keptAsNewFileForFormat) == (mode == .replace))
+            #expect(try Data(contentsOf: source) == originalVideoBytes)
+            #expect(try await engine.undo(outcome.batchID) == [.restored])
+            #expect(!FileManager.default.fileExists(atPath: output.path))
+            #expect(try Data(contentsOf: source) == originalVideoBytes)
+            try assertStagingEmpty(in: support)
+        }
+
+        // Audio fallback with extra stream continues.
+        let dualMKA = folder.appending(path: "dual.mka")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.6",
+                "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=0.6",
+                "-map", "0:a", "-map", "1:a", "-c:a", "wmav2", dualMKA.path,
+            ], in: folder, tools: tools)
+        let originalAudioBytes = try Data(contentsOf: dualMKA)
+        let audioSupport = try TestVolume.makeFolder()
+        let audioEngine = try JobEngine(supportDirectory: audioSupport, concurrency: 1)
+        var replaceSettings = Settings()
+        replaceSettings.outputMode = .replace
+        let audioRequest = OperationRequest(
+            op: .audioTrim, options: .audio(.trim(start: 0.1, end: 0.4)), inputs: [dualMKA],
+            unpreservedStreams: .omitFromNewFiles)
+        let audioBatch = OperationPlanner.batch(for: audioRequest, settings: replaceSettings)
+        let audioOutcome = await audioEngine.run(audioBatch, settings: replaceSettings) { _ in }
+        guard case .succeeded(let audioOutputs, let audioWarnings) = audioOutcome.outcomes.first,
+            let trimmed = audioOutputs.first
+        else {
+            Issue.record(
+                "expected audio fallback omitFromNewFiles success, got \(String(describing: audioOutcome.outcomes))")
+            return
+        }
+        #expect(trimmed.lastPathComponent == "dual_trimmed.m4a")
+        #expect(audioWarnings.contains(.streamsOmitted([.audio])))
+        #expect(audioWarnings.contains(.keptAsNewFileForFormat))
+        #expect(try Data(contentsOf: dualMKA) == originalAudioBytes)
+        #expect(try await audioEngine.undo(audioOutcome.batchID) == [.restored])
+        #expect(!FileManager.default.fileExists(atPath: trimmed.path))
+        #expect(try Data(contentsOf: dualMKA) == originalAudioBytes)
+        try assertStagingEmpty(in: audioSupport)
+    }
+
+    @Test func joinedSourcesWithLaterConsentAfterFallbackEndsInQuestion() async throws {
+        let folder = try TestVolume.makeFolder()
+        let firstFallback = try await FallbackFixtures.makeWMV(named: "first.wmv", duration: 0.4, in: folder)
+        let secondSubtitled = try await FallbackFixtures.makeSubtitledMKV(in: folder)
+        let firstOriginal = try Data(contentsOf: firstFallback)
+        let secondOriginal = try Data(contentsOf: secondSubtitled)
+
+        var edit = VideoEdit()
+        edit.sources = [
+            VideoEditSource(url: firstFallback, duration: 0.4, stamp: try MediaSourceStamp(url: firstFallback)),
+            VideoEditSource(url: secondSubtitled, duration: 0.4, stamp: try MediaSourceStamp(url: secondSubtitled)),
+        ]
+        edit.segments = [
+            VideoSegment(start: 0, end: 0.3, sourceIndex: 0),
+            VideoSegment(start: 0, end: 0.3, sourceIndex: 1),
+        ]
+
+        for mode in [Settings.OutputMode.newFile, .replace] {
+            let support = try TestVolume.makeFolder()
+            let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+            var settings = Settings()
+            settings.outputMode = mode
+            let request = OperationRequest(
+                op: .videoEdit, options: .video(.edit(edit)), inputs: [firstFallback],
+                unpreservedStreams: .omitFromNewFiles)
+            let batch = OperationPlanner.batch(for: request, settings: settings)
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.subtitle])))])
+            #expect(try Data(contentsOf: firstFallback) == firstOriginal)
+            #expect(try Data(contentsOf: secondSubtitled) == secondOriginal)
+            try assertStagingEmpty(in: support)
+        }
+    }
+
+    @Test func fallbackConsentReadsSameOmittedSetAsNativeOnReRun() async throws {
+        let folder = try TestVolume.makeFolder()
+        let nativeFixture = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac", withExtension: "mp4", subdirectory: "Resources"))
+        let nativeClip = folder.appending(path: "native.mp4")
+        try FileManager.default.copyItem(at: nativeFixture, to: nativeClip)
+        let nativeInput = try await MediaInput.open(nativeClip)
+        let nativeDuration = Double(nativeInput.duration) / Double(Nanoseconds.perSecond)
+        let subtitled = try await FallbackFixtures.makeSubtitledMKV(in: folder)
+        let subtitledStamp = try MediaSourceStamp(url: subtitled)
+
+        // Re-run passes omitted streams to primary.
+        var primaryFallbackEdit = VideoEdit()
+        primaryFallbackEdit.sources = [
+            VideoEditSource(url: subtitled, duration: 0.4, stamp: subtitledStamp),
+            VideoEditSource(url: nativeClip, duration: nativeDuration, stamp: try MediaSourceStamp(url: nativeClip)),
+        ]
+        primaryFallbackEdit.segments = [
+            VideoSegment(start: 0, end: 0.3, sourceIndex: 0),
+            VideoSegment(start: 0, end: min(0.3, nativeDuration), sourceIndex: 1),
+        ]
+        do {
+            let support = try TestVolume.makeFolder()
+            let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+            let settings = Settings()
+            let request = OperationRequest(
+                op: .videoEdit, options: .video(.edit(primaryFallbackEdit)), inputs: [subtitled],
+                unpreservedStreams: .omitFromNewFiles)
+            let batch = OperationPlanner.batch(for: request, settings: settings)
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            guard case .succeeded(let outputs, let warnings) = outcome.outcomes.first, !outputs.isEmpty else {
+                Issue.record(
+                    "expected primary-fallback joined edit success, got \(String(describing: outcome.outcomes))")
+                return
+            }
+            #expect(warnings.contains(.streamsOmitted([.subtitle])))
+            try assertStagingEmpty(in: support)
+        }
+
+        // Secondary fallback reads per-source omissions only.
+        var secondaryFallbackEdit = VideoEdit()
+        secondaryFallbackEdit.sources = [
+            VideoEditSource(url: nativeClip, duration: nativeDuration, stamp: try MediaSourceStamp(url: nativeClip)),
+            VideoEditSource(url: subtitled, duration: 0.4, stamp: subtitledStamp),
+        ]
+        secondaryFallbackEdit.segments = [
+            VideoSegment(start: 0, end: min(0.3, nativeDuration), sourceIndex: 0),
+            VideoSegment(start: 0, end: 0.3, sourceIndex: 1),
+        ]
+        do {
+            let support = try TestVolume.makeFolder()
+            let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+            let settings = Settings()
+            let request = OperationRequest(
+                op: .videoEdit, options: .video(.edit(secondaryFallbackEdit)), inputs: [nativeClip],
+                unpreservedStreams: .omitFromNewFiles)
+            let batch = OperationPlanner.batch(for: request, settings: settings)
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            #expect(outcome.outcomes == [.failed(.invalidInput(.unpreservedStreams([.subtitle])))])
+            try assertStagingEmpty(in: support)
+        }
+
+        // Explicit secondary omissions entry succeeds cleanly.
+        do {
+            let support = try TestVolume.makeFolder()
+            let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+            let settings = Settings()
+            let batch = MediaEditing.video(
+                url: nativeClip, edit: secondaryFallbackEdit, settings: settings,
+                omissions: [subtitled: StreamOmission(stamp: subtitledStamp, streams: [.subtitle])])
+            let outcome = await engine.run(batch, settings: settings) { _ in }
+            guard case .succeeded(let outputs, let warnings) = outcome.outcomes.first, !outputs.isEmpty else {
+                Issue.record("expected explicit secondary consent success, got \(String(describing: outcome.outcomes))")
+                return
+            }
+            #expect(warnings.contains(.streamsOmitted([.subtitle])))
+            try assertStagingEmpty(in: support)
+        }
+    }
 }
