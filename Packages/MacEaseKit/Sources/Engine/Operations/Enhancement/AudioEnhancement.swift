@@ -35,8 +35,20 @@ public struct AudioEnhancement: Sendable {
     public static func streamOmission(for source: URL) async throws -> StreamOmission? {
         let stamp = try MediaSourceStamp(url: source)
         try await UntrustedMediaAsset.rejectExternalReferences(in: source)
-        let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
-        let streams = try await AudioJob.unpreservedStreams(in: input)
+        let streams: [UnpreservedStream]
+        do {
+            let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
+            streams = try await AudioJob.unpreservedStreams(in: input)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: source.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                let probed = try await StagedMediaFallback.probe(source)
+                streams = try StagedMediaFallback.audioUnpreservedStreams(in: probed)
+            default:
+                throw wrapped
+            }
+        }
         return streams.isEmpty ? nil : StreamOmission(stamp: stamp, streams: Set(streams))
     }
 
@@ -67,8 +79,7 @@ public struct AudioEnhancement: Sendable {
 
     private func enhance(_ source: URL, mode: AudioEnhancementMode, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
-        try await UntrustedMediaAsset.rejectExternalReferences(in: source)
-        let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
+        let input = try await AudioInput.openWithFallback(source, context: context, allowsMultiplexedOgg: true)
         try await AudioJob.requirePreservableContent(input, context: context)
         guard let duration = input.duration, duration.isFinite, duration > 0 else {
             throw EngineError.decodeFailed("Audio duration is unavailable")
@@ -102,7 +113,7 @@ public struct AudioEnhancement: Sendable {
                 executable: tools.ffmpeg,
                 arguments: [
                     "-hide_banner", "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file,pipe",
-                    "-ss", String(Double(start) / mode.sampleRate), "-i", source.path,
+                    "-ss", String(Double(start) / mode.sampleRate), "-i", input.url.path,
                     "-t", String(Double(end - start + Self.paddingFrames) / mode.sampleRate), "-map", "0:a:0",
                     "-vn", "-sn", "-dn", "-ac", String(mode.channels), "-ar", String(Int(mode.sampleRate)),
                     "-af",

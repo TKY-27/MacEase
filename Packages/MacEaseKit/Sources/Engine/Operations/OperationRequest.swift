@@ -56,9 +56,10 @@ public enum OperationPlanner {
     /// No file I/O; items validate when run.
     public static func batch(for request: OperationRequest, settings: Settings) -> Batch {
         let planned = plannedBatch(for: request, settings: settings)
-        let naming = settings.outputMode == .newFile ? NewFileNaming(options: request.options) : nil
+        let fallbackNaming = NewFileNaming(options: request.options)
+        let naming = settings.outputMode == .newFile ? fallbackNaming : nil
         guard
-            naming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty
+            fallbackNaming != nil || !request.omittedStreams.isEmpty || !request.inputStamps.isEmpty
                 || request.unpreservedStreams == .omitFromNewFiles
         else { return planned }
         let workItems = planned.items.map { workItem in
@@ -66,6 +67,7 @@ public enum OperationPlanner {
             configured.unpreservedStreams = request.unpreservedStreams
             configured.omissionOptions = request.options
             configured.newFileNaming = naming
+            configured.fallbackNewFileNaming = fallbackNaming
             configured.omittedStreams = request.omittedStreams
             if !request.inputStamps.isEmpty {
                 configured.requiredInputStamps = request.inputStamps.mapValues(\.fileStamp)
@@ -145,11 +147,9 @@ public enum OperationPlanner {
             let checked = batch.items.map { planned in
                 WorkItem(inputs: planned.inputs, lane: planned.lane) { context in
                     for source in planned.inputs {
-                        let media = try await MediaInput.open(source)
-                        guard let audio = media.audio, case .audio(let sampleRate, let channels) = audio.kind else {
-                            throw EngineError.invalidInput(.unsupportedFileType)
-                        }
-                        let supported = try format.supportedKilobits(sampleRate: sampleRate, channels: channels)
+                        let audioParameters = try await audioParametersForExtract(source, context: context)
+                        let supported = try format.supportedKilobits(
+                            sampleRate: audioParameters.sampleRate, channels: audioParameters.channels)
                         guard supported.contains(kilobits) else {
                             throw EngineError.invalidInput(
                                 .malformed(
@@ -181,6 +181,30 @@ public enum OperationPlanner {
             return AudioPlanner.batch(for: request, operation: operation)
         case .image(let operation):
             return ImagePlanner.batch(for: operation, request: request, inputs: inputs)
+        }
+    }
+
+    private static func audioParametersForExtract(
+        _ source: URL, context: ItemContext
+    ) async throws -> (sampleRate: Double, channels: Int) {
+        do {
+            let media = try await MediaInput.open(source)
+            guard let audio = media.audio, case .audio(let sampleRate, let channels) = audio.kind else {
+                throw EngineError.invalidInput(.unsupportedFileType)
+            }
+            return (sampleRate, channels)
+        } catch {
+            let wrapped = EngineError.wrapping(error, path: source.path)
+            switch wrapped {
+            case .decodeFailed, .unsupportedCodec:
+                let probe = try await StagedMediaFallback.probe(source)
+                guard let audio = probe.audioStreams.first, let channels = audio.channels else {
+                    throw EngineError.invalidInput(.unsupportedFileType)
+                }
+                return (audio.parsedSampleRate, channels)
+            default:
+                throw wrapped
+            }
         }
     }
 

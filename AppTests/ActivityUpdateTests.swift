@@ -111,13 +111,39 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertEqual(UserMessages.noteCount(1), String(localized: "1 note"))
     }
 
+    func testFallbackErrorsAndPhaseMessages() {
+        XCTAssertEqual(UserMessages.describe(ItemPhase.convertingInput), "Converting input")
+        XCTAssertEqual(
+            UserMessages.describe(
+                .insufficientDiskSpace(requiredBytes: 500_000_000, availableBytes: 100_000_000),
+                file: "movie.wmv"),
+            "Couldn’t process “movie.wmv”: not enough disk space (needs about 500 MB, 100 MB available). Free up space and retry."
+        )
+        XCTAssertEqual(
+            UserMessages.describe(.fallbackToolMissing, file: "movie.wmv"),
+            "Couldn’t read “movie.wmv”: the media converter component is missing. Reinstall MacEase and retry.")
+        XCTAssertEqual(
+            UserMessages.describe(.fallbackConversionUnfaithful("audio channel layout: quad != 5.0"), file: "song.wv"),
+            "Couldn’t process “song.wv”: the file couldn’t be converted faithfully. Nothing was changed.")
+        XCTAssertEqual(
+            UserMessages.technicalDetail(.fallbackConversionUnfaithful("audio channel layout: quad != 5.0")),
+            "audio channel layout: quad != 5.0")
+        XCTAssertEqual(
+            UserMessages.describe(ItemWarning.keptAsNewFileForFormat),
+            "Saved as a new file: MacEase cannot write the original format.")
+        XCTAssertEqual(
+            UserMessages.describe(ItemWarning.videoVariableFrameRateConverted),
+            "Variable frame timing converted to a constant frame rate; original kept.")
+        XCTAssertNil(UserMessages.technicalDetail(.insufficientDiskSpace(requiredBytes: 1, availableBytes: 0)))
+        XCTAssertNil(UserMessages.technicalDetail(.fallbackToolMissing))
+    }
+
     func testReverseCapacityMessageStatesRequiredAndAvailableSpace() {
-        let reason = EngineError.invalidInput(
-            .insufficientReverseSpace(
-                requiredBytes: 20_000_000_000, availableBytes: 1_000_000_000))
+        let reason = EngineError.insufficientDiskSpace(
+            requiredBytes: 20_000_000_000, availableBytes: 1_000_000_000)
         XCTAssertEqual(
             UserMessages.describe(reason, file: "clip.mov"),
-            "Not enough free space to reverse this segment. Shorten the selection or free up space on the source volume. Required: 20 GB; available: 1 GB."
+            "Couldn’t process “clip.mov”: not enough disk space (needs about 20 GB, 1 GB available). Free up space and retry."
         )
     }
 

@@ -3,7 +3,7 @@ import Foundation
 import MenuCatalog
 
 public enum ItemPhase: Int, Sendable {
-    case queued, preparing, decoding, searching, encoding, optimizing, verifying, saving, finished
+    case queued, preparing, convertingInput, decoding, searching, encoding, optimizing, verifying, saving, finished
     case downloading, converting
 }
 

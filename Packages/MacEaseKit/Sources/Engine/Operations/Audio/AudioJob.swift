@@ -65,8 +65,7 @@ enum AudioJob {
     static func run(_ operation: AudioOperation, on url: URL, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
         context.phase(.decoding)
-        try await UntrustedMediaAsset.rejectExternalReferences(in: url)
-        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
+        let input = try await AudioInput.openWithFallback(url, context: context, allowsMultiplexedOgg: true)
         switch operation {
         case .subtitles(let request):
             try requireConsentForMultiplexedStreams(input, context: context)
@@ -108,6 +107,7 @@ enum AudioJob {
     }
 
     static func unpreservedStreams(in input: AudioInput) async throws -> [UnpreservedStream] {
+        if input.isFallback { return [] }
         var found: Set<UnpreservedStream> = []
         if input.container == .mpeg4 {
             let asset = UntrustedMediaAsset.make(input.url)
@@ -296,7 +296,7 @@ enum AudioJob {
 
     /// Lossless sources become AAC in M4A.
     private static func compressedFormat(_ input: AudioInput, kilobits: Int?) throws -> AudioFormat {
-        let format = input.codec.isLossy && input.sameFormat.isLossy ? input.sameFormat : .m4aAAC
+        let format = input.sourceIsLossy && input.sameFormat.isLossy ? input.sameFormat : .m4aAAC
         let supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         guard format == .mp3, let kilobits, let lowest = supported.first, kilobits < lowest else { return format }
         // The in-house encoder stops at 128 kbps.
@@ -404,7 +404,8 @@ enum AudioJob {
         let target = AudioTarget.defaults(for: input.sameFormat, settings: context.settings.audio)
         return try await replace(
             url, with: input, target: target, frames: first..<last,
-            fade: FadeRamp(duration: duration, fadeIn: fadeIn, fadeOut: fadeOut), context: context)
+            fade: FadeRamp(duration: duration, fadeIn: fadeIn, fadeOut: fadeOut),
+            context: context)
     }
 
     private static func replace(
@@ -422,7 +423,7 @@ enum AudioJob {
         }
         let tags = try await tags(of: input, context: context)
         if !tags.isEmpty, !target.format.holdsTags {
-            guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
+            guard context.savesNewFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
         }
         let staged = try context.stagingURL(for: url, name: outputName(for: url, format: target.format))
@@ -439,20 +440,25 @@ enum AudioJob {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
+            guard context.savesNewFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
             return AudioTags()
         }
         let losesMetadata: Bool
-        do {
-            losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(input.url, omitting: context.omittedStreams)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            losesMetadata = true
+        if let fallbackOrigin = input.fallbackOrigin {
+            losesMetadata = fallbackOrigin.hasUnsupportedAudioTags
+        } else {
+            do {
+                losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(
+                    input.url, omitting: context.omittedStreams)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                losesMetadata = true
+            }
         }
         if losesMetadata {
-            guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
+            guard context.savesNewFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
         }
         return tags
@@ -518,7 +524,15 @@ enum AudioJob {
 extension AudioInput {
     /// What same-format operations write.
     var sameFormat: AudioFormat {
-        switch (container, codec) {
+        if isFallback {
+            let layoutExact = StagedMediaFallback.isALACLayoutExact(
+                channels: fallbackOrigin?.channels ?? channels, channelLayout: fallbackOrigin?.channelLayout)
+            if isFloat || (bitDepth ?? 0) > StagedMediaFallback.maximumALACBitDepth || !layoutExact {
+                return .cafPCM
+            }
+            return sourceIsLossy ? .m4aAAC : .m4aALAC
+        }
+        return switch (container, codec) {
         case (.mp3, _): .mp3
         case (.adts, _): .aac
         case (.wave, _): .wav

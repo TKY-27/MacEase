@@ -12,15 +12,18 @@ enum PreviewKind: Equatable, Hashable, Sendable {
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
     private static let fontExtensions: Set<String> = ["ttf", "otf", "ttc", "otc", "woff", "woff2"]
     private static let videoExtensions: Set<String> = [
-        "mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "flv", "ogv", "mpg", "mpeg", "m2ts", "3gp",
+        "mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "asf", "flv", "ogv", "mpg", "mpeg", "vob", "m2ts", "3gp",
+        "rm", "rmvb",
     ]
     private static let audioExtensions: Set<String> = [
         "mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "wma", "aif", "aiff", "aifc", "caf",
+        "wv", "ape", "dts", "ac3",
     ]
     private static let typeScriptExtensions: Set<String> = ["ts", "mts", "cts"]
     private static let mpegTransportStreamExtensions: Set<String> = ["ts", "mts"]
-    private static let textExtensions: Set<String> = [
-        "txt", "text", "log", "csv", "tsv", "nfo", "srt", "vtt", "ass", "lrc", "diff", "patch", "tex", "rst",
+    static let textExtensions: Set<String> = [
+        "txt", "text", "log", "csv", "tsv", "nfo", "srt", "vtt", "ass", "lrc", "diff", "patch",
+        "tex", "sty", "cls", "rst", "adoc", "asciidoc",
         "ini", "cfg", "conf", "properties", "toml", "reg", "inf", "env", "editorconfig", "gitignore",
         "gitattributes", "gitmodules",
         "jsonc", "json5", "yaml", "yml",
@@ -32,14 +35,24 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         "cs", "csx", "fs", "fsx", "vb", "vbs", "swift", "m", "mm",
         "lua", "pl", "pm", "r", "jl", "dart", "ex", "exs", "clj", "sql",
         "sh", "bash", "zsh", "fish", "ps1", "psm1", "psd1", "bat", "cmd",
-        "dockerfile", "cmake", "mk", "proto", "graphql", "gql", "hcl", "tf", "sol",
+        "dockerfile", "cmake", "mk", "mak", "make", "proto", "graphql", "gql", "hcl", "tf", "tfvars", "sol",
     ]
     private static let archiveExtensions: Set<String> = [
         "zip", "tar", "tgz", "tbz", "tbz2", "txz", "gz", "bz2", "xz",
     ]
-    private static let textDotfiles: Set<String> = [
+    static let textFileNames: Set<String> = [
         ".env", ".editorconfig", ".gitignore", ".gitattributes", ".gitmodules", ".dockerfile",
+        ".bashrc", ".zshrc", ".bash_profile", ".zprofile", ".zshenv", ".profile", ".gitconfig", ".npmrc",
+        "dockerfile", "containerfile", "makefile", "gnumakefile", "cmakelists.txt",
+        "gemfile", "rakefile", "podfile", "brewfile", "fastfile", "vagrantfile", "jenkinsfile",
     ]
+
+    static func matchesTextFileName(_ fileName: String) -> Bool {
+        let lowered = fileName.lowercased()
+        return textFileNames.contains(lowered)
+            || lowered.hasPrefix(".env.")
+            || lowered.hasPrefix("dockerfile.")
+    }
 
     var fileType: FinderPreviewFileType? {
         switch self {
@@ -90,7 +103,7 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         if type?.conforms(to: .audiovisualContent) == true || videoExtensions.contains(suffix) { return .media }
         if type?.conforms(to: .sourceCode) == true || type?.conforms(to: .plainText) == true
             || type?.conforms(to: .xml) == true || textExtensions.contains(suffix)
-            || fileName.map({ textDotfiles.contains($0.lowercased()) }) == true
+            || fileName.map(matchesTextFileName) == true
         {
             return .text
         }
@@ -182,7 +195,7 @@ struct PreviewContent: View {
         case .empty:
             refused(Text("This file is empty."))
         case .binaryWithTextExtension(let name):
-            refused(Text("This file doesn't look like text, so it isn't shown."))
+            refused(Text("This file doesn’t appear to be text."))
                 .environment(\.previewMismatch, Self.localized(name))
         case .mismatch(let name):
             viewer.environment(\.previewMismatch, Self.localized(name))
@@ -287,8 +300,8 @@ struct PreviewToolbar<Content: View>: View {
             if let mismatch {
                 PreviewNote(
                     symbol: "exclamationmark.triangle.fill",
-                    text: Text("The file name doesn't match its content (\(mismatch))."),
-                    shortText: Text("Name doesn't match content (\(mismatch))"), tint: .yellow)
+                    text: Text("The file name doesn’t match its content (\(mismatch))."),
+                    shortText: Text("Name doesn’t match content (\(mismatch))"), tint: .yellow)
             }
         }
     }

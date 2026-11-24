@@ -33,16 +33,30 @@ public enum RecipePlanner {
         var omissions: [URL: StreamOmission] = [:]
         for input in inputs where FileKind(fileURL: input) == .video {
             let stamp = try MediaSourceStamp(url: input)
-            let opened = try await MediaInput.open(input)
             var omitted: Set<UnpreservedStream> = []
-            for variant in variants {
-                guard let target = variant.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) else { continue }
-                let compression = VideoCompression(
-                    goal: .platform(preset(variant, target: variant.targetBytes ?? recipe.totalBytes)))
-                let carryPlan = try await NativeTimecodePlan.make(
-                    for: opened, destination: target,
-                    preservesTiming: VideoCompressor.preservesTiming(compression), omitting: unavailable)
-                omitted.formUnion(carryPlan.omittedKinds)
+            do {
+                let opened = try await MediaInput.open(input)
+                try await opened.verifyDecodable()
+                for variant in variants {
+                    guard let target = variant.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) else {
+                        continue
+                    }
+                    let compression = VideoCompression(
+                        goal: .platform(preset(variant, target: variant.targetBytes ?? recipe.totalBytes)))
+                    let carryPlan = try await NativeTimecodePlan.make(
+                        for: opened, destination: target,
+                        preservesTiming: VideoCompressor.preservesTiming(compression), omitting: unavailable)
+                    omitted.formUnion(carryPlan.omittedKinds)
+                }
+            } catch {
+                let wrapped = EngineError.wrapping(error, path: input.path)
+                switch wrapped {
+                case .decodeFailed, .unsupportedCodec:
+                    let probed = try await StagedMediaFallback.probe(input)
+                    omitted.formUnion(try StagedMediaFallback.videoUnpreservedStreams(in: probed))
+                default:
+                    throw wrapped
+                }
             }
             if !omitted.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: omitted) }
         }
@@ -178,6 +192,7 @@ public enum RecipePlanner {
                 phase: { context.phase($0) }
             ) { context.progress($0) }
             defer {
+                if child.usedFallbackInput { context.markFallbackInputUsed() }
                 for warning in child.warnings where !context.warnings.contains(warning) { context.warn(warning) }
                 child.removeStaging()
             }

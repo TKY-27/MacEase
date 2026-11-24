@@ -116,8 +116,7 @@ import Testing
     }
 
     @Test func insufficientCapacityRefusesBeforeSpill() throws {
-        #expect(throws: EngineError.invalidInput(.insufficientReverseSpace(requiredBytes: 1_000, availableBytes: 999)))
-        {
+        #expect(throws: EngineError.insufficientDiskSpace(requiredBytes: 1_000, availableBytes: 999)) {
             try VideoSegmentReverser.requireCapacity(required: 1_000, available: 999)
         }
         try VideoSegmentReverser.requireCapacity(required: 1_000, available: 1_000)
@@ -138,7 +137,7 @@ import Testing
             _ = try await VideoSegmentReverser.reverse(
                 segmentID: segment.id, in: edit, primaryURL: source, staging: staging)
             Issue.record("reverse exceeded available capacity")
-        } catch EngineError.invalidInput(.insufficientReverseSpace(let required, let available)) {
+        } catch EngineError.insufficientDiskSpace(let required, let available) {
             #expect(required > available)
             #expect(required > 200_000_000)
         }

@@ -141,7 +141,7 @@
         }
       }
     },
-    "Copy this photo's edits to the selected photos": {
+    "Copy this photo’s edits to the selected photos": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -151,7 +151,7 @@
         }
       }
     },
-    "Copy this photo's edits to every photo in the list": {
+    "Copy this photo’s edits to every photo in the list": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -531,12 +531,12 @@
         }
       }
     },
-    "This file doesn't look like text, so it isn't shown.": {
+    "This file doesn’t appear to be text.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルはテキストではないようなので、表示しません。"
+            "value": "このファイルはテキストではないようです。"
           }
         }
       }
@@ -551,7 +551,7 @@
         }
       }
     },
-    "This file is from the internet, so MacEase doesn't convert it. Open it in a media player.": {
+    "This file is from the internet, so MacEase doesn’t convert it. Open it in a media player.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -561,22 +561,22 @@
         }
       }
     },
-    "This file is from the internet. Preview is view-only, and scripts, external content and other files are disabled.": {
+    "This file is from the internet. The preview is view-only, and scripts, external content and access to other files are turned off.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルはインターネットからダウンロードされたものです。プレビューは表示専用で、スクリプト、外部コンテンツ、他のファイルは無効です。"
+            "value": "このファイルはインターネットからダウンロードされたものです。プレビューは表示専用で、スクリプト、外部コンテンツ、ほかのファイルへのアクセスは無効です。"
           }
         }
       }
     },
-    "This file is from the internet. Scripts, external content and other files are disabled.": {
+    "This file is from the internet. Scripts, external content and access to other files are turned off.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルはインターネットからダウンロードされたものです。スクリプト、外部コンテンツ、他のファイルは無効です。"
+            "value": "このファイルはインターネットからダウンロードされたものです。スクリプト、外部コンテンツ、ほかのファイルへのアクセスは無効です。"
           }
         }
       }
@@ -596,7 +596,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finderプレビューを閉じる"
+            "value": "Finderプレビューを非表示"
           }
         }
       }
@@ -666,7 +666,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タイムラインの末尾にビデオを追加"
+            "value": "タイムラインの末尾に動画を追加します"
           }
         }
       }
@@ -686,7 +686,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase のアップデート"
+            "value": "MacEaseのアップデート"
           }
         }
       }
@@ -696,7 +696,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase v%@ が公開されました"
+            "value": "MacEase v%@を利用できます"
           }
         }
       }
@@ -706,7 +706,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在のバージョンは v%@ です"
+            "value": "現在のバージョンはv%@です"
           }
         }
       }
@@ -726,7 +726,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メニューバーから MacEase を終了してください。"
+            "value": "メニューバーからMacEaseを終了してください。"
           }
         }
       }
@@ -736,7 +736,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「アプリケーション」にある古い MacEase をゴミ箱に移動してください。"
+            "value": "「アプリケーション」にある古いMacEaseをゴミ箱に移動してください。"
           }
         }
       }
@@ -746,7 +746,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ダウンロードしたファイルを開き、MacEase を「アプリケーション」にドラッグしてください。"
+            "value": "ダウンロードしたファイルを開き、MacEaseを「アプリケーション」にドラッグしてください。"
           }
         }
       }
@@ -756,7 +756,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase を開いてください。"
+            "value": "MacEaseを開いてください。"
           }
         }
       }
@@ -766,7 +766,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「システム設定」>「一般」>「ログイン項目と機能拡張」>「Finder」で MacEase を再びオンにしてください。macOS から確認を求められたら、フォルダへのアクセスやプライバシー関連の権限も再び許可してください。"
+            "value": "「システム設定」>「一般」>「ログイン項目と機能拡張」>「Finder」でMacEaseを再びオンにしてください。macOSから確認を求められたら、フォルダへのアクセスなどを再び許可してください。"
           }
         }
       }
@@ -806,7 +806,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を処理できませんでした：%2$@。入力と設定を確認してから再試行してください。"
+            "value": "“%1$@”を処理できませんでした：%2$@。入力と設定を確認してから再試行してください。"
           }
         }
       }
@@ -826,7 +826,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を保護できませんでした：空き容量が足りません。容量を確保してから再試行してください。"
+            "value": "“%@”を保護できませんでした：空き容量が足りません。容量を確保してから再試行してください。"
           }
         }
       }
@@ -837,7 +837,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はパスワードで保護されています。"
+            "value": "“%@”はパスワードで保護されています。"
           }
         }
       }
@@ -847,7 +847,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモ %lld 件"
+            "value": "メモ%lld件"
           }
         }
       }
@@ -857,7 +857,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモ 1 件"
+            "value": "メモ1件"
           }
         }
       }
@@ -888,18 +888,18 @@
         }
       }
     },
-    "AI rename in the Finder menu.": {
+    "Enables Rename with Apple Intelligence in the Finder menu.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "AI rename in the Finder menu."
+            "value": "Enables Rename with Apple Intelligence in the Finder menu."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder メニューで Apple Intelligence による名前変更を使います。"
+            "value": "FinderメニューでApple Intelligenceによる名前変更を使えるようにします。"
           }
         }
       }
@@ -951,7 +951,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase、更新あり"
+            "value": "MacEase、アップデートあり"
           }
         }
       }
@@ -1006,7 +1006,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を一時停止"
+            "value": "%@を一時停止"
           }
         }
       }
@@ -1037,7 +1037,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ バイト"
+            "value": "%@バイト"
           }
         }
       }
@@ -1048,7 +1048,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に失敗しました"
+            "value": "%@に失敗しました"
           }
         }
       }
@@ -1058,7 +1058,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この形式では %@ を保存できないため、メタデータを省略しました。"
+            "value": "この形式では%@を保存できないため、メタデータを省略しました。"
           }
         }
       }
@@ -1111,7 +1111,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@、%lld ページ目"
+            "value": "%@、%lldページ目"
           }
         }
       }
@@ -1142,7 +1142,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個の同一ファイル (各 %@) — 1 個を保持"
+            "value": "%lld個の同一ファイル（各%@） — 1個を保持"
           }
         }
       }
@@ -1153,7 +1153,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件完了"
+            "value": "%lld件完了"
           }
         }
       }
@@ -1174,7 +1174,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件失敗"
+            "value": "%lld件失敗"
           }
         }
       }
@@ -1185,7 +1185,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件のファイル: %@"
+            "value": "%lld件のファイル：%@"
           }
         }
       }
@@ -1195,7 +1195,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld グループ、%@ を解放可能"
+            "value": "%lldグループ、%@を解放可能"
           }
         }
       }
@@ -1217,7 +1217,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$lld 件中 %1$lld 件を元に戻しました"
+            "value": "%2$lld件中%1$lld件を復元しました"
           }
         }
       }
@@ -1249,7 +1249,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件スキップ"
+            "value": "%lld件スキップ"
           }
         }
       }
@@ -1279,7 +1279,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スペース 2 個"
+            "value": "スペース2個"
           }
         }
       }
@@ -1289,7 +1289,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スペース 4 個"
+            "value": "スペース4個"
           }
         }
       }
@@ -1310,7 +1310,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI の PCM フレームが大きすぎます"
+            "value": "AVIのPCMフレームが大きすぎます"
           }
         }
       }
@@ -1321,7 +1321,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のオーディオメタデータが範囲外です"
+            "value": "AVIのオーディオメタデータが範囲外です"
           }
         }
       }
@@ -1332,7 +1332,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のチャンクサイズが範囲外です"
+            "value": "AVIのチャンクサイズが範囲外です"
           }
         }
       }
@@ -1343,7 +1343,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のストリーム数が範囲外です"
+            "value": "AVIのストリーム数が範囲外です"
           }
         }
       }
@@ -1354,7 +1354,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のストリーム長が範囲外です"
+            "value": "AVIのストリーム長が範囲外です"
           }
         }
       }
@@ -1365,7 +1365,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のタイムスタンプが範囲外です"
+            "value": "AVIのタイムスタンプが範囲外です"
           }
         }
       }
@@ -1376,7 +1376,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のビデオメタデータが範囲外です"
+            "value": "AVIの動画メタデータが範囲外です"
           }
         }
       }
@@ -1387,7 +1387,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVIF の画像サイズが範囲外です"
+            "value": "AVIFの画像サイズが範囲外です"
           }
         }
       }
@@ -1398,7 +1398,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアプリについて"
+            "value": "情報"
           }
         }
       }
@@ -1433,12 +1433,12 @@
         }
       }
     },
-    "Adds MacEase to Finder's right-click menu.": {
+    "Adds MacEase to the Finder menu.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder の右クリックメニューに MacEase を追加します。"
+            "value": "FinderメニューにMacEaseを追加します。"
           }
         }
       }
@@ -1448,7 +1448,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "回転に角度を 1 つ追加します。"
+            "value": "回転に角度を1つ追加します。"
           }
         }
       }
@@ -1464,12 +1464,12 @@
         }
       }
     },
-    "After cancel": {
+    "After cancellation": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キャンセル後"
+            "value": "キャンセル時"
           }
         }
       }
@@ -1479,7 +1479,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "失敗後"
+            "value": "失敗時"
           }
         }
       }
@@ -1489,7 +1489,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "成功後"
+            "value": "成功時"
           }
         }
       }
@@ -1545,7 +1545,7 @@
         }
       }
     },
-    "Allow permanent delete": {
+    "Allow permanent deletion": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1555,7 +1555,7 @@
         }
       }
     },
-    "Allow permanent delete?": {
+    "Allow permanent deletion?": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -1570,7 +1570,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイズを指定して圧縮する画像と GIF にも適用されます。"
+            "value": "サイズを指定して圧縮する画像とGIFにも適用されます。"
           }
         }
       }
@@ -1612,7 +1612,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” という名前は別のファイルが使用しています。"
+            "value": "“%@”という名前は別のファイルが使用しています。"
           }
         }
       }
@@ -1632,17 +1632,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一括処理に少し時間がかかると表示されます。Finder が前面に表示されたままになります。"
+            "value": "処理に時間がかかるときに表示します。"
           }
         }
       }
     },
-    "Apple Intelligence features": {
+    "Use Apple Intelligence": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence の機能"
+            "value": "Apple Intelligenceを使用"
           }
         }
       }
@@ -1652,7 +1652,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence を利用できません。システム設定でオンにしてください。"
+            "value": "Apple Intelligenceを利用できません。「システム設定」でオンにしてください。"
           }
         }
       }
@@ -1662,7 +1662,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac では Apple Intelligence を利用できません。"
+            "value": "このMacではApple Intelligenceを利用できません。"
           }
         }
       }
@@ -1694,7 +1694,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GIF に適用"
+            "value": "GIFに適用"
           }
         }
       }
@@ -1727,7 +1727,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字コードメニューと、Shift_JIS で保存する認識済みテキストに適用されます。"
+            "value": "文字コードメニューと、Shift_JISで保存する認識済みテキストに適用されます。"
           }
         }
       }
@@ -1758,7 +1758,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム設定での承認が必要です"
+            "value": "「システム設定」での承認が必要です"
           }
         }
       }
@@ -1821,7 +1821,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音声"
+            "value": "オーディオ"
           }
         }
       }
@@ -1939,18 +1939,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動 (%lld)"
+            "value": "自動（%lld）"
           }
         }
       }
     },
-    "Automatic (copy when possible)": {
+    "Automatic (keep original when possible)": {
       "comment": "Automatic extraction preserves compatible streams",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動 (可能な場合はコピー)"
+            "value": "自動（可能な場合は元の音声を維持）"
           }
         }
       }
@@ -1965,23 +1965,12 @@
         }
       }
     },
-    "Background mask": {
-      "comment": "Saved video foreground mask",
+    "Blue Screen color": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "背景マスク"
-          }
-        }
-      }
-    },
-    "Blue background": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブルーバック"
+            "value": "ブルーバックの色"
           }
         }
       }
@@ -1992,7 +1981,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ぼかし半径 (ピクセル)"
+            "value": "ぼかし半径（ピクセル）"
           }
         }
       }
@@ -2003,7 +1992,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "放送 (LUFS)"
+            "value": "放送（LUFS）"
           }
         }
       }
@@ -2101,7 +2090,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shift_JIS で表現できない文字"
+            "value": "Shift_JISで表現できない文字"
           }
         }
       }
@@ -2112,7 +2101,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shift_JIS で表現できない文字には、「テキスト」で設定した方法を適用します。"
+            "value": "Shift_JISで表現できない文字には、「テキスト」で設定した方法を適用します。"
           }
         }
       }
@@ -2122,7 +2111,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shift_JIS で表せない文字を設定に従って置き換えました。"
+            "value": "Shift_JISで表せない文字を設定に従って置き換えました。"
           }
         }
       }
@@ -2154,17 +2143,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の長さに収まる範囲と、対応しているフレームレートを選んでください。"
+            "value": "“%@”の長さに収まる範囲と、対応しているフレームレートを選んでください。"
           }
         }
       }
     },
-    "Choose finite numeric values within the supported range.": {
+    "Enter numbers within the supported range.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応している範囲内の有効な数値を指定してください。"
+            "value": "対応している範囲内の数値を入力してください。"
           }
         }
       }
@@ -2225,17 +2214,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "操作を元に戻すための履歴を消去しますか？"
+            "value": "取り消し履歴を消去しますか？"
           }
         }
       }
     },
-    "Clearing removes the ability to undo past batches.": {
+    "After clearing, past operations can’t be undone.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "履歴を消去すると、過去の一括処理を元に戻せなくなります。"
+            "value": "消去すると、過去の操作を取り消せなくなります。"
           }
         }
       }
@@ -2287,7 +2276,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "透過する色"
+            "value": "カラーキー"
           }
         }
       }
@@ -2297,7 +2286,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "透過色の許容範囲"
+            "value": "カラーキーの許容範囲"
           }
         }
       }
@@ -2345,12 +2334,12 @@
         }
       }
     },
-    "Console could not be found.": {
+    "Console can’t be found.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンソールが見つかりませんでした。"
+            "value": "コンソールが見つかりません。"
           }
         }
       }
@@ -2360,7 +2349,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "固定ビットレート (CBR)"
+            "value": "固定ビットレート（CBR）"
           }
         }
       }
@@ -2403,23 +2392,23 @@
         }
       }
     },
-    "Convert to SVG by": {
+    "Method": {
       "comment": "SVG mode",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "SVG への変換方法"
+            "value": "作成方法"
           }
         }
       }
     },
-    "Convert, compress and tidy files from the Finder menu.": {
+    "Convert, compress and organize files from the Finder menu.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder のメニューからファイルを変換・圧縮・整理できます。"
+            "value": "Finderメニューからファイルを変換、圧縮、整理できます。"
           }
         }
       }
@@ -2430,7 +2419,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コピーを 1 バイトずつ比較し、残すファイルを選びます。"
+            "value": "コピーを1バイトずつ比較し、残すファイルを選びます。"
           }
         }
       }
@@ -2441,7 +2430,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コピーを 1 バイトずつ比較し、確認せずにほかのファイルをゴミ箱に移動します。"
+            "value": "コピーを1バイトずつ比較し、確認せずにほかのファイルをゴミ箱に移動します。"
           }
         }
       }
@@ -2493,7 +2482,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個の同一ファイルのうち保持するファイル"
+            "value": "%lld個の同一ファイルのうち保持するファイル"
           }
         }
       }
@@ -2534,7 +2523,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF を作成"
+            "value": "PDFを作成"
           }
         }
       }
@@ -2549,12 +2538,12 @@
         }
       }
     },
-    "Creates a new secret shared with the Finder extension.": {
+    "Replaces the secret that the Finder extension uses to talk to MacEase.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder 拡張機能と共有する新しいシークレットを作成します。"
+            "value": "Finder拡張機能がMacEaseとの通信に使うシークレットを新しくします。"
           }
         }
       }
@@ -2564,7 +2553,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "切り抜き"
+            "value": "切り取り"
           }
         }
       }
@@ -2579,12 +2568,12 @@
         }
       }
     },
-    "Custom background": {
+    "Custom Color": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムの背景色"
+            "value": "指定した色"
           }
         }
       }
@@ -2636,12 +2625,12 @@
         }
       }
     },
-    "Default values. Platform limits change, so you can edit them.": {
+    "Default values. Edit them if the platform’s limits change.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルトの値です。各プラットフォームの制限は変更されるため、値を編集できます。"
+            "value": "デフォルトの値です。プラットフォームの制限が変わった場合は編集してください。"
           }
         }
       }
@@ -2651,7 +2640,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個のファイルを完全に削除しますか？"
+            "value": "%lld個のファイルを完全に削除しますか？"
           }
         }
       }
@@ -2661,7 +2650,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個のフォルダを完全に削除しますか？"
+            "value": "%lld個のフォルダを完全に削除しますか？"
           }
         }
       }
@@ -2784,7 +2773,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "基本的な文字と書式のみ保持します。改ページ、フィールド、変更履歴は変わる場合があります。TXT では書式と添付を省略します。"
+            "value": "基本的な文字と書式のみ保持します。改ページ、フィールド、変更履歴は変わる場合があります。TXTでは書式と添付を省略します。"
           }
         }
       }
@@ -2816,18 +2805,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドラッグして順序を変更できます。ページを削除するには Delete キーを押してください。"
+            "value": "ドラッグして順序を変更できます。ページを削除するにはDeleteキーを押してください。"
           }
         }
       }
     },
-    "Draws editable vector shapes with a few colors.": {
+    "Creates editable vector shapes with 1–8 colors.": {
       "comment": "SVG mode footer",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "少ない色数で編集可能なベクター図形を描画します。"
+            "value": "1〜8色の編集可能なベクター図形を作成します。"
           }
         }
       }
@@ -2838,7 +2827,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ICNS の要素種別が重複しています"
+            "value": "ICNSの要素種別が重複しています"
           }
         }
       }
@@ -2871,7 +2860,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "EXIF (カメラと撮影設定)"
+            "value": "EXIF（カメラと撮影設定）"
           }
         }
       }
@@ -2908,34 +2897,34 @@
         }
       }
     },
-    "Edited values replace the menu items in place. Sizes use 1 MB = 1,000,000 bytes.": {
+    "1 MB = 1,000,000 bytes.": {
       "comment": "Editable Finder menu values footer",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集した値はメニュー項目に反映されます。サイズは 1 MB = 1,000,000 バイトとして扱います。"
+            "value": "1 MB = 1,000,000バイト"
           }
         }
       }
     },
-    "Edited. MacEase uses your values for this preset.": {
+    "Uses your edited values.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集済みです。MacEase はこのプリセットに指定した値を使用します。"
+            "value": "編集した値を使用します。"
           }
         }
       }
     },
-    "Embedding a PNG": {
+    "Embed PNG": {
       "comment": "SVG mode",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PNG を埋め込む"
+            "value": "PNGを埋め込む"
           }
         }
       }
@@ -2988,7 +2977,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了 (秒、0 で最後まで)"
+            "value": "終了（秒、0で最後まで）"
           }
         }
       }
@@ -3009,7 +2998,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "8 MB などのサイズを入力してください。"
+            "value": "8 MBなどのサイズを入力してください。"
           }
         }
       }
@@ -3020,7 +3009,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shift_JIS で表現できる文字を 1 文字入力してください。"
+            "value": "Shift_JISで表現できる文字を1文字入力してください。"
           }
         }
       }
@@ -3031,7 +3020,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 行に 1 つのパスを入力します。フォルダのパスは / で終えてください。"
+            "value": "1行に1つのパスを入力します。フォルダのパスは/で終えてください。"
           }
         }
       }
@@ -3041,7 +3030,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 から %lld までのページ番号を、1-3, 5 のように入力してください。"
+            "value": "1から%lldまでのページ番号を、1-3, 5のように入力してください。"
           }
         }
       }
@@ -3052,17 +3041,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld px から %lld px までのサイズを入力してください。"
+            "value": "%lld pxから%lld pxまでのサイズを入力してください。"
           }
         }
       }
     },
-    "Every setting and Finder menu choice returns to its default.": {
+    "All settings, including the Finder menu layout, return to their defaults.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての設定と Finder メニューの選択項目がデフォルトに戻ります。"
+            "value": "Finderメニューの構成を含め、すべての設定がデフォルトに戻ります。"
           }
         }
       }
@@ -3170,7 +3159,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "FLV のコンポジション時間が範囲外です"
+            "value": "FLVのコンポジション時間が範囲外です"
           }
         }
       }
@@ -3181,7 +3170,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "FLV のパケット長が範囲外です"
+            "value": "FLVのパケット長が範囲外です"
           }
         }
       }
@@ -3245,7 +3234,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フィルム (fps)"
+            "value": "フィルム（fps）"
           }
         }
       }
@@ -3293,7 +3282,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder メニューのトークン"
+            "value": "Finderメニューのトークン"
           }
         }
       }
@@ -3314,7 +3303,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件の問題が発生して終了しました。%lld 件をスキップしました。"
+            "value": "%lld件の問題が発生して終了しました。%lld件をスキップしました。"
           }
         }
       }
@@ -3325,7 +3314,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件の問題が発生して終了しました。"
+            "value": "%lld件の問題が発生して終了しました。"
           }
         }
       }
@@ -3336,7 +3325,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "完了 — %lld 件をスキップしました。"
+            "value": "完了 — %lld件をスキップしました。"
           }
         }
       }
@@ -3438,13 +3427,13 @@
         }
       }
     },
-    "Foreground mask": {
+    "Subject to keep": {
       "comment": "Saved foreground mask",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前景マスク"
+            "value": "残す被写体"
           }
         }
       }
@@ -3480,7 +3469,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フレームレート (fps)"
+            "value": "フレームレート（fps）"
           }
         }
       }
@@ -3491,7 +3480,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フレームレートは 1 fps から 120 fps の範囲で指定してください。"
+            "value": "フレームレートは1 fpsから120 fpsの範囲で指定してください。"
           }
         }
       }
@@ -3501,7 +3490,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を解放"
+            "value": "%@を解放"
           }
         }
       }
@@ -3570,7 +3559,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GIF のディザリング"
+            "value": "GIFのディザリング"
           }
         }
       }
@@ -3581,7 +3570,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GIF のフレーム表示時間が範囲外です"
+            "value": "GIFのフレーム表示時間が範囲外です"
           }
         }
       }
@@ -3607,12 +3596,12 @@
         }
       }
     },
-    "Green background": {
+    "Green Screen color": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グリーンバック"
+            "value": "グリーンバックの色"
           }
         }
       }
@@ -3635,7 +3624,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "H.264 のパラメータセットが範囲外です"
+            "value": "H.264のパラメータセットが範囲外です"
           }
         }
       }
@@ -3645,7 +3634,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HDR を保持できない出力のため、SDR にトーンマッピングしました。"
+            "value": "HDRを保持できない出力のため、SDRにトーンマッピングしました。"
           }
         }
       }
@@ -3656,7 +3645,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アルファチャンネル付き HEVC (MOV)"
+            "value": "アルファチャンネル付きHEVC (MOV)"
           }
         }
       }
@@ -3686,7 +3675,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクリプトと外部リソースを省略します。PDF は連続した 1 ページ、TXT は表示された文字のみです。"
+            "value": "スクリプトと外部リソースを省略します。PDFは連続した1ページ、TXTは表示された文字のみです。"
           }
         }
       }
@@ -3739,7 +3728,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を非表示"
+            "value": "%@を非表示"
           }
         }
       }
@@ -3750,7 +3739,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の項目を非表示"
+            "value": "%@の項目を非表示"
           }
         }
       }
@@ -3765,12 +3754,12 @@
         }
       }
     },
-    "History and edited presets are kept.": {
+    "Undo history and edited presets are kept.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "履歴と編集したプリセットは保持されます。"
+            "value": "取り消し履歴と編集したプリセットは保持されます。"
           }
         }
       }
@@ -3802,7 +3791,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ICNS の出力が大きすぎます"
+            "value": "ICNSの出力が大きすぎます"
           }
         }
       }
@@ -3813,7 +3802,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ICO の出力が大きすぎます"
+            "value": "ICOの出力が大きすぎます"
           }
         }
       }
@@ -3829,12 +3818,12 @@
         }
       }
     },
-    "Ignore hidden files when finding duplicates": {
+    "Ignore hidden files": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "重複ファイルの検索時に隠しファイルを無視"
+            "value": "隠しファイルを無視"
           }
         }
       }
@@ -3910,7 +3899,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Opus のヘッダが無効です"
+            "value": "Opusのヘッダが無効です"
           }
         }
       }
@@ -3921,7 +3910,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "JXL の画像サイズが範囲外です"
+            "value": "JXLの画像サイズが範囲外です"
           }
         }
       }
@@ -3932,7 +3921,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "日本語 (EUC-JP)"
+            "value": "日本語（EUC-JP）"
           }
         }
       }
@@ -3943,7 +3932,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "日本語 (Shift_JIS)"
+            "value": "日本語（Shift_JIS）"
           }
         }
       }
@@ -4008,39 +3997,39 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのピクセルを SVG ファイル内に保持します。出力はベクター画像ではありません。"
+            "value": "すべてのピクセルをSVGファイル内に保持します。出力はベクター画像ではありません。"
           }
         }
       }
     },
-    "Keeps the Finder menu instant.": {
+    "Finder menu actions start without delay.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder のメニューからすぐに操作できます。"
+            "value": "Finderメニューの操作がすぐに始まります。"
           }
         }
       }
     },
-    "Keys first": {
+    "Keys to put first": {
       "comment": "JSON pinned keys",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先するキー"
+            "value": "先頭に置くキー"
           }
         }
       }
     },
-    "Keys first are separated by commas and keep their order.": {
+    "Separate keys with commas. They appear in the order entered.": {
       "comment": "JSON pinned keys help",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先するキーはカンマで区切り、指定した順序を保ちます。"
+            "value": "キーはカンマで区切ります。入力した順に並びます。"
           }
         }
       }
@@ -4086,22 +4075,22 @@
         }
       }
     },
-    "Launch at login": {
+    "Open at login": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ログイン時に起動"
+            "value": "ログイン時に開く"
           }
         }
       }
     },
-    "Launch at login could not be changed: %@": {
+    "“Open at login” couldn’t be changed: %@": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ログイン時の起動設定を変更できませんでした: %@"
+            "value": "「ログイン時に開く」を変更できませんでした：%@"
           }
         }
       }
@@ -4121,7 +4110,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac のメタデータファイルを除外"
+            "value": "Macのメタデータファイルを除外"
           }
         }
       }
@@ -4161,7 +4150,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "上限値は 0 より大きい値にしてください。"
+            "value": "上限値は0より大きい値にしてください。"
           }
         }
       }
@@ -4192,7 +4181,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "位置情報 (GPS)"
+            "value": "位置情報（GPS）"
           }
         }
       }
@@ -4212,7 +4201,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長辺 %lld px"
+            "value": "長辺%lld px"
           }
         }
       }
@@ -4238,12 +4227,12 @@
         }
       }
     },
-    "Lossless; smaller files take a little longer.": {
+    "Reduces file size without quality loss. Takes longer.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画質を損なわずにファイルを小さくしますが、処理に少し時間がかかります。"
+            "value": "画質を損なわずにファイルを小さくします。処理に時間がかかります。"
           }
         }
       }
@@ -4253,7 +4242,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ピークを −1 dBTP 未満に保つため、ラウドネスを %@ LUFS に制限しました。"
+            "value": "ピークを−1 dBTP未満に保つため、ラウドネスを%@ LUFSに制限しました。"
           }
         }
       }
@@ -4264,17 +4253,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ラウドネスの目標値は −40 LUFS から −5 LUFS の範囲で指定してください。"
+            "value": "ラウドネスの目標値は−40 LUFSから−5 LUFSの範囲で指定してください。"
           }
         }
       }
     },
-    "Lower values keep your Mac more responsive.": {
+    "Lower numbers leave more of your Mac free for other work.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "値を小さくすると、Mac の応答性が向上します。"
+            "value": "値を小さくすると、ほかの作業にMacを使いやすくなります。"
           }
         }
       }
@@ -4296,7 +4285,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MIT ライセンス"
+            "value": "MITライセンス"
           }
         }
       }
@@ -4317,7 +4306,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MP3 ストリームが大きすぎます"
+            "value": "MP3ストリームが大きすぎます"
           }
         }
       }
@@ -4364,7 +4353,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase %@ が公開されました…"
+            "value": "MacEase %@を利用できます…"
           }
         }
       }
@@ -4375,7 +4364,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase %@ が公開されました"
+            "value": "MacEase %@を利用できます"
           }
         }
       }
@@ -4386,18 +4375,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase のアクティビティ"
+            "value": "MacEaseアクティビティ"
           }
         }
       }
     },
-    "MacEase could not save undo history.": {
+    "MacEase couldn’t save the undo history.": {
       "comment": "Explains why quitting was cancelled",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase は取り消し用の履歴を保存できませんでした。"
+            "value": "取り消し履歴を保存できませんでした。"
           }
         }
       }
@@ -4407,7 +4396,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase は “%@” の文字コードを判別できませんでした。テキストが正しく表示される文字コードを選択してください。"
+            "value": "MacEaseは“%@”の文字コードを判別できませんでした。テキストが正しく表示される文字コードを選択してください。"
           }
         }
       }
@@ -4417,27 +4406,27 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%2$@” を処理するには %1$@ へのアクセスが必要です。システム設定 > プライバシーとセキュリティで許可してください。"
+            "value": "“%2$@”を処理するには、%1$@へのアクセスが必要です。「システム設定」>「プライバシーとセキュリティ」で許可してください。"
           }
         }
       }
     },
-    "MacEase relaunches to switch its language. Running jobs stop.": {
+    "MacEase must relaunch to change its language. Running operations will stop.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "言語を切り替えるために MacEase を再起動します。実行中の処理は停止します。"
+            "value": "言語を変更するにはMacEaseを再起動する必要があります。実行中の処理は停止します。"
           }
         }
       }
     },
-    "MacEase works best from the Applications folder. Quit MacEase, drag it into Applications, then open it from there.": {
+    "Quit MacEase, drag it to the Applications folder, then open it from there.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase はアプリケーションフォルダから開くことをおすすめします。MacEase を終了し、アプリケーションフォルダにドラッグしてから、そこから開いてください。"
+            "value": "MacEaseを終了し、アプリケーションフォルダにドラッグしてから、そこで開いてください。"
           }
         }
       }
@@ -4480,7 +4469,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "生の HTML、スクリプト、安全でないリンクを省略しました。"
+            "value": "生のHTML、スクリプト、安全でないリンクを省略しました。"
           }
         }
       }
@@ -4502,7 +4491,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska のクラスタが大きすぎます"
+            "value": "Matroskaのクラスタが大きすぎます"
           }
         }
       }
@@ -4513,7 +4502,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska の再生時間が範囲外です"
+            "value": "Matroskaの再生時間が範囲外です"
           }
         }
       }
@@ -4524,7 +4513,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska の有効フラグが範囲外です"
+            "value": "Matroskaの有効フラグが範囲外です"
           }
         }
       }
@@ -4535,7 +4524,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska のレーシングを表現できません"
+            "value": "Matroskaのレーシングを表現できません"
           }
         }
       }
@@ -4546,7 +4535,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska のタイムスタンプが範囲外です"
+            "value": "Matroskaのタイムスタンプが範囲外です"
           }
         }
       }
@@ -4569,7 +4558,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska のビデオサイズが範囲外です"
+            "value": "Matroskaの動画サイズが範囲外です"
           }
         }
       }
@@ -4579,7 +4568,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大再生時間 (秒)"
+            "value": "最大再生時間（秒）"
           }
         }
       }
@@ -4599,7 +4588,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大高さ (ピクセル)"
+            "value": "最大高さ（ピクセル）"
           }
         }
       }
@@ -4609,7 +4598,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大サイズ (MB)"
+            "value": "最大サイズ（MB）"
           }
         }
       }
@@ -4619,7 +4608,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大幅 (ピクセル)"
+            "value": "最大幅（ピクセル）"
           }
         }
       }
@@ -4694,7 +4683,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase をアプリケーションに移動"
+            "value": "MacEaseをアプリケーションに移動"
           }
         }
       }
@@ -4715,7 +4704,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個の空のフォルダをゴミ箱に移動しますか？"
+            "value": "%lld個の空のフォルダをゴミ箱に移動しますか？"
           }
         }
       }
@@ -4737,7 +4726,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したフォルダのうち、複数が “%@” という名前です。アーカイブを作成する前に、どちらかの名前を変更してください。"
+            "value": "選択したフォルダのうち、複数が“%@”という名前です。アーカイブを作成する前に、どちらかの名前を変更してください。"
           }
         }
       }
@@ -4752,7 +4741,7 @@
         }
       }
     },
-    "Name doesn't match content (%@)": {
+    "Name doesn’t match content (%@)": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -4778,7 +4767,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自然順（2 を 10 より前に）"
+            "value": "自然順（2を10より前に）"
           }
         }
       }
@@ -4809,7 +4798,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF と同じ場所に保存"
+            "value": "PDFと同じ場所に保存"
           }
         }
       }
@@ -4819,7 +4808,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Java ランタイムが見つかりません。JAR を逆コンパイルするには Java をインストールしてください。"
+            "value": "Javaランタイムが見つかりません。JARを逆コンパイルするにはJavaをインストールしてください。"
           }
         }
       }
@@ -4892,7 +4881,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：ページが選択されていません。1 ページ以上選んでください。"
+            "value": "“%@”を処理できませんでした：ページが選択されていません。1ページ以上選んでください。"
           }
         }
       }
@@ -4913,7 +4902,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” にテキストが見つかりませんでした。"
+            "value": "“%@”にテキストが見つかりませんでした。"
           }
         }
       }
@@ -4999,12 +4988,12 @@
         }
       }
     },
-    "To open Settings while the icon is hidden, open MacEase again.": {
+    "When the icon is hidden, open MacEase again to show Settings.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アイコンを非表示にしているときは、MacEaseをもう一度開くと設定が開きます。"
+            "value": "アイコンを非表示にしている場合は、MacEaseをもう一度開くと設定が表示されます。"
           }
         }
       }
@@ -5034,7 +5023,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム設定で通知がオフになっています"
+            "value": "「システム設定」で通知がオフになっています"
           }
         }
       }
@@ -5044,7 +5033,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OCR の言語"
+            "value": "OCRの言語"
           }
         }
       }
@@ -5055,17 +5044,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
-          }
-        }
-      }
-    },
-    "Off by default, because list order often carries meaning.": {
-      "comment": "JSON primitive array sorting",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リストの順序に意味がある場合が多いため、デフォルトではオフです。"
           }
         }
       }
@@ -5088,7 +5066,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ogg のグラニュール位置が範囲外です"
+            "value": "Oggのグラニュール位置が範囲外です"
           }
         }
       }
@@ -5200,12 +5178,12 @@
         }
       }
     },
-    "Optimize PNG files on convert": {
+    "Optimize PNG files when converting": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "変換時に PNG ファイルを最適化"
+            "value": "変換時にPNGファイルを最適化"
           }
         }
       }
@@ -5237,7 +5215,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "原画"
+            "value": "オリジナル"
           }
         }
       }
@@ -5279,7 +5257,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PNG のチャンクが大きすぎます"
+            "value": "PNGのチャンクが大きすぎます"
           }
         }
       }
@@ -5289,7 +5267,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモリの上限を超えないよう、PNG の最適化を省略しました。"
+            "value": "メモリの上限を超えないよう、PNGの最適化を省略しました。"
           }
         }
       }
@@ -5300,7 +5278,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PNG のラスタが範囲外です"
+            "value": "PNGのラスタが範囲外です"
           }
         }
       }
@@ -5310,7 +5288,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PSD の保存済み合成画像を使用し、レイヤーを統合しました。"
+            "value": "PSDの保存済み合成画像を使用し、レイヤーを統合しました。"
           }
         }
       }
@@ -5320,7 +5298,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld ページ目"
+            "value": "%lldページ目"
           }
         }
       }
@@ -5341,7 +5319,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページ画像の解像度 (dpi)"
+            "value": "ページ画像の解像度（dpi）"
           }
         }
       }
@@ -5377,12 +5355,12 @@
         }
       }
     },
-    "Past batches can no longer be undone. Files already in the Trash stay there.": {
+    "Past operations can no longer be undone. Items in the Trash stay there.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "過去の一括処理を元に戻せなくなります。すでにゴミ箱にあるファイルはそのまま残ります。"
+            "value": "過去の操作を取り消せなくなります。ゴミ箱内の項目はそのまま残ります。"
           }
         }
       }
@@ -5456,7 +5434,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "撮影日 (EXIF)"
+            "value": "撮影日（EXIF）"
           }
         }
       }
@@ -5504,12 +5482,12 @@
         }
       }
     },
-    "Prefer": {
+    "Priority": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "優先する項目"
+            "value": "優先"
           }
         }
       }
@@ -5539,7 +5517,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プリセットを読み込めませんでした: %@"
+            "value": "プリセットを読み込めませんでした：%@"
           }
         }
       }
@@ -5610,7 +5588,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "品質 (0–100)"
+            "value": "品質（0–100）"
           }
         }
       }
@@ -5620,7 +5598,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "品質は 0 から 100 の間で指定してください。"
+            "value": "品質は0から100の間で指定してください。"
           }
         }
       }
@@ -5631,18 +5609,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase を終了"
+            "value": "MacEaseを終了"
           }
         }
       }
     },
-    "Quit was cancelled. Check disk space and support folder access, then try again.": {
+    "MacEase didn’t quit. Check free disk space and access to MacEase’s folder in Application Support, then quit again.": {
       "comment": "Helps recover from history save failure",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了をキャンセルしました。ディスクの空き容量とサポートフォルダへのアクセス権を確認してから、もう一度お試しください。"
+            "value": "MacEaseは終了していません。ディスクの空き容量と、「Application Support」内のMacEaseフォルダへのアクセス権を確認してから、もう一度終了してください。"
           }
         }
       }
@@ -5718,7 +5696,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase を再起動しますか？"
+            "value": "MacEaseを再起動しますか？"
           }
         }
       }
@@ -5733,12 +5711,12 @@
         }
       }
     },
-    "Removal operations can skip the Trash. Deleted files cannot be restored or undone.": {
+    "Remove Duplicates and Remove Empty Folders can delete items without using the Trash. This can’t be undone.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ゴミ箱に移動せずにファイルを削除できるようになります。削除したファイルは復元できず、操作を元に戻すこともできません。"
+            "value": "「重複ファイルを削除」と「空のフォルダを削除」で、ゴミ箱を使わずに削除できるようにします。この操作は取り消せません。"
           }
         }
       }
@@ -5759,7 +5737,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を削除"
+            "value": "%@を削除"
           }
         }
       }
@@ -5790,7 +5768,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "名前変更のデフォルト設定"
+            "value": "名前の一括変更のデフォルト"
           }
         }
       }
@@ -5811,7 +5789,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の名前を変更"
+            "value": "“%@”の名前を変更"
           }
         }
       }
@@ -5852,7 +5830,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "&#…; 形式の数値文字参照に置き換え"
+            "value": "&#…;形式の数値文字参照に置き換え"
           }
         }
       }
@@ -5862,7 +5840,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "? に置き換え"
+            "value": "?に置き換え"
           }
         }
       }
@@ -5906,7 +5884,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence が必要です"
+            "value": "Apple Intelligenceが必要です"
           }
         }
       }
@@ -5917,7 +5895,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Java ランタイムが必要です"
+            "value": "Javaランタイムが必要です"
           }
         }
       }
@@ -5938,7 +5916,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ をリセット"
+            "value": "%@をリセット"
           }
         }
       }
@@ -6025,12 +6003,12 @@
         }
       }
     },
-    "Results with Undo when a batch finishes.": {
+    "Shows results with Undo when an operation finishes.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一括処理が終わると、「取り消す」付きで結果を通知します。"
+            "value": "処理が終わると、結果を「取り消す」付きで通知します。"
           }
         }
       }
@@ -6055,23 +6033,23 @@
         }
       }
     },
-    "Right-click and done.": {
+    "Set Up MacEase": {
       "comment": "Welcome headline",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右クリックするだけ。"
+            "value": "MacEaseの設定"
           }
         }
       }
     },
-    "Rotate Token": {
+    "Create New Token": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "トークンを更新"
+            "value": "新しいトークンを作成"
           }
         }
       }
@@ -6087,7 +6065,7 @@
         }
       }
     },
-    "Rotation fill": {
+    "Corner color": {
       "comment": "Saved rotation background color",
       "localizations": {
         "ja": {
@@ -6185,18 +6163,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” として保存しました。"
+            "value": "“%@”として保存しました。"
           }
         }
       }
     },
-    "Saved values are invalid. Review this operation in Settings.": {
+    "The saved values for this operation aren’t valid. Check them in Settings.": {
       "comment": "Explains rejected saved parameters",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存値が無効です。この操作の設定を「設定」で確認してください。"
+            "value": "この操作の保存値が無効です。「設定」で確認してください。"
           }
         }
       }
@@ -6217,7 +6195,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ をスキャン中…"
+            "value": "%@をスキャン中…"
           }
         }
       }
@@ -6254,7 +6232,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この操作には %lld 個以上のファイルを選択してください。"
+            "value": "この操作には%lld個以上のファイルを選択してください。"
           }
         }
       }
@@ -6265,7 +6243,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder でファイルを選択して右クリックし、MacEase を選ぶと、変換、圧縮、サイズ変更などを行えます。"
+            "value": "Finderでファイルを選択して右クリックし、MacEaseを選ぶと、変換、圧縮、サイズ変更などを行えます。"
           }
         }
       }
@@ -6280,12 +6258,12 @@
         }
       }
     },
-    "Selected archive paths conflict.": {
+    "Some selected items would be saved to the same path. Save them separately.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択した項目の保存先パスが重複しています。個別に保存してください。"
+            "value": "選択した項目のうち、保存先のパスが重複するものがあります。個別に保存してください。"
           }
         }
       }
@@ -6296,17 +6274,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ルールはセミコロンで区切ります。* は任意の文字列、? は任意の 1 文字に一致します。大文字と小文字は区別しません。"
+            "value": "ルールはセミコロンで区切ります。*は任意の文字列、?は任意の1文字に一致します。大文字と小文字は区別しません。"
           }
         }
       }
     },
-    "Settings were reset.": {
+    "All settings were reset.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定をリセットしました。"
+            "value": "すべての設定をリセットしました。"
           }
         }
       }
@@ -6338,7 +6316,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を表示"
+            "value": "%@を表示"
           }
         }
       }
@@ -6349,7 +6327,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder で %@ の結果を表示"
+            "value": "Finderで%@の結果を表示"
           }
         }
       }
@@ -6371,7 +6349,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "進行状況を表示"
+            "value": "アクティビティを表示"
           }
         }
       }
@@ -6392,7 +6370,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder で表示"
+            "value": "Finderで表示"
           }
         }
       }
@@ -6413,17 +6391,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の項目を表示"
+            "value": "%@の項目を表示"
           }
         }
       }
     },
-    "Show progress window": {
+    "Show Activity automatically": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "進行状況ウインドウを表示"
+            "value": "アクティビティを自動的に表示"
           }
         }
       }
@@ -6453,7 +6431,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Discord、X、Instagram などの圧縮項目のサイズ制限です。"
+            "value": "Discord、X、Instagramなどの圧縮項目のサイズ制限です。"
           }
         }
       }
@@ -6475,17 +6453,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "滑らか (fps)"
+            "value": "滑らか（fps）"
           }
         }
       }
     },
-    "Something went wrong": {
+    "The setting couldn’t be changed.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "問題が発生しました"
+            "value": "設定を変更できませんでした"
           }
         }
       }
@@ -6495,7 +6473,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：予期しないエラーが発生しました。再試行するか、詳細を添えて報告してください。"
+            "value": "“%@”を処理できませんでした：予期しないエラーが発生しました。再試行するか、詳細を添えて報告してください。"
           }
         }
       }
@@ -6505,7 +6483,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "キーのソート"
+            "value": "キーの並べ替え"
           }
         }
       }
@@ -6568,7 +6546,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "標準 (LUFS)"
+            "value": "標準（LUFS）"
           }
         }
       }
@@ -6579,7 +6557,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "標準 (fps)"
+            "value": "標準（fps）"
           }
         }
       }
@@ -6659,7 +6637,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を停止"
+            "value": "%@を停止"
           }
         }
       }
@@ -6680,12 +6658,12 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ストリーミング (LUFS)"
+            "value": "ストリーミング（LUFS）"
           }
         }
       }
     },
-    "Strip Metadata": {
+    "Remove Metadata": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -6757,7 +6735,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "名前を提案中… %2$lld 件中 %1$lld 件"
+            "value": "名前を提案中… %2$lld件中%1$lld件"
           }
         }
       }
@@ -6779,7 +6757,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システムに従う (%@)"
+            "value": "システムに従う（%@）"
           }
         }
       }
@@ -6870,7 +6848,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキスト認識と AI"
+            "value": "テキスト認識とAI"
           }
         }
       }
@@ -6880,7 +6858,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキスト認識 (OCR)"
+            "value": "テキスト認識（OCR）"
           }
         }
       }
@@ -6901,17 +6879,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "文字を認識できませんでした：この Mac では文字認識を利用できません。別の文字認識アプリを試してください。"
+            "value": "文字を認識できませんでした：このMacでは文字認識を利用できません。別の文字認識アプリを試してください。"
           }
         }
       }
     },
-    "The Finder menu now uses a new token.": {
+    "A new token was created.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder のメニューで使用するトークンを更新しました。"
+            "value": "新しいトークンを作成しました。"
           }
         }
       }
@@ -6922,7 +6900,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase のメニューが更新されました"
+            "value": "MacEaseのメニューが更新されました"
           }
         }
       }
@@ -6937,12 +6915,12 @@
         }
       }
     },
-    "The ZIP archive contains an unsafe entry.": {
+    "The ZIP archive contains a path, link or special file that isn’t safe to extract.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ZIPに危険なパス、リンク、または特殊ファイルが含まれています。"
+            "value": "ZIPに、安全に展開できないパス、リンク、または特殊ファイルが含まれています。"
           }
         }
       }
@@ -6972,12 +6950,12 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アーカイブの閲覧ウィンドウは閉じられました。"
+            "value": "アーカイブの閲覧ウインドウは閉じられました。"
           }
         }
       }
     },
-    "The archive changed since it was opened.": {
+    "The archive changed after it was opened. Reload it.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -6997,7 +6975,7 @@
         }
       }
     },
-    "The archive selection is unavailable.": {
+    "The selected items in the archive are no longer available.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -7007,7 +6985,7 @@
         }
       }
     },
-    "The file name doesn't match its content (%@).": {
+    "The file name doesn’t match its content (%@).": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -7032,7 +7010,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ライセンス表記を開けませんでした: %@"
+            "value": "ライセンス表記を開けませんでした：%@"
           }
         }
       }
@@ -7042,7 +7020,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "以前の履歴は %@ として保存しました。"
+            "value": "以前の履歴は%@として保存しました。"
           }
         }
       }
@@ -7067,13 +7045,13 @@
         }
       }
     },
-    "The original moves to the Trash. Undo puts it back.": {
+    "The original is moved to the Trash. Undo restores it.": {
       "comment": "Output mode detail",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元のファイルはゴミ箱に移動します。「取り消す」で元に戻せます。"
+            "value": "元のファイルはゴミ箱に移動します。「取り消す」で復元できます。"
           }
         }
       }
@@ -7083,7 +7061,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の元のファイルはゴミ箱にありません。"
+            "value": "“%@”の元のファイルはゴミ箱にありません。"
           }
         }
       }
@@ -7094,7 +7072,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dolby Vision の動的メタデータを省略しました。"
+            "value": "Dolby Visionの動的メタデータを省略しました。"
           }
         }
       }
@@ -7114,7 +7092,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "展開した一部のフォルダは既定のアクセス権と更新日時になっています。"
+            "value": "展開した一部のフォルダは、デフォルトのアクセス権と変更日になっています。"
           }
         }
       }
@@ -7125,7 +7103,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を展開できませんでした：パスワードが違います。パスワードを確認してから再試行してください。"
+            "value": "“%@”を展開できませんでした：パスワードが違います。パスワードを確認してから再試行してください。"
           }
         }
       }
@@ -7135,7 +7113,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” のパスワードが正しくありません。もう一度入力してください。"
+            "value": "“%@”のパスワードが正しくありません。もう一度入力してください。"
           }
         }
       }
@@ -7145,7 +7123,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プリセットをデフォルトに戻せませんでした: %@"
+            "value": "プリセットをデフォルトに戻せませんでした：%@"
           }
         }
       }
@@ -7155,18 +7133,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プリセットを保存できませんでした: %@"
+            "value": "プリセットを保存できませんでした：%@"
           }
         }
       }
     },
-    "The result appears next to the original, which stays untouched.": {
+    "The result is saved next to the original.": {
       "comment": "Output mode detail",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "結果は元のファイルを変更せず、その隣に保存されます。"
+            "value": "結果を元のファイルと同じフォルダに保存します。"
           }
         }
       }
@@ -7188,17 +7166,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したオーディオのビットレートは、このフォーマットとソースでは使用できません。"
+            "value": "選択した音声のビットレートは、この形式と元のファイルの組み合わせでは使用できません。"
           }
         }
       }
     },
-    "Source signals HDR; capture or expansion origin unknown.": {
+    "The source is marked as HDR, but it’s unknown whether it was captured in HDR.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元のファイルは HDR を示していますが、撮影時の HDR か拡張されたものかは不明です。"
+            "value": "元のファイルはHDRとして記録されていますが、HDRで撮影されたものかは不明です。"
           }
         }
       }
@@ -7208,7 +7186,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を読み込めませんでした：文字コードを判別できません。UTF-8 のコピーを保存してから再試行してください。"
+            "value": "“%@”を読み込めませんでした：文字コードを判別できません。UTF-8のコピーを保存してから再試行してください。"
           }
         }
       }
@@ -7218,7 +7196,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "翻訳用の言語がダウンロードされていません。システム設定 > 一般 > 言語と地域でダウンロードしてください。"
+            "value": "翻訳用の言語がダウンロードされていません。「システム設定」>「一般」>「言語と地域」でダウンロードしてください。"
           }
         }
       }
@@ -7228,7 +7206,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の動画プリセットには対応していません。MP4・MOV・M4V では H.264 または HEVC と AAC、WebM では VP9 と Opus、MKV では H.264・HEVC・VP9 のいずれかと AAC または Opus を指定してください。"
+            "value": "“%@”の動画プリセットには対応していません。MP4・MOV・M4VではH.264またはHEVCとAAC、WebMではVP9とOpus、MKVではH.264・HEVC・VP9のいずれかとAACまたはOpusを指定してください。"
           }
         }
       }
@@ -7258,29 +7236,29 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エンコードできませんでした：この Mac には、この形式のハードウェアエンコーダがありません。別の出力形式を選んでください。"
+            "value": "エンコードできませんでした：このMacには、この形式のハードウェアエンコーダがありません。別の出力形式を選んでください。"
           }
         }
       }
     },
-    "This batch is still running. Try Undo after it finishes.": {
+    "This operation is still running. Undo it after it finishes.": {
       "comment": "Explains why running batches cannot undo",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この一括処理はまだ実行中です。完了してから取り消してください。"
+            "value": "この処理はまだ実行中です。完了してから取り消してください。"
           }
         }
       }
     },
-    "This encoding does not fit the file.": {
+    "This encoding can’t read the file correctly. Choose another encoding.": {
       "comment": "Encoding panel preview",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この文字コードではファイルを正しく読み込めません。"
+            "value": "この文字コードではファイルを正しく読み込めません。別の文字コードを選んでください。"
           }
         }
       }
@@ -7305,7 +7283,7 @@
         }
       }
     },
-    "This file refers to media in another file, so MacEase can't open it. Export a self-contained copy in the app that made it.": {
+    "This file refers to media in another file, so MacEase can’t open it. Export a self-contained copy in the app that made it.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -7335,7 +7313,7 @@
         }
       }
     },
-    "This format can't be played directly.": {
+    "This format can’t be played directly.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -7382,7 +7360,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "時刻 (秒)"
+            "value": "時刻（秒）"
           }
         }
       }
@@ -7417,18 +7395,7 @@
         }
       }
     },
-    "Tracing colors": {
-      "comment": "Saved SVG palette size",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トレースする色数"
-          }
-        }
-      }
-    },
-    "Tracing shapes": {
+    "Trace shapes": {
       "comment": "SVG mode",
       "localizations": {
         "ja": {
@@ -7494,7 +7461,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".DS_Store のみのフォルダを空と見なす"
+            "value": ".DS_Storeのみのフォルダを空と見なす"
           }
         }
       }
@@ -7537,7 +7504,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AVI のリスト種別が途中で切れています"
+            "value": "AVIのリスト種別が途中で切れています"
           }
         }
       }
@@ -7568,7 +7535,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder 拡張機能をオンにする…"
+            "value": "Finder拡張機能をオンにする…"
           }
         }
       }
@@ -7621,7 +7588,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を取り消す"
+            "value": "%@を取り消す"
           }
         }
       }
@@ -7631,7 +7598,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "操作を元に戻すための履歴"
+            "value": "取り消し履歴"
           }
         }
       }
@@ -7706,17 +7673,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 度から %@ 度までを入力してください。"
+            "value": "%@度から%@度までを入力してください。"
           }
         }
       }
     },
-    "Use for all %lld archives in this batch": {
+    "Use for all %lld archives": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この一括処理のすべてのアーカイブ (%lld 個) に使用"
+            "value": "%lld個のアーカイブすべてに使用"
           }
         }
       }
@@ -7727,7 +7694,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "時間は 0 秒から 86400 秒の範囲で指定し、終了時刻は開始時刻より後にしてください。"
+            "value": "時間は0秒から86400秒の範囲で指定し、終了時刻は開始時刻より後にしてください。"
           }
         }
       }
@@ -7738,7 +7705,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ から %@ までの整数を入力してください。"
+            "value": "%@から%@までの整数を入力してください。"
           }
         }
       }
@@ -7760,7 +7727,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "V%lld (最高品質)"
+            "value": "V%lld（最高品質）"
           }
         }
       }
@@ -7771,7 +7738,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "V%lld (最小サイズ)"
+            "value": "V%lld（最小サイズ）"
           }
         }
       }
@@ -7781,7 +7748,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VBR の品質"
+            "value": "VBRの品質"
           }
         }
       }
@@ -7792,7 +7759,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アルファチャンネル付き VP9 (WebM)"
+            "value": "アルファチャンネル付きVP9 (WebM)"
           }
         }
       }
@@ -7803,7 +7770,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPX のパケットが大きすぎます"
+            "value": "VPXのパケットが大きすぎます"
           }
         }
       }
@@ -7814,7 +7781,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPX の設定が範囲外です"
+            "value": "VPXの設定が範囲外です"
           }
         }
       }
@@ -7824,7 +7791,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "可変ビットレート (VBR)"
+            "value": "可変ビットレート（VBR）"
+          }
+        }
+      }
+    },
+    "Variable frame timing converted to a constant frame rate; original kept.": {
+      "comment": "Discloses variable frame rate conversion",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可変フレームレートを固定フレームレートに変換しました。元のファイルは保持されています。"
           }
         }
       }
@@ -7834,17 +7812,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バージョン %@ (%@)"
+            "value": "バージョン%@ (%@)"
           }
         }
       }
     },
-    "Versions and recent log lines, for a bug report.": {
+    "Copies version information and recent logs for a bug report.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不具合の報告に使用する、バージョンと最近のログです。"
+            "value": "不具合の報告用に、バージョン情報と最近のログをコピーします。"
           }
         }
       }
@@ -7876,7 +7854,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオのサイズが範囲外です"
+            "value": "動画のサイズが範囲外です"
           }
         }
       }
@@ -7887,7 +7865,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオのエンコード設定が範囲外です"
+            "value": "動画のエンコード設定が範囲外です"
           }
         }
       }
@@ -7898,7 +7876,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオのパケットが大きすぎます"
+            "value": "動画のパケットが大きすぎます"
           }
         }
       }
@@ -7909,7 +7887,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "WebP アニメーションの再生時間が範囲外です"
+            "value": "WebPアニメーションの再生時間が範囲外です"
           }
         }
       }
@@ -7920,7 +7898,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "WebP の画像サイズが範囲外です"
+            "value": "WebPの画像サイズが範囲外です"
           }
         }
       }
@@ -7931,27 +7909,27 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase へようこそ"
+            "value": "MacEaseへようこそ"
           }
         }
       }
     },
-    "When Converting or Editing": {
+    "Saving Results": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "変換または編集時"
+            "value": "結果の保存"
           }
         }
       }
     },
-    "When converting or editing": {
+    "Save results": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "変換または編集時"
+            "value": "結果の保存方法"
           }
         }
       }
@@ -7961,7 +7939,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフの場合、CSV のすべての値をテキストとして変換します。"
+            "value": "オフの場合、CSVのすべての値をテキストとして変換します。"
           }
         }
       }
@@ -7992,7 +7970,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "幅 (ピクセル)"
+            "value": "幅（ピクセル）"
           }
         }
       }
@@ -8013,7 +7991,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "言語を選択しない場合、MacEase が自動的に言語を判別します。"
+            "value": "言語を選択しない場合、MacEaseが自動的に言語を判別します。"
           }
         }
       }
@@ -8075,7 +8053,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "表示倍率"
+            "value": "拡大/縮小"
           }
         }
       }
@@ -8096,18 +8074,18 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "24 ビット整数または 32 ビット浮動小数点を超える精度のオーディオのロスレス出力"
+            "value": "24ビット整数または32ビット浮動小数点を超える精度のオーディオのロスレス出力"
           }
         }
       }
     },
-    "macOS asks once per protected folder, like Desktop or Downloads, the first time MacEase works there.": {
+    "macOS asks once for each protected folder, such as Desktop or Downloads.": {
       "comment": "Welcome folder access note",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase が保護対象フォルダ（デスクトップやダウンロードなど）で初めて動作するときに、macOS が一度だけ確認します。"
+            "value": "デスクトップやダウンロードなどの保護されたフォルダでは、最初に一度だけmacOSが許可を求めます。"
           }
         }
       }
@@ -8117,7 +8095,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS が MacEase の一時コピーを実行しているため、Finder のメニューからアクセスできません。MacEase を終了し、アプリケーションフォルダにドラッグしてから、そこから開いてください。"
+            "value": "macOSがMacEaseの一時コピーを実行しているため、Finderのメニューからアクセスできません。MacEaseを終了し、アプリケーションフォルダにドラッグしてから、そこから開いてください。"
           }
         }
       }
@@ -8490,7 +8468,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "中身を Apple Intelligence で名前変更…"
+            "value": "中身をApple Intelligenceで名前変更…"
           }
         }
       }
@@ -8609,7 +8587,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence で名前を変更…"
+            "value": "Apple Intelligenceで名前を変更…"
           }
         }
       }
@@ -8796,7 +8774,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "PDF を作成"
+            "value": "PDFを作成"
           }
         }
       }
@@ -8863,7 +8841,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple Intelligence で名前を変更…"
+            "value": "Apple Intelligenceで名前を変更…"
           }
         }
       }
@@ -9322,7 +9300,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "APNG を作成"
+            "value": "APNGを作成"
           }
         }
       }
@@ -9339,7 +9317,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アニメーション WebP を作成"
+            "value": "アニメーションWebPを作成"
           }
         }
       }
@@ -9356,7 +9334,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "GIF を作成"
+            "value": "GIFを作成"
           }
         }
       }
@@ -9747,7 +9725,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "翻訳した SRT"
+            "value": "翻訳したSRT"
           }
         }
       }
@@ -9968,7 +9946,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".md として保存"
+            "value": ".mdとして保存"
           }
         }
       }
@@ -9985,7 +9963,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".txt として保存"
+            "value": ".txtとして保存"
           }
         }
       }
@@ -10512,7 +10490,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS AppIcon セット"
+            "value": "iOS AppIconセット"
           }
         }
       }
@@ -10529,7 +10507,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS アイコン (.icns)"
+            "value": "macOSアイコン（.icns）"
           }
         }
       }
@@ -10546,7 +10524,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Windows アイコン (.ico)"
+            "value": "Windowsアイコン（.ico）"
           }
         }
       }
@@ -10580,7 +10558,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ".txt として保存"
+            "value": ".txtとして保存"
           }
         }
       }
@@ -10614,7 +10592,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長辺 1080 px"
+            "value": "長辺1080 px"
           }
         }
       }
@@ -10631,7 +10609,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長辺 1920 px"
+            "value": "長辺1920 px"
           }
         }
       }
@@ -10648,7 +10626,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長辺 2560 px"
+            "value": "長辺2560 px"
           }
         }
       }
@@ -10682,7 +10660,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長辺 3840 px"
+            "value": "長辺3840 px"
           }
         }
       }
@@ -10801,7 +10779,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "左に 90°"
+            "value": "左に90°"
           }
         }
       }
@@ -10818,7 +10796,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右に 90°"
+            "value": "右に90°"
           }
         }
       }
@@ -10903,7 +10881,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "左に 90°"
+            "value": "左に90°"
           }
         }
       }
@@ -10920,7 +10898,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右に 90°"
+            "value": "右に90°"
           }
         }
       }
@@ -11107,7 +11085,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "TXT (表示どおり)"
+            "value": "TXT（表示どおり）"
           }
         }
       }
@@ -11175,7 +11153,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロパティリスト (バイナリ)"
+            "value": "プロパティリスト（バイナリ）"
           }
         }
       }
@@ -11192,7 +11170,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プロパティリスト (XML)"
+            "value": "プロパティリスト（XML）"
           }
         }
       }
@@ -11464,7 +11442,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "UTF-8 (BOM 付き)"
+            "value": "UTF-8（BOM付き）"
           }
         }
       }
@@ -11481,7 +11459,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 行に圧縮"
+            "value": "1行に圧縮"
           }
         }
       }
@@ -11549,7 +11527,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "LF (macOS、Linux)"
+            "value": "LF（macOS、Linux）"
           }
         }
       }
@@ -11685,7 +11663,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instagram リール"
+            "value": "Instagramリール"
           }
         }
       }
@@ -12365,7 +12343,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "左に 90°"
+            "value": "左に90°"
           }
         }
       }
@@ -12382,7 +12360,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "右に 90°"
+            "value": "右に90°"
           }
         }
       }
@@ -12416,7 +12394,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "翻訳した SRT"
+            "value": "翻訳したSRT"
           }
         }
       }
@@ -12603,7 +12581,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アニメーション WebP"
+            "value": "アニメーションWebP"
           }
         }
       }
@@ -12705,7 +12683,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "X 用 GIF (15 MB)"
+            "value": "X用GIF (15 MB)"
           }
         }
       }
@@ -12776,7 +12754,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ゴミ箱 (フルディスクアクセス)"
+            "value": "ゴミ箱（フルディスクアクセス）"
           }
         }
       }
@@ -12846,7 +12824,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を目標容量以下に圧縮できませんでした：最小の結果は %2$@ でした。目標容量を大きくしてください。"
+            "value": "“%1$@”を目標容量以下に圧縮できませんでした：最小の結果は%2$@でした。目標容量を大きくしてください。"
           }
         }
       }
@@ -12856,7 +12834,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この出力形式では “%@” の透明部分を保持できません。「新しいファイルとして保存」を選ぶと、動画の背景色で透明部分を塗りつぶします。"
+            "value": "この出力形式では“%@”の透明部分を保持できません。「新しいファイルとして保存」を選ぶと、動画の背景色で透明部分を塗りつぶします。"
           }
         }
       }
@@ -12867,7 +12845,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音声のメタデータを保持できないため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
+            "value": "音声のメタデータを保持できないため、“%@”で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
@@ -12877,7 +12855,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると %2$@ のメタデータが失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
+            "value": "出力すると%2$@のメタデータが失われるため、“%1$@”で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
@@ -12887,7 +12865,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると%2$@が失われるため、“%1$@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
+            "value": "出力すると%2$@が失われるため、“%1$@”で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
@@ -12898,7 +12876,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると Dolby Vision の動的メタデータが失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
+            "value": "出力するとDolby Visionの動的メタデータが失われるため、“%@”で元のファイルを置き換えられません。「新しいファイルとして保存」を選んでください。"
           }
         }
       }
@@ -12908,7 +12886,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると HDR が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」または「変換 > SDR」を選ぶと、SDR にトーンマッピングします。"
+            "value": "出力するとHDRが失われるため、“%@”で元のファイルを置き換えられません。「新しいファイルとして保存」または「変換」>「SDR」を選ぶと、SDRにトーンマッピングします。"
           }
         }
       }
@@ -12918,7 +12896,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "出力すると透明部分が失われるため、“%@” で元のファイルを置き換えられません。「新しいファイルとして保存」を選ぶと、設定した背景色で透明部分を塗りつぶします。"
+            "value": "出力すると透明部分が失われるため、“%@”で元のファイルを置き換えられません。「新しいファイルとして保存」を選ぶと、設定した背景色で透明部分を塗りつぶします。"
           }
         }
       }
@@ -12928,7 +12906,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は MacEase が保存した後に変更されています。"
+            "value": "“%@”はMacEaseが保存した後に変更されています。"
           }
         }
       }
@@ -12939,7 +12917,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はスキャン後に変更されたため、そのまま残しました。"
+            "value": "“%@”はスキャン後に変更されたため、そのまま残しました。"
           }
         }
       }
@@ -12949,7 +12927,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を読み込めませんでした：連結された Ogg ストリームに対応していません。別のアプリでストリームを分割してから再試行してください。"
+            "value": "“%@”を読み込めませんでした：連結されたOggストリームに対応していません。別のアプリでストリームを分割してから再試行してください。"
           }
         }
       }
@@ -12959,7 +12937,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を読み込めませんでした：無効な音声サンプルが含まれています。別の音声アプリで新しく書き出してください。"
+            "value": "“%@”を読み込めませんでした：無効な音声サンプルが含まれています。別の音声アプリで新しく書き出してください。"
           }
         }
       }
@@ -12999,7 +12977,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を変換できませんでした：アニメーションの繰り返し回数を保持できません。別のアニメーション形式を選んでください。"
+            "value": "“%@”を変換できませんでした：アニメーションの繰り返し回数を保持できません。別のアニメーション形式を選んでください。"
           }
         }
       }
@@ -13009,7 +12987,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を変換できませんでした：すべてのフレームまたはページを保持できません。全体を保持できる形式を選んでください。"
+            "value": "“%@”を変換できませんでした：すべてのフレームまたはページを保持できません。全体を保持できる形式を選んでください。"
           }
         }
       }
@@ -13019,7 +12997,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を変換できませんでした：この形式では音声のチャンネル構成を保持できません。別の出力形式を選んでください。"
+            "value": "“%@”を変換できませんでした：この形式では音声のチャンネル構成を保持できません。別の出力形式を選んでください。"
           }
         }
       }
@@ -13029,7 +13007,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を変換できませんでした：エンコードに失敗しました。出力形式または設定を変更してください。"
+            "value": "“%@”を変換できませんでした：エンコードに失敗しました。出力形式または設定を変更してください。"
           }
         }
       }
@@ -13039,7 +13017,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を編集できませんでした：HDR ゲインマップを保持できません。コピーを SDR に変換してから編集してください。"
+            "value": "“%@”を編集できませんでした：HDRゲインマップを保持できません。コピーをSDRに変換してから編集してください。"
           }
         }
       }
@@ -13049,7 +13027,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：入力または設定を受け付けられませんでした。内容を確認してから再試行してください。"
+            "value": "“%@”を処理できませんでした：入力内容または設定に問題があります。確認してから再試行してください。"
           }
         }
       }
@@ -13059,7 +13037,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を読み込めませんでした：デコードに失敗しました。別のアプリで開けるか確認してから再試行してください。"
+            "value": "“%@”を読み込めませんでした：デコードに失敗しました。別のアプリで開けるか確認してから再試行してください。"
           }
         }
       }
@@ -13069,7 +13047,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を保存できませんでした：保存処理に失敗しました。空き容量とフォルダへのアクセス権を確認してから再試行してください。"
+            "value": "“%@”を保存できませんでした。ディスクの空き容量とフォルダへのアクセス権を確認してから再試行してください。"
           }
         }
       }
@@ -13079,7 +13057,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を SDR に変換できませんでした：出力の検証に失敗しました。別の出力形式を試してください。"
+            "value": "“%@”をSDRに変換できませんでした：出力の検証に失敗しました。別の出力形式を試してください。"
           }
         }
       }
@@ -13089,7 +13067,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” ではコピーが許可されていません。許可付きのコピーを PDF の所有者に依頼してください。"
+            "value": "“%@”ではコピーが許可されていません。許可付きのコピーをPDFの所有者に依頼してください。"
           }
         }
       }
@@ -13099,28 +13077,28 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” では印刷が許可されていません。許可付きのコピーを PDF の所有者に依頼してください。"
+            "value": "“%@”では印刷が許可されていません。許可付きのコピーをPDFの所有者に依頼してください。"
           }
         }
       }
     },
-    "“%@” does not contain what its name suggests.": {
+    "The contents of “%@” don’t match its file extension.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” の中身が拡張子と一致しません。"
+            "value": "“%@”の中身が拡張子と一致しません。"
           }
         }
       }
     },
-    "“%@” exceeds the frame memory budget. Use fewer or smaller frames.": {
+    "“%@” has more frame data than MacEase can hold in memory. Use fewer or smaller frames.": {
       "comment": "Limit protects available memory",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はフレーム用のメモリ上限を超えています。フレーム数を減らすか、サイズを小さくしてください。"
+            "value": "“%@”はフレームのデータが多すぎて、メモリに収まりません。フレーム数を減らすか、サイズを小さくしてください。"
           }
         }
       }
@@ -13130,7 +13108,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” には削除するものがありませんでした。"
+            "value": "“%@”には削除するものがありませんでした。"
           }
         }
       }
@@ -13140,7 +13118,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を変換できませんでした：%2$lld 行に Shift_JIS で表せない文字があります。UTF-8 を選ぶか、文字の置き換えを許可してください。"
+            "value": "“%1$@”を変換できませんでした：%2$lld行にShift_JISで表せない文字があります。UTF-8を選ぶか、文字の置き換えを許可してください。"
           }
         }
       }
@@ -13151,7 +13129,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：音声と映像は各 1 トラックのみ対応しています。別のアプリでその構成のコピーを書き出してください。"
+            "value": "“%@”を処理できませんでした：音声と映像は各1トラックのみ対応しています。別のアプリでその構成のコピーを書き出してください。"
           }
         }
       }
@@ -13161,7 +13139,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はフォルダです。"
+            "value": "“%@”はフォルダです。"
           }
         }
       }
@@ -13171,17 +13149,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はすでに SDR のため、再エンコードせずにそのまま残しました。"
+            "value": "“%@”はすでにSDRのため、再エンコードせずにそのまま残しました。"
           }
         }
       }
     },
-    "“%@” is already as small as it gets.": {
+    "“%@” can’t be made any smaller.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はこれ以上小さくできません。"
+            "value": "“%@”はこれ以上小さくできません。"
           }
         }
       }
@@ -13191,7 +13169,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はすでに指定サイズより小さいです。"
+            "value": "“%@”はすでに指定サイズより小さいです。"
           }
         }
       }
@@ -13201,7 +13179,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：ファイルが空です。内容のあるファイルを選んでください。"
+            "value": "“%@”を処理できませんでした：ファイルが空です。内容のあるファイルを選んでください。"
           }
         }
       }
@@ -13211,7 +13189,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を処理できませんでした：%2$@ を超えています。小さいファイルを選んでください。"
+            "value": "“%1$@”を処理できませんでした：%2$@を超えています。小さいファイルを選んでください。"
           }
         }
       }
@@ -13222,7 +13200,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を処理できませんでした：プリセットの時間制限（%2$@）を超えています。短く切り取るか別のプリセットを選んでください。"
+            "value": "“%1$@”を処理できませんでした：プリセットの時間制限（%2$@）を超えています。短く切り取るか別のプリセットを選んでください。"
           }
         }
       }
@@ -13232,7 +13210,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はフォルダではありません。"
+            "value": "“%@”はフォルダではありません。"
           }
         }
       }
@@ -13242,7 +13220,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は通常のファイルまたはフォルダではありません。通常のファイルかフォルダを選択してください。"
+            "value": "“%@”は通常のファイルまたはフォルダではありません。通常のファイルかフォルダを選択してください。"
           }
         }
       }
@@ -13252,7 +13230,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を読み込めませんでした：%2$lld 行 %3$lld 列の JSON 構文が無効です。構文を修正してから再試行してください。"
+            "value": "“%1$@”を読み込めませんでした：%2$lld行%3$lld列のJSON構文が無効です。構文を修正してから再試行してください。"
           }
         }
       }
@@ -13262,7 +13240,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” はゴミ箱のないボリュームにあります。"
+            "value": "“%@”はゴミ箱のないボリュームにあります。"
           }
         }
       }
@@ -13272,7 +13250,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：パスワードで保護されています。コピーの保護を解除してから再試行してください。"
+            "value": "“%@”を処理できませんでした：パスワードで保護されています。コピーの保護を解除してから再試行してください。"
           }
         }
       }
@@ -13283,7 +13261,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を展開できませんでした：パスワードが必要です。アーカイブのパスワードを入力してください。"
+            "value": "“%@”を展開できませんでした：パスワードが必要です。アーカイブのパスワードを入力してください。"
           }
         }
       }
@@ -13293,7 +13271,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” からアイコンを作成できませんでした：画像が小さすぎます。大きい画像を選んでください。"
+            "value": "“%@”からアイコンを作成できませんでした：画像が小さすぎます。大きい画像を選んでください。"
           }
         }
       }
@@ -13303,7 +13281,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を変換できませんでした：%2$@ はフラットなオブジェクトの配列ではありません。フラットなオブジェクトの配列を使用してください。"
+            "value": "“%1$@”を変換できませんでした：%2$@はフラットなオブジェクトの配列ではありません。フラットなオブジェクトの配列を使用してください。"
           }
         }
       }
@@ -13313,7 +13291,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は変更の必要がありませんでした。"
+            "value": "“%@”は変更の必要がありませんでした。"
           }
         }
       }
@@ -13323,7 +13301,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を変換できませんでした：コーデックに対応していません。対応する形式を選ぶか、別のアプリで変換してください。"
+            "value": "“%@”を変換できませんでした：コーデックに対応していません。対応する形式を選ぶか、別のアプリで変換してください。"
           }
         }
       }
@@ -13333,7 +13311,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を SDR に変換できませんでした：この HDR コンテンツには対応していません。別のアプリで SDR のコピーを書き出してください。"
+            "value": "“%@”をSDRに変換できませんでした：このHDRコンテンツには対応していません。別のアプリでSDRのコピーを書き出してください。"
           }
         }
       }
@@ -13343,7 +13321,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を編集できませんでした：動画の表示変換に対応していません。別の動画アプリで新しく書き出してください。"
+            "value": "“%@”を編集できませんでした：動画の表示変換に対応していません。別の動画アプリで新しく書き出してください。"
           }
         }
       }
@@ -13354,7 +13332,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を展開できませんでした：展開後の容量が %2$@ を超えます。小さいアーカイブを使用してください。"
+            "value": "“%1$@”を展開できませんでした：展開後の容量が%2$@を超えます。小さいアーカイブを使用してください。"
           }
         }
       }
@@ -13365,7 +13343,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を展開できませんでした：“%2$@” がフォルダの外を指しています。安全な相対パスを使ったアーカイブを使用してください。"
+            "value": "“%1$@”を展開できませんでした：“%2$@”がフォルダの外を指しています。安全な相対パスを使ったアーカイブを使用してください。"
           }
         }
       }
@@ -13376,7 +13354,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@”: %@"
+            "value": "“%@”：%@"
           }
         }
       }
@@ -13387,7 +13365,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "…ほか %lld 件"
+            "value": "…ほか%lld件"
           }
         }
       }
@@ -13443,19 +13421,19 @@
         }
       }
     },
-    "Choose folders to register with MacEase.": {
+    "Choose folders to add to the list.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose folders to register with MacEase."
+            "value": "Choose folders to add to the list."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEaseに登録するフォルダを選択してください。"
+            "value": "一覧に追加するフォルダを選択してください。"
           }
         }
       }
@@ -13596,19 +13574,19 @@
         }
       }
     },
-    "MacEase registers all local and mounted locations. Access still depends on macOS permissions.": {
+    "The MacEase menu is available in all local and connected locations. macOS permissions still apply.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase registers all local and mounted locations. Access still depends on macOS permissions."
+            "value": "The MacEase menu is available in all local and connected locations. macOS permissions still apply."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEaseはローカルと接続済みの場所を登録します。実際のアクセスにはmacOSの権限が必要です。"
+            "value": "MacEaseメニューは、ローカルと接続中のすべての場所で使えます。アクセスにはmacOSでの許可が必要です。"
           }
         }
       }
@@ -13647,19 +13625,19 @@
         }
       }
     },
-    "Registered Folders": {
+    "Locations": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Registered Folders"
+            "value": "Locations"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "登録フォルダ"
+            "value": "場所"
           }
         }
       }
@@ -13698,19 +13676,19 @@
         }
       }
     },
-    "Removing a folder only removes its explicit registration. It does not revoke macOS permissions or block MacEase there.": {
+    "Removing a folder from this list doesn’t change its macOS permissions.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Removing a folder only removes its explicit registration. It does not revoke macOS permissions or block MacEase there."
+            "value": "Removing a folder from this list doesn’t change its macOS permissions."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一覧から削除しても追加登録が解除されるだけです。macOSの権限は取り消されず、その場所でのMacEaseの利用も禁止されません。"
+            "value": "一覧から削除しても、macOSでの許可は変わりません。"
           }
         }
       }
@@ -13732,47 +13710,47 @@
         }
       }
     },
-    "Readable confirms folder listing only. Write access is checked when saving a result.": {
+    "Readable means MacEase can list the folder. Write access is checked when a result is saved.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Readable confirms folder listing only. Write access is checked when saving a result."
+            "value": "Readable means MacEase can list the folder. Write access is checked when a result is saved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「読み取り可能」はフォルダ一覧の取得を確認した結果です。書き込み権限は結果の保存時に確認します。"
+            "value": "「読み取り可能」は、MacEaseがフォルダの内容を一覧表示できることを示します。書き込みできるかどうかは結果の保存時に確認します。"
           }
         }
       }
     },
-    "For cloud folders without a MacEase menu, use Services → MacEase… in Finder.": {
+    "If the MacEase menu doesn’t appear in a cloud folder, right-click and choose Services > MacEase.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "For cloud folders without a MacEase menu, use Services → MacEase… in Finder."
+            "value": "If the MacEase menu doesn’t appear in a cloud folder, right-click and choose Services > MacEase."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウドフォルダにMacEaseメニューが表示されない場合は、Finderの「サービス → MacEase…」を使ってください。"
+            "value": "クラウドフォルダにMacEaseメニューが表示されない場合は、右クリックして「サービス」>「MacEase」を選択してください。"
           }
         }
       }
     },
-    "Files and Folders…": {
+    "Files & Folders…": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Files and Folders…"
+            "value": "Files & Folders…"
           }
         },
         "ja": {
@@ -13931,7 +13909,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件を選択"
+            "value": "%lld件を選択"
           }
         }
       }
@@ -14291,18 +14269,18 @@
         }
       }
     },
-    "If macOS keeps an access request waiting, select that folder with Add Folder, then restart MacEase and retry.": {
+    "If access stays pending, add the folder with Add Folder, then quit and reopen MacEase.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If macOS keeps an access request waiting, select that folder with Add Folder, then restart MacEase and retry."
+            "value": "If access stays pending, add the folder with Add Folder, then quit and reopen MacEase."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOSのアクセス要求が待機したままの場合は、「フォルダを追加」で対象フォルダを選択し、MacEaseを再起動してから再試行してください。"
+            "value": "アクセスが保留のままの場合は、「フォルダを追加」でフォルダを追加し、MacEaseを終了してから再度開いてください。"
           }
         }
       }
@@ -14417,7 +14395,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集前と比較"
+            "value": "オリジナルと比較"
           }
         }
       }
@@ -14817,37 +14795,37 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元のファイルはゴミ箱へ移動し、取り消せます"
+            "value": "元のファイルはゴミ箱に移動します。この操作は取り消せます。"
           }
         }
       }
     },
-    "Multiple videos require a new file.": {
+    "Joined videos can only be saved as a new file.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "複数の動画は新しいファイルに保存します。"
+            "value": "結合した動画は新しいファイルとしてのみ保存できます。"
           }
         }
       }
     },
-    "This source requires a new file.": {
+    "This file can only be saved as a new file.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この素材は新しいファイルに保存します。"
+            "value": "このファイルは新しいファイルとしてのみ保存できます。"
           }
         }
       }
     },
-    "HDR color edits require a new SDR file.": {
+    "HDR color edits can only be saved as a new SDR file.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HDRの色調整は新しいSDRファイルに保存します。"
+            "value": "HDRの色調整は新しいSDRファイルとしてのみ保存できます。"
           }
         }
       }
@@ -14962,12 +14940,12 @@
         }
       }
     },
-    "The original changed while editing. Close the editor and reopen the file.": {
+    "The original changed while it was open. Close the editor and open the file again.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集中に元のファイルが変更されました。エディタを閉じ、ファイルを開き直してください"
+            "value": "開いている間に元のファイルが変更されました。エディタを閉じて、ファイルをもう一度開いてください。"
           }
         }
       }
@@ -14977,7 +14955,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タイムラインの拡大率"
+            "value": "タイムラインの拡大/縮小"
           }
         }
       }
@@ -15207,7 +15185,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間がありません"
+            "value": "セグメントがありません"
           }
         }
       }
@@ -15217,7 +15195,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択中の区間"
+            "value": "選択中のセグメント"
           }
         }
       }
@@ -15267,7 +15245,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択した区間を削除（Delete）"
+            "value": "選択したセグメントを削除（Delete）"
           }
         }
       }
@@ -15277,7 +15255,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間の編集"
+            "value": "セグメントの操作"
           }
         }
       }
@@ -15297,7 +15275,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間を複製"
+            "value": "セグメントを複製"
           }
         }
       }
@@ -15307,7 +15285,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間を左へ移動"
+            "value": "セグメントを左へ移動"
           }
         }
       }
@@ -15317,7 +15295,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間を右へ移動"
+            "value": "セグメントを右へ移動"
           }
         }
       }
@@ -15327,7 +15305,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間を削除"
+            "value": "セグメントを削除"
           }
         }
       }
@@ -15337,7 +15315,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間を選択"
+            "value": "セグメントを選択"
           }
         }
       }
@@ -15357,7 +15335,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間%lld"
+            "value": "セグメント%lld"
           }
         }
       }
@@ -15367,7 +15345,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドラッグして区間の開始を調整"
+            "value": "ドラッグしてセグメントの開始点を調整"
           }
         }
       }
@@ -15377,7 +15355,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ドラッグして区間の終了を調整"
+            "value": "ドラッグしてセグメントの終了点を調整"
           }
         }
       }
@@ -15427,17 +15405,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオを追加…"
+            "value": "動画を追加…"
           }
         }
       }
     },
-    "Stability delay": {
+    "Wait before moving": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "安定待ち時間"
+            "value": "移動までの待ち時間"
           }
         }
       }
@@ -15527,7 +15505,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "仕上げ処理中に元ファイルが変更されました：%@"
+            "value": "仕上げ処理中に元のファイルが変更されました：%@。"
           }
         }
       }
@@ -15572,12 +15550,12 @@
         }
       }
     },
-    "Choose an output folder for files from different folders.": {
+    "The selected files are in different folders. Choose an output folder.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "異なるフォルダのファイルを処理するには、出力フォルダを選択してください。"
+            "value": "選択したファイルが別々のフォルダにあります。出力フォルダを選択してください。"
           }
         }
       }
@@ -15602,12 +15580,12 @@
         }
       }
     },
-    "Folder limits count every output file. ZIP limits count the completed archive. If the limit cannot be met, nothing is published.": {
+    "Folder limits count every output file. ZIP limits count the completed archive. If a limit can’t be met, nothing is saved.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォルダでは各出力ファイル、ZIPでは完成したアーカイブのサイズを制限します。上限を満たせない場合は何も出力しません。"
+            "value": "フォルダでは各出力ファイル、ZIPでは完成したアーカイブのサイズを制限します。上限を超える場合は何も保存しません。"
           }
         }
       }
@@ -15672,12 +15650,12 @@
         }
       }
     },
-    "Batch": {
+    "Operation": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一括"
+            "value": "操作"
           }
         }
       }
@@ -15732,12 +15710,12 @@
         }
       }
     },
-    "Create final files together. Every recipe keeps the originals and publishes one folder or ZIP.": {
+    "Each recipe keeps the originals and saves its results to one folder or ZIP archive.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "仕上げ用ファイルをまとめて作成します。元ファイルを保持し、1つのフォルダまたはZIPに出力します。"
+            "value": "各レシピは元のファイルを保持し、結果を1つのフォルダまたはZIPに保存します。"
           }
         }
       }
@@ -15752,12 +15730,12 @@
         }
       }
     },
-    "Joined videos use the first video's canvas and frame rate. Other sizes fit with black borders. HDR becomes SDR; transparency is flattened. Originals are kept. Metadata may be removed.": {
+    "Joined videos use the first video’s size and frame rate. Other sizes fit with black borders. HDR becomes SDR, and transparency is filled in. Originals are kept. Metadata may be removed.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "結合後の映像は、最初のビデオの画面サイズとフレームレートを使います。異なるサイズは黒帯で調整します。HDRはSDRに変換し、透明部分は平坦化します。元ファイルは保持されます。メタデータが削除される場合があります。"
+            "value": "結合した動画は、最初の動画のサイズとフレームレートを使います。サイズの異なる動画は黒帯を付けて収めます。HDRはSDRに変換し、透明部分は塗りつぶします。元のファイルはそのまま残ります。メタデータが削除される場合があります。"
           }
         }
       }
@@ -15787,7 +15765,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個のファイルを選択中。元のファイルは常に保持されます。"
+            "value": "%lld個のファイルを選択中。元のファイルは常に保持されます。"
           }
         }
       }
@@ -15817,7 +15795,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択した各ファイルに出力ルールが一致する必要があります。複数のルールが一致すると、元ファイルから複数の形式を作成します。"
+            "value": "選択した各ファイルに出力ルールが一致する必要があります。複数のルールが一致すると、元のファイルから複数の形式を作成します。"
           }
         }
       }
@@ -15867,7 +15845,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオ：MP4（H.264）"
+            "value": "動画：MP4（H.264）"
           }
         }
       }
@@ -15954,12 +15932,12 @@
         }
       }
     },
-    "Rename opaque camera, scan and random filenames": {
+    "Rename files with camera, scanner or random names": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "判別しにくいカメラ名・スキャン名・ランダムなファイル名を変更"
+            "value": "カメラやスキャナが付けた名前、ランダムな名前のファイルを名前変更"
           }
         }
       }
@@ -15989,7 +15967,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件準備完了、%lld 件は確認待ち"
+            "value": "%lld件準備完了、%lld件は確認待ち"
           }
         }
       }
@@ -15999,7 +15977,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元のビデオ"
+            "value": "元の動画"
           }
         }
       }
@@ -16049,7 +16027,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオ：WebM（VP9）"
+            "value": "動画：WebM（VP9）"
           }
         }
       }
@@ -16139,7 +16117,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このレシピライブラリのバージョンはサポートされていません：%lld"
+            "value": "このレシピライブラリのバージョン（%lld）には対応していません。"
           }
         }
       }
@@ -16201,7 +16179,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオ：サムネイル（PNG）"
+            "value": "動画：サムネイル（PNG）"
           }
         }
       }
@@ -16236,12 +16214,12 @@
         }
       }
     },
-    "This recipe changed. Reopen Finish Files from Finder to use the latest revision.": {
+    "This recipe has changed. To use the latest version, choose Finish With Recipe in Finder again.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レシピが変更されました。最新の内容を使うには、Finderから「ファイルを仕上げる」を開き直してください。"
+            "value": "このレシピは変更されています。最新の内容を使うには、Finderで「レシピで仕上げる」をもう一度選択してください。"
           }
         }
       }
@@ -16256,12 +16234,12 @@
         }
       }
     },
-    "Undo Batch": {
+    "Undo Operation": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一括操作を取り消す"
+            "value": "操作を取り消す"
           }
         }
       }
@@ -16306,16 +16284,6 @@
         }
       }
     },
-    "First of %lld faces": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld個のフェイスの1つ目"
-          }
-        }
-      }
-    },
     "The recipe produced no required outputs.": {
       "localizations": {
         "ja": {
@@ -16341,7 +16309,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 件準備完了・%lld 件確認待ち"
+            "value": "%lld件準備完了・%lld件確認待ち"
           }
         }
       }
@@ -16431,7 +16399,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビデオ：MOV（HEVC）"
+            "value": "動画：MOV（HEVC）"
           }
         }
       }
@@ -16556,7 +16524,7 @@
         }
       }
     },
-    "Wait for this folder's current organization to finish": {
+    "Wait for this folder’s current organization to finish": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -16641,7 +16609,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンテンツを読み取れませんでした：%@"
+            "value": "内容を読み取れませんでした：%@"
           }
         }
       }
@@ -16756,7 +16724,7 @@
         }
       }
     },
-    "Comparison supports successful still-image compression and conversion only.": {
+    "Only still images that were compressed or converted successfully can be compared.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -16771,7 +16739,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "圧縮完了"
+            "value": "圧縮が完了しました。"
           }
         }
       }
@@ -16781,7 +16749,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "変換完了"
+            "value": "変換が完了しました。"
           }
         }
       }
@@ -16886,12 +16854,12 @@
         }
       }
     },
-    "Optional lossless PNG optimization skipped to stay within the memory budget.": {
+    "Lossless PNG optimization was skipped because it would need too much memory.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモリの上限を守るため、追加の PNG 可逆最適化を省略しました。"
+            "value": "メモリが足りなくなるため、PNGの可逆最適化を省略しました。"
           }
         }
       }
@@ -17024,7 +16992,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "作業状況を表示"
+            "value": "アクティビティを表示"
           }
         }
       }
@@ -17034,7 +17002,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "容量が %@ 増加"
+            "value": "容量が%@増加"
           }
         }
       }
@@ -17044,17 +17012,17 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "容量を %@ 削減"
+            "value": "容量を%@削減"
           }
         }
       }
     },
-    "This result is no longer available in this Activity session.": {
+    "This result is no longer available.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このアクティビティセッションでは、結果を参照できなくなりました。"
+            "value": "この結果は利用できなくなりました。"
           }
         }
       }
@@ -17114,7 +17082,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” は処理後に変更されています。Finderから新しく操作を実行してください。"
+            "value": "“%@”は処理後に変更されています。Finderから新しく操作を実行してください。"
           }
         }
       }
@@ -17124,7 +17092,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” が見つかりません。復元や置き換えは行いません。"
+            "value": "“%@”が見つかりません。復元や置き換えは行いません。"
           }
         }
       }
@@ -17140,7 +17108,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」が見つかりません。Finderで存在するファイルを選択し、新しい操作を実行してください。"
+            "value": "“%@”が見つかりません。Finderで存在するファイルを選択し、新しい操作を実行してください。"
           }
         }
       }
@@ -17170,7 +17138,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パレットを最大 %lld 色に減らしました。"
+            "value": "パレットを最大%lld色に減らしました。"
           }
         }
       }
@@ -17180,7 +17148,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "現在の設定では「%@」を目標サイズ以下にできませんでした。目標サイズを大きくして再実行してください。"
+            "value": "現在の設定では“%@”を目標サイズ以下にできませんでした。目標サイズを大きくしてください。"
           }
         }
       }
@@ -17505,18 +17473,18 @@
         }
       }
     },
-    "Keeps source quality without re-encoding. Container merging may be required.": {
+    "Keeps the original quality without re-encoding.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keeps source quality without re-encoding. Container merging may be required."
+            "value": "Keeps the original quality without re-encoding."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再エンコードせず元の品質を保ちます。コンテナの結合が必要な場合があります。"
+            "value": "再エンコードせずに元の品質を保ちます。"
           }
         }
       }
@@ -17625,18 +17593,18 @@
         }
       }
     },
-    "This format may require re-encoding when the source codec is incompatible.": {
+    "Videos may be re-encoded to fit this format.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This format may require re-encoding when the source codec is incompatible."
+            "value": "Videos may be re-encoded to fit this format."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元のコーデックに互換性がない場合、この形式には再エンコードが必要です。"
+            "value": "この形式に合わせて再エンコードする場合があります。"
           }
         }
       }
@@ -17668,23 +17636,23 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$lld / %2$lld 件完了"
+            "value": "%1$lld / %2$lld件完了"
           }
         }
       }
     },
-    "Appears if a batch is still running after two seconds. Finder keeps focus.": {
+    "Opens when an operation takes longer than 2 seconds.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Appears if a batch is still running after two seconds. Finder keeps focus."
+            "value": "Opens when an operation takes longer than 2 seconds."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "処理が2秒後も続いている場合に表示します。Finderの操作はそのまま続けられます。"
+            "value": "処理に2秒以上かかるときに表示します。"
           }
         }
       }
@@ -17968,7 +17936,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始を再生位置に合わせる"
+            "value": "再生ヘッドの位置を開始点に設定"
           }
         }
       }
@@ -17978,7 +17946,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了を再生位置に合わせる"
+            "value": "再生ヘッドの位置を終了点に設定"
           }
         }
       }
@@ -17988,7 +17956,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始を再生位置に合わせる（I）"
+            "value": "再生ヘッドの位置を開始点に設定（I）"
           }
         }
       }
@@ -17998,7 +17966,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "終了を再生位置に合わせる（O）"
+            "value": "再生ヘッドの位置を終了点に設定（O）"
           }
         }
       }
@@ -18008,7 +17976,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タイムライン全体を表示（⇧Z）"
+            "value": "タイムラインを全体表示（⇧Z）"
           }
         }
       }
@@ -18033,22 +18001,22 @@
         }
       }
     },
-    "This audio cannot be extracted unchanged. Choose an explicit conversion format.": {
+    "This audio can’t be extracted without converting it. Choose a format to convert to.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この音声はそのまま抽出できません。変換先の形式を指定してください。"
+            "value": "この音声は変換せずに抽出できません。変換先の形式を選んでください。"
           }
         }
       }
     },
-    "This audio timing cannot be copied unchanged. Choose a lossless conversion format.": {
+    "This audio’s timing can’t be kept without converting it. Choose a lossless format.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この音声は再生タイミングを保ったままコピーできません。可逆形式への変換を選んでください。"
+            "value": "この音声は変換しないと再生タイミングを保てません。可逆圧縮の形式を選んでください。"
           }
         }
       }
@@ -18058,7 +18026,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オリジナルを表示 (M)"
+            "value": "オリジナルを表示（M）"
           }
         }
       }
@@ -18068,7 +18036,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "取り消す (⌘Z)"
+            "value": "取り消す（⌘Z）"
           }
         }
       }
@@ -18078,7 +18046,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "やり直す (⇧⌘Z)"
+            "value": "やり直す（⇧⌘Z）"
           }
         }
       }
@@ -18088,7 +18056,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "切り抜き中は拡大できません"
+            "value": "切り取り中は拡大/縮小できません"
           }
         }
       }
@@ -18118,7 +18086,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "数値で指定 (%)"
+            "value": "数値で指定（%）"
           }
         }
       }
@@ -18188,7 +18156,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前のフレーム (←)"
+            "value": "前のフレーム（←）"
           }
         }
       }
@@ -18198,7 +18166,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一時停止 (スペース)"
+            "value": "一時停止（スペースバー）"
           }
         }
       }
@@ -18208,7 +18176,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再生 (スペース)"
+            "value": "再生（スペースバー）"
           }
         }
       }
@@ -18218,7 +18186,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のフレーム (→)"
+            "value": "次のフレーム（→）"
           }
         }
       }
@@ -18248,7 +18216,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再生位置で分割 (⌘B)"
+            "value": "再生ヘッドの位置で分割（⌘B）"
           }
         }
       }
@@ -18258,7 +18226,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "区間を削除 (⌫)"
+            "value": "セグメントを削除（⌫）"
           }
         }
       }
@@ -18268,7 +18236,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "その他の区間操作"
+            "value": "その他のセグメント操作"
           }
         }
       }
@@ -18308,7 +18276,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択範囲を再生 (スペース)"
+            "value": "選択範囲を再生（スペースバー）"
           }
         }
       }
@@ -18328,7 +18296,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "動画またはプレイリストのURLを貼り付け"
+            "value": "動画またはプレイリストのURLをペースト"
           }
         }
       }
@@ -18338,7 +18306,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%2$lld 件中 %1$lld 件を選択"
+            "value": "%2$lld件中%1$lld件を選択"
           }
         }
       }
@@ -18358,7 +18326,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存先: %@"
+            "value": "保存先：%@"
           }
         }
       }
@@ -18408,7 +18376,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 秒"
+            "value": "%@秒"
           }
         }
       }
@@ -18448,7 +18416,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クリップボードのリンクを貼り付け"
+            "value": "クリップボードのリンクをペースト"
           }
         }
       }
@@ -18468,7 +18436,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "逆再生 %@×"
+            "value": "逆再生%@×"
           }
         }
       }
@@ -18508,7 +18476,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元ファイル"
+            "value": "元のファイル"
           }
         }
       }
@@ -18518,7 +18486,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元ファイルの隣にPNGを作成"
+            "value": "元のファイルの隣にPNGを作成"
           }
         }
       }
@@ -18528,7 +18496,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMac上でSwin2SRモデルを使用します。画像はアップロードされず、元ファイルも保持されます。"
+            "value": "このMac上でSwin2SRモデルを使用します。画像はアップロードされず、元のファイルも保持されます。"
           }
         }
       }
@@ -18598,7 +18566,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMac内で処理し、元ファイルは残します。タグ情報はコピーされません。"
+            "value": "このMac内で処理し、元のファイルは残します。タグ情報はコピーされません。"
           }
         }
       }
@@ -18628,7 +18596,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元ファイルは保持されます。"
+            "value": "元のファイルは保持されます。"
           }
         }
       }
@@ -18788,7 +18756,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画像ギャラリーのURLを貼り付け"
+            "value": "画像ギャラリーのURLをペースト"
           }
         }
       }
@@ -18888,7 +18856,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "暗号化／復号…"
+            "value": "暗号化/復号…"
           }
         }
       }
@@ -18908,7 +18876,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 個のファイルを検索しました"
+            "value": "%lld個のファイルを検索しました"
           }
         }
       }
@@ -18948,7 +18916,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "画像 %lld 枚"
+            "value": "画像%lld枚"
           }
         }
       }
@@ -18958,7 +18926,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "あと %lld 秒で終了"
+            "value": "あと%lld秒で終了"
           }
         }
       }
@@ -18968,7 +18936,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を復号できませんでした：パスワードが違うか、ファイルが破損しています。パスワードを確認するか、破損していないコピーを使用してください。"
+            "value": "“%@”を復号できませんでした：パスワードが違うか、ファイルが破損しています。パスワードを確認するか、破損していないコピーを使用してください。"
           }
         }
       }
@@ -18978,7 +18946,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "元ファイル: %@"
+            "value": "元のファイル：%@"
           }
         }
       }
@@ -18988,7 +18956,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "読み取れない %lld 個のファイルをスキップしました"
+            "value": "読み取れない%lld個のファイルをスキップしました"
           }
         }
       }
@@ -19109,7 +19077,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を%2$@なしで開きますか？"
+            "value": "“%1$@”を%2$@なしで開きますか？"
           }
         }
       }
@@ -19131,7 +19099,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を%2$@なしで追加しますか？"
+            "value": "“%1$@”を%2$@なしで追加しますか？"
           }
         }
       }
@@ -19445,7 +19413,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” には%2$@が含まれていますが、MacEase では引き継げません。"
+            "value": "“%1$@”には%2$@が含まれていますが、MacEaseでは引き継げません。"
           }
         }
       }
@@ -19455,7 +19423,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のファイルには、MacEase で引き継げない内容が含まれています："
+            "value": "次のファイルには、MacEaseで引き継げない内容が含まれています："
           }
         }
       }
@@ -19466,7 +19434,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "確認が必要なファイルが 1 件あります。"
+            "value": "確認が必要なファイルが1件あります。"
           }
         }
       }
@@ -19477,7 +19445,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "確認が必要なファイルが %lld 件あります。"
+            "value": "確認が必要なファイルが%lld件あります。"
           }
         }
       }
@@ -19498,7 +19466,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "続けると、“%@” は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
+            "value": "続けると、“%@”は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
           }
         }
       }
@@ -19508,7 +19476,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "続けると、これら %lld 個のファイルは置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
+            "value": "続けると、これら%lld個のファイルは置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
           }
         }
       }
@@ -19518,7 +19486,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "続けると新しいファイルが作られ、“%@” はそのまま残ります。"
+            "value": "続けると新しいファイルが作られ、“%@”はそのまま残ります。"
           }
         }
       }
@@ -19559,7 +19527,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%1$@” を処理できませんでした：%2$@が含まれていますが、MacEase では引き継げません。ファイルは変更されていません。"
+            "value": "“%1$@”を処理できませんでした：%2$@が含まれていますが、MacEaseでは引き継げません。ファイルは変更されていません。"
           }
         }
       }
@@ -19569,7 +19537,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%@” を処理できませんでした：MacEase で引き継げない内容が含まれています。ファイルは変更されていません。"
+            "value": "“%@”を処理できませんでした：MacEaseで引き継げない内容が含まれています。ファイルは変更されていません。"
           }
         }
       }
@@ -19579,7 +19547,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase で引き継げない内容を省いて %lld 個の動画を開きますか？"
+            "value": "MacEaseで引き継げない内容を省いて%lld個の動画を開きますか？"
           }
         }
       }
@@ -19589,7 +19557,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase で引き継げない内容を省いて %lld 個の動画を追加しますか？"
+            "value": "MacEaseで引き継げない内容を省いて%lld個の動画を追加しますか？"
           }
         }
       }
@@ -19609,7 +19577,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEase で引き継げない内容を省いて続けますか？"
+            "value": "MacEaseで引き継げない内容を省いて続けますか？"
           }
         }
       }
@@ -19619,7 +19587,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開いても “%@” は変更されません。"
+            "value": "開いても“%@”は変更されません。"
           }
         }
       }
@@ -19629,7 +19597,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "追加しても “%@” は変更されません。"
+            "value": "追加しても“%@”は変更されません。"
           }
         }
       }
@@ -19671,7 +19639,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したビデオ区間は存在しません。別の区間を選択してください。"
+            "value": "選択した動画のセグメントはもうありません。別のセグメントを選択してください。"
           }
         }
       }
@@ -19681,7 +19649,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "静止フレームは逆再生できません。動画の区間を選択してください。"
+            "value": "フリーズフレームは逆再生できません。動きのあるセグメントを選択してください。"
           }
         }
       }
@@ -19691,7 +19659,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この区間は逆再生済みです。先に順方向の再生に戻してください。"
+            "value": "このセグメントはすでに逆再生になっています。先に順再生に戻してください。"
           }
         }
       }
@@ -19881,7 +19849,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%1$@」、位置%2$@、%3$@"
+            "value": "“%1$@”、位置%2$@、%3$@"
           }
         }
       }
@@ -20201,7 +20169,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "編集後の動画には表示されません。表示範囲がどの区間にも含まれていません。"
+            "value": "編集後の動画には表示されません。表示範囲がどのセグメントにも含まれていません。"
           }
         }
       }
@@ -20632,17 +20600,6 @@
         }
       }
     },
-    "Edited values replace the menu items in place.": {
-      "comment": "Menu options footer",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "編集した値はメニュー項目に反映されます。"
-          }
-        }
-      }
-    },
     "Hide it instead to remove it from the menu.": {
       "comment": "Last checked leaf help",
       "localizations": {
@@ -20858,19 +20815,19 @@
         }
       }
     },
-    "The terminal application at %@ is unavailable. Choose another application in Settings.": {
+    "The terminal application at %@ isn’t available. Choose another application in Settings.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The terminal application at %@ is unavailable. Choose another application in Settings."
+            "value": "The terminal application at %@ isn’t available. Choose another application in Settings."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@のターミナルアプリを使用できません。設定で別のアプリを選択してください。"
+            "value": "%@にあるターミナルアプリケーションを使用できません。「設定」で別のアプリケーションを選択してください。"
           }
         }
       }
@@ -21084,7 +21041,7 @@
         }
       }
     },
-    "“%@” can’t be found. Choose another app.": {
+    "“%@” can’t be found. Choose another application.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -21221,7 +21178,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フリーズ"
+            "value": "フリーズフレーム"
           }
         }
       }
@@ -21241,7 +21198,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フリーズの長さ"
+            "value": "表示時間"
           }
         }
       }
@@ -21401,7 +21358,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音が小さい間を削除します"
+            "value": "音が小さい部分を削除します"
           }
         }
       }
@@ -21441,7 +21398,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対象にする間の長さ"
+            "value": "対象にする無音の長さ"
           }
         }
       }
@@ -21461,7 +21418,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "削除する間はありません"
+            "value": "削除する無音はありません"
           }
         }
       }
@@ -21471,7 +21428,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。"
+            "value": "何も残らなくなります。無音とみなす音量を下げるか、対象にする無音を長くしてください。"
           }
         }
       }
@@ -21509,7 +21466,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lldか所の間を削除（%@）"
+            "value": "%lldか所の無音を削除（%@）"
           }
         }
       }
@@ -21539,7 +21496,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "BGM"
+            "value": "音楽"
           }
         }
       }
@@ -21709,7 +21666,257 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プレビューの拡大（⌘+、⌘−、⌘0またはピンチ）"
+            "value": "プレビューの拡大/縮小（⌘+、⌘−、⌘0、またはピンチ）"
+          }
+        }
+      }
+    },
+    "%@ to %@, %@ long": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@から%2$@まで、長さ%3$@"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中"
+          }
+        }
+      }
+    },
+    "%@, part %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$lld / %3$lld"
+          }
+        }
+      }
+    },
+    "Volume %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量%@"
+          }
+        }
+      }
+    },
+    "Music, %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽、%@"
+          }
+        }
+      }
+    },
+    "Pause to remove, %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除する無音%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Play Segment Forward": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメントを順再生に戻す"
+          }
+        }
+      }
+    },
+    "Segment %lld of %lld, %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメント%1$lld / %2$lld、%3$@"
+          }
+        }
+      }
+    },
+    "Segment %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメント%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Speed %@×": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度%@×"
+          }
+        }
+      }
+    },
+    "Type a time to move the playhead.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間を入力して再生ヘッドを移動します。"
+          }
+        }
+      }
+    },
+    "Zoom Level": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大率"
+          }
+        }
+      }
+    },
+    "A freeze frame can’t be split.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームは分割できません。"
+          }
+        }
+      }
+    },
+    "Place the playhead inside this segment to split it.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割するには、このセグメントの中に再生ヘッドを置いてください。"
+          }
+        }
+      }
+    },
+    "The playhead is already on a freeze frame.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドはすでにフリーズフレーム上にあります。"
+          }
+        }
+      }
+    },
+    "Place the playhead inside this segment first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先にこのセグメントの中に再生ヘッドを置いてください。"
+          }
+        }
+      }
+    },
+    "A freeze frame can’t be trimmed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームはトリミングできません。"
+          }
+        }
+      }
+    },
+    "Enter a valid number first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に有効な数値を入力してください。"
+          }
+        }
+      }
+    },
+    "Wait for the current edit to finish.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の編集が終わるまでお待ちください。"
+          }
+        }
+      }
+    },
+    "This video has no sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画には音声がありません。"
+          }
+        }
+      }
+    },
+    "This segment’s video has no sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセグメントの動画には音声がありません。"
+          }
+        }
+      }
+    },
+    "Every segment already has this style.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのセグメントがすでにこのスタイルです。"
+          }
+        }
+      }
+    },
+    "Every segment already has these adjustments.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのセグメントがすでにこの調整になっています。"
+          }
+        }
+      }
+    },
+    "Choose a ratio other than Freeform or 1:1.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自由と1:1以外の比率を選んでください。"
+          }
+        }
+      }
+    },
+    "%@×": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@×"
           }
         }
       }
@@ -21827,7 +22034,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "表示するには、Finderで「表示」＞「ステータスバーを表示」を選択してください。"
+            "value": "表示するには、Finderで「表示」>「ステータスバーを表示」を選択してください。"
           }
         }
       }
@@ -21867,7 +22074,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "“全体表示”は画像全体を、“100%”は実際のピクセルを表示します。画像をダブルクリックすると切り替わります。"
+            "value": "「全体表示」は画像全体を、「100%」は実際のピクセルを表示します。画像をダブルクリックすると切り替わります。"
           }
         }
       }
@@ -21897,7 +22104,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この画像は縮小して表示されています。すべてのピクセルを見るには“プレビュー”で開いてください。"
+            "value": "この画像は縮小して表示されています。すべてのピクセルを見るには「プレビュー」で開いてください。"
           }
         }
       }
@@ -22047,7 +22254,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HDR（ヘッドルーム %@倍）"
+            "value": "HDR（ヘッドルーム%@倍）"
           }
         }
       }
@@ -22057,7 +22264,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "前のファイル (⌥⌘←)"
+            "value": "前のファイル（⌥⌘←）"
           }
         }
       }
@@ -22067,7 +22274,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次のファイル (⌥⌘→)"
+            "value": "次のファイル（⌥⌘→）"
           }
         }
       }
@@ -22122,7 +22329,7 @@
         }
       }
     },
-    "Files larger than %@ can't be formatted.": {
+    "Files larger than %@ can’t be formatted.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -22132,7 +22339,7 @@
         }
       }
     },
-    "Files larger than %@ can't be previewed here.": {
+    "Files larger than %@ can’t be previewed here.": {
       "localizations": {
         "ja": {
           "stringUnit": {
@@ -22157,7 +22364,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキストを読み込めませんでした。別のエンコードをお試しください。"
+            "value": "テキストを読み込めませんでした。別の文字コードを選んでください。"
           }
         }
       }
@@ -22285,6 +22492,429 @@
           "stringUnit": {
             "state": "translated",
             "value": "必要容量：%1$@、空き容量：%2$@。"
+          }
+        }
+      }
+    },
+    "Converting input": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Converting input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力を変換中"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: not enough disk space (needs about %@, %@ available). Free up space and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@”を処理できませんでした：ディスクの空き容量が不足しています（約%2$@必要、空き%3$@）。容量を確保して再試行してください。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: the file couldn’t be converted faithfully. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を処理できませんでした：元の状態を保ったまま変換できませんでした。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Couldn’t read “%@”: the media converter component is missing. Reinstall MacEase and retry.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を読み込めませんでした：メディア変換コンポーネントが見つかりません。MacEaseを再インストールして再試行してください。"
+          }
+        }
+      }
+    },
+    "Saved as a new file: MacEase cannot write the original format.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の形式では書き出せないため、新しいファイルとして保存しました。"
+          }
+        }
+      }
+    },
+    "editor.silence.analyze": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析"
+          }
+        }
+      }
+    },
+    "Enter valid markup text first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マークアップのテキストを1行で入力してください。"
+          }
+        }
+      }
+    },
+    "Table": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表"
+          }
+        }
+      }
+    },
+    "Files larger than %@ can’t be shown as a table.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を超えるファイルは表として表示できません。"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@行を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%@列を表示しています"
+          }
+        }
+      }
+    },
+    "Showing the first %@ rows and %@ columns": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭%1$@行、%2$@列を表示しています"
+          }
+        }
+      }
+    },
+    "Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書体"
+          }
+        }
+      }
+    },
+    "Previous Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の書体"
+          }
+        }
+      }
+    },
+    "Next Face": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の書体"
+          }
+        }
+      }
+    },
+    "%@ · %lld glyphs": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%@ · %lld glyphs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$lldグリフ"
+          }
+        }
+      }
+    },
+    "%lld glyphs": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyph"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld glyphs"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldグリフ"
+          }
+        }
+      }
+    },
+    "Face %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書体%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "The action couldn’t be completed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を完了できませんでした"
+          }
+        }
+      }
+    },
+    "the file changed while it was being processed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "処理中にファイルが変更されました"
+          }
+        }
+      }
+    },
+    "“%@” changed after it was checked": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”は確認後に変更されました"
+          }
+        }
+      }
+    },
+    "This file contains %lld hidden or direction-changing characters.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains %lld hidden or direction-changing character."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains %lld hidden or direction-changing characters."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルには、見えない文字や表示の向きを変える文字が%lld個含まれています。"
+          }
+        }
+      }
+    },
+    "%lld hidden or direction-changing characters": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hidden or direction-changing character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hidden or direction-changing characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見えない文字・向きを変える文字：%lld個"
+          }
+        }
+      }
+    },
+    "This file contains at least %lld hidden or direction-changing characters.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains at least %lld hidden or direction-changing character."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains at least %lld hidden or direction-changing characters."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルには、見えない文字や表示の向きを変える文字が少なくとも%lld個含まれています。"
+          }
+        }
+      }
+    },
+    "At least %lld hidden or direction-changing characters": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "At least %lld hidden or direction-changing character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "At least %lld hidden or direction-changing characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見えない文字・向きを変える文字：%lld個以上"
+          }
+        }
+      }
+    },
+    "%lld more hidden characters on this line aren’t marked.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden character on this line isn't marked."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden characters on this line aren't marked."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この行には、マークしていない見えない文字がほかに%lld個あります。"
+          }
+        }
+      }
+    },
+    "DTS audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DTSオーディオ"
+          }
+        }
+      }
+    },
+    "AC-3 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AC-3オーディオ"
           }
         }
       }

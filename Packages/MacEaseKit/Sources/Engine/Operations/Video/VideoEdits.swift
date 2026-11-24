@@ -17,7 +17,7 @@ enum VideoEdits {
             return try await joined(edit, sources: sources, url: url, context: context, omissions: omissions)
         }
         context.phase(.decoding)
-        let input = try await MediaInput.open(url)
+        let input = try await MediaInput.openWithFallback(url, context: context)
         if input.hasMultipleTracks { throw EngineError.invalidInput(.multipleTracks) }
         _ = try VideoDisplayOrientation(input.transform)
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
@@ -33,7 +33,8 @@ enum VideoEdits {
             for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation),
             omitting: context.omittedStreams)
         try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
-        plan = try await VideoProperties.prepare(plan, input: input, context: context)
+        plan = try await VideoProperties.prepare(
+            plan, input: input, context: context, warnsVariableFrameRate: !requestsFrameRateChange(operation))
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         context.phase(.encoding)
@@ -47,12 +48,12 @@ enum VideoEdits {
             try edit.music?.validateSource()
         }
         if plan.derived {
-            let name = url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
+            let outputName = url.deletingPathExtension().lastPathComponent + "_edited." + plan.container.fileExtension
             return .derived(
                 nextTo: url,
                 outputs: [
                     StagedFile(
-                        url: output, name: name,
+                        url: output, name: outputName,
                         check: plan.toneMapToSDR ? .sdrVideo : .media)
                 ])
         }
@@ -73,9 +74,15 @@ enum VideoEdits {
             return try edited(edit, input: input, source: source, settings: settings, audioSettings: audioSettings)
         case .removeAudio:
             guard input.audio != nil else { throw SkipError(.nothingToRemove) }
+            if input.isFallback {
+                var plan = try reencoded(
+                    input, source: source, edit: baked(input), settings: settings, audioSettings: audioSettings)
+                plan.audio = nil
+                return plan
+            }
             return TranscodePlan(container: container, video: .copy, audio: nil)
         case .convert(let target):
-            guard target != container else { throw SkipError(.alreadyDone) }
+            guard target != input.originalContainer else { throw SkipError(.alreadyDone) }
             return try conversion(
                 to: target, input: input, source: source, settings: settings, audioSettings: audioSettings)
         case .trim(let start, let end, let mode):
@@ -84,15 +91,20 @@ enum VideoEdits {
                 throw EngineError.invalidInput(.malformed("empty trim range"))
             }
             let video: TranscodePlan.Video =
-                mode == .keyframe
+                !input.isFallback && mode == .keyframe
                 ? .copy : .encode(try alphaEncoding(input, source: source, settings: settings), try baked(input))
-            var plan = TranscodePlan(container: container, video: video, audio: .copy)
+            let audio: TranscodePlan.Audio? =
+                input.audio == nil
+                ? nil : (input.isFallback ? encodedAudio(for: container, settings: audioSettings) : .copy)
+            var plan = TranscodePlan(container: container, video: video, audio: audio)
             plan.range = range
-            plan.startsAtKeyframe = mode == .keyframe
+            plan.startsAtKeyframe = !input.isFallback && mode == .keyframe
             return plan
         case .rotate(let degrees, let fill):
             guard degrees.isFinite else { throw EngineError.invalidInput(.invalidNumericParameter) }
-            if degrees.truncatingRemainder(dividingBy: 90) == 0, container == .mp4 || container == .mov {
+            if !input.isFallback, degrees.truncatingRemainder(dividingBy: 90) == 0,
+                container == .mp4 || container == .mov
+            {
                 var plan = TranscodePlan(container: container, video: .copy, audio: .copy)
                 plan.transform = rotated(input.transform, by: degrees, source: source)
                 return plan
@@ -100,17 +112,18 @@ enum VideoEdits {
             var edit = try baked(input)
             edit.rotation += degrees
             edit.fill = fill
-            return try reencoded(input, source: source, edit: edit, settings: settings)
+            return try reencoded(input, source: source, edit: edit, settings: settings, audioSettings: audioSettings)
         case .flip(let horizontally):
             var edit = try baked(input)
             edit.flipsHorizontally = horizontally
             edit.flipsVertically = !horizontally
-            return try reencoded(input, source: source, edit: edit, settings: settings)
+            return try reencoded(input, source: source, edit: edit, settings: settings, audioSettings: audioSettings)
         case .frameRate(let framesPerSecond):
             guard framesPerSecond > 0, framesPerSecond <= Int(Nanoseconds.perSecond) else {
                 throw EngineError.invalidInput(.invalidNumericParameter)
             }
-            var plan = try reencoded(input, source: source, edit: baked(input), settings: settings)
+            var plan = try reencoded(
+                input, source: source, edit: baked(input), settings: settings, audioSettings: audioSettings)
             if case .encode(var encoding, let edit) = plan.video {
                 encoding.frameDuration = Nanoseconds.perSecond / Int64(framesPerSecond)
                 plan.video = .encode(encoding, edit)
@@ -119,7 +132,7 @@ enum VideoEdits {
         case .resize(let resize):
             var edit = try baked(input)
             edit.size = try resized(input.displaySize, resize)
-            return try reencoded(input, source: source, edit: edit, settings: settings)
+            return try reencoded(input, source: source, edit: edit, settings: settings, audioSettings: audioSettings)
         case .still, .gif, .apng, .webP, .gifX, .extractAudio, .extractOriginalAudio, .compress, .subtitles,
             .background, .hdrToSDR:
             throw EngineError.unexpected("not an in-place edit")
@@ -168,6 +181,11 @@ enum VideoEdits {
             if input.video?.hasAlpha == true, !context.warnings.contains(.videoTransparencyFlattened) {
                 context.warn(.videoTransparencyFlattened)
             }
+            if input.fallbackOrigin?.hasVariableFrameTiming == true,
+                !context.warnings.contains(.videoVariableFrameRateConverted)
+            {
+                context.warn(.videoVariableFrameRateConverted)
+            }
             metadataPlans.append(try await VideoProperties.prepareMetadata(plan, input: input, context: context))
         }
         let name = url.deletingPathExtension().lastPathComponent + "_edited.mp4"
@@ -189,6 +207,10 @@ enum VideoEdits {
             output: StagedFile(url: output, name: name, check: plan.toneMapToSDR ? .sdrVideo : .media))
     }
 
+    private static func requestsFrameRateChange(_ operation: VideoOperation) -> Bool {
+        if case .frameRate = operation { true } else { false }
+    }
+
     private static func preservesTiming(operation: VideoOperation) -> Bool {
         switch operation {
         case .removeAudio, .convert, .rotate, .flip, .resize:
@@ -205,17 +227,49 @@ enum VideoEdits {
     }
 
     private static func reencoded(
-        _ input: MediaInput, source: MediaTrack, edit: FrameEdit, settings: VideoSettings
+        _ input: MediaInput, source: MediaTrack, edit: FrameEdit, settings: VideoSettings,
+        audioSettings: AudioSettings = AudioSettings()
     ) throws -> TranscodePlan {
+        var edit = edit
         var encoding = try alphaEncoding(input, source: source, settings: settings)
+        applyOddDimensionPolicy(for: input.container, input: input, encoding: &encoding, edit: &edit)
         let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit, display: source.displayGeometry)
         encoding.width = size.width
         encoding.height = size.height
-        return TranscodePlan(container: input.container, video: .encode(encoding, edit), audio: .copy)
+        let audio: TranscodePlan.Audio? =
+            input.audio == nil
+            ? nil : (input.isFallback ? encodedAudio(for: input.container, settings: audioSettings) : .copy)
+        return TranscodePlan(container: input.container, video: .encode(encoding, edit), audio: audio)
+    }
+
+    private static func applyOddDimensionPolicy(
+        for container: OutputContainer, input: MediaInput, encoding: inout VideoEncoding, edit: inout FrameEdit
+    ) {
+        guard edit.size == nil, edit.editorGeometry == nil, input.displaySize != input.displaySize.evened() else {
+            return
+        }
+        switch container {
+        case .mov:
+            encoding.codec = .prores4444
+            edit.preservesOddDimensions = true
+        case .webm, .avi:
+            edit.preservesOddDimensions = true
+        case .mp4, .m4v, .mkv, .flv:
+            break
+        }
+    }
+
+    private static func encodedAudio(for container: OutputContainer, settings: AudioSettings) -> TranscodePlan.Audio {
+        switch container {
+        case .webm: .encode(.opus, kilobits: settings.opusBitrate)
+        case .avi: .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)
+        default: .encode(.aac, kilobits: settings.aacBitrate)
+        }
     }
 
     static func encoding(_ input: MediaInput, source: MediaTrack, settings: VideoSettings) -> VideoEncoding {
-        let codec = codec(for: input.container, source: source.codec, settings: settings)
+        let sourceCodec = input.isFallback ? MediaCodec.unsupported("fallback") : source.codec
+        let codec = codec(for: input.container, source: sourceCodec, settings: settings)
         let size = input.displaySize.evened()
         var encoding = VideoEncoding(
             codec: codec, width: size.width, height: size.height, frameDuration: input.frameDuration, bitrate: nil)
@@ -263,11 +317,13 @@ enum VideoEdits {
         audioSettings: AudioSettings
     ) throws -> TranscodePlan {
         let audioFits =
-            input.audio.map { track in
+            !input.isFallback
+            && (input.audio.map { track in
                 target.holds(track.codec)
                     && (target != .avi || track.codec == .pcm(bits: 16, float: false, bigEndian: false))
-            } ?? true
-        let videoFits = target.holds(source.codec) && (input.transform == .identity || target.fileType != nil)
+            } ?? true)
+        let videoFits =
+            !input.isFallback && target.holds(source.codec) && (input.transform == .identity || target.fileType != nil)
         let hasAssetFormat = if case .asset = input.backend { true } else { false }
         let alphaCopyFits =
             !source.hasAlpha
@@ -276,20 +332,22 @@ enum VideoEdits {
         let audio: TranscodePlan.Audio? = input.audio.map { _ in
             // AVI requires sample-accurate PCM timing.
             if audioFits, target != .avi { return .copy }
-            switch target {
-            case .webm: return .encode(.opus, kilobits: audioSettings.opusBitrate)
-            case .avi: return .encode(.pcm(bits: 16, float: false, bigEndian: false), kilobits: 0)
-            default: return .encode(.aac, kilobits: audioSettings.aacBitrate)
-            }
+            return encodedAudio(for: target, settings: audioSettings)
         }
         if videoFits && alphaCopyFits {
             return TranscodePlan(container: target, video: .copy, audio: audio)
         }
         var encoding = try alphaEncoding(input, source: source, settings: settings, container: target)
         if !encoding.alpha {
-            encoding.codec = target == .mkv ? .h264 : codec(for: target, source: source.codec, settings: settings)
+            let sourceCodec = input.isFallback ? MediaCodec.unsupported("fallback") : source.codec
+            encoding.codec = target == .mkv ? .h264 : codec(for: target, source: sourceCodec, settings: settings)
         }
-        return TranscodePlan(container: target, video: .encode(encoding, try baked(input)), audio: audio)
+        var edit = try baked(input)
+        applyOddDimensionPolicy(for: target, input: input, encoding: &encoding, edit: &edit)
+        let size = try FrameProcessor.outputSize(source: input.codedSize, edit: edit, display: source.displayGeometry)
+        encoding.width = size.width
+        encoding.height = size.height
+        return TranscodePlan(container: target, video: .encode(encoding, edit), audio: audio)
     }
 
     private static func resized(_ display: PixelSize, _ resize: VideoResize) throws -> PixelSize {
@@ -338,7 +396,8 @@ enum VideoEdits {
         if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
         if !edit.adjustments.isIdentity { frameEdit.adjustments = edit.adjustments }
         if changesSize { frameEdit.size = size }
-        var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
+        var plan = try reencoded(
+            input, source: source, edit: frameEdit, settings: settings, audioSettings: audioSettings)
         plan.range = start..<end
         plan.startsAtKeyframe = false
         plan.playbackSpeed = edit.speed
@@ -369,7 +428,8 @@ enum VideoEdits {
         if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
         if changesSize { frameEdit.size = size }
         frameEdit.hasOverlays = !timeline.overlays.isEmpty
-        var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
+        var plan = try reencoded(
+            input, source: source, edit: frameEdit, settings: settings, audioSettings: audioSettings)
         plan.timeline = timeline
         plan.startsAtKeyframe = false
         let hasVideoAudio = input.audio != nil && timeline.segments.contains { $0.volume > 0 }

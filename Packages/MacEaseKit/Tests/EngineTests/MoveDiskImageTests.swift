@@ -87,7 +87,7 @@ struct MoveDiskImageTests {
         let collision = volume.mount.appending(path: "note.txt")
         try Data("original".utf8).write(to: source)
         let presenter = MoveCollisionPresenter(source: source, collision: collision)
-        NSFileCoordinator.addFilePresenter(presenter)
+        try presenter.register()
         defer { NSFileCoordinator.removeFilePresenter(presenter) }
         let engine = try JobEngine(supportDirectory: sourceDirectory.appending(path: "support"), concurrency: 1)
         let entry = try MoveItem.capture(source)
@@ -150,7 +150,7 @@ struct MoveDiskImageTests {
         try Data("nested payload".utf8).write(to: source.appending(path: "nested/contents.txt"))
         let occupied = volume.mount.appending(path: "project")
         let presenter = MoveCollisionPresenter(source: source, collision: occupied, directory: true)
-        if collision { NSFileCoordinator.addFilePresenter(presenter) }
+        if collision { try presenter.register() }
         defer { if collision { NSFileCoordinator.removeFilePresenter(presenter) } }
         let engine = try JobEngine(supportDirectory: sourceDirectory.appending(path: "support"), concurrency: 1)
         let request = OperationRequest(
@@ -262,6 +262,9 @@ private final class MoveCollisionPresenter: NSObject, NSFilePresenter, Sendable 
     private let directory: Bool
     private let created = Mutex(false)
     private let publishing = Mutex(false)
+    private let observedRelinquish = Mutex(false)
+    private static let registrationAttempts = 20
+    private static let registrationRetryInterval: TimeInterval = 0.02
 
     init(source: URL, collision: URL, directory: Bool = false) {
         presentedItemURL = source
@@ -269,14 +272,37 @@ private final class MoveCollisionPresenter: NSObject, NSFilePresenter, Sendable 
         self.directory = directory
     }
 
+    /// Blocks until filecoordinationd delivers a relinquish callback.
+    func register() throws {
+        guard let source = presentedItemURL else { throw POSIXError(.EINVAL) }
+        NSFileCoordinator.addFilePresenter(self)
+        var registered = false
+        defer { if !registered { NSFileCoordinator.removeFilePresenter(self) } }
+        for _ in 0..<Self.registrationAttempts {
+            var coordinationFailure: NSError?
+            NSFileCoordinator(filePresenter: nil).coordinate(
+                readingItemAt: source, options: [], error: &coordinationFailure
+            ) { _ in }
+            if let coordinationFailure { throw coordinationFailure }
+            if observedRelinquish.withLock({ $0 }) {
+                registered = true
+                return
+            }
+            Thread.sleep(forTimeInterval: Self.registrationRetryInterval)
+        }
+        throw POSIXError(.ETIMEDOUT)
+    }
+
     func beginPublication() { publishing.withLock { $0 = true } }
 
     func relinquishPresentedItem(toReader reader: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        observedRelinquish.withLock { $0 = true }
         createCollision()
         reader(nil)
     }
 
     func relinquishPresentedItem(toWriter writer: @Sendable ((@Sendable () -> Void)?) -> Void) {
+        observedRelinquish.withLock { $0 = true }
         createCollision()
         writer(nil)
     }

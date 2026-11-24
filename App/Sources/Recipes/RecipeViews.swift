@@ -34,12 +34,12 @@ struct RecipeLibraryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Finishing recipes").font(.title2)
-            Text("Create final files together. Every recipe keeps the originals and publishes one folder or ZIP.")
+            Text("Each recipe keeps the originals and saves its results to one folder or ZIP archive.")
                 .foregroundStyle(.secondary)
             List(recipes, selection: $selection) { recipe in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(recipe.name)
-                    Text(recipe.variants.map { $0.output.title }.joined(separator: ", "))
+                    Text(recipe.variants.map { $0.output.title }.formatted(.list(type: .and)))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .tag(recipe.id)
@@ -111,7 +111,7 @@ struct RecipeEditorView: View {
                     }
                     RecipeByteLimit(label: String(localized: "Limit total package size"), bytes: $recipe.totalBytes)
                     Text(
-                        "Folder limits count every output file. ZIP limits count the completed archive. If the limit cannot be met, nothing is published."
+                        "Folder limits count every output file. ZIP limits count the completed archive. If a limit can’t be met, nothing is saved."
                     )
                     .font(.caption).foregroundStyle(.secondary)
                 }
@@ -235,7 +235,8 @@ struct RecipeRunView: View {
                 .onChange(of: selectedID) { failure = revisionFailure }
                 Button("Edit Recipe") { editing = selected }.disabled(selected == nil)
                 if let selected {
-                    LabeledContent("Outputs", value: selected.variants.map { $0.output.title }.joined(separator: ", "))
+                    LabeledContent(
+                        "Outputs", value: selected.variants.map { $0.output.title }.formatted(.list(type: .and)))
                     LabeledContent("Package", value: selected.packaging == .zip ? "ZIP" : String(localized: "Folder"))
                     if let bytes = selected.totalBytes {
                         LabeledContent(
@@ -282,7 +283,8 @@ struct RecipeRunView: View {
         guard let selected, selected.id == preselectedRecipeID, let expectedRevision,
             String(selected.revision) != expectedRevision, selected.revision != acceptedRevision
         else { return nil }
-        return String(localized: "This recipe changed. Reopen Finish Files from Finder to use the latest revision.")
+        return String(
+            localized: "This recipe has changed. To use the latest version, choose Finish With Recipe in Finder again.")
     }
 
     private var defaultDestination: String {

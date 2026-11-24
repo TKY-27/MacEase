@@ -45,9 +45,10 @@ public enum ArchiveBrowserError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .closed: String(localized: "The archive browser has closed.")
-        case .sourceChanged: String(localized: "The archive changed since it was opened.")
-        case .invalidSelection: String(localized: "The archive selection is unavailable.")
-        case .pathConflict: String(localized: "Selected archive paths conflict.")
+        case .sourceChanged: String(localized: "The archive changed after it was opened. Reload it.")
+        case .invalidSelection: String(localized: "The selected items in the archive are no longer available.")
+        case .pathConflict:
+            String(localized: "Some selected items would be saved to the same path. Save them separately.")
         case .previewInUse: String(localized: "Close the current preview before opening another.")
         case .zip(let cause):
             switch cause {
@@ -55,7 +56,8 @@ public enum ArchiveBrowserError: LocalizedError, Equatable, Sendable {
             case .tooManyEntries: String(localized: "The ZIP archive exceeds the 100,000-entry limit.")
             case .namesTooLarge: String(localized: "ZIP entry metadata exceeds the 32 MiB limit.")
             case .pathTooDeep: String(localized: "ZIP paths cannot exceed 256 components.")
-            case .unsafeEntry, .unsupportedEntry: String(localized: "The ZIP archive contains an unsafe entry.")
+            case .unsafeEntry, .unsupportedEntry:
+                String(localized: "The ZIP archive contains a path, link or special file that isn’t safe to extract.")
             case .selectionTooLarge: String(localized: "Preview files must be 256 MiB or smaller.")
             case .passwordRequired: String(localized: "A password is required for this entry.")
             case .wrongPassword: String(localized: "The archive password is incorrect.")

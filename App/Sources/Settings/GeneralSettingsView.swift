@@ -36,19 +36,19 @@ struct GeneralSettingsView: View {
                 .accessibilityLabel(Text("Check for updates automatically"))
                 .accessibilityHint(Text("Checks GitHub for a newer version once a day."))
             }
-            Section("When Converting or Editing") {
-                Picker("When converting or editing", selection: $store.settings.outputMode) {
+            Section("Saving Results") {
+                Picker("Save results", selection: $store.settings.outputMode) {
                     outputModeChoice(
                         String(localized: "Save as new file", comment: "Output mode"),
                         detail: String(
-                            localized: "The result appears next to the original, which stays untouched.",
+                            localized: "The result is saved next to the original.",
                             comment: "Output mode detail")
                     )
                     .tag(Engine.Settings.OutputMode.newFile)
                     outputModeChoice(
                         String(localized: "Replace original", comment: "Output mode"),
                         detail: String(
-                            localized: "The original moves to the Trash. Undo puts it back.",
+                            localized: "The original is moved to the Trash. Undo restores it.",
                             comment: "Output mode detail")
                     )
                     .tag(Engine.Settings.OutputMode.replace)
@@ -68,15 +68,15 @@ struct GeneralSettingsView: View {
             }
             Section {
                 Toggle(isOn: $store.showsActivity) {
-                    Text("Show progress window")
-                    Text("Appears if a batch is still running after two seconds. Finder keeps focus.")
+                    Text("Show Activity automatically")
+                    Text("Opens when an operation takes longer than 2 seconds.")
                 }
-                .accessibilityLabel(Text("Show progress window"))
-                .accessibilityHint(Text("Appears if a batch is still running after two seconds. Finder keeps focus."))
+                .accessibilityLabel(Text("Show Activity automatically"))
+                .accessibilityHint(Text("Opens when an operation takes longer than 2 seconds."))
                 LabeledContent("Close automatically") {
                     VStack(alignment: .leading) {
                         Toggle("After success", isOn: $store.activityClosesAfterSuccess)
-                        Toggle("After cancel", isOn: $store.activityClosesAfterCancel)
+                        Toggle("After cancellation", isOn: $store.activityClosesAfterCancel)
                         Toggle("After failure", isOn: $store.activityClosesAfterFailure)
                     }
                     .toggleStyle(.checkbox)
@@ -86,21 +86,25 @@ struct GeneralSettingsView: View {
             Section("Menu Bar") {
                 Toggle(isOn: $store.showsStatusItem) {
                     Text("Show in menu bar")
-                    Text("To open Settings while the icon is hidden, open MacEase again.")
+                    Text("When the icon is hidden, open MacEase again to show Settings.")
                 }
                 .accessibilityLabel(Text("Show in menu bar"))
-                .accessibilityHint(Text("To open Settings while the icon is hidden, open MacEase again."))
+                .accessibilityHint(Text("When the icon is hidden, open MacEase again to show Settings."))
                 Toggle("Show recent operations", isOn: $store.showsRecentOperations)
                     .disabled(!store.showsStatusItem)
             }
             Section {
                 Toggle(isOn: permanentDeleteSelection) {
-                    Text("Allow permanent delete")
-                    Text("Removal operations can skip the Trash. Deleted files cannot be restored or undone.")
+                    Text("Allow permanent deletion")
+                    Text(
+                        "Remove Duplicates and Remove Empty Folders can delete items without using the Trash. This can’t be undone."
+                    )
                 }
-                .accessibilityLabel(Text("Allow permanent delete"))
+                .accessibilityLabel(Text("Allow permanent deletion"))
                 .accessibilityHint(
-                    Text("Removal operations can skip the Trash. Deleted files cannot be restored or undone."))
+                    Text(
+                        "Remove Duplicates and Remove Empty Folders can delete items without using the Trash. This can’t be undone."
+                    ))
             }
             Section {
                 LabeledContent("Setup") {
@@ -114,15 +118,15 @@ struct GeneralSettingsView: View {
             Button("Relaunch") { relaunch(in: language) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("MacEase relaunches to switch its language. Running jobs stop.")
+            Text("MacEase must relaunch to change its language. Running operations will stop.")
         }
-        .alert("Allow permanent delete?", isPresented: $confirmsPermanentDelete) {
+        .alert("Allow permanent deletion?", isPresented: $confirmsPermanentDelete) {
             Button("Allow", role: .destructive) { store.settings.permanentDelete = true }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Files removed this way skip the Trash and cannot be restored.")
         }
-        .alert("Something went wrong", isPresented: isPresent($failure), presenting: failure) { _ in
+        .alert("The setting couldn’t be changed.", isPresented: isPresent($failure), presenting: failure) { _ in
             Button("OK") {}
         } message: { text in
             Text(text)
@@ -135,11 +139,11 @@ struct GeneralSettingsView: View {
 
     @ViewBuilder private var launchAtLogin: some View {
         Toggle(isOn: loginSelection) {
-            Text("Launch at login")
-            Text("Keeps the Finder menu instant.")
+            Text("Open at login")
+            Text("Finder menu actions start without delay.")
         }
-        .accessibilityLabel(Text("Launch at login"))
-        .accessibilityHint(Text("Keeps the Finder menu instant."))
+        .accessibilityLabel(Text("Open at login"))
+        .accessibilityHint(Text("Finder menu actions start without delay."))
         if loginStatus == .requiresApproval {
             LabeledContent {
                 Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
@@ -152,10 +156,10 @@ struct GeneralSettingsView: View {
     @ViewBuilder private var notifications: some View {
         Toggle(isOn: notificationSelection) {
             Text("Notifications")
-            Text("Results with Undo when a batch finishes.")
+            Text("Shows results with Undo when an operation finishes.")
         }
         .accessibilityLabel(Text("Notifications"))
-        .accessibilityHint(Text("Results with Undo when a batch finishes."))
+        .accessibilityHint(Text("Shows results with Undo when an operation finishes."))
         if store.notificationsEnabled, notificationStatus == .denied {
             LabeledContent {
                 Button("Open Notification Settings") { SystemSettingsPane.open(SystemSettingsPane.notifications) }

@@ -26,8 +26,8 @@ struct PresetSettingsView: View {
                 HStack {
                     Text(
                         editedIDs.contains(selectedID)
-                            ? "Edited. MacEase uses your values for this preset."
-                            : "Default values. Platform limits change, so you can edit them."
+                            ? "Uses your edited values."
+                            : "Default values. Edit them if the platform’s limits change."
                     )
                     .foregroundStyle(.secondary)
                     Spacer()

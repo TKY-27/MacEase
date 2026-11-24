@@ -154,15 +154,13 @@ struct MenuOptionsSheet: View {
         switch options {
         case .videoCompress:
             String(
-                localized: "Edited values replace the menu items in place. Sizes use 1 MB = 1,000,000 bytes.",
+                localized: "1 MB = 1,000,000 bytes.",
                 comment: "Editable Finder menu values footer")
-        case .imageResize, .videoResize:
-            String(localized: "Edited values replace the menu items in place.", comment: "Menu options footer")
         case .imageRotate, .videoRotate:
             String(localized: "Applies to images and videos.", comment: "Extra rotation angle scope")
         case .newFile where store.enabledNewFileTemplates.isEmpty:
             String(localized: "New File doesn’t appear in the Finder menu until you select a template.")
-        case .imageCompress, .frameRate, .loudness, .newFile, .terminal: nil
+        case .imageCompress, .imageResize, .videoResize, .frameRate, .loudness, .newFile, .terminal: nil
         }
     }
 
@@ -373,7 +371,8 @@ private struct TerminalApplicationPicker: View {
         if let missing = applications.missing {
             ProblemLabel(
                 text: String(
-                    localized: "“\(TerminalApplications.name(of: missing))” can’t be found. Choose another app."))
+                    localized: "“\(TerminalApplications.name(of: missing))” can’t be found. Choose another application."
+                ))
         }
         if let failure {
             ProblemLabel(text: failure)

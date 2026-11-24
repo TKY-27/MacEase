@@ -39,7 +39,16 @@ scale; scale overflow/rounding is rejected before encoding.
 Every material sample is checked before encoding against its own format and
 each declared sample size (four-byte tmcd or eight-byte tc64). Empty tracks,
 multiple format descriptions, multiple nonempty edit segments and clipped sample
-durations require prior omission consent. A direct native replay of two samples
+durations require prior omission consent. Starting an `AVAssetReader` on a
+zero-sample track (`totalSampleDataLength == 0` / nil decode-order sample
+cursor) races CoreMedia's background reader pipeline: `startReading()` succeeds,
+and `copyNextSampleBuffer()` returns `nil` with `.completed` if called within
+tens of microseconds but fails with `AVFoundationErrorDomain -11800` /
+`NSOSStatusErrorDomain -12842` once the background pipeline runs (measured on
+macOS 27.2.1: 1/20 at 0 us, 11/20 at 100 us, 20/20 at 20 ms across timecode,
+subtitle, metadata, audio and video tracks). `NativeTimecode.materialSamples`
+therefore checks `totalSampleDataLength > 0` and sample-cursor presence before
+constructing `AssetTrackReader`. A direct native replay of two samples
 trimmed from 0.5 to 1.5 seconds changed the final raw duration from 1 to 0.5 s;
 a single clipped sample also shortened the visible range from 1 to 0.5 s.
 Removing markers and using an exact movie scale did not reproduce those edits.

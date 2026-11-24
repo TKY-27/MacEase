@@ -20,8 +20,14 @@ public enum FileKind: String, Codable, CaseIterable, Sendable {
                 "tiff", "bmp", "tga", "psd", "ico", "icns", "svg", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf",
                 "rw2",
             ],
-            .video: ["mp4", "m4v", "mov", "mkv", "webm", "avi", "flv"],
-            .audio: ["mp3", "m4a", "aac", "wav", "aif", "aiff", "aifc", "flac", "ogg", "oga", "opus", "caf"],
+            .video: [
+                "mp4", "m4v", "mov", "mkv", "webm", "avi", "flv",
+                "wmv", "asf", "mpg", "mpeg", "m2ts", "mts", "vob", "rm", "rmvb", "3gp", "3g2", "mxf", "dv", "ogv",
+            ],
+            .audio: [
+                "mp3", "m4a", "aac", "wav", "aif", "aiff", "aifc", "flac", "ogg", "oga", "opus", "caf",
+                "wma", "ac3", "dts", "mp2", "wv", "ape", "tta", "amr", "ra", "mka",
+            ],
             .pdf: ["pdf"],
             .document: ["docx", "odt", "rtf", "rtfd"],
             .plist: ["plist"],

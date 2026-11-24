@@ -260,9 +260,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sender.reply(toApplicationShouldTerminate: false)
                 let alert = NSAlert()
                 alert.messageText = String(
-                    localized: "MacEase could not save undo history.", comment: "Explains why quitting was cancelled")
+                    localized: "MacEase couldn’t save the undo history.", comment: "Explains why quitting was cancelled"
+                )
                 alert.informativeText = String(
-                    localized: "Quit was cancelled. Check disk space and support folder access, then try again.",
+                    localized:
+                        "MacEase didn’t quit. Check free disk space and access to MacEase’s folder in Application Support, then quit again.",
                     comment: "Helps recover from history save failure")
                 alert.runModal()
             }

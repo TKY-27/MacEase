@@ -58,7 +58,8 @@ import Observation
 
     private func approve(_ files: [StreamConsentRequest.File]) throws {
         for file in files {
-            try file.omission.stamp.validate(file.url)
+            try file.omission.stamp.validate(
+                file.url, message: String(localized: "“\(file.name)” changed after it was checked"))
             let previous = omissions[file.url]?.streams(covering: file.omission.stamp) ?? []
             omissions[file.url] = StreamOmission(
                 stamp: file.omission.stamp, streams: previous.union(file.omission.streams))

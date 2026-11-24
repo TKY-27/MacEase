@@ -372,10 +372,16 @@ extension VideoEdit {
             var validated: [VideoEditSource] = []
             for source in sources {
                 try source.stamp.validate(source.url)
-                let input = try await MediaInput.open(source.url)
                 let consent =
                     source.url == primaryURL
                     ? omittedStreams : omissions[source.url]?.streams(covering: source.stamp) ?? []
+                let input: MediaInput
+                if let context {
+                    input = try await MediaInput.openWithFallback(
+                        source.url, context: context, consentedStreams: consent)
+                } else {
+                    input = try await MediaInput.open(source.url)
+                }
                 try input.requirePreservableStreams(omitting: consent, context: context)
                 guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
                 inputs.append(input)
@@ -387,7 +393,13 @@ extension VideoEdit {
             }
             resolved.sources = validated
         } else {
-            let input = try await MediaInput.open(primaryURL)
+            let input: MediaInput
+            if let context {
+                input = try await MediaInput.openWithFallback(
+                    primaryURL, context: context, consentedStreams: omittedStreams)
+            } else {
+                input = try await MediaInput.open(primaryURL)
+            }
             try input.requirePreservableStreams(omitting: omittedStreams, context: context)
             guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
             inputs = [input]

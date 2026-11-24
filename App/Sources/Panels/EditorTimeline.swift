@@ -40,7 +40,10 @@ struct EditorTransportBar: View {
                 Button(action: saveFrame) {
                     Label("Save Frame", systemImage: "camera")
                 }
-                .help("Save Frame at Playhead as an Image (⇧⌘S)")
+                .help(
+                    model.saveFrameUnavailableReason
+                        ?? String(localized: "Save Frame at Playhead as an Image (⇧⌘S)")
+                )
 
                 .disabled(!model.canSaveFrame)
                 if model.playing, model.playbackRate != 1 {
@@ -61,7 +64,10 @@ struct EditorTransportBar: View {
                 } label: {
                     Label("Mute Preview", systemImage: model.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 }
-                .help(model.muted ? "Unmute Preview" : "Mute Preview")
+                .help(
+                    model.previewMuteUnavailableReason
+                        ?? (model.muted ? String(localized: "Unmute Preview") : String(localized: "Mute Preview"))
+                )
                 .disabled(!model.hasAudio || !model.canPlay)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -112,8 +118,14 @@ struct TransportClock: View {
             }
             .buttonStyle(.plain)
             .help("Click to Go to a Time")
+            .accessibilityLabel(Text("Playhead"))
+            .accessibilityValue(spokenTime)
+            .accessibilityHint(Text("Type a time to move the playhead."))
         } else {
             clock
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Playhead"))
+                .accessibilityValue(spokenTime)
         }
     }
 
@@ -137,9 +149,10 @@ struct TransportClock: View {
             Text(Timecode.string(duration)).foregroundStyle(.secondary)
         }
         .font(.callout.monospacedDigit())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Playhead"))
-        .accessibilityValue(Text("\(Timecode.string(position)) of \(Timecode.string(duration))"))
+    }
+
+    private var spokenTime: Text {
+        Text("\(Timecode.spoken(position)) of \(Timecode.spoken(duration))")
     }
 }
 
@@ -154,12 +167,15 @@ struct EditorTimeline: View {
             }
             .buttonStyle(.borderless)
             MediaTimeline(
-                duration: max(model.timelineDuration, model.frameDuration), position: model.position,
-                clips: clips, playing: model.playing, zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
+                duration: model.timelineDuration, position: model.position,
+                clips: clips, playing: model.playing, trimming: model.trimming, playbackRate: model.playbackRate,
+                revealRequest: model.playheadRevealRequest,
+                zoom: $model.timelineZoom, maximumZoom: model.maximumTimelineZoom,
                 seek: model.seek, hover: model.skim, select: model.selectSegment,
                 beginTrim: model.beginTimelineTrim, trim: model.updateTimelineTrim,
                 endTrim: { Task { await model.endTimelineTrim() } }, move: model.moveSegment,
                 action: { id, action in
+                    guard actionState(id, action).available else { return }
                     model.selectSegment(id)
                     switch action {
                     case .setIn: model.setTrimBoundaryAtPlayhead(start: true)
@@ -173,24 +189,22 @@ struct EditorTimeline: View {
                     case .delete: model.deleteSelection()
                     }
                 },
-                actionAvailable: available,
+                actionState: actionState,
                 viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } },
                 overlays: overlayMarks, showsOverlayLane: showsOverlayLane,
                 selectOverlay: { id in
+                    guard !model.editingLocked, model.markupOverlays.contains(where: { $0.id == id }) else { return }
                     model.category = .markup
                     model.selectOverlay(id)
                 },
                 hatched: model.silenceHatching, music: musicBar,
-                selectMusic: {
-                    model.category = .video
-                    model.musicRevealRequest = UUID()
-                }
+                selectMusic: model.selectMusic,
+                step: model.stepFrame
             )
             .frame(
                 height: MediaTimeline.height + (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0)
                     + (musicBar == nil ? 0 : TimelineCanvas.musicLaneHeight)
             )
-            .accessibilityLabel(Text("Timeline"))
         }
         .disabled(model.editingLocked)
         .padding(.horizontal, 16)
@@ -205,13 +219,18 @@ struct EditorTimeline: View {
             } label: {
                 Label("Split", systemImage: "scissors")
             }
-            .help("Split at Playhead (⌘B)").disabled(!model.canSplit)
+            .help(model.splitUnavailableReason ?? String(localized: "Split at Playhead (⌘B)"))
+            .disabled(!model.canSplit)
             Button {
                 model.insertFreezeFrame()
             } label: {
                 Label("Freeze Frame", systemImage: "snowflake")
             }
-            .help("Insert a Freeze Frame at the Playhead (⌥F)").disabled(!model.canInsertFreezeFrame)
+            .help(
+                model.freezeFrameUnavailableReason(for: nil)
+                    ?? String(localized: "Insert a Freeze Frame at the Playhead (⌥F)")
+            )
+            .disabled(!model.canInsertFreezeFrame)
             Toggle(isOn: model.reversedBinding) {
                 Label("Reverse", systemImage: "backward")
             }
@@ -223,13 +242,13 @@ struct EditorTimeline: View {
             } label: {
                 Label("Duplicate", systemImage: "plus.square.on.square")
             }
-            .help("Duplicate Segment").disabled(!model.hasSelection)
+            .help("Duplicate Segment").disabled(!model.hasSelection || model.trimming)
             Button(role: .destructive) {
                 model.deleteSelection()
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-            .help("Delete Segment (⌫)").disabled(!model.hasSelection)
+            .help("Delete Segment (⌫)").disabled(!model.hasSelection || model.trimming)
             Menu {
                 segmentActions
             } label: {
@@ -247,7 +266,7 @@ struct EditorTimeline: View {
                 Label("Remove Silence…", systemImage: "waveform.path.badge.minus")
             }
             .help(model.silenceUnavailableReason ?? String(localized: "Cut pauses where the sound is quiet"))
-            .disabled(model.values.segments.isEmpty)
+            .disabled(model.values.segments.isEmpty || model.silenceUnavailableReason != nil)
             .popover(isPresented: $model.showsSilencePreview, arrowEdge: .top) {
                 EditorSilencePopover(model: model)
             }
@@ -275,41 +294,55 @@ struct EditorTimeline: View {
 
     private var segmentActions: some View {
         Group {
+            let trimReason = model.values.selectedID.flatMap(model.trimUnavailableReason(for:))
             Button("Set In Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: true) }
-                .disabled(model.selectedSegment?.isFreeze == true)
+                .disabled(trimReason != nil).help(trimReason ?? "")
             Button("Set Out Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: false) }
-                .disabled(model.selectedSegment?.isFreeze == true)
+                .disabled(trimReason != nil).help(trimReason ?? "")
             Button("Insert Freeze Frame at Playhead") { model.insertFreezeFrame() }
-
-                .disabled(!model.canInsertFreezeFrame)
+                .disabled(!model.canInsertFreezeFrame).help(model.freezeFrameUnavailableReason(for: nil) ?? "")
             Toggle("Reverse Segment", isOn: model.reversedBinding).disabled(!model.canToggleReverse)
+                .help(model.reverseUnavailableReason ?? "")
             Divider()
-            Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
+            Button("Move Segment Left") { model.moveSelection(-1) }
+                .disabled(model.trimming || model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
-                .disabled(model.values.selectedIndex == model.values.segments.count - 1)
+                .disabled(model.trimming || model.values.selectedIndex == model.values.segments.count - 1)
         }
     }
 
-    private func available(_ id: UUID, _ action: TimelineAction) -> Bool {
-        guard let index = model.values.segments.firstIndex(where: { $0.id == id }) else { return false }
+    private func actionState(_ id: UUID, _ action: TimelineAction) -> TimelineActionState {
+        guard let index = model.values.segments.firstIndex(where: { $0.id == id }) else {
+            return TimelineActionState(available: false)
+        }
         let segment = model.values.segments[index]
         switch action {
-        case .setIn, .setOut: return !segment.isFreeze
-        case .split: return model.canSplitSegment(id)
-        case .freeze: return model.canInsertFreezeFrame && model.timeline?.segment(at: model.position).id == id
-        case .reverse: return model.values.selectedID == id && model.canToggleReverse
-        case .left: return index > 0
-        case .right: return index < model.values.segments.count - 1
-        case .duplicate, .delete: return true
+        case .setIn, .setOut:
+            return TimelineActionState(available: !segment.isFreeze, reason: model.trimUnavailableReason(for: id))
+        case .split:
+            return TimelineActionState(
+                available: model.canSplitSegment(id), reason: model.splitUnavailableReason(for: id))
+        case .freeze:
+            return TimelineActionState(
+                available: model.canInsertFreezeFrame && model.timeline?.segment(at: model.position).id == id,
+                reason: model.freezeFrameUnavailableReason(for: id))
+        case .reverse:
+            return TimelineActionState(
+                available: model.canReverse(id), checked: segment.isReversed,
+                reason: model.reverseUnavailableReason(for: segment))
+        case .left: return TimelineActionState(available: !model.trimming && index > 0)
+        case .right:
+            return TimelineActionState(available: !model.trimming && index < model.values.segments.count - 1)
+        case .duplicate, .delete: return TimelineActionState(available: !model.trimming)
         }
     }
 
     private var musicBar: TimelineMusicBar? {
-        guard let music = model.values.music else { return nil }
+        guard let music = model.values.music, model.outputDuration > 0 else { return nil }
         let duration = model.outputDuration
         return TimelineMusicBar(
             range: 0...music.playDuration(forOutputDuration: duration), label: music.url.lastPathComponent,
-            fadeOut: music.fade(forOutputDuration: duration).fadeOut)
+            fadeOut: music.fade(forOutputDuration: duration).fadeOut, volume: music.volume)
     }
 
     private var showsOverlayLane: Bool { model.category == .markup || !model.values.overlays.isEmpty }
@@ -327,9 +360,11 @@ struct EditorTimeline: View {
     }
 
     private var clips: [TimelineClip] {
-        let numbered = model.values.segments.count > 1
-        return model.values.segments.enumerated().map { index, segment in
-            let range = model.timelineRange(for: segment)
+        let count = model.values.segments.count
+        let numbered = count > 1
+        let joined = model.originalSources.count > 1
+        return zip(model.values.segments, model.timelineRanges()).enumerated().map { index, pair in
+            let (segment, range) = pair
             let name = model.sourceName(segment)
             let fade = FadeRamp(
                 duration: range.upperBound - range.lowerBound, fadeIn: segment.fadeIn, fadeOut: segment.fadeOut)
@@ -344,7 +379,10 @@ struct EditorTimeline: View {
                 selection: model.values.selectedID == segment.id ? range : nil,
                 label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment),
                 waveform: model.waveform(for: segment, in: range), fadeIn: fade.fadeIn, fadeOut: fade.fadeOut,
-                freeze: segment.isFreeze, badges: badges)
+                freeze: segment.isFreeze, badges: badges,
+                accessibility: .segment(
+                    index: index, count: count, sourceName: joined ? name : nil, freeze: segment.isFreeze,
+                    reversed: segment.isReversed, speed: segment.speed))
         }
     }
 

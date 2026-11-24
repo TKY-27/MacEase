@@ -235,6 +235,7 @@ extension MediaEditorModel {
     /// Seeks to hidden overlays.
     func selectOverlay(_ id: UUID?) {
         guard !editingLocked else { return }
+        if let id, !markupOverlays.contains(where: { $0.id == id }) { return }
         closeInteraction()
         values.selectedOverlayID = id
         guard let id, let timed = values.overlays.first(where: { $0.id == id }), !visibleOverlayIDs.contains(id),

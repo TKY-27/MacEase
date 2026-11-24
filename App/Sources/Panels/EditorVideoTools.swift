@@ -73,8 +73,10 @@ extension MediaEditorModel {
 
     static let defaultFreezeSeconds = 2.0
 
-    var reverseUnavailableReason: String? {
-        guard let segment = selectedSegment, !segment.isReversed else { return nil }
+    var reverseUnavailableReason: String? { selectedSegment.flatMap(reverseUnavailableReason(for:)) }
+
+    func reverseUnavailableReason(for segment: VideoSegment) -> String? {
+        guard !segment.isReversed else { return nil }
         if segment.isFreeze { return String(localized: "A freeze frame can’t be reversed.") }
         guard segment.end - segment.start <= VideoSegmentReverser.maximumSegmentSeconds else {
             let limit = Timecode.string(VideoSegmentReverser.maximumSegmentSeconds, fractionDigits: 0)
@@ -87,8 +89,11 @@ extension MediaEditorModel {
         Binding(get: { self.selectedSegment?.isReversed == true }, set: { _ in self.toggleReverse() })
     }
 
-    var canToggleReverse: Bool {
-        selectedSegment != nil && reverseUnavailableReason == nil && !editingLocked && !splitting && !trimming
+    var canToggleReverse: Bool { values.selectedID.map(canReverse) ?? false }
+
+    func canReverse(_ id: UUID) -> Bool {
+        guard let segment = values.segments.first(where: { $0.id == id }) else { return false }
+        return reverseUnavailableReason(for: segment) == nil && !editingLocked && !splitting && !trimming
             && videoSource != nil && !importing && musicTask == nil && !hasPendingBoundaryInput
             && overlayBoundaryTask == nil
     }

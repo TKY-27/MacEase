@@ -57,6 +57,7 @@ struct FrameEdit: Hashable, Sendable {
     var fill = RGBColor.black
     var flattensAlpha = false
     var preservesAlpha = false
+    var preservesOddDimensions = false
     /// Even; `nil` keeps the transformed size.
     var size: PixelSize?
     var aspect: AspectRange?
@@ -109,7 +110,8 @@ final class FrameProcessor {
         let edited = edit.editorGeometry?.outputSize(canvas)
         let natural = PixelSize(
             width: Int(edited?.width ?? canvas.width), height: Int(edited?.height ?? canvas.height))
-        return (edit.size ?? natural).evened()
+        let target = edit.size ?? natural
+        return edit.preservesOddDimensions ? target : target.evened()
     }
 
     init(

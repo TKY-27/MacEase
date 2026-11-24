@@ -35,6 +35,11 @@ public enum ContentSniffer {
     private static let asfVideoStreamGUID: [UInt8] = [
         0xC0, 0xEF, 0x19, 0xBC, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B,
     ]
+    private static let ac3SyncWord: [UInt8] = [0x0B, 0x77]
+    private static let dtsSyncWords: [[UInt8]] = [
+        [0x7F, 0xFE, 0x80, 0x01], [0xFE, 0x7F, 0x01, 0x80],
+        [0x1F, 0xFF, 0xE8, 0x00], [0xFF, 0x1F, 0x00, 0xE8], [0x64, 0x58, 0x20, 0x25],
+    ]
 
     public static func identify(_ url: URL) throws -> DetectedContent {
         let values = try inputValues(url)
@@ -172,6 +177,7 @@ public enum ContentSniffer {
             return !["M4A ", "M4B ", "M4P ", "heic", "heix", "mif1", "msf1", "avif", "avis", "crx "].contains(brand)
         }
         return ["moov", "mdat", "wide", "free", "skip"].contains { starts(header, with: ascii($0), at: 4) }
+            || isFallbackVideo(header)
     }
 
     private static func isAudio(_ header: [UInt8]) -> Bool {
@@ -187,7 +193,7 @@ public enum ContentSniffer {
         if starts(header, with: ascii("FORM")), starts(header, with: ascii("AIF"), at: 8) { return true }
         if let brand = isoBrand(header) { return ["M4A ", "M4B ", "mp42", "isom", "dash"].contains(brand) }
         // MPEG audio frame sync or ADTS.
-        return header.count >= 2 && header[0] == 0xFF && header[1] & 0xE0 == 0xE0
+        return (header.count >= 2 && header[0] == 0xFF && header[1] & 0xE0 == 0xE0) || isFallbackAudio(header)
     }
 
     private static func isPDF(_ header: [UInt8]) -> Bool {
@@ -403,6 +409,9 @@ public enum ContentSniffer {
                 ? DetectedContent(family: .video, displayName: "Windows Media Video")
                 : DetectedContent(family: .audio, displayName: "Windows Media Audio")
         }
+        if starts(header, with: ascii(".RMF")) {
+            return DetectedContent(family: .video, displayName: "RealMedia")
+        }
         if starts(header, with: ascii("OggS")) {
             return containsBytes(header, sequence: [0x80] + ascii("theora"))
                 ? DetectedContent(family: .video, displayName: "Ogg video")
@@ -429,6 +438,12 @@ public enum ContentSniffer {
         if starts(header, with: ascii("FORM")), starts(header, with: ascii("AIF"), at: 8) {
             return DetectedContent(family: .audio, displayName: "AIFF")
         }
+        if starts(header, with: ascii("wvpk")) { return DetectedContent(family: .audio, displayName: "WavPack") }
+        if starts(header, with: ascii("MAC ")) { return DetectedContent(family: .audio, displayName: "Monkey's Audio") }
+        if dtsSyncWords.contains(where: { starts(header, with: $0) }) {
+            return DetectedContent(family: .audio, displayName: "DTS audio")
+        }
+        if starts(header, with: ac3SyncWord) { return DetectedContent(family: .audio, displayName: "AC-3 audio") }
         return nil
     }
 
@@ -514,5 +529,36 @@ public enum ContentSniffer {
     private static func uint32LE(_ bytes: [UInt8], at offset: Int) -> UInt32 {
         UInt32(bytes[offset]) | (UInt32(bytes[offset + 1]) << 8)
             | (UInt32(bytes[offset + 2]) << 16) | (UInt32(bytes[offset + 3]) << 24)
+    }
+
+    private static func isFallbackVideo(_ header: [UInt8]) -> Bool {
+        if starts(header, with: AudioInput.asfSignature) { return true }
+        if starts(header, with: [0x00, 0x00, 0x01, 0xBA]) { return true }
+        if isMPEGTransportStream(header) { return true }
+        if starts(header, with: ascii(".RMF")) || starts(header, with: ascii("OggS")) { return true }
+        if starts(header, with: [0x06, 0x0E, 0x2B, 0x34]) { return true }
+        return header.count >= 8 && header[0] == 0x1F && header[1] == 0x07 && header[2] == 0x00
+    }
+
+    private static func isMPEGTransportStream(_ header: [UInt8]) -> Bool {
+        let syncByte: UInt8 = 0x47
+        for (start, stride) in [(0, 188), (4, 192)] {
+            let requiredPackets = header.count > start + stride * 3 ? 4 : 3
+            guard header.count > start + stride * (requiredPackets - 1) else { continue }
+            if (0..<requiredPackets).allSatisfy({ header[start + $0 * stride] == syncByte }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isFallbackAudio(_ header: [UInt8]) -> Bool {
+        let signatures: [[UInt8]] =
+            [ac3SyncWord] + dtsSyncWords + [
+                ascii("wvpk"), ascii("MAC "), ascii("TTA1"), ascii("#!AMR"),
+                ascii(".RMF"), [0x2E, 0x72, 0x61, 0xFD],
+                [0x1A, 0x45, 0xDF, 0xA3],
+            ]
+        return signatures.contains { starts(header, with: $0) }
     }
 }

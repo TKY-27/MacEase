@@ -21,11 +21,11 @@ struct ImageSettingsView: View {
             }
             Section {
                 Toggle(isOn: $store.settings.image.optimizePNGOnConvert) {
-                    Text("Optimize PNG files on convert")
-                    Text("Lossless; smaller files take a little longer.")
+                    Text("Optimize PNG files when converting")
+                    Text("Reduces file size without quality loss. Takes longer.")
                 }
-                .accessibilityLabel(Text("Optimize PNG files on convert"))
-                .accessibilityHint(Text("Lossless; smaller files take a little longer."))
+                .accessibilityLabel(Text("Optimize PNG files when converting"))
+                .accessibilityHint(Text("Reduces file size without quality loss. Takes longer."))
                 Picker("GIF dithering", selection: $store.settings.image.gifDithering) {
                     ForEach(Dithering.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
@@ -34,7 +34,7 @@ struct ImageSettingsView: View {
                 Toggle("Allow lower resolution", isOn: $store.settings.image.allowDownscale)
                 Toggle("Allow lower frame rate", isOn: $store.settings.image.allowFrameRateReduction)
             }
-            Section("Strip Metadata") {
+            Section("Remove Metadata") {
                 ForEach(MetadataField.allCases, id: \.self) { field in
                     Toggle(field.title, isOn: stripping(field))
                 }
@@ -47,7 +47,7 @@ struct ImageSettingsView: View {
             }
             Section("Background") {
                 Picker(
-                    String(localized: "Foreground mask", comment: "Saved foreground mask"),
+                    String(localized: "Subject to keep", comment: "Saved foreground mask"),
                     selection: $store.settings.image.backgroundMask
                 ) {
                     ForEach(ForegroundMask.allCases, id: \.self) { mask in Text(mask.title).tag(mask) }
@@ -67,11 +67,12 @@ struct ImageSettingsView: View {
                     Text(store.settings.image.colorKeyTolerance, format: .percent.precision(.fractionLength(0)))
                 }
                 ColorPicker(
-                    "Green background", selection: $store.settings.image.greenBackground.color, supportsOpacity: false)
+                    "Green Screen color", selection: $store.settings.image.greenBackground.color, supportsOpacity: false
+                )
                 ColorPicker(
-                    "Blue background", selection: $store.settings.image.blueBackground.color, supportsOpacity: false)
+                    "Blue Screen color", selection: $store.settings.image.blueBackground.color, supportsOpacity: false)
                 ColorPicker(
-                    "Custom background", selection: $store.settings.image.customBackground.color,
+                    "Custom Color", selection: $store.settings.image.customBackground.color,
                     supportsOpacity: false)
             }
             Section(String(localized: "Rotation", comment: "Rotation defaults")) {
@@ -80,21 +81,21 @@ struct ImageSettingsView: View {
                     isOn: $store.settings.image.rotationFillsWithColor)
                 if store.settings.image.rotationFillsWithColor {
                     ColorPicker(
-                        String(localized: "Rotation fill", comment: "Saved rotation background color"),
+                        String(localized: "Corner color", comment: "Saved rotation background color"),
                         selection: $store.settings.image.rotationFill.color, supportsOpacity: false)
                 }
             }
             Section {
                 Picker(
-                    String(localized: "Convert to SVG by", comment: "SVG mode"),
+                    String(localized: "Method", comment: "SVG mode"),
                     selection: $store.settings.image.svgMode
                 ) {
-                    Text(String(localized: "Tracing shapes", comment: "SVG mode")).tag(SVGMode.trace)
-                    Text(String(localized: "Embedding a PNG", comment: "SVG mode")).tag(SVGMode.embeddedPNG)
+                    Text(String(localized: "Trace shapes", comment: "SVG mode")).tag(SVGMode.trace)
+                    Text(String(localized: "Embed PNG", comment: "SVG mode")).tag(SVGMode.embeddedPNG)
                 }
                 if store.settings.image.svgMode == .trace {
                     NumberField(
-                        title: Text(String(localized: "Tracing colors", comment: "Saved SVG palette size")),
+                        title: Text(String(localized: "Colors", comment: "Saved SVG palette size")),
                         value: $store.settings.image.svgColors,
                         range: Self.svgColorRange)
                 }
@@ -110,7 +111,7 @@ struct ImageSettingsView: View {
     private var svgFooter: String {
         switch store.settings.image.svgMode {
         case .trace:
-            String(localized: "Draws editable vector shapes with a few colors.", comment: "SVG mode footer")
+            String(localized: "Creates editable vector shapes with 1–8 colors.", comment: "SVG mode footer")
         case .embeddedPNG:
             String(
                 localized: "Keeps every pixel inside the SVG file. The result is not vector art.",
@@ -145,12 +146,12 @@ struct VideoSettingsView: View {
                 Picker("Codec for re-encoding", selection: $store.settings.video.codec) {
                     ForEach(VideoCodecChoice.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                Picker("Prefer", selection: $store.settings.video.priority) {
+                Picker("Priority", selection: $store.settings.video.priority) {
                     ForEach(EncodePriority.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 ColorPicker(
-                    String(localized: "Rotation fill", comment: "Saved rotation background color"),
+                    String(localized: "Corner color", comment: "Saved rotation background color"),
                     selection: $store.settings.video.rotationFill.color, supportsOpacity: false)
             }
             Section {
@@ -195,7 +196,7 @@ struct VideoSettingsView: View {
             }
             Section("Output") {
                 Picker(
-                    String(localized: "Background mask", comment: "Saved video foreground mask"),
+                    String(localized: "Subject to keep", comment: "Saved video foreground mask"),
                     selection: $store.settings.video.backgroundMask
                 ) {
                     ForEach(ForegroundMask.allCases, id: \.self) { mask in Text(mask.title).tag(mask) }
@@ -263,7 +264,7 @@ struct AudioSettingsView: View {
                 ) {
                     Text(
                         String(
-                            localized: "Automatic (copy when possible)",
+                            localized: "Automatic (keep original when possible)",
                             comment: "Automatic extraction preserves compatible streams")
                     ).tag(Int?.none)
                     ForEach(Self.extractionBitrates, id: \.self) { rate in

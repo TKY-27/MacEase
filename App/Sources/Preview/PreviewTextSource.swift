@@ -283,210 +283,103 @@ struct PreviewTextSource: Sendable {
 
 }
 
-enum PreviewLanguage: Sendable {
-    case plain, swift, javascript, python, c, json, markup, css, shell, yaml, markdown
+enum PreviewLanguage: CaseIterable, Equatable, Sendable {
+    case plain, swift, javascript, python, c, cpp, objectiveC, objectiveCPP, go, rust, ruby, php,
+        java, kotlin, csharp, scala, dart, lua, perl, r, shell, powershell, batch, sql,
+        json, yaml, toml, ini, dockerfile, makefile, cmake, groovy, hcl, protobuf, graphql,
+        css, markup, markdown, latex, restructuredText, asciiDoc, diff,
+        fsharp, vb, julia, elixir, clojure, solidity
 
     static func resolve(_ suffix: String, fileName: String? = nil) -> Self {
+        if let name = fileName?.lowercased(), let exact = exactFileNames[name] {
+            return exact
+        }
         let lowered = suffix.lowercased()
-        if lowered.isEmpty, fileName?.lowercased() == ".env" { return .shell }
         switch lowered {
         case "swift": return .swift
         case "js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx": return .javascript
         case "py", "pyw", "pyi": return .python
-        case "c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl", "m", "mm",
-            "java", "kt", "kts", "gradle", "groovy", "scala", "cs", "csx", "dart":
-            return .c
+        case "c", "h": return .c
+        case "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl": return .cpp
+        case "m": return .objectiveC
+        case "mm": return .objectiveCPP
+        case "go": return .go
+        case "rs": return .rust
+        case "rb": return .ruby
+        case "php": return .php
+        case "java": return .java
+        case "kt", "kts": return .kotlin
+        case "cs", "csx": return .csharp
+        case "scala": return .scala
+        case "dart": return .dart
+        case "lua": return .lua
+        case "pl", "pm": return .perl
+        case "r": return .r
+        case "sh", "bash", "zsh", "fish": return .shell
+        case "ps1", "psm1", "psd1": return .powershell
+        case "bat", "cmd": return .batch
+        case "sql": return .sql
         case "json", "jsonc", "json5": return .json
+        case "yaml", "yml": return .yaml
+        case "toml": return .toml
+        case "ini", "cfg", "conf", "properties", "reg", "inf", "env", "editorconfig", "gitmodules": return .ini
+        case "dockerfile": return .dockerfile
+        case "mk", "mak", "make": return .makefile
+        case "cmake": return .cmake
+        case "gradle", "groovy": return .groovy
+        case "hcl", "tf", "tfvars": return .hcl
+        case "proto": return .protobuf
+        case "graphql", "gql": return .graphql
+        case "css", "scss", "sass", "less": return .css
         case "html", "htm", "xhtml", "xml", "xaml", "csproj", "vcxproj", "fsproj", "vbproj",
             "props", "targets", "plist", "manifest", "svg", "vue", "svelte", "astro":
             return .markup
-        case "css", "scss", "sass", "less": return .css
-        case "sh", "bash", "zsh", "fish", "env": return .shell
-        case "yaml", "yml", "toml": return .yaml
         case "md", "markdown", "mdx": return .markdown
-        default: return .plain
-        }
-    }
-
-    var keywords: Set<String> {
-        let words: String
-        switch self {
-        case .swift:
-            words =
-                "actor as async await break case catch class continue default defer do else enum extension false fileprivate for func guard if import in init inout internal is let nil nonisolated open private protocol public repeat rethrows return self static struct super switch throw throws true try typealias var weak where while"
-        case .javascript:
-            words =
-                "async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof interface let new null of return static super switch this throw true try typeof undefined var void while yield type"
-        case .python:
-            words =
-                "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield"
-        case .c:
-            words =
-                "auto bool break case catch char class const continue default delete do double else enum extern false float for if import int long namespace new null nullptr private protected public return short signed sizeof static struct super switch template this throw true try typedef union unsigned using virtual void volatile while"
-        case .json: words = "true false null"
-        case .shell:
-            words = "if then else elif fi for while do done case esac function in select until export local return"
-        case .yaml: words = "true false null yes no on off"
-        case .css: words = "important inherit initial unset none auto var calc media supports keyframes"
-        case .plain, .markup, .markdown: words = ""
-        }
-        return Set(words.split(separator: " ").map(String.init))
-    }
-
-    func startsString(quote: UInt16, previous: UInt16?, inMarkupTag: Bool) -> Bool {
-        switch self {
-        case .plain:
-            return false
-        case .swift, .json:
-            return quote == Self.doubleQuote
-        case .javascript, .shell:
-            return quote == Self.doubleQuote || quote == Self.singleQuote || quote == Self.backtick
-        case .python, .css:
-            return quote == Self.doubleQuote || quote == Self.singleQuote
-        case .c:
-            return quote == Self.doubleQuote
-                || (quote == Self.singleQuote && !(previous.map { Self.digitRange.contains($0) } ?? false))
-        case .markup:
-            return inMarkupTag && (quote == Self.doubleQuote || quote == Self.singleQuote)
-        case .yaml:
-            guard quote == Self.doubleQuote || quote == Self.singleQuote else { return false }
-            guard let previous else { return true }
-            return Self.yamlQuotePreceders.contains(previous)
-        case .markdown:
-            return quote == Self.backtick
-        }
-    }
-
-    private static let doubleQuote: UInt16 = 34
-    private static let singleQuote: UInt16 = 39
-    private static let backtick: UInt16 = 96
-    private static let digitRange: ClosedRange<UInt16> = 48...57
-    private static let yamlQuotePreceders: Set<UInt16> = [9, 10, 13, 32, 44, 58, 61, 91, 123]
-}
-
-struct PreviewToken: Equatable, Sendable {
-    enum Kind: Sendable { case keyword, string, comment, number }
-    let range: NSRange
-    let kind: Kind
-}
-
-enum PreviewTokenizer {
-    private static let singleQuote: UInt16 = 39
-    private static let lessThan: UInt16 = 60
-    private static let greaterThan: UInt16 = 62
-    private static let markupDirectiveLeaders: Set<UInt16> = [33, 63]
-
-    static func tokens(_ text: String, language: PreviewLanguage) throws -> [PreviewToken] {
-        guard language != .plain else { return [] }
-        let prefix = String(decoding: text.utf8.prefix(PreviewTextSource.highlightBytes), as: UTF8.self)
-        let units = Array(prefix.utf16)
-        let keywords = language.keywords
-        var cursor = 0
-        var inMarkupTag = false
-        var result: [PreviewToken] = []
-        func matches(_ literal: String) -> Bool {
-            units[cursor...].starts(with: literal.utf16)
-        }
-        func lineEnd() -> Int {
-            var end = cursor
-            while end < units.count, units[end] != 10, units[end] != 13 { end += 1 }
-            return end
-        }
-        while cursor < units.count {
-            try Task.checkCancellation()
-            let start = cursor
-            let unit = units[cursor]
-            let previous = cursor > 0 ? units[cursor - 1] : nil
-            var kind: PreviewToken.Kind?
-            if [.markup, .markdown].contains(language) && matches("<!--") {
-                cursor += 4
-                while cursor < units.count, !matches("-->") { cursor += 1 }
-                cursor = min(units.count, cursor + 3)
-                kind = .comment
-            } else if [.swift, .javascript, .c, .css].contains(language) && matches("/*") {
-                cursor += 2
-                var depth = 1
-                while cursor < units.count, depth > 0 {
-                    if matches("*/") {
-                        depth -= 1; cursor += 2
-                    } else if language == .swift && matches("/*") {
-                        depth += 1; cursor += 2
-                    } else {
-                        cursor += 1
-                    }
-                }
-                kind = .comment
-            } else if ([.swift, .javascript, .c].contains(language) && matches("//"))
-                || ([.python, .shell, .yaml].contains(language) && unit == 35)
-            {
-                cursor = lineEnd()
-                kind = .comment
-            } else if language.startsString(quote: unit, previous: previous, inMarkupTag: inMarkupTag) {
-                let triple =
-                    (language == .python || language == .swift || language == .markdown)
-                    && cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit
-                let delimiter = triple ? 3 : 1
-                cursor += delimiter
-                while cursor < units.count {
-                    if language == .yaml, unit == Self.singleQuote,
-                        cursor + 1 < units.count, units[cursor] == Self.singleQuote,
-                        units[cursor + 1] == Self.singleQuote
-                    {
-                        cursor += 2; continue
-                    }
-                    if !(language == .yaml && unit == Self.singleQuote), units[cursor] == 92 {
-                        cursor = min(units.count, cursor + 2); continue
-                    }
-                    if units[cursor] == unit,
-                        !triple || (cursor + 2 < units.count && units[cursor + 1] == unit && units[cursor + 2] == unit)
-                    {
-                        cursor += delimiter; break
-                    }
-                    cursor += 1
-                }
-                kind = .string
-            } else if language == .markdown && unit == 35 && (cursor == 0 || units[cursor - 1] == 10) {
-                cursor = lineEnd()
-                kind = .keyword
-            } else if language == .markup && unit == Self.lessThan {
-                cursor += 1
-                if cursor < units.count, units[cursor] == 47 { cursor += 1 }
-                let nameStart = cursor
-                while cursor < units.count, identifier(units[cursor]) { cursor += 1 }
-                if cursor > nameStart
-                    || (nameStart < units.count && Self.markupDirectiveLeaders.contains(units[nameStart]))
-                {
-                    inMarkupTag = true
-                }
-                kind = .keyword
-            } else if language == .markup && unit == Self.greaterThan {
-                inMarkupTag = false
-                cursor += 1
-            } else if (48...57).contains(unit) {
-                cursor += 1
-                while cursor < units.count,
-                    (48...57).contains(units[cursor]) || [46, 95].contains(units[cursor])
-                { cursor += 1 }
-                kind = .number
-            } else if identifier(unit) {
-                cursor += 1
-                while cursor < units.count, identifier(units[cursor]) || (48...57).contains(units[cursor]) {
-                    cursor += 1
-                }
-                let word = String(decoding: units[start..<cursor], as: UTF16.self)
-                if keywords.contains(word) { kind = .keyword }
-                if [.yaml, .css].contains(language), cursor < units.count, units[cursor] == 58 { kind = .keyword }
-            } else {
-                cursor += 1
+        case "tex", "sty", "cls": return .latex
+        case "rst": return .restructuredText
+        case "adoc", "asciidoc": return .asciiDoc
+        case "diff", "patch": return .diff
+        case "fs", "fsx": return .fsharp
+        case "vb", "vbs": return .vb
+        case "jl": return .julia
+        case "ex", "exs": return .elixir
+        case "clj": return .clojure
+        case "sol": return .solidity
+        default:
+            if let name = fileName?.lowercased() {
+                if name.hasPrefix(".env.") { return .ini }
+                if name.hasPrefix("dockerfile.") { return .dockerfile }
             }
-            if let kind {
-                result.append(PreviewToken(range: NSRange(location: start, length: cursor - start), kind: kind))
-            }
+            return .plain
         }
-        return result
     }
 
-    private static func identifier(_ unit: UInt16) -> Bool {
-        (65...90).contains(unit) || (97...122).contains(unit) || unit == 95 || unit > 127
-    }
+    private static let exactFileNames: [String: Self] = [
+        "cmakelists.txt": .cmake,
+        "makefile": .makefile,
+        "gnumakefile": .makefile,
+        "dockerfile": .dockerfile,
+        "containerfile": .dockerfile,
+        ".dockerfile": .dockerfile,
+        "gemfile": .ruby,
+        "rakefile": .ruby,
+        "podfile": .ruby,
+        "brewfile": .ruby,
+        "fastfile": .ruby,
+        "vagrantfile": .ruby,
+        "jenkinsfile": .groovy,
+        ".env": .ini,
+        ".editorconfig": .ini,
+        ".gitmodules": .ini,
+        ".gitconfig": .ini,
+        ".npmrc": .ini,
+        ".gitignore": .plain,
+        ".gitattributes": .plain,
+        ".bashrc": .shell,
+        ".zshrc": .shell,
+        ".bash_profile": .shell,
+        ".zprofile": .shell,
+        ".zshenv": .shell,
+        ".profile": .shell,
+    ]
 }

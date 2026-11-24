@@ -119,7 +119,8 @@ final class FinderCommandsTests: XCTestCase {
         let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
         XCTAssertEqual(japanese.localizedString(forKey: "Open with", value: nil, table: nil), "このアプリケーションで開く")
         XCTAssertEqual(
-            japanese.localizedString(forKey: "“%@” can’t be found. Choose another app.", value: nil, table: nil),
+            japanese.localizedString(
+                forKey: "“%@” can’t be found. Choose another application.", value: nil, table: nil),
             "“%@”が見つかりません。別のアプリケーションを選択してください。")
         XCTAssertEqual(
             japanese.localizedString(

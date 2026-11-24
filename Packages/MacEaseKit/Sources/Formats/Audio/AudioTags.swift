@@ -1,6 +1,9 @@
 import Foundation
 
 public struct Artwork: Equatable, Sendable {
+    public static let maximumBytes = Int(ByteCursor.maximumMetadataBytes)
+    public static let maximumPixels = DecodedImageBudget.maximumBytes / 4
+
     public var data: Data
     public var mimeType: String
 

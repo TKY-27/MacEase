@@ -39,7 +39,7 @@ struct FolderSettingsView: View {
                         String(localized: "Ignore empty files", comment: "Duplicate filter"),
                         isOn: $store.settings.folder.duplicatesIgnoreEmpty)
                     Toggle(
-                        "Ignore hidden files when finding duplicates",
+                        "Ignore hidden files",
                         isOn: $store.settings.folder.duplicatesIgnoreHidden)
                     Toggle(
                         String(localized: "Only files with the same name", comment: "Duplicate filter"),
@@ -366,24 +366,11 @@ struct TextSettingsView: View {
                     isExpanded: $showsMoreSortOptions)
                 if showsMoreSortOptions {
                     TextField(
-                        String(localized: "Keys first", comment: "JSON pinned keys"), text: $pinnedKeys,
+                        String(localized: "Keys to put first", comment: "JSON pinned keys"), text: $pinnedKeys,
                         prompt: Text(verbatim: "id, name"))
                     Toggle(isOn: $store.settings.text.jsonSortPrimitiveArrays) {
                         Text(String(localized: "Sort lists of plain values", comment: "JSON primitive array sorting"))
-                        Text(
-                            String(
-                                localized: "Off by default, because list order often carries meaning.",
-                                comment: "JSON primitive array sorting"))
                     }
-                    .accessibilityLabel(
-                        Text(String(localized: "Sort lists of plain values", comment: "JSON primitive array sorting"))
-                    )
-                    .accessibilityHint(
-                        Text(
-                            String(
-                                localized: "Off by default, because list order often carries meaning.",
-                                comment: "JSON primitive array sorting"))
-                    )
                 }
             } header: {
                 Text(verbatim: "JSON")
@@ -391,7 +378,7 @@ struct TextSettingsView: View {
                 if showsMoreSortOptions {
                     Text(
                         String(
-                            localized: "Keys first are separated by commas and keep their order.",
+                            localized: "Separate keys with commas. They appear in the order entered.",
                             comment: "JSON pinned keys help")
                     )
                     .foregroundStyle(.secondary)

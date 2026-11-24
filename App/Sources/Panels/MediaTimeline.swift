@@ -2,6 +2,10 @@ import AppKit
 import Engine
 import SwiftUI
 
+enum TimelineClipAccessibility: Equatable {
+    case segment(index: Int, count: Int, sourceName: String?, freeze: Bool, reversed: Bool, speed: Double)
+}
+
 struct TimelineClip {
     let id: UUID
     let range: ClosedRange<Double>
@@ -16,6 +20,10 @@ struct TimelineClip {
     /// A held picture without trim handles.
     var freeze = false
     var badges: [TimelineBadge] = []
+    /// `nil` keeps the clip unexposed.
+    var accessibility: TimelineClipAccessibility?
+
+    var isAccessible: Bool { accessibility != nil }
 }
 
 struct TimelineMusicBar {
@@ -23,6 +31,7 @@ struct TimelineMusicBar {
     let label: String
     /// Output seconds at the end.
     let fadeOut: Double
+    let volume: Double
 }
 
 struct TimelineBadge {
@@ -38,6 +47,13 @@ struct TimelineOverlayMark {
     let fill: NSColor
     let text: NSColor
     let selected: Bool
+}
+
+struct TimelineActionState {
+    var available = true
+    var checked = false
+    /// Shown when unavailable.
+    var reason: String?
 }
 
 enum TimelineAction: Int, CaseIterable {
@@ -127,6 +143,9 @@ struct MediaTimeline: NSViewRepresentable {
     let position: Double
     let clips: [TimelineClip]
     let playing: Bool
+    var trimming = false
+    var playbackRate: Float = 1
+    var revealRequest: UUID?
     @Binding var zoom: Double
     let maximumZoom: Double
     let seek: (Double) -> Void
@@ -138,7 +157,7 @@ struct MediaTimeline: NSViewRepresentable {
     var move: ((UUID, Int) -> Void)?
     var visibleRange: ((Range<Double>) -> Void)?
     var action: ((UUID, TimelineAction) -> Void)?
-    var actionAvailable: ((UUID, TimelineAction) -> Bool)?
+    var actionState: ((UUID, TimelineAction) -> TimelineActionState)?
     var viewportChanged: ((Double) -> Void)?
     var overlays: [TimelineOverlayMark] = []
     var showsOverlayLane = false
@@ -147,6 +166,9 @@ struct MediaTimeline: NSViewRepresentable {
     var hatched: [ClosedRange<Double>] = []
     var music: TimelineMusicBar?
     var selectMusic: (() -> Void)?
+    /// Moves the playhead by frames.
+    var step: ((Int) -> Void)?
+    var accessibilityTitle = String(localized: "Timeline")
 
     var lanesHeight: Double {
         (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0) + (music == nil ? 0 : TimelineCanvas.musicLaneHeight)
@@ -175,18 +197,45 @@ struct MediaTimeline: NSViewRepresentable {
     }
 }
 
+private final class TimelineScroller: NSScroller {
+    override func mouseDown(with event: NSEvent) {
+        (superview as? TimelineScrollView)?.noteManualScroll()
+        super.mouseDown(with: event)
+    }
+
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        (superview as? TimelineScrollView)?.noteManualScroll()
+        return super.sendAction(action, to: target)
+    }
+}
+
 final class TimelineScrollView: NSScrollView {
+    private static let pageMargin = 24.0
+    private static let pageMarginFraction = 0.1
     var interactionEnabled = true
     var configuration: MediaTimeline?
     var canvas: TimelineCanvas? { documentView as? TimelineCanvas }
     private var appliedZoom = 1.0
     private var previousViewportWidth = 0.0
     private var anchor: (fraction: Double, viewport: Double)?
+    private var lastRevealRequest: UUID?
+    private var revealedPosition: Double?
+    private var followingPlayhead = false
+    private var wasPlaying = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        horizontalScroller = TimelineScroller()
+    }
+
+    required init?(coder: NSCoder) { return nil }
 
     override func layout() {
         super.layout()
         updateTimeline()
     }
+
+    func noteManualScroll() { followingPlayhead = false }
 
     func updateTimeline() {
         guard let configuration, let canvas else { return }
@@ -223,9 +272,64 @@ final class TimelineScrollView: NSScrollView {
             self.anchor = nil
         }
         horizontalScroller?.isEnabled = interactionEnabled && configuration.zoom > 1
+        updatePlayheadFollowing(configuration, canvas: canvas)
         canvas.needsDisplay = true
         window?.invalidateCursorRects(for: canvas)
         notifyVisibleRange()
+    }
+
+    private func updatePlayheadFollowing(_ configuration: MediaTimeline, canvas: TimelineCanvas) {
+        let revealTriggered = configuration.revealRequest != nil && configuration.revealRequest != lastRevealRequest
+        defer {
+            lastRevealRequest = configuration.revealRequest
+            wasPlaying = configuration.playing
+            revealedPosition = configuration.position
+        }
+        guard configuration.duration > 0 else { return }
+        let positionChanged = revealedPosition != nil && configuration.position != revealedPosition
+        let interacting = canvas.isDragging || configuration.trimming
+        let playheadX = canvas.playheadCenterX(configuration)
+        let visible = contentView.bounds
+        let playheadVisible = playheadX >= visible.minX && playheadX <= visible.maxX
+
+        if revealTriggered {
+            followingPlayhead = true
+            if !interacting, !playheadVisible {
+                if configuration.playing {
+                    pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
+                } else {
+                    canvas.scrollToVisible(canvas.playheadFrame(configuration))
+                    reflectScrolledClipView(contentView)
+                }
+            }
+            return
+        }
+
+        if !wasPlaying, configuration.playing {
+            followingPlayhead = playheadVisible
+            return
+        }
+
+        if configuration.playing {
+            guard positionChanged, followingPlayhead, !interacting, !playheadVisible else { return }
+            pagePlayhead(to: playheadX, forward: configuration.playbackRate >= 0, canvas: canvas)
+            return
+        }
+
+        if wasPlaying, positionChanged, followingPlayhead, !interacting, !playheadVisible {
+            canvas.scrollToVisible(canvas.playheadFrame(configuration))
+            reflectScrolledClipView(contentView)
+        }
+    }
+
+    private func pagePlayhead(to playheadX: Double, forward: Bool, canvas: TimelineCanvas) {
+        let viewportWidth = max(1, contentView.bounds.width)
+        let margin = min(Self.pageMargin, viewportWidth * Self.pageMarginFraction)
+        let desiredX = forward ? playheadX - margin : playheadX - (viewportWidth - margin)
+        let maxScroll = max(0, canvas.frame.width - viewportWidth)
+        let clampedX = min(maxScroll, max(0, desiredX))
+        contentView.scroll(to: CGPoint(x: clampedX, y: 0))
+        reflectScrolledClipView(contentView)
     }
 
     override func reflectScrolledClipView(_ clipView: NSClipView) {
@@ -244,7 +348,11 @@ final class TimelineScrollView: NSScrollView {
 
     override func scrollWheel(with event: NSEvent) {
         guard interactionEnabled else { return }
-        guard event.modifierFlags.contains(.command) else { super.scrollWheel(with: event); return }
+        guard event.modifierFlags.contains(.command) else {
+            followingPlayhead = false
+            super.scrollWheel(with: event)
+            return
+        }
         magnify(by: exp(Double(event.scrollingDeltaY) * 0.025), event: event)
     }
 
@@ -254,6 +362,7 @@ final class TimelineScrollView: NSScrollView {
 
     private func magnify(by factor: Double, event: NSEvent) {
         guard interactionEnabled, let configuration, let canvas else { return }
+        followingPlayhead = false
         let point = canvas.convert(event.locationInWindow, from: nil)
         anchor = (point.x / max(1, canvas.frame.width), point.x - contentView.bounds.minX)
         configuration.zoom = min(configuration.maximumZoom, max(1, configuration.zoom * factor))
@@ -266,6 +375,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     static let contentHeight = rulerHeight + clipHeight + 8
     private static let handleWidth = 12.0
     private static let handleHitSlop = 4.0
+    private static let accessibilityHitSlop = 1.0
     private static let snapDistance = 8.0
     private static let clipRadius = 6.0
     private static let selectionLine = 3.0
@@ -295,7 +405,16 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         interactionEnabled ? super.hitTest(point) : nil
     }
 
-    var configuration: MediaTimeline?
+    var configuration: MediaTimeline? {
+        didSet {
+            cachedLayout = nil
+            announceAccessibilityChanges(from: oldValue)
+        }
+    }
+    private var cachedLayout: TimelineLayout?
+    private var accessibilityExposed = false
+    private var lastAccessibleParts: [TimelinePart]?
+    private var accessibilityElements: [TimelinePart: TimelineAccessibilityElement] = [:]
     private(set) var pointerInViewport: CGPoint?
     private var tracking: NSTrackingArea?
     private var hoverTime: Double?
@@ -304,6 +423,24 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private var draggedClip: UUID?
     private var menuClip: UUID?
     override var isFlipped: Bool { true }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        cachedLayout = nil
+    }
+
+    override func setBoundsSize(_ newSize: NSSize) {
+        super.setBoundsSize(newSize)
+        cachedLayout = nil
+    }
+
+    func currentLayout() -> TimelineLayout {
+        if let cachedLayout, cachedLayout.size == bounds.size { return cachedLayout }
+        let bars = configuration.map { $0.showsOverlayLane ? computeOverlayBars($0) : [] } ?? []
+        let built = TimelineLayout(size: bounds.size, overlayBars: bars)
+        cachedLayout = built
+        return built
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -320,6 +457,134 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             owner: self, userInfo: nil)
         self.tracking = tracking
         addTrackingArea(tracking)
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .layoutArea }
+    override func accessibilityLabel() -> String? { configuration?.accessibilityTitle }
+
+    override func accessibilityChildren() -> [Any]? {
+        accessibilityExposed = true
+        return currentAccessibilityElements()
+    }
+
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        let hit: TimelineAccessibilityElement? = MainActor.assumeIsolated {
+            accessibilityExposed = true
+            guard let configuration, hasAccessibleContent(configuration) else { return nil }
+            guard let part = hitAccessiblePart(at: point, configuration: configuration) else { return nil }
+            return accessibilityElement(for: part)
+        }
+        return hit ?? self
+    }
+
+    /// Reuses elements so VoiceOver keeps its place.
+    private func currentAccessibilityElements() -> [TimelineAccessibilityElement] {
+        let parts = configuration.map(accessibleParts) ?? []
+        lastAccessibleParts = parts
+        let elements = parts.map { accessibilityElement(for: $0) }
+        accessibilityElements = Dictionary(uniqueKeysWithValues: zip(parts, elements))
+        return elements
+    }
+
+    private func accessibilityElement(for part: TimelinePart) -> TimelineAccessibilityElement {
+        if let existing = accessibilityElements[part] { return existing }
+        let created = TimelineAccessibilityElement(part: part, canvas: self)
+        accessibilityElements[part] = created
+        return created
+    }
+
+    /// Hit-tests layout rects directly without formatting strings.
+    private func hitAccessiblePart(at screenPoint: NSPoint, configuration: MediaTimeline) -> TimelinePart? {
+        guard let window else {
+            return accessibleParts(configuration).first { part in
+                partFrame(of: part).map {
+                    NSPointInRect(screenPoint, NSAccessibility.screenRect(fromView: self, rect: $0))
+                } == true
+            }
+        }
+        let local = convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        let slop = Self.accessibilityHitSlop
+        func matches(_ rect: CGRect) -> Bool {
+            local.x >= rect.minX - slop && local.x <= rect.maxX + slop && local.y >= rect.minY - slop
+                && local.y <= rect.maxY + slop
+                && NSPointInRect(screenPoint, NSAccessibility.screenRect(fromView: self, rect: rect))
+        }
+        if matches(playheadFrame(configuration)) { return .playhead }
+        if configuration.showsOverlayLane, local.y >= overlayLane.minY - slop, local.y <= overlayLane.maxY + slop {
+            for bar in currentLayout().overlayBars.reversed() where matches(bar.rect) {
+                return .overlay(bar.mark.id, part: bar.part)
+            }
+        }
+        if let music = configuration.music, music.range.upperBound > music.range.lowerBound {
+            let rect = musicBar(music, configuration: configuration)
+            if matches(rect) { return .music }
+        }
+        if local.y >= Self.rulerHeight - slop, local.y <= Self.rulerHeight + Self.clipHeight + slop {
+            for (index, range) in configuration.hatched.enumerated()
+            where matches(hatchRect(range, configuration: configuration)) {
+                return .silence(index)
+            }
+            for clip in configuration.clips where clip.isAccessible {
+                if matches(rectangle(clip.range, duration: configuration.duration)) { return .clip(clip.id) }
+            }
+        }
+        return nil
+    }
+
+    var postAccessibilityNotification: (NSAccessibility.Notification, Any) -> Void = {
+        NSAccessibility.post(element: $1, notification: $0)
+    }
+
+    /// Playback ticks skip layout work when unchanged.
+    private func announceAccessibilityChanges(from previous: MediaTimeline?) {
+        guard let configuration, accessibilityExposed else { return }
+        if let previous, partsStructureMatches(previous, configuration) {
+            if !configuration.playing, previous.position != configuration.position,
+                let playhead = accessibilityElements[.playhead]
+            {
+                postAccessibilityNotification(.valueChanged, playhead)
+            }
+            return
+        }
+        let currentParts = accessibleParts(configuration)
+        if lastAccessibleParts != currentParts {
+            lastAccessibleParts = currentParts
+            postAccessibilityNotification(.layoutChanged, self)
+        } else if !configuration.playing, previous?.position != configuration.position,
+            let playhead = accessibilityElements[.playhead]
+        {
+            postAccessibilityNotification(.valueChanged, playhead)
+        }
+    }
+
+    private func partsStructureMatches(_ lhs: MediaTimeline, _ rhs: MediaTimeline) -> Bool {
+        let lhsHasMusic = lhs.music.map { $0.range.upperBound > $0.range.lowerBound } ?? false
+        let rhsHasMusic = rhs.music.map { $0.range.upperBound > $0.range.lowerBound } ?? false
+        guard hasAccessibleContent(lhs) == hasAccessibleContent(rhs),
+            lhs.showsOverlayLane == rhs.showsOverlayLane,
+            lhsHasMusic == rhsHasMusic,
+            lhs.hatched.count == rhs.hatched.count,
+            lhs.clips.count == rhs.clips.count,
+            (!lhs.showsOverlayLane || lhs.overlays.count == rhs.overlays.count)
+        else { return false }
+        for (left, right) in zip(lhs.clips, rhs.clips) {
+            if left.id != right.id || left.isAccessible != right.isAccessible { return false }
+        }
+        if lhs.showsOverlayLane {
+            for (left, right) in zip(lhs.overlays, rhs.overlays) {
+                if left.id != right.id || left.selected != right.selected || left.ranges != right.ranges {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    var isDragging: Bool { trimDrag != nil || mouseOrigin != nil }
+
+    func playheadCenterX(_ configuration: MediaTimeline) -> Double {
+        point(configuration.position, configuration)
     }
 
     override func resetCursorRects() {
@@ -397,8 +662,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private func drawHatching(_ configuration: MediaTimeline) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         for range in configuration.hatched {
-            let rect = rectangle(range, duration: configuration.duration)
-            let visible = CGRect(x: rect.minX, y: rect.minY, width: max(1, rect.width), height: rect.height)
+            let visible = hatchRect(range, configuration: configuration)
             guard visible.intersects(visibleRect) else { continue }
             context.saveGState()
             context.clip(to: visible)
@@ -420,6 +684,17 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         }
     }
 
+    func hatchRect(_ range: ClosedRange<Double>, configuration: MediaTimeline) -> CGRect {
+        let rect = rectangle(range, duration: configuration.duration)
+        return CGRect(x: rect.minX, y: rect.minY, width: max(1, rect.width), height: rect.height)
+    }
+
+    func musicBar(_ music: TimelineMusicBar, configuration: MediaTimeline) -> CGRect {
+        let lane = musicLane(configuration)
+        let span = rectangle(music.range, duration: configuration.duration)
+        return CGRect(x: span.minX, y: lane.minY, width: max(2, span.width), height: lane.height)
+    }
+
     private func musicLane(_ configuration: MediaTimeline) -> CGRect {
         CGRect(
             x: 0,
@@ -432,8 +707,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let lane = musicLane(configuration)
         NSColor.quaternaryLabelColor.withAlphaComponent(0.5).setFill()
         NSBezierPath(roundedRect: lane, xRadius: 4, yRadius: 4).fill()
-        let span = rectangle(music.range, duration: configuration.duration)
-        let bar = CGRect(x: span.minX, y: lane.minY, width: max(2, span.width), height: lane.height)
+        let bar = musicBar(music, configuration: configuration)
         let shape = NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4)
         NSColor.systemPurple.withAlphaComponent(0.6).setFill()
         shape.fill()
@@ -465,7 +739,10 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     /// Packed rows; selected bars last, like drawing.
-    private func overlayBars(_ configuration: MediaTimeline) -> [(mark: TimelineOverlayMark, rect: CGRect)] {
+    private func computeOverlayBars(_ configuration: MediaTimeline) -> [(
+        mark: TimelineOverlayMark, part: Int, rect: CGRect
+    )] {
+        guard configuration.duration > 0 else { return [] }
         var rows: [[ClosedRange<Double>]] = []
         var placed: [(TimelineOverlayMark, Int)] = []
         for mark in configuration.overlays where !mark.ranges.isEmpty {
@@ -481,10 +758,10 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let count = Double(max(1, rows.count))
         let height = (lane.height - Self.overlayRowGap * (count - 1)) / count
         return placed.sorted { !$0.0.selected && $1.0.selected }.flatMap { mark, row in
-            mark.ranges.map { range in
+            mark.ranges.enumerated().map { part, range in
                 let rect = rectangle(range, duration: configuration.duration)
                 return (
-                    mark,
+                    mark, part,
                     CGRect(
                         x: rect.minX, y: lane.minY + Double(row) * (height + Self.overlayRowGap),
                         width: max(2, rect.width), height: height)
@@ -497,7 +774,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         let lane = overlayLane
         NSColor.quaternaryLabelColor.withAlphaComponent(0.5).setFill()
         NSBezierPath(roundedRect: lane, xRadius: 4, yRadius: 4).fill()
-        for (mark, rect) in overlayBars(configuration) {
+        for (mark, _, rect) in currentLayout().overlayBars {
             let radius = min(3, rect.height / 2)
             let shape = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
             mark.fill.withAlphaComponent(0.9).setFill()
@@ -725,21 +1002,36 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         }
     }
 
-    private func drawPlayhead(_ seconds: Double, configuration: MediaTimeline) {
-        let knobHalfWidth = 6.0
-        let actual = point(seconds, configuration)
-        let x = min(max(actual, knobHalfWidth), bounds.width - knobHalfWidth)
-        let line = CGRect(
-            x: min(max(actual - Self.playheadWidth / 2, 0), bounds.width - Self.playheadWidth),
+    private static let knobHalfWidth = 6.0
+    private static let knobTop = 3.0
+
+    /// Knob and line together.
+    func playheadFrame(_ configuration: MediaTimeline) -> CGRect {
+        let x = min(
+            max(point(configuration.position, configuration), Self.knobHalfWidth), bounds.width - Self.knobHalfWidth)
+        let bottom = playheadLine(configuration.position, configuration: configuration).maxY
+        return CGRect(
+            x: x - Self.knobHalfWidth, y: Self.knobTop, width: Self.knobHalfWidth * 2, height: bottom - Self.knobTop)
+    }
+
+    private func playheadLine(_ seconds: Double, configuration: MediaTimeline) -> CGRect {
+        CGRect(
+            x: min(max(point(seconds, configuration) - Self.playheadWidth / 2, 0), bounds.width - Self.playheadWidth),
             y: Self.rulerHeight - 6, width: Self.playheadWidth,
             height: Self.clipHeight + 12 + max(0, configuration.lanesHeight - 4))
+    }
+
+    private func drawPlayhead(_ seconds: Double, configuration: MediaTimeline) {
+        let knobHalfWidth = Self.knobHalfWidth
+        let x = min(max(point(seconds, configuration), knobHalfWidth), bounds.width - knobHalfWidth)
+        let line = playheadLine(seconds, configuration: configuration)
         NSColor.black.withAlphaComponent(0.5).setFill()
         line.insetBy(dx: -0.5, dy: 0).fill()
         NSColor.white.setFill()
         line.fill()
         let knob = NSBezierPath()
-        knob.move(to: CGPoint(x: x - knobHalfWidth, y: 3))
-        knob.line(to: CGPoint(x: x + knobHalfWidth, y: 3))
+        knob.move(to: CGPoint(x: x - knobHalfWidth, y: Self.knobTop))
+        knob.line(to: CGPoint(x: x + knobHalfWidth, y: Self.knobTop))
         knob.line(to: CGPoint(x: x + knobHalfWidth, y: Self.rulerHeight - 12))
         knob.line(to: CGPoint(x: x, y: Self.rulerHeight - 5))
         knob.line(to: CGPoint(x: x - knobHalfWidth, y: Self.rulerHeight - 12))
@@ -770,14 +1062,16 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         label.draw(at: CGPoint(x: pill.minX + 5, y: pill.minY + 1))
     }
 
-    private func rectangle(_ range: ClosedRange<Double>, duration: Double) -> CGRect {
-        CGRect(
+    func rectangle(_ range: ClosedRange<Double>, duration: Double) -> CGRect {
+        guard duration > 0 else { return CGRect(x: 0, y: Self.rulerHeight, width: 0, height: Self.clipHeight) }
+        return CGRect(
             x: range.lowerBound / duration * bounds.width, y: Self.rulerHeight,
             width: (range.upperBound - range.lowerBound) / duration * bounds.width, height: Self.clipHeight)
     }
 
     private func point(_ seconds: Double, _ configuration: MediaTimeline) -> Double {
-        seconds / configuration.duration * bounds.width
+        guard configuration.duration > 0 else { return 0 }
+        return seconds / configuration.duration * bounds.width
     }
 
     private func seconds(at x: Double) -> Double {
@@ -787,7 +1081,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
 
     override func mouseMoved(with event: NSEvent) {
         guard interactionEnabled else { return }
-        guard let configuration, trimDrag == nil else { return }
+        guard let configuration, configuration.duration > 0, trimDrag == nil else { return }
         let location = convert(event.locationInWindow, from: nil)
         pointerInViewport = CGPoint(x: location.x - visibleRect.minX, y: location.y)
         hoverTime = seconds(at: location.x)
@@ -805,7 +1099,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
 
     override func mouseDown(with event: NSEvent) {
         guard interactionEnabled else { return }
-        guard let configuration else { return }
+        guard let configuration, configuration.duration > 0 else { return }
         let location = convert(event.locationInWindow, from: nil)
         mouseOrigin = location
         leave()
@@ -815,7 +1109,9 @@ final class TimelineCanvas: NSView, NSDraggingSource {
             return
         }
         if configuration.showsOverlayLane, overlayLane.contains(location) {
-            if let bar = overlayBars(configuration).last(where: { $0.rect.insetBy(dx: -2, dy: 0).contains(location) }) {
+            if let bar = currentLayout().overlayBars.last(where: {
+                $0.rect.insetBy(dx: -2, dy: 0).contains(location)
+            }) {
                 configuration.selectOverlay?(bar.mark.id)
             }
             configuration.seek(seconds(at: location.x))
@@ -872,6 +1168,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
                 contents: NSImage(systemSymbolName: "film", accessibilityDescription: nil))
             beginDraggingSession(with: [dragging], event: event, source: self)
             self.draggedClip = nil
+            self.mouseOrigin = nil
         } else {
             configuration.seek(seconds(at: location.x))
         }
@@ -907,7 +1204,9 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard interactionEnabled, let configuration, configuration.action != nil else { return nil }
+        guard interactionEnabled, let configuration, configuration.duration > 0, configuration.action != nil else {
+            return nil
+        }
         let location = convert(event.locationInWindow, from: nil)
         guard
             let clip = configuration.clips.first(where: {
@@ -921,14 +1220,17 @@ final class TimelineCanvas: NSView, NSDraggingSource {
         for action in TimelineAction.allCases {
             let entry = NSMenuItem(title: action.title, action: #selector(performTimelineAction(_:)), keyEquivalent: "")
             entry.tag = action.rawValue; entry.target = self
-            entry.isEnabled = configuration.actionAvailable?(clip.id, action) ?? true
+            let state = actionState(for: clip.id, action: action)
+            entry.isEnabled = state.available
+            entry.state = state.checked ? .on : .off
+            if !state.available { entry.toolTip = state.reason }
             menu.addItem(entry)
         }
         return menu
     }
 
     @objc private func performTimelineAction(_ sender: NSMenuItem) {
-        guard interactionEnabled, let menuClip, let action = TimelineAction(rawValue: sender.tag) else { return }
-        configuration?.action?(menuClip, action)
+        guard let menuClip, let action = TimelineAction(rawValue: sender.tag) else { return }
+        performAction(action, on: menuClip)
     }
 }

@@ -236,7 +236,8 @@ enum Transcoder {
             }
             return try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
-                toneMapToSDR: toneMapToSDR, speed: speed, preservesLeadingEdit: preservesVideoPresentation)
+                toneMapToSDR: toneMapToSDR, speed: speed,
+                preservesLeadingEdit: preservesVideoPresentation || input.isFallback)
         case .toneMapToSDR(let encoding):
             return try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }

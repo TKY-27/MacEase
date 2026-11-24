@@ -5,6 +5,7 @@ struct NativeTimecodePlan: Sendable {
     let carriesTimecode: Bool
     let omittedKinds: [UnpreservedStream]
     private let sourceStamp: MediaSourceStamp?
+    private static let sourceChanged = String(localized: "the file changed while it was being processed")
 
     static func make(
         for input: MediaInput, destination: OutputContainer, preservesTiming: Bool,
@@ -31,10 +32,10 @@ struct NativeTimecodePlan: Sendable {
                 try timecode.attach(to: probe, video: videoInput)
                 carries = true
             } catch {
-                try stamp?.validate(input.url)
+                try stamp?.validate(input.url, message: Self.sourceChanged)
                 guard case EngineError.invalidInput(.unpreservedStreams([.timecode])) = error else { throw error }
             }
-            try stamp?.validate(input.url)
+            try stamp?.validate(input.url, message: Self.sourceChanged)
         }
         return NativeTimecodePlan(
             carriesTimecode: carries,
@@ -48,25 +49,25 @@ struct NativeTimecodePlan: Sendable {
     }
 
     func write(_ input: MediaInput, plan: TranscodePlan, to output: URL, progress: (Double) -> Void) async throws {
-        try sourceStamp?.validate(input.url)
+        try sourceStamp?.validate(input.url, message: Self.sourceChanged)
         do {
             try await Transcoder.run(input, plan: plan, to: output, progress: progress)
         } catch {
-            try sourceStamp?.validate(input.url)
+            try sourceStamp?.validate(input.url, message: Self.sourceChanged)
             throw error
         }
-        try sourceStamp?.validate(input.url)
+        try sourceStamp?.validate(input.url, message: Self.sourceChanged)
     }
 
     func verify(original: URL, output: URL) async throws {
         guard carriesTimecode else { return }
-        try sourceStamp?.validate(original)
+        try sourceStamp?.validate(original, message: Self.sourceChanged)
         do {
             try await NativeTimecode.verify(original: original, output: output)
         } catch {
-            try sourceStamp?.validate(original)
+            try sourceStamp?.validate(original, message: Self.sourceChanged)
             throw error
         }
-        try sourceStamp?.validate(original)
+        try sourceStamp?.validate(original, message: Self.sourceChanged)
     }
 }

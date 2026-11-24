@@ -40,7 +40,7 @@ enum VideoSubtitles {
     private static let speechFormat = AudioTarget(format: .wav, kilobits: 0)
 
     static func run(_ request: SubtitleRequest, url: URL, context: ItemContext) async throws -> ItemResult {
-        let input = try await MediaInput.open(url)
+        let input = try await MediaInput.openWithFallback(url, context: context, enforceStreamConsent: false)
         guard let track = input.audio, case .audio(let sampleRate, _) = track.kind else {
             throw EngineError.invalidInput(.malformed("no audio track"))
         }
@@ -54,7 +54,7 @@ enum VideoSubtitles {
 
 enum VideoBackgroundRemoval {
     static func run(_ request: VideoBackgroundRequest, url: URL, context: ItemContext) async throws -> ItemResult {
-        let input = try await MediaInput.open(url)
+        let input = try await MediaInput.openWithFallback(url, context: context, enforceStreamConsent: false)
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         var encoding = VideoEdits.encoding(input, source: source, settings: context.settings.video)
         let container: OutputContainer
@@ -91,7 +91,7 @@ enum VideoBackgroundRemoval {
         -> TranscodePlan.Audio?
     {
         guard let audio = input.audio else { return nil }
-        if container.holds(audio.codec) { return .copy }
+        if !input.isFallback, container.holds(audio.codec) { return .copy }
         return container == .webm
             ? .encode(.opus, kilobits: settings.opusBitrate) : .encode(.aac, kilobits: settings.aacBitrate)
     }

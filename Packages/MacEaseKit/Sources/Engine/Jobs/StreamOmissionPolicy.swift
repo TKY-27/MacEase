@@ -6,7 +6,7 @@ extension Settings.UnpreservedStreamsChoice {
 
 extension WorkItem {
     func savesNewFile(context: ItemContext) async -> Bool {
-        if newFileNaming != nil || derivesOutput { return true }
+        if newFileNaming != nil || derivesOutput || context.usedFallbackInput { return true }
         guard let omissionOptions else { return false }
         if NewFileNaming(options: omissionOptions) == nil {
             switch omissionOptions {

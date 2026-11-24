@@ -58,11 +58,11 @@ struct IntelligenceSettingsView: View {
             }
             Section {
                 Toggle(isOn: $store.settings.intelligence.aiEnabled) {
-                    Text("Apple Intelligence features")
-                    Text("AI rename in the Finder menu.")
+                    Text("Use Apple Intelligence")
+                    Text("Enables Rename with Apple Intelligence in the Finder menu.")
                 }
-                .accessibilityLabel(Text("Apple Intelligence features"))
-                .accessibilityHint(Text("AI rename in the Finder menu."))
+                .accessibilityLabel(Text("Use Apple Intelligence"))
+                .accessibilityHint(Text("Enables Rename with Apple Intelligence in the Finder menu."))
                 if case .unavailable = SystemLanguageModel.default.availability {
                     Label("Apple Intelligence is unavailable on this Mac.", systemImage: "info.circle")
                         .foregroundStyle(.secondary)

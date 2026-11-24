@@ -65,7 +65,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "Multiple videos require a new file."))))
+                .invalidInput(.malformed(String(localized: "Joined videos can only be saved as a new file."))))
         }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -81,7 +81,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "This source requires a new file."))))
+                .invalidInput(.malformed(String(localized: "This file can only be saved as a new file."))))
         }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -105,7 +105,8 @@ final class MediaEditorModelTests: XCTestCase {
             XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
                 XCTAssertEqual(
                     error as? EngineError,
-                    .invalidInput(.malformed(String(localized: "HDR color edits require a new SDR file."))))
+                    .invalidInput(.malformed(String(localized: "HDR color edits can only be saved as a new SDR file.")))
+                )
             }
             let planned = try model.makeSave(replacingOriginal: false)
             XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -125,7 +126,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "HDR color edits require a new SDR file."))))
+                .invalidInput(.malformed(String(localized: "HDR color edits can only be saved as a new SDR file."))))
         }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.settings.outputMode, .newFile)
@@ -158,7 +159,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertThrowsError(try model.makeSave(replacingOriginal: true)) { error in
             XCTAssertEqual(
                 error as? EngineError,
-                .invalidInput(.malformed(String(localized: "This source requires a new file."))))
+                .invalidInput(.malformed(String(localized: "This file can only be saved as a new file."))))
         }
         let derived = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(derived.settings.outputMode, .newFile)
@@ -344,7 +345,7 @@ final class MediaEditorModelTests: XCTestCase {
         model.updateTimelineTrim(to: 0.43)
         try await eventually { model.values.start > 0 }
         XCTAssertEqual(model.timelineDuration, 2, accuracy: 0.000_001)
-        XCTAssertEqual(model.timelineRange(for: model.values.segments[0]).lowerBound, 10.0 / 24, accuracy: 0.000_001)
+        XCTAssertEqual(try XCTUnwrap(model.timelineRanges().first).lowerBound, 10.0 / 24, accuracy: 0.000_001)
         model.updateTimelineTrim(to: 0.63)
         await model.endTimelineTrim()
 
@@ -623,7 +624,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.position, 2, accuracy: 0.05)
     }
 
-    private func textFields(in view: NSView) -> [NSTextField] {
+    func textFields(in view: NSView) -> [NSTextField] {
         (view as? NSTextField).map { [$0] } ?? view.subviews.flatMap { textFields(in: $0) }
     }
 
@@ -938,9 +939,8 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.values.selectedID, freeze.id)
         XCTAssertEqual(model.position, freeze.start, accuracy: 0.000_001)
         XCTAssertEqual(model.outputDuration, before + 2, accuracy: 0.000_001)
-        XCTAssertEqual(
-            model.timelineRange(for: freeze).upperBound - model.timelineRange(for: freeze).lowerBound, 2,
-            accuracy: 0.000_001)
+        let freezeRange = try XCTUnwrap(model.timelineRanges().dropFirst().first)
+        XCTAssertEqual(freezeRange.upperBound - freezeRange.lowerBound, 2, accuracy: 0.000_001)
 
         XCTAssertFalse(model.canInsertFreezeFrame, "a freeze cannot be frozen again")
         XCTAssertFalse(model.canSplit)
@@ -1183,10 +1183,10 @@ final class MediaEditorModelTests: XCTestCase {
 
         XCTAssertEqual(String(localized: "Removes \(1) pauses (\("0:01.0"))"), "Removes 1 pause (0:01.0)")
         XCTAssertEqual(String(localized: "Removes \(14) pauses (\("0:42.0"))"), "Removes 14 pauses (0:42.0)")
-        XCTAssertEqual(japanese("Removes %lld pauses (%@)"), "%lldか所の間を削除（%@）")
+        XCTAssertEqual(japanese("Removes %lld pauses (%@)"), "%lldか所の無音を削除（%@）")
         XCTAssertEqual(
             japanese("Nothing would be left. Choose a lower threshold or a longer pause."),
-            "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。")
+            "何も残らなくなります。無音とみなす音量を下げるか、対象にする無音を長くしてください。")
         XCTAssertEqual(
             japanese("There’s no audible sound to analyze in this video."), "この動画には分析できる音がありません。")
     }
@@ -1807,6 +1807,206 @@ final class MediaEditorModelTests: XCTestCase {
         try await eventually { !model.editingLocked }
     }
 
+    func testEditorTimelineAccessibilityDescribesAndEditsJoinedSegments() async throws {
+        let directory = try workspace()
+        let model = try await videoModel(count: 2, fixture: try pausedSpeechFixture(in: directory))
+        model.seek(1.5)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 4 && !model.splitting }
+        model.selectSegment(model.values.segments[3].id)
+        model.toggleReverse()
+        try await eventually { model.reverseTask == nil }
+        XCTAssertNil(model.reverseFailure)
+        model.addDefaultOverlay(.box)
+        model.setMusic(try audioFixture(in: directory))
+        try await eventually { model.musicTask == nil }
+        model.analyzeSilence()
+        try await eventually { model.silenceTask == nil }
+        model.showsSilencePreview = true
+        let host = NSHostingView(rootView: EditorTimeline(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1200, height: 260), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let canvas = try XCTUnwrap(timelineView(in: host)?.canvas)
+        func parts() throws -> [String: NSAccessibilityElement] {
+            let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
+            return Dictionary(uniqueKeysWithValues: children.map { ($0.accessibilityLabel() ?? "", $0) })
+        }
+        func value(_ label: String) throws -> String {
+            try XCTUnwrap(try parts()[label]?.accessibilityValue() as? String, label)
+        }
+        let labels = try parts().keys
+        for expected in [
+            "Segment 1 of 4, clip-0.mp4", "Segment 2 of 4, clip-0.mp4", "Segment 3 of 4, clip-0.mp4",
+            "Segment 4 of 4, clip-1.mp4", "Box 1", "Music, tone.wav", "Playhead",
+        ] {
+            XCTAssertTrue(labels.contains(expected), "\(expected) in \(labels.sorted())")
+        }
+        XCTAssertTrue(labels.contains { $0.hasPrefix("Pause to remove, 1 of ") }, "\(labels.sorted())")
+        XCTAssertTrue(try value("Segment 2 of 4, clip-0.mp4").contains("Freeze Frame"))
+        XCTAssertTrue(try value("Segment 4 of 4, clip-1.mp4").contains("Reversed"))
+        XCTAssertTrue(try value("Segment 4 of 4, clip-1.mp4").contains("Selected"))
+        XCTAssertFalse(try value("Segment 1 of 4, clip-0.mp4").contains("Selected"))
+        XCTAssertTrue(try value("Music, tone.wav").contains("30%"))
+
+        func perform(_ action: String, on label: String) async throws {
+            let segment = try XCTUnwrap(try parts()[label], label)
+            let custom = try XCTUnwrap(segment.accessibilityCustomActions()?.first { $0.name == action }, action)
+            let before = model.values.segments
+            XCTAssertTrue(custom.handler?() ?? false, action)
+            try await eventually { model.values.segments != before && !model.splitting && model.reverseTask == nil }
+            host.layoutSubtreeIfNeeded()
+            model.undo()
+            XCTAssertEqual(model.values.segments, before, "\(action) is exactly one Undo step")
+            host.layoutSubtreeIfNeeded()
+        }
+        try await perform(TimelineAction.duplicate.title, on: "Segment 1 of 4, clip-0.mp4")
+        try await perform(TimelineAction.delete.title, on: "Segment 3 of 4, clip-0.mp4")
+        try await perform(TimelineAction.right.title, on: "Segment 1 of 4, clip-0.mp4")
+        try await perform("Play Segment Forward", on: "Segment 4 of 4, clip-1.mp4")
+        model.seek(4)
+        host.layoutSubtreeIfNeeded()
+        try await perform(TimelineAction.split.title, on: "Segment 3 of 4, clip-0.mp4")
+        try await perform(TimelineAction.freeze.title, on: "Segment 3 of 4, clip-0.mp4")
+        try await perform(TimelineAction.reverse.title, on: "Segment 3 of 4, clip-0.mp4")
+
+        let playhead = try XCTUnwrap(try parts()["Playhead"])
+        let start = model.position
+        XCTAssertTrue(playhead.accessibilityPerformIncrement())
+        try await eventually { model.position > start }
+        XCTAssertEqual(model.position - start, model.frameDuration, accuracy: model.frameDuration / 2)
+
+        let stale = try XCTUnwrap(
+            try parts()["Segment 1 of 4, clip-0.mp4"]?.accessibilityCustomActions()?.first {
+                $0.name == TimelineAction.duplicate.title
+            })
+        model.selectSegment(model.values.segments[2].id)
+        model.toggleReverse()
+        XCTAssertTrue(model.editingLocked)
+        host.layoutSubtreeIfNeeded()
+        let locked = model.values
+        XCTAssertEqual(try parts()["Segment 1 of 4, clip-0.mp4"]?.accessibilityCustomActions()?.isEmpty, true)
+        XCTAssertFalse(stale.handler?() ?? true)
+        XCTAssertFalse(playhead.accessibilityPerformIncrement())
+        XCTAssertFalse(try XCTUnwrap(try parts()["Box 1"]).accessibilityPerformPress())
+        XCTAssertEqual(model.values, locked, "no accessibility action edits during a reverse")
+        model.cancelReverse()
+        try await eventually { !model.editingLocked }
+    }
+
+    func testDisabledEditorControlsExplainWhy() async throws {
+        let model = try await videoModel()
+        XCTAssertEqual(model.splitUnavailableReason, "Place the playhead inside this segment to split it.")
+        model.seek(1)
+        XCTAssertNil(model.splitUnavailableReason)
+        XCTAssertNil(model.freezeFrameUnavailableReason(for: nil))
+        XCTAssertEqual(model.applyToAllUnavailableReason(styleOnly: false), nil, "one segment hides the button")
+        model.insertFreezeFrame()
+        try await eventually { model.selectedSegment?.isFreeze == true && !model.splitting }
+        let freeze = try XCTUnwrap(model.values.selectedID)
+        XCTAssertEqual(model.freezeFrameUnavailableReason(for: nil), "The playhead is already on a freeze frame.")
+        XCTAssertEqual(model.splitUnavailableReason, "A freeze frame can’t be split.")
+        XCTAssertEqual(model.trimUnavailableReason(for: freeze), "A freeze frame can’t be trimmed.")
+        XCTAssertEqual(model.reverseUnavailableReason, "A freeze frame can’t be reversed.")
+        let first = model.values.segments[0].id
+        XCTAssertEqual(model.freezeFrameUnavailableReason(for: first), "The playhead is already on a freeze frame.")
+        model.seek(0.2)
+        XCTAssertEqual(model.freezeFrameUnavailableReason(for: freeze), "Place the playhead inside this segment first.")
+        XCTAssertNil(model.freezeFrameUnavailableReason(for: first))
+        XCTAssertNil(model.trimUnavailableReason(for: first))
+        XCTAssertEqual(
+            model.applyToAllUnavailableReason(styleOnly: false), "Every segment already has these adjustments.")
+        XCTAssertEqual(model.applyToAllUnavailableReason(styleOnly: true), "Every segment already has this style.")
+        model.selectSegment(first)
+        model.setAdjustment(.exposure, to: 0.5)
+        XCTAssertNil(model.applyToAllUnavailableReason(styleOnly: false))
+
+        XCTAssertNil(model.saveFrameUnavailableReason)
+        model.invalidFields.insert("speed")
+        XCTAssertEqual(model.saveFrameUnavailableReason, "Enter a valid number first.")
+        model.invalidFields.removeAll()
+        model.invalidFields.insert(MediaEditorModel.overlayTextField)
+        XCTAssertEqual(model.saveFrameUnavailableReason, "Enter valid markup text first.")
+        model.invalidFields.removeAll()
+        model.beginTimelineTrim(first, start: false)
+        XCTAssertEqual(model.saveFrameUnavailableReason, "Wait for the current edit to finish.")
+        XCTAssertFalse(model.canSaveFrame)
+        await model.endTimelineTrim()
+        XCTAssertNil(model.saveFrameUnavailableReason)
+
+        XCTAssertNil(model.previewMuteUnavailableReason)
+        XCTAssertNil(model.segmentVolumeUnavailableReason)
+        model.cropAspect = 0
+        XCTAssertEqual(model.swapCropSidesUnavailableReason, "Choose a ratio other than Freeform or 1:1.")
+        model.cropAspect = 4.0 / 3
+        XCTAssertNil(model.swapCropSidesUnavailableReason)
+        XCTAssertNil(model.addOverlayUnavailableReason)
+        for _ in 0..<EditOverlay.maximumCount { model.addDefaultOverlay(.box) }
+        XCTAssertFalse(model.canAddOverlay)
+        XCTAssertEqual(model.addOverlayUnavailableReason, "Up to \(EditOverlay.maximumCount) items.")
+
+        let silent = try await videoModel(fixture: try synthesizedSilentVideoFixture(in: try workspace()))
+        XCTAssertEqual(silent.previewMuteUnavailableReason, "This video has no sound.")
+        XCTAssertEqual(silent.segmentVolumeUnavailableReason, "This segment’s video has no sound.")
+        XCTAssertEqual(silent.silenceUnavailableReason, "There’s no audible sound to analyze in this video.")
+
+        let joined = try await videoModel(count: 2)
+        joined.seek(0.5)
+        joined.addDefaultOverlay(.box)
+        XCTAssertNil(joined.overlayBoundaryUnavailableReason)
+        joined.seek(3)
+        XCTAssertFalse(joined.canSetOverlayBoundary)
+        XCTAssertEqual(
+            joined.overlayBoundaryUnavailableReason, "Move the playhead into this video to set the range from it.")
+    }
+
+    func testTimelineContextMenuChecksReversedSegmentsAndExplainsDisabledItems() async throws {
+        let model = try await videoModel()
+        model.toggleReverse()
+        try await eventually { model.reverseTask == nil }
+        XCTAssertTrue(model.selectedSegment?.isReversed == true)
+        model.seek(1)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 3 && !model.splitting }
+        let host = NSHostingView(rootView: EditorTimeline(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1200, height: 200), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let canvas = try XCTUnwrap(timelineView(in: host)?.canvas)
+        func menu(atSecond seconds: Double) throws -> NSMenu {
+            let x = seconds / max(model.outputDuration, model.frameDuration) * canvas.bounds.width
+            let point = canvas.convert(CGPoint(x: x, y: TimelineCanvas.rulerHeight + 20), to: nil)
+            let click = try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            return try XCTUnwrap(canvas.menu(for: click))
+        }
+        func menuItem(_ action: TimelineAction, in menu: NSMenu) throws -> NSMenuItem {
+            try XCTUnwrap(menu.items.first { $0.title == action.title })
+        }
+        let reversed = try menu(atSecond: 0.3)
+        XCTAssertEqual(try menuItem(.reverse, in: reversed).state, .on, "matches the inspector toggle")
+        XCTAssertTrue(try menuItem(.reverse, in: reversed).isEnabled)
+        let frozen = try menu(
+            atSecond: try XCTUnwrap(model.timelineRanges().dropFirst().first).lowerBound + 0.1)
+        XCTAssertEqual(try menuItem(.reverse, in: frozen).state, .off)
+        XCTAssertFalse(try menuItem(.reverse, in: frozen).isEnabled)
+        XCTAssertEqual(try menuItem(.reverse, in: frozen).toolTip, "A freeze frame can’t be reversed.")
+        XCTAssertEqual(try menuItem(.setIn, in: frozen).toolTip, "A freeze frame can’t be trimmed.")
+        XCTAssertEqual(try menuItem(.split, in: frozen).toolTip, "A freeze frame can’t be split.")
+        XCTAssertTrue(try menuItem(.duplicate, in: frozen).isEnabled)
+        XCTAssertNil(try menuItem(.duplicate, in: frozen).toolTip)
+    }
+
     func testReverseDisablesNativeTimelineInputThroughTheViewEnvironment() async throws {
         let model = try await videoModel()
         model.toggleReverse()
@@ -2015,7 +2215,7 @@ final class MediaEditorModelTests: XCTestCase {
         return pixel.prefix(3).map { Double($0) / 255 }
     }
 
-    private func photoModel(
+    func photoModel(
         hdr: Bool = false, svg: Bool = false, additionalPhoto: Bool = false,
         settings: Engine.Settings = Engine.Settings()
     ) async throws -> MediaEditorModel {
@@ -2058,7 +2258,7 @@ final class MediaEditorModelTests: XCTestCase {
         return model
     }
 
-    private func videoModel(
+    func videoModel(
         count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil,
         fixture: URL? = nil
     ) async throws
@@ -2517,12 +2717,12 @@ final class MediaEditorModelTests: XCTestCase {
         model.cancelAnalysis()
     }
 
-    private func timelineView(in view: NSView) -> TimelineScrollView? {
+    func timelineView(in view: NSView) -> TimelineScrollView? {
         if let scroll = view as? TimelineScrollView { return scroll }
         return view.subviews.lazy.compactMap { self.timelineView(in: $0) }.first
     }
 
-    private func sendEditorKey(
+    func sendEditorKey(
         _ characters: String, modifiers: NSEvent.ModifierFlags = [], window: NSWindow
     ) throws {
         let unrelatedPhysicalKey: UInt16 = 0
@@ -2547,14 +2747,14 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
-    private func workspace() throws -> URL {
+    func workspace() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseAppTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }
 
-    private func audioFixture(in directory: URL) throws -> URL {
+    func audioFixture(in directory: URL) throws -> URL {
         let sampleRate = 48_000.0
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1))
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 96_000))
@@ -2594,7 +2794,7 @@ final class MediaEditorModelTests: XCTestCase {
     }
 
     /// Alternating one-second tone and silence.
-    private func pausedSpeechFixture(in directory: URL) throws -> URL {
+    func pausedSpeechFixture(in directory: URL) throws -> URL {
         let output = directory.appending(path: "paused.mp4")
         let encoding = Process()
         encoding.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
@@ -3007,7 +3207,7 @@ final class MediaEditorModelTests: XCTestCase {
         return stagedDirectories(in: staging)
     }
 
-    private func click(at point: CGPoint, in window: NSWindow) throws {
+    func click(at point: CGPoint, in window: NSWindow) throws {
         for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = try XCTUnwrap(
                 NSEvent.mouseEvent(
@@ -3017,7 +3217,7 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
-    private func japanese(_ key: String) -> String {
+    func japanese(_ key: String) -> String {
         let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
         return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"
     }

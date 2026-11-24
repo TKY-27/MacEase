@@ -462,15 +462,15 @@ final class StreamConsentTests: XCTestCase {
         func ja(_ key: String) -> String { japanese.localizedString(forKey: key, value: nil, table: nil) }
         XCTAssertEqual(
             String(format: ja("“%@” contains %@, which MacEase can’t carry over."), "a.mov", ja("timecode")),
-            "“a.mov” にはタイムコードが含まれていますが、MacEase では引き継げません。")
+            "“a.mov”にはタイムコードが含まれていますが、MacEaseでは引き継げません。")
         XCTAssertEqual(
             ja("Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound."),
             "タイムコード：編集アプリがクリップの位置合わせに使う情報です。省いても映像と音声には影響しません。")
         XCTAssertEqual(ja("Extra audio: only the first audio track is kept."), "2本目以降の音声トラック：最初の音声トラックだけが残ります。")
         XCTAssertEqual(ja("Subtitles: they can no longer be turned on during playback."), "字幕：再生中に表示できなくなります。")
         XCTAssertEqual(ja("Chapters: you can no longer jump from chapter to chapter."), "チャプター：チャプター単位で移動できなくなります。")
-        XCTAssertEqual(ja("1 file needs your confirmation."), "確認が必要なファイルが 1 件あります。")
-        XCTAssertEqual(String(format: ja("%lld files need your confirmation."), 6), "確認が必要なファイルが 6 件あります。")
+        XCTAssertEqual(ja("1 file needs your confirmation."), "確認が必要なファイルが1件あります。")
+        XCTAssertEqual(String(format: ja("%lld files need your confirmation."), 6), "確認が必要なファイルが6件あります。")
         XCTAssertEqual(String(format: ja("Continue Without %@"), ja("timecode")), "タイムコードなしで続ける")
         XCTAssertEqual(ja("Continue Without Them"), "これらを省いて続ける")
         XCTAssertEqual(
@@ -478,12 +478,12 @@ final class StreamConsentTests: XCTestCase {
                 format: ja(
                     "If you continue, “%@” is replaced. The original moves to the Trash, and you can undo this."),
                 "a.mov"),
-            "続けると、“a.mov” は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。")
+            "続けると、“a.mov”は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。")
         XCTAssertEqual(
             String(format: ja("If you continue, a new file is made and “%@” stays as it is."), "a.mov"),
-            "続けると新しいファイルが作られ、“a.mov” はそのまま残ります。")
+            "続けると新しいファイルが作られ、“a.mov”はそのまま残ります。")
         XCTAssertEqual(
-            String(format: ja("Open “%@” without %@?"), "a.mov", ja("timecode")), "“a.mov” をタイムコードなしで開きますか？")
+            String(format: ja("Open “%@” without %@?"), "a.mov", ja("timecode")), "“a.mov”をタイムコードなしで開きますか？")
         XCTAssertEqual(
             String(format: ja("Continued without %@. The new result is below."), ja("timecode")),
             "タイムコードを省いて続けました。新しい結果は下に表示されています。")
@@ -492,7 +492,7 @@ final class StreamConsentTests: XCTestCase {
                 format: ja(
                     "Couldn’t process “%@”: it contains %@, which MacEase can’t carry over. Nothing was changed."),
                 "clip.mov", ja("timecode")),
-            "“clip.mov” を処理できませんでした：タイムコードが含まれていますが、MacEase では引き継げません。ファイルは変更されていません。")
+            "“clip.mov”を処理できませんでした：タイムコードが含まれていますが、MacEaseでは引き継げません。ファイルは変更されていません。")
         XCTAssertEqual(String(format: ja("Left out, as you confirmed: %@."), ja("timecode")), "確認したとおり省きました：タイムコード。")
     }
 

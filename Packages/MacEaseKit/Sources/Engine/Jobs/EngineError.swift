@@ -7,6 +7,9 @@ public enum EngineError: Error, Equatable, Sendable {
     case decodeFailed(String)
     case protectionAuthenticationFailed
     case protectionDiskFull
+    case insufficientDiskSpace(requiredBytes: Int64, availableBytes: Int64)
+    case fallbackToolMissing
+    case fallbackConversionUnfaithful(String)
     case nonFiniteAudioSample
     case encodeFailed(String)
     case commitFailed(String)
@@ -102,7 +105,6 @@ public enum InvalidInput: Equatable, Sendable {
     case unsafeArchivePath(String)
     case archiveExpandsTooMuch(limitBytes: Int64)
     case tooLong(limitSeconds: Double)
-    case insufficientReverseSpace(requiredBytes: Int64, availableBytes: Int64)
     case multipleTracks
     case unpreservedStreams([UnpreservedStream])
     case chainedStream
@@ -161,6 +163,7 @@ extension EngineError {
         otherwise: (String) -> EngineError = EngineError.unexpected
     ) -> EngineError {
         if let engineError = error as? EngineError { return engineError }
+        if let toolFailure = error as? MediaToolProcess.Failure { return toolFailure.engineError(path: path) }
         if let availability = error as? ActivityAvailability {
             switch availability {
             case .missing: return .retryInputMissing

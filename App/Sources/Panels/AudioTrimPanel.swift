@@ -19,6 +19,7 @@ final class AudioTrimModel {
     var playing = false
     var loops = false
     private(set) var playbackRate: Float = 1
+    var playheadRevealRequest: UUID?
     var fadeIn = 0.0 { didSet { updatePreviewMix() } }
     var fadeOut = 0.0 { didSet { updatePreviewMix() } }
     var ready = false
@@ -51,6 +52,7 @@ final class AudioTrimModel {
     var maximumZoom: Double {
         max(zoom, MediaTimeline.maximumZoom(duration: duration, viewport: viewportWidth, interval: 0.001))
     }
+    var trimming: Bool { dragStart != nil }
     var fadesFit: Bool { fadeIn + fadeOut <= end - start }
     var canSave: Bool {
         ready && !closed && failure == nil && start >= 0 && end > start && end <= duration && fadesFit
@@ -63,6 +65,7 @@ final class AudioTrimModel {
     }
 
     func load() async {
+        guard !ready, !closed, source == nil else { return }
         var inspected: MediaSourceStamp?
         do {
             inspected = try MediaSourceStamp(url: url)
@@ -114,17 +117,17 @@ final class AudioTrimModel {
                 MainActor.assumeIsolated {
                     guard let self, self.playing, time.seconds.isFinite else { return }
                     guard self.player?.rate != 0 else {
-                        if self.playbackRate < 0, time.seconds <= self.start { self.seek(self.start) }
+                        if self.playbackRate < 0, time.seconds <= self.start { self.seekPlayback(self.start) }
                         return
                     }
                     self.position = min(self.end, max(self.start, time.seconds))
                     if self.playbackRate > 0, self.position >= self.end { self.finishPlayback() }
-                    if self.playbackRate < 0, self.position <= self.start { self.seek(self.start) }
+                    if self.playbackRate < 0, self.position <= self.start { self.seekPlayback(self.start) }
                 }
             }
             ready = true
             updatePreviewMix()
-            seek(start)
+            seekPlayback(start)
         } catch is CancellationError {
             await source?.close()
         } catch {
@@ -266,6 +269,11 @@ final class AudioTrimModel {
     }
 
     func seek(_ seconds: Double) {
+        playheadRevealRequest = UUID()
+        seekPlayback(seconds)
+    }
+
+    private func seekPlayback(_ seconds: Double) {
         pause()
         position = rounded(seconds)
         desiredSeek = position
@@ -283,7 +291,7 @@ final class AudioTrimModel {
 
     func play() {
         if playing { pause(); return }
-        startPlayback(rate: 1)
+        startPlayback(rate: 1, reveal: false, revealOnWrap: true)
     }
 
     /// J/K/L; repeated presses double the rate.
@@ -301,7 +309,7 @@ final class AudioTrimModel {
             seek(max(start, position - Self.reverseStepSeconds))
             return
         }
-        startPlayback(rate: rate)
+        startPlayback(rate: rate, reveal: true, revealOnWrap: true)
     }
 
     private static let maximumShuttleRate: Float = 8
@@ -309,10 +317,14 @@ final class AudioTrimModel {
     private static let mixTimescale: CMTimeScale = 1_000_000_000
     private static let reverseStepSeconds = 1.0
 
-    private func startPlayback(rate: Float) {
+    private func startPlayback(rate: Float, reveal: Bool, revealOnWrap: Bool) {
         guard let player, ready else { return }
-        if rate > 0, position < start || position >= end { seek(start) }
+        if rate > 0, position < start || position >= end {
+            seekPlayback(start)
+            if revealOnWrap { playheadRevealRequest = UUID() }
+        }
         if rate < 0, position <= start || position > end { return }
+        if reveal { playheadRevealRequest = UUID() }
         player.isMuted = abs(rate) > Self.audibleShuttleRate
         playing = true
         playbackRate = rate
@@ -327,7 +339,7 @@ final class AudioTrimModel {
     private func finishPlayback() {
         let reverse = playbackRate < 0
         pause()
-        if loops, !reverse { startPlayback(rate: 1) }
+        if loops, !reverse { startPlayback(rate: 1, reveal: false, revealOnWrap: false) }
     }
 
     func pause() { playbackTask?.cancel(); player?.pause(); playing = false; playbackRate = 1 }
@@ -380,23 +392,27 @@ struct AudioTrimPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             MediaTimeline(
-                duration: max(model.duration, 0.001), position: model.position,
-                clips: [
-                    TimelineClip(
-                        id: model.clipID, range: 0...max(0, model.duration),
-                        selection: model.ready ? model.start...model.end : nil, label: "",
-                        waveform: model.waveform, detailWaveform: model.detailWaveform,
-                        fadeIn: min(model.fadeIn, model.end - model.start),
-                        fadeOut: min(model.fadeOut, max(0, model.end - model.start - model.fadeIn)))
-                ],
-                playing: model.playing, zoom: $model.zoom, maximumZoom: model.maximumZoom,
+                duration: model.ready ? model.duration : 0, position: model.position,
+                clips: model.ready
+                    ? [
+                        TimelineClip(
+                            id: model.clipID, range: 0...max(0, model.duration),
+                            selection: model.start...model.end, label: "",
+                            waveform: model.waveform, detailWaveform: model.detailWaveform,
+                            fadeIn: min(model.fadeIn, model.end - model.start),
+                            fadeOut: min(model.fadeOut, max(0, model.end - model.start - model.fadeIn)))
+                    ] : [],
+                playing: model.playing, trimming: model.trimming, playbackRate: model.playbackRate,
+                revealRequest: model.playheadRevealRequest,
+                zoom: $model.zoom, maximumZoom: model.maximumZoom,
                 seek: model.seek, hover: { _ in }, select: { _ in },
                 beginTrim: model.beginTrim, trim: model.trim, endTrim: model.endTrim,
                 visibleRange: { range in Task { @MainActor in model.refineWaveform(range) } },
-                viewportChanged: { width in Task { @MainActor in model.viewportWidth = width } }
+                viewportChanged: { width in Task { @MainActor in model.viewportWidth = width } },
+                step: { model.seek(model.position + Double($0) / model.sampleRate) },
+                accessibilityTitle: String(localized: "Waveform")
             )
             .frame(height: MediaTimeline.height)
-            .accessibilityLabel(Text("Waveform"))
             .overlay {
                 if !model.ready, model.failure == nil, model.streamConsent == nil {
                     ProgressView().controlSize(.small)

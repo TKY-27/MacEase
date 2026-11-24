@@ -12,6 +12,7 @@ struct MediaEditorView: View {
     private var editable: Bool { model.ready && !model.editingLocked }
     @State private var showsPreparing = false
     @GestureState private var pinch = 1.0
+    @Environment(\.displayScale) private var displayScale
 
     private var preparing: Bool { model.preparingPreview }
 
@@ -64,6 +65,7 @@ struct MediaEditorView: View {
     }
 
     private static let preparingDelay = Duration.milliseconds(300)
+    private static let previewInset = CGSize(width: 48, height: 40)
 
     private var workspace: some View {
         VStack(spacing: 0) {
@@ -142,6 +144,7 @@ struct MediaEditorView: View {
                     Text("The original goes to the Trash and can be undone.")
                 }
                 .disabled(model.forcesNewFile)
+                .help(model.newFileReason ?? "")
             } label: {
                 Text("Save")
             } primaryAction: {
@@ -182,14 +185,14 @@ struct MediaEditorView: View {
                 } label: {
                     Text("Copy Edits to Selected").frame(maxWidth: .infinity)
                 }
-                .help("Copy this photo's edits to the selected photos")
+                .help("Copy this photo’s edits to the selected photos")
                 .disabled(model.selectedPhotos.isEmpty)
                 Button {
                     model.applyPhotoEdits(toAll: true)
                 } label: {
                     Text("Copy Edits to All Photos").frame(maxWidth: .infinity)
                 }
-                .help("Copy this photo's edits to every photo in the list")
+                .help("Copy this photo’s edits to every photo in the list")
             }
             .lineLimit(1)
             .padding(.horizontal, 10)
@@ -198,25 +201,17 @@ struct MediaEditorView: View {
     }
 
     private var photoBar: some View {
-        HStack {
-            Picker("Zoom", selection: $model.zoom) {
-                Text("Fit").tag(1.0)
-                Text(verbatim: "200%").tag(2.0)
-                Text(verbatim: "400%").tag(4.0)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .disabled(model.category == .crop)
-            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)")
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .frame(height: 44)
+        PhotoZoomControl(model: model, pinch: pinch)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .frame(height: 44)
     }
 
     private var preview: some View {
         GeometryReader { proxy in
+            let fitScale = min(
+                (proxy.size.width - Self.previewInset.width) * displayScale / model.previewSize.width,
+                (proxy.size.height - Self.previewInset.height) * displayScale / model.previewSize.height)
             ZStack {
                 Color.black.opacity(0.55)
                 if model.isVideo || model.image != nil {
@@ -226,8 +221,9 @@ struct MediaEditorView: View {
                         : CGSize(
                             width: model.image?.width ?? 1, height: model.image?.height ?? 1)
                     let scale = min(
-                        (proxy.size.width - 48) / imageSize.width, (proxy.size.height - 40) / imageSize.height)
-                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom * pinch
+                        (proxy.size.width - Self.previewInset.width) / imageSize.width,
+                        (proxy.size.height - Self.previewInset.height) / imageSize.height)
+                    let zoom = model.category == .crop || model.isVideo ? 1 : model.livePhotoZoom(pinch: pinch)
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
                         ZStack {
@@ -282,6 +278,9 @@ struct MediaEditorView: View {
                     }
                     Spacer()
                 }.padding(12)
+            }
+            .onChange(of: fitScale, initial: true) { _, fit in
+                if !model.isVideo { model.updatePhotoFitScale(fit) }
             }
         }
     }
@@ -432,8 +431,10 @@ struct MediaEditorView: View {
             }
             .disabled(!model.canApplyToAllSegments(styleOnly: styleOnly))
             .help(
-                styleOnly
-                    ? "Give every segment this segment’s style" : "Give every segment this segment’s adjustments")
+                model.applyToAllUnavailableReason(styleOnly: styleOnly)
+                    ?? (styleOnly
+                        ? String(localized: "Give every segment this segment’s style")
+                        : String(localized: "Give every segment this segment’s adjustments")))
         }
     }
 
@@ -556,7 +557,8 @@ struct MediaEditorView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .toggleStyle(.button)
-                .disabled(model.cropAspect == 0 || model.cropAspect == 1)
+                .disabled(model.swapCropSidesUnavailableReason != nil)
+                .help(model.swapCropSidesUnavailableReason ?? "")
             }
             InspectorSection(String(localized: "Straighten")) {
                 LabeledSlider(
@@ -729,6 +731,8 @@ struct EditorSlider: View {
     let title: String
     let value: Double
     let range: ClosedRange<Double>
+    /// Spoken instead of the raw number.
+    var spokenValue: String?
     let commit: (Double, EditorInteraction?) -> Void
     @State private var interaction: EditorInteraction?
 
@@ -747,6 +751,7 @@ struct EditorSlider: View {
             }
         }
         .labelsHidden()
+        .accessibilityValue(Text(spokenValue ?? value.formatted(.number.precision(.fractionLength(0...2)))))
         .onDisappear {
             if let token = interaction {
                 interaction = nil
@@ -771,7 +776,7 @@ private struct LabeledSlider: View {
                 Spacer()
                 Text(display).monospacedDigit().foregroundStyle(.secondary)
             }
-            EditorSlider(model: model, title: title, value: value, range: range, commit: commit)
+            EditorSlider(model: model, title: title, value: value, range: range, spokenValue: display, commit: commit)
         }
     }
 }
