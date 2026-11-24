@@ -3286,7 +3286,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finder メニュー"
+            "value": "Finderメニュー"
           }
         }
       }
@@ -3542,16 +3542,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "インターネットからダウンロード：表示専用プレビュー"
-          }
-        }
-      }
-    },
-    "Full Disk Access": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フルディスクアクセス"
           }
         }
       }
@@ -5209,16 +5199,6 @@
         }
       }
     },
-    "Open Settings": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定を開く"
-          }
-        }
-      }
-    },
     "Open Settings…": {
       "localizations": {
         "ja": {
@@ -5246,16 +5226,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "変換時に PNG ファイルを最適化"
-          }
-        }
-      }
-    },
-    "Optional. Stops macOS from asking about each protected folder.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意です。保護されたフォルダごとの macOS によるアクセス確認を省略できます。"
           }
         }
       }
@@ -5640,16 +5610,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "PDFの前のページ"
-          }
-        }
-      }
-    },
-    "Privacy and Security": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライバシーとセキュリティ"
           }
         }
       }
@@ -6357,16 +6317,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ルールはセミコロンで区切ります。* は任意の文字列、? は任意の 1 文字に一致します。大文字と小文字は区別しません。"
-          }
-        }
-      }
-    },
-    "Settings": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定"
           }
         }
       }
@@ -20996,23 +20946,6 @@
         }
       }
     },
-    "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この新規ファイルのテンプレートは無効になっています。「設定」＞「Finder メニュー」の「新規ファイル」オプションで有効にしてください。"
-          }
-        }
-      }
-    },
     "Untitled": {
       "extractionState": "manual",
       "localizations": {
@@ -21094,6 +21027,141 @@
           "stringUnit": {
             "state": "translated",
             "value": "新規ファイル"
+          }
+        }
+      }
+    },
+    "Text & PDF": {
+      "comment": "Settings page",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストとPDF"
+          }
+        }
+      }
+    },
+    "Security": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セキュリティ"
+          }
+        }
+      }
+    },
+    "Templates": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレート"
+          }
+        }
+      }
+    },
+    "New File doesn’t appear in the Finder menu until you select a template.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートを選択するまで、Finderメニューに「新規ファイル」は表示されません。"
+          }
+        }
+      }
+    },
+    "No templates selected": {
+      "comment": "Menu item visibility note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テンプレートが選択されていません"
+          }
+        }
+      }
+    },
+    "Open with": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリケーションで開く"
+          }
+        }
+      }
+    },
+    "Other…": {
+      "comment": "Chooses an app that is not listed",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他…"
+          }
+        }
+      }
+    },
+    "“%@” can’t be found. Choose another app.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”が見つかりません。別のアプリケーションを選択してください。"
+          }
+        }
+      }
+    },
+    "This New File template is no longer enabled. Enable it in Settings > Finder Menu > Commands > New File > Options.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この新規ファイルのテンプレートは無効になっています。「設定」>「Finderメニュー」>「コマンド」>「新規ファイル」>「オプション」で有効にしてください。"
+          }
+        }
+      }
+    },
+    "Ask": {
+      "comment": "Unpreserved content choice",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認する"
+          }
+        }
+      }
+    },
+    "Save without it": {
+      "comment": "Unpreserved content choice",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省いて保存"
+          }
+        }
+      }
+    },
+    "If some content can’t be kept": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引き継げない内容がある場合"
+          }
+        }
+      }
+    },
+    "Applies to subtitles, chapters and similar content in new files. Replacing an original always asks.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいファイルの字幕やチャプターなどに適用されます。元のファイルを置き換える場合は必ず確認します。"
           }
         }
       }

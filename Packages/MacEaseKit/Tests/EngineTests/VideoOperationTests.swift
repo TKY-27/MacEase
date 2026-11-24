@@ -529,10 +529,11 @@ import Testing
         #expect(frames.map(\.width) == [80, 80])
     }
 
-    private func videoWithExtraTracks(
+    func videoWithExtraTracks(
         includeTimecode: Bool = false, includeChapter: Bool = false, includeMetadata: Bool = false,
         includeClosedCaption: Bool = false, sourceURL: URL? = nil, timecodeRate: Int32 = 24, leadingSeconds: Double = 0,
-        timecodeDuration: CMTime? = nil, associateTimecode: Bool = true
+        timecodeDuration: CMTime? = nil, associateTimecode: Bool = true, movieTimeScale: CMTimeScale = 600,
+        containerMetadata: [AVMetadataItem] = []
     ) async throws -> URL {
         let source = try sourceURL ?? fixture("ffmpeg-h264-aac.mp4")
         let asset = AVURLAsset(url: source)
@@ -542,7 +543,8 @@ import Testing
             try await asset.load(.duration), CMTime(seconds: leadingSeconds, preferredTimescale: 600))
         let url = try TestVolume.makeFolder().appending(path: "extra-tracks.mov")
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
-        writer.movieTimeScale = timecodeDuration?.timescale ?? 600
+        writer.metadata = containerMetadata
+        writer.movieTimeScale = timecodeDuration?.timescale ?? movieTimeScale
         let reader = try AVAssetReader(asset: asset)
 
         var pairs: [(output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)] = []

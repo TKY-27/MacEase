@@ -54,6 +54,7 @@ public struct ActivitySession: Sendable {
     public let settings: Settings
     public let outcome: BatchOutcome
     private var retrying = false
+    public private(set) var approvedStreamOmission = false
     private var retryIndices: [Int] = []
 
     public init(request: OperationRequest, settings: Settings, outcome: BatchOutcome) {
@@ -102,7 +103,9 @@ public struct ActivitySession: Sendable {
         settings.outputMode == .replace && NewFileNaming(options: request.options) != nil
     }
 
-    public var canRetryOmittingStreams: Bool { !retrying && !unpreservedStreamIndices.isEmpty }
+    public var canRetryOmittingStreams: Bool {
+        !retrying && !approvedStreamOmission && !unpreservedStreamIndices.isEmpty
+    }
 
     public mutating func beginRetry(
         options: OperationOptions? = nil,
@@ -127,10 +130,12 @@ public struct ActivitySession: Sendable {
             }
         }
         retrying = true
+        approvedStreamOmission = approvedStreamOmission || !omittingStreams.isEmpty
         retryIndices = targetIndices
         return OperationRequest(
             op: request.op, options: options ?? request.options, inputs: inputs,
-            omittedStreams: request.omittedStreams.union(omittingStreams))
+            omittedStreams: request.omittedStreams.union(omittingStreams),
+            unpreservedStreams: request.unpreservedStreams)
     }
 
     public func retryBatch(for retry: OperationRequest) -> Batch {
@@ -206,7 +211,7 @@ public struct ActivitySession: Sendable {
         return comparison
     }
 
-    static func validate(_ url: URL, stamp: FileStamp) throws {
+    public static func validate(_ url: URL, stamp: FileStamp) throws {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw ActivityAvailability.missing(url.lastPathComponent)
         }

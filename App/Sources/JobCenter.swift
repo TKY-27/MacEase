@@ -69,7 +69,6 @@ final class JobCenter {
     private(set) var sessions: [UUID: ActivitySession] = [:]
     private(set) var downloadSessions: [UUID: DownloadSession] = [:]
     private var validatingRetries: Set<UUID> = []
-    private(set) var continuedWithoutStreams: Set<UUID> = []
     private var sessionOrder: [UUID] = []
     @ObservationIgnored private let comparisonHost = FeatureWindowHost()
     @ObservationIgnored private let retryHost = PanelHost()
@@ -203,6 +202,10 @@ final class JobCenter {
     @discardableResult
     func run(_ request: OperationRequest, settings suppliedSettings: Settings? = nil) -> Task<BatchOutcome?, Never> {
         let snapshot = suppliedSettings ?? settings.planning
+        let request = OperationRequest(
+            op: request.op, options: request.options, inputs: request.inputs,
+            omittedStreams: request.omittedStreams, inputStamps: request.inputStamps,
+            unpreservedStreams: snapshot.unpreservedStreams)
         return run(settings: snapshot, request: request) {
             await Task.detached { OperationPlanner.batch(for: request, settings: snapshot) }.value
         }
@@ -405,7 +408,6 @@ final class JobCenter {
     }
 
     func dismissSession(_ id: UUID) {
-        continuedWithoutStreams.remove(id)
         sessions.removeValue(forKey: id)
         downloadSessions.removeValue(forKey: id)
         sessionOrder.removeAll { $0 == id }
@@ -444,16 +446,15 @@ final class JobCenter {
 
     func canContinueWithoutStreams(_ id: UUID) -> Bool {
         sessions[id]?.canRetryOmittingStreams == true && !validatingRetries.contains(id)
-            && !continuedWithoutStreams.contains(id)
     }
 
-    /// Resubmits only the files and kinds shown.
     func continueWithoutStreams(_ id: UUID) {
         guard !terminating, let session = sessions[id], canContinueWithoutStreams(id) else { return }
         let streams = Set(session.unpreservedStreams)
         let indices = session.unpreservedStreamIndices
-        validateRetry(id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }) { _, request in
-            self.continuedWithoutStreams.insert(id)
+        validateRetry(
+            id, beginning: { try $0.beginRetry(omittingStreams: streams, indices: indices) }
+        ) { _, request in
             self.launchRetry(id, request: request)
         }
     }
@@ -494,7 +495,8 @@ final class JobCenter {
                         id,
                         request: OperationRequest(
                             op: request.op, options: options, inputs: request.inputs,
-                            omittedStreams: request.omittedStreams))
+                            omittedStreams: request.omittedStreams,
+                            unpreservedStreams: request.unpreservedStreams))
                     close()
                 }
             }
@@ -564,7 +566,8 @@ final class JobCenter {
 
     private func finish(_ outcome: BatchOutcome, request: OperationRequest?, settings: Settings, activeID: UUID) {
         if let request {
-            sessions[outcome.batchID] = ActivitySession(request: request, settings: settings, outcome: outcome)
+            let session = ActivitySession(request: request, settings: settings, outcome: outcome)
+            sessions[outcome.batchID] = session
             rememberSession(outcome.batchID)
         }
         let batch = active.first { $0.id == activeID }
@@ -602,7 +605,6 @@ final class JobCenter {
         sessionOrder.append(id)
         while sessionOrder.count > Self.sessionCount {
             let expired = sessionOrder.removeFirst()
-            continuedWithoutStreams.remove(expired)
             sessions.removeValue(forKey: expired)
             downloadSessions.removeValue(forKey: expired)
         }

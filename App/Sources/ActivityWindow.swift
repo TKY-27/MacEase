@@ -43,7 +43,8 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         // Only this window offers the choice.
         let awaitsStreamConsent = jobs.canContinueWithoutStreams(outcome.batchID)
         let result = ActivityResult(
-            outcome, fileNames: names, awaitingConsent: awaitsStreamConsent ? jobs.sessions[outcome.batchID] : nil)
+            outcome, fileNames: names,
+            awaitingConsent: awaitsStreamConsent ? jobs.sessions[outcome.batchID] : nil)
         if awaitsStreamConsent {
             log.rows[index].dismissed = false
             present()
@@ -158,7 +159,6 @@ final class ActivityWindow: NSObject, NSWindowDelegate {
         panel.setFrameOrigin(
             NSPoint(x: visible.midX - size.width / 2, y: visible.maxY - Self.topMargin - size.height))
     }
-
 }
 
 @MainActor
@@ -587,7 +587,7 @@ private struct ActivityRowView: View {
 
     /// Calm tint: a question, not an error.
     @ViewBuilder private func confirmationStatus(_ streams: [UnpreservedStream], pending: String) -> some View {
-        if jobs.continuedWithoutStreams.contains(row.batchID) {
+        if (jobs.sessions[row.batchID]?.approvedStreamOmission == true) {
             Label(UserMessages.continuedWithout(streams), systemImage: "arrow.down.circle")
                 .foregroundStyle(.secondary)
         } else {
@@ -701,7 +701,7 @@ private struct ActivityRowView: View {
             }
             .font(.callout)
         }
-        if !result.confirmations.isEmpty, !jobs.continuedWithoutStreams.contains(row.batchID) {
+        if !result.confirmations.isEmpty, !(jobs.sessions[row.batchID]?.approvedStreamOmission == true) {
             StreamOmissionOffer(result: result, enabled: jobs.canContinueWithoutStreams(row.batchID)) {
                 jobs.continueWithoutStreams(row.batchID)
             }

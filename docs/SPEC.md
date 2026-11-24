@@ -109,60 +109,87 @@ Menu file content:
 
 ```json
 {
-  "schema": 3,
-  "catalogVersion": "sha256 of ordered entries and localized menu titles",
+  "schema": 4,
+  "catalogVersion": "SHA-256 of a length-prefixed encoding of entries, moreTitle and commands",
   "token": "64 hex characters",
   "hostAvailable": true,
   "moreTitle": "More",
-  "updateTitle": "Update Available (v3.1.0)",
-  "previewTitle": "Show Finder Preview",
+  "commands": [
+    { "group": "command.preview", "title": "Show Finder Preview", "placement": "primary" },
+    { "group": "command.copyPath", "title": "Copy Path", "placement": "primary",
+      "leaves": [{ "preset": "posix", "title": "Copy Path" },
+                 { "preset": "shellQuoted", "title": "Copy Path for Terminal" }] },
+    { "group": "folder.downloadMedia", "title": "yt-dlp…", "placement": "finder" }
+  ],
   "entries": [
-    { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"], "separatorBefore": false }
+    { "op": "image.resize", "preset": "percent-50", "kind": "image", "path": ["Resize", "50%"],
+      "separatorBefore": false, "operationSeparatorBefore": false,
+      "groupID": "image.resize", "placement": "primary" }
   ],
   "kinds": { "image": { "title": "Images" } }
 }
 ```
 
-- `entries` lists every visible menu leaf, already localized in the host's UI
-  language and already filtered by settings and capabilities (hidden items,
-  Apple Intelligence availability, Java availability).
+- `entries` lists every visible menu leaf in display order, already localized
+  in the host's UI language and already filtered by settings and capabilities
+  (hidden items, Apple Intelligence availability, Java availability).
 - `path` gives the localized submenu titles from the kind level down to the leaf.
   Different operation IDs can share a submenu, such as Rotate and Convert.
-- Schema 3 retains `separatorBefore` to each leaf. It marks a preset-group boundary
-  at that leaf's parent level. After filtering, the renderer keeps group
-  boundaries between surviving groups without leading, trailing, or repeated
-  separators. Separators have no action or entry index. Section headers are
-  not used.
+- `separatorBefore` marks a preset-group boundary at that leaf's parent level;
+  `operationSeparatorBefore` marks a boundary between operation clusters.
+  After filtering, the renderer keeps group boundaries between surviving groups
+  without leading, trailing, or repeated separators. Separators have no action
+  or entry index. Section headers are not used.
+- Every entry carries a required `placement`: `finder` (directly in Finder's
+  context menu), `primary` (the MacEase submenu) or `more` (the final More
+  submenu). Section 4.2 describes the arrangement that produces it.
+- `commands` lists the Commands rows (section 4.5) in display order. Each row
+  names its group, a localized title and a placement. Host command groups use
+  the `command.` prefix; other groups, such as `folder.downloadMedia`, refer to
+  operation entries. Optional `leaves` list the localized choices of a command
+  submenu, each with a `preset` that the request carries.
+- The host omits a command row it cannot offer: Update without a known newer
+  release, Move Here without cut items, and New File without enabled templates.
+  The host rewrites the menu file whenever one of these conditions changes.
 - The catalog hash covers the complete ordered entries, including grouping,
-  parameter values, visibility, and selection constraints. Editable menu values
-  are published with their stable slot IDs and resolved parameters. Leaf
-  constraints include minimum and maximum per-kind counts and applicable source
-  and target formats. The host validates the parameters again before execution.
-  `resizeValue` carries the resolved integer percentage or pixel edge for its
-  stable resize slot; `targetBytes` carries decimal compression bytes.
-- Schema 3 adds optional stable recipe IDs, revisions and accepted-kind sets.
+  placement, parameter values, visibility, and selection constraints, plus
+  `moreTitle` and every command row and leaf. Each field is hashed with a
+  64-bit big-endian length prefix, an absent value uses length −1, and lists
+  are preceded by their counts, so titles cannot imitate a field boundary and
+  an absent value differs from an empty one. Kind titles are not hashed.
+  Editable menu values are published with their stable slot IDs and resolved
+  parameters. Leaf constraints include minimum and maximum per-kind counts and
+  applicable source and target formats. The host validates the parameters again
+  before execution. `resizeValue` carries the resolved integer percentage or
+  pixel edge for its stable resize slot; `targetBytes` carries decimal
+  compression bytes.
+- Entries may carry stable recipe IDs, revisions and accepted-kind sets.
   The catalog hash includes these fields. Recipe inputs must all match the
   accepted kinds; the host never silently drops unsupported files.
 - `token` is generated once from 32 random bytes on first launch, persisted by
   the host, and rotatable in Settings > Advanced.
-- Schema 3 accepts an optional localized `updateTitle`, included in the catalog
-  hash. Old files omit it. The host rewrites the menu file whenever the known
-  available version changes, including when it is cleared.
 
-- Schema 3 accepts optional localized `previewTitle`, included in the catalog
-  hash and preserved through recipe expansion. Old files omit the preview item.
-
-If the menu file is missing, unreadable, or uses an unsupported schema
-(including schemas 1 and 2), the extension shows a single item,
-"Open MacEase", which opens `macease://open`. The host shows Welcome if
-onboarding is incomplete, otherwise Settings. This route never runs an operation.
+If the menu file is missing, unreadable, uses an unsupported schema (including
+schemas 1 to 3), or has a `catalogVersion` that does not match its content, the
+extension shows a single item, "Open MacEase", which opens `macease://open`.
+The host rewrites the file at launch, so a schema-3 file left by an older
+version is replaced on the first launch after an update. The host shows Welcome
+if onboarding is incomplete, otherwise Settings. This route never runs an
+operation.
 
 **Menu construction.** Finder Sync copies menu items and keeps only title,
-image, action and `tag`; `representedObject` is lost (verified). Each leaf's
-`tag` is its index in `entries`. Action handlers run off the main thread
-(verified: isolating the class to the main actor crashes the extension). They
-only read `sender.tag`, read the selection from `FIFinderSyncController`, build
-the URL, and call `NSWorkspace.shared.open`.
+image, action and `tag`; `representedObject` is lost (verified). Each menu the
+extension builds takes a fresh contiguous tag range: operation entries first,
+then one tag per command action. The per-process counter starts at a random
+value between 1 and `Int32.max / 2` and never wraps; when a build would pass
+`Int32.max`, the extension shows only Open MacEase. The extension retains the
+last eight builds, and a tag resolves only within the build whose menu showed
+it, carrying that build's catalog version. A click on a menu shown before the
+menu file changed therefore sends the old version and receives the stale-menu
+notification. Action handlers run off the main thread (verified: isolating the
+class to the main actor crashes the extension). They only read `sender.tag`,
+read the selection from `FIFinderSyncController`, build the URL, and call
+`NSWorkspace.shared.open`.
 
 **Request URL.**
 
@@ -179,15 +206,38 @@ macease://run?v=<catalogVersion>&e=<entryIndex>&t=<token>&path=<path>&path=<path
   rejected with a notification asking the user to retry.
 - For a container menu (right-click on a folder background), the single path is
   `FIFinderSyncController.targetedURL()`.
+- Every request path, in run and command requests alike, must be absolute,
+  contain no NUL and no `.` or `..` component. Repeated and trailing slashes are
+  removed before the host calls `lstat` or touches the file system, so a
+  trailing `/` or `/.` cannot defeat symbolic-link refusal.
+- URL hosts compare case-insensitively through one shared rule for `run`,
+  `open`, `update`, `preview` and the Finder commands.
 
 `macease://update?t=<token>` opens the host's single Update window. It requires
 exactly one token matching the current menu file and an available host. The
 host shows the window only while a newer release is known. It needs no catalog
 version, entry index or selection, and never starts jobs or writes history.
 
-`macease://preview?t=<token>` opens Finder Preview when it is closed and closes
-it when it is open. Like Update, it requires exactly one matching token and an available
-host, without a catalog version, selection payload, job or history record.
+`macease://preview?t=<token>` turns the saved Finder Preview setting on when it
+is off and off when it is on (section 25.1). Like Update, it requires exactly
+one matching token and an available host, without a catalog version, selection
+payload, job or history record. The extension sends only the token for Update
+and Preview and does not read the Finder selection for them; the host never
+treats either route as a Finder command request.
+
+```
+macease://<command>?t=<token>&v=<catalogVersion>[&preset=<preset>]&path=<path>…
+```
+
+The Finder commands of section 4.5 use the hosts `newfile`, `cut`, `movehere`,
+`copypath` and `openterminal`. A command request requires exactly one token
+matching the current menu file, an available host, exactly one `v` equal to the
+current catalog version, at most one `preset`, and at least one valid `path`.
+The command and preset must be one the current menu file publishes; otherwise
+the host shows the stale-menu notification. Folder destinations are checked
+again in the host as existing directories that are not packages. Rejected
+requests (malformed URL, wrong token or unavailable host) are logged and show
+nothing else.
 
 **Threat model.** The token stops web pages and documents from triggering
 operations through the URL scheme. Local processes running as the same user can
@@ -226,10 +276,9 @@ saved output-mode choice. A saved choice is preserved. Each batch snapshots
 its resolved mode and settings, so later Settings changes cannot alter a job.
 The photo/video editor chooses this mode per save through its split Save button,
 independently of the global setting (section 8.1.1).
-Finder Preview text saves (`text.edit`, section 25.1) explicitly use same-name
-Replace, independently of this setting, with the stamp captured during loading.
-Empty text buffers are refused, including BOM-only output; the non-empty
-verification contract remains unchanged.
+Finder Preview is read-only and writes no files. History records of the
+removed `text.edit` operation from version 3.1.0 still load, display as
+**Edit Text** and remain undoable.
 
 **Transform** in section 8 means this switch applies. It covers image resize,
 compression, conversion, rotation, flip, border trimming, background editing,
@@ -341,6 +390,53 @@ no-replace final move run inside commit serialization and file coordination.
 A concurrent collision always advances to the next suffix, even if the
 colliding entry disappears. Naming traversal checks cancellation. No existence-check race
 can authorize overwriting an occupied path.
+
+**Exclusive publication.** Derived outputs (single and grouped),
+different-name Replace outputs, renames, moves, new files and Undo restores
+publish through one exclusive step. On volumes that support it, this is
+`renamex_np` with `RENAME_EXCL`; a cross-volume staging move (`EXDEV`) keeps its
+existing `FileManager` move without overwriting. When the volume returns
+`ENOTSUP` or `EOPNOTSUPP` (exFAT and FAT32 on macOS 27.2.1), the publisher
+reserves the final name with an exclusive `open` or `mkdir`, confirms the
+reservation's identity and renames over it. An occupied name advances the
+collision numbering; a failure names the destination path and removes only a
+reservation that still matches the one it created. `docs/spikes.md` records the
+remaining interval between the reservation check and the rename. Same-name
+Replace keeps its clone, Trash and `replaceItemAt` sequence.
+
+**Moves.** `files.move` publishes items the user cut (section 4.5) into a
+destination folder. Each item keeps the size, modification date and identity
+captured at cut time; a changed or missing item is skipped as
+`changedSinceScan`. A move on the same volume is one coordinated exclusive
+rename that keeps the item's file-system identity, numbers collisions and
+records an ordinary Rename entry; Undo renames it back, including when a parent
+folder is reached through a symbolic link. A move to another volume never
+removes the original. It copies the item with `copyfile` into staging on the
+destination volume without following symbolic links, keeping sparse files
+sparse where the volume supports it, then verifies kind, bytes, tree shape and
+link targets, and publishes the copy exclusively. It records one Derived entry
+and the warning that names both paths and says the original was kept. Undo
+moves an unchanged copy to the Trash and skips an edited or missing one; the
+original is unchanged in every case. Copying and verification run outside the
+naming lock and the history gate. Dataless cloud files are downloaded before
+copying. Moving a folder into itself or one of its subfolders is refused. Only
+regular files, folders and symbolic links can be moved; other file types such
+as FIFOs and sockets are refused without being opened. Trash access to the
+source is not required.
+
+**New files.** `folder.newFile` creates one file from a built-in template in
+the target folder: Text (`.txt`, empty), Markdown (`.md`, empty), Rich Text
+(`.rtf`) or Word (`.docx`); the RTF and DOCX templates are minimal documents
+written through `NSAttributedString`. The name is the localized **Untitled**
+plus the template extension, numbered like other Derived names, and is never
+published over an existing file, folder or dangling link. Verification uses a
+separate new-file check: Text and Markdown may be empty, while RTF and DOCX
+must open as their document type, chosen by the final file name. This is the
+only exception to the non-empty output rule; transforms, exports and reports
+keep it. The file is recorded as Derived; Undo moves an unchanged file to the
+Trash and skips an edited one. Targets that are not folders, are packages or
+are symbolic links are skipped, and unwritable folders fail with a permission
+error.
 
 Report Save and Analyze Export use a save panel to choose a folder and name.
 They stage on the destination volume and verify the selected encoding and
@@ -654,42 +750,56 @@ The setting explains this fallback and links to macOS permission settings.
 ### 4.2 Structure and pruning
 
 One top-level **MacEase ▸** uses the extension's Context Page template glyph
-(ADR 0027). A single kind exposes its fixed primary groups directly, followed
-by a separator and **More ▸** (Japanese: **その他**) for all remaining groups.
-All Files operations appear once inside More. Empty More menus disappear.
-Mixed selections retain `MacEase ▸ Kind (n) ▸ Operation ▸ Choice` for primaries.
-Their single final More menu uses `Kind (n): Operation ▸ Choice`, without
-another kind submenu, keeping every path within four levels. Counts and
-single-selection limits use that kind's subset. Unknown files and packages
-receive All Files operations inside More. Folder selection never enables
-recursive media operations. The folder-background **yt-dlp…** item stays
-outside MacEase, unchanged.
+(ADR 0027). The user arranges every menu scope in Settings > Finder Menu
+(section 7); the defaults follow section 4.4 (ADR 0079). Each scope (Commands,
+then each kind including All Files) has the sections **MacEase Menu**, **More** and
+**Hidden**; Commands also has **Finder Menu**, whose groups appear directly in
+Finder's context menu outside MacEase. Within a section, groups keep the order
+the user chose. Hidden groups are not published.
 
-When the host is available and knows a newer release, the first item inside
-MacEase is **Update Available (v3.1.0)** (Japanese:
-**アップデートがあります（v3.1.0）**). The version is
+Inside MacEase, the Commands groups placed in MacEase Menu come first (section
+4.5), followed by one separator. A single kind then exposes the groups of its
+MacEase Menu section directly. All Files groups placed in MacEase Menu follow
+behind a separator. A final separator and **More ▸** (Japanese: **その他**) hold
+the More sections of the selected kinds, then the More section of Commands,
+separated from each other. Empty More menus disappear. Mixed selections retain
+`MacEase ▸ Kind (n) ▸ Operation ▸ Choice` for MacEase Menu groups, with All
+Files groups inline after the kind submenus. Their single final More menu uses
+`Kind (n): Operation ▸ Choice`, without another kind submenu, keeping every
+path within four levels. Counts and single-selection limits use that kind's
+subset. Unknown files and packages receive All Files operations. Folder
+selection never enables recursive media operations. The folder-background
+**yt-dlp…** item is a Commands group placed in Finder Menu by default.
+
+When the host is available and knows a newer release, the default Commands
+arrangement shows **Update Available (v3.1.0)** (Japanese:
+**アップデートがあります（v3.1.0）**) first inside MacEase. The version is
 dynamic. Its cached, non-template SF Symbol uses system blue; Finder Sync does
 not preserve attributed title colors. It opens the authenticated Update route,
 independently of the selection. Unavailable hosts never show this item.
 
-**Show Finder Preview** (Japanese: **Finderプレビューを表示**) follows Update when
-present, otherwise it is first, before the operations. While the panel is open
-the host rewrites menu.json so the item reads **Hide Finder Preview** (Japanese:
+**Show Finder Preview** (Japanese: **Finderプレビューを表示**) follows Update by
+default. While the saved Finder Preview setting is on, the host rewrites
+menu.json so the item reads **Hide Finder Preview** (Japanese:
 **Finderプレビューを閉じる**); Finder Sync does not reliably show checkmarks, so
-the title states the action. One separator divides these host commands from
-operations. The item is available for every selection, including unknown types
-and folder backgrounds, whenever the menu advertises it and the host is available.
+the title states the action. The item is available for every selection,
+including unknown types and folder backgrounds, whenever the menu advertises it
+and the host is available.
 
-Positions never adapt to usage. Pruning a primary never promotes another group
-from More. Settings > Finder Menu can pin or unpin visible groups through
-**Show at Top Level**, independently of their visibility. All Files operations
-always remain in More. Shared Rotate/Flip and Convert/SDR/animation groups move
-together; JSON commands have individual groups. Reset All clears placement
-choices. Document and Property List kinds appear in the settings tree.
+Positions never adapt to usage. Pruning a group for the current selection never
+promotes another group from More. Shared Rotate/Flip and Convert/SDR/animation
+groups move together; JSON commands have individual groups. A group shown in
+Finder Menu, MacEase Menu or More always keeps at least one visible leaf: when
+the last checked leaf of a group is unchecked by any path, or when turning off
+the extra angle removes Rotate's only checked leaf, the group moves to Hidden in
+every affected scope and its new-install leaves are restored. The same rule
+runs at launch. Cluster separators between operations are kept while a section
+retains its default order and dropped once the user reorders it. Reset All
+clears the arrangement.
 
 Only image/video Resize and image/video/audio Compress have **Custom Size…**.
 Flip leaves share Rotate. Video animation leaves share Convert. JSON commands
-are flat operation-level leaves. Separators divide preset groups under schema 3.
+are flat operation-level leaves. Separators divide preset groups.
 There are no category headers inside homogeneous menus, redundant option forms,
 or fifth-level submenus. Format leaves use plain names such as **PNG**.
 Ellipses indicate input, review, or confirmation, not immediate processing.
@@ -734,9 +844,10 @@ Scripts and source files are decoded as text and never executed.
 
 ### 4.4 Menu groups and defaults
 
-The first table gives the fixed primary order and default More groups.
-Semicolons separate visible groups. The second table lists preset groups;
-semicolons there render as separators. `hidden` means hidden only on new
+The first table gives the default MacEase Menu order and default More groups
+of each kind; the user can rearrange them (section 4.2). The Commands scope
+defaults are in section 4.5. Semicolons separate visible groups. The second
+table lists preset groups; semicolons there render as separators. `hidden` means hidden only on new
 installs. Single leaves and count constraints follow section 4.2.
 
 | Kind | Primary groups, in order | More groups |
@@ -753,15 +864,22 @@ installs. Single leaves and count constraints follow section 4.2.
 | All Files | — | Finish With Recipe…; Share with QR Code…; Find Related Files…; Encrypt or Decrypt…; Checksum |
 
 Remove Duplicates omits its ellipsis under an automatic keep policy.
-Every operation absent from the primary table defaults to More. Primary groups retain the fixed order above. Newly pinned groups follow those
-primaries in catalog order; More groups retain catalog order.
-Schema 3 adds optional `groupID` and `placement` (`primary` or `more`) to
-entries and optional localized `moreTitle` to the file. Old schema-3 files use
-the default placement table and the title More. The catalog hash covers all
-three fields. Layout partitions indexed entries once and preserves original
-request indices. Placement choices persist as group IDs in UserDefaults;
-localized paths never identify groups. Removed operation visibility keys are
-discarded; a hidden `video.trim/` migrates once to `video.edit/`.
+Every operation absent from the primary table defaults to More, in catalog
+order. All Files groups default to More. Groups added by a later version are
+appended to More in scopes the user has customized.
+The arrangement is stored in UserDefaults under `menu.arrangement` as
+`{"version": 1, "scopes": {scope: {section: [groupID]}}}`, holding only
+customized scopes; a scope equal to its defaults is not stored. Group IDs, never
+localized paths, identify groups. Unreadable arrangement data is copied to
+`menu.arrangement.unreadable`, logged, and replaced by the defaults. On the
+first launch with this model, the legacy `menuPlacements` choices and groups
+whose leaves were all hidden migrate once into the arrangement, which
+reproduces the previous menu; the folded groups' leaf keys leave the hidden
+list except for new-install defaults, and `menuPlacements` is deleted and never
+written again. A later launch never migrates again. Layout partitions indexed
+entries once and preserves original request indices. Removed operation
+visibility keys are discarded; a hidden `video.trim/` migrates once to
+`video.edit/`.
 
 | Submenu | Groups in display order |
 | --- | --- |
@@ -786,8 +904,61 @@ discarded; a hidden `video.trim/` migrates once to `video.edit/`.
 | Checksum | SHA-256, MD5, SHA-1 (hidden), SHA-512 (hidden) |
 
 Platform size labels are generated from saved preset limits, never hardcoded
-beside editable values. General percentage, pixel, angle, and byte-target slots
-are editable in Finder Menu. Text conversion pairs are specified in section 8.13.
+beside editable values. General percentage, pixel, angle, byte-target,
+frame-rate and loudness slots are edited in the Options… sheets of Finder Menu
+(section 7). Text conversion pairs are specified in section 8.13.
+
+### 4.5 Finder commands
+
+The Commands scope holds host commands that act on the Finder selection without
+an operation entry. Its default arrangement places, in this order, Update
+Available, Finder Preview, New File, Cut, Move Here, Copy Path and Open
+Terminal Here in MacEase Menu, and yt-dlp… in Finder Menu. The user can reorder
+them, move them to Finder Menu or More, or hide them (section 4.2). Each command
+appears only for the selections listed below and runs through the request route
+of section 3.3 (ADR 0080).
+
+| Command | Offered for | Behavior |
+| --- | --- | --- |
+| **New File ▸** Text, Markdown, Rich Text, Word | A folder background, or one selected folder that is not a package | Runs `folder.newFile` (section 3.5) through JobCenter with Activity, history and Undo, then selects the new file in Finder |
+| **Cut** | One or more selected items (not a folder background) | Records each item's stamp off the main actor and writes the file URLs to the general pasteboard |
+| **Move 1 Item Here** / **Move {n} Items Here** | A folder background, or one selected folder, while cut items exist | Runs `files.move` (section 3.5) into that folder |
+| **Copy Path ▸** Copy Path, Copy Path for Terminal | Any selection, or the folder of a background click | Copies one POSIX path per line, or space-separated paths quoted for a POSIX shell |
+| **Open Terminal Here** | One selected item, or a folder background | Opens Terminal in the folder, or in the parent of a file or package |
+
+New File lists the templates enabled in `finderCommands.newFileTemplates`;
+all four are enabled by default, and with none enabled the command is omitted.
+Template names use the localized **Untitled** (Japanese: **名称未設定**).
+
+A new Cut replaces the previous set; repeated items count once. While items are
+being recorded, Move Here is hidden and a direct request fails with an
+explanation; a newer Cut cancels an earlier recording. MacEase checks the
+pasteboard's change count every 0.5 seconds while cut items exist. When another
+application or a later copy changes the pasteboard, the cut set is cleared and
+menu.json is rewritten. Every Undo request, a quit request and termination also
+clear it; a cancelled quit keeps the commands available. Ordinary Finder Paste
+of the cut URLs copies them as Finder always does.
+
+Move Here is hidden while a move runs, so it cannot be submitted twice. Items
+moved on the same volume and items skipped because they changed since Cut leave
+the cut set. Failed items and items copied to another volume stay in it with
+their original stamps. When the whole set is done and the pasteboard still holds
+MacEase's cut, the pasteboard is cleared; after a partial move it is rewritten
+with the remaining items; content another application wrote is left alone.
+Moving to another volume copies and keeps the original (section 3.5); Activity
+details name the destination and say where the original was kept.
+
+Copy Path for Terminal leaves a path unquoted when it contains only ASCII
+letters, digits, `/`, `.`, `_` and `-`; otherwise it single-quotes the path and
+escapes embedded single quotes. A pasteboard write failure is reported.
+
+Open Terminal Here opens the folder with
+`NSWorkspace.open(_:withApplicationAt:configuration:)` and the application at
+`finderCommands.terminalApplication`, which defaults to
+`/System/Applications/Utilities/Terminal.app`; an empty or relative saved value
+uses that default. It sends no Apple events. A missing application or an open
+failure is shown in the failure panel even when notifications are off.
+Reset All Settings restores both command settings.
 
 ## 5. Panels
 
@@ -864,6 +1035,29 @@ Scan rows read **Scanning {folders}…** with an indeterminate bar until the
 scan reports progress; Stop cancels the scan and opens nothing. Finished rows
 offer Show in Finder and Undo when applicable.
 
+A file that stopped because it holds content the output cannot carry over
+(section 8.2) is a question, not a failure. Its status line reads **1 file
+needs your confirmation.** / **{n} files need your confirmation.** with an
+accent question-mark symbol and primary text; when real problems are present,
+both status lines show, and VoiceOver reads both. One grouped box below the
+problem list names the content: one statement for a single file, or an
+introduction and every affected file with its kinds, without a cap. A plain
+sentence per kind says what leaving it out means, then a sentence says what
+happens to the originals: in Replace mode the files are replaced and the
+originals move to the Trash with Undo; otherwise new files are made and the
+originals stay. Nothing is collapsed. The button names up to two kinds
+(**Continue Without Timecode**, **Continue Without Subtitles and Timecode**) and
+reads **Continue Without Them** for three or more. It resubmits only the
+affected files, and each file's consent covers only the kinds reported for that
+file and the file version that was inspected. It runs once per result;
+afterwards the row reads **Continued without {kinds}. The new result is
+below.** and the new batch appears as its own row. Leaving or dismissing the
+row declines; nothing is written before the button is pressed. Such a result
+makes Activity appear without activating MacEase, even when Show progress
+window is off or the batch ended within two seconds; it never closes
+automatically, and no notification banner is posted for it. **Retry Failed…**
+never resubmits files that only await this question.
+
 General settings default to close after success on, after cancel on, after
 failure off. Success with notes reports Done and stays visible; skips also
 stay visible. The window closes
@@ -872,7 +1066,17 @@ cancels the chosen batch. Turning Show progress window off keeps menu-bar and
 notification feedback.
 
 The menu bar keeps active batches, Cancel, Results, and the last 10 batches
-with Undo and Show in Finder. **Show Progress** appears while jobs run. The
+with Undo and Show in Finder. General > Menu Bar has **Show in menu bar** (on)
+and **Show recent operations** (on). Turning Show in menu bar off removes the
+status item at once; turning it on restores it (ADR 0081). Notifications and
+Activity keep working while it is hidden, and opening MacEase again (from Finder, the
+Applications folder or `macease://open`) opens Settings, or Welcome until setup
+is done. Show recent operations hides only the Recent block and is disabled
+while the status item is hidden. The update item, Turn On Finder Extension…,
+Show Activity, In Progress with Cancel and Pause, Results, **Finder Preview**,
+Settings…, Check for Updates and Quit MacEase are not optional. Finder Preview
+shows a checkmark while the saved preview setting is on and toggles the same
+setting as the Finder command. **Show Progress** appears while jobs run. The
 status item uses the Context Page template glyph (ADR 0027). While busy, its
 highlighted row steps through three frames every 0.4 s; with Reduce Motion on,
 a static busy frame shows instead. An attention badge appears when the latest
@@ -916,12 +1120,13 @@ or OK buttons. Language changes ask before relaunch because active jobs stop.
 
 | Page | Settings and defaults |
 | --- | --- |
-| General | Language (System, English, Japanese), launch at login (on), notifications, When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Allow permanent delete (off), Show Welcome Window… |
+| General | Language (System, English, Japanese), launch at login (on), notifications, check for updates automatically (on), When converting or editing: Save as new file (default) / Replace original (move original to Trash, Undo), Show progress window (on), close after success (on), cancel (on), failure (off), Menu Bar: Show in menu bar (on), Show recent operations (on, disabled while the status item is hidden), Allow permanent delete (off), Show Welcome Window… |
 | Folder Access | Standard and additional folders, registration and access-check status, Add Folder…, Remove, Check Access, Show in Finder, Finder extension management, Files and Folders, Full Disk Access. |
-| Finder Menu | Tri-state Kind > Operation > Preset visibility, Show All / Hide All, capability notes, editable percentage/pixel/angle/byte-target slots with explicit units and reset, extra-angle visibility and degrees (45°), platform preset editor moved here from Presets. |
+| Finder Menu | One organizer per scope, chosen with **Menu for** (Commands, then each kind and All Files). One list shows MacEase Menu, More and Hidden, plus Finder Menu for Commands, with drag reordering within and across sections and multiple selection, Move Up / Move Down (Option-Command-Up/Down), Move To, a context menu, expandable leaf checkboxes with "n of m items", capability and fixed-item notes, VoiceOver position values, and per-scope Restore Defaults… with confirmation. The last checked leaf of a group cannot be unchecked ("Hide it instead to remove it from the menu."). Options… sheets hold Images/Videos Resolution slots, Videos Compress MB slots and platform presets, Images Compress platform presets, Images/Videos Rotate extra angle (45°), Videos Frame Rate values and Audio Normalize Loudness values, each with one Reset for the sheet. |
+| Finder Windows | Finder Preview: Show Finder Preview beside Finder windows (off). Storage Bar: Show storage bar in Finder windows (on), with the hint "To see it, choose View > Show Status Bar in Finder." while Finder's status bar is hidden. Permissions: Accessibility and Automation status, read without prompting, with Open Settings… when not allowed. File Types: Source code and text, HTML, Markdown, SVG, PDF, Fonts, Images, Video, Audio (all on; off uses the macOS preview). Text: code font (System Monospaced or an installed monospaced family), code font size (12, 9–24), wrap long lines (on). Fonts: sample text (empty uses the built-in sample). Trusted Folders: Add Folder… and Remove. Section 25. |
 | Images | Per-format quality, PNG optimization, independent target-size downscale and frame-rate reduction, GIF dithering, metadata fields (EXIF, GPS, maker notes, comments, XMP, IPTC), platform GPS policy, Subject/Person mask (Subject default), green (#00B140), blue (#0047BB), custom background color and blur radius, color-key color and tolerance, rotation fill (transparent when possible or chosen color), SVG mode (Trace or Embedded PNG) and tracing colors (1–8). |
-| Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. |
-| Audio | Per-format bitrate, MP3 CBR/VBR, loudness defaults and editable loudness menu values, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode). |
+| Video | Re-encode codec (Auto, H.264, HEVC), speed/quality, downscale and fps reduction, rotation fill, editable frame-rate values, animated-image width/fps/colors/dithering/loop/range defaults for GIF/WebP/APNG, thumbnail format/quality/maximum width, background mask (Person default), transparent-video format. Frame-rate menu values are in Finder Menu > Videos > Frame Rate > Options…. |
+| Audio | Per-format bitrate, MP3 CBR/VBR, extracted-audio bitrate (Automatic copies when possible, explicit rates re-encode). Loudness menu values are in Finder Menu > Audio > Normalize Loudness > Options…. |
 | Folders | Verified duplicate matching, minimum bytes (0), ignore empty files (on), optional name/time match (off), ignore hidden files, copy to keep (Ask every time default, Keep oldest, Keep newest), excluded folder names plus an Exclusion Rules sheet for folder, file, and extension patterns per scope (all folder scans, Remove Duplicates, Remove Empty Folders, Folder Tree, Analyze, Rename), folders-only Tree (off), empty-folder definition, rename defaults, archive defaults including exclusion of `.DS_Store`, `__MACOSX`, and AppleDouble files from new archives, Analyze default export format (CSV). |
 | Text | Shift_JIS policy (fail default, ?, numeric references, or validated custom substitute), JSON indent (2, 4, tab), comparison (ordinal default, case-insensitive, natural), ascending/descending (ascending), recursive/root-only (recursive), pinned keys (empty), primitive-array sorting (off), CSV type inference (off). PDF section: page image resolution (144 dpi), layout (pages folder default, loose files optional). |
 | Text Recognition & AI | OCR languages and output default (clipboard), OCR file encoding (UTF-8 default, UTF-8 BOM, UTF-16 LE BOM, Shift_JIS), spoken language, subtitle format and translation target, AI on/off. Audio and video share subtitle settings. |
@@ -938,7 +1143,12 @@ operation choices during migration. Default-hidden leaves in section 4.4 apply
 only to new installs. Existing installs retain their menu visibility, including
 when they never customized it. New visibility defaults never overwrite a user's
 choices. Unsupported capabilities remain unavailable regardless of visibility.
-Saved changes rewrite menu schema 3 and its catalog hash.
+Saved changes rewrite menu schema 4 and its catalog hash. Per-scope Restore
+Defaults… returns that scope's order, sections and leaf checkboxes to the
+new-install defaults and keeps Options… values. Reset All stores an empty
+arrangement. Moving a group out of Hidden whose leaves are all unchecked
+restores its new-install leaves. Options sheets keep Reset enabled while a
+field shows a rejected value and clear it on Reset.
 
 No removed panel retains an exclusive value. Image/video fill, masks, background
 colors and format, animation options, subtitle languages, extracted-audio bitrate,
@@ -1003,18 +1213,23 @@ The editor opens from Finder and Services. Its initial content size is
 1280×720, constrained to the active screen, with a 960×600 minimum; a single
 source names the window. Window proportions do not change the source or output
 aspect ratio. Like common media editors it always uses the dark appearance. A
-unified toolbar centres Video (video only), Adjust, Styles and Crop, and keeps
-Compare Original, session Undo/Redo, Cancel and a prominent split Save button
+unified toolbar centres Video (video only), Adjust, Styles, Crop and Markup,
+and keeps Compare Original, session Undo/Redo, Cancel and a prominent split Save button
 at its trailing edge. Undo is a split control whose dropdown offers Reset All
 Edits; there is no separate More menu. A large viewer sits left of a 300-point inspector.
 Video adds a transport bar under the viewer (position/duration clock, previous
-frame, play/pause, next frame, preview mute) and a full-width timeline with
-Split, Duplicate, Delete, a segment menu, Add Videos… and zoom. Photos show Fit/200%/400%
-zoom under the viewer. The inspector groups adjustments into Light, Color and
+frame, play/pause, next frame, preview mute, loop and Save Frame) and a
+full-width timeline with Split, Freeze Frame, Reverse, Duplicate, Delete, a
+segment menu, Remove Silence…, Add Music…, Add Videos… and zoom. Clicking the
+clock makes its time editable; Return seeks there. Photos show Fit/200%/400%
+zoom under the viewer, plus pinch zoom and Command-plus, Command-minus and
+Command-0. The inspector groups adjustments into Light, Color and
 Detail, lists styles as selectable rows, and uses tiles for rotation, flips and
 aspect ratios. Video's inspector holds only selected-segment controls (Start,
 End and Length as m:ss.sss timecode, speed, volume, fade) and source notes.
-Speed is a 0.5×/1×/1.5×/2× segmented preset plus one numeric custom field.
+Speed is a 0.5×/1×/1.5×/2×/4× segmented preset plus one numeric custom field.
+**Apply Adjustments to All Segments** copies the selected segment's
+adjustments, and **Apply Style to All Segments** copies only its style.
 Without a selected segment, segment controls are disabled and the inspector
 reads "Select a segment in the timeline to adjust it." A separate pinned Export
 section with output resolution sits above the pinned foot, which shows output
@@ -1066,7 +1281,13 @@ stepping and timeline zoom. Command-B splits the selected segment at the playhea
 Backspace deletes it and closes the gap. Visible buttons and the context menu
 provide split, delete, duplicate, and move left/right; drag-and-drop reorders
 segments. With one segment, dragging across it scrubs instead. A duplicate receives a new identity. Split children inherit adjustments.
-Each mutation or completed drag is one session Undo operation. Text editors keep
+Each mutation or completed drag is one session Undo operation. A slider drag or
+a numeric field edit is one Undo step; Start and End commits are separate,
+ordered steps that always leave a valid range, and Undo/Redo cancel a pending
+boundary edit. Up Arrow and Down Arrow move the playhead to the previous or next
+segment boundary. "Preparing preview…" appears only when preparation takes
+longer than 300 ms. Editor shortcuts match characters rather than key
+positions, except named arrow keys, and leave text fields alone. Text editors keep
 their normal editing keys. Empty timelines disable playback and Save, retaining Undo.
 
 Speed (0.5–4×, pitch preserving), volume (0–100%), fades, color and styles belong
@@ -1076,7 +1297,11 @@ to silence linearly in output time. Fades keep their lengths while they fit the
 segment; when a later trim or speed change makes them overlap, both shrink
 proportionally. Splitting keeps fades only at the outer edges. Older segment
 records decode with no fades. Preview uses audio-mix volume ramps and the same
-Core Image color scaling as export. Audio trim refuses fades longer than the kept
+Core Image color scaling as export. Preview compositions, inserted ranges,
+freeze ticks and audio ramps use a 60,000 time scale, which represents 59.94 fps
+frame durations exactly; nanosecond edit times combined with 48 kHz audio need a
+common scale above CoreMedia's 32-bit limit and silenced the preview after
+cuts. Audio trim refuses fades longer than the kept
 range and explains why inline. Geometry, crop, orientation and resolution belong to the entire
 output. Segments may repeat or reorder source ranges. Preview and export share
 the output-time mapping, and export encodes a continuous video/audio stream with
@@ -1111,6 +1336,114 @@ Run build, lint and `make test-device`, followed by three fresh-context
 GPT-6.1 Sol/high reviews: features/UI/spec, corrected output/safety/concurrency,
 and final release candidate with physical-machine evidence. Fix reproducible
 harmful findings without speculative complexity (ADR 0039).
+
+### 8.1.2 Editor markup, frame and sound tools
+
+**Markup** (photos and videos) offers the tools Select, Redact, Box, Arrow and
+Text. Redactions use Mosaic, Blur or Solid; the inspector notes that mosaic and
+blur can sometimes be partly reversed and solid cannot. Annotations use six
+colours (red, yellow, green, blue, white, black) and three sizes; text is one
+line of 1 to 200 characters, applied only after input-method composition is
+committed. An edit holds at most 50 markup items. In the viewer, dragging
+creates an item, clicking selects it, dragging moves it, rectangles have eight
+resize handles that keep their screen direction under flips, rotation and
+straightening, arrows have endpoint handles, and a click places text. Each tool
+also has an **Add …** button for creation without a pointer. The inspector
+shows positions as percentages measured on the original frame before crop and
+rotation, and lists the items with Delete. Delete removes the selected item,
+the arrow keys nudge it by 1% (10% with Shift) in screen directions, and Escape
+deselects and then returns to Select.
+
+Markup is stored in the oriented source canvas, before crop, rotation and
+flips, in normalized top-left coordinates (ADR 0070). Redactions are rendered
+into the source pixels before geometry and colour adjustments, so they stay on
+the covered content after a later crop or rotation; a rectangle drawn on a
+straightened image stores its bounding box, so it covers at least the dragged
+area. Redaction extents round outward to whole pixels. Mosaic averages each
+block before pixellating, and a region narrower than one block uses its own
+area average; pixels outside the region stay unchanged at every preview scale.
+Box, arrow and text are drawn after geometry and colour on the output, upright
+and never mirrored, with sizes defined relative to the full-resolution output so
+that preview and export match. Compare Original hides markup; the Crop tab
+still shows redactions. Markup counts as a colour edit: on HDR media it forces a
+new SDR file, and the editor says so before saving.
+
+Video markup has a **Visible Range** in source time of its video: Start and End
+fields, Start at Playhead and End at Playhead, and **Show for Whole Video**. New
+items cover the whole source under the playhead. In the Markup tab, I and O set
+the selected item's range so that it includes the frame at the playhead. Preview
+and export select active items through one rule that maps the displayed source
+frame, using that source's own frame rate, so a frame inside a range is covered
+in both. An item survives split, reorder, duplicate and speed changes because
+it follows source frames. A warning appears when the range falls outside every
+segment. An overlay lane under the clips shows one bar per output range; clicking
+a bar selects the item and switches to Markup.
+
+**Save Frame** (the camera button or Shift-Command-S) exports the edited frame at
+the playhead, with the export's geometry, colour, markup and fades, next to the
+video in the thumbnail format from Settings, named `stem_frame_m-ss.mmm.ext`.
+HDR frames are tone-mapped to SDR. It runs as its own batch while editing
+continues; the output summary shows Saving Frame…, then the saved name with
+Show in Finder, or the failure. It waits for pending boundary edits, and closing
+the editor completes an export already planned.
+
+**Freeze Frame** (timeline bar, segment menus, Option-F) splits at the playhead's
+frame and inserts a two-second freeze as one Undo step. A freeze segment holds
+one source frame with silent audio for 0.1 to 30 seconds, set in its Freeze
+Duration field; it requires speed 1× and volume 0, cannot be trimmed, split or
+reversed, and the inspector explains why those controls are off. Freeze clips
+are cyan with a snowflake badge and have no trim handles.
+
+**Reverse** (timeline bar, segment menus, and **Play Backward** in the
+inspector's Direction section) renders the segment's source range backwards once
+into a staged intermediate and then references it as an ordinary additional
+source (ADR 0071). A segment can be reversed when its source range is at most
+60 seconds; longer segments and freeze frames explain why not. Progress and
+Cancel appear in the output summary, and timeline editing, geometry, markup,
+resolution and saving wait meanwhile. Reversed clips carry a Reversed badge and
+keep the source name; reversing again restores the forward range, including
+trims made while reversed, without encoding again. The intermediate is HEVC at
+quality 0.95 (Main10 for HDR, HEVC with Alpha for transparent sources) with
+uncompressed 32-bit float audio. Decoding keeps at most 256 MiB of pixel
+buffers per group of pictures in memory and spills larger groups losslessly
+compressed to staging on the source volume. Before decoding, a capacity check
+estimates the largest group's spill, the audio, the output at uncompressed frame
+size and a container allowance, and refuses with the required and available
+space; it can refuse an operation whose compressed result would have fitted.
+The source frame index is limited to 4 million frames. Intermediates stay
+available to session Undo until the editor closes, so repeated reversal can
+retain several. An edit with a reversed segment saves through the joined path: a
+new H.264 MP4, with transparency flattened and HDR converted to SDR. The editor
+shows that notice before saving and disables Replace Original. Save, Save Frame
+and Reverse each apply stream consent per source file (section 8.2).
+
+**Remove Silence…** opens a popover with Silent below (−60 to −20 dB, default
+−40) and Pauses longer than (0.3 to 5 seconds, default 0.75). A cancellable
+analysis measures each source's sound in 20 ms windows and caches the levels,
+bound to the source's identity stamp, until the editor closes; a changed source
+requires reopening. The popover reports "Removes N pauses (m:ss.s)", the
+timeline hatches the ranges in red, and **Apply** cuts them as one Undo step.
+Each cut keeps 0.12 seconds of sound on both sides. Pieces inherit their
+segment's settings with new identities, only the outer pieces keep fades,
+pieces shorter than two frames are dropped, and freeze and muted segments are
+skipped. The popover explains when the video has no audible sound or when
+nothing would remain. Escape and Return act on the open popover first.
+
+**Background music** (Add Music…, Replace Music…) accepts MP3, AAC/M4A, WAV,
+AIFF, CAF, FLAC, Ogg and Opus. One song plays once from output time 0 at a
+chosen start position in the song and volume (default 30%), under the video's
+own sound. When it outlasts the video it is cut at the end with a one-second
+linear fade-out; a shorter song is followed by silence. A music lane under the
+clips shows its length and fade, and a Background Music section in the
+inspector holds volume, Start in Song, Replace and Remove, each one Undo step.
+Export mixes the song at 48 kHz stereo and clamps the sum to full scale; it adds
+an audio track when the video has none or every segment is muted. Preview mixes
+natively without rendering the timeline first; songs that AVFoundation cannot
+play directly, such as Ogg and Opus, use one cached PCM copy per file until the
+editor closes. Preview can exceed full scale where the output device clips, so clipping material can sound different from
+the export. The song is never written. Its identity stamp is checked when
+saving starts and after export; a changed song stops the save with an
+explanation.
 
 ### 8.2 Videos
 
@@ -1148,12 +1481,60 @@ video track or more than one audio track before writing an output, because the
 pipeline selects the first track of each kind. Explicit exports such as
 thumbnails, animation, and audio extraction select the required tracks and
 report omitted streams. A new-file Transform is not permission to drop streams.
-Transforms also refuse streams the pipeline cannot preserve, including
-subtitles, attachments, chapters and data or timecode tracks. The input exposes
-these skipped streams so they cannot disappear silently. Removing audio only
-permits the requested audio omission. Explicit Derived exports report other
-stream omissions while keeping the original. No frame, stream, metadata, alpha,
-or channel loss is silent.
+
+Content the pipeline cannot carry over is never dropped without the user's
+consent (ADR 0075). The kinds are timecode, subtitles, closed captions,
+chapters, attachments, timed metadata, extra audio, extra video and other data.
+Before encoding, a transform inspects the input and stops the item with
+`unpreservedStreams`, naming every kind it would leave out; nothing is written.
+Activity presents this as a question (section 6), the video editor and Add
+Videos… ask in a sheet before opening, and Audio Trim, Finishing Recipes and
+Audio Enhancement ask before running. Consent is recorded per file as the file
+stamp taken before inspection (size, modification date and identity) together
+with the kinds that file reported. It is applied only while the file still
+matches that stamp: if the file is replaced while a sheet is open, approving
+inspects the new file and asks again, and a run whose input changed fails as
+changed without touching the new file. Consent for one file never covers
+another, and consent for other data never authorizes discarding another audio
+stream. A result whose content was left out carries the note **Left out, as you
+confirmed: {kinds}.** Where no question can be asked, the failure names the
+file and the content and says that nothing was changed. Removing audio only
+permits the requested audio omission.
+Explicit Derived exports report other stream omissions while keeping the
+original. No frame, stream, metadata, alpha, or channel loss is silent.
+
+MOV outputs of timing-preserving operations carry an AVFoundation-readable
+timecode track natively in the same AVAssetWriter session as the video; no
+FFmpeg remux, atom transplant or regeneration is involved. All real samples are
+validated before encoding; payload, format description, sample count, frame
+duration and quanta, flags, presentation and decode times, durations, track
+association to the video, enabled state, language and metadata are preserved
+exactly, and zero-sample markers are skipped. The writer uses the least common
+multiple of the movie and timecode time scales; when the source movie duration
+was rounded, the track duration may differ by strictly less than one source
+movie tick while every real sample still matches. An empty timecode track, a
+malformed sample, several format descriptions, an unsupported or clipped edit,
+or a time scale that cannot be represented falls back to the consent question
+before encoding. The output is verified against the original after encoding;
+the rare mismatch found then also falls back to the consent question, in
+Activity and in Finishing Recipes, which rerun with the merged consent bound to
+the unchanged source stamps. Writer, read, file-system and source-change
+failures keep their own errors. MP4, M4V and other containers,
+timing-changing operations and target sizes that allow frame-rate reduction ask
+for consent instead. A file whose timecode the user already agreed to leave out
+is never carried again. Timecode plus subtitles asks only about the subtitles
+when the timecode can be carried. Subtitles, chapters, attachments and other
+kinds, including those in MKV, are not carried.
+
+Every AVFoundation entry point in the engine and the app opens media through
+one constructor that sets `AVURLAssetReferenceRestrictionsKey` to
+`forbidAll`, and `AVAudioFile` entry points first reject files with external
+references (ADR 0077). A QuickTime reference movie that points to media in
+other files therefore fails in conversion, compression, the editor,
+thumbnails, animation export, Audio Trim, archive browsing and Finder Preview
+with "This file refers to media in another file, so MacEase can't open it.
+Export a self-contained copy in the app that made it." Errors other than a
+forbidden reference are reported as themselves.
 
 Resize, rotation, flip, frame-rate changes, exact trim, conversion and every
 compression attempt preserve input alpha through HEVC with alpha or ProRes
@@ -1318,8 +1699,14 @@ WAV input includes RF64 and BW64. Their mandatory first `ds64` chunk supplies
 ranges are checked against those lengths and the file before replacement.
 The optional size table is capped at 4,096 entries before accumulation.
 AVAudioFile supplies native decoding (ADR 0010).
-Audio Transform in either output mode refuses extra streams or chapters that
-its output cannot preserve before writing (ADR 0010).
+Audio Transform in either output mode stops before writing for extra streams
+or chapters that its output cannot preserve and asks for consent as in section
+8.2 (ADR 0075). WAV cue and other ancillary chunks, ID3 and FLAC chapters,
+synchronized lyrics, encapsulated objects and timing or private payloads, and
+the additional streams of a multiplexed Ogg file are asked about. Consented ID3
+frames are not refused again as unsupported tags; unrelated unsupported tags
+keep the protection below. After consent, Audio Trim, Audio Enhancement and
+waveform reading use the first stream of a multiplexed Ogg file.
 
 Before staging, audio transforms inspect tags. If the target cannot store
 them, Save as New File warns and keeps the original; Replace refuses and
@@ -2064,8 +2451,13 @@ Open MacEase fallback follows the same open route.
 
 ## 12. Updates
 
-At launch and at most once every 24 hours, the host requests
-`https://api.github.com/repos/TKY-27/MacEase/releases/latest`. When the tag is
+When **Check for updates automatically** in Settings > General is on (the
+default), the host requests
+`https://api.github.com/repos/TKY-27/MacEase/releases/latest` at launch and at
+most once every 24 hours. With it off, no automatic request is made (ADR 0081).
+**Check for Updates** in the menu bar always requests, ignoring both the switch
+and the interval. A version found earlier stays available until a later check
+clears it. When the tag is
 newer than the running version (semantic versioning), it shows a notification,
 a first menu bar item and a first item inside the Finder MacEase submenu.
 All three open the same single Update window through the existing window
@@ -2187,6 +2579,11 @@ ignored until the next check.
 - Archive extraction uses libarchive's secure flags and never follows symlinks
   outside the destination.
 - SVG rendering blocks all network loads and scripts.
+- Media is opened with external references forbidden (section 8.2).
+- Finder Preview treats files carrying `com.apple.quarantine` as restricted and
+  renders HTML statically and offline unless the user grants a file version
+  network access or trusts its folder (section 25.1).
+- Automatic update checks can be turned off (section 12).
 - No analytics, no crash reporting service. Logs stay local.
 - The menu file and history are mode 0600.
 
@@ -2264,7 +2661,10 @@ that bound. Earlier whole-key results remain historical evidence in
   models) check the capability first and call `XCTSkip` (or Swift Testing
   `.enabled(if:)`) when it is missing. `make test-device` runs the full suite
   locally on a real Mac.
-- Target-direction acceptance covers schema-3 grouping after pruning, per-leaf
+- App-hosted tests run in English (`test.language: en`, region US in
+  `project.yml`), so message tests assert literal English; Japanese strings are
+  asserted through the `ja.lproj` catalog.
+- Target-direction acceptance covers schema-4 grouping after pruning, per-leaf
   visibility and migration, stale catalogs after value edits, mixed-kind counts,
   single-input limits, every scheduled conversion pair, and explicit deferred
   capabilities. Menu presence alone does not prove a conversion works.
@@ -2329,8 +2729,9 @@ that bound. Earlier whole-key results remain historical evidence in
   image: build native dependencies, regenerate third-party notices, archive
   Release, sign the helper, app and
   extension (extension with its sandbox entitlements) with the release identity,
-  build `MacEase-<version>.dmg` with an Applications symlink via
-  `scripts/make-dmg.sh`, sign and verify the DMG container with the same identity,
+  build `MacEase-<version>.dmg` with an Applications symlink and the install
+  window below via `scripts/make-dmg.sh`, sign and verify the DMG container with
+  the same identity,
   compute SHA-256, create the GitHub Release with the DMG
   and checksum, and use the matching CHANGELOG section as release notes. The
   workflow fails when the signing secrets are missing.
@@ -2338,6 +2739,19 @@ that bound. Earlier whole-key results remain historical evidence in
   signed DMG locally from the tag commit and publish it with its SHA-256 and
   release notes. Verify anonymous downloads and `releases/latest`; do not
   report the local checks as successful GitHub Actions runs (ADRs 0036 and 0037).
+- **Install window.** `make dmg` builds a writable HFS+ image, attaches it
+  with `-nobrowse`, writes the window layout with
+  `swift scripts/make-dmg-window.swift layout <volume>`, detaches it and
+  converts it to ULMO. The layout is a `.DS_Store` written directly, with no
+  Finder scripting, so packaging needs no Automation consent (ADR 0078). The
+  window is a 600 × 360-point icon view without toolbar, sidebar or status bar,
+  with 128-point icons and 13-point labels, MacEase.app centred at (160, 164)
+  and Applications at (440, 164), over `scripts/dmg-background.tiff`: a pale
+  ground with the app icon's highlighted menu row (a blue capsule with a white
+  bar and chevron) between the icons and no text.
+  `swift scripts/make-dmg-window.swift background` regenerates the image. The
+  exact window height, label placement and label colour in Dark Mode have not
+  been checked in Finder.
 - Gatekeeper still blocks the first launch. README documents **Open Anyway** in
   System Settings > Privacy & Security and the alternative
   `xattr -dr com.apple.quarantine /Applications/MacEase.app`.
@@ -2889,26 +3303,37 @@ after confirming they have no active work.
 
 ### 25.1 Finder Preview
 
-Finder Preview is a host-owned panel, not a Finder Quick Look extension.
-One panel follows the front Finder window as focus changes. The menu command
-toggles it: an open panel closes, otherwise it opens. Opening and closing rewrite
-menu.json with the matching Show/Hide title. Closing the panel
-or quitting Finder removes observers and timers, cancels file inspection, and
-invalidates pending selection results. An already executing Apple event finishes
-or reaches its two-second Apple event timeout; its result cannot reopen the panel.
+Finder Preview is a host-owned panel, not a Finder Quick Look extension. Its
+presence follows one saved setting, `finderPreview.enabled` (off by default and
+after Reset All Settings), rather than an open or closed panel (ADR 0072).
+While the setting is on, the panel docks beside the front Finder window whenever
+one is visible. It hides when there is no Finder window, when the window is
+minimized, hidden or on another Space, and when Finder quits, and it returns by
+itself for a new window, a Finder relaunch, a MacEase relaunch or a login.
+Closing a Finder window does not turn the setting off. The panel's close
+button, Command-W, closing the permission notice window, the Finder command
+(section 4.5), the menu-bar **Finder Preview** item (section 6) and the
+authenticated `macease://preview` route (section 3.3) all flip the setting;
+Escape does not close the panel. menu.json and the menu-bar checkmark follow
+the setting. Turning it off removes observers and timers, cancels file
+inspection, and invalidates pending selection results. An already executing
+Apple event finishes or reaches its two-second timeout; its result cannot show
+the panel again.
 
 The docked panel is borderless and nonactivating, can become key but not main,
-uses normal window level, and remains visible while its Finder window is visible.
-It sits flush against the Finder window with the same top and height. Its
-content is clipped to Finder's 16-point continuous corner radius on the outer
-corners only, keeps the system window shadow, and draws a one-pixel separator on
-the joined edge. A header matching Finder's 52-point toolbar holds the title and
-an always-visible close (×) button; Escape and Command-W close a key panel.
+uses normal window level, joins the active Space and full-screen spaces as an
+auxiliary window, and becomes key only when a control needs keyboard input, so
+clicking a button or the player leaves Finder's keyboard focus alone. Clicking
+or selecting in text or a rendered page makes the panel key. It sits flush
+against the Finder window with the same top and height. Its content is clipped
+to Finder's 16-point continuous corner radius on the outer corners only, keeps
+the system window shadow, and draws a one-pixel separator on the joined edge.
 It orders directly above the matched Finder CGWindowID, including when another
 application is frontmost. AX focus, main-window, move, resize, destroy and
 minimize/deminimize notifications coalesce; workspace events and a half-second
-visibility check detect hiding, Spaces and z-order changes. Minimized, off-Space
-and closed windows do not leave a floating preview behind.
+visibility check detect hiding, Spaces and z-order changes, and only a change
+re-docks the panel. Minimized, off-Space and closed windows do not leave a
+floating preview behind.
 
 AX global top-left coordinates convert to AppKit with
 `x = ax.x; y = primaryScreen.frame.maxY - ax.maxY`, preserving width and height.
@@ -2916,150 +3341,389 @@ The target screen is the one with the largest window-frame intersection. Match
 CG windows by Finder PID, normal layer and bounds within two points. Use the
 screen's visible frame for docking: right edge first, left if right does not fit,
 otherwise inset over the window's right side and clamp horizontally to the screen.
-The panel keeps the Finder window's height and top. Width defaults to 360 points,
-is clamped to 280 through half the usable screen width, and persists in
-UserDefaults. The resize edge is the edge that moves when the width grows: the
-outer edge for right and left docking and the leading edge for inset docking,
-so it follows the pointer. Dragging never exceeds the room on the current side.
-The edge shows a resize cursor and a small grip on hover. On an unusually narrow
-screen, the half-screen cap takes precedence. Finder itself is never resized.
-Opening fades in while sliding 20 points out of Finder over 0.16 seconds with a
-strong ease-out; closing reverses it over 0.12 seconds. Reduce Motion keeps only
-the fade. Following uses immediate frame updates.
+The panel keeps the Finder window's height and top. Width defaults to 360 points
+and is clamped to 280 through half the usable screen width. The preferred width
+is saved in UserDefaults only when the user resizes the panel; clamping on a
+smaller screen changes the displayed width without overwriting it. The resize
+edge is the edge that moves when the width grows: the outer edge for right and
+left docking and the leading edge for inset docking, so it follows the pointer.
+Dragging never exceeds the room on the current side. The edge shows a resize
+cursor and a small grip on hover. On an unusually narrow screen, the half-screen
+cap takes precedence. Finder itself is never resized. The first appearance after
+the user turns the setting on fades in while sliding 20 points out of Finder over
+0.16 seconds with a strong ease-out; turning it off reverses this over 0.12
+seconds, and Reduce Motion keeps only the fade. Automatic reappearance and
+following use immediate frame updates.
 
 A single compiled NSAppleScript runs on a serial background queue with at most
-one request in flight. Before sending the first selection request, the worker
-asks macOS for Finder Automation authorization and waits for the answer. The
-two-second timeout applies only to selection requests. The script reads the
-front-window ID and selection URL descriptors,
-validates local file URLs, and detects a front-window change during the script.
-Polling runs every 250 ms only while the panel is visible and Finder is frontmost;
-opening and focus changes request an immediate read. Window IDs and a selection
-generation reject stale results. Denied Automation stops polling until retry;
-other failures show an explanation and back off for two seconds.
+one request in flight. The script reads the front-window ID and the selection
+URL descriptors, validates local file URLs, and detects a front-window change
+during the script; it also returns the front window's folder and view mode
+inside `try` blocks for the storage bar (section 25.2). MacEase asks macOS for
+Finder Automation consent only after a user action: turning the preview on, or
+Try Again. At launch, an undetermined consent shows the Automation notice
+instead of a prompt, and a request that may ask is never dropped behind silent
+polls (ADR 0068 describes the consent call). The two-second timeout applies only
+to selection reads. Polling runs every 250 ms only while the panel is docked and
+Finder is frontmost; turning on, window changes and focus changes request an
+immediate read. Window IDs and a selection generation reject stale results.
+Timeouts, an unavailable Finder and window-ID races are retried quietly on the
+next poll while the current preview stays visible; after three consecutive
+failures (0.75 seconds) the panel shows the problem and backs off for two
+seconds. Denied Automation shows its notice at once and stops polling until Try
+Again. Changing the file types or trusted folders in Settings re-evaluates the
+current selection at once; appearance settings apply without reloading.
 
-The panel uses the opaque system window background (white in light mode, its
-dark counterpart in dark mode) with 16-point margins. From top to bottom it shows
-the header, a viewer toolbar row with that viewer's controls, the preview, the
-file name (semibold), "kind · size", an Information section of label/value rows
-separated by hairlines (created, modified and dimensions, duration, pages, color
-profile, dynamic range or item count as relevant), and a bottom bar of
-icon-over-label buttons: Open, plus Edit in MacEase for photos and videos.
-Images, video, audio and folders scroll as one column; the preview height follows
-the content aspect ratio and panel width, capped at 1.25 times the width.
-Text, web, PDF and Quick Look previews fill the remaining height and start with
-Information collapsed. Multiple selections show "n of m" with previous/next
-buttons in the header. Empty selection, loading, failures and permission notices
-use a centered symbol and message. Viewer selection uses
-UTType conformance with extension support for Markdown, JSON, plists, YAML,
-TOML, CSV and logs. Unknown types retain QLPreviewView. Empty selections and
-bounded folder summaries retain their existing behavior.
-
-Specialized viewers:
-
-- Text/code uses TextKit 2 NSTextView, monospaced text, logical line numbers,
-  soft wrapping and an encoding picker. Automatic detection reuses the engine;
-  explicit choices re-decode retained bytes without replacing invalid characters.
-  Read at most 4 MiB; larger files display the first 256 KiB with a visible note.
-  An excerpt may omit an incomplete final encoded character. Highlight only the
-  first 512 KiB using a local tokenizer for Swift, JS/TS, Python, C-family, JSON,
-  HTML/XML, CSS, shell, YAML and Markdown. Use adaptive system colors.
-- HTML offers Source/Preview, Run Scripts and Allow Network. Both permissions
-  start off for every selection and changing either recreates WKWebView.
-  Reuse the engine's nonpersistent configuration. Content JavaScript and popup
-  creation are off by default; AirPlay is off and media requires user action.
-  Compile and install content rules before any load, failing closed on errors.
-  Offline rules deny all resources except file/data/blob and explicitly block
-  `^https?://` and `^wss?://`; opt-in network permits HTTP(S)/WS(S) resources.
-  `loadFileURL` grants read access only to the selected file's parent folder.
-  Navigation permits only the selected local main document, including anchors;
-  other files, hosts, schemes, subframes, forms, popups and downloads are denied.
-- Markdown offers Rendered/Source through the existing safe cmark conversion.
-  Rendered HTML uses the same offline web configuration, without script/network
-  controls, loading an in-memory document without a local resource base URL.
-  Relative images are therefore unavailable. The engine's 1 MiB Markdown input
-  limit remains in force; Source remains available when rendering fails.
-- JSON and plists offer Formatted/Source using engine formatters. Binary plists
-  display formatted JSON only. Formatting errors remain visible; source bytes
-  are never rewritten. Truncated textual sources open in Source mode.
-- Images fit initially, support pinch zoom and Fit/100% controls, and stay
-  centered; scrolling pans a zoomed image and otherwise scrolls the panel.
-  Dimensions, color profile and dynamic range appear in Information. ImageIO decodes
-  GIF/WebP/APNG frames sequentially; the viewer does not retain all frames.
-  Decoding is capped at 4,096 pixels on the long edge, so larger images preview
-  downscaled even at 100%.
-- Audio/video uses AVPlayerView inline controls, 0.5×–2× speed, supported video
-  frame stepping, and A/B loop controls backed by a boundary observer. Audio
-  loads an engine waveform independently; waveform failure does not stop playback.
-- PDF uses auto-scaled PDFView with optional page thumbnails.
-
-File reads, text conversion, image decoding, PDF opening and waveform work run
-outside the main actor; WebKit and AVFoundation use asynchronous loading. Viewer
-identity follows the coordinator's selection generation. Selection changes and
-hidden/closed panels cancel tasks, discard stale results, release viewer content,
-pause playback and remove time observers. Unsaved text editing is the exception:
-the coordinator retains its buffer and viewer identity until Save or Discard.
-
-Text/code, Markdown Source, JSON and XML plists offer Edit (Command-E).
-Binary plists, excerpts, files over 4 MiB and undecodable sources cannot enter
-editing. JSON/plist Edit switches to Source. The native text view supports
-buffer Undo/Redo, IME and the standard Command-F find bar; spelling and automatic
-text substitutions are disabled. Existing line endings remain in the buffer;
-Return inserts the original first line ending (LF for a single-line file).
-Mixed existing line endings are retained without normalization. Markdown Rendered
-and JSON/plist Formatted show the current unsaved buffer. The source text view
-stays mounted while rendering, preserving its undo stack.
-
-A dot labeled Edited marks a dirty buffer. Save (Command-S) and Revert appear in
-the toolbar; a compact Unsaved changes banner offers Save and Discard. Revert and
-Discard restore the last loaded/successfully saved buffer and clear its local
-undo stack. Finder selection changes cannot replace a dirty or saving buffer.
-Closing, toggling off or orderly application quit asks Save / Discard / Cancel;
-a failed save keeps the panel and cancels closing/quit. If Finder exits or its
-tracked window disappears, detach tracking and retain an undocked editor when
-closing is cancelled. Saving disables text input and closing until completion.
-
-A coordinated bounded read captures a FileStamp before reading and checks it
-again afterward. The model retains that stamp, original encoding and BOM with
-the text. `TextReplacement` passes the retained stamp through its WorkItem into
-JobEngine's existing Replace commit path; a job-start stamp never substitutes
-for it. It stages on the source volume, re-decodes the staged bytes and requires
-exact UTF-8 code-unit equality with the buffer before FileCommitter checks the
-loaded stamp inside the coordinated write. Same-name replacement, metadata,
-Trash, durable history, cancellation and Undo follow sections 3.5 and 3.6.
-Save goes through JobCenter and appears in Activity with progress and Undo.
-Inline results show Saved briefly, or a localized one-line failure with the
-buffer retained. The next save uses the commit-time output stamp, never a
-post-save scan. Missing stamps or history failures retain the buffer and report
-failure. A no-Trash derived fallback explicitly reports the separate file and
-retains the original buffer until Discard; closing is not treated as saved.
-
-Unrepresentable text is refused without substitution and offers Save as UTF-8.
-Only explicit confirmation permits UTF-8 without a BOM. Empty buffers are refused
-with an instruction to enter text or revert; this operation does not relax the
-non-empty output rule. Builds, automated tests and native editing interaction
-for this unit remain unverified until run on the target Mac.
-
-Folders show immediate child count and recursive logical regular-file size
-without following directory symlinks. Inspection is cancellable and limited to
-100,000 entries or two seconds checked between reads; unavailable/incomplete
-inspection reports failure rather than a partial total.
-
-Accessibility permission is requested on first opening without trust. Until it
-is granted, a centered titled, resizable window (360 by 600 points, minimum 280
-by 420) explains the permission and links to Accessibility settings. Retry attaches after authorization. Automation denial
-(error -1743) keeps the panel docked and explains how to authorize Finder control,
-with an Automation settings button and Retry. Other tracking/selection/file
-failures are logged and shown explicitly. The host declares an English
+The Accessibility prompt appears only when the user turns the preview on; it is
+never shown at launch. Until Accessibility is granted, a centered titled,
+resizable window (360 by 600 points, minimum 280 by 420) lists the two
+permissions in order, 1 Accessibility and 2 Automation, each with its status and
+a System Settings button, and checks Accessibility every second so that the
+panel docks as soon as it is granted. Try Again remains for Automation denial,
+timeouts and tracking failures. Other tracking, selection and file failures are
+logged and shown explicitly. The host declares an English
 NSAppleEventsUsageDescription. The Finder extension remains sandboxed and never
 reads selected file contents.
 
-Full screen, Spaces, Finder tabs, live AX-driven docking and native Quick Look
-controls require real-host validation with a trusted build. The panel layout,
-docked frame flush against a real Finder window, outer-corner mask, hairline,
-toggle titles and undocked size were rendered and checked on macOS 27.
+**Layout.** The panel uses the opaque system window background with 16-point
+margins and shows only the file's content. One 52-point top bar, aligned with
+Finder's toolbar, holds the viewer's controls on the left and, on the right, the
+"n of m" stepper (multiple selections only) and the close button. The stepper
+uses at most 45% of the bar and collapses from "12 of 48" to "12/48" to arrows
+only; VoiceOver still reads "12 of 48". Viewer controls drop secondary text and
+then collapse labels to icons before anything truncates. One-line notes, such as
+a name mismatch or a restriction, sit under the bar with their full text as a
+tooltip. Images, video, PDF and Quick Look fill the panel edge to edge. The
+panel waits only for the file kind, not for metadata, decoding or folder walks.
+While the next file is inspected, the previous preview stays visible; after
+200 ms it dims to 40% with a small spinner tied to the current selection, without
+a cross-fade. When the previewed file changes, VoiceOver announces "name, kind"
+using the file system's kind, queued after current speech. With a multiple
+selection, Command-Option-Left and Command-Option-Right step through it, and
+Space plays or pauses media and animations. These panel shortcuts give way to
+the first responder: they do nothing while focus is in text, a field editor,
+web content or any responder holding a copyable selection, including Live
+Text, PDF and web selections, and under Full Keyboard Access Space stays with
+the focused control. Tooltips name the shortcuts.
+
+**Viewer selection.** A folder or package always uses QLPreviewView, even when
+named like a file. Regular files resolve by UTType conformance and extension:
+PDF; HTML (`html`, `htm`, `xhtml`); property lists; JSON; Markdown (`md`,
+`markdown`, `mdx`); SVG; fonts (`ttf`, `otf`, `ttc`, `otc`, `woff`, `woff2`);
+images; audio; video, including MKV, WebM, AVI, WMV, FLV, Ogg video, MPEG and
+M2TS; and text, covering source code, plain text, XML and a list of
+configuration, script and source extensions plus the dotfiles `.env`,
+`.editorconfig`, `.gitignore`, `.gitattributes`, `.gitmodules` and
+`.dockerfile`. `.ts` and `.mts` open as text unless their content is an MPEG
+transport stream, which opens as video. A type switched off in Settings >
+Finder Windows uses Quick Look, and unknown types keep Quick Look.
+
+Before a specialized viewer opens, the first bytes are identified. An empty file
+shows "This file is empty." A file named as text, HTML, Markdown, JSON, a
+property list or SVG whose content is binary shows "This file doesn't look like
+text, so it isn't shown." and is never decoded. Other mismatches keep the viewer
+and show "The file name doesn't match its content (PNG)." with the detected
+format's localized name. Identification reports PDF only with `%PDF-` at offset
+zero, distinguishes Mach-O and universal binaries from Java class files, treats
+C0 control bytes other than tab, line breaks, form feed and ESC as binary, and
+shares the text test with the encoding detection below.
+
+**Trust.** A file is restricted when the symbolic link itself or its resolved
+target carries `com.apple.quarantine`; an attribute that cannot be read counts
+as quarantined. Restriction wins over Trusted Folders. A file is trusted when its
+resolved path lies inside a folder listed in Settings > Finder Windows > Trusted
+Folders; the stored paths are standardized and deduplicated. The HTML rules
+below and ADR 0073 describe what each state permits. Restricted Markdown embeds
+no images, and restricted media is not converted: "This file is from the
+internet, so MacEase doesn't convert it. Open it in a media player."
+
+Specialized viewers:
+
+- **Text and code** use a TextKit 2 NSTextView with logical line numbers, the
+  code font and size from Settings (System Monospaced, 12 points, 9–24) and line
+  wrapping from Settings (on). Text is selectable and read-only; editing was
+  removed. Reads take at most 4 MiB; larger files display the first 256 KiB with
+  a note. An excerpt may omit an incomplete final encoded character. Highlighting
+  covers the first 512 KiB using a local tokenizer for Swift, JavaScript and
+  TypeScript, Python, C-family languages, JSON, HTML/XML, CSS, shell, YAML and
+  Markdown, with quote rules scoped per language: single quotes never start
+  strings in Swift, JSON or Markdown, markup quotes count only inside tags,
+  YAML and TOML strings start only at scalar boundaries, and C++ digit
+  separators are not character literals. Colors are adaptive system colors.
+- **Encodings.** Automatic detection is strict: a candidate must decode with no
+  disallowed control, private-use, unassigned, surrogate or replacement
+  characters. Byte order marks win, then UTF-32 and UTF-16 by NUL position,
+  surrogate pairs and byte-lane statistics, then UTF-8, Shift_JIS (CP932),
+  EUC-JP, ISO-2022-JP, Windows-1252 and ISO-8859-1. GB18030 is detected only by
+  its four-byte mark; GB18030, Big5 and EUC-KR without a mark are chosen manually
+  because their byte ranges overlap the others. The encoding menu lists
+  automatic detection, UTF-8, UTF-16, UTF-16 LE/BE, UTF-32, UTF-32 LE/BE,
+  Shift_JIS, EUC-JP, ISO-2022-JP, GB18030, Big5, EUC-KR, Windows-1252 and
+  ISO-8859-1, shows the detected or chosen encoding, and collapses to an icon
+  when narrow. An explicit choice re-decodes the retained bytes without
+  replacing invalid characters; a decode failure suggests another encoding only
+  when the menu is visible.
+- **HTML** offers Preview and Source. A file opens in Source unless it is in a
+  Trusted Folder or its current version has interactive consent. Preview is
+  static, view-only and offline (`staticPreview`): content JavaScript is off;
+  content rules compiled before any load deny every scheme except `file:`,
+  `data:` and `blob:` and block `^https?://` and `^wss?://`; the website data
+  store uses a fail-closed SOCKS5 proxy (`127.0.0.1` on an unassigned port,
+  failover off, no exclusions); a guard script in an isolated content world,
+  installed at document start in every frame, cancels the default action of
+  clicks, auxiliary clicks, Return key presses, `beforeinput`, form submission
+  and drags of links, images and media, including events retargeted out of
+  closed shadow roots, while text stays selectable, `<details>` still toggles
+  and same-document fragment links scroll by id, `name` or GitHub-style heading
+  slug; a neutralizer at document end removes `href`, `xlink:href`, `ping`,
+  `download`, `action` and `formaction`, disables form controls and removes
+  `contenteditable` across HTML, SVG, MathML, open shadow roots and inline-XSLT
+  XHTML, keeps link colours, and puts each removed destination in a tooltip.
+  The context menu keeps only Copy, Look Up and Speech, plus Share when the
+  click was not on a link or image; drops are refused. One button, **Run
+  Scripts with Network Access**, switches the current file version to
+  `interactive`: scripts and network access together, without the guard
+  scripts, for that resolved path and file stamp (identity, size, modification
+  and status-change times) until the file changes or MacEase quits. There is
+  no state with scripts but without network access. Files in Trusted Folders
+  open directly in interactive Preview. Restricted files render a sealed page
+  generated from the file's text, allowing only `data:` and `blob:`, with no
+  folder access and no interactive button. Unrestricted files directly in the
+  home folder, `/Users` or `/` render inline without folder access; other
+  files load with `loadFileURL` and read access to their resolved parent folder
+  only, so an interactive or trusted page can load files from its own folder,
+  including quarantined ones. Every entry into Preview and every reload reads
+  the file once through one descriptor, evaluates quarantine, trust and consent
+  against those bytes, and checks the stamp and quarantine again immediately
+  before loading; any change starts the evaluation again. Navigation permits
+  only GET requests for the selected local main document without a query
+  change; other files, hosts, schemes, subframes, forms, popups, downloads,
+  file pickers and camera or microphone requests are denied. HTML loaded from
+  its file may be up to 64 MiB; HTML rendered from text (restricted or in the
+  home folder) is limited by the 4 MiB text read and shows "Files larger than
+  4 MB can't be previewed here." with Show Source. Notes under the bar state
+  the active state in plain words.
+- **Markdown** offers Preview and Source through the safe cmark conversion and
+  its 1 MiB input limit, rendered as a sealed generated page with the static
+  guard. External links show their destination as a tooltip and stay inert;
+  fragment links scroll, so tables of contents work. Images in the Markdown
+  file's own folder are embedded as data URLs, at most 8 MiB each and 32 MiB in
+  total, through the folder descriptor opened when the file was read, so
+  replacing the folder path afterwards cannot redirect them. Symbolic links,
+  absolute paths, parent traversal, non-images and remote URLs are not
+  embedded. Source remains available when rendering fails.
+- **JSON and property lists** offer Formatted and Source using the engine
+  formatters. Binary plists display formatted JSON only. Files over 4 MB show
+  "Files larger than 4 MB can't be formatted." with Show Source. Source bytes
+  are never rewritten.
+- **SVG** offers Preview and Source. Preview draws the file as an image element
+  over a checkerboard in a sealed generated page, so scripts and external
+  references in the SVG never run; Find is available in Source. A binary file
+  named `.svg` is refused as above.
+- **Fonts** load the first face of TTF, OTF, TTC/OTC, WOFF and WOFF2 files
+  through Core Text and show the face name, "First of N faces" for collections,
+  and the sample text from Settings at 12, 16, 20, 28, 40 and 64 points. Files
+  over 64 MiB, collections over 64 faces, and WOFF/WOFF2 files whose declared
+  or decompressed sizes exceed those limits are refused with a message before
+  Core Text sees them; decompression is streamed and bounded. Fonts Core Text
+  cannot load use Quick Look.
+- **Images** open at Fit. Fit and 100% are toggle buttons that show which one is
+  active; any other zoom (pinch, smart zoom) shows a percentage beside them, and
+  100% stays exact across displays with different backing scales. Fit can go
+  below 1% so very wide images remain whole. Double-clicking or a two-finger
+  double tap switches between Fit and 100% around the pointer; double-clicking
+  recognized text selects it instead. Zoom changes animate for 0.15 seconds
+  unless Reduce Motion is on. The first decode is capped at 4,096 pixels on the
+  long edge; zooming past it loads the full image when its pixels need at most
+  256 MiB, otherwise the bar shows Reduced and Info lists the reduced size.
+  Images over 65,535 pixels on an edge or 500 megapixels are not decoded.
+  Images with alpha draw a checkerboard of 8-point squares behind them whose
+  shades follow light, dark and Increase Contrast. Images with HDR headroom
+  render with constrained high dynamic range. Live Text analyses still images
+  between 32 pixels on the short edge and 100 megapixels on device with
+  VisionKit, text only, 350 ms after the first frame appears and off the main
+  actor; a selection change cancels it. Recognized text can be selected,
+  copied and looked up; clicks that start no selection leave Finder focused,
+  and the system Live Text button is hidden. The Info popover lists dimensions,
+  resolution, color profile, bit depth, HDR headroom, camera, lens and capture
+  date when present, and "Location: Included in the file" when GPS data exists;
+  coordinates are never shown. Animated GIF, APNG, WebP and HEICS images up to
+  2,000 frames play the number of times the file declares (0 means forever),
+  stop on the last frame, and restart with Play. Frame delays below 20 ms use
+  100 ms and delays above 60 seconds are capped. Frames are cached when the
+  whole animation fits in 64 MiB; otherwise each frame is decoded just in time
+  with one frame of lookahead. Under Reduce Motion, animations start paused on
+  the first frame.
+- **Video** uses AVPlayerView's inline controls. **Audio** shows embedded
+  artwork, decoded off the main actor at most 512 pixels (artwork over 16 MiB or
+  32 megapixels is not used), or the file icon, then title and artist when tagged,
+  a full-width scrubber with elapsed time and duration, a play button and a
+  mute button (**Mute** / **Unmute**) with a volume slider; volume and mute last
+  for the app session. Media that AVFoundation cannot play, such as MKV, WebM,
+  Ogg, FLAC or multi-track Matroska, shows "This format can't be played
+  directly." with **Convert and Play**, which converts a temporary copy with
+  progress and plays it: compact 192 kbps AAC (ALAC in CAF above six channels)
+  for audio, at most 30 minutes of audio, 10 minutes of video and 512 MiB of
+  input. Changing the selection cancels the conversion and deletes the copy.
+  These throwaway copies skip the stream-consent question of section 8.2 because
+  nothing is saved. Codecs MacEase cannot decode show their specific error
+  instead of the button. Every preview asset forbids external references and
+  shows the message of section 8.2.
+- **PDF** uses PDFView with an editable page readout ("3 / 24"; Return jumps;
+  invalid entries reset), a table-of-contents popover when the document has an
+  outline (at most 2,000 entries), Fit Width and Actual Size, which show their
+  state (a zoom menu when narrow), Find through PDFKit with all matches
+  highlighted, and an inline password field for locked PDFs: "This PDF is
+  locked with a password.", then "The password is incorrect." until new input
+  is typed.
+
+**Find.** One Find bar serves text and source views, rendered Markdown and HTML,
+and PDF. The magnifying-glass button or Command-F opens it while the panel is
+key; Return and Shift-Return or Command-G and Shift-Command-G move between
+matches; text and PDF show "3 of 12", while web pages report only "Not found"
+because WebKit gives no count. Escape or Done closes the bar and returns focus
+to the content. The query persists while the same file stays selected.
+
+File reads, text conversion, image decoding, font validation, PDF opening and
+media conversion run outside the main actor; WebKit and AVFoundation use
+asynchronous loading. Viewer identity follows the coordinator's selection
+generation. Selection changes and a hidden panel cancel tasks, discard stale
+results, release viewer content, pause playback and remove time observers.
+
+Full screen, Spaces, Finder tabs, live AX-driven docking, native Quick Look
+controls and Increase Contrast rendering require real-host validation with a
+trusted build.
+
+### 25.2 Finder storage bar
+
+A display-only strip covers the bottom edge of the front Finder window while
+Finder shows its status bar (ADR 0076). MacEase reads Finder's `ShowStatusBar`
+preference from `com.apple.finder` with CFPreferences when the strip starts,
+when MacEase becomes active and every five seconds. It never writes Finder
+preferences and never relaunches Finder. Without the status bar the strip is
+absent and Settings explains View > Show Status Bar.
+
+The strip is a borderless, nonactivating panel at normal level, ordered
+directly above the matched Finder window. It cannot become key or main, ignores
+mouse events so clicks reach Finder's own bar, is excluded from the window cycle
+and Mission Control (`transient`), and has no shadow or hover state. It uses
+Finder Preview's window tracker and the same selection poll, without a second
+Apple event, and it follows the same show and hide rules, cancelling pending
+volume work while hidden. Its frame is the window's bottom edge, using the
+assumed metrics `statusBarHeight` 20 points, `bottomInset` 0, `iconSliderWidth`
+133 points and `iconSliderMargin` 16 points from Finder's StatusBar.nib, which
+still need calibration against a live Finder window. Its outer bottom corners use
+Finder's 16-point continuous radius. In icon view, and whenever the view mode is
+unknown, the strip leaves the trailing 149 points uncovered with a square
+trailing corner so that Finder's icon-size slider stays visible and usable;
+list, column and gallery views extend to the trailing edge. A docked inset
+preview trims the strip to the uncovered side with a square cut corner; right
+and left docking leave it whole. A strip narrower than 160 points is not shown.
+
+From left to right it shows the volume name (middle-truncated at 180 points), a
+72 × 6-point capsule whose used part is the system accent colour over a
+quaternary track, "x available of y", and a right-aligned "n selected" (nothing
+for an empty selection). The background is the opaque window background with a
+hairline on top; text is 11 points with monospaced digits. As the width shrinks,
+the strip drops the volume name, then the capacity text, then the selection
+count. Increase Contrast adds a border to the track. A changed value animates the
+fill for 0.18 seconds with ease-out, without animation under Reduce Motion.
+VoiceOver reads one element labelled Storage whose value is the whole sentence,
+without announcements.
+
+The strip never opens, stats, identifies, enumerates or evaluates trust for any
+selected item; it shows the selection count only. When Finder Preview is off,
+selection results update only the strip. Sizes use the current locale's decimal
+file byte-count style. For the startup disk, available space is
+`volumeAvailableCapacityForImportantUsage` when positive, which includes
+purgeable space as Finder does, otherwise `volumeAvailableCapacity`, clamped to
+the total. For every other volume, MacEase never asks for resource values or
+display names of a path inside it: capacity comes from the kernel mount table
+(`getfsstat` with `MNT_NOWAIT`) and the name from the mount point's last path
+component, which avoids file-access prompts and hangs on unresponsive mounts.
+A volume without a positive total shows "Capacity unavailable" and no capsule.
+The volume is matched lexically from the front window's folder, then from the
+first selected item, then from the window's last known folder; without any, or
+when the location's volume is gone (such as an ejected `/Volumes/<name>`), the
+strip shows the startup disk labelled "(Startup Disk)". Volume reads run one at
+a time off the main actor, are bound to the location they were requested for,
+and refresh every five seconds while the strip is active.
+
+The strip needs Accessibility and never prompts for it; without it the strip is
+absent and Settings shows the status. Without Automation it shows capacity
+without the selection count; with no known folder, that is the labelled startup
+disk. Strip-only polling never
+requests consent, stops retrying after a denial, logs the denial once, and
+never puts Finder Preview into its Automation notice or blocks a consent request
+made when the user turns the preview on. **Show storage bar in Finder windows**
+in Settings > Finder Windows is on by default and independent of Finder Preview;
+turning it on reads the selection at once, and turning it off removes the strip.
+Measuring the size of selected items is not offered: it would read inside
+privacy-protected folders and removable or network volumes on every selection
+change and cause file-access prompts. Finder's status bar metrics, colour match,
+Spaces, full screen, Mission Control and tabs still need checking on a real Mac.
 
 ## Changelog
+
+- 2026-11-24: Add a display-only Finder storage bar over Finder's own status
+  bar, shown only while Finder shows it. It reads volume capacity from the
+  startup disk's resource values or the mount table, shows the selection count
+  only, leaves the icon-size slider uncovered in icon view, and shares Finder
+  Preview's tracker and selection poll (ADR 0076).
+
+- 2026-11-24: Add Settings > General switches for automatic update checks and
+  the menu-bar status item and its Recent block, all on. Reopening MacEase
+  reaches Settings while the status item is hidden (ADR 0081).
+
+- 2026-11-24: Add the Finder commands New File, Cut, Move Here, Copy Path and
+  Open Terminal Here. Moves on one volume rename with Undo; moves to another
+  volume copy, verify and keep the original (ADR 0080).
+
+- 2026-11-24: Publish files exclusively through one step that falls back to an
+  exclusive reservation and rename where `RENAME_EXCL` is unsupported, so new
+  files and grouped outputs work on exFAT and FAT32 (ADR 0080).
+
+- 2026-11-24: Replace fixed primary groups and Show at Top Level with a
+  user-arranged menu per scope (Finder Menu, MacEase Menu, More, Hidden),
+  menu.json schema 4 with ordered commands and a length-prefixed catalog hash,
+  build-bound item tags, and a one-time migration of legacy placements
+  (ADR 0079).
+
+- 2026-11-24: Write the DMG install window as a `.DS_Store` without Finder
+  scripting, over a pale designed background (ADR 0078).
+
+- 2026-11-24: Open all media with external references forbidden through one
+  constructor; QuickTime reference movies are refused everywhere (ADR 0077).
+
+- 2026-11-24: Ask per file, per kind and per file version before leaving out
+  content an output cannot carry, instead of refusing, in Activity, the editor,
+  Audio Trim, Finishing Recipes and Audio Enhancement. Carry AVFoundation
+  timecode natively in timing-preserving MOV outputs (ADR 0075).
+
+- 2026-11-24: Replace Finder Preview's script and network toggles with three
+  HTML states (Source, static view-only Preview, interactive with network),
+  bound to the file version, with quarantine overriding Trusted Folders and a
+  layered offline guard for static pages (ADR 0073).
+
+- 2026-11-24: Make Finder Preview a setting-driven, content-only panel with a
+  single top bar, per-kind viewers for text, HTML, Markdown, JSON, plists, SVG,
+  fonts, images, audio, video and PDF, content identification, Find, and
+  Settings > Finder Windows. Remove Information rows, folder totals, the action
+  bar and text editing; old `text.edit` history remains undoable (ADR 0072).
+
+- 2026-11-24: Add editor Save Frame, Freeze Frame and Reverse; reverse renders
+  segments up to 60 seconds once into a staged intermediate and saves through
+  the joined H.264 path (ADR 0071).
+
+- 2026-11-24: Add editor markup (mosaic, blur and solid redaction; box, arrow
+  and text) stored in source-canvas coordinates, with redaction rendered before
+  geometry and annotations after colour (ADR 0070).
+
+- 2026-11-24: Add editor Remove Silence and single-song background music with
+  a fixed one-second end fade and stamp-checked saves.
+
+- 2026-11-24: Use a 60,000 time scale for editor preview compositions so
+  preview audio continues after cuts and replays.
 
 - 2026-11-24: Require a solver-only QuickJS CLI without native I/O modules, with
   real capability-denial checks in builds and tests (ADR 0074).
