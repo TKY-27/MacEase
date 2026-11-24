@@ -1050,6 +1050,21 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertFalse(model.canUndo)
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: staged.deletingLastPathComponent().path))
+        XCTAssertTrue(stagedDirectories(in: model.staging).isEmpty)
+
+        let secondReversed = try await session.reverse(segmentID: selected.id, in: previous)
+        let secondStaged = try XCTUnwrap(secondReversed.sources?.last).url
+        XCTAssertTrue(FileManager.default.fileExists(atPath: secondStaged.path))
+        model.change { $0.speed = 2 }
+        do {
+            try await model.completeReverse(secondReversed, replacing: previous, segmentID: selected.id)
+            XCTFail("stale adoption succeeded")
+        } catch is CancellationError {}
+        XCTAssertNil(model.videoSources[secondStaged])
+        XCTAssertNil(model.videoDetails[secondStaged])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: secondStaged.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: secondStaged.deletingLastPathComponent().path))
+        XCTAssertTrue(stagedDirectories(in: model.staging).isEmpty)
     }
 
     func testCancellingReverseLeavesTheEditUntouched() async throws {
@@ -1058,12 +1073,17 @@ final class MediaEditorModelTests: XCTestCase {
         let original = model.values
         model.toggleReverse()
         XCTAssertNotNil(model.reverseProgress)
+        let started = try await waitForStagedDirectories(in: model.staging) { model.reverseProgress != nil }
+        XCTAssertNotNil(model.reverseProgress, "reverse finished before cancellation")
+        XCTAssertFalse(started.isEmpty, "reverse must begin staging before cancellation")
         model.cancelReverse()
         try await eventually { model.reverseProgress == nil }
         XCTAssertEqual(model.values, original)
         XCTAssertFalse(model.canUndo)
         XCTAssertNil(model.reverseFailure, "cancelling is not a failure")
         XCTAssertTrue(model.canToggleReverse)
+        XCTAssertTrue(stagedDirectories(in: model.staging).isEmpty)
+        for path in started { XCTAssertFalse(FileManager.default.fileExists(atPath: path)) }
     }
 
     func testJoinedReverseShowsItsFormatNoticeAndNamesTheFailingSource() async throws {
@@ -1481,7 +1501,46 @@ final class MediaEditorModelTests: XCTestCase {
     }
 
     func testTransportClockCommitsTypedTimeAndLocksDuringReverse() async throws {
-        let model = try await videoModel()
+        let directory = try workspace()
+        let model = try await videoModel(fixture: try synthesizedVideoFixture(in: directory))
+        let bar = EditorTransportBar(model: model) {}
+        let host = NSHostingView(rootView: bar)
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 800, height: 44), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        defer { window.close() }
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return window.isVisible && host.bounds.size == CGSize(width: 800, height: 44)
+        }
+        XCTAssertFalse(bar.clockDisabled)
+        try click(at: CGPoint(x: 40, y: 22), in: window)
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return self.textFields(in: host).count == 1
+        }
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.insertText("0:01", replacementRange: NSRange(location: 0, length: editor.string.utf16.count))
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        let enter = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, characters: "\r",
+                charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        window.sendEvent(enter)
+        try await eventually {
+            host.layoutSubtreeIfNeeded()
+            return self.textFields(in: host).isEmpty
+        }
+        XCTAssertEqual(model.position, 1)
+
         let clock = TransportClock(position: model.position, duration: model.outputDuration, seek: model.seek)
         clock.commit("0:01")
         XCTAssertEqual(model.position, 1)
@@ -1490,13 +1549,30 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertGreaterThan(model.position, model.outputDuration - model.frameDuration * 2)
         model.toggleReverse()
         XCTAssertTrue(model.editingLocked)
+        XCTAssertTrue(bar.clockDisabled)
+        XCTAssertFalse(model.canPlay)
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
         let position = model.position
+        try click(at: CGPoint(x: 40, y: 22), in: window)
+        try click(at: CGPoint(x: 400, y: 22), in: window)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(textFields(in: host).isEmpty, "disabled clock must not open an editor")
+        XCTAssertFalse(model.playing, "disabled play button must not start playback")
         clock.commit("0:00")
         XCTAssertEqual(model.position, position, "a clock commit cannot bypass the lock")
         model.cancelReverse()
         try await eventually { !model.editingLocked }
         model.change { $0.segments = [] }
         XCTAssertFalse(model.canPlay)
+        XCTAssertTrue(bar.clockDisabled)
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        try click(at: CGPoint(x: 40, y: 22), in: window)
+        try click(at: CGPoint(x: 400, y: 22), in: window)
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(textFields(in: host).isEmpty, "empty timeline clock must stay disabled")
+        XCTAssertFalse(model.playing)
     }
 
     func testBoxHandleDragTracksFlippedRotatedAndStraightenedImages() async throws {
@@ -1517,9 +1593,11 @@ final class MediaEditorModelTests: XCTestCase {
             window.isReleasedWhenClosed = false
             window.contentView = host
             window.makeKeyAndOrderFront(nil)
-            host.layoutSubtreeIfNeeded()
             NSApp.activate()
-            try await Task.sleep(for: .milliseconds(60))
+            try await eventually {
+                host.layoutSubtreeIfNeeded()
+                return window.isVisible && host.bounds.size == CGSize(width: 400, height: 300)
+            }
             XCTAssertEqual(host.bounds.width, 400)
             XCTAssertEqual(host.bounds.height, 300)
             XCTAssertTrue(window.isVisible)
@@ -2907,6 +2985,36 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertFalse(model.hasSilenceAnalysis)
         XCTAssertFalse(popover.showsControls)
         XCTAssertEqual(popover.problemMessage(for: nil), reopenFailure)
+    }
+
+    private func stagedDirectories(in staging: StagingArea) -> [String] {
+        let registry = staging.supportDirectory.appending(path: "staging.json")
+        guard let contents = try? Data(contentsOf: registry),
+            let paths = try? JSONDecoder().decode([String].self, from: contents)
+        else { return [] }
+        return paths
+    }
+
+    private func waitForStagedDirectories(
+        in staging: StagingArea, while running: () -> Bool
+    ) async throws -> [String] {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while running(), ContinuousClock.now < deadline {
+            let staged = stagedDirectories(in: staging)
+            if !staged.isEmpty { return staged }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        return stagedDirectories(in: staging)
+    }
+
+    private func click(at point: CGPoint, in window: NSWindow) throws {
+        for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: kind, location: point, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            window.sendEvent(event)
+        }
     }
 
     private func japanese(_ key: String) -> String {

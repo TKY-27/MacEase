@@ -402,6 +402,15 @@ final class StreamConsentTests: XCTestCase {
             return XCTFail("editor save failed: \(saved.outcomes)")
         }
         XCTAssertEqual(warnings, [.streamsOmitted([.timecode])])
+        let original = try Data(contentsOf: timecoded)
+        await model.saveFrame { batch, settings in
+            Task { await engine.run(batch, settings: settings) { _ in } }
+        }
+        guard case .saved(let frame) = model.frameNote else {
+            return XCTFail("consented single-video frame save failed: \(String(describing: model.frameNote))")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: frame.path))
+        XCTAssertEqual(try Data(contentsOf: timecoded), original)
     }
 
     func testEditorAsksBeforeAddingAVideoThatLosesStreams() async throws {

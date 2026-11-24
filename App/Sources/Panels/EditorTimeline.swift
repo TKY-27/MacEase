@@ -6,10 +6,12 @@ struct EditorTransportBar: View {
     @Bindable var model: MediaEditorModel
     let saveFrame: () -> Void
 
+    var clockDisabled: Bool { model.editingLocked || model.values.segments.isEmpty }
+
     var body: some View {
         HStack(spacing: 0) {
             TransportClock(position: model.position, duration: model.outputDuration, seek: model.seek)
-                .disabled(model.editingLocked || model.values.segments.isEmpty)
+                .disabled(clockDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 18) {
                 Button {
