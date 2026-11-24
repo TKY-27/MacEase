@@ -112,7 +112,7 @@ struct PreviewContent: View {
     let detected: DetectedContent?
     let settings: FinderPreviewSettings
     let staging: StagingArea
-    @Binding var scriptConsent: Set<String>
+    @Binding var scriptConsent: Set<PreviewScriptConsentKey>
 
     var body: some View {
         switch detected.map({ PreviewContentMatch.evaluate(kind: kind, detected: $0) }) ?? .matches {

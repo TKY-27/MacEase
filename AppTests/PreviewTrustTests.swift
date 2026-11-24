@@ -386,4 +386,68 @@ final class PreviewTrustTests: XCTestCase {
         XCTAssertFalse(probe.didFail)
         XCTAssertEqual(tcp.connectionCount, 0)
     }
+
+    @MainActor
+    func testScriptConsentInvalidatesWhenFileIsReplacedOrEdited() async throws {
+        let directory = try PreviewFixtures.directory(self)
+        let page = directory.appendingPathComponent("page.html")
+        try Data("<html><head><title>a</title></head><body><script>document.title='a-ran'</script></body></html>".utf8)
+            .write(to: page)
+
+        let trustA = PreviewTrust.evaluate(page, trustedFolders: [])
+        let keyA = try XCTUnwrap(trustA.consentKey)
+        let consent: Set<PreviewScriptConsentKey> = [keyA]
+
+        // Reselecting unchanged file A keeps script consent.
+        let trustASame = PreviewTrust.evaluate(page, trustedFolders: [])
+        let policySame = PreviewWebPolicy(
+            trust: trustASame, scriptsConsented: trustASame.consentKey.map(consent.contains) ?? false)
+        XCTAssertTrue(policySame.scripts)
+        let resolved = page.resolvingSymlinksInPath().standardizedFileURL
+        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolved))
+        let probeA = try await PreviewWebProbe.loading(.file(resolved, readAccess: readAccess, policySame))
+        let titleA = try await probeA.evaluate("document.title") as? String
+        XCTAssertEqual(titleA, "a-ran")
+
+        // Replacing file A invalidates script consent.
+        let replacement = directory.appendingPathComponent("replacement.html")
+        try Data("<html><head><title>b</title></head><body><script>document.title='b-ran'</script></body></html>".utf8)
+            .write(to: replacement)
+        _ = try FileManager.default.replaceItemAt(page, withItemAt: replacement)
+
+        let trustB = PreviewTrust.evaluate(page, trustedFolders: [])
+        let policyB = PreviewWebPolicy(
+            trust: trustB, scriptsConsented: trustB.consentKey.map(consent.contains) ?? false)
+        XCTAssertFalse(policyB.scripts)
+        XCTAssertTrue(policyB.offersScripts)
+        let probeB = try await PreviewWebProbe.loading(.file(resolved, readAccess: readAccess, policyB))
+        let titleB = try await probeB.evaluate("document.title") as? String
+        XCTAssertEqual(titleB, "b")
+
+        // Editing in place also invalidates consent.
+        let keyB = try XCTUnwrap(trustB.consentKey)
+        let consentB: Set<PreviewScriptConsentKey> = [keyB]
+        let handle = try FileHandle(forWritingTo: page)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("<!-- changed -->".utf8))
+        try handle.close()
+
+        let trustBEdited = PreviewTrust.evaluate(page, trustedFolders: [])
+        let policyBEdited = PreviewWebPolicy(
+            trust: trustBEdited, scriptsConsented: trustBEdited.consentKey.map(consentB.contains) ?? false)
+        XCTAssertFalse(policyBEdited.scripts)
+    }
+
+    func testQuarantinedSymlinkIsRestrictedEvenWhenTargetIsNot() throws {
+        let directory = try PreviewFixtures.directory(self)
+        let target = directory.appendingPathComponent("clean.html")
+        try Data("<p>clean</p>".utf8).write(to: target)
+        let link = directory.appendingPathComponent("link.html")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let value = Array("0083;00000000;Safari;".utf8)
+        XCTAssertEqual(setxattr(link.path, "com.apple.quarantine", value, value.count, 0, XATTR_NOFOLLOW), 0)
+
+        XCTAssertEqual(PreviewTrust.evaluate(target, trustedFolders: [directory.path]).level, .trusted)
+        XCTAssertEqual(PreviewTrust.evaluate(link, trustedFolders: [directory.path]).level, .restricted)
+    }
 }

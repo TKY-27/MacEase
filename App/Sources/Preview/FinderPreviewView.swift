@@ -20,7 +20,7 @@ final class FinderPreviewState {
     var trust: PreviewTrust?
     var detected: DetectedContent?
     // Script consent for this session.
-    var scriptConsent: Set<String> = []
+    var scriptConsent: Set<PreviewScriptConsentKey> = []
     var fileFailure: String?
     var dock: FinderPreviewGeometry.Dock = .right
     var docked = true

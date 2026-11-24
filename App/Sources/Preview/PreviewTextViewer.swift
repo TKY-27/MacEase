@@ -93,7 +93,7 @@ struct PreviewTextViewer: View {
     let kind: PreviewKind
     let trust: PreviewTrust
     let settings: FinderPreviewSettings
-    @Binding var scriptConsent: Set<String>
+    @Binding var scriptConsent: Set<PreviewScriptConsentKey>
     @State private var source: PreviewTextSource?
     @State private var rendering: PreviewTextRendering?
     @State private var encoding = PreviewEncoding.automatic
@@ -103,15 +103,15 @@ struct PreviewTextViewer: View {
 
     init(
         url: URL, kind: PreviewKind, trust: PreviewTrust, settings: FinderPreviewSettings,
-        scriptConsent: Binding<Set<String>>
+        scriptConsent: Binding<Set<PreviewScriptConsentKey>>
     ) {
         self.url = url
         self.kind = kind
         self.trust = trust
         self.settings = settings
         _scriptConsent = scriptConsent
-        let policy = PreviewWebPolicy(
-            trust: trust, scriptsConsented: scriptConsent.wrappedValue.contains(trust.resolvedPath))
+        let consented = trust.consentKey.map { scriptConsent.wrappedValue.contains($0) } ?? false
+        let policy = PreviewWebPolicy(trust: trust, scriptsConsented: consented)
         _policy = State(initialValue: policy)
         // Source first unless scripts are allowed.
         _rich = State(initialValue: kind != .html || policy.scripts)
@@ -233,7 +233,7 @@ struct PreviewTextViewer: View {
             if policy.offersScripts {
                 Button {
                     policy.allowScripts()
-                    scriptConsent.insert(trust.resolvedPath)
+                    if let key = trust.consentKey { scriptConsent.insert(key) }
                 } label: {
                     Label("Run Scripts", systemImage: "curlybraces")
                 }
@@ -242,7 +242,7 @@ struct PreviewTextViewer: View {
             if policy.offersNetwork {
                 Button {
                     policy.allowNetwork()
-                    scriptConsent.insert(trust.resolvedPath)
+                    if let key = trust.consentKey { scriptConsent.insert(key) }
                 } label: {
                     Label("Allow Network", systemImage: "network")
                 }
