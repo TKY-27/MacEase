@@ -56,28 +56,32 @@ final class PreviewPlayback {
     private enum Source {
         case video(VideoEditorSource)
         case audio(AudioPreviewSource)
-        case fallback(FallbackPreviewSource)
+        case fallback(FallbackPreviewSource, audioOnly: Bool)
 
-        func duration() async -> Double {
+        /// `nil` until the fallback probes on demand.
+        func duration() async -> Double? {
             switch self {
             case .video(let source): await source.details.duration
             case .audio(let source): await source.duration
-            case .fallback(let source): await source.duration
+            case .fallback: nil
             }
         }
 
         func playbackURL(
-            fallbackTimeLimit: Duration, progress: @escaping @Sendable (Double) -> Void
+            limits: PreviewConversionLimits, progress: @escaping @Sendable (Double) -> Void
         ) async throws -> URL {
             switch self {
             case .video(let source):
                 try await source.playbackURL(sdr: false, normalized: source.details.hasAlpha, progress: progress)
             case .audio(let source): try await source.playbackURL()
-            case .fallback(let source):
+            case .fallback(let source, let audioOnly):
                 try await withThrowingTaskGroup(of: URL?.self) { group in
-                    group.addTask { try await source.playbackURL(progress: progress) }
                     group.addTask {
-                        try await Task.sleep(for: fallbackTimeLimit)
+                        try await source.playbackURL(
+                            allowsDuration: { limits.allowsDuration($0, audioOnly: audioOnly) }, progress: progress)
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: limits.maximumFallbackConversionTime)
                         return nil
                     }
                     defer { group.cancelAll() }
@@ -91,7 +95,7 @@ final class PreviewPlayback {
             switch self {
             case .video(let source): await source.close()
             case .audio(let source): await source.close()
-            case .fallback(let source): await source.close()
+            case .fallback(let source, _): await source.close()
             }
         }
     }
@@ -165,14 +169,15 @@ final class PreviewPlayback {
                         : .video(try await VideoEditorSource.openForPreviewPlayback(url, staging: staging))
                 } catch {
                     return .fallback(
-                        try await FallbackPreviewSource.open(
-                            url, audioOnly: audioOnly, staging: staging, nativeError: error))
+                        try FallbackPreviewSource.open(
+                            url, audioOnly: audioOnly, staging: staging, nativeError: error),
+                        audioOnly: audioOnly)
                 }
             }
             guard !Task.isCancelled else { return await opened.close() }
             let duration = await opened.duration()
             guard !Task.isCancelled else { return await opened.close() }
-            guard limits.allowsDuration(duration, audioOnly: audioOnly) else {
+            guard duration.map({ limits.allowsDuration($0, audioOnly: audioOnly) }) ?? true else {
                 await opened.close()
                 phase = .message(PreviewConversionLimits.fileTooLongMessage)
                 return
@@ -194,13 +199,15 @@ final class PreviewPlayback {
         let report: @Sendable (Double) -> Void = { [weak self] fraction in
             Task { @MainActor in self?.progressed(fraction) }
         }
-        let fallbackTimeLimit = limits.maximumFallbackConversionTime
+        let limits = limits
         conversion = Task { [weak self] in
             do {
-                let playback = try await source.playbackURL(fallbackTimeLimit: fallbackTimeLimit, progress: report)
+                let playback = try await source.playbackURL(limits: limits, progress: report)
                 try Task.checkCancellation()
                 self?.play(PreviewMediaAsset.make(playback))
             } catch is CancellationError {
+            } catch is FallbackPreviewSource.DurationRefused {
+                self?.phase = .message(PreviewConversionLimits.fileTooLongMessage)
             } catch is FallbackTimeLimitExceeded {
                 self?.fail("fallback conversion time limit exceeded")
             } catch {

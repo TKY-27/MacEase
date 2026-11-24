@@ -1,8 +1,9 @@
 import Foundation
 
-/// Probes on open; ffmpeg runs only in `playbackURL`.
+/// ffprobe and ffmpeg run only in `playbackURL`.
 public actor FallbackPreviewSource {
-    public let duration: Double
+    public struct DurationRefused: Error {}
+
     private let url: URL
     private let audioOnly: Bool
     private let stamp: MediaSourceStamp
@@ -14,30 +15,17 @@ public actor FallbackPreviewSource {
     /// Rethrows `nativeError` unless ffmpeg could decode instead.
     public static func open(
         _ url: URL, audioOnly: Bool, staging: StagingArea, nativeError: any Error
-    ) async throws -> FallbackPreviewSource {
+    ) throws -> FallbackPreviewSource {
         let native = EngineError.wrapping(nativeError, path: url.path)
         guard StagedMediaFallback.acceptsNativeFailure(native) else { throw nativeError }
-        let stamp = try MediaSourceStamp(url: url)
-        let probe = try await StagedMediaFallback.restoringNativeError(native, path: url.path) {
-            try await StagedMediaFallback.probe(url)
-        }
-        let streams = audioOnly ? probe.audioStreams : probe.videoStreams
-        guard !streams.isEmpty else { throw EngineError.decodeFailed(audioOnly ? "no audio track" : "no video track") }
-        guard let duration = probe.durationSeconds, duration.isFinite, duration > 0 else {
-            throw EngineError.decodeFailed("unknown media duration")
-        }
-        try stamp.validate(url)
         return FallbackPreviewSource(
-            url: url, audioOnly: audioOnly, duration: duration, stamp: stamp, nativeError: native, staging: staging)
+            url: url, audioOnly: audioOnly, stamp: try MediaSourceStamp(url: url), nativeError: native,
+            staging: staging)
     }
 
-    private init(
-        url: URL, audioOnly: Bool, duration: Double, stamp: MediaSourceStamp, nativeError: EngineError,
-        staging: StagingArea
-    ) {
+    private init(url: URL, audioOnly: Bool, stamp: MediaSourceStamp, nativeError: EngineError, staging: StagingArea) {
         self.url = url
         self.audioOnly = audioOnly
-        self.duration = duration
         self.stamp = stamp
         self.nativeError = nativeError
         self.staging = staging
@@ -46,10 +34,14 @@ public actor FallbackPreviewSource {
     deinit { staged?.context.removeStaging() }
 
     // Playback drops extra streams without asking.
-    public func playbackURL(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    public func playbackURL(
+        allowsDuration: @Sendable (Double) -> Bool, progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> URL {
         guard !closed else { throw CancellationError() }
         if let staged { return staged.url }
         try stamp.validate(url)
+        try await Self.requireAllowedDuration(
+            of: url, audioOnly: audioOnly, nativeError: nativeError, allowsDuration: allowsDuration)
         let context = ItemContext(settings: Settings(), staging: staging, progress: progress)
         do {
             let stagedURL =
@@ -69,6 +61,20 @@ public actor FallbackPreviewSource {
             context.removeStaging()
             throw error
         }
+    }
+
+    private static func requireAllowedDuration(
+        of url: URL, audioOnly: Bool, nativeError: EngineError, allowsDuration: @Sendable (Double) -> Bool
+    ) async throws {
+        let probe = try await StagedMediaFallback.restoringNativeError(nativeError, path: url.path) {
+            try await StagedMediaFallback.probe(url)
+        }
+        let streams = audioOnly ? probe.audioStreams : probe.videoStreams
+        guard !streams.isEmpty else { throw EngineError.decodeFailed(audioOnly ? "no audio track" : "no video track") }
+        guard let duration = probe.durationSeconds, duration.isFinite, duration > 0 else {
+            throw EngineError.decodeFailed("unknown media duration")
+        }
+        guard allowsDuration(duration) else { throw DurationRefused() }
     }
 
     public func close() {

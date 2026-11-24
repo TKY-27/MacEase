@@ -90,8 +90,11 @@ final class PreviewFallbackPlaybackTests: XCTestCase {
         for (limits, message) in cases {
             let playback = PreviewPlayback(limits: limits)
             await playback.load(wmv, audioOnly: false, detected: detected, restricted: false, staging: staging)
-            XCTAssertEqual(playback.phase, .message(message))
             playback.convert(wmv)
+            let settled = try await PreviewFixtures.waitUntil(timeout: Self.conversionTimeout) {
+                !Self.isConverting(playback.phase)
+            }
+            XCTAssertTrue(settled)
             XCTAssertEqual(playback.phase, .message(message))
             await playback.stopAndWait()
         }
@@ -166,6 +169,12 @@ final class PreviewFallbackPlaybackTests: XCTestCase {
         await undecodable.load(
             brokenASF, audioOnly: false, detected: try ContentSniffer.identify(brokenASF), restricted: false,
             staging: staging)
+        XCTAssertEqual(undecodable.phase, .convertible, "nothing parses the file before the button")
+        undecodable.convert(brokenASF)
+        let settled = try await PreviewFixtures.waitUntil(timeout: Self.conversionTimeout) {
+            !Self.isConverting(undecodable.phase)
+        }
+        XCTAssertTrue(settled)
         XCTAssertEqual(
             undecodable.phase,
             .message(UserMessages.describe(.decodeFailed(""), file: brokenASF.lastPathComponent)))
