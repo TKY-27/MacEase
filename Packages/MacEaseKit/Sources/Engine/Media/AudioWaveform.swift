@@ -18,6 +18,10 @@ public struct AudioWaveformSnapshot: Sendable {
 
 public enum AudioWaveform {
     private static let maximumBins = 65_536
+    private static let minimumWindowSeconds = 0.001
+    private static let maximumLevelWindows = 4_000_000
+    private static let windowRoundingTolerance = 1e-9
+    private static let powerToDecibels = 10.0
     private static let updateInterval = Duration.milliseconds(100)
 
     public static func load(
@@ -44,31 +48,106 @@ public enum AudioWaveform {
         }
     }
 
+    public static func levels(videoAt url: URL, window: Double = AudioLevels.defaultWindow) async throws -> AudioLevels
+    {
+        let task = Task.detached(priority: .utility) { try await readVideoLevels(url: url, window: window) }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
     private static func readVideo(url: URL, bins: Int) async throws -> AudioWaveformSnapshot? {
+        var peaks: [Float] = []
+        let metadata = try await decodeVideoAudio(url: url) { _, _ in
+            guard bins > 0, bins <= maximumBins else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
+            peaks = [Float](repeating: 0, count: bins)
+        } consume: { chunk, sampleRate, channels, duration in
+            let origin = Double(chunk.timestamp) / Double(Nanoseconds.perSecond)
+            for frame in 0..<(chunk.samples.count / channels) {
+                let time = origin + Double(frame) / sampleRate
+                let index = min(bins - 1, max(0, Int(time / duration * Double(bins))))
+                for channel in 0..<channels {
+                    peaks[index] = max(peaks[index], abs(chunk.samples[frame * channels + channel]))
+                }
+            }
+        }
+        guard let metadata else { return nil }
+        return AudioWaveformSnapshot(
+            peaks: peaks, start: 0, duration: metadata.duration, sampleRate: metadata.sampleRate)
+    }
+
+    private static func readVideoLevels(url: URL, window: Double) async throws -> AudioLevels {
+        guard window.isFinite, window >= minimumWindowSeconds else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        var sumSquares: [Double] = []
+        var sampleCounts: [Int] = []
+        var windowCount = 0
+        let decoded = try await decodeVideoAudio(url: url) { duration, _ in
+            let rawCount = duration / window
+            guard rawCount.isFinite, rawCount <= Double(maximumLevelWindows) else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
+            windowCount = max(1, Int(ceil(rawCount - windowRoundingTolerance)))
+            guard windowCount <= maximumLevelWindows else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
+            sumSquares = [Double](repeating: 0, count: windowCount)
+            sampleCounts = [Int](repeating: 0, count: windowCount)
+        } consume: { chunk, sampleRate, channels, duration in
+            let origin = Double(chunk.timestamp) / Double(Nanoseconds.perSecond)
+            let frames = chunk.samples.count / channels
+            for frame in 0..<frames {
+                let time = origin + Double(frame) / sampleRate
+                guard time >= 0, time < duration else { continue }
+                let index = min(windowCount - 1, Int(time / window))
+                var frameEnergy = 0.0
+                for channel in 0..<channels {
+                    let sample = Double(chunk.samples[frame * channels + channel])
+                    frameEnergy += sample * sample
+                }
+                sumSquares[index] += frameEnergy
+                sampleCounts[index] += channels
+            }
+        }
+        guard let decoded else {
+            throw EngineError.invalidInput(.malformed("no audio track"))
+        }
+        let decibels = (0..<windowCount).map { index -> Double in
+            let count = sampleCounts[index]
+            guard count > 0 else { return -.infinity }
+            let meanSquare = sumSquares[index] / Double(count)
+            guard meanSquare > 0 else { return -.infinity }
+            return powerToDecibels * log10(meanSquare)
+        }
+        return AudioLevels(decibels: decibels, window: window, duration: decoded.duration)
+    }
+
+    private static func decodeVideoAudio(
+        url: URL,
+        prepare: (_ duration: Double, _ sampleRate: Double) throws -> Void,
+        consume: (_ chunk: VideoPCMSource.Chunk, _ sampleRate: Double, _ channels: Int, _ duration: Double) throws ->
+            Void
+    ) async throws -> (duration: Double, sampleRate: Double)? {
         let stamp = try MediaSourceStamp(url: url)
         let input = try await MediaInput.open(url)
         guard let track = input.audio else { return nil }
         let duration = Double(input.duration) / Double(Nanoseconds.perSecond)
-        guard duration > 0, bins > 0, bins <= maximumBins else {
-            throw EngineError.invalidInput(.invalidNumericParameter)
-        }
+        guard duration > 0 else { throw EngineError.invalidInput(.invalidNumericParameter) }
         let source = try VideoPCMSource(input: input, track: track, start: 0, end: .max)
-        var peaks = [Float](repeating: 0, count: bins)
+        try prepare(duration, source.sampleRate)
         while let chunk = try await source.next() {
             try Task.checkCancellation()
-            let origin = Double(chunk.timestamp) / Double(Nanoseconds.perSecond)
-            for frame in 0..<(chunk.samples.count / source.channels) {
-                let time = origin + Double(frame) / source.sampleRate
-                let index = min(bins - 1, max(0, Int(time / duration * Double(bins))))
-                for channel in 0..<source.channels {
-                    let amplitude = chunk.samples[frame * source.channels + channel]
-                    guard amplitude.isFinite else { throw EngineError.nonFiniteAudioSample }
-                    peaks[index] = max(peaks[index], abs(amplitude))
-                }
-            }
+            guard chunk.samples.allSatisfy(\.isFinite) else { throw EngineError.nonFiniteAudioSample }
+            try consume(chunk, source.sampleRate, source.channels, duration)
         }
+        try Task.checkCancellation()
         try stamp.validate(url)
-        return AudioWaveformSnapshot(peaks: peaks, start: 0, duration: duration, sampleRate: source.sampleRate)
+        return (duration, source.sampleRate)
     }
 
     private static func read(
