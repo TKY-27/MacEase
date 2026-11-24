@@ -185,7 +185,10 @@ public actor VideoEditorSource {
         }
     }
 
-    public func playback(edit: VideoEdit) async throws -> VideoEditorPlayback {
+    /// Joined sources open with the caller's consent.
+    public func playback(
+        edit: VideoEdit, omissions: [URL: StreamOmission] = [:]
+    ) async throws -> VideoEditorPlayback {
         guard !closed else { throw CancellationError() }
         try edit.geometry.validate()
         let timeline = try VideoTimeline(edit: edit, sourceDuration: details.duration)
@@ -214,7 +217,8 @@ public actor VideoEditorSource {
                     if let cached = additionalSources[source.url] {
                         opened = cached
                     } else {
-                        opened = try await VideoEditorSource.open(source.url, staging: staging)
+                        opened = try await VideoEditorSource.open(
+                            source.url, staging: staging, omission: omissions[source.url])
                         guard !closed else {
                             await opened.close()
                             throw CancellationError()

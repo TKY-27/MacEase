@@ -27,7 +27,7 @@ public enum RedactionStyle: String, Codable, CaseIterable, Sendable {
 public enum MarkColor: String, Codable, CaseIterable, Sendable {
     case red, yellow, green, blue, white, black
 
-    var cgColor: CGColor {
+    public var cgColor: CGColor {
         switch self {
         case .red: CGColor(srgbRed: 0.95, green: 0.22, blue: 0.20, alpha: 1)
         case .yellow: CGColor(srgbRed: 0.98, green: 0.80, blue: 0.12, alpha: 1)
@@ -38,7 +38,7 @@ public enum MarkColor: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var strokeColor: CGColor {
+    public var strokeColor: CGColor {
         switch self {
         case .black, .blue: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         case .red, .yellow, .green, .white: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
@@ -49,7 +49,7 @@ public enum MarkColor: String, Codable, CaseIterable, Sendable {
 public enum MarkSize: String, Codable, CaseIterable, Sendable {
     case small, medium, large
 
-    var strokeFraction: Double {
+    public var strokeFraction: Double {
         switch self {
         case .small: 0.004
         case .medium: 0.0075
@@ -57,7 +57,7 @@ public enum MarkSize: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var fontFraction: Double {
+    public var fontFraction: Double {
         switch self {
         case .small: 0.035
         case .medium: 0.055
@@ -72,14 +72,14 @@ public enum EditMark: Codable, Hashable, Sendable {
     case arrow(from: EditPoint, to: EditPoint, color: MarkColor, size: MarkSize)
     case text(String, at: EditPoint, color: MarkColor, size: MarkSize)
 
-    var isAnnotation: Bool {
+    public var isAnnotation: Bool {
         switch self {
         case .redaction: false
         case .box, .arrow, .text: true
         }
     }
 
-    func validate() throws {
+    public func validate() throws {
         switch self {
         case .redaction(let rect, _), .box(let rect, _, _):
             try rect.validate()
