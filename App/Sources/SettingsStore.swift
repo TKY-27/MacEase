@@ -222,21 +222,3 @@ final class SettingsStore {
         }
     }
 }
-
-extension OperationID {
-    static let extraAnglePreset = "extra-angle"
-
-    /// Includes Custom Size and the extra angle.
-    var menuPresetIDs: [String] {
-        let extra = self == .imageRotate || self == .videoRotate ? [Self.extraAnglePreset] : []
-        return presetGroups.flatMap { $0 } + extra + (offersCustom ? [MenuEntry.customPreset] : [])
-    }
-
-    var menuEntryKeys: [String] {
-        menuPresetIDs.isEmpty ? [menuEntryKey("")] : menuPresetIDs.map(menuEntryKey)
-    }
-
-    func menuEntryKey(_ preset: String) -> String {
-        "\(rawValue)/\(preset)"
-    }
-}

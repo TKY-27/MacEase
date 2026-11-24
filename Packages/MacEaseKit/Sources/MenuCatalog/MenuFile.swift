@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 public enum MenuPlacement: String, Codable, Sendable {
-    case primary, more
+    case finder, primary, more
 }
 
 public struct MenuEntry: Codable, Hashable, Sendable {
@@ -238,7 +238,7 @@ extension MenuFile {
             let opTitle = titles.operation(parent)
             var groups = op.presetGroups
             if extraRotationDegrees != nil, op == .imageRotate || op == .videoRotate {
-                groups[0].append("extra-angle")
+                groups[0].append(OperationID.extraAnglePreset)
             }
             if op.offersCustom { groups.append([MenuEntry.customPreset]) }
             if groups.isEmpty {
@@ -272,7 +272,7 @@ extension MenuFile {
                             operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
                             targetBytes: sizeTargets["\(op.rawValue)/\(preset)"],
                             resizeValue: resizeTargets["\(op.rawValue)/\(preset)"], parameterVersion: parameterVersion,
-                            rotationDegrees: preset == "extra-angle" ? extraRotationDegrees : nil,
+                            rotationDegrees: preset == OperationID.extraAnglePreset ? extraRotationDegrees : nil,
                             frameRate: op == .videoFPS ? frameRates[preset] : nil,
                             targetLoudness: op == .audioNormalize ? loudnessTargets[preset] : nil,
                             groupID: op.menuGroupID(preset: preset),

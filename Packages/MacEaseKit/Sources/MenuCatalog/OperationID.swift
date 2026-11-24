@@ -153,6 +153,22 @@ extension OperationID {
         }
     }
 
+    public static let extraAnglePreset = "extra-angle"
+
+    /// Includes Custom Size and the extra angle.
+    public var menuPresetIDs: [String] {
+        let extra = self == .imageRotate || self == .videoRotate ? [Self.extraAnglePreset] : []
+        return presetGroups.flatMap { $0 } + extra + (offersCustom ? [MenuEntry.customPreset] : [])
+    }
+
+    public var menuEntryKeys: [String] {
+        menuPresetIDs.isEmpty ? [menuEntryKey("")] : menuPresetIDs.map(menuEntryKey)
+    }
+
+    public func menuEntryKey(_ preset: String) -> String {
+        "\(rawValue)/\(preset)"
+    }
+
     public var offersCustom: Bool {
         switch self {
         case .imageResize, .videoResize, .videoSpeed, .imageCompress, .videoCompress, .audioCompress: true
@@ -245,7 +261,7 @@ extension OperationID {
         self == .textJSON ? "\(rawValue)/\(preset ?? "")" : menuGroupOperation.rawValue
     }
 
-    private static let primaryMenuOrder: [OperationID] = [
+    static let primaryMenuOrder: [OperationID] = [
         .imageEdit, .imageConvert, .imageCompress, .imageResize, .imageRotate, .imageBackground, .imageOCR,
         .videoEdit, .videoConvert, .videoCompress, .videoResize, .videoExtractAudio, .videoThumbnail, .videoSubtitles,
         .audioTrim, .audioEnhance, .audioConvert, .audioCompress, .audioNormalize, .audioSubtitles,
