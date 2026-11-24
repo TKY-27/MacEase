@@ -1,6 +1,4 @@
 import AppKit
-import Engine
-import MenuCatalog
 import Observation
 import Quartz
 import SwiftUI
@@ -11,31 +9,13 @@ import os
 final class FinderPreviewState {
     enum Notice {
         case accessibility, automation, unavailable, timedOut
-
-        var text: String {
-            switch self {
-            case .accessibility: String(localized: "Allow Accessibility access to attach Finder Preview to Finder.")
-            case .automation: String(localized: "Allow MacEase to control Finder to follow the selection.")
-            case .unavailable: String(localized: "Finder Preview is unavailable. Try again.")
-            case .timedOut: String(localized: "Finder did not respond in time. Try again.")
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .accessibility: "accessibility"
-            case .automation: "hand.raised"
-            case .unavailable, .timedOut: "exclamationmark.triangle"
-            }
-        }
     }
 
-    let textEditor = PreviewTextEditor()
     var generation: UInt64 = 0
     var urls: [URL] = []
     var selectedIndex = 0
     var notice: Notice?
-    var details: PreviewFileDetails?
+    var kind: PreviewKind?
     var fileFailure: String?
     var dock: FinderPreviewGeometry.Dock = .right
     var docked = true
@@ -43,76 +23,54 @@ final class FinderPreviewState {
     var selectedURL: URL? { urls.indices.contains(selectedIndex) ? urls[selectedIndex] : nil }
 }
 
-enum PreviewLayout {
-    static let margin: CGFloat = 16
-    static let toolbarHeight: CGFloat = 36
-    static let previewCornerRadius: CGFloat = 8
-}
-
 struct FinderPreviewView: View {
     let state: FinderPreviewState
-    let jobs: JobCenter
     let close: () -> Void
     let retry: () -> Void
     let select: (Int) -> Void
-    let open: (URL) -> Void
-    let edit: (URL) -> Void
     let resize: (CGFloat) -> Void
+    @State private var accessoryWidth: CGFloat = 0
     @Environment(\.displayScale) private var displayScale
-    // Matches the height of Finder's toolbar.
-    private static let dockedHeaderHeight: CGFloat = 52
     private static let resizeEdgeWidth: CGFloat = 5
     private static let keyboardResizeStep: CGFloat = 20
 
     var body: some View {
-        VStack(spacing: 0) {
-            if state.docked || state.urls.count > 1 || state.textEditor.editing {
-                header
-                Divider()
+        content
+            .environment(\.previewBarTrailingInset, state.docked ? accessoryWidth : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .topTrailing) {
+                if state.docked { accessories }
             }
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let url = state.selectedURL, let details = state.details, state.notice == nil, state.fileFailure == nil {
-                Divider()
-                actions(url, details: details)
+            .overlay(alignment: state.dock == .left ? .trailing : .leading) {
+                if state.docked && state.dock != .inset {
+                    Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1 / displayScale)
+                        .accessibilityHidden(true)
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: state.dock == .left ? .trailing : .leading) {
-            if state.docked && state.dock != .inset {
-                Rectangle().fill(Color(nsColor: .separatorColor)).frame(width: 1 / displayScale)
-                    .accessibilityHidden(true)
+            .overlay(alignment: state.dock.resizesLeadingEdge ? .leading : .trailing) {
+                if state.docked { resizeEdge }
             }
-        }
-        .overlay(alignment: state.dock.resizesLeadingEdge ? .leading : .trailing) {
-            if state.docked { resizeEdge }
-        }
     }
 
-    private var header: some View {
+    private var accessories: some View {
         HStack(spacing: 8) {
-            if state.docked {
-                Text("Finder Preview").font(.headline).foregroundStyle(.secondary)
-                    .accessibilityAddTraits(.isHeader)
-            }
-            if state.textEditor.dirty {
-                Circle().fill(.secondary).frame(width: 6, height: 6)
-                    .accessibilityLabel(Text("Edited")).help(Text("Edited"))
-            }
-            Spacer(minLength: 0)
             if state.urls.count > 1 { selectionStepper }
-            if state.docked {
-                Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
-                }
-                .buttonStyle(PreviewButtonStyle(cornerRadius: 12, restingOpacity: 0.06))
-                .help(Text("Close Preview"))
-                .accessibilityLabel(Text("Close Preview"))
+            Button(action: close) {
+                Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 24)
             }
+            .buttonStyle(PreviewButtonStyle(cornerRadius: 12, restingOpacity: 0.06))
+            .help(Text("Close Preview"))
+            .accessibilityLabel(Text("Close Preview"))
         }
-        .padding(.leading, PreviewLayout.margin)
         .padding(.trailing, PreviewLayout.margin - 4)
-        .frame(height: state.docked ? Self.dockedHeaderHeight : PreviewLayout.toolbarHeight)
+        .frame(minHeight: PreviewLayout.barHeight)
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+        } action: {
+            accessoryWidth = $0
+        }
+        .accessibilitySortPriority(1)
     }
 
     private var selectionStepper: some View {
@@ -122,7 +80,7 @@ struct FinderPreviewView: View {
             } label: {
                 Image(systemName: "chevron.left").frame(width: 22, height: 22)
             }
-            .disabled(state.selectedIndex == 0 || state.textEditor.pinsSelection)
+            .disabled(state.selectedIndex == 0)
             .accessibilityLabel(Text("Previous File"))
             Text("\(state.selectedIndex + 1) of \(state.urls.count)")
                 .font(.callout).monospacedDigit().foregroundStyle(.secondary)
@@ -131,7 +89,7 @@ struct FinderPreviewView: View {
             } label: {
                 Image(systemName: "chevron.right").frame(width: 22, height: 22)
             }
-            .disabled(state.selectedIndex == state.urls.count - 1 || state.textEditor.pinsSelection)
+            .disabled(state.selectedIndex == state.urls.count - 1)
             .accessibilityLabel(Text("Next File"))
         }
         .buttonStyle(PreviewButtonStyle(cornerRadius: 6, restingOpacity: 0))
@@ -149,143 +107,97 @@ struct FinderPreviewView: View {
 
     @ViewBuilder private var content: some View {
         if let notice = state.notice {
-            PreviewMessage(symbol: notice.symbol, message: Text(notice.text)) {
+            barred {
                 switch notice {
-                case .accessibility:
-                    Button("Open Accessibility Settings") { SystemSettingsPane.open(SystemSettingsPane.accessibility) }
-                        .buttonStyle(.borderedProminent)
-                case .automation:
-                    Button("Open Automation Settings") { SystemSettingsPane.open(SystemSettingsPane.automation) }
-                        .buttonStyle(.borderedProminent)
-                case .unavailable, .timedOut:
-                    EmptyView()
+                case .accessibility: PreviewPermissions(accessibilityAllowed: false, retry: retry)
+                case .automation: PreviewPermissions(accessibilityAllowed: true, retry: retry)
+                case .unavailable: failureMessage(Text("Finder Preview is unavailable. Try again."))
+                case .timedOut: failureMessage(Text("Finder did not respond in time. Try again."))
                 }
-                Button("Try Again", action: retry)
             }
         } else if let failure = state.fileFailure {
-            PreviewMessage(symbol: "exclamationmark.triangle", message: Text(failure)) { EmptyView() }
+            barred { PreviewMessage(symbol: "exclamationmark.triangle", message: Text(failure)) { EmptyView() } }
         } else if let url = state.selectedURL {
-            if let details = state.details {
-                PreviewFilePane(url: url, details: details, textEditor: state.textEditor, jobs: jobs).id(
-                    state.generation)
+            if let kind = state.kind {
+                PreviewContent(url: url, kind: kind).id(state.generation)
             } else {
-                ProgressView().controlSize(.small).accessibilityLabel(Text("Reading File"))
+                barred { Color.clear }
             }
         } else {
-            PreviewMessage(
-                symbol: "doc.viewfinder", title: Text("No Selection"),
-                message: Text("Select a file in Finder to preview it.")
-            ) { EmptyView() }
+            barred {
+                PreviewMessage(
+                    symbol: "doc.viewfinder", title: Text("No Selection"),
+                    message: Text("Select a file in Finder to preview it.")
+                ) { EmptyView() }
+            }
         }
     }
 
-    private func actions(_ url: URL, details: PreviewFileDetails) -> some View {
-        let fileKind = FileKind(fileURL: url)
-        return HStack(spacing: 8) {
-            PreviewActionButton(title: Text("Open"), symbol: "arrow.up.forward.app") { open(url) }
-            if !details.isFolder && (fileKind == .image || fileKind == .video) {
-                PreviewActionButton(title: Text("Edit in MacEase"), symbol: "slider.horizontal.3") { edit(url) }
-            }
+    private func failureMessage(_ message: Text) -> some View {
+        PreviewMessage(symbol: "exclamationmark.triangle", message: message) {
+            Button("Try Again", action: retry)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+    }
+
+    private func barred(@ViewBuilder _ body: () -> some View) -> some View {
+        VStack(spacing: 0) {
+            if state.docked { PreviewToolbar {} }
+            body().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 
-private struct PreviewFilePane: View {
-    let url: URL
-    let details: PreviewFileDetails
-    let textEditor: PreviewTextEditor
-    let jobs: JobCenter
-    @State private var width: CGFloat = 0
-    @State private var showsInformation: Bool
-    private static let folderIconSize: CGFloat = 128
-    private static let fallbackAspectRatio: CGFloat = 4 / 3
-
-    init(url: URL, details: PreviewFileDetails, textEditor: PreviewTextEditor, jobs: JobCenter) {
-        self.url = url
-        self.details = details
-        self.textEditor = textEditor
-        self.jobs = jobs
-        _showsInformation = State(initialValue: details.isFolder || !details.kind.fillsPane)
-    }
+// Steps follow the order macOS asks.
+private struct PreviewPermissions: View {
+    let accessibilityAllowed: Bool
+    let retry: () -> Void
+    private static let maximumWidth: CGFloat = 320
 
     var body: some View {
-        if details.isFolder || !details.kind.fillsPane {
-            ScrollView {
-                VStack(spacing: 0) {
-                    if details.isFolder {
-                        Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable()
-                            .frame(width: Self.folderIconSize, height: Self.folderIconSize)
-                            .padding(.top, PreviewLayout.margin * 2)
-                            .accessibilityHidden(true)
-                    } else {
-                        PreviewContent(
-                            url: url, kind: details.kind, previewHeight: previewHeight, textEditor: textEditor,
-                            jobs: jobs)
-                    }
-                    summary
-                }
-                .onGeometryChange(for: CGFloat.self) {
-                    $0.size.width
-                } action: {
-                    width = $0
-                }
+        VStack(alignment: .leading, spacing: PreviewLayout.margin) {
+            Text("Finder Preview needs permission").font(.headline).accessibilityAddTraits(.isHeader)
+            step(
+                1, title: Text("Accessibility"), detail: Text("Places the preview beside Finder windows."),
+                allowed: accessibilityAllowed
+            ) {
+                Button("Open Accessibility Settings") { SystemSettingsPane.open(SystemSettingsPane.accessibility) }
+                    .buttonStyle(.borderedProminent)
             }
-            .scrollBounceBehavior(.basedOnSize)
-        } else {
-            VStack(spacing: 0) {
-                PreviewContent(url: url, kind: details.kind, previewHeight: nil, textEditor: textEditor, jobs: jobs)
-                    .frame(maxHeight: .infinity)
-                Divider()
-                summary
+            step(
+                2, title: Text("Automation"), detail: Text("Lets the preview follow the selection in Finder."),
+                allowed: false
+            ) {
+                if accessibilityAllowed {
+                    Button("Open Automation Settings") { SystemSettingsPane.open(SystemSettingsPane.automation) }
+                        .buttonStyle(.borderedProminent)
+                    Button("Try Again", action: retry)
+                } else {
+                    Text("MacEase asks for this next.").font(.callout).foregroundStyle(.secondary)
+                }
             }
         }
+        .frame(maxWidth: Self.maximumWidth, alignment: .leading)
+        .padding(PreviewLayout.margin * 2)
     }
 
-    private var previewHeight: CGFloat {
-        FinderPreviewGeometry.previewHeight(
-            width: max(0, width - PreviewLayout.margin * 2),
-            aspectRatio: details.aspectRatio ?? Self.fallbackAspectRatio)
-    }
-
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(verbatim: url.lastPathComponent)
-                .font(.title3.weight(.semibold)).lineLimit(2).truncationMode(.middle)
-                .textSelection(.enabled)
-            Text(verbatim: details.subtitle).foregroundStyle(.secondary).padding(.top, 2)
-            if !details.facts.isEmpty {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Information").font(.headline).accessibilityAddTraits(.isHeader)
-                    Spacer(minLength: 8)
-                    Button(showsInformation ? "Show Less" : "Show More") { showsInformation.toggle() }
-                        .buttonStyle(.link).font(.callout)
+    private func step(
+        _ number: Int, title: Text, detail: Text, allowed: Bool, @ViewBuilder actions: () -> some View
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: allowed ? "checkmark.circle.fill" : "\(number).circle")
+                .font(.title3).foregroundStyle(allowed ? Color.green : Color.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                title.font(.body.weight(.semibold))
+                detail.font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if allowed {
+                    Text("Allowed").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) { actions() }.padding(.top, 4)
                 }
-                .padding(.top, PreviewLayout.margin)
-                if showsInformation { facts }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(PreviewLayout.margin)
-    }
-
-    private var facts: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(details.facts.enumerated()), id: \.offset) { index, fact in
-                if index > 0 { Divider() }
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(verbatim: fact.label).foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                    Text(verbatim: fact.value).multilineTextAlignment(.trailing).textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true).layoutPriority(1)
-                }
-                .font(.callout)
-                .padding(.vertical, 6)
-                .accessibilityElement(children: .combine)
-            }
-        }
-        .padding(.top, 6)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -304,25 +216,6 @@ private struct PreviewMessage<Actions: View>: View {
             VStack(spacing: 8) { actions }.padding(.top, 8)
         }
         .padding(PreviewLayout.margin * 2)
-    }
-}
-
-private struct PreviewActionButton: View {
-    let title: Text
-    let symbol: String
-    let action: () -> Void
-    private static let width: CGFloat = 88
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 17)).frame(height: 22).accessibilityHidden(true)
-                title.font(.caption).lineLimit(2).multilineTextAlignment(.center)
-            }
-            .frame(width: Self.width)
-            .padding(.vertical, 6)
-        }
-        .buttonStyle(PreviewButtonStyle(cornerRadius: 8, restingOpacity: 0))
     }
 }
 

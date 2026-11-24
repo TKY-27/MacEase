@@ -122,13 +122,28 @@ public enum CommitRecord: Codable, Equatable, Sendable {
 }
 
 public struct BatchRecord: Codable, Equatable, Identifiable, Sendable {
+    public static let legacyTextEdit = "text.edit"
     public let id: UUID
-    public let operation: OperationID
+    public let operation: OperationID?
+    public let legacyOperation: String?
     public let date: Date
     public internal(set) var recipeExecution: RecipeExecution? = nil
     /// Only failed items after a partial undo.
     public internal(set) var items: [CommitRecord]
     public internal(set) var undone: Bool
+
+    public init(
+        id: UUID, operation: OperationID, date: Date, recipeExecution: RecipeExecution? = nil,
+        items: [CommitRecord], undone: Bool
+    ) {
+        self.id = id
+        self.operation = operation
+        legacyOperation = nil
+        self.date = date
+        self.recipeExecution = recipeExecution
+        self.items = items
+        self.undone = undone
+    }
 
     public var canUndo: Bool { !items.contains { if case .extractedInPlace = $0 { true } else { false } } }
 
@@ -156,13 +171,35 @@ extension BatchRecord {
         let identifier = try values.decode(String.self, forKey: .operation)
         if identifier == "video.trim" {
             operation = .videoEdit
+            legacyOperation = nil
+        } else if identifier == Self.legacyTextEdit {
+            operation = nil
+            legacyOperation = identifier
         } else {
             operation = try values.decode(OperationID.self, forKey: .operation)
+            legacyOperation = nil
         }
         date = try values.decode(Date.self, forKey: .date)
         recipeExecution = try values.decodeIfPresent(RecipeExecution.self, forKey: .recipeExecution)
         items = try values.decode([CommitRecord].self, forKey: .items)
         undone = try values.decode(Bool.self, forKey: .undone)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        if let operation {
+            try values.encode(operation, forKey: .operation)
+        } else if let legacyOperation {
+            try values.encode(legacyOperation, forKey: .operation)
+        } else {
+            throw EncodingError.invalidValue(
+                self, EncodingError.Context(codingPath: values.codingPath, debugDescription: "Missing operation"))
+        }
+        try values.encode(date, forKey: .date)
+        try values.encodeIfPresent(recipeExecution, forKey: .recipeExecution)
+        try values.encode(items, forKey: .items)
+        try values.encode(undone, forKey: .undone)
     }
 }
 

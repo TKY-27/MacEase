@@ -3,8 +3,6 @@ import Foundation
 enum FinderPreviewGeometry {
     static let defaultWidth: CGFloat = 360
     static let minimumWidth: CGFloat = 280
-    // Keeps tall previews from hiding details.
-    static let maximumPreviewAspect: CGFloat = 1.25
 
     enum Dock: Equatable {
         case right, left, inset
@@ -52,9 +50,5 @@ enum FinderPreviewGeometry {
         case .inset: room = screen.width
         }
         return min(screen.width / 2, room, max(minimumWidth, proposed))
-    }
-
-    static func previewHeight(width: CGFloat, aspectRatio: CGFloat) -> CGFloat {
-        min(width / aspectRatio, width * maximumPreviewAspect)
     }
 }

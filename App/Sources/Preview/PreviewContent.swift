@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
@@ -28,50 +29,70 @@ enum PreviewKind: Sendable {
         return .quickLook
     }
 
-    var fillsPane: Bool {
-        switch self {
-        case .image, .media, .audio: false
-        case .text, .html, .markdown, .json, .propertyList, .pdf, .quickLook: true
-        }
+    // Folders and packages use the system preview.
+    static func inspect(_ url: URL) throws -> Self {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .contentTypeKey])
+        if values.isDirectory == true { return .quickLook }
+        guard values.isRegularFile == true else { throw CocoaError(.fileReadUnsupportedScheme) }
+        return resolve(type: values.contentType, extension: url.pathExtension)
     }
+}
+
+enum PreviewLayout {
+    static let margin: CGFloat = 16
+    // Matches the height of Finder's toolbar.
+    static let barHeight: CGFloat = 52
 }
 
 struct PreviewContent: View {
     let url: URL
     let kind: PreviewKind
-    let previewHeight: CGFloat?
-    let textEditor: PreviewTextEditor
-    let jobs: JobCenter
 
     var body: some View {
         switch kind {
         case .text, .html, .markdown, .json, .propertyList:
-            PreviewTextViewer(url: url, kind: kind, editor: textEditor, jobs: jobs)
-        case .image: PreviewImageViewer(url: url, height: previewHeight)
-        case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio, height: previewHeight)
+            PreviewTextViewer(url: url, kind: kind)
+        case .image: PreviewImageViewer(url: url)
+        case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
         case .pdf: PreviewPDFViewer(url: url)
-        case .quickLook: QuickLookPreview(url: url)
+        case .quickLook:
+            VStack(spacing: 0) {
+                PreviewToolbar {}
+                QuickLookPreview(url: url)
+            }
         }
     }
 }
 
 struct PreviewFailure: View {
+    var message = Text("This preview could not be displayed.")
+
     var body: some View {
-        Text("This preview could not be displayed.").font(.callout).foregroundStyle(.secondary)
+        message.font(.callout).foregroundStyle(.secondary)
             .multilineTextAlignment(.center).padding(PreviewLayout.margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
+extension EnvironmentValues {
+    @Entry var previewBarTrailingInset: CGFloat = 0
+}
+
+// Leaves room for the panel's trailing controls.
 struct PreviewToolbar<Content: View>: View {
     @ViewBuilder let content: Content
+    @Environment(\.previewBarTrailingInset) private var trailingInset
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) { content }
-                .controlSize(.small)
-                .padding(.horizontal, PreviewLayout.margin)
-                .frame(maxWidth: .infinity, minHeight: PreviewLayout.toolbarHeight)
+            HStack(spacing: 8) {
+                content
+                Spacer(minLength: 0)
+            }
+            .controlSize(.small)
+            .padding(.leading, PreviewLayout.margin)
+            .padding(.trailing, PreviewLayout.margin + trailingInset)
+            .frame(maxWidth: .infinity, minHeight: PreviewLayout.barHeight)
             Divider()
         }
     }

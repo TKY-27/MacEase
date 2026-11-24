@@ -68,7 +68,6 @@ private actor PreviewImageSource {
 
 struct PreviewImageViewer: View {
     let url: URL
-    let height: CGFloat?
     @State private var pixels: CGImage?
     @State private var fit = true
     @State private var zoomRequest = 0
@@ -83,7 +82,6 @@ struct PreviewImageViewer: View {
                 Button("100%") {
                     fit = false; zoomRequest += 1
                 }
-                Spacer(minLength: 0)
             }
             .disabled(pixels == nil)
             Group {
@@ -95,11 +93,8 @@ struct PreviewImageViewer: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: .underPageBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: PreviewLayout.previewCornerRadius, style: .continuous))
-            .padding([.horizontal, .top], PreviewLayout.margin)
         }
         .task { await load() }
         .onDisappear { pixels = nil }
@@ -200,15 +195,6 @@ private struct PreviewImageCanvas: NSViewRepresentable {
         override func magnify(with event: NSEvent) {
             fitting = false
             super.magnify(with: event)
-        }
-
-        // A fitted image lets the pane scroll.
-        override func scrollWheel(with event: NSEvent) {
-            if fitting {
-                nextResponder?.scrollWheel(with: event)
-            } else {
-                super.scrollWheel(with: event)
-            }
         }
     }
 }

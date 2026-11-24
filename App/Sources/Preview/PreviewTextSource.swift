@@ -51,23 +51,10 @@ struct PreviewTextSource: Sendable {
     static let highlightBytes = 512 * 1024
     let bytes: Data
     let truncated: Bool
-    var stamp: FileStamp? = nil
 
     var binaryPropertyList: Bool { bytes.starts(with: "bplist".utf8) }
 
     static func read(_ url: URL) throws -> Self {
-        var result: Result<Self, Error>?
-        var failure: NSError?
-        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &failure) { target in
-            result = Result { try readCoordinated(target) }
-        }
-        if let failure { throw failure }
-        guard let result else { throw CocoaError(.fileReadUnknown) }
-        return try result.get()
-    }
-
-    private static func readCoordinated(_ url: URL) throws -> Self {
-        let stamp = try FileStamp(of: url)
         let file = try FileHandle(forReadingFrom: url)
         do {
             let size = try file.seekToEnd()
@@ -83,9 +70,8 @@ struct PreviewTextSource: Sendable {
                 bytes.append(chunk)
             }
             try Task.checkCancellation()
-            guard try FileStamp(of: url) == stamp else { throw EngineError.retryInputChanged }
             try file.close()
-            return Self(bytes: bytes, truncated: truncated, stamp: stamp)
+            return Self(bytes: bytes, truncated: truncated)
         } catch {
             try file.close()
             throw error

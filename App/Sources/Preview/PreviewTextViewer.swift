@@ -7,7 +7,6 @@ private struct PreviewTextRequest: Equatable {
     let loaded: Bool
     let encoding: PreviewEncoding
     let rich: Bool
-    let buffer: String?
 }
 
 private struct PreviewTextRendering: Sendable {
@@ -33,8 +32,7 @@ private struct PreviewTextRendering: Sendable {
     let html: Bool
 
     static func make(
-        source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL,
-        buffer: String? = nil, document: TextEditDocument? = nil
+        source: PreviewTextSource, encoding: PreviewEncoding, rich: Bool, kind: PreviewKind, url: URL
     ) throws -> Self {
         try Task.checkCancellation()
         let text: String
@@ -42,16 +40,10 @@ private struct PreviewTextRendering: Sendable {
         var language = PreviewLanguage.resolve(url.pathExtension)
         if kind == .propertyList && (rich || source.binaryPropertyList) {
             guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
-            let bytes: Data
-            if let buffer, let document {
-                bytes = try document.encoded(buffer)
-            } else {
-                bytes = source.bytes
-            }
-            text = try PropertyListConversion.json(from: bytes, indent: "  ")
+            text = try PropertyListConversion.json(from: source.bytes, indent: "  ")
             language = .json
         } else {
-            let decoded = try buffer ?? source.decoded(as: encoding)
+            let decoded = try source.decoded(as: encoding)
             if rich && kind == .json {
                 guard !source.truncated else { throw CocoaError(.fileReadTooLarge) }
                 text = try JSONFormatter.formatted(decoded)
@@ -79,8 +71,6 @@ private struct PreviewTextRendering: Sendable {
 struct PreviewTextViewer: View {
     let url: URL
     let kind: PreviewKind
-    let editor: PreviewTextEditor
-    let jobs: JobCenter
     @State private var source: PreviewTextSource?
     @State private var rendering: PreviewTextRendering?
     @State private var encoding = PreviewEncoding.automatic
@@ -89,48 +79,17 @@ struct PreviewTextViewer: View {
     @State private var scripts = false
     @State private var network = false
     @State private var failed = false
-    @State private var confirmsUTF8 = false
 
     var body: some View {
         VStack(spacing: 0) {
             PreviewToolbar { controls }
-            if editor.dirty {
-                HStack(spacing: 8) {
-                    Text("Unsaved changes").font(.caption)
-                    Spacer(minLength: 0)
-                    Button("Save") { save() }
-                    Button("Discard") { editor.discard() }
-                }
-                .controlSize(.small).padding(.horizontal, PreviewLayout.margin).padding(.vertical, 6)
-                .disabled(editor.saving || editor.confirming)
+            if source?.truncated == true && !(kind == .html && rich) {
+                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 24)
                 Divider()
             }
             Group {
-                if editor.editing {
-                    ZStack {
-                        PreviewCodeView(
-                            text: editor.buffer, tokens: [], lineStarts: [], wrap: wrap, model: editor, editable: !rich
-                        )
-                        .opacity(rich ? 0 : 1).allowsHitTesting(!rich)
-                        .accessibilityHidden(rich)
-                        if rich {
-                            if failed {
-                                PreviewFailure()
-                            } else if let rendering {
-                                if rendering.html {
-                                    PreviewWebViewer(url: url, html: rendering.text, scripts: false, network: false)
-                                        .id(rendering.text)
-                                } else {
-                                    PreviewCodeView(
-                                        text: rendering.text, tokens: rendering.tokens,
-                                        lineStarts: rendering.lineStarts, wrap: wrap)
-                                }
-                            } else {
-                                ProgressView().controlSize(.small)
-                            }
-                        }
-                    }
-                } else if kind == .html && rich {
+                if kind == .html && rich {
                     PreviewWebViewer(url: url, html: nil, scripts: scripts, network: network)
                         .id("\(scripts)-\(network)")
                 } else if failed {
@@ -151,36 +110,9 @@ struct PreviewTextViewer: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if editor.saving {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Saving…").font(.caption)
-                }.padding(6)
-            } else if let message = editor.message {
-                Text(verbatim: message).font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(1).help(message).padding(6)
-                if editor.offersUTF8 {
-                    Button("Save as UTF-8…") { confirmsUTF8 = true }.controlSize(.small).padding(.bottom, 6)
-                }
-            }
-            if source?.truncated == true && !(kind == .html && rich) {
-                Divider()
-                Text("Showing the first 256 KB").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24)
-            }
         }
         .task { await read() }
-        .task(
-            id: PreviewTextRequest(
-                loaded: source != nil, encoding: encoding, rich: rich,
-                buffer: rich && editor.editing ? editor.buffer : nil)
-        ) { await render() }
-        .alert("Save as UTF-8?", isPresented: $confirmsUTF8) {
-            Button("Save as UTF-8") { save(asUTF8: true) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This changes the file’s encoding to UTF-8. The original remains available through Undo.")
-        }
+        .task(id: PreviewTextRequest(loaded: source != nil, encoding: encoding, rich: rich)) { await render() }
         .onDisappear {
             source = nil
             rendering = nil
@@ -188,48 +120,25 @@ struct PreviewTextViewer: View {
     }
 
     @ViewBuilder private var controls: some View {
-        if editor.editing {
-            Button {
-                save()
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-            }
-            .keyboardShortcut("s", modifiers: .command).labelStyle(.iconOnly).help(Text("Save"))
-            .disabled(!editor.dirty || editor.saving || editor.confirming)
-            Button {
-                editor.discard()
-            } label: {
-                Label("Revert", systemImage: "arrow.uturn.backward")
-            }
-            .labelStyle(.iconOnly).help(Text("Revert"))
-            .disabled(!editor.dirty || editor.saving || editor.confirming)
-        } else if kind != .html && !(kind == .markdown && rich) {
-            Button("Edit") { beginEditing() }.keyboardShortcut("e", modifiers: .command)
-                .disabled(!canEditSource)
-        }
         if kind != .text && source?.binaryPropertyList != true {
             ViewThatFits(in: .horizontal) {
                 modePicker.pickerStyle(.segmented).labelsHidden().fixedSize()
                 modePicker.pickerStyle(.menu).labelsHidden().fixedSize()
             }
         }
-        Spacer(minLength: 0)
         if kind == .html && rich {
             ViewThatFits(in: .horizontal) {
                 webPermissions.labelStyle(.titleOnly)
                 webPermissions.labelStyle(.iconOnly)
             }
         } else if !(rich && kind == .markdown) {
-            if source?.binaryPropertyList != true && !editor.editing {
-                ViewThatFits(in: .horizontal) {
-                    encodingPicker.labelsHidden().fixedSize()
-                    Menu {
-                        encodingPicker.pickerStyle(.inline)
-                    } label: {
-                        Label("Encoding", systemImage: "textformat")
-                    }
-                    .labelStyle(.iconOnly).fixedSize()
+            if source?.binaryPropertyList != true {
+                Menu {
+                    encodingPicker.pickerStyle(.inline)
+                } label: {
+                    Label("Encoding", systemImage: "textformat")
                 }
+                .labelStyle(.iconOnly).fixedSize()
                 .accessibilityLabel(Text("Encoding"))
                 .help(Text("Encoding"))
             }
@@ -251,7 +160,6 @@ struct PreviewTextViewer: View {
             }
             Text("Source").tag(false)
         }
-
     }
 
     private var encodingPicker: some View {
@@ -271,27 +179,6 @@ struct PreviewTextViewer: View {
         }
         .toggleStyle(.button)
         .fixedSize()
-    }
-
-    private func beginEditing() {
-        guard let source else { return }
-        do {
-            try editor.begin(url: url, source: source, encoding: encoding)
-            if editor.editing { rich = false }
-        } catch {
-            editor.message = UserMessages.describeResult(
-                EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
-        }
-    }
-
-    private var canEditSource: Bool {
-        guard let source, !source.truncated, !source.binaryPropertyList else { return false }
-        return !failed || rich && (kind == .json || kind == .propertyList)
-    }
-
-    private func save(asUTF8: Bool = false) {
-        NSApp.keyWindow?.makeFirstResponder(nil)
-        Task { _ = await editor.save(using: jobs, asUTF8: asUTF8) }
     }
 
     private func read() async {
@@ -316,14 +203,9 @@ struct PreviewTextViewer: View {
         guard !(kind == .html && rich) else { return }
         let encoding = encoding
         let rich = rich
-        let buffer = editor.editing ? editor.buffer : nil
-        let document = editor.document
-        if editor.editing && !rich { return }
         do {
             let rendered = try await offMain { [kind, url] in
-                try PreviewTextRendering.make(
-                    source: source, encoding: encoding, rich: rich, kind: kind, url: url, buffer: buffer,
-                    document: document)
+                try PreviewTextRendering.make(source: source, encoding: encoding, rich: rich, kind: kind, url: url)
             }
             try Task.checkCancellation()
             rendering = rendered
@@ -342,50 +224,27 @@ private struct PreviewCodeView: NSViewRepresentable {
     let tokens: [PreviewToken]
     let lineStarts: [Int]
     let wrap: Bool
-    var model: PreviewTextEditor? = nil
-    var editable = true
-
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        let model: PreviewTextEditor?
-        init(model: PreviewTextEditor?) { self.model = model }
-        func textDidChange(_ notification: Notification) {
-            guard let view = notification.object as? NSTextView else { return }
-            model?.buffer = view.string
-        }
-        func undoManager(for view: NSTextView) -> UndoManager? { model?.undo }
-    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        let editor = PreviewEditingTextView(usingTextLayoutManager: true)
-        editor.delegate = context.coordinator
-        editor.allowsUndo = model != nil
-        editor.usesFindBar = true
-        editor.isContinuousSpellCheckingEnabled = false
-        editor.isGrammarCheckingEnabled = false
-        editor.isAutomaticSpellingCorrectionEnabled = false
-        editor.isAutomaticQuoteSubstitutionEnabled = false
-        editor.isAutomaticDashSubstitutionEnabled = false
-        editor.isAutomaticTextReplacementEnabled = false
-        editor.isEditable = false
-        editor.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        editor.isSelectable = true
-        editor.isRichText = false
-        editor.isAutomaticLinkDetectionEnabled = false
-        editor.isAutomaticDataDetectionEnabled = false
-        editor.isVerticallyResizable = true
-        editor.minSize = .zero
-        editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        editor.textContainerInset = NSSize(width: 8, height: 8)
-        editor.backgroundColor = .textBackgroundColor
-        scroll.documentView = editor
+        let textView = PreviewTextView(usingTextLayoutManager: true)
+        textView.usesFindBar = true
+        textView.isEditable = false
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
+        textView.isVerticallyResizable = true
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.backgroundColor = .textBackgroundColor
+        scroll.documentView = textView
         let ruler = PreviewLineRuler(scrollView: scroll, orientation: .verticalRuler)
-        ruler.clientView = editor
+        ruler.clientView = textView
         ruler.clipsToBounds = true
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
@@ -398,17 +257,8 @@ private struct PreviewCodeView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let editor = scroll.documentView as? NSTextView else { return }
-        let wasEditable = editor.isEditable
-        editor.isEditable = editable && model != nil && model?.saving == false && model?.confirming == false
-        (editor as? PreviewEditingTextView)?.lineEnding = model?.document?.lineEnding ?? "\n"
-        if !editor.isEditable, editor.window?.firstResponder === editor {
-            editor.window?.makeFirstResponder(nil)
-        }
-        if editor.isEditable && !wasEditable {
-            editor.window?.makeFirstResponder(editor)
-        }
-        if !editor.string.utf8.elementsEqual(text.utf8) {
+        guard let textView = scroll.documentView as? NSTextView else { return }
+        if !textView.string.utf8.elementsEqual(text.utf8) {
             let styled = NSMutableAttributedString(
                 string: text,
                 attributes: [
@@ -425,44 +275,22 @@ private struct PreviewCodeView: NSViewRepresentable {
                 }
                 styled.addAttribute(.foregroundColor, value: color, range: token.range)
             }
-            editor.textStorage?.setAttributedString(styled)
+            textView.textStorage?.setAttributedString(styled)
         }
-        if model != nil {
-            let units = Array(text.utf16)
-            var starts = [0]
-            for (offset, unit) in units.enumerated() {
-                if unit == 10 || (unit == 13 && (offset + 1 == units.count || units[offset + 1] != 10)) {
-                    starts.append(offset + 1)
-                }
-            }
-            (scroll.verticalRulerView as? PreviewLineRuler)?.lineStarts = starts
-        } else {
-            (scroll.verticalRulerView as? PreviewLineRuler)?.lineStarts = lineStarts
-        }
+        (scroll.verticalRulerView as? PreviewLineRuler)?.lineStarts = lineStarts
         scroll.hasHorizontalScroller = !wrap
-        editor.isHorizontallyResizable = !wrap
-        editor.autoresizingMask = wrap ? [.width] : []
-        editor.textContainer?.widthTracksTextView = wrap
-        editor.textContainer?.containerSize = NSSize(
+        textView.isHorizontallyResizable = !wrap
+        textView.autoresizingMask = wrap ? [.width] : []
+        textView.textContainer?.widthTracksTextView = wrap
+        textView.textContainer?.containerSize = NSSize(
             width: wrap ? max(1, scroll.contentSize.width) : CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude)
-        if wrap { editor.setFrameSize(NSSize(width: scroll.contentSize.width, height: editor.frame.height)) }
+        if wrap { textView.setFrameSize(NSSize(width: scroll.contentSize.width, height: textView.frame.height)) }
         scroll.verticalRulerView?.needsDisplay = true
     }
 }
 
-private final class PreviewEditingTextView: NSTextView {
-    var lineEnding = "\n"
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if isEditable { window?.makeFirstResponder(self) }
-    }
-
-    override func insertNewline(_ sender: Any?) {
-        insertText(lineEnding, replacementRange: selectedRange())
-    }
-
+private final class PreviewTextView: NSTextView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
             event.charactersIgnoringModifiers == "f"

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MenuCatalog
 import Synchronization
 import Testing
 
@@ -28,6 +29,45 @@ import Testing
         #expect(await store.records == [record])
         #expect(try await store.undo(record.id) == [.restored])
         #expect(try String(contentsOf: original, encoding: .utf8) == "original video")
+    }
+
+    @Test func historicalTextEditSurvivesReloadAndRestoresTheOriginal() async throws {
+        #expect(OperationID(rawValue: "text.edit") == nil)
+        let folder = try Self.makeFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let original = folder.appending(path: "note.txt")
+        let trashed = folder.appending(path: "note-trashed.txt")
+        try Data("edited text".utf8).write(to: original)
+        try Data("original text".utf8).write(to: trashed)
+        let id = UUID()
+        let commit = CommitRecord.replaced(
+            original: original.path, trashed: trashed.path, output: original.path,
+            stamp: try FileStamp(of: original),
+            trashStamp: try FileStamp(of: trashed, includingIdentity: true))
+        let placeholder = BatchRecord(
+            id: id, operation: .textEncoding, date: Date(timeIntervalSinceReferenceDate: 2),
+            items: [commit], undone: false)
+        var snapshot = HistorySnapshot()
+        snapshot.batches = [placeholder]
+        let encoded = try JSONEncoder().encode(snapshot)
+        let legacy = String(decoding: encoded, as: UTF8.self)
+            .replacingOccurrences(of: "text.encoding", with: "text.edit")
+        try Data(legacy.utf8).write(to: folder.appending(path: "history.json"))
+        try Data().write(to: folder.appending(path: "history.journal"))
+        let store = HistoryStore(supportDirectory: folder)
+        let loaded = try #require(await store.records.first)
+        #expect(loaded.id == id)
+        #expect(loaded.operation == nil)
+        #expect(loaded.legacyOperation == BatchRecord.legacyTextEdit)
+        #expect(loaded.canUndo)
+        #expect(try await store.undo(id) == [.restored])
+        #expect(try String(contentsOf: original, encoding: .utf8) == "original text")
+        let reopened = HistoryStore(supportDirectory: folder)
+        let persisted = try #require(await reopened.records.first)
+        #expect(persisted.id == id)
+        #expect(persisted.operation == nil)
+        #expect(persisted.legacyOperation == BatchRecord.legacyTextEdit)
+        #expect(persisted.undone)
     }
 
     @Test func legacyRecipeSettingsSurviveHistoryCompaction() async throws {

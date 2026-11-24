@@ -12,10 +12,10 @@ final class FinderPreviewPanel: NSPanel {
     private static let finderCornerRadius: CGFloat = 16
     private static let undockedSize = NSSize(width: FinderPreviewGeometry.defaultWidth, height: 600)
     private static let minimumSize = NSSize(width: FinderPreviewGeometry.minimumWidth, height: 420)
-    private static let escape = "\u{1B}"
     private let defaults: UserDefaults
     private let container = NSView()
     private(set) var previewWidth: CGFloat
+    let isDocked: Bool
     private var dock = FinderPreviewGeometry.Dock.right
     var resizePreview: (() -> Void)?
     var closeRequested: (() -> Void)?
@@ -25,6 +25,7 @@ final class FinderPreviewPanel: NSPanel {
 
     init(content: NSView, docked: Bool, defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        isDocked = docked
         let saved = defaults.double(forKey: Self.widthKey)
         previewWidth = saved.isFinite && saved > 0 ? saved : FinderPreviewGeometry.defaultWidth
         super.init(
@@ -36,6 +37,9 @@ final class FinderPreviewPanel: NSPanel {
         isReleasedWhenClosed = false
         isFloatingPanel = false
         animationBehavior = .none
+        // Clicks leave Finder's keyboard focus alone.
+        becomesKeyOnlyIfNeeded = true
+        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         contentMinSize = Self.minimumSize
         container.wantsLayer = true
         container.layer?.cornerCurve = .continuous
@@ -48,19 +52,10 @@ final class FinderPreviewPanel: NSPanel {
             backgroundColor = .clear
             hasShadow = true
         } else {
-            undock()
+            styleMask = [.titled, .closable, .resizable]
+            setContentSize(Self.undockedSize)
+            center()
         }
-    }
-
-    func undock() {
-        styleMask = [.titled, .closable, .resizable]
-        isOpaque = true
-        backgroundColor = .windowBackgroundColor
-        container.layer?.cornerRadius = 0
-        container.layer?.masksToBounds = false
-        alphaValue = 1
-        setContentSize(Self.undockedSize)
-        center()
     }
 
     func setPreviewWidth(_ width: CGFloat) {
@@ -96,7 +91,7 @@ final class FinderPreviewPanel: NSPanel {
             close()
             return
         }
-        let slides = styleMask.contains(.borderless) && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let slides = isDocked && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let target = slides ? frame.offsetBy(dx: slideOffset, dy: 0) : frame
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.dismissDuration
@@ -112,14 +107,9 @@ final class FinderPreviewPanel: NSPanel {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let key = event.charactersIgnoringModifiers
-        if modifiers.isEmpty, key == Self.escape, let editor = firstResponder as? NSTextView,
-            editor.hasMarkedText()
-        {
-            return super.performKeyEquivalent(with: event)
-        }
-        let closes = (modifiers.isEmpty && key == Self.escape) || (modifiers == .command && key == "w")
+        let closes =
+            event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+            && event.charactersIgnoringModifiers == "w"
         guard closes, let closeRequested else { return super.performKeyEquivalent(with: event) }
         closeRequested()
         return true

@@ -21,6 +21,7 @@ final class SettingsStore {
         static let activityClosesAfterSuccess = "activity.closesAfterSuccess"
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
+        static let finderPreviewEnabled = "finderPreview.enabled"
     }
 
     enum Language: String, CaseIterable, Identifiable {
@@ -80,6 +81,10 @@ final class SettingsStore {
         didSet { defaults.set(activityClosesAfterFailure, forKey: Key.activityClosesAfterFailure) }
     }
 
+    var finderPreviewEnabled: Bool {
+        didSet { defaults.set(finderPreviewEnabled, forKey: Key.finderPreviewEnabled) }
+    }
+
     var onboardingCompleted: Bool {
         didSet { defaults.set(onboardingCompleted, forKey: Key.onboardingCompleted) }
     }
@@ -107,7 +112,8 @@ final class SettingsStore {
             hidden.insert(OperationID.videoEdit.menuEntryKey(""))
         }
         let removed: Set<String> = [
-            "video.trim", "image.copyBase64", "any.sourceInfo", "image.aiCustom", "video.aiCustom", "audio.aiCustom",
+            "video.trim", "text.edit", "image.copyBase64", "any.sourceInfo", "image.aiCustom", "video.aiCustom",
+            "audio.aiCustom",
         ]
         hidden = hidden.filter { !removed.contains(String($0.prefix { $0 != "/" })) }
         defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
@@ -125,6 +131,7 @@ final class SettingsStore {
         activityClosesAfterSuccess = defaults.bool(forKey: Key.activityClosesAfterSuccess)
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
         activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
+        finderPreviewEnabled = defaults.bool(forKey: Key.finderPreviewEnabled)
         onboardingCompleted = defaults.bool(forKey: Key.onboardingCompleted)
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
     }
@@ -139,6 +146,7 @@ final class SettingsStore {
         activityClosesAfterSuccess = true
         activityClosesAfterCancel = true
         activityClosesAfterFailure = false
+        finderPreviewEnabled = false
     }
 
     /// SPEC 4.4 defaults for new installs.
