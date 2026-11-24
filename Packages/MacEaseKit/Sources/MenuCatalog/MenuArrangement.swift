@@ -233,3 +233,39 @@ extension MenuArrangement: Codable {
         try container.encode(scopes, forKey: .scopes)
     }
 }
+
+extension MenuArrangement {
+    /// Reproduces the menu legacy settings produced.
+    public static func migrating(
+        placements: [String: MenuPlacement], hiddenEntries: Set<String>, newInstallHidden: Set<String>,
+        extraAngleEnabled: Bool, catalog: MenuGroupCatalog = .current
+    ) -> (arrangement: MenuArrangement, hiddenEntries: Set<String>) {
+        // Legacy menus never applied renamed keys.
+        let overrides = Dictionary(uniqueKeysWithValues: placements.map { (MenuGroupID(rawValue: $0.key), $0.value) })
+        var arrangement = MenuArrangement()
+        var remainingHidden = hiddenEntries
+        for scope in MenuScope.allCases {
+            var migrated = catalog.defaultArrangement(scope)
+            // Legacy placements never applied to these scopes.
+            if scope != .commands, scope != .any {
+                let groups = catalog.groups(in: scope)
+                let primaries = migrated[.menu]
+                let menu =
+                    primaries.filter { overrides[$0] != .more }
+                    + groups.filter { overrides[$0] == .primary && !primaries.contains($0) }
+                migrated = ScopeArrangement(
+                    scope: scope, groups: [.menu: menu, .more: groups.filter { !menu.contains($0) }])
+            }
+            let folded = migrated.groups.filter { group in
+                let keys = group.entryKeys.filter { extraAngleEnabled || !$0.hasSuffix(extraAngleKeySuffix) }
+                return !keys.isEmpty && keys.allSatisfy(hiddenEntries.contains)
+            }
+            migrated.hide(folded)
+            remainingHidden.subtract(folded.flatMap(\.entryKeys).filter { !newInstallHidden.contains($0) })
+            arrangement.set(migrated, catalog: catalog)
+        }
+        return (arrangement, remainingHidden)
+    }
+
+    private static let extraAngleKeySuffix = "/\(OperationID.extraAnglePreset)"
+}
