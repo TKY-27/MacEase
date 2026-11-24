@@ -134,7 +134,8 @@ struct EditorTimeline: View {
                 selectOverlay: { id in
                     model.category = .markup
                     model.selectOverlay(id)
-                }
+                },
+                hatched: model.silenceHatching
             )
             .frame(height: MediaTimeline.height + (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0))
             .accessibilityLabel(Text("Timeline"))
@@ -187,6 +188,16 @@ struct EditorTimeline: View {
             .help("More Segment Actions")
             .disabled(!model.hasSelection)
             Spacer(minLength: 8)
+            Button {
+                model.showsSilencePreview = true
+            } label: {
+                Label("Remove Silence…", systemImage: "waveform.path.badge.minus")
+            }
+            .help(model.silenceUnavailableReason ?? String(localized: "Cut pauses where the sound is quiet"))
+            .disabled(model.values.segments.isEmpty)
+            .popover(isPresented: $model.showsSilencePreview, arrowEdge: .top) {
+                EditorSilencePopover(model: model)
+            }
             Button {
                 let panel = NSOpenPanel()
                 panel.allowsMultipleSelection = true

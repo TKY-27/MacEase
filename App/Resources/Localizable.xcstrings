@@ -19959,6 +19959,144 @@
           }
         }
       }
+    },
+    "Remove Silence…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音を削除…"
+          }
+        }
+      }
+    },
+    "Remove Silence": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音を削除"
+          }
+        }
+      }
+    },
+    "Cut pauses where the sound is quiet": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音が小さい間を削除します"
+          }
+        }
+      }
+    },
+    "There’s no audible sound to analyze in this video.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画には分析できる音がありません。"
+          }
+        }
+      }
+    },
+    "Analyzing sound…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音を分析中…"
+          }
+        }
+      }
+    },
+    "Silent below": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音とみなす音量"
+          }
+        }
+      }
+    },
+    "Pauses longer than": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象にする間の長さ"
+          }
+        }
+      }
+    },
+    "Each cut keeps a short margin of sound so speech isn’t clipped.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話し声が途切れないよう、カットの前後に少し余白を残します。"
+          }
+        }
+      }
+    },
+    "No pauses found": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除する間はありません"
+          }
+        }
+      }
+    },
+    "Nothing would be left. Choose a lower threshold or a longer pause.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。"
+          }
+        }
+      }
+    },
+    "%@ dB": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dB"
+          }
+        }
+      }
+    },
+    "Removes %lld pauses (%@)": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Removes %lld pause (%@)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Removes %lld pauses (%@)"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldか所の間を削除（%@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

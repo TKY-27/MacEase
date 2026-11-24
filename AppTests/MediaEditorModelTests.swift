@@ -1011,6 +1011,66 @@ final class MediaEditorModelTests: XCTestCase {
             "結合・逆再生した動画はH.264のMP4形式で新規保存されます。透明部分は背景色で塗りつぶされ、HDRはSDRに変換されます。")
     }
 
+    func testRemoveSilenceSummarizesHatchesAndCutsAsOneUndoStep() async throws {
+        let directory = try workspace()
+        let model = try await videoModel(fixture: try pausedSpeechFixture(in: directory))
+        let original = model.values.segments
+        XCTAssertNil(model.silenceUnavailableReason)
+        XCTAssertNil(try model.silencePreview(SilenceRule()), "no summary before analysis")
+        model.analyzeSilence()
+        XCTAssertNotNil(model.silenceTask)
+        try await eventually { model.silenceTask == nil }
+        XCTAssertNil(model.silenceFailure)
+        let preview = try XCTUnwrap(try model.silencePreview(SilenceRule()))
+        XCTAssertEqual(preview.count, 3, "\(preview)")
+        let removed = preview.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
+        XCTAssertEqual(removed, 0.76 + 0.76 + 0.88, accuracy: 0.1)
+        XCTAssertEqual(preview[0].lowerBound, 1.12, accuracy: 0.05)
+        XCTAssertEqual(preview[0].upperBound, 1.88, accuracy: 0.05)
+        XCTAssertEqual(
+            try XCTUnwrap(try model.silencePreview(SilenceRule(minimumDuration: 2))), [], "longer pauses only")
+        model.showsSilencePreview = true
+        XCTAssertEqual(model.silenceHatching, preview)
+        model.analyzeSilence()
+        XCTAssertNil(model.silenceTask, "levels are cached per source")
+
+        model.removeSilence(SilenceRule())
+        XCTAssertEqual(model.values.segments.count, 3)
+        XCTAssertEqual(model.outputDuration, 6 - removed, accuracy: 0.05)
+        XCTAssertTrue(model.values.segments.allSatisfy { $0.speed == 1 && $0.volume == 1 })
+        model.undo()
+        XCTAssertEqual(model.values.segments, original, "removing silence is one Undo step")
+
+        model.change { $0.volume = 0 }
+        XCTAssertEqual(model.silenceUnavailableReason, "There’s no audible sound to analyze in this video.")
+        model.undo()
+        model.change {
+            $0.segments[0].start = 1.2; $0.segments[0].end = 1.8
+        }
+        XCTAssertEqual(
+            model.describeSilence(EngineError.invalidInput(.emptyInput)),
+            "Nothing would be left. Choose a lower threshold or a longer pause.")
+        model.removeSilence(SilenceRule())
+        XCTAssertEqual(model.silenceFailure, "Nothing would be left. Choose a lower threshold or a longer pause.")
+        XCTAssertEqual(model.values.segments.count, 1)
+
+        XCTAssertEqual(String(localized: "Removes \(1) pauses (\("0:01.0"))"), "Removes 1 pause (0:01.0)")
+        XCTAssertEqual(String(localized: "Removes \(14) pauses (\("0:42.0"))"), "Removes 14 pauses (0:42.0)")
+        XCTAssertEqual(japanese("Removes %lld pauses (%@)"), "%lldか所の間を削除（%@）")
+        XCTAssertEqual(
+            japanese("Nothing would be left. Choose a lower threshold or a longer pause."),
+            "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。")
+        XCTAssertEqual(
+            japanese("There’s no audible sound to analyze in this video."), "この動画には分析できる音がありません。")
+    }
+
+    func testRemoveSilenceExplainsVideosWithoutSound() async throws {
+        let model = try await videoModel(fixture: try synthesizedSilentVideoFixture(in: try workspace()))
+        XCTAssertEqual(model.silenceUnavailableReason, "There’s no audible sound to analyze in this video.")
+        model.analyzeSilence()
+        XCTAssertNil(model.silenceTask)
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
@@ -1567,6 +1627,23 @@ final class MediaEditorModelTests: XCTestCase {
         encoding.waitUntilExit()
         let details = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         XCTAssertEqual(encoding.terminationStatus, 0, details)
+        return output
+    }
+
+    /// Tone for one second, then one second of silence.
+    private func pausedSpeechFixture(in directory: URL) throws -> URL {
+        let output = directory.appending(path: "paused.mp4")
+        let encoding = Process()
+        encoding.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        encoding.arguments = [
+            "-nostdin", "-y", "-v", "error",
+            "-f", "lavfi", "-i", "color=c=blue:s=160x120:r=30:d=6",
+            "-f", "lavfi", "-i", "aevalsrc='0.4*sin(2*PI*440*t)*lt(mod(t\\,2)\\,1)':s=48000:d=6",
+            "-ac", "2", "-c:v", "h264_videotoolbox", "-b:v", "400k", "-c:a", "aac", "-t", "6", output.path,
+        ]
+        try encoding.run()
+        encoding.waitUntilExit()
+        XCTAssertEqual(encoding.terminationStatus, 0)
         return output
     }
 

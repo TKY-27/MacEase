@@ -136,6 +136,8 @@ struct MediaTimeline: NSViewRepresentable {
     var overlays: [TimelineOverlayMark] = []
     var showsOverlayLane = false
     var selectOverlay: ((UUID) -> Void)?
+    /// Ranges a pending edit would remove.
+    var hatched: [ClosedRange<Double>] = []
 
     func makeNSView(context: Context) -> TimelineScrollView {
         let scroll = TimelineScrollView()
@@ -259,6 +261,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private static let overlayLabelMinimumWidth = 36.0
     private static let freezeDash: [CGFloat] = [4, 3]
     private static let minimumLabelWidth = 40.0
+    private static let hatchSpacing = 7.0
 
     var configuration: MediaTimeline?
     private(set) var pointerInViewport: CGPoint?
@@ -352,9 +355,36 @@ final class TimelineCanvas: NSView, NSDraggingSource {
                 drawSelection(selection, duration: configuration.duration, handles: !clip.freeze)
             }
         }
+        drawHatching(configuration)
         if configuration.showsOverlayLane { drawOverlayLane(configuration) }
         if !configuration.playing, let hoverTime { drawSkimmer(hoverTime, configuration: configuration) }
         drawPlayhead(configuration.position, configuration: configuration)
+    }
+
+    private func drawHatching(_ configuration: MediaTimeline) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        for range in configuration.hatched {
+            let rect = rectangle(range, duration: configuration.duration)
+            let visible = CGRect(x: rect.minX, y: rect.minY, width: max(1, rect.width), height: rect.height)
+            guard visible.intersects(visibleRect) else { continue }
+            context.saveGState()
+            context.clip(to: visible)
+            NSColor.black.withAlphaComponent(0.45).setFill()
+            visible.fill()
+            context.setStrokeColor(NSColor.systemRed.cgColor)
+            context.setLineWidth(2)
+            var x = visible.minX - visible.height
+            while x < visible.maxX {
+                context.move(to: CGPoint(x: x, y: visible.maxY))
+                context.addLine(to: CGPoint(x: x + visible.height, y: visible.minY))
+                x += Self.hatchSpacing
+            }
+            context.strokePath()
+            context.restoreGState()
+            NSColor.systemRed.setFill()
+            CGRect(x: visible.minX, y: visible.minY, width: visible.width, height: 2).fill()
+            CGRect(x: visible.minX, y: visible.maxY - 2, width: visible.width, height: 2).fill()
+        }
     }
 
     private var overlayLane: CGRect {

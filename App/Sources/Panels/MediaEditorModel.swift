@@ -131,6 +131,11 @@ final class MediaEditorModel {
     private(set) var reverseProgress: Double?
     private(set) var reverseFailure: String?
     private var reverseTask: Task<Void, Never>?
+    var silenceLevels: [URL: AudioLevels] = [:]
+    var silenceTask: Task<Void, Never>?
+    var silenceFailure: String?
+    var silenceRule = SilenceRule()
+    var showsSilencePreview = false
     var streamConsent: StreamConsentRequest?
     private(set) var consents: [URL: StreamOmission] = [:]
     var invalidFields: Set<String> = []
@@ -260,6 +265,9 @@ final class MediaEditorModel {
         return max(0, (end - tick).seconds)
     }
     var hasSelection: Bool { values.selectedIndex != nil }
+    func sourceHasAudio(_ index: Int) -> Bool {
+        values.sources.indices.contains(index) && videoDetails[values.sources[index].url]?.hasAudio == true
+    }
     var selectedSegment: VideoSegment? { values.selectedIndex.map { values.segments[$0] } }
     var canUndo: Bool { !undoValues.isEmpty }
     var canRedo: Bool { !redoValues.isEmpty }
@@ -1460,6 +1468,7 @@ final class MediaEditorModel {
         closed = true
         loadTask?.cancel()
         reverseTask?.cancel()
+        silenceTask?.cancel()
         previewTask?.cancel()
         playbackTask?.cancel()
         splitTask?.cancel()
@@ -1478,6 +1487,7 @@ final class MediaEditorModel {
         player = nil
         await loadTask?.value
         await reverseTask?.value
+        await silenceTask?.value
         await previewTask?.value
         await playbackTask?.value
         await splitTask?.value
