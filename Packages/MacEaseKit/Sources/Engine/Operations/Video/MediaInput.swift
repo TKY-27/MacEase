@@ -204,7 +204,10 @@ struct MediaInput {
     private static func measuredFrameDuration(_ demuxer: any MediaDemuxer, track: Int) throws -> Int64? {
         var demuxer = demuxer
         var times: [Int64] = []
-        while times.count < frameRateProbe, let packet = try demuxer.nextPacket() {
+        var scanned = 0
+        while times.count < frameRateProbe, scanned < totalPacketScanLimit, let packet = try demuxer.nextPacket() {
+            try Task.checkCancellation()
+            scanned += 1
             if packet.track == track { times.append(packet.timestamp) }
         }
         times.sort()

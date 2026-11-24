@@ -16,6 +16,32 @@ final class MediaToolProcess: Sendable {
         let matches: @Sendable (String) -> Bool
     }
 
+    enum Failure: Error, Equatable, Sendable {
+        case timedOut
+        case outputLimitExceeded
+        case diskFull(String)
+        case permissionDenied(String)
+        case signalled(Int32)
+        case exited(status: Int32, reason: String)
+
+        func engineError(path: String) -> EngineError {
+            switch self {
+            case .timedOut:
+                .decodeFailed(MediaToolProcess.timedOutMessage)
+            case .outputLimitExceeded:
+                .decodeFailed("Media metadata exceeds limit")
+            case .diskFull(let detail):
+                .commitFailed(detail)
+            case .permissionDenied:
+                .permissionDenied(PermissionLocation(path: path))
+            case .signalled(let signal):
+                .unexpected("Media tool terminated by signal \(signal)")
+            case .exited(_, let reason):
+                .decodeFailed(reason)
+            }
+        }
+    }
+
     private struct State {
         var child: Process?
         var cancelled = false
@@ -29,6 +55,23 @@ final class MediaToolProcess: Sendable {
     private static let timeoutCheckDivisor: Int64 = 4
 
     func run(
+        executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
+        captureOutput: Bool = true, input: FileHandle? = nil, includeTLSCertificate: Bool = true,
+        noProgressTimeout: Duration? = nil, watchdogReset: WatchdogReset? = nil,
+        monitor: Monitor? = nil,
+        line: @escaping @Sendable (String) -> Void = { _ in }
+    ) async throws -> MediaToolResult {
+        do {
+            return try await runTyped(
+                executable: executable, arguments: arguments, directory: directory, tools: tools,
+                captureOutput: captureOutput, input: input, includeTLSCertificate: includeTLSCertificate,
+                noProgressTimeout: noProgressTimeout, watchdogReset: watchdogReset, monitor: monitor, line: line)
+        } catch let failure as Failure {
+            throw failure.engineError(path: directory.path)
+        }
+    }
+
+    func runTyped(
         executable: URL, arguments: [String], directory: URL, tools: MediaDownloadTools,
         captureOutput: Bool = true, input: FileHandle? = nil, includeTLSCertificate: Bool = true,
         noProgressTimeout: Duration? = nil, watchdogReset: WatchdogReset? = nil,
@@ -183,17 +226,22 @@ final class MediaToolProcess: Sendable {
         child.waitUntilExit()
         monitorTimer?.cancel()
         readers.wait()
-        if state.withLock({ $0.timedOut }) { throw EngineError.decodeFailed(Self.timedOutMessage) }
+        if state.withLock({ $0.timedOut }) { throw Failure.timedOut }
         if state.withLock({ $0.cancelled }) { throw CancellationError() }
-        guard !overflow.withLock({ $0 }) else { throw EngineError.decodeFailed("Media metadata exceeds limit") }
-        guard child.terminationReason == .exit, child.terminationStatus == 0 else {
+        guard !overflow.withLock({ $0 }) else { throw Failure.outputLimitExceeded }
+        guard child.terminationReason == .exit else {
+            throw Failure.signalled(child.terminationStatus)
+        }
+        guard child.terminationStatus == 0 else {
             let message = String(decoding: diagnostics.withLock { $0 }, as: UTF8.self).lowercased()
-            let reason: String
             if message.contains("no space left") {
-                reason = "There is not enough disk space for this operation"
-            } else if message.contains("permission denied") {
-                reason = "The destination or media tool is not accessible"
-            } else if message.contains("sign in") || message.contains("login") || message.contains("private video") {
+                throw Failure.diskFull("There is not enough disk space for this operation")
+            }
+            if message.contains("permission denied") || message.contains("operation not permitted") {
+                throw Failure.permissionDenied("The destination or media tool is not accessible")
+            }
+            let reason: String
+            if message.contains("sign in") || message.contains("login") || message.contains("private video") {
                 reason = "This media requires login; only public media is supported"
             } else if message.contains("403") || message.contains("429") {
                 reason = "The website refused the request or applied a rate limit"
@@ -206,7 +254,7 @@ final class MediaToolProcess: Sendable {
             } else {
                 reason = "Media tool failed (exit \(child.terminationStatus))"
             }
-            throw EngineError.decodeFailed(reason)
+            throw Failure.exited(status: child.terminationStatus, reason: reason)
         }
         return MediaToolResult(stdout: capture.withLock { $0 })
     }

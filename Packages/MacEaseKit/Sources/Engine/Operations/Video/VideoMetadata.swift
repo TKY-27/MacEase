@@ -92,7 +92,7 @@ struct VideoMetadata {
         if try await hasUnmatchedTags(formatTags, in: assetMetadata) {
             dropped.insert(.descriptiveMetadata)
         }
-        if origin.isInterlacedFieldOrderChanged {
+        if origin.isInterlacedFieldOrderChanged || origin.trackAttributesUnknown {
             dropped.insert(.trackMetadata)
         }
         for (tags, track) in [(origin.videoTags, video), (origin.audioTags, audio)] {

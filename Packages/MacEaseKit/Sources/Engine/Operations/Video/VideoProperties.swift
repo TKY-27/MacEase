@@ -11,7 +11,8 @@ enum VideoProperties {
     }
 
     static func prepare(
-        _ plan: TranscodePlan, input: MediaInput, context: ItemContext, allowsCodecChange: Bool = true
+        _ plan: TranscodePlan, input: MediaInput, context: ItemContext, allowsCodecChange: Bool = true,
+        warnsVariableFrameRate: Bool = true
     ) async throws -> TranscodePlan {
         guard input.video?.hasContainerHDR != true else { throw EngineError.hdrConversionUnsupported }
         var prepared = plan
@@ -73,6 +74,9 @@ enum VideoProperties {
             }
             edit.preservesAlpha = encoding.alpha
             prepared.video = .encode(encoding, edit)
+            if warnsVariableFrameRate, input.fallbackOrigin?.hasVariableFrameTiming == true {
+                warn(.videoVariableFrameRateConverted, context: context)
+            }
         }
         return try await prepareMetadata(prepared, input: input, context: context)
     }

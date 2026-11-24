@@ -163,6 +163,7 @@ extension EngineError {
         otherwise: (String) -> EngineError = EngineError.unexpected
     ) -> EngineError {
         if let engineError = error as? EngineError { return engineError }
+        if let toolFailure = error as? MediaToolProcess.Failure { return toolFailure.engineError(path: path) }
         if let availability = error as? ActivityAvailability {
             switch availability {
             case .missing: return .retryInputMissing

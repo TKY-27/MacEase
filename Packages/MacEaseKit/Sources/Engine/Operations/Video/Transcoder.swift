@@ -98,20 +98,27 @@ enum Transcoder {
                             input: input, track: track, number: number, start: start, end: end,
                             destination: plan.container))
                 case .encode(let codec, let kilobits):
+                    var audioStart = start
+                    if input.isFallback, start == 0, end == .max,
+                        case .asset(_, _, let audioTrack?) = audioInput.backend,
+                        let segment = try await audioTrack.load(.segments).first(where: { !$0.isEmpty })
+                    {
+                        audioStart = max(start, SampleBuffers.nanoseconds(segment.timeMapping.target.start))
+                    }
                     if plan.playbackSpeed == 1 {
                         stages.append(
                             try AudioEncodeStage(
                                 input: input, track: track, number: number, codec: codec, kilobits: kilobits,
-                                start: start, end: end, destination: plan.container, volume: plan.volume))
+                                start: audioStart, end: end, destination: plan.container, volume: plan.volume))
                     } else {
                         let stretched = try await TimeStretchedAudio(
-                            input: input, track: track, start: start, end: end, speed: plan.playbackSpeed,
+                            input: input, track: track, start: audioStart, end: end, speed: plan.playbackSpeed,
                             stagingDirectory: url.deletingLastPathComponent())
                         stages.append(
                             try AudioEncodeStage(
                                 input: input, track: track, number: number, codec: codec, kilobits: kilobits,
-                                start: start, end: end,
-                                sourceOverride: VideoPCMSource(stretched: stretched, start: start),
+                                start: audioStart, end: end,
+                                sourceOverride: VideoPCMSource(stretched: stretched, start: audioStart),
                                 destination: plan.container, volume: plan.volume))
                     }
                 }
@@ -236,7 +243,8 @@ enum Transcoder {
             }
             return try await FrameEncodeStage(
                 input: input, encoding: encoding, edit: edit, matte: matte, start: start, end: end,
-                toneMapToSDR: toneMapToSDR, speed: speed, preservesLeadingEdit: preservesVideoPresentation)
+                toneMapToSDR: toneMapToSDR, speed: speed,
+                preservesLeadingEdit: preservesVideoPresentation || input.isFallback)
         case .toneMapToSDR(let encoding):
             return try await SDRFrameEncodeStage(input: input, encoding: encoding)
         }

@@ -148,6 +148,7 @@ public enum ItemWarning: Equatable, Sendable {
     case imageMetadataDropped([MetadataField])
     case videoTransparencyFlattened
     case videoToneMappedToSDR
+    case videoVariableFrameRateConverted
     case videoMetadataDropped([VideoMetadataProperty])
     case streamsOmitted([UnpreservedStream])
     case pngOptimizationSkipped

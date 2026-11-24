@@ -442,6 +442,10 @@ enum UserMessages {
         case .videoToneMappedToSDR:
             String(
                 localized: "HDR tone-mapped to SDR: this output cannot preserve HDR.")
+        case .videoVariableFrameRateConverted:
+            String(
+                localized: "Variable frame timing converted to a constant frame rate; original kept.",
+                comment: "Discloses variable frame rate conversion")
         case .videoTransparencyFlattened:
             String(
                 localized: "Transparency flattened onto the video background color.")

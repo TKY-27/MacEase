@@ -7829,6 +7829,17 @@
         }
       }
     },
+    "Variable frame timing converted to a constant frame rate; original kept.": {
+      "comment": "Discloses variable frame rate conversion",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可変フレームレートを固定フレームレートに変換しました。元のファイルは保持されています。"
+          }
+        }
+      }
+    },
     "Version %@ (%@)": {
       "localizations": {
         "ja": {

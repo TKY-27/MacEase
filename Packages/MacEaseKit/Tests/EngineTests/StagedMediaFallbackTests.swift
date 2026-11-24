@@ -522,26 +522,26 @@ private enum FallbackFixtures {
         let support = try TestVolume.makeFolder()
         let tools = try mediaFixtureTools()
         let stub = folder.appending(path: "stalled-tool.sh")
-        try Data("#!/bin/sh\nsleep 30\n".utf8).write(to: stub)
+        let pidFile = folder.appending(path: "stalled.pid")
+        try Data("#!/bin/sh\necho $$ > \"\(pidFile.path)\"\nexec sleep 30\n".utf8).write(to: stub)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
 
-        let started = ContinuousClock.now
-        var timedOutError: EngineError?
+        var timedOutFailure: MediaToolProcess.Failure?
         do {
-            _ = try await MediaToolProcess().run(
+            _ = try await MediaToolProcess().runTyped(
                 executable: stub, arguments: [], directory: folder, tools: tools,
-                captureOutput: false, includeTLSCertificate: false, noProgressTimeout: .milliseconds(250))
+                captureOutput: false, includeTLSCertificate: false, noProgressTimeout: .milliseconds(300))
             Issue.record("expected stalled child to time out")
-        } catch let error as EngineError {
-            timedOutError = error
+        } catch let error as MediaToolProcess.Failure {
+            timedOutFailure = error
         }
-        let elapsed = ContinuousClock.now - started
-        #expect(elapsed < .seconds(5))
-        guard case .decodeFailed(let detail) = timedOutError else {
-            Issue.record("expected decodeFailed timeout, got \(String(describing: timedOutError))")
-            return
+        #expect(timedOutFailure == .timedOut)
+        if let pidText = try? String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(
+            in: .whitespacesAndNewlines),
+            let pid = Int32(pidText)
+        {
+            #expect(kill(pid, 0) != 0)
         }
-        #expect(detail.lowercased().contains("timed out"))
 
         let longClip = folder.appending(path: "disk-drop.wmv")
         try await FallbackFixtures.runFFmpeg(
@@ -1436,7 +1436,7 @@ private enum FallbackFixtures {
     @Test func unfaithfulIntermediateCheckRejectsEveryFactMismatchAndQuadAudio() async throws {
         func videoStream(
             width: Int = 128, height: Int = 128, pixFmt: String = "yuv420p10le", bits: String? = "10",
-            duration: String = "1.0", frames: String? = "24", rotation: Double? = nil
+            duration: String = "1.0", frames: String? = "24", startTime: String? = "0.0", rotation: Double? = nil
         ) -> StagedMediaFallback.Probe.Stream {
             let sideData = rotation.map {
                 [StagedMediaFallback.Probe.SideData(sideDataType: "Display Matrix", rotation: $0)]
@@ -1447,18 +1447,19 @@ private enum FallbackFixtures {
                 colorPrimaries: nil, colorTransfer: nil, colorSpace: nil, colorRange: nil,
                 channels: nil, channelLayout: nil, sampleFormat: nil, sampleRate: nil, duration: duration,
                 disposition: nil, tags: nil, fieldOrder: nil, nbFrames: frames, rFrameRate: "24/1",
-                sideDataList: sideData)
+                startTime: startTime, sideDataList: sideData)
         }
         func audioStream(
             codec: String = "pcm_s24le", channels: Int = 2, layout: String? = "stereo",
-            sampleFmt: String = "s32", bits: Int? = 24, rate: String = "48000", duration: String = "1.0"
+            sampleFmt: String = "s32", bits: Int? = 24, rate: String = "48000", duration: String = "1.0",
+            startTime: String? = "0.0"
         ) -> StagedMediaFallback.Probe.Stream {
             StagedMediaFallback.Probe.Stream(
                 index: 1, codecType: "audio", codecName: codec, codecTagString: nil,
                 width: nil, height: nil, pixelFormat: nil, bitsPerRawSample: nil, bitsPerSample: bits,
                 colorPrimaries: nil, colorTransfer: nil, colorSpace: nil, colorRange: nil,
                 channels: channels, channelLayout: layout, sampleFormat: sampleFmt, sampleRate: rate,
-                duration: duration, disposition: nil, tags: nil)
+                duration: duration, disposition: nil, tags: nil, startTime: startTime)
         }
         let baseVideo = videoStream()
         let baseAudio = audioStream()
@@ -1472,6 +1473,14 @@ private enum FallbackFixtures {
                     StagedMediaFallback.IntermediateFact.mappedStreams.rawValue,
                     original,
                     StagedMediaFallback.Probe(format: nil, streams: [baseVideo], chapters: nil),
+                    .video(hasAudio: true)
+                ),
+                (
+                    StagedMediaFallback.IntermediateFact.relativeStreamStart.rawValue,
+                    StagedMediaFallback.Probe(
+                        format: nil, streams: [baseVideo, audioStream(startTime: "0.5")], chapters: nil),
+                    StagedMediaFallback.Probe(
+                        format: nil, streams: [baseVideo, audioStream(startTime: "0.0")], chapters: nil),
                     .video(hasAudio: true)
                 ),
                 (
@@ -1927,45 +1936,64 @@ private enum FallbackFixtures {
     }
 
     @Test func watchdogIgnoresNonProgressNoiseAndResetsOnAdvancingOutTime() async throws {
+        // Unit-test the monotonic progress reset predicate.
+        let predicate = StagedMediaFallback.makeProgressWatchdogReset()
+        #expect(!predicate("progress=continue"))
+        #expect(!predicate("frame=12"))
+        #expect(!predicate("out_time_us=N/A"))
+        #expect(!predicate("out_time_us=0"))
+        #expect(!predicate("out_time_us=-10"))
+        #expect(predicate("out_time_us=100000"))
+        #expect(!predicate("out_time_us=100000"))
+        #expect(!predicate("out_time_us=50000"))
+        #expect(predicate("out_time_us=250000"))
+        #expect(!predicate("progress=end"))
+
         let tools = try mediaFixtureTools()
         let folder = try TestVolume.makeFolder()
 
         let noisyStub = folder.appending(path: "noisy.sh")
+        let noisyPID = folder.appending(path: "noisy.pid")
         try Data(
             """
             #!/bin/sh
-            i=0
-            while [ $i -lt 100 ]; do
+            echo $$ > "\(noisyPID.path)"
+            while true; do
                 echo "progress=continue"
                 echo "out_time_us=0"
                 echo "noise" >&2
-                sleep 0.04
-                i=$((i + 1))
+                sleep 0.1
             done
             """.utf8
         ).write(to: noisyStub)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: noisyStub.path)
 
-        let startedNoisy = ContinuousClock.now
+        var timedOutFailure: MediaToolProcess.Failure?
         do {
-            _ = try await MediaToolProcess().run(
+            _ = try await MediaToolProcess().runTyped(
                 executable: noisyStub, arguments: [], directory: folder, tools: tools,
                 captureOutput: false, includeTLSCertificate: false,
-                noProgressTimeout: .milliseconds(450),
+                noProgressTimeout: .milliseconds(500),
                 watchdogReset: MediaToolProcess.WatchdogReset(
                     matches: StagedMediaFallback.makeProgressWatchdogReset()))
             Issue.record("expected noisy non-advancing child to time out")
-        } catch EngineError.decodeFailed(let detail) {
-            #expect(detail == MediaToolProcess.timedOutMessage)
+        } catch let failure as MediaToolProcess.Failure {
+            timedOutFailure = failure
         }
-        #expect(ContinuousClock.now - startedNoisy < .seconds(3))
+        #expect(timedOutFailure == .timedOut)
+        if let pidText = try? String(contentsOf: noisyPID, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let pid = Int32(pidText)
+        {
+            #expect(kill(pid, 0) != 0)
+        }
 
         let advancingStub = folder.appending(path: "advancing.sh")
         try Data(
             """
             #!/bin/sh
-            for t in 100000 200000 300000 400000 500000; do
-                sleep 0.15
+            for t in 100000 200000 300000 400000 500000 600000; do
+                sleep 0.2
                 echo "out_time_us=$t"
             done
             echo "progress=end"
@@ -1973,33 +2001,95 @@ private enum FallbackFixtures {
         ).write(to: advancingStub)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: advancingStub.path)
 
-        let startedAdvancing = ContinuousClock.now
         _ = try await MediaToolProcess().run(
             executable: advancingStub, arguments: [], directory: folder, tools: tools,
             captureOutput: false, includeTLSCertificate: false,
-            noProgressTimeout: .milliseconds(450),
+            noProgressTimeout: .seconds(1),
             watchdogReset: MediaToolProcess.WatchdogReset(
                 matches: StagedMediaFallback.makeProgressWatchdogReset()))
-        #expect(ContinuousClock.now - startedAdvancing >= .milliseconds(650))
     }
 
     @Test func decodabilityProbeBoundsScannedPacketsOnAudioHeavyContainer() async throws {
+        let tools = try mediaFixtureTools()
         let folder = try TestVolume.makeFolder()
-        let mkv = folder.appending(path: "audio_heavy.mkv")
-        let video = MediaTrack(number: 1, kind: .video(width: 64, height: 64), codec: .vp9)
+
+        // Generate a real VP9 4:4:4 keyframe sentinel.
+        let vp9444 = folder.appending(path: "sentinel444.webm")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=64x64:rate=24:duration=0.1",
+                "-frames:v", "1", "-c:v", "libvpx-vp9", "-pix_fmt", "yuv444p", vp9444.path,
+            ], in: folder, tools: tools)
+        var sentinelDemuxer = try MatroskaDemuxer(url: vp9444)
+        var sentinelPacket: MediaPacket?
+        while let packet = try sentinelDemuxer.nextPacket() {
+            if packet.track == sentinelDemuxer.tracks.first(where: \.isVideo)?.number {
+                sentinelPacket = packet
+                break
+            }
+        }
+        let vp9Packet = try #require(sentinelPacket)
+
+        // Confirm the sentinel fails when reached.
+        let reachableMKV = folder.appending(path: "reachable_sentinel.mkv")
+        var framedVideo = MediaTrack(number: 1, kind: .video(width: 64, height: 64), codec: .vp9)
+        framedVideo.defaultDuration = 41_666_667
         let audio = MediaTrack(number: 2, kind: .audio(sampleRate: 48_000, channels: 2), codec: .opus)
-        var muxer = try MatroskaMuxer(url: mkv, tracks: [video, audio], webm: false)
-        for index in 0..<300 {
+        do {
+            var muxer = try MatroskaMuxer(url: reachableMKV, tracks: [framedVideo, audio], webm: false)
             try muxer.write(
                 MediaPacket(
-                    track: 2, timestamp: Int64(index) * 20_000_000, isKeyframe: true,
-                    payload: Data([0xF8, 0xFF, 0xFE])))
+                    track: 1, timestamp: 0, isKeyframe: true, payload: vp9Packet.payload))
+            try muxer.finish()
+            let opened = try await MediaInput.open(reachableMKV)
+            var sawUnsupported = false
+            do {
+                try await opened.verifyDecodable()
+            } catch EngineError.unsupportedCodec {
+                sawUnsupported = true
+            }
+            #expect(sawUnsupported)
         }
-        try muxer.write(MediaPacket(track: 1, timestamp: 0, isKeyframe: true, payload: Data([0x00, 0x01, 0x02])))
-        try muxer.finish()
-        let opened = try await MediaInput.open(mkv)
-        // Terminates cleanly within totalPacketScanLimit.
-        try await opened.verifyDecodable()
+
+        // Bound 1: verifyContainerVideoDecodable stops before packet 270.
+        let decodeBoundedMKV = folder.appending(path: "decode_bounded.mkv")
+        do {
+            var muxer = try MatroskaMuxer(url: decodeBoundedMKV, tracks: [framedVideo, audio], webm: false)
+            for index in 0..<270 {
+                try muxer.write(
+                    MediaPacket(
+                        track: 2, timestamp: Int64(index) * 20_000_000, isKeyframe: true,
+                        payload: Data([0xF8, 0xFF, 0xFE])))
+            }
+            try muxer.write(
+                MediaPacket(
+                    track: 1, timestamp: 270 * 20_000_000, isKeyframe: true, payload: vp9Packet.payload))
+            try muxer.finish()
+            let opened = try await MediaInput.open(decodeBoundedMKV)
+            try await opened.verifyDecodable()
+        }
+
+        // Bound 2: measuredFrameDuration stops before truncated tail.
+        let rateBoundedMKV = folder.appending(path: "rate_bounded.mkv")
+        let unframedVideo = MediaTrack(number: 1, kind: .video(width: 64, height: 64), codec: .vp9)
+        do {
+            var muxer = try MatroskaMuxer(url: rateBoundedMKV, tracks: [unframedVideo, audio], webm: false)
+            for index in 0..<270 {
+                try muxer.write(
+                    MediaPacket(
+                        track: 2, timestamp: Int64(index) * 20_000_000, isKeyframe: true,
+                        payload: Data([0xF8, 0xFF, 0xFE])))
+            }
+            try muxer.write(
+                MediaPacket(
+                    track: 1, timestamp: 270 * 20_000_000, isKeyframe: true, payload: Data(repeating: 0xAA, count: 64)))
+            try muxer.finish()
+            // Truncate final packet past the 256-packet bound.
+            var bytes = try Data(contentsOf: rateBoundedMKV)
+            bytes.removeLast(32)
+            try bytes.write(to: rateBoundedMKV)
+            _ = try await MediaInput.open(rateBoundedMKV)
+        }
     }
 
     @Test func contentDefaultPolicyContinuesFallbackInNewFileAndReplaceModeWithoutPrematureStaging() async throws {
@@ -2219,5 +2309,422 @@ private enum FallbackFixtures {
             #expect(warnings.contains(.streamsOmitted([.subtitle])))
             try assertStagingEmpty(in: support)
         }
+    }
+
+    @Test func lateAudioAndLateVideoPreserveStartOffsetsThroughConversion() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+
+        let lateAudioMKV = folder.appending(path: "late_audio.mkv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=1.0",
+                "-itsoffset", "0.5", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.5",
+                "-map", "0:v", "-map", "1:a", "-c:v", "ffv1", "-c:a", "pcm_s16le", lateAudioMKV.path,
+            ], in: folder, tools: tools)
+        let lateAudioOriginal = try Data(contentsOf: lateAudioMKV)
+        let (lateAudioOutcome, lateAudioSupport) = try await runJob(
+            op: .videoConvert, options: .video(.convert(.mp4)), inputs: [lateAudioMKV], mode: .replace)
+        guard case .succeeded(let lateAudioOutputs, let lateAudioWarnings) = lateAudioOutcome.outcomes.first,
+            let lateAudioOutput = lateAudioOutputs.first
+        else {
+            Issue.record("expected late-audio conversion success, got \(String(describing: lateAudioOutcome.outcomes))")
+            return
+        }
+        #expect(lateAudioWarnings.contains(.keptAsNewFileForFormat))
+        #expect(try Data(contentsOf: lateAudioMKV) == lateAudioOriginal)
+        let lateAudioProbe = try await StagedMediaFallback.probe(lateAudioOutput, tools: tools)
+        let lateAudioVStart = try #require(lateAudioProbe.videoStreams.first?.parsedStartTime)
+        let lateAudioAStart = try #require(lateAudioProbe.audioStreams.first?.parsedStartTime)
+        #expect(abs((lateAudioAStart - lateAudioVStart) - 0.5) <= 0.05)
+        let lateAudioADuration = try #require(lateAudioProbe.audioStreams.first?.parsedDuration)
+        // AAC adds priming; duration stays near 0.5s.
+        #expect(lateAudioADuration >= 0.45 && lateAudioADuration <= 0.7)
+        try assertStagingEmpty(in: lateAudioSupport)
+
+        let lateVideoMKV = folder.appending(path: "late_video.mkv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-itsoffset", "0.5", "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=1.0",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=1.5",
+                "-map", "0:v", "-map", "1:a", "-c:v", "ffv1", "-c:a", "pcm_s16le", lateVideoMKV.path,
+            ], in: folder, tools: tools)
+        let lateVideoOriginal = try Data(contentsOf: lateVideoMKV)
+        let (lateVideoOutcome, lateVideoSupport) = try await runJob(
+            op: .videoConvert, options: .video(.convert(.mp4)), inputs: [lateVideoMKV], mode: .replace)
+        guard case .succeeded(let lateVideoOutputs, let lateVideoWarnings) = lateVideoOutcome.outcomes.first,
+            let lateVideoOutput = lateVideoOutputs.first
+        else {
+            Issue.record("expected late-video conversion success, got \(String(describing: lateVideoOutcome.outcomes))")
+            return
+        }
+        #expect(lateVideoWarnings.contains(.keptAsNewFileForFormat))
+        #expect(try Data(contentsOf: lateVideoMKV) == lateVideoOriginal)
+        let lateVideoProbe = try await StagedMediaFallback.probe(lateVideoOutput, tools: tools)
+        let lateVideoVStart = try #require(lateVideoProbe.videoStreams.first?.parsedStartTime)
+        let lateVideoAStart = try #require(lateVideoProbe.audioStreams.first?.parsedStartTime)
+        #expect(abs((lateVideoVStart - lateVideoAStart) - 0.5) <= 0.1)
+        let lateVideoVDuration = try #require(lateVideoProbe.videoStreams.first?.parsedDuration)
+        #expect(abs(lateVideoVDuration - 1.0) <= 0.1)
+        try assertStagingEmpty(in: lateVideoSupport)
+    }
+
+    @Test func conflictingContainerAndAudioStreamTagsKeepContainerPrecedenceAndWarn() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+
+        let conflictMKA = folder.appending(path: "conflict_tags.mka")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.4",
+                "-c:a", "wavpack",
+                "-metadata", "title=Container Title",
+                "-metadata", "artist=Container Artist",
+                "-metadata", "album=Container Album",
+                "-metadata:s:a:0", "title=Track Title",
+                "-metadata:s:a:0", "artist=Track Artist",
+                "-metadata:s:a:0", "album=Track Album",
+                conflictMKA.path,
+            ], in: folder, tools: tools)
+        let conflictOriginal = try Data(contentsOf: conflictMKA)
+        let (outcome, support) = try await runJob(
+            op: .audioConvert, options: .audio(.convert(.flac)), inputs: [conflictMKA], mode: .replace)
+        guard case .succeeded(let outputs, let warnings) = outcome.outcomes.first, let flac = outputs.first else {
+            Issue.record("expected conflicting-tag conversion success, got \(String(describing: outcome.outcomes))")
+            return
+        }
+        #expect(warnings.contains(.metadataDropped))
+        #expect(warnings.contains(.keptAsNewFileForFormat))
+        #expect(try Data(contentsOf: conflictMKA) == conflictOriginal)
+        let tags = try FLACMetadata.tags(in: flac)
+        #expect(tags.title == "Container Title")
+        #expect(tags.artist == "Container Artist")
+        #expect(tags.album == "Container Album")
+        try assertStagingEmpty(in: support)
+
+        let matchingMKA = folder.appending(path: "matching_tags.mka")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.4",
+                "-c:a", "wavpack",
+                "-metadata", "title=Shared Title",
+                "-metadata:s:a:0", "title=Shared Title",
+                matchingMKA.path,
+            ], in: folder, tools: tools)
+        let (matchOutcome, matchSupport) = try await runJob(
+            op: .audioConvert, options: .audio(.convert(.flac)), inputs: [matchingMKA], mode: .newFile)
+        guard case .succeeded(let matchOutputs, let matchWarnings) = matchOutcome.outcomes.first,
+            let matchFlac = matchOutputs.first
+        else {
+            Issue.record("expected matching-tag conversion success, got \(String(describing: matchOutcome.outcomes))")
+            return
+        }
+        #expect(!matchWarnings.contains(.metadataDropped))
+        #expect(try FLACMetadata.tags(in: matchFlac).title == "Shared Title")
+        try assertStagingEmpty(in: matchSupport)
+    }
+
+    @Test func openWithFallbackPreservesDiskFullAccessAndSignalledChildErrors() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+        let wma = try await FallbackFixtures.makeWMA(in: folder)
+
+        func makeStubTools(named name: String, script: String) throws -> MediaDownloadTools {
+            let bin = folder.appending(path: name, directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+            let ffmpeg = bin.appending(path: "ffmpeg")
+            try Data(script.utf8).write(to: ffmpeg)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ffmpeg.path)
+            for sibling in ["python3", "qjs", "ffprobe"] {
+                let source = tools.directory.appending(path: sibling)
+                try FileManager.default.createSymbolicLink(
+                    at: bin.appending(path: sibling), withDestinationURL: source)
+            }
+            return try MediaDownloadTools(directory: bin)
+        }
+
+        // ENOSPC stays a save error.
+        let diskFullTools = try makeStubTools(
+            named: "stub-enospc", script: "#!/bin/sh\necho 'No space left on device' >&2\nexit 1\n")
+        do {
+            let support = try TestVolume.makeFolder()
+            let context = FallbackFixtures.context(in: support)
+            defer { context.removeStaging() }
+            _ = try await AudioInput.openWithFallback(wma, context: context, tools: diskFullTools)
+            Issue.record("expected ENOSPC child to fail")
+        } catch EngineError.commitFailed(let detail) {
+            #expect(detail.lowercased().contains("disk space"))
+        }
+
+        // Permission denied stays permissionDenied.
+        let accessTools = try makeStubTools(
+            named: "stub-eacces", script: "#!/bin/sh\necho 'Permission denied' >&2\nexit 1\n")
+        do {
+            let support = try TestVolume.makeFolder()
+            let context = FallbackFixtures.context(in: support)
+            defer { context.removeStaging() }
+            _ = try await AudioInput.openWithFallback(wma, context: context, tools: accessTools)
+            Issue.record("expected permission-denied child to fail")
+        } catch EngineError.permissionDenied {
+            // Preserved typed permission error.
+        }
+
+        // Signalled child stays an unexpected termination error.
+        let signalledTools = try makeStubTools(
+            named: "stub-sigkill", script: "#!/bin/sh\nkill -9 $$\n")
+        do {
+            let support = try TestVolume.makeFolder()
+            let context = FallbackFixtures.context(in: support)
+            defer { context.removeStaging() }
+            _ = try await AudioInput.openWithFallback(wma, context: context, tools: signalledTools)
+            Issue.record("expected signalled child to fail")
+        } catch EngineError.unexpected(let detail) {
+            #expect(detail.contains("signal 9"))
+        }
+
+        // Ordinary media rejection restores native unsupportedCodec.
+        let mediaRejectTools = try makeStubTools(
+            named: "stub-badmedia",
+            script: "#!/bin/sh\necho 'Invalid data found when processing input' >&2\nexit 1\n")
+        do {
+            let support = try TestVolume.makeFolder()
+            let context = FallbackFixtures.context(in: support)
+            defer { context.removeStaging() }
+            _ = try await AudioInput.openWithFallback(wma, context: context, tools: mediaRejectTools)
+            Issue.record("expected media-rejection child to fail")
+        } catch EngineError.unsupportedCodec(let codec) {
+            #expect(codec == "Windows Media Audio")
+        }
+    }
+
+    @Test func variableFrameRateFallbackEmitsWarningWhileConstantRateAndExplicitFPSDoNot() async throws {
+        #expect(!StagedMediaFallback.hasVariableFrameIntervals([0.041, 0.042, 0.042, 0.041, 0.042]))
+        #expect(
+            StagedMediaFallback.hasVariableFrameIntervals(
+                Array(repeating: 1.0 / 24.0, count: 11) + Array(repeating: 1.0 / 12.0, count: 6)))
+
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+
+        // 12 fast then 6 slow frames.
+        let vfrMKV = folder.appending(path: "vfr.mkv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=0.75",
+                "-vf", "setpts=if(lt(N\\,12)\\,N\\,12+(N-12)*2)",
+                "-fps_mode", "passthrough", "-c:v", "ffv1", vfrMKV.path,
+            ], in: folder, tools: tools)
+        let vfrOriginal = try Data(contentsOf: vfrMKV)
+
+        let (vfrOutcome, vfrSupport) = try await runJob(
+            op: .videoConvert, options: .video(.convert(.mov)), inputs: [vfrMKV], mode: .replace)
+        guard case .succeeded(_, let vfrWarnings) = vfrOutcome.outcomes.first else {
+            Issue.record("expected VFR conversion success, got \(String(describing: vfrOutcome.outcomes))")
+            return
+        }
+        #expect(vfrWarnings.contains(.videoVariableFrameRateConverted))
+        #expect(vfrWarnings.contains(.keptAsNewFileForFormat))
+        #expect(try Data(contentsOf: vfrMKV) == vfrOriginal)
+        try assertStagingEmpty(in: vfrSupport)
+
+        // Explicit frame-rate change does not warn.
+        let (fpsOutcome, fpsSupport) = try await runJob(
+            op: .videoFPS, options: .video(.frameRate(24)), inputs: [vfrMKV], mode: .newFile)
+        guard case .succeeded(_, let fpsWarnings) = fpsOutcome.outcomes.first else {
+            Issue.record("expected explicit FPS conversion success, got \(String(describing: fpsOutcome.outcomes))")
+            return
+        }
+        #expect(!fpsWarnings.contains(.videoVariableFrameRateConverted))
+        try assertStagingEmpty(in: fpsSupport)
+
+        // Constant-rate source does not warn.
+        let cfrMKV = folder.appending(path: "cfr.mkv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=0.75",
+                "-c:v", "ffv1", cfrMKV.path,
+            ], in: folder, tools: tools)
+        let (cfrOutcome, cfrSupport) = try await runJob(
+            op: .videoConvert, options: .video(.convert(.mov)), inputs: [cfrMKV], mode: .newFile)
+        guard case .succeeded(_, let cfrWarnings) = cfrOutcome.outcomes.first else {
+            Issue.record("expected CFR conversion success, got \(String(describing: cfrOutcome.outcomes))")
+            return
+        }
+        #expect(!cfrWarnings.contains(.videoVariableFrameRateConverted))
+        try assertStagingEmpty(in: cfrSupport)
+    }
+
+    @Test func explicitExportsReportOriginalOmittedStreamsWithoutWarningIntentionalSelection() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+
+        let subtitle = folder.appending(path: "captions.srt")
+        try Data("1\n00:00:00,000 --> 00:00:00,300\nHello\n".utf8).write(to: subtitle)
+        let chapters = folder.appending(path: "chapters.txt")
+        try Data(";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=400\ntitle=Intro\n".utf8).write(to: chapters)
+
+        let richMKV = folder.appending(path: "rich_export.mkv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=128x128:rate=24:duration=0.5",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.5",
+                "-i", subtitle.path,
+                "-i", chapters.path,
+                "-map", "0:v", "-map", "1:a", "-map", "2:s", "-map_chapters", "3",
+                "-c:v", "ffv1", "-c:a", "pcm_s16le", "-c:s", "srt", richMKV.path,
+            ], in: folder, tools: tools)
+        let originalBytes = try Data(contentsOf: richMKV)
+
+        // Extract Audio reports subtitle and chapter.
+        let (audioOutcome, audioSupport) = try await runJob(
+            op: .videoExtractAudio, options: .video(.extractAudio(.m4aAAC, kilobits: 128)), inputs: [richMKV],
+            mode: .replace)
+        guard case .succeeded(_, let audioWarnings) = audioOutcome.outcomes.first else {
+            Issue.record("expected extractAudio success, got \(String(describing: audioOutcome.outcomes))")
+            return
+        }
+        #expect(audioWarnings.contains(.streamsOmitted([.subtitle, .chapter])))
+        #expect(try Data(contentsOf: richMKV) == originalBytes)
+        try assertStagingEmpty(in: audioSupport)
+
+        // Save Frame reports subtitle and chapter.
+        let (stillOutcome, stillSupport) = try await runJob(
+            op: .videoThumbnail, options: .video(.still(.first)), inputs: [richMKV], mode: .newFile)
+        guard case .succeeded(_, let stillWarnings) = stillOutcome.outcomes.first else {
+            Issue.record("expected still export success, got \(String(describing: stillOutcome.outcomes))")
+            return
+        }
+        #expect(stillWarnings.contains(.streamsOmitted([.subtitle, .chapter])))
+        try assertStagingEmpty(in: stillSupport)
+
+        // GIF export reports subtitle and chapter.
+        let (gifOutcome, gifSupport) = try await runJob(
+            op: .videoToGIF, options: .video(.gif(AnimationRendering(width: 128, framesPerSecond: 10))),
+            inputs: [richMKV], mode: .newFile)
+        guard case .succeeded(_, let gifWarnings) = gifOutcome.outcomes.first else {
+            Issue.record("expected GIF export success, got \(String(describing: gifOutcome.outcomes))")
+            return
+        }
+        #expect(gifWarnings.contains(.streamsOmitted([.subtitle, .chapter])))
+        try assertStagingEmpty(in: gifSupport)
+    }
+
+    @Test func trackAttributeInspectionClassifiesExpectedErrorsAndPropagatesAccessAndCancellation() async throws {
+        var attributes = StagedMediaFallback.OriginalTrackAttributes()
+        try StagedMediaFallback.handleQuickTimeAttributeError(
+            NSError(domain: AVFoundationErrorDomain, code: AVError.fileFormatNotRecognized.rawValue),
+            attributes: &attributes)
+        #expect(attributes.trackAttributesUnknown)
+
+        var matroskaAttributes = StagedMediaFallback.OriginalTrackAttributes()
+        try StagedMediaFallback.handleMatroskaAttributeError(
+            FormatError.corrupt("non-standard track entry"), attributes: &matroskaAttributes)
+        #expect(matroskaAttributes.trackAttributesUnknown)
+
+        var propagatedAttributes = StagedMediaFallback.OriginalTrackAttributes()
+        #expect(throws: CancellationError.self) {
+            try StagedMediaFallback.handleQuickTimeAttributeError(
+                CancellationError(), attributes: &propagatedAttributes)
+        }
+        #expect(throws: CocoaError.self) {
+            try StagedMediaFallback.handleQuickTimeAttributeError(
+                CocoaError(.fileReadNoPermission), attributes: &propagatedAttributes)
+        }
+        #expect(throws: POSIXError.self) {
+            try StagedMediaFallback.handleQuickTimeAttributeError(
+                POSIXError(.EACCES), attributes: &propagatedAttributes)
+        }
+        #expect(throws: FormatError.self) {
+            try StagedMediaFallback.handleMatroskaAttributeError(
+                FormatError.io("read failed"), attributes: &propagatedAttributes)
+        }
+        #expect(!propagatedAttributes.trackAttributesUnknown)
+
+        // Unknown track attributes yield trackMetadata loss.
+        let fixture = try #require(
+            Bundle.module.url(forResource: "ffmpeg-h264-aac", withExtension: "mp4", subdirectory: "Resources"))
+        var input = try await MediaInput.open(fixture)
+        input.fallbackOrigin = StagedMediaFallback.Probe(format: nil, streams: [], chapters: nil).sourceDescription(
+            originalURL: fixture,
+            trackAttributes: StagedMediaFallback.OriginalTrackAttributes(trackAttributesUnknown: true))
+        let metadata = try await VideoMetadata.load(from: input)
+        #expect(metadata.losses(for: .mp4, includingAudio: true).contains(.trackMetadata))
+    }
+
+    @Test func oversizedAttachedArtworkIsOmittedWithMetadataDroppedWarning() async throws {
+        let tools = try mediaFixtureTools()
+        let folder = try TestVolume.makeFolder()
+
+        func attachCoverArt(image: URL, to baseWV: URL, output: URL) throws {
+            let audioBytes = try Data(contentsOf: baseWV)
+            let imageBytes = try Data(contentsOf: image)
+            var value = Data("cover.png".utf8)
+            value.append(0)
+            value.append(imageBytes)
+            var entry = Data()
+            func appendUInt32LE(_ destination: inout Data, _ number: UInt32) {
+                var little = number.littleEndian
+                withUnsafeBytes(of: &little) { destination.append(contentsOf: $0) }
+            }
+            appendUInt32LE(&entry, UInt32(value.count))
+            appendUInt32LE(&entry, 2)
+            entry.append(contentsOf: "Cover Art (Front)".utf8)
+            entry.append(0)
+            entry.append(value)
+            let tagSize = UInt32(entry.count + 32)
+            var header = Data("APETAGEX".utf8)
+            for field: UInt32 in [2_000, tagSize, 1, (1 << 31) | (1 << 29), 0, 0] { appendUInt32LE(&header, field) }
+            var footer = Data("APETAGEX".utf8)
+            for field: UInt32 in [2_000, tagSize, 1, 1 << 31, 0, 0] { appendUInt32LE(&footer, field) }
+            try (audioBytes + header + entry + footer).write(to: output)
+        }
+
+        // Pixel limit: 5100x5100 exceeds 25,000,000 pixels.
+        let hugePNG = folder.appending(path: "huge.png")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "color=c=blue:s=5100x5100:d=0.1",
+                "-frames:v", "1", hugePNG.path,
+            ], in: folder, tools: tools)
+        let base16 = try await FallbackFixtures.makeWavPack(named: "base16.wv", in: folder)
+        let pixelOversizedWV = folder.appending(path: "huge_art.wv")
+        try attachCoverArt(image: hugePNG, to: base16, output: pixelOversizedWV)
+        let (pixelOutcome, pixelSupport) = try await runJob(
+            op: .audioConvert, options: .audio(.convert(.flac)), inputs: [pixelOversizedWV], mode: .newFile)
+        guard case .succeeded(let pixelOutputs, let pixelWarnings) = pixelOutcome.outcomes.first,
+            let flac = pixelOutputs.first
+        else {
+            Issue.record(
+                "expected pixel-oversized artwork conversion success, got \(String(describing: pixelOutcome.outcomes))")
+            return
+        }
+        #expect(pixelWarnings.contains(.metadataDropped))
+        #expect(try FLACMetadata.tags(in: flac).artwork == nil)
+        try assertStagingEmpty(in: pixelSupport)
+
+        // Byte limit drops oversized CAF artwork.
+        let smallPNG = folder.appending(path: "cover.png")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "testsrc2=size=256x256:rate=1:duration=1",
+                "-frames:v", "1", smallPNG.path,
+            ], in: folder, tools: tools)
+        let base32 = folder.appending(path: "base32.wv")
+        try await FallbackFixtures.runFFmpeg(
+            [
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.4",
+                "-c:a", "wavpack", "-sample_fmt", "s32p", base32.path,
+            ], in: folder, tools: tools)
+        let byteOversizedWV = folder.appending(path: "byte_art.wv")
+        try attachCoverArt(image: smallPNG, to: base32, output: byteOversizedWV)
+        let byteSupport = try TestVolume.makeFolder()
+        let byteContext = FallbackFixtures.context(in: byteSupport)
+        defer { byteContext.removeStaging() }
+        let staged = try await StagedMediaFallback.prepareAudio(
+            byteOversizedWV, context: byteContext, tools: tools, maximumArtworkBytes: 256)
+        #expect(staged.profile == .cafPCM32)
+        #expect(staged.origin.attachedPicture == nil)
+        #expect(staged.origin.attachedPictureDropped)
+        #expect(staged.origin.hasUnsupportedAudioTags)
     }
 }

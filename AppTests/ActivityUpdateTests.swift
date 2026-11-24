@@ -131,6 +131,9 @@ final class ActivityUpdateTests: XCTestCase {
         XCTAssertEqual(
             UserMessages.describe(ItemWarning.keptAsNewFileForFormat),
             "Saved as a new file: MacEase cannot write the original format.")
+        XCTAssertEqual(
+            UserMessages.describe(ItemWarning.videoVariableFrameRateConverted),
+            "Variable frame timing converted to a constant frame rate; original kept.")
         XCTAssertNil(UserMessages.technicalDetail(.insufficientDiskSpace(requiredBytes: 1, availableBytes: 0)))
         XCTAssertNil(UserMessages.technicalDetail(.fallbackToolMissing))
     }

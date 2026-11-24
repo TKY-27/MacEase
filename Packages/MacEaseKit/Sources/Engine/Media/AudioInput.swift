@@ -156,11 +156,12 @@ public struct AudioInput: Sendable {
             default:
                 loaded = try await Self.commonTags(url)
             }
-            if let fallbackTags = fallbackOrigin?.fallbackAudioTags {
-                if loaded.title == nil { loaded.title = fallbackTags.title }
-                if loaded.artist == nil { loaded.artist = fallbackTags.artist }
-                if loaded.album == nil { loaded.album = fallbackTags.album }
-                if loaded.artwork == nil { loaded.artwork = fallbackTags.artwork }
+            if let origin = fallbackOrigin {
+                let fallbackTags = origin.fallbackAudioTags
+                loaded.title = fallbackTags.title ?? loaded.title
+                loaded.artist = fallbackTags.artist ?? loaded.artist
+                loaded.album = fallbackTags.album ?? loaded.album
+                loaded.artwork = origin.attachedPictureDropped ? nil : (fallbackTags.artwork ?? loaded.artwork)
             }
             return loaded
         } catch {

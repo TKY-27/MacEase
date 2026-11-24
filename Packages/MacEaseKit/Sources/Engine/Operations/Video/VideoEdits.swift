@@ -33,7 +33,8 @@ enum VideoEdits {
             for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation),
             omitting: context.omittedStreams)
         try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
-        plan = try await VideoProperties.prepare(plan, input: input, context: context)
+        plan = try await VideoProperties.prepare(
+            plan, input: input, context: context, warnsVariableFrameRate: !requestsFrameRateChange(operation))
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         context.phase(.encoding)
@@ -180,6 +181,11 @@ enum VideoEdits {
             if input.video?.hasAlpha == true, !context.warnings.contains(.videoTransparencyFlattened) {
                 context.warn(.videoTransparencyFlattened)
             }
+            if input.fallbackOrigin?.hasVariableFrameTiming == true,
+                !context.warnings.contains(.videoVariableFrameRateConverted)
+            {
+                context.warn(.videoVariableFrameRateConverted)
+            }
             metadataPlans.append(try await VideoProperties.prepareMetadata(plan, input: input, context: context))
         }
         let name = url.deletingPathExtension().lastPathComponent + "_edited.mp4"
@@ -199,6 +205,10 @@ enum VideoEdits {
         return .groupedDerived(
             destination: url.deletingLastPathComponent().appending(path: name), sources: stamps,
             output: StagedFile(url: output, name: name, check: plan.toneMapToSDR ? .sdrVideo : .media))
+    }
+
+    private static func requestsFrameRateChange(_ operation: VideoOperation) -> Bool {
+        if case .frameRate = operation { true } else { false }
     }
 
     private static func preservesTiming(operation: VideoOperation) -> Bool {
