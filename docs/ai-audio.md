@@ -29,6 +29,52 @@ corresponding-source archive. Signing changes binary hashes; the release workflo
 must separately verify the signed bundle while retaining upstream provenance.
 `runtimeComponents` identifies the program and library licenses and source revisions.
 
+## ONNX Runtime document provenance
+
+As checked on 2026-11-24, the upstream repository, v1.28.2 source archive and
+raw license URLs return HTTP 404. The ordinary `onnxruntime` project on PyPI
+and `Microsoft.ML.OnnxRuntime` on NuGet do not list 1.28.2; their version-specific
+endpoints also return 404. They were checked before selecting the Windows ML
+distribution. The cause of the upstream outage is unverified.
+
+The document source is Microsoft's official
+[onnxruntime-windowsml 1.28.2.202609030142 PyPI release](https://pypi.org/project/onnxruntime-windowsml/1.28.2.202609030142/),
+file `onnxruntime_windowsml-1.28.2.202609030142-cp311-cp311-win_arm64.whl`.
+Microsoft's [Windows ML deployment documentation](https://learn.microsoft.com/en-us/windows/ai/new-windows-ml/distributing-your-app)
+identifies this Python package as its ONNX Runtime distribution.
+Its immutable download URL, size of 26,167,729 bytes and SHA-256
+`95f4b53dd284052ff8b5a869d86cbc511342bec8e727249e4f3fcaece0dd99a8`
+are pinned in `Vendor/ai-audio.lock`. It is never installed or executed. Only
+`onnxruntime/LICENSE` and `onnxruntime/ThirdPartyNotices.txt` are read from the
+ZIP container; no Windows executable or library is copied into the macOS runtime.
+The native dylib still comes from the unchanged, hash-pinned sherpa archive.
+
+These two wheel members use CRLF. The build checks their raw SHA-256 pins,
+then explicitly replaces every CR LF pair with LF and performs no other rewriting.
+The resulting documents must match the existing, unchanged SHA-256 pins:
+
+| Shipped document | Bytes | SHA-256 after normalization |
+| --- | ---: | --- |
+| `onnxruntime-LICENSE.txt` | 1,073 | `2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c` |
+| `onnxruntime-ThirdPartyNotices.txt` | 325,054 | `0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2` |
+
+An artifact, raw-member or normalized-document checksum mismatch fails the build.
+The resulting bytes also match the copies in the installed MacEase app.
+`docs/spikes.md` records the raw hashes and URL availability checks.
+
+No official source distribution was found for this release: PyPI lists wheels
+only, and the official GitHub source archive returns 404. The lock therefore
+records `source: null`, retains the historical URL as `upstreamSource`, and
+includes the dated availability finding. Generated notices ship the same record;
+the binary wheel is not represented as corresponding source. ONNX Runtime's MIT
+license requires preserving its copyright and permission notices, which remain
+bundled with the full third-party notices. Eigen's separate MPL-2.0 source
+obligation and bundled source archive remain unchanged.
+
+When upstream returns, re-check the v1.28.2 source/tag provenance and document
+hashes against this record before restoring a source link or changing the fetch.
+Do not substitute another runtime version or silently update document hashes.
+
 ## Models and licenses
 
 | Component | License and evidence |
@@ -41,7 +87,7 @@ must separately verify the signed bundle while retaining upstream provenance.
 
 Primary references:
 [sherpa source](https://github.com/k2-fsa/sherpa-onnx/tree/af2d8d81dbfa61c4cea4c568da78f3982edca005),
-[ONNX Runtime](https://github.com/microsoft/onnxruntime/tree/v1.28.2),
+[ONNX Runtime document distribution](https://pypi.org/project/onnxruntime-windowsml/1.28.2.202609030142/),
 [GTCRN author's grant](https://github.com/Xiaobin-Rong/gtcrn/issues/104), and
 [Deezer paper, page 3](https://joss.theoj.org/papers/10.21105/joss.02154.pdf).
 Copies and their hashes are pinned in the lock file.

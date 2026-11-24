@@ -1,5 +1,65 @@
 # Spikes and Manual Verification
 
+## ONNX Runtime document availability (2026-11-24)
+
+An empty worktree-local `Vendor/src/ai-audio` cache reproduced the failure in
+`scripts/build-ai-audio.sh`: the first four assets downloaded successfully,
+then the ONNX Runtime v1.28.2 raw LICENSE URL returned HTTP 404. The raw
+ThirdPartyNotices URL, repository page, repository API, v1.28.2 source page
+and official codeload source archive also returned 404. No cause is established.
+
+The ordinary `onnxruntime` PyPI version JSON and official
+`Microsoft.ML.OnnxRuntime` NuGet package URL for 1.28.2 returned 404; their
+version indexes contain 1.28.0 but not 1.28.2. The Managed NuGet variant also
+returned 404 for 1.28.2. No replacement runtime version was adopted.
+
+The official `onnxruntime-windowsml` PyPI release 1.28.2.202609030142 is available
+and lists wheels only, with no source distribution. Its CPython 3.11 Windows
+arm64 wheel is 26,167,729 bytes, SHA-256
+`95f4b53dd284052ff8b5a869d86cbc511342bec8e727249e4f3fcaece0dd99a8`.
+The wheel supplies only text documents to the macOS build; it is not installed.
+
+| Wheel member | Raw bytes | Raw SHA-256 | CRLF pairs |
+| --- | ---: | --- | ---: |
+| `onnxruntime/LICENSE` | 1,094 | `c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674` | 21 |
+| `onnxruntime/ThirdPartyNotices.txt` | 331,175 | `fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866` | 6,121 |
+
+Replacing every CR LF with LF produces exactly 1,073 and 325,054 bytes,
+respectively. Both normalized hashes equal the unchanged document pins in
+`Vendor/ai-audio.lock`, and the bytes equal the installed MacEase app's copies.
+Only line endings differ. The lock and build check the artifact, raw members
+and normalized documents separately. The unavailable source is recorded as
+unavailable, not replaced by a binary package; see `docs/ai-audio.md`.
+
+Availability audit used HEAD requests with redirects, without downloading large
+archives. Counts below describe the original lock entries before this fix.
+
+| URL class | HTTP 200 | HTTP 404 | Scope |
+| --- | ---: | ---: | --- |
+| AI-audio inputs | 22 | 2 | All 24 asset URLs; only ONNX Runtime documents failed |
+| Native dependencies | 24 | 0 | Every URL in `Vendor/deps.lock` |
+| Media tools | 17 | 0 | Every URL in `Vendor/media-tools.lock` |
+| Upscaler model and license | 5 | 0 | Four revision-pinned Hugging Face artifacts and Apache license |
+
+The other AI-audio inputs include three Python wheels; sherpa, GTCRN, Spleeter,
+kaldi-native-fbank, utf8proc, kaldi-decoder, simple-sentencepiece, JSON, Eigen
+and KISS FFT licenses; the GTCRN grant; Spleeter config and paper; GTCRN model;
+sherpa runtime; Spleeter ONNX models and original checkpoint; and Eigen source.
+None depends on the unavailable Microsoft repository. The dylib comes from
+the still-available official sherpa-onnx v2.0.1 archive with its unchanged pin.
+The upscaler's build-only pip versions are not artifact URLs in its lock and
+were not rebuilt by this audit.
+
+Verification on arm64 macOS 27.2.1: rebuilding AI audio with empty source,
+work and runtime directories passed, including all 70 checkpoint arrays per
+stem and native timing/pitch checks. `make build`, `make test` (108 MenuCatalog,
+261 Formats, 1,004 Engine tests) and `make lint` passed. The build's signing
+verification passed for 73 Mach-O files. Artifact, raw-member, normalized-hash
+and unsupported-normalization negative checks failed before bundling as intended.
+The built app retains the original document hashes and Eigen source and ships
+the dated source notice without Windows code. Other native dependencies used
+existing APFS-cloned build outputs; GUI, DMG and macOS 26 checks were not run.
+
 ## Manual release checklist
 
 Run against the release candidate on both macOS 26 and macOS 27, as required
