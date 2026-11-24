@@ -191,7 +191,7 @@ public enum ArchiveBrowserZIP {
         return meaningful.joined(separator: "/")
     }
 
-    private final class Reader {
+    final class Reader {
         let archive: OpaquePointer
         let descriptor: Int32
         let expectedEntries: Int
