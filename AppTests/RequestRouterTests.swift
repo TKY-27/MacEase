@@ -207,4 +207,64 @@ extension RequestRouterTests {
         let records = await engine.history.records
         XCTAssertTrue(records.isEmpty)
     }
+
+    func testHostCaseMatchingAndDotPathRejectionHoldAcrossAllRoutes() async throws {
+        let suite = "MacEaseRouteCaseAndPaths-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let directory = FileManager.default.temporaryDirectory.appending(path: suite)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            do { try FileManager.default.removeItem(at: directory) } catch {
+                XCTFail("Fixture cleanup failed: \(error)")
+            }
+        }
+        let settings = SettingsStore(defaults: defaults)
+        settings.notificationsEnabled = false
+        let engine = try JobEngine(supportDirectory: directory, concurrency: 1)
+        let notifier = BatchNotifier(settings: settings)
+        let jobs = JobCenter(engine: engine, settings: settings, notifier: notifier)
+        let token = String(repeating: "a", count: 64)
+        let entry = MenuEntry(op: .anyChecksum, preset: "sha256", path: ["Checksum", "SHA-256"])
+        let catalog = MenuFile(
+            token: token, hostAvailable: true, entries: [entry], kinds: [.any: "All Files"],
+            commands: [
+                MenuCommandItem(group: MenuGroupID(.update), title: "Update", placement: .primary),
+                MenuCommandItem(group: MenuGroupID(.preview), title: "Preview", placement: .primary),
+                MenuCommandItem(
+                    group: MenuGroupID(.newFile), title: "New File", placement: .primary,
+                    leaves: [MenuCommandLeaf(preset: "txt", title: "Text")]),
+            ])
+        var openCount = 0
+        var updateCount = 0
+        var previewCount = 0
+        var dispatchedCommands: [HostCommandRequest] = []
+        let router = RequestRouter(
+            configuration: HostConfiguration(urlScheme: "macease-test", supportDirectory: directory),
+            jobs: jobs, notifier: notifier, menuFile: { catalog },
+            openApp: { openCount += 1 }, openUpdate: { updateCount += 1 }, openPreview: { previewCount += 1 },
+            finderCommand: { dispatchedCommands.append($0) })
+
+        router.route(try XCTUnwrap(URL(string: "macease-test://OPEN")))
+        router.route(try XCTUnwrap(URL(string: "macease-test://UPDATE?t=\(token)")))
+        router.route(try XCTUnwrap(URL(string: "macease-test://PREVIEW?t=\(token)")))
+        router.route(
+            try XCTUnwrap(
+                URL(string: "macease-test://PREVIEW?t=\(token)&v=\(catalog.catalogVersion)&path=/tmp")))
+        XCTAssertEqual(openCount, 1)
+        XCTAssertEqual(updateCount, 1)
+        XCTAssertEqual(previewCount, 2)
+        XCTAssertTrue(dispatchedCommands.isEmpty)
+
+        for rejected in [
+            "macease-test://run?v=\(catalog.catalogVersion)&e=0&t=\(token)&path=/tmp/symdir/.",
+            "macease-test://run?v=\(catalog.catalogVersion)&e=0&t=\(token)&path=/tmp/symdir/..",
+            "macease-test://newfile?t=\(token)&v=\(catalog.catalogVersion)&preset=txt&path=/tmp/symdir/.",
+            "macease-test://newfile?t=\(token)&v=\(catalog.catalogVersion)&preset=txt&path=/tmp/symdir/..",
+        ] {
+            router.route(try XCTUnwrap(URL(string: rejected)))
+        }
+        XCTAssertTrue(dispatchedCommands.isEmpty)
+        XCTAssertTrue(jobs.active.isEmpty)
+        XCTAssertTrue(jobs.completed.isEmpty)
+    }
 }

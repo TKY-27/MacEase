@@ -120,9 +120,72 @@ import Testing
         for query in [
             "t=a&t=a&v=v&path=/a", "t=a&v=v&v=v&path=/a", "t=a&v=v&path=relative",
             "t=a&v=v&path", "t=a&v=v&path=%00/a", "t=a&v=v&path=/a&preset=txt&preset=md",
+            "t=a&v=v&path=/tmp/work/symdir/.", "t=a&v=v&path=/tmp/work/symdir/..",
+            "t=a&v=v&path=/tmp/./a", "t=a&v=v&path=/tmp/../a",
         ] {
             let url = try #require(URL(string: "macease-test://newfile?\(query)"))
             #expect(HostCommandRequest(url: url, scheme: "macease-test") == nil)
         }
+        #expect(RequestPath.normalized("/tmp/work/symdir/") == "/tmp/work/symdir")
+        #expect(RequestPath.normalized("/tmp/work/.hidden") == "/tmp/work/.hidden")
+        #expect(RequestPath.normalized("/tmp/work/..double") == "/tmp/work/..double")
+        #expect(RequestPath.normalized("/") == "/")
+        #expect(RequestPath.normalized("/tmp/work/symdir/.") == nil)
+        #expect(RequestPath.normalized("/tmp/work/symdir/..") == nil)
+    }
+
+    @Test func updateAndPreviewURLsMatchSpec33MinimalFormWithoutSelection() throws {
+        let catalog = MenuFile(
+            token: "tok123", hostAvailable: true, visibleOperations: [], titles: titles,
+            commandTitles: [.update: "Update Available (v4.0.0)", .preview: "Show Finder Preview"])
+        var builds = MenuBuilds(firstTag: 200)
+        let recorded = builds.record(catalog)
+        let first = try #require(recorded)
+        for (command, expectedHost) in [(HostCommand.update, "update"), (.preview, "preview")] {
+            let tag = try #require(builds.commandTag(MenuCommandAction(command: command), firstTag: first))
+            var evaluatedPaths = false
+            let built = builds.commandRequest(
+                tag: tag,
+                paths: {
+                    evaluatedPaths = true
+                    return ["/work/a.txt", "/work/b.txt"]
+                }())
+            let request = try #require(built)
+            #expect(!evaluatedPaths)
+            #expect(request.paths.isEmpty)
+            let url = try #require(request.url(scheme: "macease-test"))
+            #expect(url.absoluteString == "macease-test://\(expectedHost)?t=tok123")
+            #expect(HostCommandRequest(url: url, scheme: "macease-test") == nil)
+            let withExtra = try #require(
+                URL(string: "macease-test://\(expectedHost.uppercased())?t=tok123&v=v&path=/tmp"))
+            #expect(HostCommandRequest(url: withExtra, scheme: "macease-test") == nil)
+        }
+    }
+
+    @Test func decodingLegacyMenuArrangementsPreservesUncustomizedAndCustomizedCommandsScope() throws {
+        let uncustomized = try JSONDecoder().decode(
+            MenuArrangement.self, from: Data(#"{"version":1,"scopes":{}}"#.utf8))
+        #expect(!uncustomized.isCustomized(.commands))
+        let uncustomizedScope = uncustomized.resolved(.commands)
+        #expect(uncustomizedScope[.finder] == [MenuGroupID(rawValue: "folder.downloadMedia")])
+        #expect(
+            uncustomizedScope[.menu]
+                == [
+                    HostCommand.update, .preview, .newFile, .cut, .moveHere, .copyPath, .openTerminal,
+                ].map(MenuGroupID.init))
+        #expect(uncustomizedScope[.more].isEmpty)
+
+        let customizedJSON = Data(
+            #"{"version":1,"scopes":{"commands":{"finder":["command.preview"],"menu":["command.update"],"more":[],"hidden":["folder.downloadMedia"]}}}"#
+                .utf8)
+        let customized = try JSONDecoder().decode(MenuArrangement.self, from: customizedJSON)
+        #expect(customized.isCustomized(.commands))
+        let customizedScope = customized.resolved(.commands)
+        #expect(customizedScope[.finder] == [MenuGroupID(.preview)])
+        #expect(customizedScope[.menu] == [MenuGroupID(.update)])
+        #expect(customizedScope[.hidden] == [MenuGroupID(rawValue: "folder.downloadMedia")])
+        #expect(
+            customizedScope[.more]
+                == [HostCommand.newFile, .cut, .moveHere, .copyPath, .openTerminal].map(MenuGroupID.init))
     }
 }

@@ -147,6 +147,7 @@ final class FinderCommandsTests: XCTestCase {
         let restored = try await fixture.jobs.engine.undo(record.id)
         XCTAssertEqual(restored, [.restored])
         XCTAssertTrue(FileManager.default.fileExists(atPath: unchanged.path))
+        XCTAssertTrue((fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []).isEmpty)
     }
 
     func testUndoEvenWithoutHistoryClearsCut() async throws {
@@ -291,5 +292,442 @@ extension FinderCommandsTests {
         XCTAssertEqual(ActivityResult(outcome).noteCount, 1)
         XCTAssertTrue(ActivityResult(outcome).problems.isEmpty)
         XCTAssertTrue(fixture.jobs.completed.first?.summary.details.contains(described) == true)
+    }
+
+    func testCutCapturesOffMainActorCancelsEarlierCaptureAndRefusesMoveWhileCapturing() async throws {
+        let fixture = try fixture()
+        let first = try source("first.txt", in: fixture.root)
+        let second = try source("second.txt", in: fixture.root)
+        let destination = try folder("dest", in: fixture.root)
+
+        let startedFirst = expectation(description: "First capture started off main thread")
+        let cancelledFirst = expectation(description: "First capture observed cancellation")
+        let gate = AsyncGate()
+
+        let commands = FinderCommands(
+            jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard,
+            captureMoveItems: { urls in
+                XCTAssertFalse(Self.isOnMainThread())
+                if urls.first?.lastPathComponent == "first.txt" {
+                    startedFirst.fulfill()
+                    await gate.wait()
+                    if Task.isCancelled { cancelledFirst.fulfill() }
+                    try Task.checkCancellation()
+                }
+                return try urls.map(MoveItem.capture)
+            })
+        defer { commands.prepareForTermination() }
+
+        let firstCut = Task { try await commands.execute(request(.cut, [first])) }
+        await fulfillment(of: [startedFirst], timeout: 5)
+        XCTAssertEqual(commands.cutCount, 0)
+        do {
+            try await commands.execute(request(.moveHere, [destination]))
+            XCTFail("Move Here accepted while capture running")
+        } catch FinderCommands.Failure.cutInProgress {}
+
+        try await commands.execute(request(.cut, [second]))
+        await gate.open()
+        await fulfillment(of: [cancelledFirst], timeout: 5)
+        _ = try await firstCut.value
+
+        XCTAssertEqual(commands.cutCount, 1)
+        XCTAssertEqual(fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], [second])
+        _ = try await commands.execute(request(.moveHere, [destination]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appending(path: "second.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+
+        let bigFolder = try folder("big", in: fixture.root)
+        _ = try source("child.txt", in: bigFolder)
+        let cancelledTask = Task.detached {
+            try MoveItem.capture(bigFolder)
+        }
+        cancelledTask.cancel()
+        do {
+            _ = try await cancelledTask.value
+            XCTFail("Cancelled directory capture succeeded")
+        } catch is CancellationError {}
+    }
+
+    func testSymlinkAndDotComponentsAreRefusedForFolderAndTerminalCommands() async throws {
+        let fixture = try fixture()
+        let work = try folder("work", in: fixture.root)
+        let target = try folder("target", in: fixture.root)
+        let symdir = work.appending(path: "symdir")
+        try FileManager.default.createSymbolicLink(at: symdir, withDestinationURL: target)
+        let file = try source("cut.txt", in: fixture.root)
+
+        var opened: [URL] = []
+        let commands = FinderCommands(
+            jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard,
+            reveal: { _ in XCTFail("Unexpected reveal") }, openTerminal: { folder, _ in opened.append(folder) })
+        defer { commands.prepareForTermination() }
+        try await commands.execute(request(.cut, [file]))
+
+        for path in [symdir.path + "/.", symdir.path + "/..", symdir.path + "/", symdir.path] {
+            let newFileRequest = HostCommandRequest(
+                action: MenuCommandAction(command: .newFile, preset: "txt"),
+                catalogVersion: "v", token: "t", paths: [path])
+            do {
+                try await commands.execute(newFileRequest)
+                XCTFail("New File accepted \(path)")
+            } catch FinderCommands.Failure.invalidSelection, FinderCommands.Failure.invalidFolder {}
+
+            let moveRequest = HostCommandRequest(
+                action: MenuCommandAction(command: .moveHere),
+                catalogVersion: "v", token: "t", paths: [path])
+            do {
+                try await commands.execute(moveRequest)
+                XCTFail("Move Here accepted \(path)")
+            } catch FinderCommands.Failure.invalidSelection, FinderCommands.Failure.invalidFolder {}
+        }
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+
+        for dotPath in [symdir.path + "/.", symdir.path + "/.."] {
+            let terminalRequest = HostCommandRequest(
+                action: MenuCommandAction(command: .openTerminal),
+                catalogVersion: "v", token: "t", paths: [dotPath])
+            do {
+                try await commands.execute(terminalRequest)
+                XCTFail("Open Terminal accepted \(dotPath)")
+            } catch FinderCommands.Failure.invalidSelection {}
+        }
+        XCTAssertTrue(opened.isEmpty)
+
+        for symlinkPath in [symdir.path + "/", symdir.path] {
+            let terminalRequest = HostCommandRequest(
+                action: MenuCommandAction(command: .openTerminal),
+                catalogVersion: "v", token: "t", paths: [symlinkPath])
+            try await commands.execute(terminalRequest)
+            XCTAssertEqual(opened.last?.path, work.path)
+            XCTAssertNotEqual(opened.last?.path, target.path)
+        }
+    }
+
+    func testErrorWordingCoversExpiredCutMissingItemsAndDisabledTemplate() async throws {
+        let fixture = try fixture()
+        let commands = FinderCommands(
+            jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard,
+            openTerminal: { _, _ in XCTFail("Unexpected terminal") })
+        defer { commands.prepareForTermination() }
+        let file = try source("item.txt", in: fixture.root)
+        let destination = try folder("dest", in: fixture.root)
+
+        try await commands.execute(request(.cut, [file]))
+        fixture.pasteboard.clearContents()
+        XCTAssertTrue(fixture.pasteboard.setString("external", forType: .string))
+        do {
+            try await commands.execute(request(.moveHere, [destination]))
+            XCTFail("Move Here accepted right after clipboard change before timer")
+        } catch FinderCommands.Failure.nothingCut {}
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertEqual(commands.cutCount, 0)
+
+        let deletedFolder = fixture.root.appending(path: "gone-folder", directoryHint: .isDirectory)
+        let deletedFile = fixture.root.appending(path: "gone-file.txt")
+        for req in [
+            request(.newFile, [deletedFolder], preset: "txt"),
+            request(.moveHere, [deletedFolder]),
+        ] {
+            do {
+                try await commands.execute(req)
+                XCTFail("Missing folder accepted")
+            } catch let error as FinderCommands.Failure {
+                XCTAssertEqual(error, .itemFailed(.retryInputMissing, file: "gone-folder"))
+                XCTAssertTrue(error.localizedDescription.contains("gone-folder"))
+            }
+        }
+        for req in [request(.cut, [deletedFile]), request(.openTerminal, [deletedFile])] {
+            do {
+                try await commands.execute(req)
+                XCTFail("Missing file accepted")
+            } catch let error as FinderCommands.Failure {
+                XCTAssertEqual(error, .itemFailed(.retryInputMissing, file: "gone-file.txt"))
+                XCTAssertTrue(error.localizedDescription.contains("gone-file.txt"))
+            }
+        }
+
+        let keys: [(String, String, String)] = [
+            (
+                "This New File template is no longer enabled. Enable it in Settings > Finder Menu > New File options.",
+                "Settings > Finder Menu > New File options", "Finder メニュー"
+            ),
+            (
+                "There are no cut items to move. Cut the items again, then choose Move Here.",
+                "Cut the items again", "カットされた項目がありません"
+            ),
+            (
+                "Cut is still preparing the selected items. Wait for it to finish, then choose Move Here.",
+                "still preparing", "準備中"
+            ),
+            (
+                "A move is already in progress. Wait for it to finish, then try again.",
+                "already in progress", "進行中"
+            ),
+        ]
+        for (key, enFragment, jaFragment) in keys {
+            for (language, fragment) in [("en", enFragment), ("ja", jaFragment)] {
+                let path = try XCTUnwrap(Bundle.main.path(forResource: language, ofType: "lproj"))
+                let bundle = try XCTUnwrap(Bundle(path: path))
+                let localized = bundle.localizedString(forKey: key, value: nil, table: nil)
+                XCTAssertTrue(localized.contains(fragment), "\(language) missing \(fragment): \(localized)")
+                XCTAssertFalse(localized.contains("!"))
+            }
+        }
+    }
+
+    func testPartialFailureKeepsOnlyFailedItemsAndRewritesPasteboard() async throws {
+        let fixture = try fixture()
+        let commands = FinderCommands(jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard)
+        defer { commands.prepareForTermination() }
+        let parent = try folder("parent", in: fixture.root)
+        let childDestination = try folder("child", in: parent)
+        let sibling = try source("sibling.txt", in: fixture.root)
+
+        try await commands.execute(request(.cut, [parent, sibling]))
+        XCTAssertEqual(commands.cutCount, 2)
+        let execution = try await commands.execute(request(.moveHere, [childDestination]))
+        let outcome = try XCTUnwrap(execution)
+        XCTAssertEqual(outcome.outcomes.count, 2)
+        if case .failed = outcome.outcomes[0] {
+        } else {
+            XCTFail("Moving folder into descendant should fail, got \(outcome.outcomes[0])")
+        }
+        if case .succeeded = outcome.outcomes[1] {
+        } else {
+            XCTFail("Moving sibling should succeed, got \(outcome.outcomes[1])")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: childDestination.appending(path: "sibling.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: parent.path))
+        XCTAssertEqual(commands.cutCount, 1)
+        XCTAssertEqual(fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], [parent])
+        commands.checkPasteboard()
+        XCTAssertEqual(commands.cutCount, 1)
+    }
+
+    func testMoveIntoSourceFolderKeepsCutWithOriginalStamp() async throws {
+        let fixture = try fixture()
+        let commands = FinderCommands(jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard)
+        defer { commands.prepareForTermination() }
+        let sourceFolder = try folder("source", in: fixture.root)
+        let otherFolder = try folder("other", in: fixture.root)
+        let file = try source("keep.txt", in: sourceFolder)
+
+        try await commands.execute(request(.cut, [file]))
+        let sameFolderExecution = try await commands.execute(request(.moveHere, [sourceFolder]))
+        let sameFolder = try XCTUnwrap(sameFolderExecution)
+        XCTAssertEqual(sameFolder.outcomes, [.skipped(.alreadyDone)])
+        XCTAssertEqual(commands.cutCount, 1)
+        XCTAssertEqual(fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], [file])
+
+        let movedExecution = try await commands.execute(request(.moveHere, [otherFolder]))
+        let moved = try XCTUnwrap(movedExecution)
+        XCTAssertEqual(moved.outcomes, [.succeeded(outputs: [otherFolder.appending(path: "keep.txt")], warnings: [])])
+        XCTAssertEqual(commands.cutCount, 0)
+        XCTAssertTrue((fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []).isEmpty)
+    }
+
+    func testSecondCutWhileMoveRunsWinsAndIsNotClearedWhenMoveFinishes() async throws {
+        let fixture = try fixture()
+        let commands = FinderCommands(jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard)
+        defer { commands.prepareForTermination() }
+        let first = try source("first.txt", in: fixture.root)
+        let second = try source("second.txt", in: fixture.root)
+        let destination = try folder("dest", in: fixture.root)
+
+        try await commands.execute(request(.cut, [first]))
+        var nestedTask: Task<Void, Never>?
+        var moveWhileMovingFailed = false
+        var cutCountDuringMove: Int?
+        var triggered = false
+        fixture.jobs.onStart = { [weak commands] _ in
+            guard !triggered, let commands else { return }
+            triggered = true
+            cutCountDuringMove = commands.cutCount
+            nestedTask = Task {
+                do {
+                    try await commands.execute(self.request(.moveHere, [destination]))
+                } catch FinderCommands.Failure.moveInProgress {
+                    moveWhileMovingFailed = true
+                } catch {
+                    XCTFail("Unexpected move error: \(error)")
+                }
+                do {
+                    try await commands.execute(self.request(.cut, [second]))
+                } catch {
+                    XCTFail("Second cut failed: \(error)")
+                }
+            }
+        }
+
+        _ = try await commands.execute(request(.moveHere, [destination]))
+        await nestedTask?.value
+
+        XCTAssertEqual(cutCountDuringMove, 0)
+        XCTAssertTrue(moveWhileMovingFailed)
+        XCTAssertEqual(commands.cutCount, 1)
+        XCTAssertEqual(fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], [second])
+        _ = try await commands.execute(request(.moveHere, [destination]))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destination.appending(path: "second.txt").path))
+    }
+
+    func testExternalPasteboardChangeDuringMoveIsNotClobberedOnCompletion() async throws {
+        let fixture = try fixture()
+        let commands = FinderCommands(jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard)
+        defer { commands.prepareForTermination() }
+        let file = try source("move.txt", in: fixture.root)
+        let destination = try folder("dest", in: fixture.root)
+
+        try await commands.execute(request(.cut, [file]))
+        var changed = false
+        fixture.jobs.onStart = { _ in
+            guard !changed else { return }
+            changed = true
+            fixture.pasteboard.clearContents()
+            XCTAssertTrue(fixture.pasteboard.setString("user-copied-text", forType: .string))
+        }
+        _ = try await commands.execute(request(.moveHere, [destination]))
+        XCTAssertEqual(fixture.pasteboard.string(forType: .string), "user-copied-text")
+        XCTAssertEqual(commands.cutCount, 0)
+    }
+
+    func testCrossVolumeMoveKeepsCutWithOriginalStamps() async throws {
+        let fixture = try fixture()
+        let volume = try TemporaryDiskImage.create(in: fixture.root)
+        defer {
+            do { try volume.close() } catch { XCTFail("Disk image cleanup failed: \(error)") }
+        }
+        let commands = FinderCommands(jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard)
+        defer { commands.prepareForTermination() }
+        let original = try source("notes.txt", in: fixture.root)
+
+        try await commands.execute(request(.cut, [original]))
+        let execution = try await commands.execute(request(.moveHere, [volume.mount]))
+        let outcome = try XCTUnwrap(execution)
+        let copied = volume.mount.appending(path: "notes.txt")
+        XCTAssertEqual(
+            outcome.outcomes,
+            [.succeeded(outputs: [copied], warnings: [.copiedAcrossVolumes(original: original, destination: copied)])])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: original.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copied.path))
+        XCTAssertEqual(commands.cutCount, 1)
+        XCTAssertEqual(fixture.pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], [original])
+
+        try Data("edited after original cut".utf8).write(to: original)
+        let secondExecution = try await commands.execute(request(.moveHere, [volume.mount]))
+        let secondOutcome = try XCTUnwrap(secondExecution)
+        XCTAssertEqual(secondOutcome.outcomes, [.skipped(.changedSinceScan)])
+        XCTAssertEqual(commands.cutCount, 0)
+    }
+
+    func testSettingsStoreHandlesEmptyTerminalAndGuardsOnChange() throws {
+        let fixture = try fixture()
+        fixture.defaults.set("", forKey: "finderCommands.terminalApplication")
+        let emptyReloaded = SettingsStore(defaults: fixture.defaults)
+        XCTAssertEqual(emptyReloaded.terminalApplicationURL, SettingsStore.defaultTerminalApplicationURL)
+
+        fixture.defaults.set("relative/Terminal.app", forKey: "finderCommands.terminalApplication")
+        let relativeReloaded = SettingsStore(defaults: fixture.defaults)
+        XCTAssertEqual(relativeReloaded.terminalApplicationURL, SettingsStore.defaultTerminalApplicationURL)
+
+        var changes = 0
+        emptyReloaded.onChange = { changes += 1 }
+        emptyReloaded.terminalApplicationURL = SettingsStore.defaultTerminalApplicationURL
+        emptyReloaded.terminalApplicationURL = URL(fileURLWithPath: "/Applications/Other.app")
+        XCTAssertEqual(changes, 0)
+
+        emptyReloaded.enabledNewFileTemplates = Set(NewFileTemplate.BuiltIn.allCases)
+        XCTAssertEqual(changes, 0)
+        emptyReloaded.enabledNewFileTemplates = [.plainText]
+        XCTAssertEqual(changes, 1)
+        emptyReloaded.enabledNewFileTemplates = [.plainText]
+        XCTAssertEqual(changes, 1)
+    }
+
+    func testOrganizationUndoClearsCut() async throws {
+        let fixture = try fixture()
+        let commands = FinderCommands(jobs: fixture.jobs, settings: fixture.settings, pasteboard: fixture.pasteboard)
+        defer { commands.prepareForTermination() }
+        fixture.jobs.onUndo = { [weak commands] in commands?.clearCut() }
+        let organization = OrganizationController(
+            jobs: fixture.jobs, store: fixture.settings, supportDirectory: fixture.root.appending(path: "support"))
+
+        try await commands.execute(request(.cut, [try source("a.txt", in: fixture.root)]))
+        XCTAssertEqual(commands.cutCount, 1)
+        let cleared = expectation(description: "Organization undo clears cut")
+        commands.onCutChange = { if commands.cutCount == 0 { cleared.fulfill() } }
+        let record = BatchRecord(id: UUID(), operation: .folderOrganize, date: Date(), items: [], undone: false)
+        organization.undo(record)
+        await fulfillment(of: [cleared], timeout: 5)
+        XCTAssertEqual(commands.cutCount, 0)
+    }
+
+    private nonisolated static func isOnMainThread() -> Bool {
+        Thread.isMainThread
+    }
+}
+
+private actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        for waiter in waiters { waiter.resume() }
+        waiters.removeAll()
+    }
+}
+
+private final class TemporaryDiskImage {
+    private static let hdiutil = URL(fileURLWithPath: "/usr/bin/hdiutil")
+    let mount: URL
+    private var attached = false
+
+    private init(mount: URL, attached: Bool) {
+        self.mount = mount
+        self.attached = attached
+    }
+
+    static func create(in root: URL) throws -> TemporaryDiskImage {
+        let work = root.appending(path: "disk-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let mount = work.appending(path: "mount", directoryHint: .isDirectory)
+        let image = work.appending(path: "volume.sparseimage")
+        try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
+        let label = "MACEASE\(UUID().uuidString.prefix(4))"
+        let create = try run([
+            "create", "-size", "64m", "-fs", "ExFAT", "-type", "SPARSE", "-volname", label, image.path,
+        ])
+        if create != 0 {
+            throw XCTSkip("Disk-image creation is unavailable in this environment")
+        }
+        let attach = try run(["attach", "-nobrowse", "-mountpoint", mount.path, image.path])
+        guard attach == 0 else {
+            throw POSIXError(.EIO)
+        }
+        return TemporaryDiskImage(mount: mount, attached: true)
+    }
+
+    func close() throws {
+        guard attached else { return }
+        attached = false
+        let status = try Self.run(["detach", mount.path, "-force"])
+        guard status == 0 else { throw POSIXError(.EIO) }
+    }
+
+    private static func run(_ arguments: [String]) throws -> Int32 {
+        let task = Process()
+        task.executableURL = hdiutil
+        task.arguments = arguments
+        task.standardOutput = FileHandle.nullDevice
+        task.standardError = FileHandle.nullDevice
+        try task.run()
+        task.waitUntilExit()
+        return task.terminationStatus
     }
 }
