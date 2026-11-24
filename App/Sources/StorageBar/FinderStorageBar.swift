@@ -21,6 +21,7 @@ final class FinderStorageBar {
     private var refreshTimer: Timer?
     private var activationObserver: (any NSObjectProtocol)?
     private(set) var statusBarShown = false
+    private(set) var windowView: FinderWindowView = .unknown
 
     var isVisible: Bool { panel?.isVisible == true }
     // Visible once the first figures arrive.
@@ -29,7 +30,7 @@ final class FinderStorageBar {
     private var activePlacement: FinderStorageBarGeometry.Placement? {
         guard let window else { return nil }
         return FinderStorageBarGeometry.placement(
-            window: window.frame, preview: window.preview, statusBarShown: statusBarShown)
+            window: window.frame, preview: window.preview, statusBarShown: statusBarShown, view: windowView)
     }
 
     init(
@@ -61,6 +62,7 @@ final class FinderStorageBar {
         activationObserver = nil
         window = nil
         windowID = nil
+        windowView = .unknown
         model.reset()
         panel?.orderOut(nil)
     }
@@ -69,9 +71,16 @@ final class FinderStorageBar {
     func follow(_ window: Window?) {
         if let window, window.id != windowID {
             windowID = window.id
+            windowView = .unknown
             model.forgetLocation()
         }
         self.window = window
+        place()
+    }
+
+    func setView(_ view: FinderWindowView) {
+        guard view != windowView else { return }
+        windowView = view
         place()
     }
 

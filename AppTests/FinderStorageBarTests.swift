@@ -6,6 +6,7 @@ import XCTest
 
 final class FinderStorageBarGeometryTests: XCTestCase {
     private let height = FinderStorageBarGeometry.Calibration.statusBarHeight
+    private let sliderReserved = FinderStorageBarGeometry.Calibration.iconSliderReserved
 
     func testStripCoversOnlyTheBottomEdgeOnEveryDisplay() throws {
         let windows = [
@@ -14,18 +15,35 @@ final class FinderStorageBarGeometryTests: XCTestCase {
             CGRect(x: 1920, y: 1200, width: 1280, height: 900),
         ]
         for window in windows {
+            for view in [FinderWindowView.list, .column, .gallery] {
+                let placement = try XCTUnwrap(
+                    FinderStorageBarGeometry.placement(window: window, preview: nil, statusBarShown: true, view: view))
+                XCTAssertEqual(
+                    placement.frame, CGRect(x: window.minX, y: window.minY, width: window.width, height: height))
+                XCTAssertTrue(window.contains(placement.frame))
+                XCTAssertTrue(placement.roundsLeadingCorner)
+                XCTAssertTrue(placement.roundsTrailingCorner)
+            }
+        }
+    }
+
+    func testIconAndUnknownViewsLeaveTheIconSliderUncovered() throws {
+        let window = CGRect(x: 100, y: 200, width: 900, height: 700)
+        for view in [FinderWindowView.icon, .unknown] {
             let placement = try XCTUnwrap(
-                FinderStorageBarGeometry.placement(window: window, preview: nil, statusBarShown: true))
-            XCTAssertEqual(placement.frame, CGRect(x: window.minX, y: window.minY, width: window.width, height: height))
-            XCTAssertTrue(window.contains(placement.frame))
+                FinderStorageBarGeometry.placement(window: window, preview: nil, statusBarShown: true, view: view))
+            XCTAssertEqual(
+                placement.frame,
+                CGRect(x: window.minX, y: window.minY, width: window.width - sliderReserved, height: height))
             XCTAssertTrue(placement.roundsLeadingCorner)
-            XCTAssertTrue(placement.roundsTrailingCorner)
+            XCTAssertFalse(placement.roundsTrailingCorner)
         }
     }
 
     func testHiddenWhenFinderShowsNoStatusBar() {
         let window = CGRect(x: 100, y: 200, width: 900, height: 700)
-        XCTAssertNil(FinderStorageBarGeometry.placement(window: window, preview: nil, statusBarShown: false))
+        XCTAssertNil(
+            FinderStorageBarGeometry.placement(window: window, preview: nil, statusBarShown: false, view: .list))
     }
 
     func testPreviewDockedBesideTheWindowLeavesTheStripWhole() throws {
@@ -36,7 +54,7 @@ final class FinderStorageBarGeometryTests: XCTestCase {
             let preview = FinderPreviewGeometry.placement(window: window, screen: screen, width: 360)
             XCTAssertEqual(preview.dock, dock)
             let strip = try XCTUnwrap(
-                FinderStorageBarGeometry.placement(window: window, preview: preview, statusBarShown: true))
+                FinderStorageBarGeometry.placement(window: window, preview: preview, statusBarShown: true, view: .list))
             XCTAssertEqual(strip.frame.width, window.width)
             XCTAssertFalse(strip.frame.intersects(preview.frame), "\(dock)")
         }
@@ -47,26 +65,172 @@ final class FinderStorageBarGeometryTests: XCTestCase {
         let preview = FinderPreviewGeometry.placement(window: screen, screen: screen, width: 360)
         XCTAssertEqual(preview.dock, .inset)
         let strip = try XCTUnwrap(
-            FinderStorageBarGeometry.placement(window: screen, preview: preview, statusBarShown: true))
+            FinderStorageBarGeometry.placement(window: screen, preview: preview, statusBarShown: true, view: .list))
         XCTAssertEqual(strip.frame, CGRect(x: 0, y: 30, width: 1240, height: height))
         XCTAssertFalse(strip.frame.intersects(preview.frame))
         XCTAssertTrue(strip.roundsLeadingCorner)
         XCTAssertFalse(strip.roundsTrailingCorner)
+
+        let iconStrip = try XCTUnwrap(
+            FinderStorageBarGeometry.placement(window: screen, preview: preview, statusBarShown: true, view: .icon))
+        XCTAssertEqual(iconStrip.frame, CGRect(x: 0, y: 30, width: 1240, height: height))
+        XCTAssertTrue(iconStrip.roundsLeadingCorner)
+        XCTAssertFalse(iconStrip.roundsTrailingCorner)
+    }
+
+    func testLeadingCoverLeavesTheTrailingSideAndHonorsSlider() throws {
+        let window = CGRect(x: 100, y: 30, width: 900, height: 700)
+        let leadingCover = FinderPreviewGeometry.Placement(
+            frame: CGRect(x: 100, y: 30, width: 300, height: 700), dock: .inset)
+        let listStrip = try XCTUnwrap(
+            FinderStorageBarGeometry.placement(
+                window: window, preview: leadingCover, statusBarShown: true, view: .list))
+        XCTAssertEqual(listStrip.frame, CGRect(x: 400, y: 30, width: 600, height: height))
+        XCTAssertFalse(listStrip.roundsLeadingCorner)
+        XCTAssertTrue(listStrip.roundsTrailingCorner)
+
+        let iconStrip = try XCTUnwrap(
+            FinderStorageBarGeometry.placement(
+                window: window, preview: leadingCover, statusBarShown: true, view: .icon))
+        XCTAssertEqual(iconStrip.frame, CGRect(x: 400, y: 30, width: 600 - sliderReserved, height: height))
+        XCTAssertFalse(iconStrip.roundsLeadingCorner)
+        XCTAssertFalse(iconStrip.roundsTrailingCorner)
     }
 
     func testTooLittleRoomHidesTheStrip() {
         let tiny = CGRect(x: 0, y: 0, width: 150, height: 300)
-        XCTAssertNil(FinderStorageBarGeometry.placement(window: tiny, preview: nil, statusBarShown: true))
+        XCTAssertNil(
+            FinderStorageBarGeometry.placement(window: tiny, preview: nil, statusBarShown: true, view: .list))
+        let narrowForSlider = CGRect(
+            x: 0, y: 0, width: FinderStorageBarGeometry.minimumWidth + sliderReserved - 1, height: 300)
+        XCTAssertNil(
+            FinderStorageBarGeometry.placement(
+                window: narrowForSlider, preview: nil, statusBarShown: true, view: .icon))
+        XCTAssertNotNil(
+            FinderStorageBarGeometry.placement(
+                window: narrowForSlider, preview: nil, statusBarShown: true, view: .list))
         let short = CGRect(x: 0, y: 0, width: 600, height: height)
-        XCTAssertNil(FinderStorageBarGeometry.placement(window: short, preview: nil, statusBarShown: true))
+        XCTAssertNil(
+            FinderStorageBarGeometry.placement(window: short, preview: nil, statusBarShown: true, view: .list))
         let smallScreen = CGRect(x: 0, y: 0, width: 300, height: 600)
         let inset = FinderPreviewGeometry.placement(window: smallScreen, screen: smallScreen, width: 360)
         XCTAssertEqual(inset.dock, .inset)
-        XCTAssertNil(FinderStorageBarGeometry.placement(window: smallScreen, preview: inset, statusBarShown: true))
+        XCTAssertNil(
+            FinderStorageBarGeometry.placement(window: smallScreen, preview: inset, statusBarShown: true, view: .list))
         let window = CGRect(x: 0, y: 0, width: 400, height: 300)
         let covering = FinderPreviewGeometry.Placement(
             frame: CGRect(x: -10, y: 0, width: 420, height: 300), dock: .inset)
-        XCTAssertNil(FinderStorageBarGeometry.placement(window: window, preview: covering, statusBarShown: true))
+        XCTAssertNil(
+            FinderStorageBarGeometry.placement(window: window, preview: covering, statusBarShown: true, view: .list))
+    }
+}
+
+final class FinderSelectionReaderParsingTests: XCTestCase {
+    func testParsesEncodedSpecialCharactersAndLocalhost() throws {
+        let addresses = [
+            "file:///Users/test/line%0Abreak.txt",
+            "file:///Users/test/%22quoted%22.txt",
+            "file:///Users/test/%E6%97%A5%E6%9C%AC%E8%AA%9E.txt",
+            "file://localhost/Users/test/local.txt",
+        ]
+        let response = makeResponse(
+            windowID: 12,
+            selection: addresses.map(NSAppleEventDescriptor.init(string:)),
+            folder: NSAppleEventDescriptor(string: "file:///Users/test/%E3%83%95%E3%82%A9%E3%83%AB%E3%83%80/"),
+            view: NSAppleEventDescriptor(enumCode: 0x6C73_7677))
+        let parsed = try FinderSelectionReader.parse(response).get()
+        XCTAssertEqual(parsed.windowID, 12)
+        XCTAssertEqual(
+            parsed.urls.map(\.path),
+            [
+                "/Users/test/line\nbreak.txt",
+                "/Users/test/\"quoted\".txt",
+                "/Users/test/日本語.txt",
+                "/Users/test/local.txt",
+            ])
+        XCTAssertEqual(parsed.folder?.path, "/Users/test/フォルダ")
+        XCTAssertEqual(parsed.view, .list)
+    }
+
+    func testParsesMissingValueEmptyAndViewModesDefensively() throws {
+        let missingValue = NSAppleEventDescriptor(typeCode: 0x6D73_6E67)
+        let response = makeResponse(windowID: 5, selection: [], folder: missingValue, view: missingValue)
+        let parsed = try FinderSelectionReader.parse(response).get()
+        XCTAssertEqual(parsed.windowID, 5)
+        XCTAssertTrue(parsed.urls.isEmpty)
+        XCTAssertNil(parsed.folder)
+        XCTAssertEqual(parsed.view, .unknown)
+        XCTAssertTrue(parsed.view.showsIconSizeSlider)
+
+        let emptyFolder = makeResponse(
+            windowID: 6, selection: [], folder: NSAppleEventDescriptor(string: ""),
+            view: NSAppleEventDescriptor(string: ""))
+        let emptyParsed = try FinderSelectionReader.parse(emptyFolder).get()
+        XCTAssertNil(emptyParsed.folder)
+        XCTAssertEqual(emptyParsed.view, .unknown)
+
+        let remoteFolder = makeResponse(
+            windowID: 7, selection: [], folder: NSAppleEventDescriptor(string: "file://otherhost/Users/test"),
+            view: NSAppleEventDescriptor(enumCode: 0x6963_6E76))
+        let remoteParsed = try FinderSelectionReader.parse(remoteFolder).get()
+        XCTAssertNil(remoteParsed.folder)
+        XCTAssertEqual(remoteParsed.view, .icon)
+
+        let viewCases: [(NSAppleEventDescriptor, FinderWindowView)] = [
+            (NSAppleEventDescriptor(enumCode: 0x6963_6E76), .icon),
+            (NSAppleEventDescriptor(enumCode: 0x6C73_7677), .list),
+            (NSAppleEventDescriptor(enumCode: 0x636C_7677), .column),
+            (NSAppleEventDescriptor(enumCode: 0x666C_7677), .gallery),
+            (NSAppleEventDescriptor(enumCode: 0x7878_7878), .unknown),
+            (NSAppleEventDescriptor(string: "list view"), .list),
+            (NSAppleEventDescriptor(string: "column view"), .column),
+            (NSAppleEventDescriptor(string: "flow view"), .gallery),
+            (NSAppleEventDescriptor(string: "icon view"), .icon),
+            (NSAppleEventDescriptor(string: "future view"), .unknown),
+        ]
+        for (descriptor, expected) in viewCases {
+            XCTAssertEqual(FinderSelectionReader.windowView(descriptor), expected)
+        }
+    }
+
+    func testRejectsRemoteHostMissingValueAndZeroWindowInSelection() {
+        let missingValue = NSAppleEventDescriptor(typeCode: 0x6D73_6E67)
+        let badResponses = [
+            makeResponse(
+                windowID: 0, selection: [], folder: NSAppleEventDescriptor(string: ""),
+                view: NSAppleEventDescriptor(string: "")),
+            makeResponse(
+                windowID: 9, selection: [NSAppleEventDescriptor(string: "file://otherhost/Users/a.txt")],
+                folder: NSAppleEventDescriptor(string: ""), view: NSAppleEventDescriptor(string: "")),
+            makeResponse(
+                windowID: 9, selection: [missingValue],
+                folder: NSAppleEventDescriptor(string: ""), view: NSAppleEventDescriptor(string: "")),
+            makeResponse(
+                windowID: 9, selection: [NSAppleEventDescriptor(string: "")],
+                folder: NSAppleEventDescriptor(string: ""), view: NSAppleEventDescriptor(string: "")),
+            NSAppleEventDescriptor.list(),
+        ]
+        for response in badResponses {
+            if case .success = FinderSelectionReader.parse(response) {
+                XCTFail("Malformed selection response must fail")
+            }
+        }
+    }
+
+    private func makeResponse(
+        windowID: Int32, selection: [NSAppleEventDescriptor], folder: NSAppleEventDescriptor,
+        view: NSAppleEventDescriptor
+    ) -> NSAppleEventDescriptor {
+        let list = NSAppleEventDescriptor.list()
+        list.insert(NSAppleEventDescriptor(int32: windowID), at: 1)
+        let items = NSAppleEventDescriptor.list()
+        for (offset, descriptor) in selection.enumerated() {
+            items.insert(descriptor, at: offset + 1)
+        }
+        list.insert(items, at: 2)
+        list.insert(folder, at: 3)
+        list.insert(view, at: 4)
+        return list
     }
 }
 
@@ -316,6 +480,12 @@ final class FinderStorageBarPresenceTests: XCTestCase {
         bar.follow(window)
         try await waitUntil { bar.isVisible }
         let panel = try XCTUnwrap(NSApp.windows.compactMap { $0 as? FinderStorageBarPanel }.first { $0.isVisible })
+        XCTAssertEqual(
+            panel.frame,
+            CGRect(
+                x: 120, y: 140, width: 820 - FinderStorageBarGeometry.Calibration.iconSliderReserved,
+                height: FinderStorageBarGeometry.Calibration.statusBarHeight))
+        bar.setView(.list)
         XCTAssertEqual(
             panel.frame,
             CGRect(x: 120, y: 140, width: 820, height: FinderStorageBarGeometry.Calibration.statusBarHeight))

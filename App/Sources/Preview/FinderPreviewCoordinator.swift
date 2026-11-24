@@ -378,6 +378,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
         updatePresence()
         // A docked preview stops polling after denial.
         if changedWindow, state.notice == .automation, settings.finderStorageBarEnabled {
+            storageBar.setView(.unknown)
             storageBar.model.update(selectionCount: nil, folder: nil)
         }
         if changedWindow || !wasVisible { readSelection(immediate: true) }
@@ -417,6 +418,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
             consecutiveSelectionFailures = 0
             state.notice = nil
             if settings.finderStorageBarEnabled {
+                storageBar.setView(selection.view)
                 storageBar.model.update(
                     selectionCount: selection.urls.count, folder: selection.folder ?? selection.urls.first)
             }
@@ -432,6 +434,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private func selectionFailed(_ failure: FinderSelectionReader.Failure) {
         defer {
             if settings.finderStorageBarEnabled, state.notice != nil {
+                storageBar.setView(.unknown)
                 storageBar.model.update(selectionCount: nil, folder: nil)
             }
         }

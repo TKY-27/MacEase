@@ -4,6 +4,12 @@ import Foundation
 import Synchronization
 import os
 
+enum FinderWindowView: Equatable, Sendable {
+    case icon, list, column, gallery, unknown
+
+    var showsIconSizeSlider: Bool { self == .icon || self == .unknown }
+}
+
 @MainActor
 final class FinderSelectionReader {
     struct Selection: Sendable {
@@ -11,10 +17,19 @@ final class FinderSelectionReader {
         let urls: [URL]
         /// Nil for Recents, searches and similar windows.
         var folder: URL? = nil
+        var view: FinderWindowView = .unknown
     }
 
     enum Failure: Error {
         case automationDenied, timedOut, unavailable
+    }
+
+    // Finder.sdef ecvw enumerator codes.
+    private enum ViewCode {
+        static let icon: OSType = 0x6963_6E76
+        static let list: OSType = 0x6C73_7677
+        static let column: OSType = 0x636C_7677
+        static let gallery: OSType = 0x666C_7677
     }
 
     private let worker = ScriptWorker()
@@ -60,6 +75,53 @@ final class FinderSelectionReader {
         }
     }
 
+    nonisolated static func parse(_ response: NSAppleEventDescriptor) -> Result<Selection, Failure> {
+        guard response.descriptorType == typeAEList, (3...4).contains(response.numberOfItems),
+            let identifier = response.atIndex(1), identifier.int32Value > 0,
+            let selection = response.atIndex(2), selection.descriptorType == typeAEList
+        else { return .failure(.unavailable) }
+        var urls: [URL] = []
+        if selection.numberOfItems > 0 {
+            for index in 1...selection.numberOfItems {
+                guard let descriptor = selection.atIndex(index), let url = localFileURL(descriptor) else {
+                    return .failure(.unavailable)
+                }
+                urls.append(url)
+            }
+        }
+        // Recents and searches report no folder.
+        let folder = response.atIndex(3).flatMap(localFileURL)
+        let view = response.atIndex(4).map(windowView) ?? .unknown
+        return .success(Selection(windowID: UInt32(identifier.int32Value), urls: urls, folder: folder, view: view))
+    }
+
+    nonisolated private static func localFileURL(_ descriptor: NSAppleEventDescriptor) -> URL? {
+        guard let address = descriptor.stringValue, !address.isEmpty,
+            let url = URL(string: address), url.isFileURL, !url.path.isEmpty,
+            url.host == nil || url.host == "" || url.host == "localhost"
+        else { return nil }
+        return url
+    }
+
+    nonisolated static func windowView(_ descriptor: NSAppleEventDescriptor) -> FinderWindowView {
+        if descriptor.descriptorType == typeEnumerated {
+            switch descriptor.enumCodeValue {
+            case ViewCode.icon: return .icon
+            case ViewCode.list: return .list
+            case ViewCode.column: return .column
+            case ViewCode.gallery: return .gallery
+            default: return .unknown
+            }
+        }
+        switch descriptor.stringValue?.lowercased() {
+        case "icnv", "icon view": return .icon
+        case "lsvw", "list view": return .list
+        case "clvw", "column view": return .column
+        case "flvw", "flow view", "group view", "gallery view": return .gallery
+        default: return .unknown
+        }
+    }
+
     private final class ScriptWorker: Sendable {
         private let script = Mutex<NSAppleScript?>(nil)
         private let logger = Logger(category: "finder-preview")
@@ -68,7 +130,7 @@ final class FinderSelectionReader {
         private static let source = """
             with timeout of 2 seconds
                 tell application id "com.apple.finder"
-                    if (count of windows) is 0 then return {0, {}, ""}
+                    if (count of windows) is 0 then return {0, {}, "", ""}
                     set windowID to id of front window
                     set selectedURLs to {}
                     repeat with selectedFile in (get selection)
@@ -78,8 +140,12 @@ final class FinderSelectionReader {
                     try
                         set folderURL to URL of (target of front window)
                     end try
-                    if windowID is not id of front window then return {0, {}, ""}
-                    return {windowID, selectedURLs, folderURL}
+                    set viewMode to ""
+                    try
+                        set viewMode to current view of front window
+                    end try
+                    if windowID is not id of front window then return {0, {}, "", ""}
+                    return {windowID, selectedURLs, folderURL, viewMode}
                 end tell
             end timeout
             """
@@ -103,34 +169,12 @@ final class FinderSelectionReader {
                     let code = (failure[NSAppleScript.errorNumber] as? NSNumber)?.intValue
                     return .failure(rejected(code))
                 }
-                guard response.numberOfItems == 3, let identifier = response.atIndex(1),
-                    identifier.int32Value > 0, let selection = response.atIndex(2),
-                    selection.descriptorType == typeAEList
-                else {
-                    logger.error("Finder returned no stable front window")
-                    return .failure(.unavailable)
+                let parsed = FinderSelectionReader.parse(response)
+                if case .failure = parsed {
+                    logger.error("Finder returned an unusable selection response")
                 }
-                var urls: [URL] = []
-                if selection.numberOfItems > 0 {
-                    for index in 1...selection.numberOfItems {
-                        guard let url = Self.localFileURL(selection.atIndex(index)?.stringValue) else {
-                            logger.error("Finder returned an invalid file URL")
-                            return .failure(.unavailable)
-                        }
-                        urls.append(url)
-                    }
-                }
-                // Recents and searches report no folder.
-                let folder = Self.localFileURL(response.atIndex(3)?.stringValue)
-                return .success(Selection(windowID: UInt32(identifier.int32Value), urls: urls, folder: folder))
+                return parsed
             }
-        }
-
-        private static func localFileURL(_ address: String?) -> URL? {
-            guard let address, let url = URL(string: address), url.isFileURL,
-                url.host == nil || url.host == "" || url.host == "localhost"
-            else { return nil }
-            return url
         }
 
         private func rejected(_ code: Int?) -> Failure {
