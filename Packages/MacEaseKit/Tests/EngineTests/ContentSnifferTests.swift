@@ -262,6 +262,7 @@ import Testing
             ("a.woff2", Array("wOF2".utf8) + [UInt8](repeating: 0, count: 44), .font, "WOFF2 font"),
             ("a.zip", [0x50, 0x4B, 0x03, 0x04, 0x14, 0x00], .archive, "ZIP archive"),
             ("a.gz", [0x1F, 0x8B, 0x08, 0x00], .archive, "Gzip archive"),
+            ("empty.tar", [UInt8](repeating: 0, count: 1024), .archive, "TAR archive"),
         ]
         for (name, bytes, family, displayName) in cases {
             let file = try write(name, bytes: bytes, in: folder)

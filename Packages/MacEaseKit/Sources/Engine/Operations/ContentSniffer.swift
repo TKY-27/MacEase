@@ -218,9 +218,14 @@ public enum ContentSniffer {
 
     private static func isTar(_ header: [UInt8]) -> Bool {
         let blockSize = 512
+        let emptyTarBytes = 2 * blockSize
         let checksumRange = 148..<156
         let space: UInt8 = 0x20
-        guard header.count >= blockSize, header[0] != 0 else { return false }
+        guard header.count >= blockSize else { return false }
+        if header.count >= emptyTarBytes, header.count % blockSize == 0, header.allSatisfy({ $0 == 0 }) {
+            return true
+        }
+        guard header[0] != 0 else { return false }
         let digits = header[checksumRange].drop(while: { $0 == 0 || $0 == space })
             .prefix(while: { (0x30...0x37).contains($0) })
         guard !digits.isEmpty,
