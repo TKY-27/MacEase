@@ -21,8 +21,6 @@ struct PreviewTable: Sendable {
     private static let replacement: Unicode.Scalar = "\u{FFFD}"
     private static let deletePicture: Unicode.Scalar = "\u{2421}"
     private static let controlPictures: [Unicode.Scalar] = (0x2400...0x241F).compactMap(Unicode.Scalar.init)
-    private static let waveBlackFlag: UInt32 = 0x1F3F4
-    private static let tagScalars: ClosedRange<UInt32> = 0xE0020...0xE007F
     private static let separatorDirective = "sep="
     private static let lineBreaks: Set<Character> = ["\n", "\r", "\r\n"]
 
@@ -280,27 +278,23 @@ struct PreviewTable: Sendable {
         let cut = bounded.unicodeScalars.count > limit
         // The last grapheme holds the extra scalar.
         let kept = cut ? bounded[..<bounded.index(before: bounded.endIndex)] : bounded[...]
+        let flagged = Set(PreviewInvisibleScanner.flagged(in: kept, startsFile: false).map(\.range.location))
         var shown = String.UnicodeScalarView()
-        var inFlag = false
+        var offset = 0
         for scalar in kept.unicodeScalars {
-            // Subdivision flags are tag sequences.
-            inFlag = scalar.value == waveBlackFlag || (inFlag && tagScalars.contains(scalar.value))
-            shown.append(inFlag ? scalar : visible(scalar))
+            shown.append(visible(scalar, flagged: flagged.contains(offset)))
+            offset += scalar.utf16.count
         }
         if cut { shown.append(ellipsis) }
         return String(shown)
     }
 
-    private static func visible(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+    // Cells are single lines; breaks show.
+    private static func visible(_ scalar: Unicode.Scalar, flagged: Bool) -> Unicode.Scalar {
         switch scalar.value {
-        case 0x20...0x7E: return scalar
         case 0x00...0x1F: return controlPictures[Int(scalar.value)]
         case 0x7F: return deletePicture
-        // Reordering, invisible and line-breaking controls; joiners stay.
-        case 0x80...0x9F, 0x061C, 0x200B, 0x200E...0x200F, 0x2028...0x202E, 0x2060, 0x2066...0x2069, 0xFEFF,
-            0xE0000...0xE007F:
-            return replacement
-        default: return scalar
+        default: return flagged ? replacement : scalar
         }
     }
 }

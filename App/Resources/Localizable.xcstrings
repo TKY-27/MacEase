@@ -22768,6 +22768,146 @@
           }
         }
       }
+    },
+    "This file contains %lld hidden or direction-changing characters.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains %lld hidden or direction-changing character."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains %lld hidden or direction-changing characters."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルには、見えない文字や表示の向きを変える文字が%lld個含まれています。"
+          }
+        }
+      }
+    },
+    "%lld hidden or direction-changing characters": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hidden or direction-changing character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld hidden or direction-changing characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見えない文字・向きを変える文字：%lld個"
+          }
+        }
+      }
+    },
+    "This file contains at least %lld hidden or direction-changing characters.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains at least %lld hidden or direction-changing character."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "This file contains at least %lld hidden or direction-changing characters."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルには、見えない文字や表示の向きを変える文字が少なくとも%lld個含まれています。"
+          }
+        }
+      }
+    },
+    "At least %lld hidden or direction-changing characters": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "At least %lld hidden or direction-changing character"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "At least %lld hidden or direction-changing characters"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見えない文字・向きを変える文字：%lld個以上"
+          }
+        }
+      }
+    },
+    "%lld more hidden characters on this line aren't marked.": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden character on this line isn't marked."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld more hidden characters on this line aren't marked."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この行には、マークしていない見えない文字がほかに%lld個あります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
