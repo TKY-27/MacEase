@@ -35,7 +35,8 @@ public actor VideoEditorSource {
     ) async throws -> VideoEditorSource {
         let stamp = try MediaSourceStamp(url: url)
         let input = try await MediaInput.open(url)
-        try input.requirePreservableStreams(omitting: omission?.streams(covering: stamp) ?? [])
+        let omittedStreams = omission?.streams(covering: stamp) ?? []
+        try input.requirePreservableStreams(omitting: omittedStreams)
         guard input.video != nil, input.duration > 0 else { throw EngineError.decodeFailed("no video track") }
         let hdr = try await VideoProperties.hdrConfiguration(input)
         let preview = MediaPreview(input: input, url: url)

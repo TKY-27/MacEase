@@ -24,7 +24,9 @@ import Testing
             _ = try await VideoSegmentReverser.reverse(
                 segmentID: segment.id, in: edit, primaryURL: source, staging: staging, omittedStreams: [.subtitle])
         }
-        let editor = try await VideoEditorSource.open(source, staging: staging, omittedStreams: [.timecode])
+        let editor = try await VideoEditorSource.open(
+            source, staging: staging,
+            omission: StreamOmission(stamp: try MediaSourceStamp(url: source), streams: [.timecode]))
         let reversed = try await editor.reverse(segmentID: segment.id, in: edit)
         let staged = try #require(reversed.sources?.last?.url)
         #expect(FileManager.default.fileExists(atPath: staged.path))
