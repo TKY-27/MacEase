@@ -132,10 +132,12 @@ struct FinderMenuSettingsView: View {
     }
 
     private func placement(of entry: MenuEntry) -> Binding<Bool> {
-        Binding {
-            (store.menuPlacements[entry.resolvedGroupID] ?? entry.op.defaultMenuPlacement) == .primary
+        let scope = MenuScope(entry.kind)
+        let group = MenuGroupID(rawValue: entry.resolvedGroupID)
+        return Binding {
+            store.menuScope(scope).section(of: group) == .menu
         } set: { primary in
-            store.menuPlacements[entry.resolvedGroupID] = primary ? .primary : .more
+            store.rearrangeMenu(scope) { $0.move([group], to: primary ? .menu : .more) }
         }
     }
 

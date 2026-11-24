@@ -17,7 +17,9 @@ final class SettingsStore {
         static let unreadableSettings = "settings.unreadable"
         static let showsActivity = "activity.shows"
         static let activityV22Migrated = "activity.v22Migrated"
-        static let menuPlacements = "menuPlacements"
+        static let legacyMenuPlacements = "menuPlacements"
+        static let menuArrangement = "menu.arrangement"
+        static let unreadableMenuArrangement = "menu.arrangement.unreadable"
         static let activityClosesAfterSuccess = "activity.closesAfterSuccess"
         static let activityClosesAfterCancel = "activity.closesAfterCancel"
         static let activityClosesAfterFailure = "activity.closesAfterFailure"
@@ -53,20 +55,12 @@ final class SettingsStore {
         }
     }
 
-    var menuPlacements: [String: MenuPlacement] {
+    private(set) var menuArrangement: MenuArrangement {
         didSet {
-            guard menuPlacements != oldValue else { return }
-            defaults.set(menuPlacements.mapValues(\.rawValue), forKey: Key.menuPlacements)
+            guard menuArrangement != oldValue else { return }
+            Self.save(menuArrangement, to: defaults)
             onChange?()
         }
-    }
-
-    /// Derived from legacy placements until stored.
-    var menuArrangement: MenuArrangement {
-        MenuArrangement.migrating(
-            placements: menuPlacements, hiddenEntries: hiddenEntries, newInstallHidden: Self.newInstallHiddenEntries,
-            extraAngleEnabled: settings.extraRotationEnabled
-        ).arrangement
     }
 
     var notificationsEnabled: Bool {
@@ -114,7 +108,8 @@ final class SettingsStore {
             Key.notificationsEnabled: true, Key.showsActivity: true, Key.activityClosesAfterSuccess: true,
             Key.activityClosesAfterCancel: true, Key.activityClosesAfterFailure: false,
         ])
-        settings = Self.decodeSettings(from: defaults)
+        let settings = Self.decodeSettings(from: defaults)
+        self.settings = settings
         var hidden = Self.loadHiddenEntries(from: defaults)
         if hidden.remove("video.trim/") != nil {
             hidden.insert(OperationID.videoEdit.menuEntryKey(""))
@@ -127,9 +122,22 @@ final class SettingsStore {
         defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
         defaults.removeObject(forKey: Key.legacyHiddenOperations)
         defaults.removeObject(forKey: "menu.sourceInspectorV3Migrated")
+        if defaults.object(forKey: Key.menuArrangement) != nil {
+            menuArrangement = Self.decodeMenuArrangement(from: defaults)
+        } else {
+            let placements = (defaults.dictionary(forKey: Key.legacyMenuPlacements) as? [String: String] ?? [:])
+                .compactMapValues(MenuPlacement.init(rawValue:))
+            let migrated = MenuArrangement.migrating(
+                placements: placements, hiddenEntries: hidden, newInstallHidden: Self.newInstallHiddenEntries,
+                extraAngleEnabled: settings.extraRotationEnabled)
+            // Saved first; re-migrating reduced entries loses groups.
+            Self.save(migrated.arrangement, to: defaults)
+            hidden = migrated.hiddenEntries
+            defaults.set(hidden.sorted(), forKey: Key.hiddenEntries)
+            menuArrangement = migrated.arrangement
+        }
+        defaults.removeObject(forKey: Key.legacyMenuPlacements)
         hiddenEntries = hidden
-        menuPlacements = (defaults.dictionary(forKey: Key.menuPlacements) as? [String: String] ?? [:])
-            .compactMapValues(MenuPlacement.init(rawValue:))
         notificationsEnabled = defaults.bool(forKey: Key.notificationsEnabled)
         if !defaults.bool(forKey: Key.activityV22Migrated) {
             defaults.set(true, forKey: Key.showsActivity)
@@ -144,11 +152,41 @@ final class SettingsStore {
         language = Language(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .system
     }
 
+    func menuScope(_ scope: MenuScope) -> ScopeArrangement {
+        menuArrangement.resolved(scope)
+    }
+
+    /// Shown groups never come back empty.
+    func rearrangeMenu(_ scope: MenuScope, _ change: (inout ScopeArrangement) -> Void) {
+        let previous = menuScope(scope)
+        var arranged = previous
+        change(&arranged)
+        let shown = previous[.hidden].filter { arranged.section(of: $0) != .hidden }
+        let emptied = shown.filter { group in
+            let keys = visibleLeafKeys(of: group)
+            return !keys.isEmpty && keys.allSatisfy(hiddenEntries.contains)
+        }
+        hiddenEntries.subtract(emptied.flatMap(\.entryKeys).filter { !Self.newInstallHiddenEntries.contains($0) })
+        menuArrangement.set(arranged)
+    }
+
+    /// Resets order and leaves, not menu values.
+    func restoreMenuDefaults(_ scope: MenuScope) {
+        let keys = MenuGroupCatalog.current.groups(in: scope).flatMap(\.entryKeys)
+        hiddenEntries = hiddenEntries.subtracting(keys).union(keys.filter(Self.newInstallHiddenEntries.contains))
+        menuArrangement.restoreDefaults(scope)
+    }
+
+    /// Extra angle counts only while enabled.
+    private func visibleLeafKeys(of group: MenuGroupID) -> [String] {
+        group.entryKeys.filter { settings.extraRotationEnabled || !$0.hasSuffix("/\(OperationID.extraAnglePreset)") }
+    }
+
     /// History and edited presets survive.
     func resetAll() {
         settings = Settings()
         hiddenEntries = Self.newInstallHiddenEntries
-        menuPlacements = [:]
+        menuArrangement = MenuArrangement()
         notificationsEnabled = true
         showsActivity = true
         activityClosesAfterSuccess = true
@@ -216,6 +254,34 @@ final class SettingsStore {
                 )
             defaults.set(stored, forKey: Key.unreadableSettings)
             return Settings()
+        }
+    }
+
+    /// Unreadable arrangements are kept aside.
+    private static func decodeMenuArrangement(from defaults: UserDefaults) -> MenuArrangement {
+        let stored = defaults.object(forKey: Key.menuArrangement)
+        do {
+            guard let encoded = stored as? Data else { throw CocoaError(.coderReadCorrupt) }
+            return try JSONDecoder().decode(MenuArrangement.self, from: encoded)
+        } catch {
+            let failure = error as NSError
+            Logger(category: "settings")
+                .error(
+                    "Stored menu arrangement unreadable, using defaults (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+                )
+            defaults.set(stored, forKey: Key.unreadableMenuArrangement)
+            return MenuArrangement()
+        }
+    }
+
+    private static func save(_ arrangement: MenuArrangement, to defaults: UserDefaults) {
+        do {
+            defaults.set(try JSONEncoder().encode(arrangement), forKey: Key.menuArrangement)
+        } catch {
+            let failure = error as NSError
+            Logger(category: "settings").error(
+                "Menu arrangement encoding failed (\(failure.domain, privacy: .public) \(failure.code, privacy: .public)): \(failure.localizedDescription, privacy: .private)"
+            )
         }
     }
 

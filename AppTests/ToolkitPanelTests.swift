@@ -15,20 +15,23 @@ final class ToolkitPanelTests: XCTestCase {
             forKey: "hiddenMenuEntries")
         defaults.set(["video.trim", "any.sourceInfo"], forKey: "hiddenOperations")
         let store = SettingsStore(defaults: defaults)
-        XCTAssertEqual(store.hiddenEntries, ["video.edit/", "image.convert/png"])
+        let edit = MenuGroupID(rawValue: "video.edit")
+        XCTAssertEqual(store.hiddenEntries, ["image.convert/png"])
+        XCTAssertEqual(store.menuScope(.video).section(of: edit), .hidden)
         XCTAssertNil(defaults.object(forKey: "hiddenOperations"))
         var changes = 0
         store.onChange = { changes += 1 }
-        store.menuPlacements["image.convert"] = .more
+        let convert = MenuGroupID(rawValue: "image.convert")
+        store.rearrangeMenu(.image) { $0.move([convert], to: .more) }
         XCTAssertEqual(changes, 1)
-        XCTAssertEqual(store.hiddenEntries, ["video.edit/", "image.convert/png"])
-        store.hiddenEntries.remove("video.edit/")
+        XCTAssertEqual(store.hiddenEntries, ["image.convert/png"])
+        store.rearrangeMenu(.video) { $0.show([edit]) }
         let restored = SettingsStore(defaults: defaults)
-        XCTAssertFalse(restored.hiddenEntries.contains("video.edit/"))
-        XCTAssertEqual(restored.menuPlacements, ["image.convert": .more])
+        XCTAssertEqual(restored.menuScope(.video).section(of: edit), .menu)
+        XCTAssertEqual(restored.menuScope(.image).section(of: convert), .more)
         restored.resetAll()
-        XCTAssertTrue(restored.menuPlacements.isEmpty)
-        XCTAssertTrue(SettingsStore(defaults: defaults).menuPlacements.isEmpty)
+        XCTAssertFalse(restored.menuArrangement.isCustomized(.image))
+        XCTAssertFalse(SettingsStore(defaults: defaults).menuArrangement.isCustomized(.image))
     }
 
     func testLegacyHiddenTrimMigratesToEditing() throws {
@@ -37,7 +40,9 @@ final class ToolkitPanelTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(
             ["video.trim", "image.copyBase64", "video.aiCustom", "audio.aiCustom"], forKey: "hiddenOperations")
-        XCTAssertEqual(SettingsStore(defaults: defaults).hiddenEntries, ["video.edit/"])
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.hiddenEntries, [])
+        XCTAssertEqual(store.menuScope(.video).section(of: MenuGroupID(rawValue: "video.edit")), .hidden)
         XCTAssertNil(defaults.object(forKey: "hiddenOperations"))
     }
 
