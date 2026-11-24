@@ -313,7 +313,8 @@ enum AudioJob {
         var format = try compressedFormat(input, kilobits: nil)
         try format.validateLayout(input)
         let keepsOriginalAsNewFile = input.isFallback
-        let tags = try await tags(of: input, keepsOriginal: keepsOriginalAsNewFile, context: context)
+        let keepsOriginal = keepsOriginalAsNewFile || context.settings.outputMode == .newFile
+        let tags = try await tags(of: input, keepsOriginal: keepsOriginal, context: context)
         var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         var budget = bytes - tagBytes(tags, format: format)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
