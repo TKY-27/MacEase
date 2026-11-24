@@ -623,7 +623,7 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.position, 2, accuracy: 0.05)
     }
 
-    private func textFields(in view: NSView) -> [NSTextField] {
+    func textFields(in view: NSView) -> [NSTextField] {
         (view as? NSTextField).map { [$0] } ?? view.subviews.flatMap { textFields(in: $0) }
     }
 
@@ -1807,6 +1807,97 @@ final class MediaEditorModelTests: XCTestCase {
         try await eventually { !model.editingLocked }
     }
 
+    func testEditorTimelineAccessibilityDescribesAndEditsJoinedSegments() async throws {
+        let directory = try workspace()
+        let model = try await videoModel(count: 2, fixture: try pausedSpeechFixture(in: directory))
+        model.seek(1.5)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 4 && !model.splitting }
+        model.selectSegment(model.values.segments[3].id)
+        model.toggleReverse()
+        try await eventually { model.reverseTask == nil }
+        XCTAssertNil(model.reverseFailure)
+        model.addDefaultOverlay(.box)
+        model.setMusic(try audioFixture(in: directory))
+        try await eventually { model.musicTask == nil }
+        model.analyzeSilence()
+        try await eventually { model.silenceTask == nil }
+        model.showsSilencePreview = true
+        let host = NSHostingView(rootView: EditorTimeline(model: model))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 1200, height: 260), styleMask: [.titled],
+            backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let canvas = try XCTUnwrap(timelineView(in: host)?.canvas)
+        func parts() throws -> [String: NSAccessibilityElement] {
+            let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
+            return Dictionary(uniqueKeysWithValues: children.map { ($0.accessibilityLabel() ?? "", $0) })
+        }
+        func value(_ label: String) throws -> String {
+            try XCTUnwrap(try parts()[label]?.accessibilityValue() as? String, label)
+        }
+        let labels = try parts().keys
+        for expected in [
+            "Segment 1 of 4, clip-0.mp4", "Segment 2 of 4, clip-0.mp4", "Segment 3 of 4, clip-0.mp4",
+            "Segment 4 of 4, clip-1.mp4", "Box 1", "Music, tone.wav", "Playhead",
+        ] {
+            XCTAssertTrue(labels.contains(expected), "\(expected) in \(labels.sorted())")
+        }
+        XCTAssertTrue(labels.contains { $0.hasPrefix("Pause to remove, 1 of ") }, "\(labels.sorted())")
+        XCTAssertTrue(try value("Segment 2 of 4, clip-0.mp4").contains("Freeze Frame"))
+        XCTAssertTrue(try value("Segment 4 of 4, clip-1.mp4").contains("Reversed"))
+        XCTAssertTrue(try value("Segment 4 of 4, clip-1.mp4").contains("Selected"))
+        XCTAssertFalse(try value("Segment 1 of 4, clip-0.mp4").contains("Selected"))
+        XCTAssertTrue(try value("Music, tone.wav").contains("30%"))
+
+        func perform(_ action: String, on label: String) async throws {
+            let segment = try XCTUnwrap(try parts()[label], label)
+            let custom = try XCTUnwrap(segment.accessibilityCustomActions()?.first { $0.name == action }, action)
+            let before = model.values.segments
+            XCTAssertTrue(custom.handler?() ?? false, action)
+            try await eventually { model.values.segments != before && !model.splitting && model.reverseTask == nil }
+            host.layoutSubtreeIfNeeded()
+            model.undo()
+            XCTAssertEqual(model.values.segments, before, "\(action) is exactly one Undo step")
+            host.layoutSubtreeIfNeeded()
+        }
+        try await perform(TimelineAction.duplicate.title, on: "Segment 1 of 4, clip-0.mp4")
+        try await perform(TimelineAction.delete.title, on: "Segment 3 of 4, clip-0.mp4")
+        try await perform(TimelineAction.right.title, on: "Segment 1 of 4, clip-0.mp4")
+        try await perform("Play Segment Forward", on: "Segment 4 of 4, clip-1.mp4")
+        model.seek(4)
+        host.layoutSubtreeIfNeeded()
+        try await perform(TimelineAction.split.title, on: "Segment 3 of 4, clip-0.mp4")
+        try await perform(TimelineAction.freeze.title, on: "Segment 3 of 4, clip-0.mp4")
+        try await perform(TimelineAction.reverse.title, on: "Segment 3 of 4, clip-0.mp4")
+
+        let playhead = try XCTUnwrap(try parts()["Playhead"])
+        let start = model.position
+        XCTAssertTrue(playhead.accessibilityPerformIncrement())
+        try await eventually { model.position > start }
+        XCTAssertEqual(model.position - start, model.frameDuration, accuracy: model.frameDuration / 2)
+
+        let stale = try XCTUnwrap(
+            try parts()["Segment 1 of 4, clip-0.mp4"]?.accessibilityCustomActions()?.first {
+                $0.name == TimelineAction.duplicate.title
+            })
+        model.selectSegment(model.values.segments[2].id)
+        model.toggleReverse()
+        XCTAssertTrue(model.editingLocked)
+        host.layoutSubtreeIfNeeded()
+        let locked = model.values
+        XCTAssertEqual(try parts()["Segment 1 of 4, clip-0.mp4"]?.accessibilityCustomActions()?.isEmpty, true)
+        XCTAssertFalse(stale.handler?() ?? true)
+        XCTAssertFalse(playhead.accessibilityPerformIncrement())
+        XCTAssertFalse(try XCTUnwrap(try parts()["Box 1"]).accessibilityPerformPress())
+        XCTAssertEqual(model.values, locked, "no accessibility action edits during a reverse")
+        model.cancelReverse()
+        try await eventually { !model.editingLocked }
+    }
+
     func testReverseDisablesNativeTimelineInputThroughTheViewEnvironment() async throws {
         let model = try await videoModel()
         model.toggleReverse()
@@ -2015,7 +2106,7 @@ final class MediaEditorModelTests: XCTestCase {
         return pixel.prefix(3).map { Double($0) / 255 }
     }
 
-    private func photoModel(
+    func photoModel(
         hdr: Bool = false, svg: Bool = false, additionalPhoto: Bool = false,
         settings: Engine.Settings = Engine.Settings()
     ) async throws -> MediaEditorModel {
@@ -2058,7 +2149,7 @@ final class MediaEditorModelTests: XCTestCase {
         return model
     }
 
-    private func videoModel(
+    func videoModel(
         count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil,
         fixture: URL? = nil
     ) async throws
@@ -2517,12 +2608,12 @@ final class MediaEditorModelTests: XCTestCase {
         model.cancelAnalysis()
     }
 
-    private func timelineView(in view: NSView) -> TimelineScrollView? {
+    func timelineView(in view: NSView) -> TimelineScrollView? {
         if let scroll = view as? TimelineScrollView { return scroll }
         return view.subviews.lazy.compactMap { self.timelineView(in: $0) }.first
     }
 
-    private func sendEditorKey(
+    func sendEditorKey(
         _ characters: String, modifiers: NSEvent.ModifierFlags = [], window: NSWindow
     ) throws {
         let unrelatedPhysicalKey: UInt16 = 0
@@ -2547,14 +2638,14 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
-    private func workspace() throws -> URL {
+    func workspace() throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "MacEaseAppTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         addTeardownBlock { try FileManager.default.removeItem(at: directory) }
         return directory
     }
 
-    private func audioFixture(in directory: URL) throws -> URL {
+    func audioFixture(in directory: URL) throws -> URL {
         let sampleRate = 48_000.0
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1))
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 96_000))
@@ -2594,7 +2685,7 @@ final class MediaEditorModelTests: XCTestCase {
     }
 
     /// Alternating one-second tone and silence.
-    private func pausedSpeechFixture(in directory: URL) throws -> URL {
+    func pausedSpeechFixture(in directory: URL) throws -> URL {
         let output = directory.appending(path: "paused.mp4")
         let encoding = Process()
         encoding.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
@@ -3007,7 +3098,7 @@ final class MediaEditorModelTests: XCTestCase {
         return stagedDirectories(in: staging)
     }
 
-    private func click(at point: CGPoint, in window: NSWindow) throws {
+    func click(at point: CGPoint, in window: NSWindow) throws {
         for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = try XCTUnwrap(
                 NSEvent.mouseEvent(
@@ -3017,7 +3108,7 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
-    private func japanese(_ key: String) -> String {
+    func japanese(_ key: String) -> String {
         let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
         return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"
     }

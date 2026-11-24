@@ -1,0 +1,208 @@
+import AppKit
+import SwiftUI
+import XCTest
+
+@testable import Engine
+@testable import MacEase
+
+extension MediaEditorModelTests {
+    private struct CanvasRecorder {
+        var selected: [UUID] = []
+        var steps: [Int] = []
+        var actions: [(UUID, TimelineAction)] = []
+        var overlays: [UUID] = []
+        var musicSelections = 0
+    }
+
+    func testTimelineCanvasExposesEveryDrawnPartWithMatchingFrames() throws {
+        let first = UUID(), frozen = UUID(), reversed = UUID(), overlay = UUID()
+        var zoom = 1.0
+        var recorder = CanvasRecorder()
+        let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 900, height: 180))
+        scroll.documentView = TimelineCanvas()
+        scroll.configuration = MediaTimeline(
+            duration: 6, position: 1,
+            clips: [
+                TimelineClip(
+                    id: first, range: 0...2, selection: nil, label: "", accessibilityName: "Segment 1 of 3"),
+                TimelineClip(
+                    id: frozen, range: 2...4, selection: 2...4, label: "", freeze: true,
+                    accessibilityName: "Segment 2 of 3", accessibilityStates: ["Freeze Frame"]),
+                TimelineClip(
+                    id: reversed, range: 4...6, selection: nil, label: "",
+                    accessibilityName: "Segment 3 of 3", accessibilityStates: ["Reversed", "Speed 2×"]),
+            ],
+            playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
+            seek: { _ in }, hover: { _ in }, select: { recorder.selected.append($0) }, beginTrim: { _, _ in },
+            trim: { _ in }, endTrim: {}, action: { recorder.actions.append(($0, $1)) },
+            actionState: { id, action in
+                TimelineActionState(
+                    available: action != .left || id != first, checked: action == .reverse && id == reversed)
+            },
+            overlays: [
+                TimelineOverlayMark(
+                    id: overlay, ranges: [0.5...1.5, 3...3.5], label: "Box 1", fill: .systemRed, text: .white,
+                    selected: true)
+            ],
+            showsOverlayLane: true, selectOverlay: { recorder.overlays.append($0) }, hatched: [1...1.5],
+            music: TimelineMusicBar(range: 0...3, label: "tone.wav", fadeOut: 0, volume: 0.3),
+            selectMusic: { recorder.musicSelections += 1 }, step: { recorder.steps.append($0) })
+        let window = NSWindow(
+            contentRect: CGRect(x: 100, y: 100, width: 900, height: 180), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.close() }
+        scroll.updateTimeline()
+        let canvas = try XCTUnwrap(scroll.canvas)
+        XCTAssertEqual(canvas.accessibilityRole(), .layoutArea)
+        XCTAssertEqual(canvas.accessibilityLabel(), "Timeline")
+
+        func elements() throws -> [String: NSAccessibilityElement] {
+            let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
+            return Dictionary(uniqueKeysWithValues: children.map { ($0.accessibilityLabel() ?? "", $0) })
+        }
+        func onScreen(_ rect: CGRect) -> CGRect { window.convertToScreen(canvas.convert(rect, to: nil)) }
+        func assertFrame(
+            _ element: NSAccessibilityElement?, _ local: CGRect, file: StaticString = #filePath, line: UInt = #line
+        ) {
+            let frame = element?.accessibilityFrame() ?? .null
+            let expected = onScreen(local)
+            for (actual, wanted) in [
+                (frame.minX, expected.minX), (frame.minY, expected.minY), (frame.width, expected.width),
+                (frame.height, expected.height),
+            ] {
+                XCTAssertEqual(actual, wanted, accuracy: 0.001, file: file, line: line)
+            }
+        }
+
+        var parts = try elements()
+        XCTAssertEqual(
+            Set(parts.keys),
+            [
+                "Playhead", "Segment 1 of 3", "Segment 2 of 3", "Segment 3 of 3", "Box 1, part 1 of 2",
+                "Box 1, part 2 of 2", "Music, tone.wav", "Pause to remove, 1 of 1",
+            ])
+        let width = canvas.bounds.width
+        let x = { (seconds: Double) in seconds / 6 * width }
+        let clipTop = TimelineCanvas.rulerHeight, clipHeight = TimelineCanvas.clipHeight
+        let overlayTop = clipTop + clipHeight + 6
+        assertFrame(parts["Segment 2 of 3"], CGRect(x: x(2), y: clipTop, width: x(2), height: clipHeight))
+        assertFrame(parts["Pause to remove, 1 of 1"], CGRect(x: x(1), y: clipTop, width: x(0.5), height: clipHeight))
+        assertFrame(
+            parts["Box 1, part 2 of 2"],
+            CGRect(x: x(3), y: overlayTop, width: x(0.5), height: TimelineCanvas.overlayLaneHeight - 4))
+        assertFrame(
+            parts["Music, tone.wav"],
+            CGRect(
+                x: 0, y: overlayTop + TimelineCanvas.overlayLaneHeight, width: x(3),
+                height: TimelineCanvas.musicLaneHeight - 4))
+        let lanes = TimelineCanvas.overlayLaneHeight + TimelineCanvas.musicLaneHeight
+        assertFrame(
+            parts["Playhead"],
+            CGRect(x: x(1) - 6, y: 3, width: 12, height: clipTop - 6 + clipHeight + 12 + lanes - 4 - 3))
+
+        XCTAssertEqual(parts["Playhead"]?.accessibilityRole(), .slider)
+        XCTAssertEqual(
+            parts["Playhead"]?.accessibilityValue() as? String, "\(Timecode.spoken(1)) of \(Timecode.spoken(6))")
+        XCTAssertEqual(parts["Segment 2 of 3"]?.accessibilityRole(), .layoutItem)
+        XCTAssertEqual(
+            parts["Segment 2 of 3"]?.accessibilityValue() as? String,
+            [Timecode.spokenRange(2...4), "Freeze Frame", "Selected"].formatted(.list(type: .and, width: .narrow)))
+        XCTAssertEqual(parts["Segment 2 of 3"]?.isAccessibilitySelected(), true)
+        XCTAssertEqual(parts["Segment 1 of 3"]?.isAccessibilitySelected(), false)
+        XCTAssertEqual(
+            parts["Segment 3 of 3"]?.accessibilityValue() as? String,
+            [Timecode.spokenRange(4...6), "Reversed", "Speed 2×"].formatted(.list(type: .and, width: .narrow)))
+        XCTAssertEqual(
+            parts["Music, tone.wav"]?.accessibilityValue() as? String,
+            [Timecode.spokenRange(0...3), "Volume 30%"].formatted(.list(type: .and, width: .narrow)))
+        XCTAssertEqual(
+            parts["Box 1, part 1 of 2"]?.accessibilityValue() as? String,
+            [Timecode.spokenRange(0.5...1.5), "Selected"].formatted(.list(type: .and, width: .narrow)))
+        XCTAssertTrue(Timecode.spoken(65.25).contains("5.25"))
+        XCTAssertFalse(Timecode.spoken(65.25).contains("1:05"), "VoiceOver gets words, not a clock")
+
+        XCTAssertTrue(try XCTUnwrap(parts["Segment 3 of 3"]).accessibilityPerformPress())
+        XCTAssertTrue(try XCTUnwrap(parts["Box 1, part 2 of 2"]).accessibilityPerformPress())
+        XCTAssertTrue(try XCTUnwrap(parts["Music, tone.wav"]).accessibilityPerformPress())
+        XCTAssertFalse(try XCTUnwrap(parts["Pause to remove, 1 of 1"]).accessibilityPerformPress())
+        XCTAssertTrue(try XCTUnwrap(parts["Playhead"]).accessibilityPerformIncrement())
+        XCTAssertTrue(try XCTUnwrap(parts["Playhead"]).accessibilityPerformDecrement())
+        XCTAssertEqual(recorder.selected, [reversed])
+        XCTAssertEqual(recorder.overlays, [overlay])
+        XCTAssertEqual(recorder.musicSelections, 1)
+        XCTAssertEqual(recorder.steps, [1, -1])
+
+        let firstActions = parts["Segment 1 of 3"]?.accessibilityCustomActions()?.map(\.name) ?? []
+        XCTAssertEqual(firstActions, TimelineAction.allCases.filter { $0 != .left }.map(\.title))
+        let reversedActions = try XCTUnwrap(parts["Segment 3 of 3"]?.accessibilityCustomActions())
+        XCTAssertTrue(reversedActions.map(\.name).contains("Play Segment Forward"))
+        XCTAssertFalse(reversedActions.map(\.name).contains(TimelineAction.reverse.title))
+        let duplicate = try XCTUnwrap(reversedActions.first { $0.name == TimelineAction.duplicate.title })
+        XCTAssertTrue(duplicate.handler?() ?? false)
+        XCTAssertEqual(recorder.actions.map(\.0), [reversed])
+        XCTAssertEqual(recorder.actions.map(\.1), [.duplicate])
+
+        let center = onScreen(CGRect(x: x(4.5), y: clipTop + 40, width: 1, height: 1)).origin
+        XCTAssertTrue((canvas.accessibilityHitTest(center) as? NSAccessibilityElement) === parts["Segment 3 of 3"])
+        let knob = onScreen(CGRect(x: x(1), y: 8, width: 1, height: 1)).origin
+        XCTAssertTrue((canvas.accessibilityHitTest(knob) as? NSAccessibilityElement) === parts["Playhead"])
+
+        zoom = 4
+        scroll.updateTimeline()
+        scroll.contentView.scroll(to: CGPoint(x: 700, y: 0))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let zoomed = try elements()
+        XCTAssertTrue(zoomed["Segment 2 of 3"] === parts["Segment 2 of 3"], "elements survive layout changes")
+        let zoomedWidth = canvas.bounds.width
+        XCTAssertEqual(zoomedWidth, width * 4, accuracy: 0.001)
+        assertFrame(
+            zoomed["Segment 2 of 3"],
+            CGRect(x: 2 / 6 * zoomedWidth, y: clipTop, width: 2 / 6 * zoomedWidth, height: clipHeight))
+        XCTAssertEqual(
+            try XCTUnwrap(zoomed["Segment 2 of 3"]).accessibilityFrame().minX,
+            window.convertToScreen(CGRect(x: 2 / 6 * zoomedWidth - 700, y: 0, width: 1, height: 1)).minX,
+            accuracy: 0.001, "frames follow scrolling")
+
+        canvas.interactionEnabled = false
+        parts = try elements()
+        XCTAssertEqual(parts["Segment 1 of 3"]?.accessibilityCustomActions()?.isEmpty, true)
+        XCTAssertFalse(try XCTUnwrap(parts["Segment 1 of 3"]).accessibilityPerformPress())
+        XCTAssertFalse(try XCTUnwrap(parts["Playhead"]).accessibilityPerformIncrement())
+        XCTAssertFalse(try XCTUnwrap(parts["Segment 1 of 3"]).isAccessibilityEnabled())
+        XCTAssertFalse(duplicate.handler?() ?? true, "a stale action cannot bypass the lock")
+        XCTAssertEqual(recorder.selected, [reversed])
+        XCTAssertEqual(recorder.steps, [1, -1])
+        XCTAssertEqual(recorder.actions.count, 1)
+    }
+
+    func testTimelineExposesOnlyNamedClipsAndRevealsAMovedPlayhead() throws {
+        var zoom = 8.0
+        var position = 0.5
+        let scroll = TimelineScrollView(frame: CGRect(x: 0, y: 0, width: 600, height: 120))
+        scroll.documentView = TimelineCanvas()
+        func configure() {
+            scroll.configuration = MediaTimeline(
+                duration: 10, position: position,
+                clips: [TimelineClip(id: UUID(), range: 0...10, selection: 0...10, label: "")], playing: false,
+                zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100, seek: { _ in }, hover: { _ in },
+                select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {},
+                accessibilityTitle: "Waveform")
+            scroll.updateTimeline()
+        }
+        configure()
+        let canvas = try XCTUnwrap(scroll.canvas)
+        let children = try XCTUnwrap(canvas.accessibilityChildren() as? [NSAccessibilityElement])
+        XCTAssertEqual(children.map { $0.accessibilityLabel() }, ["Playhead"], "unnamed clips stay hidden")
+        XCTAssertEqual(canvas.accessibilityLabel(), "Waveform")
+        let start = scroll.contentView.bounds
+        position = 9
+        configure()
+        let playhead = 9.0 / 10 * canvas.bounds.width
+        XCTAssertFalse(start.contains(CGPoint(x: playhead, y: 10)))
+        XCTAssertTrue(
+            scroll.contentView.bounds.contains(CGPoint(x: playhead, y: 10)),
+            "a keyboard step past the edge scrolls the playhead into view")
+    }
+}

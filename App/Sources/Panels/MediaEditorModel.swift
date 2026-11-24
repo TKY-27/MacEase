@@ -510,6 +510,12 @@ final class MediaEditorModel {
         if let segment = values.segments.first(where: { $0.id == id }), thumbnails(for: segment).isEmpty { refresh() }
     }
 
+    /// The C key, like Final Cut Pro.
+    func selectSegmentAtPlayhead() {
+        guard let timeline, !values.segments.isEmpty else { return }
+        selectSegment(timeline.segment(at: position).id)
+    }
+
     func beginTimelineTrim(_ id: UUID, start: Bool) {
         guard !editingLocked, !hasPendingBoundaryInput, !trimming, trimTask == nil, let timeline,
             let segment = values.segments.first(where: { $0.id == id }), !segment.isFreeze

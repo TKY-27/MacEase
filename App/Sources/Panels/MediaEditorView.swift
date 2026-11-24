@@ -729,6 +729,8 @@ struct EditorSlider: View {
     let title: String
     let value: Double
     let range: ClosedRange<Double>
+    /// Spoken instead of the raw number.
+    var spokenValue: String?
     let commit: (Double, EditorInteraction?) -> Void
     @State private var interaction: EditorInteraction?
 
@@ -747,6 +749,7 @@ struct EditorSlider: View {
             }
         }
         .labelsHidden()
+        .accessibilityValue(Text(spokenValue ?? value.formatted(.number.precision(.fractionLength(0...2)))))
         .onDisappear {
             if let token = interaction {
                 interaction = nil
@@ -771,7 +774,7 @@ private struct LabeledSlider: View {
                 Spacer()
                 Text(display).monospacedDigit().foregroundStyle(.secondary)
             }
-            EditorSlider(model: model, title: title, value: value, range: range, commit: commit)
+            EditorSlider(model: model, title: title, value: value, range: range, spokenValue: display, commit: commit)
         }
     }
 }

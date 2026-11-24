@@ -112,8 +112,14 @@ struct TransportClock: View {
             }
             .buttonStyle(.plain)
             .help("Click to Go to a Time")
+            .accessibilityLabel(Text("Playhead"))
+            .accessibilityValue(spokenTime)
+            .accessibilityHint(Text("Type a time to move the playhead."))
         } else {
             clock
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Playhead"))
+                .accessibilityValue(spokenTime)
         }
     }
 
@@ -137,9 +143,10 @@ struct TransportClock: View {
             Text(Timecode.string(duration)).foregroundStyle(.secondary)
         }
         .font(.callout.monospacedDigit())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Playhead"))
-        .accessibilityValue(Text("\(Timecode.string(position)) of \(Timecode.string(duration))"))
+    }
+
+    private var spokenTime: Text {
+        Text("\(Timecode.spoken(position)) of \(Timecode.spoken(duration))")
     }
 }
 
@@ -173,7 +180,7 @@ struct EditorTimeline: View {
                     case .delete: model.deleteSelection()
                     }
                 },
-                actionAvailable: available,
+                actionState: actionState,
                 viewportChanged: { width in Task { @MainActor in model.timelineViewportWidth = width } },
                 overlays: overlayMarks, showsOverlayLane: showsOverlayLane,
                 selectOverlay: { id in
@@ -184,13 +191,13 @@ struct EditorTimeline: View {
                 selectMusic: {
                     model.category = .video
                     model.musicRevealRequest = UUID()
-                }
+                },
+                step: model.stepFrame
             )
             .frame(
                 height: MediaTimeline.height + (showsOverlayLane ? TimelineCanvas.overlayLaneHeight : 0)
                     + (musicBar == nil ? 0 : TimelineCanvas.musicLaneHeight)
             )
-            .accessibilityLabel(Text("Timeline"))
         }
         .disabled(model.editingLocked)
         .padding(.horizontal, 16)
@@ -290,17 +297,22 @@ struct EditorTimeline: View {
         }
     }
 
-    private func available(_ id: UUID, _ action: TimelineAction) -> Bool {
-        guard let index = model.values.segments.firstIndex(where: { $0.id == id }) else { return false }
+    private func actionState(_ id: UUID, _ action: TimelineAction) -> TimelineActionState {
+        guard let index = model.values.segments.firstIndex(where: { $0.id == id }) else {
+            return TimelineActionState(available: false)
+        }
         let segment = model.values.segments[index]
         switch action {
-        case .setIn, .setOut: return !segment.isFreeze
-        case .split: return model.canSplitSegment(id)
-        case .freeze: return model.canInsertFreezeFrame && model.timeline?.segment(at: model.position).id == id
-        case .reverse: return model.values.selectedID == id && model.canToggleReverse
-        case .left: return index > 0
-        case .right: return index < model.values.segments.count - 1
-        case .duplicate, .delete: return true
+        case .setIn, .setOut: return TimelineActionState(available: !segment.isFreeze)
+        case .split: return TimelineActionState(available: model.canSplitSegment(id))
+        case .freeze:
+            return TimelineActionState(
+                available: model.canInsertFreezeFrame && model.timeline?.segment(at: model.position).id == id)
+        case .reverse:
+            return TimelineActionState(available: model.canReverse(id), checked: segment.isReversed)
+        case .left: return TimelineActionState(available: index > 0)
+        case .right: return TimelineActionState(available: index < model.values.segments.count - 1)
+        case .duplicate, .delete: return TimelineActionState()
         }
     }
 
@@ -309,7 +321,7 @@ struct EditorTimeline: View {
         let duration = model.outputDuration
         return TimelineMusicBar(
             range: 0...music.playDuration(forOutputDuration: duration), label: music.url.lastPathComponent,
-            fadeOut: music.fade(forOutputDuration: duration).fadeOut)
+            fadeOut: music.fade(forOutputDuration: duration).fadeOut, volume: music.volume)
     }
 
     private var showsOverlayLane: Bool { model.category == .markup || !model.values.overlays.isEmpty }
@@ -327,7 +339,9 @@ struct EditorTimeline: View {
     }
 
     private var clips: [TimelineClip] {
-        let numbered = model.values.segments.count > 1
+        let count = model.values.segments.count
+        let numbered = count > 1
+        let joined = model.originalSources.count > 1
         return model.values.segments.enumerated().map { index, segment in
             let range = model.timelineRange(for: segment)
             let name = model.sourceName(segment)
@@ -344,8 +358,23 @@ struct EditorTimeline: View {
                 selection: model.values.selectedID == segment.id ? range : nil,
                 label: numbered ? "\(index + 1)  \(name)" : name, frames: frames(for: segment),
                 waveform: model.waveform(for: segment, in: range), fadeIn: fade.fadeIn, fadeOut: fade.fadeOut,
-                freeze: segment.isFreeze, badges: badges)
+                freeze: segment.isFreeze, badges: badges,
+                accessibilityName: joined
+                    ? String(localized: "Segment \(index + 1) of \(count), \(name)")
+                    : String(localized: "Segment \(index + 1) of \(count)"),
+                accessibilityStates: Self.spokenStates(segment))
         }
+    }
+
+    private static func spokenStates(_ segment: VideoSegment) -> [String] {
+        var states: [String] = []
+        if segment.isFreeze { states.append(String(localized: "Freeze Frame")) }
+        if segment.isReversed { states.append(String(localized: "Reversed")) }
+        if !segment.isFreeze, segment.speed != 1 {
+            states.append(
+                String(localized: "Speed \(segment.speed.formatted(.number.precision(.fractionLength(0...2))))×"))
+        }
+        return states
     }
 
     private func frames(for segment: VideoSegment) -> [CGImage] {

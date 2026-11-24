@@ -21685,6 +21685,116 @@
           }
         }
       }
+    },
+    "%@ to %@, %@ long": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@から%2$@まで、長さ%3$@"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中"
+          }
+        }
+      }
+    },
+    "%@, part %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$lld / %3$lld"
+          }
+        }
+      }
+    },
+    "Volume %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量 %@"
+          }
+        }
+      }
+    },
+    "Music, %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽、%@"
+          }
+        }
+      }
+    },
+    "Pause to remove, %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除する間 %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Play Segment Forward": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメントを順再生に戻す"
+          }
+        }
+      }
+    },
+    "Segment %lld of %lld, %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメント %1$lld / %2$lld、%3$@"
+          }
+        }
+      }
+    },
+    "Segment %lld of %lld": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメント %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "Speed %@×": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度 %@×"
+          }
+        }
+      }
+    },
+    "Type a time to move the playhead.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間を入力して再生ヘッドを移動します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

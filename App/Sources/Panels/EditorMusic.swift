@@ -102,11 +102,12 @@ struct EditorMusicSection: View {
                 HStack(spacing: 10) {
                     Text("Volume").foregroundStyle(.secondary)
                     EditorSlider(
-                        model: model, title: String(localized: "Music Volume"), value: music.volume, range: 0...1
+                        model: model, title: String(localized: "Music Volume"), value: music.volume, range: 0...1,
+                        spokenValue: music.volume.formatted(.percent.precision(.fractionLength(0)))
                     ) { volume, interaction in
                         model.change(in: interaction) { $0.music?.volume = volume }
                     }
-                    Text("\(Int((music.volume * 100).rounded()))%")
+                    Text(music.volume.formatted(.percent.precision(.fractionLength(0))))
                         .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                 }
                 HStack(spacing: 10) {

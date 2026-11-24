@@ -393,10 +393,11 @@ struct AudioTrimPanel: View {
                 seek: model.seek, hover: { _ in }, select: { _ in },
                 beginTrim: model.beginTrim, trim: model.trim, endTrim: model.endTrim,
                 visibleRange: { range in Task { @MainActor in model.refineWaveform(range) } },
-                viewportChanged: { width in Task { @MainActor in model.viewportWidth = width } }
+                viewportChanged: { width in Task { @MainActor in model.viewportWidth = width } },
+                step: { model.seek(model.position + Double($0) / model.sampleRate) },
+                accessibilityTitle: String(localized: "Waveform")
             )
             .frame(height: MediaTimeline.height)
-            .accessibilityLabel(Text("Waveform"))
             .overlay {
                 if !model.ready, model.failure == nil, model.streamConsent == nil {
                     ProgressView().controlSize(.small)
