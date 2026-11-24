@@ -23,6 +23,34 @@ struct ArchiveNode: Identifiable, Sendable {
 }
 
 enum ArchiveTree {
+    static let maximumDisplayLength = 1_024
+    private static let replacement: Unicode.Scalar = "\u{FFFD}"
+    private static let hiddenCategories: Set<Unicode.GeneralCategory> = [
+        .control, .lineSeparator, .paragraphSeparator,
+    ]
+    private static let bidirectionalControls: Set<UInt32> = [
+        0x061C, 0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069,
+    ]
+
+    // Untrusted names: keep them inert and short.
+    static func displayText(_ name: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in name.unicodeScalars {
+            let hidden =
+                hiddenCategories.contains(scalar.properties.generalCategory)
+                || bidirectionalControls.contains(scalar.value)
+            scalars.append(hidden ? replacement : scalar)
+        }
+        let text = String(scalars)
+        guard text.count > maximumDisplayLength else { return text }
+        let half = maximumDisplayLength / 2
+        return text.prefix(half) + "…" + text.suffix(half)
+    }
+
+    static func count(_ nodes: [ArchiveNode]) -> Int {
+        nodes.reduce(nodes.count) { $0 + count($1.children ?? []) }
+    }
+
     static func normalized(_ path: String) -> String {
         String(path.drop(while: { $0 == "/" }).dropLast(path.hasSuffix("/") ? 1 : 0))
     }

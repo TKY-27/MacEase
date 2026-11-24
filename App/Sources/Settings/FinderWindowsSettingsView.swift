@@ -171,6 +171,7 @@ extension FinderPreviewFileType {
         case .image: String(localized: "Images")
         case .video: String(localized: "Video")
         case .audio: String(localized: "Audio")
+        case .archive: String(localized: "Archives")
         }
     }
 }

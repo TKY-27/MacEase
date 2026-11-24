@@ -10,6 +10,7 @@ enum FinderPreviewFileType: String, Codable, CaseIterable, Hashable, Identifiabl
     case image
     case video
     case audio
+    case archive
 
     var id: String { rawValue }
 }

@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum PreviewKind: Equatable, Hashable, Sendable {
-    case text, html, markdown, json, propertyList, svg, font, image, media, audio, pdf, quickLook
+    case text, html, markdown, json, propertyList, svg, font, image, media, audio, pdf, archive, quickLook
 
     private static let htmlExtensions: Set<String> = ["html", "htm", "xhtml"]
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
@@ -33,6 +33,9 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         "sh", "bash", "zsh", "fish", "ps1", "psm1", "psd1", "bat", "cmd",
         "dockerfile", "cmake", "mk", "proto", "graphql", "gql", "hcl", "tf", "sol",
     ]
+    private static let archiveExtensions: Set<String> = [
+        "zip", "7z", "rar", "tar", "tgz", "tbz", "tbz2", "txz", "gz", "bz2", "xz",
+    ]
     private static let textDotfiles: Set<String> = [
         ".env", ".editorconfig", ".gitignore", ".gitattributes", ".gitmodules", ".dockerfile",
     ]
@@ -48,6 +51,7 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         case .image: .image
         case .media: .video
         case .audio: .audio
+        case .archive: .archive
         case .quickLook: nil
         }
     }
@@ -89,6 +93,7 @@ enum PreviewKind: Equatable, Hashable, Sendable {
         {
             return .text
         }
+        if archiveExtensions.contains(suffix) { return .archive }
         return .quickLook
     }
 
@@ -175,6 +180,7 @@ struct PreviewContent: View {
                 staging: staging)
         case .pdf: PreviewPDFViewer(url: url)
         case .font: PreviewFontViewer(url: url, sample: settings.effectiveFontSampleText)
+        case .archive: PreviewArchiveViewer(url: url)
         case .quickLook:
             VStack(spacing: 0) {
                 PreviewToolbar {}

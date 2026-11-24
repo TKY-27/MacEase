@@ -498,8 +498,11 @@ struct ArchiveBrowserPanel: View {
                         List(selection: $model.selection) {
                             OutlineGroup(model.visibleNodes, children: \.children) { node in
                                 HStack {
-                                    Label(node.name, systemImage: node.isDirectory ? "folder" : "doc")
-                                        .lineLimit(1)
+                                    Label(
+                                        ArchiveTree.displayText(node.name),
+                                        systemImage: node.isDirectory ? "folder" : "doc"
+                                    )
+                                    .lineLimit(1)
                                     Spacer()
                                     if let size = node.entry?.size, !node.isDirectory {
                                         Text(size.formatted(.byteCount(style: .file)))
@@ -512,7 +515,7 @@ struct ArchiveBrowserPanel: View {
                                 }
                                 .tag(node.id)
                                 .accessibilityElement(children: .ignore)
-                                .accessibilityLabel(node.path)
+                                .accessibilityLabel(ArchiveTree.displayText(node.path))
                                 .accessibilityValue(accessibilityDetails(for: node))
                             }
                         }
@@ -630,14 +633,15 @@ struct ArchiveBrowserPanel: View {
                     folder.hasPrefix("folder:")
                 {
                     Text(
-                        "\(String(folder.dropFirst("folder:".count))) · Use Save… to export.",
+                        "\(ArchiveTree.displayText(String(folder.dropFirst("folder:".count)))) · Use Save… to export.",
                         comment: "Archive folder details")
                 } else if model.selection.count == 1, let row = model.selection.first,
                     row.hasPrefix("entry:"), let id = Int(row.dropFirst("entry:".count)),
                     let selected = model.entries.first(where: { $0.id == id })
                 {
                     Text(
-                        "\(selected.path) · Preview unavailable. Use Save… to export.", comment: "Archive file details")
+                        "\(ArchiveTree.displayText(selected.path)) · Preview unavailable. Use Save… to export.",
+                        comment: "Archive file details")
                 } else {
                     Text("Select one supported file to preview.", comment: "Archive preview guidance")
                 }
