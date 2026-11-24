@@ -51,22 +51,39 @@ final class PreviewPlayback {
         case failed
     }
 
+    private struct FallbackTimeLimitExceeded: Error {}
+
     private enum Source {
         case video(VideoEditorSource)
         case audio(AudioPreviewSource)
+        case fallback(FallbackPreviewSource)
 
         func duration() async -> Double {
             switch self {
             case .video(let source): await source.details.duration
             case .audio(let source): await source.duration
+            case .fallback(let source): await source.duration
             }
         }
 
-        func playbackURL(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        func playbackURL(
+            fallbackTimeLimit: Duration, progress: @escaping @Sendable (Double) -> Void
+        ) async throws -> URL {
             switch self {
             case .video(let source):
                 try await source.playbackURL(sdr: false, normalized: source.details.hasAlpha, progress: progress)
             case .audio(let source): try await source.playbackURL()
+            case .fallback(let source):
+                try await withThrowingTaskGroup(of: URL?.self) { group in
+                    group.addTask { try await source.playbackURL(progress: progress) }
+                    group.addTask {
+                        try await Task.sleep(for: fallbackTimeLimit)
+                        return nil
+                    }
+                    defer { group.cancelAll() }
+                    guard let staged = try await group.next() ?? nil else { throw FallbackTimeLimitExceeded() }
+                    return staged
+                }
             }
         }
 
@@ -74,6 +91,7 @@ final class PreviewPlayback {
             switch self {
             case .video(let source): await source.close()
             case .audio(let source): await source.close()
+            case .fallback(let source): await source.close()
             }
         }
     }
@@ -141,9 +159,15 @@ final class PreviewPlayback {
                 return
             }
             let opened: Source = try await offMain {
-                audioOnly
-                    ? .audio(try await AudioPreviewSource.openForPreviewPlayback(url, staging: staging))
-                    : .video(try await VideoEditorSource.openForPreviewPlayback(url, staging: staging))
+                do {
+                    return audioOnly
+                        ? .audio(try await AudioPreviewSource.openForPreviewPlayback(url, staging: staging))
+                        : .video(try await VideoEditorSource.openForPreviewPlayback(url, staging: staging))
+                } catch {
+                    return .fallback(
+                        try await FallbackPreviewSource.open(
+                            url, audioOnly: audioOnly, staging: staging, nativeError: error))
+                }
             }
             guard !Task.isCancelled else { return await opened.close() }
             let duration = await opened.duration()
@@ -170,12 +194,15 @@ final class PreviewPlayback {
         let report: @Sendable (Double) -> Void = { [weak self] fraction in
             Task { @MainActor in self?.progressed(fraction) }
         }
+        let fallbackTimeLimit = limits.maximumFallbackConversionTime
         conversion = Task { [weak self] in
             do {
-                let playback = try await source.playbackURL(progress: report)
+                let playback = try await source.playbackURL(fallbackTimeLimit: fallbackTimeLimit, progress: report)
                 try Task.checkCancellation()
                 self?.play(PreviewMediaAsset.make(playback))
             } catch is CancellationError {
+            } catch is FallbackTimeLimitExceeded {
+                self?.fail("fallback conversion time limit exceeded")
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 logger.error("Preview conversion failed: \(error.localizedDescription, privacy: .private)")

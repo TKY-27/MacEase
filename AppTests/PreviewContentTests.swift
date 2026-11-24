@@ -362,6 +362,8 @@ final class PreviewContentTests: XCTestCase {
             (asfHeader + asfVideoGUID, "Windows Media Video", "Windows Media動画"),
             (asfHeader + [0x00, 0x00], "Windows Media Audio", "Windows Mediaオーディオ"),
             ([0x00, 0x00, 0x00, 0x14] + Array("ftypcrx ".utf8), "Canon RAW", "Canon RAW画像"),
+            ([0x7F, 0xFE, 0x80, 0x01, 0xFC], "DTS audio", "DTSオーディオ"),
+            ([0x0B, 0x77, 0x3E, 0x9C, 0x14], "AC-3 audio", "AC-3オーディオ"),
         ]
         for (header, expectedEnglish, expectedJapanese) in samples {
             let detected = ContentSniffer.identify(header: header)

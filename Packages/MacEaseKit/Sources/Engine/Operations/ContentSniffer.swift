@@ -35,6 +35,11 @@ public enum ContentSniffer {
     private static let asfVideoStreamGUID: [UInt8] = [
         0xC0, 0xEF, 0x19, 0xBC, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B,
     ]
+    private static let ac3SyncWord: [UInt8] = [0x0B, 0x77]
+    private static let dtsSyncWords: [[UInt8]] = [
+        [0x7F, 0xFE, 0x80, 0x01], [0xFE, 0x7F, 0x01, 0x80],
+        [0x1F, 0xFF, 0xE8, 0x00], [0xFF, 0x1F, 0x00, 0xE8], [0x64, 0x58, 0x20, 0x25],
+    ]
 
     public static func identify(_ url: URL) throws -> DetectedContent {
         let values = try inputValues(url)
@@ -404,6 +409,9 @@ public enum ContentSniffer {
                 ? DetectedContent(family: .video, displayName: "Windows Media Video")
                 : DetectedContent(family: .audio, displayName: "Windows Media Audio")
         }
+        if starts(header, with: ascii(".RMF")) {
+            return DetectedContent(family: .video, displayName: "RealMedia")
+        }
         if starts(header, with: ascii("OggS")) {
             return containsBytes(header, sequence: [0x80] + ascii("theora"))
                 ? DetectedContent(family: .video, displayName: "Ogg video")
@@ -430,6 +438,12 @@ public enum ContentSniffer {
         if starts(header, with: ascii("FORM")), starts(header, with: ascii("AIF"), at: 8) {
             return DetectedContent(family: .audio, displayName: "AIFF")
         }
+        if starts(header, with: ascii("wvpk")) { return DetectedContent(family: .audio, displayName: "WavPack") }
+        if starts(header, with: ascii("MAC ")) { return DetectedContent(family: .audio, displayName: "Monkey's Audio") }
+        if dtsSyncWords.contains(where: { starts(header, with: $0) }) {
+            return DetectedContent(family: .audio, displayName: "DTS audio")
+        }
+        if starts(header, with: ac3SyncWord) { return DetectedContent(family: .audio, displayName: "AC-3 audio") }
         return nil
     }
 
@@ -539,14 +553,12 @@ public enum ContentSniffer {
     }
 
     private static func isFallbackAudio(_ header: [UInt8]) -> Bool {
-        let signatures: [[UInt8]] = [
-            [0x0B, 0x77],
-            [0x7F, 0xFE, 0x80, 0x01], [0xFE, 0x7F, 0x01, 0x80],
-            [0x1F, 0xFF, 0xE8, 0x00], [0xFF, 0x1F, 0x00, 0xE8], [0x64, 0x58, 0x20, 0x25],
-            ascii("wvpk"), ascii("MAC "), ascii("TTA1"), ascii("#!AMR"),
-            ascii(".RMF"), [0x2E, 0x72, 0x61, 0xFD],
-            [0x1A, 0x45, 0xDF, 0xA3],
-        ]
+        let signatures: [[UInt8]] =
+            [ac3SyncWord] + dtsSyncWords + [
+                ascii("wvpk"), ascii("MAC "), ascii("TTA1"), ascii("#!AMR"),
+                ascii(".RMF"), [0x2E, 0x72, 0x61, 0xFD],
+                [0x1A, 0x45, 0xDF, 0xA3],
+            ]
         return signatures.contains { starts(header, with: $0) }
     }
 }

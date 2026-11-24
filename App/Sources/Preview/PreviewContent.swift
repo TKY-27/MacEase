@@ -11,10 +11,12 @@ enum PreviewKind: Equatable, Hashable, Sendable {
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mdx"]
     private static let fontExtensions: Set<String> = ["ttf", "otf", "ttc", "otc", "woff", "woff2"]
     private static let videoExtensions: Set<String> = [
-        "mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "flv", "ogv", "mpg", "mpeg", "m2ts", "3gp",
+        "mp4", "m4v", "webm", "mkv", "mov", "avi", "wmv", "asf", "flv", "ogv", "mpg", "mpeg", "vob", "m2ts", "3gp",
+        "rm", "rmvb",
     ]
     private static let audioExtensions: Set<String> = [
         "mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "wma", "aif", "aiff", "aifc", "caf",
+        "wv", "ape", "dts", "ac3",
     ]
     private static let typeScriptExtensions: Set<String> = ["ts", "mts", "cts"]
     private static let mpegTransportStreamExtensions: Set<String> = ["ts", "mts"]

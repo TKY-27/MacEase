@@ -6,10 +6,13 @@ struct PreviewConversionLimits: Equatable, Sendable {
         maximumAudioDuration: 30 * 60,
         maximumVideoDuration: 10 * 60,
         maximumInputBytes: 512 * 1024 * 1024)
+    // Unlike jobs, nobody supervises a preview conversion.
+    static let fallbackConversionTimeLimit = Duration.seconds(5 * 60)
 
     let maximumAudioDuration: TimeInterval
     let maximumVideoDuration: TimeInterval
     let maximumInputBytes: Int64
+    var maximumFallbackConversionTime = fallbackConversionTimeLimit
 
     func allowsFileSize(_ bytes: Int64) -> Bool {
         bytes > 0 && bytes <= maximumInputBytes
