@@ -18,7 +18,7 @@ final class StreamConsentTests: XCTestCase {
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.activityClosesAfterFailure = true
 
-        let first = try await runRotate([timecoded, plain], jobs: jobs, settings: store.planning)
+        let first = try await runSpeed([timecoded, plain], jobs: jobs, settings: store.planning)
         guard case .failed(.invalidInput(.unpreservedStreams([.timecode]))) = first.outcomes[0],
             case .succeeded = first.outcomes[1]
         else { return XCTFail("unexpected outcomes \(first.outcomes)") }
@@ -34,7 +34,7 @@ final class StreamConsentTests: XCTestCase {
         let panel = try XCTUnwrap(NSApp.windows.first { $0.title == "MacEase Activity" })
         XCTAssertTrue(panel.isVisible, "a pending choice stays visible despite closing after failure")
         XCTAssertEqual(try Data(contentsOf: timecoded), original)
-        XCTAssertEqual(try files(in: directory), ["engine", "plain.mp4", "plain_rotated.mp4", "timecoded.mov"])
+        XCTAssertEqual(try files(in: directory), ["engine", "plain.mp4", "plain_speed2x.mp4", "timecoded.mov"])
 
         let retried = try await continueAndWait(first.batchID, jobs: jobs)
         XCTAssertEqual(retried.request.inputs, [timecoded])
@@ -55,7 +55,7 @@ final class StreamConsentTests: XCTestCase {
         let timecoded = try await timecodedClip(in: directory)
         let original = try Data(contentsOf: timecoded)
         let (jobs, activity, store) = try makeActivity(in: directory)
-        let first = try await runRotate([timecoded], jobs: jobs, settings: store.planning)
+        let first = try await runSpeed([timecoded], jobs: jobs, settings: store.planning)
         XCTAssertTrue(jobs.canContinueWithoutStreams(first.batchID))
         let known = Set(jobs.sessions.keys)
 
@@ -79,7 +79,7 @@ final class StreamConsentTests: XCTestCase {
         }
         try FileManager.default.removeItem(at: source)
         let (jobs, activity, store) = try makeActivity(in: directory)
-        let first = try await runRotate(clips, jobs: jobs, settings: store.planning)
+        let first = try await runSpeed(clips, jobs: jobs, settings: store.planning)
         let session = try XCTUnwrap(jobs.sessions[first.batchID])
         let result = ActivityResult(first, awaitingConsent: session)
         XCTAssertEqual(result.status, .awaitingConfirmation)
@@ -102,7 +102,7 @@ final class StreamConsentTests: XCTestCase {
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.settings.outputMode = .newFile
         let options = try XCTUnwrap(
-            OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: store.planning))
+            OperationPlanner.options(for: .videoConvert, preset: "mkv", settings: store.planning))
         let outcome = await jobs.run(
             OperationRequest(op: .videoConvert, options: options, inputs: [broken, timecoded])
         ).value
@@ -125,7 +125,7 @@ final class StreamConsentTests: XCTestCase {
         let original = try Data(contentsOf: timecoded)
         let (jobs, activity, store) = try makeActivity(in: directory)
         store.settings.outputMode = .replace
-        let first = try await runRotate([timecoded], jobs: jobs, settings: store.planning)
+        let first = try await runSpeed([timecoded], jobs: jobs, settings: store.planning)
         let session = try XCTUnwrap(jobs.sessions[first.batchID])
         XCTAssertEqual(
             UserMessages.streamOmissionConsequence(
@@ -568,9 +568,9 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertTrue(model.submitted)
     }
 
-    private func runRotate(_ inputs: [URL], jobs: JobCenter, settings: Engine.Settings) async throws -> BatchOutcome {
-        let options = try XCTUnwrap(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
-        let outcome = await jobs.run(OperationRequest(op: .videoRotate, options: options, inputs: inputs)).value
+    private func runSpeed(_ inputs: [URL], jobs: JobCenter, settings: Engine.Settings) async throws -> BatchOutcome {
+        let options = try XCTUnwrap(OperationPlanner.options(for: .videoSpeed, preset: "2", settings: settings))
+        let outcome = await jobs.run(OperationRequest(op: .videoSpeed, options: options, inputs: inputs)).value
         return try XCTUnwrap(outcome)
     }
 

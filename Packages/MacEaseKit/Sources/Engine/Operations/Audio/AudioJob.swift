@@ -114,6 +114,9 @@ enum AudioJob {
             let kept = Set([audioTracks.first?.trackID].compactMap { $0 })
             let skipped = try await MediaInput.skippedStreams(in: asset, keeping: kept)
             found.formUnion(MediaInput.unpreservedStreams(from: skipped))
+            if try await asset.load(.metadata).contains(where: { $0.identifier?.rawValue == "uiso/chpl" }) {
+                found.insert(.chapter)
+            }
         }
         if input.container == .mp3 || input.container == .flac {
             found.formUnion(try unpreservedID3Streams(input.url))
@@ -306,17 +309,22 @@ enum AudioJob {
         async throws -> ItemResult
     {
         guard try fileSize(url) > bytes else { return .skipped(.alreadyDone) }
-        try await requirePreservableContent(input, context: context)
         guard let seconds = input.duration, seconds > 0 else { throw EngineError.decodeFailed("unknown duration") }
         var format = try compressedFormat(input, kilobits: nil)
         try format.validateLayout(input)
-        let tags = try await tags(of: input, context: context)
+        let initialCarryPlan = try await StreamRemuxer.plan(for: input, destination: format, preservesTiming: true)
+        try initialCarryPlan.requireConsent(omitting: context.omittedStreams, context: context)
+        let tags = try await tags(
+            of: input, omitting: context.omittedStreams.union(initialCarryPlan.carriedKinds), context: context)
         var supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
         var budget = bytes - tagBytes(tags, format: format)
         var planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
+        var carryPlan = initialCarryPlan
         if planned == nil, format == .mp3 {
             format = .m4aAAC
             try format.validateLayout(input)
+            carryPlan = try await StreamRemuxer.plan(for: input, destination: format, preservesTiming: true)
+            try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
             supported = try format.supportedKilobits(sampleRate: input.sampleRate, channels: input.channels)
             budget = bytes - tagBytes(tags, format: format)
             planned = AudioTargetSize.kilobits(forBytes: budget, seconds: seconds, supported: supported)
@@ -330,6 +338,8 @@ enum AudioJob {
             let staged = try context.stagingURL(for: url, name: outputName(for: url, format: format))
             try await encode(
                 input, to: AudioTarget(format: format, kilobits: kilobits), at: staged, tags: tags, context: context)
+            try await StreamRemuxer.apply(
+                carryPlan, to: staged, original: url, hasVideo: false, hasAudio: true, context: context)
             let size = try fileSize(staged)
             if size <= bytes {
                 return .replace(
@@ -410,7 +420,9 @@ enum AudioJob {
         _ url: URL, with input: AudioInput, target: AudioTarget, frames: Range<Int64>? = nil, gain: Float = 1,
         fade: FadeRamp? = nil, progressStart: Double = 0, context: ItemContext
     ) async throws -> ItemResult {
-        try await requirePreservableContent(input, context: context)
+        let carryPlan = try await StreamRemuxer.plan(
+            for: input, destination: target.format, preservesTiming: frames == nil)
+        try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
         try target.format.validateLayout(input)
         let maximumDepth = input.isFloat ? MemoryLayout<Float>.size * byteBits : Float.significandBitCount + 1
         if let depth = input.bitDepth, depth > maximumDepth, !target.format.isLossy {
@@ -419,7 +431,8 @@ enum AudioJob {
                     localized: "audio above 24-bit integer or 32-bit float precision to lossless output",
                     comment: "Refuses source precision loss"))
         }
-        let tags = try await tags(of: input, context: context)
+        let tags = try await tags(
+            of: input, omitting: context.omittedStreams.union(carryPlan.carriedKinds), context: context)
         if !tags.isEmpty, !target.format.holdsTags {
             guard context.settings.outputMode == .newFile else { throw EngineError.audioMetadataUnsupported }
             context.warn(.metadataDropped)
@@ -428,10 +441,14 @@ enum AudioJob {
         try await encode(
             input, to: target, at: staged, tags: tags, frames: frames, gain: gain, fade: fade,
             progressStart: progressStart, context: context)
+        try await StreamRemuxer.apply(
+            carryPlan, to: staged, original: url, hasVideo: false, hasAudio: true, context: context)
         return .replace(original: url, output: StagedFile(url: staged, name: staged.lastPathComponent, check: .audio))
     }
 
-    private static func tags(of input: AudioInput, context: ItemContext) async throws -> AudioTags {
+    private static func tags(
+        of input: AudioInput, omitting streams: Set<UnpreservedStream>, context: ItemContext
+    ) async throws -> AudioTags {
         let tags: AudioTags
         do {
             tags = try await input.tags()
@@ -444,7 +461,7 @@ enum AudioJob {
         }
         let losesMetadata: Bool
         do {
-            losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(input.url, omitting: context.omittedStreams)
+            losesMetadata = try await AudioMetadataLoss.hasUnsupportedTags(input.url, omitting: streams)
         } catch is CancellationError {
             throw CancellationError()
         } catch {

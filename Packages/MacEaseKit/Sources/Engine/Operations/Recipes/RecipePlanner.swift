@@ -24,12 +24,18 @@ public enum RecipePlanner {
 
     /// Videos whose recompressed copies would leave streams out.
     public static func streamOmissions(recipe: Recipe, inputs: [URL]) async throws -> [URL: StreamOmission] {
-        guard recipe.variants.contains(where: { $0.output.videoFormat != nil }) else { return [:] }
+        let targets = recipe.variants.compactMap { $0.output.videoFormat.flatMap(OutputContainer.init(rawValue:)) }
+        guard !targets.isEmpty else { return [:] }
         var omissions: [URL: StreamOmission] = [:]
         for input in inputs where FileKind(fileURL: input) == .video {
             let stamp = try MediaSourceStamp(url: input)
-            let streams = MediaInput.unpreservedStreams(from: try await MediaInput.open(input).skippedStreams)
-            if !streams.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: Set(streams)) }
+            let opened = try await MediaInput.open(input)
+            var omitted: Set<UnpreservedStream> = []
+            for target in Set(targets) {
+                let carryPlan = try await StreamRemuxer.plan(for: opened, destination: target, preservesTiming: true)
+                omitted.formUnion(carryPlan.uncarriableKinds)
+            }
+            if !omitted.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: omitted) }
         }
         return omissions
     }

@@ -144,4 +144,14 @@ public struct MediaDownloadTools: Sendable {
         }
         return try MediaDownloadTools(directory: resources.appending(path: "media-tools/bin"))
     }
+
+    /// CLI and test hosts override runtime path.
+    public static func resolved() throws -> MediaDownloadTools {
+        if let directory = ProcessInfo.processInfo.environment["MACEASE_MEDIA_TOOLS"],
+            Bundle.main.bundleIdentifier?.hasPrefix("io.github.tky27.MacEase") != true
+        {
+            return try MediaDownloadTools(directory: URL(filePath: directory))
+        }
+        return try bundled()
+    }
 }

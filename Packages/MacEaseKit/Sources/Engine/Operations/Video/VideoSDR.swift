@@ -50,7 +50,8 @@ enum VideoSDR {
         try Task.checkCancellation()
         guard try await classification(url) != .sdr else { return .skipped(.alreadySDR) }
         let input = try await MediaInput.open(url)
-        try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
+        let carryPlan = try await StreamRemuxer.plan(for: input, destination: input.container, preservesTiming: true)
+        try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
         guard case .asset(_, let track?, _) = input.backend, let source = input.video,
             supportedCodecs.contains(source.codec), input.container.fileType != nil
         else { throw EngineError.hdrConversionUnsupported }
@@ -82,6 +83,8 @@ enum VideoSDR {
         let name = url.lastPathComponent
         let output = try context.stagingURL(for: url, name: name)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await StreamRemuxer.apply(
+            carryPlan, to: output, original: url, hasVideo: true, hasAudio: input.audio != nil, context: context)
         try await VideoProperties.verify(plan, output: output, context: context)
         context.warn(.hdrProvenanceUnknown)
         if dolbyVision { context.warn(.dolbyVisionRemoved) }

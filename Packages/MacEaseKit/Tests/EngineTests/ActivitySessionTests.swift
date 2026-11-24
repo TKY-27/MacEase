@@ -488,8 +488,8 @@ struct ActivitySessionTests {
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         var settings = Settings()
         settings.outputMode = .newFile
-        let options = try #require(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
-        let request = OperationRequest(op: .videoRotate, options: options, inputs: [first, second])
+        let options = try #require(OperationPlanner.options(for: .videoSpeed, preset: "2", settings: settings))
+        let request = OperationRequest(op: .videoSpeed, options: options, inputs: [first, second])
         let initial = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
             _ in
         }
@@ -547,8 +547,8 @@ struct ActivitySessionTests {
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         var settings = Settings()
         settings.outputMode = .newFile
-        let options = try #require(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
-        let request = OperationRequest(op: .videoRotate, options: options, inputs: [first, second])
+        let options = try #require(OperationPlanner.options(for: .videoSpeed, preset: "2", settings: settings))
+        let request = OperationRequest(op: .videoSpeed, options: options, inputs: [first, second])
         let initial = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
             _ in
         }
@@ -582,7 +582,7 @@ struct ActivitySessionTests {
         let engine = try JobEngine(supportDirectory: support, concurrency: 1)
         var settings = Settings()
         settings.outputMode = .replace
-        let options = try #require(OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: settings))
+        let options = try #require(OperationPlanner.options(for: .videoConvert, preset: "mkv", settings: settings))
         let request = OperationRequest(op: .videoConvert, options: options, inputs: [clip])
         let outcome = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
             _ in

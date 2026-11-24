@@ -13,7 +13,8 @@ enum VideoEdits {
         }
         context.phase(.decoding)
         let input = try await MediaInput.open(url)
-        try input.requirePreservableStreams(omitting: context.omittedStreams, context: context)
+        if input.hasMultipleTracks { throw EngineError.invalidInput(.multipleTracks) }
+        _ = try VideoDisplayOrientation(input.transform)
         guard let source = input.video else { throw EngineError.invalidInput(.malformed("no video track")) }
         var plan: TranscodePlan
         do {
@@ -23,11 +24,17 @@ enum VideoEdits {
         } catch let skip as SkipError {
             return .skipped(skip.reason)
         }
+        let carryPlan = try await StreamRemuxer.plan(
+            for: input, destination: plan.container, preservesTiming: preservesTiming(operation: operation))
+        try carryPlan.requireConsent(omitting: context.omittedStreams, context: context)
         plan = try await VideoProperties.prepare(plan, input: input, context: context)
         let name = url.deletingPathExtension().lastPathComponent + "." + plan.container.fileExtension
         let output = try context.stagingURL(for: url, name: name)
         context.phase(.encoding)
         try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await StreamRemuxer.apply(
+            carryPlan, to: output, original: url, hasVideo: plan.video != nil,
+            hasAudio: plan.audio != nil && input.audio != nil, context: context)
         context.phase(.verifying)
         try await VideoProperties.verify(plan, output: output, context: context)
         if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
@@ -173,6 +180,17 @@ enum VideoEdits {
         return .groupedDerived(
             destination: url.deletingLastPathComponent().appending(path: name), sources: stamps,
             output: StagedFile(url: output, name: name, check: plan.toneMapToSDR ? .sdrVideo : .media))
+    }
+
+    private static func preservesTiming(operation: VideoOperation) -> Bool {
+        switch operation {
+        case .removeAudio, .convert, .rotate, .flip, .resize:
+            true
+        case .trim, .speed, .frameRate, .edit:
+            false
+        default:
+            false
+        }
     }
 
     private static func baked(_ input: MediaInput) throws -> FrameEdit {
