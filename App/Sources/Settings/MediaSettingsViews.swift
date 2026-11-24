@@ -133,7 +133,6 @@ struct ImageSettingsView: View {
 
 struct VideoSettingsView: View {
     @Bindable var store: SettingsStore
-    @State private var rejectedFrameRate = false
     @State private var rejectedAnimationRange = false
 
     private static let gifWidthRange = 16...3840
@@ -159,31 +158,6 @@ struct VideoSettingsView: View {
                 Toggle("Allow lower frame rate", isOn: $store.settings.video.allowFrameRateReduction)
             } header: {
                 Text("Target-Size Compression")
-            }
-            Section(String(localized: "Frame Rate Menu", comment: "Editable frame rate presets")) {
-                TextField(
-                    String(localized: "Film (fps)", comment: "Film frame rate slot"),
-                    value: frameRate(\.frameRateFilm),
-                    format: .number.grouping(.never))
-                TextField(
-                    String(localized: "Standard (fps)", comment: "Standard frame rate slot"),
-                    value: frameRate(\.frameRateStandard),
-                    format: .number.grouping(.never))
-                TextField(
-                    String(localized: "Smooth (fps)", comment: "Smooth frame rate slot"),
-                    value: frameRate(\.frameRateSmooth),
-                    format: .number.grouping(.never))
-                if rejectedFrameRate || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateFilm)
-                    || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateStandard)
-                    || !VideoSettings.frameRateRange.contains(store.settings.video.frameRateSmooth)
-                {
-                    Text(
-                        String(
-                            localized: "Frame rates must be between 1 and 120 fps.",
-                            comment: "Explains invalid frame rate")
-                    )
-                    .foregroundStyle(.red)
-                }
             }
             Section(String(localized: "Animated Images", comment: "Animation export defaults")) {
                 NumberField(
@@ -249,21 +223,10 @@ struct VideoSettingsView: View {
             if !rejectedAnimationRange { store.settings.video[keyPath: keyPath] = seconds }
         }
     }
-
-    private func frameRate(_ keyPath: WritableKeyPath<VideoSettings, Int>) -> Binding<Int> {
-        Binding {
-            store.settings.video[keyPath: keyPath]
-        } set: { rate in
-            rejectedFrameRate = !VideoSettings.frameRateRange.contains(rate)
-            if !rejectedFrameRate { store.settings.video[keyPath: keyPath] = rate }
-        }
-    }
-
 }
 
 struct AudioSettingsView: View {
     @Bindable var store: SettingsStore
-    @State private var rejectedLoudness = false
 
     nonisolated fileprivate static let mp3Bitrates = [64, 96, 128, 160, 192, 224, 256, 320]
     nonisolated fileprivate static let aacBitrates = [64, 96, 128, 160, 192, 256, 320]
@@ -294,26 +257,6 @@ struct AudioSettingsView: View {
                 }
             }
             Section {
-                TextField(
-                    String(localized: "Standard (LUFS)", comment: "Standard loudness preset"),
-                    value: loudness(\.loudnessTarget), format: .number)
-                TextField(
-                    String(localized: "Streaming (LUFS)", comment: "Streaming loudness preset"),
-                    value: loudness(\.loudnessStreaming), format: .number)
-                TextField(
-                    String(localized: "Broadcast (LUFS)", comment: "Broadcast loudness preset"),
-                    value: loudness(\.loudnessBroadcast), format: .number)
-                if rejectedLoudness || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessTarget)
-                    || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessStreaming)
-                    || !AudioSettings.loudnessRange.contains(store.settings.audio.loudnessBroadcast)
-                {
-                    Text(
-                        String(
-                            localized: "Loudness targets must be between −40 and −5 LUFS.",
-                            comment: "Explains invalid loudness")
-                    )
-                    .foregroundStyle(.red)
-                }
                 Picker(
                     String(localized: "Extracted audio bitrate", comment: "Saved audio extraction rate"),
                     selection: $store.settings.audio.extractedAudioBitrate
@@ -331,15 +274,6 @@ struct AudioSettingsView: View {
                     }
                 }
             }
-        }
-    }
-
-    private func loudness(_ keyPath: WritableKeyPath<AudioSettings, Double>) -> Binding<Double> {
-        Binding {
-            store.settings.audio[keyPath: keyPath]
-        } set: { target in
-            rejectedLoudness = !AudioSettings.loudnessRange.contains(target)
-            if !rejectedLoudness { store.settings.audio[keyPath: keyPath] = target }
         }
     }
 

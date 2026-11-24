@@ -808,22 +808,6 @@
         }
       }
     },
-    "Show at Top Level": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show at Top Level"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トップに表示"
-          }
-        }
-      }
-    },
     "AI rename in the Finder menu.": {
       "localizations": {
         "en": {
@@ -3247,17 +3231,6 @@
         }
       }
     },
-    "Frame Rate Menu": {
-      "comment": "Editable frame rate presets",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フレームレートメニュー"
-          }
-        }
-      }
-    },
     "Frame rate (fps)": {
       "localizations": {
         "ja": {
@@ -3454,16 +3427,6 @@
         }
       }
     },
-    "Hidden items stay available in Settings. Unsupported items never appear.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示の項目は設定で引き続き利用できます。対応していない項目は表示されません。"
-          }
-        }
-      }
-    },
     "Hide %@": {
       "comment": "Collapse a group of options",
       "localizations": {
@@ -3471,16 +3434,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ を非表示"
-          }
-        }
-      }
-    },
-    "Hide All": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて非表示"
           }
         }
       }
@@ -4300,27 +4253,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メディアのパケットが大きすぎます"
-          }
-        }
-      }
-    },
-    "Menu Items": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニュー項目"
-          }
-        }
-      }
-    },
-    "Menu Values": {
-      "comment": "Editable Finder menu values",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューの値"
           }
         }
       }
@@ -5513,17 +5445,6 @@
         }
       }
     },
-    "Reset to default": {
-      "comment": "Menu value reset button",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルトに戻す"
-          }
-        }
-      }
-    },
     "Resize": {
       "comment": "Size panel action",
       "localizations": {
@@ -5901,16 +5822,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder で %@ の結果を表示"
-          }
-        }
-      }
-    },
-    "Show All": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてを表示"
           }
         }
       }
@@ -18366,6 +18277,314 @@
           "stringUnit": {
             "state": "translated",
             "value": "許可済み"
+          }
+        }
+      }
+    },
+    "Menu for": {
+      "comment": "Finder menu organizer scope picker",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象"
+          }
+        }
+      }
+    },
+    "Commands": {
+      "comment": "Finder menu organizer scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
+          }
+        }
+      }
+    },
+    "MacEase Menu": {
+      "comment": "Finder menu organizer section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseメニュー"
+          }
+        }
+      }
+    },
+    "Hidden": {
+      "comment": "Finder menu organizer section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示"
+          }
+        }
+      }
+    },
+    "Drag items here to hide them.": {
+      "comment": "Empty Hidden section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグすると非表示になります。"
+          }
+        }
+      }
+    },
+    "Drag items here to show them in the MacEase menu.": {
+      "comment": "Empty MacEase Menu section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグするとMacEaseメニューに表示されます。"
+          }
+        }
+      }
+    },
+    "Drag items here to show them in More.": {
+      "comment": "Empty More section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグすると「その他」に表示されます。"
+          }
+        }
+      }
+    },
+    "Drag items here to show them in the Finder menu.": {
+      "comment": "Empty Finder Menu section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグするとFinderメニューに表示されます。"
+          }
+        }
+      }
+    },
+    "%lld of %lld items": {
+      "comment": "Checked leaves of a menu group",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld項目中%1$lld項目"
+          }
+        }
+      }
+    },
+    "Options…": {
+      "comment": "Opens the values of a Finder menu item",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オプション…"
+          }
+        }
+      }
+    },
+    "Options for %@": {
+      "comment": "Finder menu organizer button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のオプション"
+          }
+        }
+      }
+    },
+    "Move To": {
+      "comment": "Finder menu organizer pull-down",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動先"
+          }
+        }
+      }
+    },
+    "Move to %@": {
+      "comment": "Finder menu organizer command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に移動"
+          }
+        }
+      }
+    },
+    "Hide": {
+      "comment": "Finder menu organizer command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示にする"
+          }
+        }
+      }
+    },
+    "Show": {
+      "comment": "Finder menu organizer command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示する"
+          }
+        }
+      }
+    },
+    "Restore the default %@ menu?": {
+      "comment": "Finder menu organizer confirmation",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のメニューをデフォルトに戻しますか？"
+          }
+        }
+      }
+    },
+    "Item order, visibility and checked items return to their defaults. Options values are kept.": {
+      "comment": "Finder menu organizer confirmation detail",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目の順序、表示、チェックがデフォルトに戻ります。オプションの値はそのまま残ります。"
+          }
+        }
+      }
+    },
+    "Restore": {
+      "comment": "Destructive confirmation button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻す"
+          }
+        }
+      }
+    },
+    "Appears when an update is available.": {
+      "comment": "Fixed Finder menu item note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあるときに表示されます。"
+          }
+        }
+      }
+    },
+    "Folder background only.": {
+      "comment": "Fixed Finder menu item note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの背景でのみ表示されます。"
+          }
+        }
+      }
+    },
+    "Mixed selections show these items in a submenu for each kind.": {
+      "comment": "Finder menu organizer footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類の異なる項目を選択した場合は、種類ごとのサブメニューに表示されます。"
+          }
+        }
+      }
+    },
+    "%@ moved to %@, position %lld": {
+      "comment": "VoiceOver announcement after a move",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@を%2$@の%3$lld番目に移動しました"
+          }
+        }
+      }
+    },
+    "%lld items moved to %@": {
+      "comment": "VoiceOver announcement after a move",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld項目を%2$@に移動しました"
+          }
+        }
+      }
+    },
+    "%@, %lld of %lld": {
+      "comment": "VoiceOver value: section and position",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%3$lld項目中%2$lld番目"
+          }
+        }
+      }
+    },
+    "Update Available": {
+      "comment": "Finder menu command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあります"
+          }
+        }
+      }
+    },
+    "Applies to images and videos.": {
+      "comment": "Extra rotation angle scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像と動画の両方に適用されます。"
+          }
+        }
+      }
+    },
+    "Edited values replace the menu items in place.": {
+      "comment": "Menu options footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集した値はメニュー項目に反映されます。"
+          }
+        }
+      }
+    },
+    "Hide it instead to remove it from the menu.": {
+      "comment": "Last checked leaf help",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューから外すには非表示にしてください。"
           }
         }
       }

@@ -112,4 +112,17 @@ final class MenuArrangementStoreTests: XCTestCase {
             ]))
         XCTAssertEqual(store.settings.menuValues, values)
     }
+
+    func testDefaultStateTracksOrderAndLeavesPerScope() throws {
+        let store = SettingsStore(defaults: try makeDefaults())
+        store.restoreMenuDefaults(.image)
+        XCTAssertTrue(store.isMenuDefault(.image))
+        store.hiddenEntries.insert("image.convert/png")
+        XCTAssertFalse(store.isMenuDefault(.image))
+        store.restoreMenuDefaults(.image)
+        store.rearrangeMenu(.image) { $0.moveDown([self.convert]) }
+        XCTAssertFalse(store.isMenuDefault(.image))
+        store.restoreMenuDefaults(.image)
+        XCTAssertTrue(store.isMenuDefault(.image))
+    }
 }

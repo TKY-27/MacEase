@@ -177,6 +177,12 @@ final class SettingsStore {
         menuArrangement.restoreDefaults(scope)
     }
 
+    func isMenuDefault(_ scope: MenuScope) -> Bool {
+        let keys = MenuGroupCatalog.current.groups(in: scope).flatMap(\.entryKeys)
+        return !menuArrangement.isCustomized(scope)
+            && keys.allSatisfy { hiddenEntries.contains($0) == Self.newInstallHiddenEntries.contains($0) }
+    }
+
     /// Extra angle counts only while enabled.
     private func visibleLeafKeys(of group: MenuGroupID) -> [String] {
         group.entryKeys.filter { settings.extraRotationEnabled || !$0.hasSuffix("/\(OperationID.extraAnglePreset)") }
