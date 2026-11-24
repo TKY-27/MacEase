@@ -179,8 +179,9 @@ public final class JobEngine: Sendable {
                         try ActivitySession.validate(input, stamp: stamp)
                     }
                 }
-                if !workItem.durableArchive { try Self.downloadIfNeeded(workItem.inputs) }
-                for input in workItem.inputs where !workItem.durableArchive {
+                let scansInputs = !workItem.durableArchive && !workItem.managesInputStamps
+                if scansInputs { try Self.downloadIfNeeded(workItem.inputs) }
+                for input in workItem.inputs where scansInputs {
                     var metadata = stat()
                     guard lstat(input.path, &metadata) == 0 else {
                         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)

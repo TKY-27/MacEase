@@ -57,13 +57,18 @@ public enum OperationPlanner {
     }
 
     private static func plannedBatch(for request: OperationRequest, settings: Settings) -> Batch {
-        let inputs = targeted(request.inputs, kind: request.op.kind)
+        let inputs: [URL]
         let usesResolvedInputs: Bool
         switch request.options {
         case .rename(_), .folder(.removeDuplicates(_, _)), .folder(.removeEmpty(_, _)),
             .folder(.exportAnalysis(_, _)):
+            inputs = targeted(request.inputs, kind: request.op.kind)
             usesResolvedInputs = true
+        case .folder(.newFile(_)):
+            inputs = request.inputs
+            usesResolvedInputs = false
         default:
+            inputs = targeted(request.inputs, kind: request.op.kind)
             usesResolvedInputs = false
         }
         if (!usesResolvedInputs && inputs.count < request.op.minimumSelection)

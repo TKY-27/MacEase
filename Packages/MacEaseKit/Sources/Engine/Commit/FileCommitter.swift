@@ -194,7 +194,7 @@ struct FileCommitter: Sendable {
             Set(outputs.map(\.name)).count == outputs.count
         else { throw EngineError.invalidInput(.malformed("Invalid output group")) }
         let base = AvailableName.split(primary.name).base
-        guard outputs.allSatisfy({ $0.name.hasPrefix(base + ".") }) else {
+        guard outputs.count == 1 || outputs.allSatisfy({ $0.name.hasPrefix(base + ".") }) else {
             throw EngineError.invalidInput(.malformed("Output group names do not match"))
         }
         phase(.verifying)

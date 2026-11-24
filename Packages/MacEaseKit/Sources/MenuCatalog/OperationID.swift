@@ -50,6 +50,7 @@ public enum OperationID: String, Codable, CaseIterable, Sendable {
     case folderAnalyze = "folder.analyze"
     case folderCompress = "folder.compress"
     case folderOrganize = "folder.organize"
+    case folderNewFile = "folder.newFile"
 
     case archiveExtract = "archive.extract"
     case archiveHatchExtract = "archive.hatchExtract"
@@ -190,7 +191,7 @@ extension OperationID {
     public var maximumSelection: Int? {
         switch self {
         case .audioTrim, .pdfExtractPages, .pdfEditPages, .imageTraceSVG,
-            .archiveBrowse, .folderDownloadMedia, .imageEnhance, .audioEnhance,
+            .archiveBrowse, .folderDownloadMedia, .folderNewFile, .imageEnhance, .audioEnhance,
             .anyFindRelated, .anyProtect:
             1
         case .anyShare: 20
