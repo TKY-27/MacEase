@@ -1,408 +1,354 @@
 import Engine
 import MenuCatalog
 import SwiftUI
-import os
 
 struct FinderMenuSettingsView: View {
     @Bindable var store: SettingsStore
     let supportDirectory: URL
 
-    @State private var editsPresets = false
-
-    private static let kinds: [FileKind] = [
-        .image, .video, .audio, .pdf, .text, .document, .plist, .folder, .archive, .jar, .any,
-    ]
-
-    /// Adjacent slots sharing an operation and unit.
-    private static let slotRows: [[MenuValueSlot]] = MenuValues.slots.reduce(into: []) { rows, slot in
-        if let last = rows.last?.last, last.unit == slot.unit, last.operation == slot.operation {
-            rows[rows.count - 1].append(slot)
-        } else {
-            rows.append([slot])
-        }
-    }
+    @State private var scope = MenuScope.image
+    @State private var selection: Set<MenuGroupID> = []
+    @State private var expanded: Set<MenuGroupID> = []
+    @State private var options: MenuGroupOptions?
+    @State private var confirmsRestore = false
 
     var body: some View {
-        let titles = MenuStrings.titles(settings: store.planning)
-        let catalog = MenuFile(
-            token: "", hostAvailable: true, visibleOperations: OperationID.menuOrder,
-            titles: MenuTitles(operation: titles.operation, preset: titles.preset, kind: titles.kind),
-            extraRotationDegrees: store.settings.extraRotationEnabled ? store.settings.extraRotationDegrees : nil)
-        Form {
-            Section {
-                ForEach(Self.kinds, id: \.self) { kind in
-                    MenuTreeRow(name: MenuStrings.kind(kind), sources: visibility(of: kind.menuOperations)) {
-                        Text(MenuStrings.kind(kind))
-                    } children: {
-                        let entries = catalog.entries.filter { $0.kind == kind }
-                        let groups = entries.reduce(into: [String]()) { groups, entry in
-                            if groups.last != entry.resolvedGroupID { groups.append(entry.resolvedGroupID) }
-                        }
-                        ForEach(groups, id: \.self) { groupID in
-                            groupRow(entries.filter { $0.resolvedGroupID == groupID })
-                        }
-                    }
-                }
-                .toggleStyle(.checkbox)
-            } header: {
-                Text("Menu Items")
-            } footer: {
-                HStack {
-                    Text("Hidden items stay available in Settings. Unsupported items never appear.")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Hide All") { store.hiddenEntries = Set(OperationID.allCases.flatMap(\.menuEntryKeys)) }
-                        .disabled(store.hiddenEntries.isSuperset(of: OperationID.allCases.flatMap(\.menuEntryKeys)))
-                    Button("Show All") { store.hiddenEntries = [] }
-                        .disabled(store.hiddenEntries.isEmpty)
-                }
-            }
-            Section {
-                ForEach(Self.slotRows, id: \.first?.id) { slots in
-                    MenuValueRow(store: store, slots: slots)
-                }
-                Toggle(isOn: $store.settings.extraRotationEnabled) {
-                    Text("Extra angle")
-                    Text("Adds one more angle to Rotate.")
-                }
-                .accessibilityLabel(Text("Extra angle"))
-                .accessibilityHint(Text("Adds one more angle to Rotate."))
-                if store.settings.extraRotationEnabled {
-                    ExtraAngleRow(store: store)
-                }
-            } header: {
-                Text(String(localized: "Menu Values", comment: "Editable Finder menu values"))
-            } footer: {
-                Text(
-                    String(
-                        localized: "Edited values replace the menu items in place. Sizes use 1 MB = 1,000,000 bytes.",
-                        comment: "Editable Finder menu values footer")
-                )
-                .foregroundStyle(.secondary)
-            }
-            Section {
-                LabeledContent {
-                    Button("Edit Presets…") { editsPresets = true }
-                } label: {
-                    Text("Platform presets")
-                    Text("Size limits for Discord, X, Instagram and other Compress items.")
-                }
-            }
-        }
-        .sheet(isPresented: $editsPresets) {
-            PresetSheet(store: store, supportDirectory: supportDirectory)
-        }
-    }
-
-    @ViewBuilder private func groupRow(_ entries: [MenuEntry]) -> some View {
-        if let first = entries.first, let title = first.path.first {
-            if first.path.count == 1, first.kind == .any || first.op == .folderDownloadMedia {
-                Toggle(title, isOn: visibility(of: first.op.menuEntryKey(first.preset ?? "")))
-                    .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 2)
-            } else {
-                MenuTreeRow(
-                    name: title, sources: entries.map { visibility(of: $0.op.menuEntryKey($0.preset ?? "")) }, depth: 1
-                ) {
-                    Text(title)
-                } children: {
-                    if first.kind != .any, first.op != .folderDownloadMedia {
-                        Toggle("Show at Top Level", isOn: placement(of: first))
-                            .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
-                    }
-                    ForEach(entries, id: \.self) { entry in
-                        if entry.path.count > 1, let title = entry.path.last {
-                            Toggle(title, isOn: visibility(of: entry.op.menuEntryKey(entry.preset ?? "")))
-                                .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
-                        }
-                    }
-                    if let note = requirementNote(first.op) {
-                        Text(note).font(.caption).foregroundStyle(.secondary)
-                            .padding(.leading, MenuTreeRow<Text, EmptyView>.indent * 3)
-                    }
-                }
-            }
-        }
-    }
-
-    private func placement(of entry: MenuEntry) -> Binding<Bool> {
-        Binding {
-            (store.menuPlacements[entry.resolvedGroupID] ?? entry.op.defaultMenuPlacement) == .primary
-        } set: { primary in
-            store.menuPlacements[entry.resolvedGroupID] = primary ? .primary : .more
-        }
-    }
-
-    private func visibility(of operations: [OperationID]) -> [Binding<Bool>] {
-        operations.flatMap { op in
-            op.menuPresetIDs.isEmpty ? op.menuEntryKeys : shownPresets(of: op).map(op.menuEntryKey)
-        }
-        .map(visibility(of:))
-    }
-
-    /// The extra angle exists only while enabled.
-    private func shownPresets(of op: OperationID) -> [String] {
-        op.menuPresetIDs.filter { $0 != OperationID.extraAnglePreset || store.settings.extraRotationEnabled }
-    }
-
-    private func visibility(of key: String) -> Binding<Bool> {
-        Binding {
-            !store.hiddenEntries.contains(key)
-        } set: { visible in
-            if visible {
-                store.hiddenEntries.remove(key)
-            } else {
-                store.hiddenEntries.insert(key)
-            }
-        }
-    }
-
-    private func requirementNote(_ op: OperationID) -> String? {
-        switch op.requirement {
-        case .appleIntelligence:
-            String(localized: "Requires Apple Intelligence", comment: "Menu item visibility note")
-        case .java:
-            String(localized: "Requires a Java runtime", comment: "Menu item visibility note")
-        case nil: nil
-        }
-    }
-}
-
-/// DisclosureGroup hides a Toggle label from VoiceOver.
-private struct MenuTreeRow<Label: View, Children: View>: View {
-    static var indent: CGFloat { 22 }
-
-    let name: String
-    let sources: [Binding<Bool>]
-    var depth = 0
-    @ViewBuilder let label: Label
-    @ViewBuilder let children: Children
-
-    @State private var isExpanded = false
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button {
-                isExpanded.toggle()
-            } label: {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .foregroundStyle(.secondary)
-                    .frame(width: Self.indent)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(
-                isExpanded
-                    ? Text("Hide items in \(name)", comment: "Finder Menu tree collapse button")
-                    : Text("Show items in \(name)", comment: "Finder Menu tree expand button"))
-            Toggle(sources: sources, isOn: \.self) { label }
-        }
-        .padding(.leading, CGFloat(depth) * Self.indent)
-        if isExpanded { children }
-    }
-}
-
-private struct PresetSheet: View {
-    let store: SettingsStore
-    let supportDirectory: URL
-    @Environment(\.dismiss) private var dismiss
-
-    private static let width: CGFloat = 520
-    private static let height: CGFloat = 560
-
-    var body: some View {
+        let arrangement = store.menuScope(scope)
+        let contents = MenuGroupContent.all(store: store)
         VStack(spacing: 0) {
-            PresetSettingsView(store: store, supportDirectory: supportDirectory)
-                .formStyle(.grouped)
-            Divider()
             HStack {
+                Picker("Menu for", selection: $scope) {
+                    Text(MenuScope.commands.title).tag(MenuScope.commands)
+                    Divider()
+                    ForEach(FileKind.menuOrder, id: \.self) { kind in
+                        Text(MenuScope(kind).title).tag(MenuScope(kind))
+                    }
+                }
+                .fixedSize()
                 Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            List(selection: $selection) {
+                ForEach(arrangement.rows, id: \.self) { row in
+                    switch row {
+                    case .header(let section):
+                        Text(section.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityAddTraits(.isHeader)
+                            .selectionDisabled(true)
+                    case .placeholder(let section):
+                        Text(section.placeholder)
+                            .foregroundStyle(.secondary)
+                            .selectionDisabled(true)
+                    case .group(let group):
+                        groupRow(group, content: contents[group], arrangement: arrangement)
+                            .tag(group)
+                    }
+                }
+                // Movable headers: fixed rows block adjacent drops.
+                .onMove { offsets, destination in
+                    let moving = offsets.compactMap { offset -> MenuGroupID? in
+                        if case .group(let group) = arrangement.rows[offset] { group } else { nil }
+                    }
+                    rearrange(moving) { $0.move(fromOffsets: offsets, toOffset: destination) }
+                }
+            }
+            .listStyle(.inset)
+            .contextMenu(forSelectionType: MenuGroupID.self) { groups in
+                commands(for: arrangement.groups.filter(groups.contains), in: arrangement)
+            } primaryAction: { groups in
+                guard groups.count == 1, let group = groups.first else { return }
+                options = MenuGroupOptions(group)
+            }
+            if scope != .commands, scope != .any {
+                Text("Mixed selections show these items in a submenu for each kind.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.top, Self.footerSpacing)
+            }
+            HStack {
+                Button("Restore Defaults…") { confirmsRestore = true }
+                    .disabled(store.isMenuDefault(scope))
+                Spacer()
+                let selected = arrangement.groups.filter(selection.contains)
+                Button("Move Up") { moveUp(selected) }
+                    .keyboardShortcut(.upArrow, modifiers: [.option, .command])
+                    .disabled(selected.isEmpty)
+                Button("Move Down") { moveDown(selected) }
+                    .keyboardShortcut(.downArrow, modifiers: [.option, .command])
+                    .disabled(selected.isEmpty)
+                Menu("Move To") {
+                    ForEach(scope.sections, id: \.self) { section in
+                        Button(section.title) { move(selected, to: section) }
+                            .disabled(selected.allSatisfy { arrangement.section(of: $0) == section })
+                    }
+                }
+                .fixedSize()
+                .disabled(selected.isEmpty)
             }
             .padding()
         }
-        .frame(width: Self.width, height: Self.height)
-    }
-}
-
-private struct MenuValueRow: View {
-    @Bindable var store: SettingsStore
-    let slots: [MenuValueSlot]
-    /// Typed text per slot, kept while invalid.
-    @State private var drafts: [String: String] = [:]
-
-    private static let fieldWidth: CGFloat = 56
-    private static let spacing: CGFloat = 6
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Self.spacing) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading) {
-                    Text(title)
-                    Text(unitName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                ResetButton(name: title, isDisabled: isDefault) {
-                    for slot in slots { store.settings.menuValues.reset(slot.id) }
-                    drafts = [:]
-                }
+        .sheet(item: $options) { options in
+            MenuOptionsSheet(store: store, options: options, supportDirectory: supportDirectory)
+        }
+        .confirmationDialog(
+            Text("Restore the default \(scope.title) menu?", comment: "Finder menu organizer confirmation"),
+            isPresented: $confirmsRestore
+        ) {
+            Button("Restore", role: .destructive) {
+                store.restoreMenuDefaults(scope)
+                selection = []
             }
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: Self.fieldWidth), spacing: Self.spacing)],
-                alignment: .leading, spacing: Self.spacing
-            ) {
-                ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
-                    TextField(text: text(of: slot)) {
-                        Text(verbatim: "\(unitName) \(index + 1)")
+        } message: {
+            Text("Item order, visibility and checked items return to their defaults. Options values are kept.")
+        }
+        .onChange(of: scope) {
+            selection = []
+            expanded = []
+        }
+    }
+
+    private static let footerSpacing: CGFloat = 6
+
+    private func groupRow(
+        _ group: MenuGroupID, content: MenuGroupContent?, arrangement: ScopeArrangement
+    ) -> some View {
+        let title = content?.title ?? group.rawValue
+        let note = note(for: group, content: content)
+        let section = arrangement.section(of: group) ?? .hidden
+        let position = String(
+            localized:
+                "\(section.title), \((arrangement[section].firstIndex(of: group) ?? 0) + 1) of \(arrangement[section].count)",
+            comment: "VoiceOver value: section and position")
+        return MenuGroupRow(
+            title: title, note: note, accessibilityValue: [position, note].compactMap(\.self).joined(separator: ", "),
+            leaves: content?.leaves ?? [], hiddenEntries: $store.hiddenEntries,
+            isExpanded: Binding {
+                expanded.contains(group)
+            } set: { isExpanded in
+                if isExpanded { expanded.insert(group) } else { expanded.remove(group) }
+            },
+            openOptions: MenuGroupOptions(group).map { groupOptions in { options = groupOptions } }
+        ) {
+            commands(for: [group], in: arrangement)
+        }
+    }
+
+    private func note(for group: MenuGroupID, content: MenuGroupContent?) -> String? {
+        if group == MenuGroupID(.update) {
+            return String(localized: "Appears when an update is available.")
+        }
+        if group.rawValue == OperationID.folderDownloadMedia.menuGroupID(preset: nil) {
+            return String(localized: "Folder background only.")
+        }
+        switch content?.operation?.requirement {
+        case .appleIntelligence:
+            return String(localized: "Requires Apple Intelligence", comment: "Menu item visibility note")
+        case .java:
+            return String(localized: "Requires a Java runtime", comment: "Menu item visibility note")
+        case nil:
+            guard let leaves = content?.leaves, leaves.count > 1 else { return nil }
+            let shown = leaves.filter { !store.hiddenEntries.contains($0.key) }.count
+            return String(localized: "\(shown) of \(leaves.count) items", comment: "Checked leaves of a menu group")
+        }
+    }
+
+    @ViewBuilder private func commands(for groups: [MenuGroupID], in arrangement: ScopeArrangement) -> some View {
+        if !groups.isEmpty {
+            Button("Move Up") { moveUp(groups) }
+            Button("Move Down") { moveDown(groups) }
+            Divider()
+            ForEach(scope.sections.filter { $0 != .hidden }, id: \.self) { section in
+                if !groups.allSatisfy({ arrangement.section(of: $0) == section }) {
+                    Button(String(localized: "Move to \(section.title)", comment: "Finder menu organizer command")) {
+                        move(groups, to: section)
                     }
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        if slots.contains(where: { !isValid(drafts[$0.id], for: $0) }) {
-            Text(
-                String(
-                    localized:
-                        "Use whole numbers from \(slots[0].range.lowerBound.formatted()) to \(slots[0].range.upperBound.formatted()).",
-                    comment: "Explains an invalid menu value")
-            )
-            .foregroundStyle(.red)
-        }
-    }
-
-    private var op: OperationID? { slots[0].operation }
-
-    private var title: String {
-        guard let op else { return slots[0].id }
-        return String(
-            localized: "\(MenuStrings.kind(op.kind)) ▸ \(MenuStrings.operationName(op))",
-            comment: "Menu value row: kind and operation")
-    }
-
-    private var unitName: String {
-        switch slots[0].unit {
-        case .percent: String(localized: "Percentages", comment: "Menu value unit")
-        case .pixels where op == .imageResize: String(localized: "Long edge in pixels", comment: "Menu value unit")
-        case .pixels: String(localized: "Height in pixels", comment: "Menu value unit")
-        case .megabytes: String(localized: "Target sizes in MB", comment: "Menu value unit")
-        }
-    }
-
-    private var isDefault: Bool {
-        slots.allSatisfy {
-            store.settings.menuValues.value(for: $0.id) == $0.defaultValue && isValid(drafts[$0.id], for: $0)
-        }
-    }
-
-    private func isValid(_ draft: String?, for slot: MenuValueSlot) -> Bool {
-        draft.map { Int($0).map(slot.range.contains) ?? false } ?? true
-    }
-
-    private func text(of slot: MenuValueSlot) -> Binding<String> {
-        Binding {
-            drafts[slot.id] ?? String(store.settings.menuValues.value(for: slot.id) ?? slot.defaultValue)
-        } set: { text in
-            drafts[slot.id] = text
-            guard isValid(text, for: slot), let value = Int(text) else { return }
-            var values = store.settings.menuValues
-            do {
-                try values.set(value, for: slot.id)
-                store.settings.menuValues = values
-            } catch {
-                Logger(category: "settings").error("Validated menu value rejected for \(slot.id, privacy: .public)")
+            if groups.contains(where: { arrangement.section(of: $0) != .hidden }) {
+                Button("Hide") { move(groups, to: .hidden) }
+            }
+            if groups.contains(where: { arrangement.section(of: $0) == .hidden }) {
+                Button("Show") { rearrange(groups) { $0.show(groups) } }
+            }
+            if groups.count == 1, let group = groups.first, let groupOptions = MenuGroupOptions(group) {
+                Divider()
+                Button("Options…") { options = groupOptions }
             }
         }
     }
+
+    private func move(_ groups: [MenuGroupID], to section: MenuSection) {
+        rearrange(groups) { $0.move(groups, to: section) }
+    }
+
+    private func moveUp(_ groups: [MenuGroupID]) {
+        rearrange(groups) { $0.moveUp(groups) }
+    }
+
+    private func moveDown(_ groups: [MenuGroupID]) {
+        rearrange(groups) { $0.moveDown(groups) }
+    }
+
+    private func rearrange(_ groups: [MenuGroupID], _ change: (inout ScopeArrangement) -> Void) {
+        let before = store.menuScope(scope)
+        store.rearrangeMenu(scope, change)
+        let after = store.menuScope(scope)
+        guard before != after, let first = groups.first, let section = after.section(of: first) else { return }
+        let message =
+            if groups.count == 1 {
+                String(
+                    localized:
+                        "\(MenuGroupContent.title(of: first, store: store)) moved to \(section.title), position \((after[section].firstIndex(of: first) ?? 0) + 1)",
+                    comment: "VoiceOver announcement after a move")
+            } else {
+                String(
+                    localized: "\(groups.count) items moved to \(section.title)",
+                    comment: "VoiceOver announcement after a move")
+            }
+        AccessibilityNotification.Announcement(message).post()
+    }
 }
 
-private struct ExtraAngleRow: View {
-    @Bindable var store: SettingsStore
-    @State private var draft: String?
+private struct MenuGroupRow<Actions: View>: View {
+    let title: String
+    let note: String?
+    let accessibilityValue: String
+    let leaves: [MenuLeaf]
+    @Binding var hiddenEntries: Set<String>
+    @Binding var isExpanded: Bool
+    let openOptions: (() -> Void)?
+    @ViewBuilder let actions: Actions
 
-    private static let defaultDegrees = Settings().extraRotationDegrees
-    private static let fieldWidth: CGFloat = 64
-    private static let spacing: CGFloat = 6
+    private static var disclosureWidth: CGFloat { 16 }
+    private static var leafIndent: CGFloat { 22 }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: Self.spacing) {
-            LabeledContent {
-                HStack(spacing: Self.spacing) {
-                    TextField(text: degrees) { Text("Angle") }
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: Self.fieldWidth)
-                    Text(verbatim: "°")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
+        VStack(alignment: .leading) {
+            HStack {
+                ZStack {
+                    if leaves.count > 1 {
+                        Button {
+                            isExpanded.toggle()
+                        } label: {
+                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(
+                            isExpanded
+                                ? Text("Hide items in \(title)", comment: "Finder Menu tree collapse button")
+                                : Text("Show items in \(title)", comment: "Finder Menu tree expand button"))
+                    }
                 }
-            } label: {
-                Text("Angle")
+                .frame(width: Self.disclosureWidth)
+                HStack {
+                    Text(title)
+                    Spacer()
+                    if let note {
+                        Text(note).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(title)
+                .accessibilityValue(accessibilityValue)
+                .accessibilityActions { actions }
+                if let openOptions {
+                    Button("Options…", action: openOptions)
+                        .controlSize(.small)
+                        .accessibilityLabel(Text("Options for \(title)", comment: "Finder menu organizer button"))
+                }
             }
-            ResetButton(
-                name: String(localized: "Angle"),
-                isDisabled: store.settings.extraRotationDegrees == Self.defaultDegrees
-                    && draft.map { Self.degrees(from: $0) != nil } ?? true
-            ) {
-                store.settings.extraRotationDegrees = Self.defaultDegrees
-                draft = nil
+            if isExpanded {
+                ForEach(leaves, id: \.key) { leaf in
+                    let isLastShown = !hiddenEntries.contains(leaf.key) && shownCount == 1
+                    Toggle(leaf.title, isOn: visibility(of: leaf))
+                        .toggleStyle(.checkbox)
+                        .disabled(isLastShown)
+                        .help(isLastShown ? String(localized: "Hide it instead to remove it from the menu.") : "")
+                        .padding(.leading, Self.disclosureWidth + Self.leafIndent)
+                }
             }
-        }
-        if draft.map({ Self.degrees(from: $0) == nil }) ?? false {
-            Text(
-                String(
-                    localized:
-                        "Use degrees from \(Settings.extraRotationRange.lowerBound.formatted()) to \(Settings.extraRotationRange.upperBound.formatted()).",
-                    comment: "Explains an invalid extra rotation angle")
-            )
-            .foregroundStyle(.red)
         }
     }
 
-    private var degrees: Binding<String> {
+    private var shownCount: Int {
+        leaves.filter { !hiddenEntries.contains($0.key) }.count
+    }
+
+    private func visibility(of leaf: MenuLeaf) -> Binding<Bool> {
         Binding {
-            draft ?? store.settings.extraRotationDegrees.formatted(.number.grouping(.never))
-        } set: { text in
-            draft = text
-            if let degrees = Self.degrees(from: text) { store.settings.extraRotationDegrees = degrees }
+            !hiddenEntries.contains(leaf.key)
+        } set: { visible in
+            if visible { hiddenEntries.remove(leaf.key) } else { hiddenEntries.insert(leaf.key) }
+        }
+    }
+}
+
+private struct MenuLeaf: Hashable {
+    let key: String
+    let title: String
+}
+
+private struct MenuGroupContent {
+    let title: String
+    let operation: OperationID?
+    let leaves: [MenuLeaf]
+
+    /// Includes hidden and unavailable leaves.
+    @MainActor static func all(store: SettingsStore) -> [MenuGroupID: MenuGroupContent] {
+        let titles = MenuStrings.titles(settings: store.planning)
+        let file = MenuFile(
+            token: "", hostAvailable: true, visibleOperations: OperationID.menuOrder,
+            titles: MenuTitles(operation: titles.operation, preset: titles.preset, kind: titles.kind),
+            extraRotationDegrees: store.settings.extraRotationEnabled ? store.settings.extraRotationDegrees : nil)
+        var contents = Dictionary(grouping: file.entries) { MenuGroupID(rawValue: $0.resolvedGroupID) }
+            .compactMapValues { entries -> MenuGroupContent? in
+                guard let first = entries.first, let title = first.path.first else { return nil }
+                return MenuGroupContent(
+                    title: title, operation: first.op,
+                    leaves: entries.map {
+                        MenuLeaf(key: $0.op.menuEntryKey($0.preset ?? ""), title: $0.path.last ?? title)
+                    })
+            }
+        contents[MenuGroupID(.update)] = MenuGroupContent(
+            title: String(localized: "Update Available"), operation: nil, leaves: [])
+        contents[MenuGroupID(.preview)] = MenuGroupContent(
+            title: MenuStrings.previewTitle(open: store.finderPreviewEnabled), operation: nil, leaves: [])
+        return contents
+    }
+
+    @MainActor static func title(of group: MenuGroupID, store: SettingsStore) -> String {
+        all(store: store)[group]?.title ?? group.rawValue
+    }
+}
+
+extension MenuScope {
+    fileprivate var title: String {
+        if let kind = FileKind.menuOrder.first(where: { MenuScope($0) == self }) { return MenuStrings.kind(kind) }
+        return String(localized: "Commands", comment: "Finder menu organizer scope")
+    }
+}
+
+extension MenuSection {
+    fileprivate var title: String {
+        switch self {
+        case .finder: String(localized: "Finder Menu")
+        case .menu: String(localized: "MacEase Menu")
+        case .more: String(localized: "More")
+        case .hidden: String(localized: "Hidden", comment: "Finder menu organizer section")
         }
     }
 
-    private static func degrees(from text: String) -> Double? {
-        guard let degrees = try? FloatingPointFormatStyle<Double>.number.parseStrategy.parse(text),
-            degrees.isFinite, Settings.extraRotationRange.contains(degrees)
-        else { return nil }
-        return degrees
-    }
-}
-
-private struct ResetButton: View {
-    let name: String
-    let isDisabled: Bool
-    let reset: () -> Void
-
-    var body: some View {
-        Button(action: reset) {
-            Image(systemName: "arrow.counterclockwise")
+    fileprivate var placeholder: String {
+        switch self {
+        case .finder: String(localized: "Drag items here to show them in the Finder menu.")
+        case .menu: String(localized: "Drag items here to show them in the MacEase menu.")
+        case .more: String(localized: "Drag items here to show them in More.")
+        case .hidden: String(localized: "Drag items here to hide them.")
         }
-        .buttonStyle(.borderless)
-        .disabled(isDisabled)
-        .help(String(localized: "Reset to default", comment: "Menu value reset button"))
-        .accessibilityLabel(Text("Reset \(name)", comment: "Menu value reset button for VoiceOver"))
     }
-}
-
-extension MenuValueSlot {
-    fileprivate var operation: OperationID? {
-        id.split(separator: "/").first.flatMap { OperationID(rawValue: String($0)) }
-    }
-}
-
-extension FileKind {
-    fileprivate var menuOperations: [OperationID] { OperationID.menuOrder.filter { $0.kind == self } }
 }

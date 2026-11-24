@@ -14,6 +14,7 @@ import sys
 import tarfile
 import urllib.request
 import venv
+import zipfile
 
 root = pathlib.Path(sys.argv[1])
 lock = json.loads((root / "Vendor/ai-audio.lock").read_text())
@@ -24,7 +25,15 @@ for directory in (cache, work, runtime / "bin", runtime / "lib", runtime / "mode
     directory.mkdir(parents=True, exist_ok=True)
 for entry in lock["assets"]:
     archive = cache / entry["name"]
-    if not archive.exists():
+    if "archive" in entry:
+        with zipfile.ZipFile(cache / entry["archive"]) as package:
+            contents = package.read(entry["member"])
+        if hashlib.sha256(contents).hexdigest() != entry["rawSha256"]:
+            raise RuntimeError("Archive member checksum mismatch: " + entry["name"])
+        if entry["normalization"] != "crlf-to-lf":
+            raise RuntimeError("Unsupported normalization: " + entry["normalization"])
+        archive.write_bytes(contents.replace(b"\r\n", b"\n"))
+    elif not archive.exists():
         with urllib.request.urlopen(entry["url"], timeout=60) as response, archive.with_suffix(".part").open("wb") as target:
             shutil.copyfileobj(response, target)
         archive.with_suffix(".part").rename(archive)
@@ -211,6 +220,10 @@ print(json.dumps(report, indent=2))
 
 ''', str(root)], check=True)
 bundled = {}
+for directory in (runtime / "bin", runtime / "lib"):
+    for binary in directory.iterdir():
+        if binary.is_file() and not binary.is_symlink():
+            subprocess.run(["strip", "-S", "-x", str(binary)], check=True)
 subprocess.run([str(root / "scripts/sign-bundled-code.sh"), str(runtime), "--sign", "-"], check=True)
 for executable in (runtime / "bin").iterdir():
     subprocess.run([str(executable), "--help"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -219,7 +232,16 @@ for directory in (runtime / "bin", runtime / "lib", runtime / "models", runtime 
         if path.is_file():
             bundled[str(path.relative_to(runtime))] = hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
 notices = runtime / "THIRD_PARTY_NOTICES.txt"
-notices.write_text("\n\n".join(path.read_text() for path in sorted((runtime / "licenses").iterdir())))
+onnxruntime = next(component for component in lock["runtimeComponents"] if component["name"] == "ONNX Runtime")
+source_notice = (
+    f"ONNX Runtime {onnxruntime['version']} (MIT)\n"
+    f"Upstream source: {onnxruntime['upstreamSource']}\n"
+    f"Source checked: {onnxruntime['sourceCheckedAt']}\n"
+    f"Source status: {onnxruntime['sourceStatus']}\n"
+    f"License document package: {onnxruntime['noticeProject']}\n"
+    "Only CRLF-to-LF normalization is applied; existing document SHA-256 pins are preserved.\n\n"
+)
+notices.write_text(source_notice + "\n\n".join(path.read_text() for path in sorted((runtime / "licenses").iterdir())))
 bundled[notices.name] = hashlib.file_digest(notices.open("rb"), "sha256").hexdigest()
 (runtime / "manifest.json").write_text(json.dumps({"inputs": lock, "bundled_sha256": bundled}, indent=2) + "\n")
 print("Wrote " + str(runtime))

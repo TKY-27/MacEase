@@ -798,22 +798,6 @@
         }
       }
     },
-    "Show at Top Level": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show at Top Level"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トップに表示"
-          }
-        }
-      }
-    },
     "AI rename in the Finder menu.": {
       "localizations": {
         "en": {
@@ -3237,17 +3221,6 @@
         }
       }
     },
-    "Frame Rate Menu": {
-      "comment": "Editable frame rate presets",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フレームレートメニュー"
-          }
-        }
-      }
-    },
     "Frame rate (fps)": {
       "localizations": {
         "ja": {
@@ -3444,16 +3417,6 @@
         }
       }
     },
-    "Hidden items stay available in Settings. Unsupported items never appear.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示の項目は設定で引き続き利用できます。対応していない項目は表示されません。"
-          }
-        }
-      }
-    },
     "Hide %@": {
       "comment": "Collapse a group of options",
       "localizations": {
@@ -3461,16 +3424,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ を非表示"
-          }
-        }
-      }
-    },
-    "Hide All": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて非表示"
           }
         }
       }
@@ -4290,27 +4243,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メディアのパケットが大きすぎます"
-          }
-        }
-      }
-    },
-    "Menu Items": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニュー項目"
-          }
-        }
-      }
-    },
-    "Menu Values": {
-      "comment": "Editable Finder menu values",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "メニューの値"
           }
         }
       }
@@ -5503,17 +5435,6 @@
         }
       }
     },
-    "Reset to default": {
-      "comment": "Menu value reset button",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルトに戻す"
-          }
-        }
-      }
-    },
     "Resize": {
       "comment": "Size panel action",
       "localizations": {
@@ -5891,16 +5812,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finder で %@ の結果を表示"
-          }
-        }
-      }
-    },
-    "Show All": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてを表示"
           }
         }
       }
@@ -12333,56 +12244,6 @@
         }
       }
     },
-    "Couldn’t process “%@”: it contains %@ that cannot be preserved. You can run this operation without them.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%1$@” を処理できませんでした：保持できない%2$@が含まれています。これらを省略して処理を実行できます。"
-          }
-        }
-      }
-    },
-    "Couldn’t process “%@”: some streams or chapters cannot be preserved. You can run this operation without them.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” を処理できませんでした：保持できないストリームやチャプタが含まれています。これらを省略して処理を実行できます。"
-          }
-        }
-      }
-    },
-    "extra video tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加の映像トラック"
-          }
-        }
-      }
-    },
-    "extra audio tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加の音声トラック"
-          }
-        }
-      }
-    },
-    "subtitle tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字幕トラック"
-          }
-        }
-      }
-    },
     "closed captions": {
       "localizations": {
         "ja": {
@@ -12393,22 +12254,12 @@
         }
       }
     },
-    "timecode tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タイムコードトラック"
-          }
-        }
-      }
-    },
     "chapters": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャプタ"
+            "value": "チャプター"
           }
         }
       }
@@ -12419,26 +12270,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "添付ファイル"
-          }
-        }
-      }
-    },
-    "timed metadata tracks": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タイムドメタデータトラック"
-          }
-        }
-      }
-    },
-    "other data streams": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他のデータストリーム"
           }
         }
       }
@@ -18360,430 +18191,851 @@
         }
       }
     },
-    "This file is from the internet. Scripts, external content and other files are disabled.": {
+    "Continue Without %@": {
+      "comment": "Runs the operation, leaving the named content out",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルはインターネットから入手したものです。スクリプト、外部コンテンツ、ほかのファイルの読み込みは無効です。"
+            "value": "%@なしで続ける"
           }
         }
       }
     },
-    "From the internet: limited preview": {
+    "Open “%@” without %@?": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネットから入手：制限付きプレビュー"
+            "value": "“%1$@” を%2$@なしで開きますか？"
           }
         }
       }
     },
-    "Runs this page's scripts until MacEase quits.": {
+    "Add “%@” without %@?": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEaseを終了するまで、このページのスクリプトを実行します。"
+            "value": "“%1$@” を%2$@なしで追加しますか？"
           }
         }
       }
     },
-    "Loads content from the internet. Scripts run too.": {
+    "Opening doesn’t change the originals.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インターネットからコンテンツを読み込みます。スクリプトも実行されます。"
+            "value": "開いても元のファイルは変更されません。"
           }
         }
       }
     },
-    "Finder Windows": {
+    "Adding doesn’t change the originals.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finderウインドウ"
+            "value": "追加しても元のファイルは変更されません。"
           }
         }
       }
     },
-    "Show Finder Preview beside Finder windows": {
+    "Open Without %@": {
+      "comment": "Opens media, leaving the named content out",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finderウインドウの横にFinderプレビューを表示"
+            "value": "%@なしで開く"
           }
         }
       }
     },
-    "File Types": {
+    "Add Without %@": {
+      "comment": "Adds media, leaving the named content out",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファイルの種類"
+            "value": "%@なしで追加"
           }
         }
       }
     },
-    "Types that are off use the macOS preview.": {
+    "The saved file won’t include %@.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフにした種類はmacOSのプレビューで表示します。"
+            "value": "保存するファイルには%@が含まれません。"
           }
         }
       }
     },
-    "Code font": {
+    "extra video": {
+      "comment": "Video tracks after the first",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コードのフォント"
+            "value": "2本目以降の映像トラック"
           }
         }
       }
     },
-    "System Monospaced": {
+    "extra audio": {
+      "comment": "Audio tracks after the first",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システムの等幅フォント"
+            "value": "2本目以降の音声トラック"
           }
         }
       }
     },
-    "Code font size": {
+    "subtitles": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コードのフォントサイズ"
+            "value": "字幕"
           }
         }
       }
     },
-    "Wrap long lines to the panel width": {
+    "timecode": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "長い行をパネルの幅で折り返す"
+            "value": "タイムコード"
           }
         }
       }
     },
-    "Font sample text": {
+    "timed metadata": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォントの見本テキスト"
+            "value": "時系列のメタデータ"
           }
         }
       }
     },
-    "Fonts": {
+    "other data": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォント"
+            "value": "その他のデータ"
           }
         }
       }
     },
-    "No trusted folders": {
+    "Extra video: only the first video track is used to create the output.": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra video: only the first video track is used to create the output."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "信頼するフォルダはありません"
+            "value": "2本目以降の映像トラック：最初の映像トラックだけを使って出力を作成します。"
           }
         }
       }
     },
-    "Trusted Folders": {
+    "Extra video: only the first video track is kept.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "信頼するフォルダ"
+            "value": "2本目以降の映像トラック：最初の映像トラックだけが残ります。"
           }
         }
       }
     },
-    "HTML files in these folders open in Preview with scripts on. Files from the internet stay restricted.": {
+    "Extra audio: all audio tracks are removed.": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra audio: all audio tracks are removed."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これらのフォルダ内のHTMLファイルは、スクリプトを有効にしてプレビューで開きます。インターネットから入手したファイルは制限されたままです。"
+            "value": "2本目以降の音声トラック：すべての音声トラックが削除されます。"
           }
         }
       }
     },
-    "Trust": {
+    "Extra audio: the output contains no audio tracks.": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra audio: the output contains no audio tracks."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "信頼する"
+            "value": "2本目以降の音声トラック：出力に音声トラックは含まれません。"
           }
         }
       }
     },
-    "HTML in the chosen folders opens with scripts on.": {
+    "Extra audio: only the first audio track is used to create the output.": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra audio: only the first audio track is used to create the output."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したフォルダ内のHTMLは、スクリプトを有効にして開きます。"
+            "value": "2本目以降の音声トラック：最初の音声トラックだけを使って出力を作成します。"
           }
         }
       }
     },
-    "Not Set Up": {
+    "Extra video: the output contains no video tracks.": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra video: the output contains no video tracks."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未設定"
+            "value": "2本目以降の映像トラック：出力に映像トラックは含まれません。"
           }
         }
       }
     },
-    "Not Allowed": {
+    "Extra audio: only the first audio track is kept.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "許可されていません"
+            "value": "2本目以降の音声トラック：最初の音声トラックだけが残ります。"
           }
         }
       }
     },
-    "Unknown": {
+    "Subtitles: they can no longer be turned on during playback.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明"
+            "value": "字幕：再生中に表示できなくなります。"
           }
         }
       }
     },
-    "Source code and text": {
+    "Closed captions: they can no longer be turned on during playback.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ソースコードとテキスト"
+            "value": "クローズドキャプション：再生中に表示できなくなります。"
           }
         }
       }
     },
-    "Built-in sample": {
+    "Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "標準の見本"
+            "value": "タイムコード：編集アプリがクリップの位置合わせに使う情報です。省いても映像と音声には影響しません。"
           }
         }
       }
     },
-    "This file is empty.": {
+    "Chapters: you can no longer jump from chapter to chapter.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルは空です。"
+            "value": "チャプター：チャプター単位で移動できなくなります。"
           }
         }
       }
     },
-    "This file doesn't look like text, so it isn't shown.": {
+    "Attachments: files stored inside, such as cover art or fonts, are left out.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルはテキストではないようなので、表示しません。"
+            "value": "添付ファイル：カバー画像やフォントなど、ファイル内に保存されたものは含まれません。"
           }
         }
       }
     },
-    "3GP video": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Timed metadata: details that change over time, such as location, are left out.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "3GP動画"
+            "value": "時系列のメタデータ：位置情報など、時間とともに変わる情報は含まれません。"
           }
         }
       }
     },
-    "7-Zip archive": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Other data: things like markers or sensor readings are left out. Most players don’t use them.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "7-Zipアーカイブ"
+            "value": "その他のデータ：マーカーやセンサーの記録などは含まれません。多くの再生アプリでは使われない情報です。"
           }
         }
       }
     },
-    "AAC audio": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "“%@” contains %@, which MacEase can’t carry over.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "AACオーディオ"
+            "value": "“%1$@” には%2$@が含まれていますが、MacEase では引き継げません。"
           }
         }
       }
     },
-    "Binary Property List": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "These files contain content MacEase can’t carry over:": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バイナリプロパティリスト"
+            "value": "次のファイルには、MacEase で引き継げない内容が含まれています："
           }
         }
       }
     },
-    "Binary file": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "1 file needs your confirmation.": {
+      "comment": "Activity status",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バイナリファイル"
+            "value": "確認が必要なファイルが 1 件あります。"
           }
         }
       }
     },
-    "Bzip2 archive": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "%lld files need your confirmation.": {
+      "comment": "Activity status",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bzip2アーカイブ"
+            "value": "確認が必要なファイルが %lld 件あります。"
           }
         }
       }
     },
-    "CAF audio": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Continue Without Them": {
+      "comment": "Runs the operation, leaving the listed content out",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CAFオーディオ"
+            "value": "これらを省いて続ける"
           }
         }
       }
     },
-    "ELF executable": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "If you continue, “%@” is replaced. The original moves to the Trash, and you can undo this.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ELF実行ファイル"
+            "value": "続けると、“%@” は置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
           }
         }
       }
     },
-    "Empty file": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "If you continue, these %lld files are replaced. The originals move to the Trash, and you can undo this.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "空のファイル"
+            "value": "続けると、これら %lld 個のファイルは置き換えられます。元のファイルはゴミ箱に移動し、取り消すこともできます。"
           }
         }
       }
     },
-    "Font collection": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "If you continue, a new file is made and “%@” stays as it is.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォントコレクション"
+            "value": "続けると新しいファイルが作られ、“%@” はそのまま残ります。"
           }
         }
       }
     },
-    "Gzip archive": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "If you continue, new files are made and the originals stay as they are.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gzipアーカイブ"
+            "value": "続けると新しいファイルが作られ、元のファイルはそのまま残ります。"
           }
         }
       }
     },
-    "Java class file": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Continued without %@. The new result is below.": {
+      "comment": "Activity note after the user agreed to leave content out",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Javaクラスファイル"
+            "value": "%@を省いて続けました。新しい結果は下に表示されています。"
           }
         }
       }
     },
-    "M4V video": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Left out, as you confirmed: %@.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "M4V動画"
+            "value": "確認したとおり省きました：%@。"
           }
         }
       }
     },
-    "MPEG transport stream": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Couldn’t process “%@”: it contains %@, which MacEase can’t carry over. Nothing was changed.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MPEGトランスポートストリーム"
+            "value": "“%1$@” を処理できませんでした：%2$@が含まれていますが、MacEase では引き継げません。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Couldn’t process “%@”: it contains content MacEase can’t carry over. Nothing was changed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” を処理できませんでした：MacEase で引き継げない内容が含まれています。ファイルは変更されていません。"
+          }
+        }
+      }
+    },
+    "Open %lld videos without content MacEase can’t carry over?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase で引き継げない内容を省いて %lld 個の動画を開きますか？"
+          }
+        }
+      }
+    },
+    "Add %lld videos without content MacEase can’t carry over?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase で引き継げない内容を省いて %lld 個の動画を追加しますか？"
+          }
+        }
+      }
+    },
+    "Continue without %@?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@なしで続けますか？"
+          }
+        }
+      }
+    },
+    "Continue without content MacEase can’t carry over?": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEase で引き継げない内容を省いて続けますか？"
+          }
+        }
+      }
+    },
+    "Opening doesn’t change “%@”.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いても “%@” は変更されません。"
+          }
+        }
+      }
+    },
+    "Adding doesn’t change “%@”.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加しても “%@” は変更されません。"
+          }
+        }
+      }
+    },
+    "Your originals stay as they are.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルはそのまま残ります。"
+          }
+        }
+      }
+    },
+    "Open Without Them": {
+      "comment": "Opens media, leaving the listed content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらを省いて開く"
+          }
+        }
+      }
+    },
+    "Add Without Them": {
+      "comment": "Adds media, leaving the listed content out",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらを省いて追加"
+          }
+        }
+      }
+    },
+    "Menu for": {
+      "comment": "Finder menu organizer scope picker",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象"
+          }
+        }
+      }
+    },
+    "Commands": {
+      "comment": "Finder menu organizer scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンド"
+          }
+        }
+      }
+    },
+    "MacEase Menu": {
+      "comment": "Finder menu organizer section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseメニュー"
+          }
+        }
+      }
+    },
+    "Hidden": {
+      "comment": "Finder menu organizer section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示"
+          }
+        }
+      }
+    },
+    "Drag items here to hide them.": {
+      "comment": "Empty Hidden section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグすると非表示になります。"
+          }
+        }
+      }
+    },
+    "Drag items here to show them in the MacEase menu.": {
+      "comment": "Empty MacEase Menu section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグするとMacEaseメニューに表示されます。"
+          }
+        }
+      }
+    },
+    "Drag items here to show them in More.": {
+      "comment": "Empty More section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグすると「その他」に表示されます。"
+          }
+        }
+      }
+    },
+    "Drag items here to show them in the Finder menu.": {
+      "comment": "Empty Finder Menu section",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにドラッグするとFinderメニューに表示されます。"
+          }
+        }
+      }
+    },
+    "%lld of %lld items": {
+      "comment": "Checked leaves of a menu group",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld項目中%1$lld項目"
+          }
+        }
+      }
+    },
+    "Options…": {
+      "comment": "Opens the values of a Finder menu item",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オプション…"
+          }
+        }
+      }
+    },
+    "Options for %@": {
+      "comment": "Finder menu organizer button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のオプション"
+          }
+        }
+      }
+    },
+    "Move To": {
+      "comment": "Finder menu organizer pull-down",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動先"
+          }
+        }
+      }
+    },
+    "Move to %@": {
+      "comment": "Finder menu organizer command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@に移動"
+          }
+        }
+      }
+    },
+    "Hide": {
+      "comment": "Finder menu organizer command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示にする"
+          }
+        }
+      }
+    },
+    "Show": {
+      "comment": "Finder menu organizer command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示する"
+          }
+        }
+      }
+    },
+    "Restore the default %@ menu?": {
+      "comment": "Finder menu organizer confirmation",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のメニューをデフォルトに戻しますか？"
+          }
+        }
+      }
+    },
+    "Item order, visibility and checked items return to their defaults. Options values are kept.": {
+      "comment": "Finder menu organizer confirmation detail",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目の順序、表示、チェックがデフォルトに戻ります。オプションの値はそのまま残ります。"
+          }
+        }
+      }
+    },
+    "Restore": {
+      "comment": "Destructive confirmation button",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻す"
+          }
+        }
+      }
+    },
+    "Appears when an update is available.": {
+      "comment": "Fixed Finder menu item note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあるときに表示されます。"
+          }
+        }
+      }
+    },
+    "Folder background only.": {
+      "comment": "Fixed Finder menu item note",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの背景でのみ表示されます。"
+          }
+        }
+      }
+    },
+    "Mixed selections show these items in a submenu for each kind.": {
+      "comment": "Finder menu organizer footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類の異なる項目を選択した場合は、種類ごとのサブメニューに表示されます。"
+          }
+        }
+      }
+    },
+    "%@ moved to %@, position %lld": {
+      "comment": "VoiceOver announcement after a move",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@を%2$@の%3$lld番目に移動しました"
+          }
+        }
+      }
+    },
+    "%lld items moved to %@": {
+      "comment": "VoiceOver announcement after a move",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld項目を%2$@に移動しました"
+          }
+        }
+      }
+    },
+    "%@, %lld of %lld": {
+      "comment": "VoiceOver value: section and position",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%3$lld項目中%2$lld番目"
+          }
+        }
+      }
+    },
+    "Update Available": {
+      "comment": "Finder menu command",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあります"
+          }
+        }
+      }
+    },
+    "Applies to images and videos.": {
+      "comment": "Extra rotation angle scope",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像と動画の両方に適用されます。"
+          }
+        }
+      }
+    },
+    "Edited values replace the menu items in place.": {
+      "comment": "Menu options footer",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集した値はメニュー項目に反映されます。"
+          }
+        }
+      }
+    },
+    "Hide it instead to remove it from the menu.": {
+      "comment": "Last checked leaf help",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューから外すには非表示にしてください。"
           }
         }
       }
@@ -18800,26 +19052,56 @@
         }
       }
     },
-    "MPEG-4 audio": {
+    "XZ archive": {
       "comment": "Detected file format",
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MPEG-4オーディオ"
+            "value": "XZアーカイブ"
           }
         }
       }
     },
-    "Mach-O executable": {
+    "Wrap long lines to the panel width": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長い行をパネルの幅で折り返す"
+          }
+        }
+      }
+    },
+    "Gzip archive": {
       "comment": "Detected file format",
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mach-O実行ファイル"
+            "value": "Gzipアーカイブ"
+          }
+        }
+      }
+    },
+    "Code font size": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォントサイズ"
+          }
+        }
+      }
+    },
+    "Show Finder Preview beside Finder windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウの横にFinderプレビューを表示"
           }
         }
       }
@@ -18836,38 +19118,22 @@
         }
       }
     },
-    "Matroska video": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Not Allowed": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Matroska動画"
+            "value": "許可されていません"
           }
         }
       }
     },
-    "Ogg audio": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
+    "Fonts": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oggオーディオ"
-          }
-        }
-      }
-    },
-    "Ogg video": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ogg動画"
+            "value": "フォント"
           }
         }
       }
@@ -18884,62 +19150,14 @@
         }
       }
     },
-    "Photoshop image": {
+    "Empty file": {
       "comment": "Detected file format",
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Photoshop画像"
-          }
-        }
-      }
-    },
-    "QuickTime movie": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "QuickTimeムービー"
-          }
-        }
-      }
-    },
-    "RAR archive": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RARアーカイブ"
-          }
-        }
-      }
-    },
-    "RAW image": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "RAW画像"
-          }
-        }
-      }
-    },
-    "TAR archive": {
-      "comment": "Detected file format",
-      "extractionState": "manual",
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TARアーカイブ"
+            "value": "空のファイル"
           }
         }
       }
@@ -18956,6 +19174,62 @@
         }
       }
     },
+    "System Monospaced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムの等幅フォント"
+          }
+        }
+      }
+    },
+    "Trusted Folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するフォルダ"
+          }
+        }
+      }
+    },
+    "7-Zip archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7-Zipアーカイブ"
+          }
+        }
+      }
+    },
+    "3GP video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3GP動画"
+          }
+        }
+      }
+    },
+    "RAW image": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW画像"
+          }
+        }
+      }
+    },
     "WOFF font": {
       "comment": "Detected file format",
       "extractionState": "manual",
@@ -18968,26 +19242,56 @@
         }
       }
     },
-    "WOFF2 font": {
+    "Photoshop image": {
       "comment": "Detected file format",
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "WOFF2フォント"
+            "value": "Photoshop画像"
           }
         }
       }
     },
-    "XZ archive": {
+    "HTML in the chosen folders opens with scripts on.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したフォルダ内のHTMLは、スクリプトを有効にして開きます。"
+          }
+        }
+      }
+    },
+    "From the internet: limited preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットから入手：制限付きプレビュー"
+          }
+        }
+      }
+    },
+    "Mach-O executable": {
       "comment": "Detected file format",
       "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "XZアーカイブ"
+            "value": "Mach-O実行ファイル"
+          }
+        }
+      }
+    },
+    "Not Set Up": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未設定"
           }
         }
       }
@@ -19004,22 +19308,36 @@
         }
       }
     },
-    "%lld pt": {
+    "Java class file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld pt"
+            "value": "Javaクラスファイル"
           }
         }
       }
     },
-    "First of %lld faces": {
+    "CAF audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld個のフェイスの1つ目"
+            "value": "CAFオーディオ"
+          }
+        }
+      }
+    },
+    "Types that are off use the macOS preview.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにした種類はmacOSのプレビューで表示します。"
           }
         }
       }
@@ -19034,22 +19352,272 @@
         }
       }
     },
-    "Name doesn't match content (%@)": {
+    "TAR archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "名前と内容が不一致（%@）"
+            "value": "TARアーカイブ"
           }
         }
       }
     },
-    "This format can't be played directly.": {
+    "Matroska video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この形式は直接再生できません。"
+            "value": "Matroska動画"
+          }
+        }
+      }
+    },
+    "Binary file": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリファイル"
+          }
+        }
+      }
+    },
+    "%lld pt": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pt"
+          }
+        }
+      }
+    },
+    "AAC audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AACオーディオ"
+          }
+        }
+      }
+    },
+    "This file is from the internet. Scripts, external content and other files are disabled.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットから入手したものです。スクリプト、外部コンテンツ、ほかのファイルの読み込みは無効です。"
+          }
+        }
+      }
+    },
+    "MPEG-4 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEG-4オーディオ"
+          }
+        }
+      }
+    },
+    "This file is empty.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは空です。"
+          }
+        }
+      }
+    },
+    "RAR archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RARアーカイブ"
+          }
+        }
+      }
+    },
+    "Binary Property List": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリプロパティリスト"
+          }
+        }
+      }
+    },
+    "Finder Windows": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderウインドウ"
+          }
+        }
+      }
+    },
+    "Runs this page's scripts until MacEase quits.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MacEaseを終了するまで、このページのスクリプトを実行します。"
+          }
+        }
+      }
+    },
+    "First of %lld faces": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld個のフェイスの1つ目"
+          }
+        }
+      }
+    },
+    "M4V video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4V動画"
+          }
+        }
+      }
+    },
+    "Built-in sample": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準の見本"
+          }
+        }
+      }
+    },
+    "Ogg audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oggオーディオ"
+          }
+        }
+      }
+    },
+    "Code font": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードのフォント"
+          }
+        }
+      }
+    },
+    "Loads content from the internet. Scripts run too.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットからコンテンツを読み込みます。スクリプトも実行されます。"
+          }
+        }
+      }
+    },
+    "Font sample text": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントの見本テキスト"
+          }
+        }
+      }
+    },
+    "This file doesn't look like text, so it isn't shown.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはテキストではないようなので、表示しません。"
+          }
+        }
+      }
+    },
+    "This file is from the internet, so MacEase doesn't convert it. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットから入手したものなので、MacEaseでは変換しません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
+    },
+    "MPEG transport stream": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MPEGトランスポートストリーム"
+          }
+        }
+      }
+    },
+    "No trusted folders": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するフォルダはありません"
+          }
+        }
+      }
+    },
+    "Trust": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼する"
+          }
+        }
+      }
+    },
+    "Unknown": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
           }
         }
       }
@@ -19064,6 +19632,40 @@
         }
       }
     },
+    "This format can't be played directly.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この形式は直接再生できません。"
+          }
+        }
+      }
+    },
+    "ELF executable": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ELF実行ファイル"
+          }
+        }
+      }
+    },
+    "Ogg video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogg動画"
+          }
+        }
+      }
+    },
     "Converting…": {
       "localizations": {
         "ja": {
@@ -19074,12 +19676,90 @@
         }
       }
     },
-    "This file is from the internet, so MacEase doesn't convert it. Open it in a media player.": {
+    "Source code and text": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このファイルはインターネットから入手したものなので、MacEaseでは変換しません。メディアプレーヤーで開いてください。"
+            "value": "ソースコードとテキスト"
+          }
+        }
+      }
+    },
+    "HTML files in these folders open in Preview with scripts on. Files from the internet stay restricted.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのフォルダ内のHTMLファイルは、スクリプトを有効にしてプレビューで開きます。インターネットから入手したファイルは制限されたままです。"
+          }
+        }
+      }
+    },
+    "WOFF2 font": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WOFF2フォント"
+          }
+        }
+      }
+    },
+    "Bzip2 archive": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bzip2アーカイブ"
+          }
+        }
+      }
+    },
+    "File Types": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの種類"
+          }
+        }
+      }
+    },
+    "QuickTime movie": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QuickTimeムービー"
+          }
+        }
+      }
+    },
+    "Font collection": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォントコレクション"
+          }
+        }
+      }
+    },
+    "Name doesn't match content (%@)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前と内容が不一致（%@）"
           }
         }
       }

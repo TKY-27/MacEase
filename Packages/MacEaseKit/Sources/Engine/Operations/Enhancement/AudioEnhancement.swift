@@ -31,15 +31,24 @@ public struct AudioEnhancement: Sendable {
         self.tools = try tools ?? .bundled()
     }
 
-    public func makeBatch(source: URL, mode: AudioEnhancementMode) throws -> Batch {
+    /// `nil` when nothing would be left out.
+    public static func streamOmission(for source: URL) async throws -> StreamOmission? {
+        let stamp = try MediaSourceStamp(url: source)
+        let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
+        let streams = try await AudioJob.unpreservedStreams(in: input)
+        return streams.isEmpty ? nil : StreamOmission(stamp: stamp, streams: Set(streams))
+    }
+
+    public func makeBatch(source: URL, mode: AudioEnhancementMode, omission: StreamOmission? = nil) throws -> Batch {
         try requireRuntime(mode)
-        return Batch(
-            operation: .audioEnhance,
-            items: [
-                OperationPlanner.validated(source, kind: .audio) { context in
-                    try await enhance(source, mode: mode, context: context)
-                }
-            ])
+        var work = OperationPlanner.validated(source, kind: .audio) { context in
+            try await enhance(source, mode: mode, context: context)
+        }
+        if let omission {
+            work.omittedStreams = omission.streams
+            work.requiredInputStamps = [source: omission.stamp.fileStamp]
+        }
+        return Batch(operation: .audioEnhance, items: [work])
     }
 
     private func requireRuntime(_ mode: AudioEnhancementMode) throws {
@@ -57,7 +66,8 @@ public struct AudioEnhancement: Sendable {
 
     private func enhance(_ source: URL, mode: AudioEnhancementMode, context: ItemContext) async throws -> ItemResult {
         try Task.checkCancellation()
-        let input = try AudioInput(url: source)
+        let input = try AudioInput(url: source, allowsMultiplexedOgg: true)
+        try await AudioJob.requirePreservableContent(input, context: context)
         guard let duration = input.duration, duration.isFinite, duration > 0 else {
             throw EngineError.decodeFailed("Audio duration is unavailable")
         }

@@ -1,0 +1,30 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -376,12 +376,12 @@
+ # QuickJS CLI
+ #
+ 
++if(QJS_BUILD_LIBC)
++    message(FATAL_ERROR "The solver must not include qjs-libc")
++endif()
+ add_executable(qjs_exe
+-    gen/repl.c
+-    gen/standalone.c
+-    qjs.c
+-)
+-add_qjs_libc_if_needed(qjs_exe)
++    quickjs-solver.c
++)
+ add_static_if_needed(qjs_exe)
+ set_target_properties(qjs_exe PROPERTIES
+     OUTPUT_NAME "qjs"
+@@ -390,9 +390,6 @@
+ )
+ target_compile_definitions(qjs_exe PRIVATE ${qjs_defines})
+ target_link_libraries(qjs_exe PRIVATE qjs)
+-if (NOT WIN32)
+-    set_target_properties(qjs_exe PROPERTIES ENABLE_EXPORTS TRUE)
+-endif()
+ 
+ # WASI Reactor
+ #

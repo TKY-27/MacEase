@@ -80,20 +80,119 @@ enum UserMessages {
         }.formatted(.list(type: .and))
     }
 
-    private static func unpreservedStreams(_ streams: [UnpreservedStream]) -> String {
+    static func unpreservedStreams(_ streams: [UnpreservedStream], titleCase: Bool = false) -> String {
         streams.map { stream in
-            switch stream {
-            case .video: String(localized: "extra video tracks")
-            case .audio: String(localized: "extra audio tracks")
-            case .subtitle: String(localized: "subtitle tracks")
-            case .closedCaption: String(localized: "closed captions")
-            case .timecode: String(localized: "timecode tracks")
-            case .chapter: String(localized: "chapters")
-            case .attachment: String(localized: "attachments")
-            case .metadata: String(localized: "timed metadata tracks")
-            case .data: String(localized: "other data streams")
-            }
+            let name =
+                switch stream {
+                case .video: String(localized: "extra video", comment: "Video tracks after the first")
+                case .audio: String(localized: "extra audio", comment: "Audio tracks after the first")
+                case .subtitle: String(localized: "subtitles")
+                case .closedCaption: String(localized: "closed captions")
+                case .timecode: String(localized: "timecode")
+                case .chapter: String(localized: "chapters")
+                case .attachment: String(localized: "attachments")
+                case .metadata: String(localized: "timed metadata")
+                case .data: String(localized: "other data")
+                }
+            return titleCase ? name.localizedCapitalized : name
         }.formatted(.list(type: .and))
+    }
+
+    /// Effect of leaving one kind out.
+    static func consequence(of stream: UnpreservedStream, operation: OperationID? = nil) -> String {
+        if stream == .audio {
+            switch operation {
+            case .videoRemoveAudio:
+                return String(localized: "Extra audio: all audio tracks are removed.")
+            case .videoThumbnail, .videoToGIF, .videoToAPNG, .videoToAnimatedWebP, .videoSubtitles, .audioSubtitles:
+                return String(localized: "Extra audio: the output contains no audio tracks.")
+            case .audioEnhance:
+                return String(localized: "Extra audio: only the first audio track is used to create the output.")
+            default: break
+            }
+        }
+        if stream == .video {
+            switch operation {
+            case .videoExtractAudio, .videoSubtitles, .audioConvert, .audioCompress, .audioNormalize, .audioTrim,
+                .audioEnhance, .audioSubtitles:
+                return String(localized: "Extra video: the output contains no video tracks.")
+            case .videoThumbnail, .videoToGIF, .videoToAPNG, .videoToAnimatedWebP:
+                return String(localized: "Extra video: only the first video track is used to create the output.")
+            default: break
+            }
+        }
+        return switch stream {
+        case .video: String(localized: "Extra video: only the first video track is kept.")
+        case .audio: String(localized: "Extra audio: only the first audio track is kept.")
+        case .subtitle: String(localized: "Subtitles: they can no longer be turned on during playback.")
+        case .closedCaption: String(localized: "Closed captions: they can no longer be turned on during playback.")
+        case .timecode:
+            String(
+                localized:
+                    "Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.")
+        case .chapter: String(localized: "Chapters: you can no longer jump from chapter to chapter.")
+        case .attachment:
+            String(localized: "Attachments: files stored inside, such as cover art or fonts, are left out.")
+        case .metadata:
+            String(localized: "Timed metadata: details that change over time, such as location, are left out.")
+        case .data:
+            String(
+                localized:
+                    "Other data: things like markers or sensor readings are left out. Most players don’t use them.")
+        }
+    }
+
+    static func streamsStatement(file: String, streams: [UnpreservedStream]) -> String {
+        String(localized: "“\(file)” contains \(unpreservedStreams(streams)), which MacEase can’t carry over.")
+    }
+
+    static var streamsListIntroduction: String {
+        String(localized: "These files contain content MacEase can’t carry over:")
+    }
+
+    static func streamsListLine(file: String, streams: [UnpreservedStream]) -> String {
+        String(localized: "“\(file)”: \(unpreservedStreams(streams))")
+    }
+
+    static func confirmationCount(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "1 file needs your confirmation.", comment: "Activity status")
+            : String(localized: "\(count) files need your confirmation.", comment: "Activity status")
+    }
+
+    static func continueWithout(_ streams: [UnpreservedStream]) -> String {
+        streams.count > namedStreamLimit
+            ? String(localized: "Continue Without Them", comment: "Runs the operation, leaving the listed content out")
+            : String(
+                localized: "Continue Without \(unpreservedStreams(streams, titleCase: true))",
+                comment: "Runs the operation, leaving the named content out")
+    }
+
+    /// Longer lists make buttons unreadable.
+    static let namedStreamLimit = 2
+
+    static func streamOmissionConsequence(files: [String], replacesOriginals: Bool) -> String {
+        switch (replacesOriginals, files.count == 1 ? files.first : nil) {
+        case (true, let file?):
+            String(
+                localized:
+                    "If you continue, “\(file)” is replaced. The original moves to the Trash, and you can undo this.")
+        case (true, nil):
+            String(
+                localized:
+                    "If you continue, these \(files.count) files are replaced. The originals move to the Trash, and you can undo this."
+            )
+        case (false, let file?):
+            String(localized: "If you continue, a new file is made and “\(file)” stays as it is.")
+        case (false, nil):
+            String(localized: "If you continue, new files are made and the originals stay as they are.")
+        }
+    }
+
+    static func continuedWithout(_ streams: [UnpreservedStream]) -> String {
+        String(
+            localized: "Continued without \(unpreservedStreams(streams)). The new result is below.",
+            comment: "Activity note after the user agreed to leave content out")
     }
 
     private static func metadataClasses(_ fields: [MetadataField]) -> String {
@@ -336,7 +435,7 @@ enum UserMessages {
         case .streamsOmitted(let streams):
             String(
                 localized:
-                    "Not kept: this output cannot preserve \(unpreservedStreams(streams)).")
+                    "Left out, as you confirmed: \(unpreservedStreams(streams)).")
         case .imageMetadataDropped(let fields):
             String(
                 localized:
@@ -456,13 +555,12 @@ enum UserMessages {
         case .unpreservedStreams(let streams) where !streams.isEmpty:
             String(
                 localized:
-                    "Couldn’t process “\(file)”: it contains \(unpreservedStreams(streams)) that cannot be preserved. You can run this operation without them."
+                    "Couldn’t process “\(file)”: it contains \(unpreservedStreams(streams)), which MacEase can’t carry over. Nothing was changed."
             )
         case .unpreservedStreams:
             String(
                 localized:
-                    "Couldn’t process “\(file)”: some streams or chapters cannot be preserved. You can run this operation without them."
-            )
+                    "Couldn’t process “\(file)”: it contains content MacEase can’t carry over. Nothing was changed.")
         case .frameMemoryExceeded:
             String(
                 localized: "“\(file)” exceeds the frame memory budget. Use fewer or smaller frames.",

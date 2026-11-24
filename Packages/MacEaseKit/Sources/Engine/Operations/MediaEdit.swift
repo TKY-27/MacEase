@@ -22,6 +22,21 @@ public struct MediaSourceStamp: Codable, Hashable, Sendable {
     }
 }
 
+/// Consent covers only the inspected file version.
+public struct StreamOmission: Hashable, Sendable {
+    public let stamp: MediaSourceStamp
+    public let streams: Set<UnpreservedStream>
+
+    public init(stamp: MediaSourceStamp, streams: Set<UnpreservedStream>) {
+        self.stamp = stamp
+        self.streams = streams
+    }
+
+    public func streams(covering current: MediaSourceStamp) -> Set<UnpreservedStream> {
+        current == stamp ? streams : []
+    }
+}
+
 public struct EditCrop: Codable, Hashable, Sendable {
     public var x = 0.0
     public var y = 0.0
@@ -276,16 +291,22 @@ public enum MediaEditing {
         return Batch(operation: .imageEdit, items: work)
     }
 
-    public static func video(url: URL, edit: VideoEdit, settings: Settings) -> Batch {
+    public static func video(
+        url: URL, edit: VideoEdit, settings: Settings, omittedStreams: Set<UnpreservedStream> = []
+    ) -> Batch {
         if (edit.sources?.count ?? 0) <= 1 {
             return OperationPlanner.batch(
-                for: OperationRequest(op: .videoEdit, options: .video(.edit(edit)), inputs: [url]), settings: settings)
+                for: OperationRequest(
+                    op: .videoEdit, options: .video(.edit(edit)), inputs: [url], omittedStreams: omittedStreams,
+                    inputStamps: edit.sourceStamp.map { [url: $0] } ?? [:]),
+                settings: settings)
         }
         let inputs = edit.sources?.map(\.url) ?? [url]
-        let work = WorkItem(inputs: inputs, lane: .hardwareVideo) { context in
+        var work = WorkItem(inputs: inputs, lane: .hardwareVideo) { context in
             for input in inputs { try OperationPlanner.validateInput(input) }
             return try await VideoEdits.run(.edit(edit), url: url, context: context)
         }
+        work.omittedStreams = omittedStreams
         return Batch(operation: .videoEdit, items: [work])
     }
 }

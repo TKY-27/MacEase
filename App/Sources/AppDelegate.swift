@@ -330,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inputs = currentMenuInputs
         menuFile = try MenuFileWriter(configuration: configuration).write(
             visibleOperations: inputs, hiddenEntries: settings.hiddenEntries, settings: settings.planning,
-            monitoredPaths: folders.monitoredPaths, recipes: recipes, placements: settings.menuPlacements,
+            monitoredPaths: folders.monitoredPaths, recipes: recipes, arrangement: settings.menuArrangement,
             availableVersion: updates.availableVersion, previewOpen: settings.finderPreviewEnabled
         )
         menuInputs = inputs

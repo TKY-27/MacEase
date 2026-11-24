@@ -15,5 +15,4 @@ yt-dlp 2026.10.26 Unlicense abe5c6b94c3b2f0560500add1c42e0a97641752743a5b65588ac
 ejs 0.8.0 Unlicense+MIT+ISC d5fa1639f63b5c4af8d932495f60689d5370f1a095782c944f7f62a303eb104e https://files.pythonhosted.org/packages/d3/e6/cceb9530e8f4e5940f6f7822d90e9d94f1b85343329a16baaf47bbbb3de1/yt_dlp_ejs-0.8.0.tar.gz LICENSE
 ejs-wheel 0.8.0 Unlicense+MIT+ISC 79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4 https://files.pythonhosted.org/packages/e3/bd/520769863744b669440a924271a6159ddd82ad5ae26b4ac4d4b69e9f8d44/yt_dlp_ejs-0.8.0-py3-none-any.whl -
 dav1d 1.5.4 BSD-2-Clause 686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5 https://downloads.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz COPYING
-node 26.13.1 MIT-with-third-party-notices af6202f5370a3a5209e85dc543758dfd9f44c8726626a236730cd603a67a8559 https://nodejs.org/dist/v26.13.1/node-v26.13.1-darwin-arm64.tar.xz LICENSE
-node-source 26.13.1 MIT-with-third-party-notices a7f6204ff63b6a2cd274d48903285abb86ed53a99070e532d4c2fd787457d9e6 https://nodejs.org/dist/v26.13.1/node-v26.13.1.tar.xz -
+quickjs-ng 0.18.0 MIT 28bcd89aa3683fd2a946537e5ce3f11cc46b5cbf3383c7561aaef3df5ff9f1dd https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.18.0.tar.gz LICENSE

@@ -15,7 +15,13 @@ struct MediaDownloadMenuTests {
         #expect(!MenuLayout.isApplicable(entry, selection: []))
         #expect(!MenuLayout.isApplicable(entry, selection: [folder, folder]))
         #expect(!MenuLayout.isApplicable(entry, selection: [folder, URL(filePath: "/file.txt")]))
-        let file = MenuFile(token: "token", hostAvailable: true, entries: [entry], kinds: [.folder: "Folder"])
-        #expect(MenuLayout.nodes(for: file, selection: [folder]).isEmpty)
+        let download = MenuCommandItem(
+            group: MenuGroupID(rawValue: entry.resolvedGroupID), title: "yt-dlp…", placement: .finder)
+        let file = MenuFile(
+            token: "token", hostAvailable: true, entries: [entry], kinds: [.folder: "Folder"], commands: [download])
+        let tree = MenuLayout.tree(for: file, selection: [folder])
+        #expect(tree.macEase.isEmpty)
+        #expect(tree.finder == [.action(title: "yt-dlp…", entryIndex: 0)])
+        #expect(MenuLayout.tree(for: file, selection: [folder, folder]) == MenuTree(finder: [], macEase: []))
     }
 }

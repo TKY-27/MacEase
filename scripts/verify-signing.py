@@ -44,8 +44,6 @@ def expected_entitlements(binary, configuration):
         if binary.parent.parent.name == "media-tools":
             if binary.name in ("ffmpeg", "ffprobe") or re.fullmatch(r"python3\.\d+", binary.name):
                 return LIBRARY_VALIDATION
-            if binary.name == "node":
-                return {"com.apple.security.cs.allow-jit": True}
         if binary.parent.parent.name == "ai-audio" and binary.name in (
             "sherpa-onnx-offline-denoiser", "sherpa-onnx-offline-source-separation",
         ):

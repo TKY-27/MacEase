@@ -25,22 +25,24 @@ public actor VideoEditorSource {
     private static let maximumIndexedFrames = 4_000_000
 
     public static func open(
-        _ url: URL, staging: StagingArea, omittedStreams: Set<UnpreservedStream> = []
+        _ url: URL, staging: StagingArea, omission: StreamOmission? = nil
     ) async throws -> VideoEditorSource {
-        try await open(url, staging: staging) { try $0.requirePreservableStreams(omitting: omittedStreams) }
+        try await open(url, staging: staging) { input, stamp in
+            try input.requirePreservableStreams(omitting: omission?.streams(covering: stamp) ?? [])
+        }
     }
 
     /// Throwaway playback copies only; edits use `open`.
     public static func openForPreviewPlayback(_ url: URL, staging: StagingArea) async throws -> VideoEditorSource {
-        try await open(url, staging: staging) { _ = try $0.displayOrientation }
+        try await open(url, staging: staging) { input, _ in _ = try input.displayOrientation }
     }
 
     private static func open(
-        _ url: URL, staging: StagingArea, validate: (MediaInput) throws -> Void
+        _ url: URL, staging: StagingArea, validate: (MediaInput, MediaSourceStamp) throws -> Void
     ) async throws -> VideoEditorSource {
         let stamp = try MediaSourceStamp(url: url)
         let input = try await MediaInput.open(url)
-        try validate(input)
+        try validate(input, stamp)
         guard input.video != nil, input.duration > 0 else { throw EngineError.decodeFailed("no video track") }
         let hdr = try await VideoProperties.hdrConfiguration(input)
         let preview = try await MediaPreview(videoAt: url)

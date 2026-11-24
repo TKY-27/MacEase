@@ -70,8 +70,37 @@ import Testing
         let support = try TestVolume.makeFolder()
         let staging = StagingArea(supportDirectory: support)
         await #expect(throws: EngineError.invalidInput(.multipleTracks)) {
-            _ = try await VideoEditorSource.open(url, staging: staging, omittedStreams: Set(UnpreservedStream.allCases))
+            _ = try await VideoEditorSource.open(
+                url, staging: staging,
+                omission: StreamOmission(
+                    stamp: try MediaSourceStamp(url: url), streams: Set(UnpreservedStream.allCases)))
         }
+    }
+
+    // Mono PCM plus a cue chunk.
+    private func waveWithCue() throws -> URL {
+        let samples = Data(repeating: 0, count: 8_000)
+        func little(_ value: Int, _ bytes: Int) -> Data { Data((0..<bytes).map { UInt8(value >> ($0 * 8) & 0xFF) }) }
+        var format = Data("fmt ".utf8) + little(16, 4) + little(1, 2) + little(1, 2)
+        format += little(8_000, 4) + little(16_000, 4) + little(2, 2) + little(16, 2)
+        let cueBody = little(1, 4) + Data(repeating: 0, count: 8) + Data("data".utf8) + Data(repeating: 0, count: 12)
+        let chunks =
+            format + Data("data".utf8) + little(samples.count, 4) + samples
+            + Data("cue ".utf8) + little(cueBody.count, 4) + cueBody
+        let url = try TestVolume.makeFolder().appending(path: "marked.wav")
+        try (Data("RIFF".utf8) + little(chunks.count + 4, 4) + Data("WAVE".utf8) + chunks).write(to: url)
+        return url
+    }
+
+    @Test func audioPreviewPlaybackOpensWhatTrimsRefuse() async throws {
+        let url = try waveWithCue()
+        let staging = StagingArea(supportDirectory: try TestVolume.makeFolder())
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.data]))) {
+            _ = try await AudioPreviewSource.open(url, staging: staging)
+        }
+        let source = try await AudioPreviewSource.openForPreviewPlayback(url, staging: staging)
+        #expect(try await AVURLAsset(url: try await source.playbackURL()).load(.isPlayable))
+        await source.close()
     }
 }
 

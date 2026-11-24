@@ -757,8 +757,17 @@ import Testing
         await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
             _ = try await VideoEditorSource.open(input, staging: editorStaging)
         }
-        let openedEditor = try await VideoEditorSource.open(input, staging: editorStaging, omittedStreams: [.timecode])
+        let consent = StreamOmission(stamp: try MediaSourceStamp(url: input), streams: [.timecode])
+        let openedEditor = try await VideoEditorSource.open(input, staging: editorStaging, omission: consent)
         await openedEditor.close()
+        let replacement = try await videoWithExtraTracks(includeTimecode: true)
+        try FileManager.default.removeItem(at: input)
+        try FileManager.default.copyItem(at: replacement, to: input)
+        await #expect(throws: EngineError.invalidInput(.unpreservedStreams([.timecode]))) {
+            _ = try await VideoEditorSource.open(input, staging: editorStaging, omission: consent)
+        }
+        try FileManager.default.removeItem(at: input)
+        try original.write(to: input)
 
         let derivedOutcome = try await run(
             .videoConvert, preset: "mp4", on: input, omittedStreams: [.timecode], outputMode: .newFile)

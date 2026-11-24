@@ -71,7 +71,7 @@ private final class PreviewPlayback {
         do {
             let opened: Source =
                 audioOnly
-                ? .audio(try await AudioPreviewSource.open(url, staging: staging))
+                ? .audio(try await AudioPreviewSource.openForPreviewPlayback(url, staging: staging))
                 : .video(try await VideoEditorSource.openForPreviewPlayback(url, staging: staging))
             guard !Task.isCancelled else { return await opened.close() }
             source = opened

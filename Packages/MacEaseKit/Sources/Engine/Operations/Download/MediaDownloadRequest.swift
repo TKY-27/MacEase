@@ -125,12 +125,12 @@ public struct MediaAnalysis: Sendable {
 public struct MediaDownloadTools: Sendable {
     public let directory: URL
     public var python: URL { directory.appending(path: "python3") }
-    public var node: URL { directory.appending(path: "node") }
+    public var quickJS: URL { directory.appending(path: "qjs") }
     public var ffmpeg: URL { directory.appending(path: "ffmpeg") }
     public var ffprobe: URL { directory.appending(path: "ffprobe") }
 
     public init(directory: URL) throws {
-        for executable in ["python3", "node", "ffmpeg", "ffprobe"] {
+        for executable in ["python3", "qjs", "ffmpeg", "ffprobe"] {
             guard FileManager.default.isExecutableFile(atPath: directory.appending(path: executable).path) else {
                 throw EngineError.unsupportedCodec("Bundled media tools are unavailable")
             }

@@ -110,7 +110,7 @@ import Testing
         }
     }
 
-    private func id3Source(frameID: String, includesGenre: Bool = false) async throws -> URL {
+    func id3Source(frameID: String, includesGenre: Bool = false) async throws -> URL {
         let folder = try TestVolume.makeFolder()
         let source = folder.appending(path: "marked.mp3")
         let tags = AudioTags(title: "Kept title", artwork: frameID == "APIC" ? AudioSignals.pngArtwork() : nil)
@@ -126,6 +126,10 @@ import Testing
         }
         let payload: Data
         switch frameID {
+        case "CHAP":
+            payload =
+                Data("chapter1\0".utf8) + Data(repeating: 0, count: 4)
+                + Data([0, 0, 3, 232]) + Data(repeating: 0xFF, count: 8)
         case "GEOB": payload = Data([0]) + Data("application/octet-stream\0file\0object\0payload".utf8)
         case "SYLT":
             payload = Data([0]) + Data("eng".utf8) + Data([2, 1, 0]) + Data("words\0".utf8) + Data([0, 0, 0, 0])
@@ -148,7 +152,7 @@ import Testing
             + Data([0, 0]) + payload
     }
 
-    private func flacSource() async throws -> URL {
+    func flacSource() async throws -> URL {
         let folder = try TestVolume.makeFolder()
         let source = folder.appending(path: "marked.flac")
         try await AudioSignals.write(
@@ -160,11 +164,14 @@ import Testing
         let metadata = try FLACBlock.read(reader)
         var blocks = metadata.blocks
         blocks.append(FLACBlock.Block(type: FLACBlock.picture, body: FLACPicture.encode(AudioSignals.pngArtwork())))
-        var cueSheet = Data(repeating: 0, count: 396)
-        cueSheet[395] = 1
-        cueSheet.append(Data(repeating: 0, count: 8))
-        cueSheet.append(170)
-        cueSheet.append(Data(repeating: 0, count: 27))
+        var cueSheet = Data(repeating: 0, count: 480)
+        cueSheet[395] = 2
+        cueSheet[404] = 1
+        cueSheet[431] = 1
+        cueSheet[440] = 1
+        let leadOut: UInt64 = 8_820
+        for offset in 0..<8 { cueSheet[444 + offset] = UInt8(leadOut >> ((7 - offset) * 8) & 0xFF) }
+        cueSheet[452] = 255
         blocks.append(FLACBlock.Block(type: FLACBlock.cueSheet, body: cueSheet))
         blocks.append(FLACBlock.Block(type: 2, body: Data("testpayload".utf8)))
         var marked = FLACBlock.marker

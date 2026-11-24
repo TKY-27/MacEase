@@ -76,7 +76,8 @@ public enum AudioWaveform {
         update: @Sendable (AudioWaveformSnapshot) -> Void
     ) throws -> AudioWaveformSnapshot {
         let stamp = try MediaSourceStamp(url: url)
-        let input = try AudioInput(url: url)
+        // Previews decode only the first stream.
+        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         guard let duration = input.duration, duration > 0, bins > 0, bins <= maximumBins else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
@@ -134,9 +135,27 @@ public actor AudioPreviewSource {
     private var directory: URL?
     private var closed = false
 
-    public static func open(_ url: URL, staging: StagingArea) async throws -> AudioPreviewSource {
+    public static func open(
+        _ url: URL, staging: StagingArea, omission: StreamOmission? = nil
+    ) async throws -> AudioPreviewSource {
+        try await open(url, staging: staging) { input, stamp in
+            let omitted = omission?.streams(covering: stamp) ?? []
+            let unconsented = try await AudioJob.unpreservedStreams(in: input).filter { !omitted.contains($0) }
+            if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        }
+    }
+
+    /// Throwaway playback copies only; trims use `open`.
+    public static func openForPreviewPlayback(_ url: URL, staging: StagingArea) async throws -> AudioPreviewSource {
+        try await open(url, staging: staging) { _, _ in }
+    }
+
+    private static func open(
+        _ url: URL, staging: StagingArea, validate: (AudioInput, MediaSourceStamp) async throws -> Void
+    ) async throws -> AudioPreviewSource {
         let stamp = try MediaSourceStamp(url: url)
-        let input = try AudioInput(url: url)
+        let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
+        try await validate(input, stamp)
         guard let duration = input.duration, duration > 0 else {
             throw EngineError.decodeFailed("unknown audio duration")
         }

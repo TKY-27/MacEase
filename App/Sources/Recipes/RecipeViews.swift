@@ -222,6 +222,7 @@ struct RecipeRunView: View {
     @State private var editing: Recipe?
     @State private var busy = false
     @State private var acceptedRevision: Int?
+    @State private var streamConsent: StreamConsentRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -268,6 +269,7 @@ struct RecipeRunView: View {
                 await reload(selecting: saved.id)
             }
         }
+        .streamConsentAlert($streamConsent, accept: continueWithoutStreams) { _ in }
     }
 
     private var selected: Recipe? { recipes.first { $0.id == selectedID } }
@@ -316,11 +318,31 @@ struct RecipeRunView: View {
         Task {
             do {
                 try RecipePlanner.validate(recipe: selected, inputs: inputs)
-                let batch = try RecipePlanner.batch(
-                    recipe: selected, inputs: inputs, destination: destination, settings: settings)
-                onRun(batch)
+                let omissions = try await RecipePlanner.streamOmissions(recipe: selected, inputs: inputs)
+                if omissions.isEmpty {
+                    try submit(selected, omissions: [:])
+                } else {
+                    streamConsent = StreamConsentRequest(
+                        purpose: .proceed,
+                        files: omissions.map { .init(url: $0.key, omission: $0.value) }
+                            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+                }
             } catch { failure = error.localizedDescription }
             busy = false
         }
+    }
+
+    private func continueWithoutStreams(_ request: StreamConsentRequest) {
+        guard let selected else { return }
+        do {
+            try submit(
+                selected, omissions: Dictionary(uniqueKeysWithValues: request.files.map { ($0.url, $0.omission) }))
+        } catch { failure = error.localizedDescription }
+    }
+
+    private func submit(_ recipe: Recipe, omissions: [URL: StreamOmission]) throws {
+        onRun(
+            try RecipePlanner.batch(
+                recipe: recipe, inputs: inputs, destination: destination, settings: settings, omissions: omissions))
     }
 }

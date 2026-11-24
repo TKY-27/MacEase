@@ -711,6 +711,8 @@ make test
 make test-app
 ```
 
+`make test` first verifies that the bundled JavaScript solver cannot access files, processes or the network.
+
 Package acceptance runs suites sequentially to avoid resource contention; concurrency tests still exercise parallel work.
 App-hosted tests use the separate `DebugTests` configuration and `MacEase Tests`
 identity. Only that test host disables library validation for XCTest injection;

@@ -12,6 +12,40 @@ import UniformTypeIdentifiers
 @testable import Engine
 
 struct ActivitySessionTests {
+    @Test(arguments: [false, true])
+    func confirmedIdentitySurvivesThroughCommit(replacesOriginal: Bool) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "source.txt")
+        try Data("version A".utf8).write(to: source)
+        let modified = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: source.path)
+        let confirmed = try FileStamp(of: source, includingIdentity: true)
+        let replacement = folder.appending(path: "replacement.txt")
+        try Data("version B".utf8).write(to: replacement)
+        try FileManager.default.setAttributes([.modificationDate: confirmed.modified], ofItemAtPath: replacement.path)
+        let replacementStamp = try FileStamp(of: replacement)
+        let unconfirmed = try FileStamp(of: source)
+        try #require(replacementStamp == unconfirmed)
+        var work = WorkItem(inputs: [source]) { context in
+            try FileManager.default.removeItem(at: source)
+            try FileManager.default.moveItem(at: replacement, to: source)
+            let staged = try context.stagingURL(for: source, name: "output.txt")
+            try Data("processed B".utf8).write(to: staged)
+            let output = StagedFile(url: staged, name: "output.txt", check: .text(.utf8))
+            return replacesOriginal
+                ? .replace(original: source, output: output) : .derived(nextTo: source, outputs: [output])
+        }
+        work.requiredInputStamps = [source: confirmed]
+        let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(Batch(operation: .audioTrim, items: [work]), settings: Settings()) { _ in }
+        #expect(outcome.details.first?.inputStamps[source] == confirmed)
+        #expect(outcome.outcomes == [.skipped(.changedSinceScan)])
+        #expect(outcome.record == nil)
+        #expect(try String(contentsOf: source, encoding: .utf8) == "version B")
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "output.txt").path))
+    }
+
     @Test func retriesOnlyFailuresAndReservesUntilCompletion() async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
@@ -504,75 +538,62 @@ struct ActivitySessionTests {
         }
     }
 
-    private func timecodedClip(named name: String, in folder: URL) async throws -> URL {
-        let source = try #require(
-            Bundle.module.url(forResource: "ffmpeg-h264-aac.mp4", withExtension: nil, subdirectory: "Resources"))
-        let asset = AVURLAsset(url: source)
-        let videoTrack = try #require(try await asset.loadTracks(withMediaType: .video).first)
-        let duration = try await asset.load(.duration)
-        let destination = folder.appending(path: name)
-        let writer = try AVAssetWriter(outputURL: destination, fileType: .mov)
-        let reader = try AVAssetReader(asset: asset)
-        let videoOut = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
-        reader.add(videoOut)
-        let videoIn = AVAssetWriterInput(
-            mediaType: .video, outputSettings: nil,
-            sourceFormatHint: try await videoTrack.load(.formatDescriptions).first)
-        var format: CMTimeCodeFormatDescription?
-        try #require(
-            CMTimeCodeFormatDescriptionCreate(
-                allocator: kCFAllocatorDefault, timeCodeFormatType: kCMTimeCodeFormatType_TimeCode32,
-                frameDuration: CMTime(value: 1, timescale: 24), frameQuanta: 24, flags: 0, extensions: nil,
-                formatDescriptionOut: &format) == noErr)
-        let timecodeFormat = try #require(format)
-        let timecodeIn = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: timecodeFormat)
-        writer.add(videoIn)
-        writer.add(timecodeIn)
-        try #require(reader.startReading())
-        try #require(writer.startWriting())
-        writer.startSession(atSourceTime: .zero)
-        var frame: Int32 = 0
-        var buffer: CMBlockBuffer?
-        try #require(
-            CMBlockBufferCreateWithMemoryBlock(
-                allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: MemoryLayout<Int32>.size,
-                blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
-                dataLength: MemoryLayout<Int32>.size, flags: 0, blockBufferOut: &buffer) == noErr)
-        let block = try #require(buffer)
-        try withUnsafeBytes(of: &frame) { raw in
-            let base = try #require(raw.baseAddress)
-            try #require(
-                CMBlockBufferReplaceDataBytes(
-                    with: base, blockBuffer: block, offsetIntoDestination: 0,
-                    dataLength: MemoryLayout<Int32>.size) == noErr)
+    @Test func consentToOmitStreamsCoversOnlyTheKindsEachFileReported() async throws {
+        let folder = try TestVolume.makeFolder()
+        let first = try await timecodedClip(named: "first.mov", in: folder)
+        let second = try await timecodedClip(named: "second.mov", in: folder)
+        let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .newFile
+        let options = try #require(OperationPlanner.options(for: .videoRotate, preset: "right-90", settings: settings))
+        let request = OperationRequest(op: .videoRotate, options: options, inputs: [first, second])
+        let initial = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
+            _ in
         }
-        var timing = CMSampleTimingInfo(duration: duration, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
-        var size = MemoryLayout<Int32>.size
-        var sample: CMSampleBuffer?
-        try #require(
-            CMSampleBufferCreate(
-                allocator: kCFAllocatorDefault, dataBuffer: block, dataReady: true, makeDataReadyCallback: nil,
-                refcon: nil, formatDescription: timecodeFormat, sampleCount: 1, sampleTimingEntryCount: 1,
-                sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &size,
-                sampleBufferOut: &sample) == noErr)
-        while !timecodeIn.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(1)) }
-        try #require(timecodeIn.append(try #require(sample)))
-        timecodeIn.markAsFinished()
-        while true {
-            if videoIn.isReadyForMoreMediaData {
-                if let videoSample = videoOut.copyNextSampleBuffer() {
-                    try #require(videoIn.append(videoSample))
-                } else {
-                    videoIn.markAsFinished()
-                    break
-                }
-            } else {
-                try await Task.sleep(for: .milliseconds(1))
-            }
+        let reported = BatchOutcome(
+            batchID: initial.batchID, operation: initial.operation, inputs: initial.inputs,
+            outcomes: [
+                .failed(.invalidInput(.unpreservedStreams([.timecode]))),
+                .failed(.invalidInput(.unpreservedStreams([.subtitle]))),
+            ],
+            clipboardText: nil, reportText: nil, record: nil, historyFailed: false, details: initial.details)
+        var session = ActivitySession(request: request, settings: settings, outcome: reported)
+        let retry = try session.beginRetry(omittingStreams: Set(session.unpreservedStreams))
+        #expect(retry.omittedStreams == [.timecode, .subtitle])
+        let batch = session.retryBatch(for: retry)
+        #expect(batch.items.map(\.omittedStreams) == [[.timecode], [.subtitle]])
+
+        let outcome = await engine.run(batch, settings: settings) { _ in }
+        guard case .succeeded(_, let warnings) = outcome.outcomes.first else {
+            Issue.record("expected the timecode consent to succeed, got \(outcome.outcomes)")
+            return
         }
-        await writer.finishWriting()
-        try #require(writer.status == .completed)
-        return destination
+        #expect(warnings.contains(.streamsOmitted([.timecode])))
+        #expect(outcome.outcomes.last == .failed(.invalidInput(.unpreservedStreams([.timecode]))))
+    }
+
+    @Test func plainRetrySkipsItemsAwaitingStreamConsent() async throws {
+        let folder = try TestVolume.makeFolder()
+        let clip = try await timecodedClip(named: "clip.mov", in: folder)
+        let support = FileManager.default.temporaryDirectory.appending(path: "MacEaseSupport-\(UUID().uuidString)")
+        TestTemporaryFolders.register(support)
+        let engine = try JobEngine(supportDirectory: support, concurrency: 1)
+        var settings = Settings()
+        settings.outputMode = .replace
+        let options = try #require(OperationPlanner.options(for: .videoConvert, preset: "mp4", settings: settings))
+        let request = OperationRequest(op: .videoConvert, options: options, inputs: [clip])
+        let outcome = await engine.run(OperationPlanner.batch(for: request, settings: settings), settings: settings) {
+            _ in
+        }
+        let session = ActivitySession(request: request, settings: settings, outcome: outcome)
+        #expect(session.supportsRetry)
+        #expect(session.unpreservedStreamIndices == [0])
+        #expect(session.failedIndices.isEmpty)
+        #expect(!session.canRetry)
+        #expect(session.canRetryOmittingStreams)
+        #expect(session.replacesOriginals)
     }
 
     private func failedImage() async throws -> (folder: URL, input: URL, engine: JobEngine, session: ActivitySession) {

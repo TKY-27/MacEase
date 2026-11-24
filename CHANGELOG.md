@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Build
+
+- Fetch ONNX Runtime license documents from a hash-pinned official PyPI package
+  when the upstream repository is unavailable, preserving existing document hashes.
+
 ### Changed
+
+- Restrict the bundled JavaScript solver to a CLI without file, process, network
+  or native-module APIs. Verify denied capabilities during builds and tests.
+
+- Strip debug/local symbols from bundled media and audio helpers before signing,
+  retaining dynamic exports and the original offline models.
+
+- Omit unused Python GUI/bootstrap packages, certifi tests and bytecode caches
+  from the private download runtime.
+
+- Reduce the bundled JavaScript runtime from Node to source-built QuickJS-NG,
+  removing the JIT entitlement. YouTube challenge solving may take a few seconds
+  longer; the pinned offline EJS solver and explicit runtime selection remain.
 
 - Enable Hardened Runtime for the app, Finder extension and bundled native
   executables, with measured exceptions confined to interpreter and media/audio

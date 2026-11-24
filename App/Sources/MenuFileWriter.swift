@@ -9,7 +9,7 @@ struct MenuFileWriter {
 
     func write(
         visibleOperations: [OperationID], hiddenEntries: Set<String>, settings: Settings, monitoredPaths: [String] = [],
-        recipes: [Recipe] = [], placements: [String: MenuPlacement] = [:], availableVersion: String? = nil,
+        recipes: [Recipe] = [], arrangement: MenuArrangement = MenuArrangement(), availableVersion: String? = nil,
         previewOpen: Bool = false
     ) throws -> MenuFile {
         let encoder = JSONEncoder()
@@ -44,9 +44,11 @@ struct MenuFileWriter {
             extraRotationDegrees: settings.extraRotationEnabled ? settings.extraRotationDegrees : nil,
             frameRates: MenuStrings.frameRates(settings), loudnessTargets: MenuStrings.loudnessTargets(settings),
             sizeTargets: sizeTargets, resizeTargets: resizeTargets, parameterVersion: parameterVersion,
-            placements: placements, moreTitle: String(localized: "More"),
-            updateTitle: availableVersion.map { String(localized: "Update Available (v\($0))") },
-            previewTitle: MenuStrings.previewTitle(open: previewOpen)
+            arrangement: arrangement, moreTitle: String(localized: "More"),
+            commandTitles: [
+                .update: availableVersion.map { String(localized: "Update Available (v\($0))") },
+                .preview: MenuStrings.previewTitle(open: previewOpen),
+            ].compactMapValues { $0 }
         )
         if file.entries.contains(where: { $0.op == .filesFinish }), !recipes.isEmpty {
             let title = MenuStrings.operationName(.filesFinish)
@@ -59,18 +61,18 @@ struct MenuFileWriter {
                 entries.append(
                     MenuEntry(
                         op: .filesFinish, preset: nil, path: [title, String(localized: "Choose Recipe…")],
-                        groupID: entry.resolvedGroupID, placement: .more))
+                        groupID: entry.resolvedGroupID, placement: entry.placement))
                 entries += recipes.map {
                     MenuEntry(
                         op: .filesFinish, preset: nil, path: [title, $0.name],
                         recipeID: $0.id, recipeRevision: String($0.revision), acceptedKinds: $0.supportedKinds,
-                        groupID: entry.resolvedGroupID, placement: .more)
+                        groupID: entry.resolvedGroupID, placement: entry.placement)
                 }
             }
             file = MenuFile(
                 token: file.token, hostAvailable: file.hostAvailable, entries: entries,
                 kinds: Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, file.kindTitle($0)) }),
-                moreTitle: file.moreTitle, updateTitle: file.updateTitle, previewTitle: file.previewTitle)
+                moreTitle: file.moreTitle, commands: file.commands)
         }
         file.monitoredDirectoryPaths = monitoredPaths
         try FileManager.default.createDirectory(at: configuration.supportDirectory, withIntermediateDirectories: true)

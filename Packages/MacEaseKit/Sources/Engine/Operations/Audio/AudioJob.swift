@@ -68,10 +68,7 @@ enum AudioJob {
         let input = try AudioInput(url: url, allowsMultiplexedOgg: true)
         switch operation {
         case .subtitles(let request):
-            let omitted = MediaInput.unpreservedStreams(from: input.multiplexedOggStreams)
-            let unconsented = omitted.filter { !context.omittedStreams.contains($0) }
-            if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
-            if !omitted.isEmpty { context.warnStreamsOmitted(omitted) }
+            try requireConsentForMultiplexedStreams(input, context: context)
             let speech = try context.stagingURL(for: url, name: "speech.wav")
             try await encode(
                 input, to: AudioTarget(format: .wav, kilobits: 0), at: speech, tags: AudioTags(), context: context)
@@ -94,7 +91,22 @@ enum AudioJob {
         }
     }
 
-    private static func requirePreservableContent(_ input: AudioInput, context: ItemContext) async throws {
+    /// Only the first Ogg stream is decoded.
+    static func requireConsentForMultiplexedStreams(_ input: AudioInput, context: ItemContext) throws {
+        let omitted = MediaInput.unpreservedStreams(from: input.multiplexedOggStreams)
+        let unconsented = omitted.filter { !context.omittedStreams.contains($0) }
+        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        context.warnStreamsOmitted(omitted)
+    }
+
+    static func requirePreservableContent(_ input: AudioInput, context: ItemContext) async throws {
+        let found = try await unpreservedStreams(in: input)
+        let unconsented = found.filter { !context.omittedStreams.contains($0) }
+        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
+        if !found.isEmpty { context.warnStreamsOmitted(found) }
+    }
+
+    static func unpreservedStreams(in input: AudioInput) async throws -> [UnpreservedStream] {
         var found: Set<UnpreservedStream> = []
         if input.container == .mpeg4 {
             let asset = AVURLAsset(url: input.url)
@@ -113,10 +125,7 @@ enum AudioJob {
             found.formUnion(try unpreservedChunkStreams(input.url, container: input.container))
         }
         found.formUnion(MediaInput.unpreservedStreams(from: input.multiplexedOggStreams))
-        let ordered = UnpreservedStream.allCases.filter(found.contains)
-        let unconsented = ordered.filter { !context.omittedStreams.contains($0) }
-        if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }
-        if !ordered.isEmpty { context.warnStreamsOmitted(ordered) }
+        return UnpreservedStream.allCases.filter(found.contains)
     }
 
     private static func unpreservedID3Streams(

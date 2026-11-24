@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 public enum MenuPlacement: String, Codable, Sendable {
-    case primary, more
+    case finder, primary, more
 }
 
 public struct MenuEntry: Codable, Hashable, Sendable {
@@ -29,7 +29,7 @@ public struct MenuEntry: Codable, Hashable, Sendable {
     public let recipeRevision: String?
     public let acceptedKinds: Set<FileKind>?
     public let groupID: String?
-    public let placement: MenuPlacement?
+    public let placement: MenuPlacement
 
     public init(
         op: OperationID, preset: String?, path: [String], separatorBefore: Bool = false,
@@ -40,7 +40,7 @@ public struct MenuEntry: Codable, Hashable, Sendable {
         groupID: String? = nil, placement: MenuPlacement? = nil
     ) {
         self.groupID = groupID
-        self.placement = placement
+        self.placement = placement ?? op.defaultMenuPlacement
         self.op = op
         self.preset = preset
         self.kind = op.kind
@@ -91,10 +91,6 @@ public struct MenuEntry: Codable, Hashable, Sendable {
 
     public var resolvedGroupID: String { groupID ?? op.menuGroupID(preset: preset) }
 
-    public var resolvedPlacement: MenuPlacement {
-        kind == .any ? .more : placement ?? op.defaultMenuPlacement
-    }
-
     public var isCustom: Bool { preset == Self.customPreset }
 }
 
@@ -106,8 +102,24 @@ public struct KindTitle: Codable, Hashable, Sendable {
     }
 }
 
+/// A Commands scope row, in display order.
+public struct MenuCommandItem: Codable, Hashable, Sendable {
+    public let group: MenuGroupID
+    public let title: String
+    public let placement: MenuPlacement
+
+    public init(group: MenuGroupID, title: String, placement: MenuPlacement) {
+        self.group = group
+        self.title = title
+        self.placement = placement
+    }
+
+    public var command: HostCommand? { HostCommand(group: group) }
+}
+
+/// Entries arrive in display order.
 public struct MenuFile: Codable, Equatable, Sendable {
-    public static let currentSchema = 3
+    public static let currentSchema = 4
 
     public let schema: Int
     public let catalogVersion: String
@@ -116,20 +128,17 @@ public struct MenuFile: Codable, Equatable, Sendable {
     public let entries: [MenuEntry]
     public let kinds: [String: KindTitle]
     public let moreTitle: String?
-    public let updateTitle: String?
-    public let previewTitle: String?
+    public let commands: [MenuCommandItem]
     public var monitoredDirectoryPaths: [String]?
 
     public init(
         token: String, hostAvailable: Bool, entries: [MenuEntry], kinds: [FileKind: String], moreTitle: String? = nil,
-        updateTitle: String? = nil, previewTitle: String? = nil
+        commands: [MenuCommandItem] = []
     ) {
         self.schema = Self.currentSchema
         self.moreTitle = moreTitle
-        self.updateTitle = updateTitle
-        self.previewTitle = previewTitle
-        self.catalogVersion = Self.version(
-            of: entries, moreTitle: moreTitle, updateTitle: updateTitle, previewTitle: previewTitle)
+        self.commands = commands
+        self.catalogVersion = Self.version(of: entries, moreTitle: moreTitle, commands: commands)
         self.token = token
         self.hostAvailable = hostAvailable
         self.entries = entries
@@ -137,31 +146,31 @@ public struct MenuFile: Codable, Equatable, Sendable {
     }
 
     public static func version(
-        of entries: [MenuEntry], moreTitle: String? = nil, updateTitle: String? = nil, previewTitle: String? = nil
+        of entries: [MenuEntry], moreTitle: String? = nil, commands: [MenuCommandItem] = []
     ) -> String {
-        let unitSeparator = "\u{1F}"
-        let canonical = entries.map { entry in
-            let constraints: [String] = [
-                entry.groupID ?? "", entry.placement?.rawValue ?? "",
-                String(entry.separatorBefore), String(entry.operationSeparatorBefore),
-                entry.targetBytes.map { String($0) } ?? "", entry.resizeValue.map { String($0) } ?? "",
-                entry.parameterVersion ?? "",
-                String(entry.minimumSelection),
-                entry.maximumSelection.map { String($0) } ?? "",
-                entry.sourceFormats.map { $0.sorted().joined(separator: ",") } ?? "",
-                entry.targetFormat ?? "", String(entry.requiresSingleSourceFormat),
-                entry.rotationDegrees.map { String($0) } ?? "",
-                entry.frameRate.map { String($0) } ?? "", entry.targetLoudness.map { String($0) } ?? "",
-                entry.recipeID?.uuidString ?? "", entry.recipeRevision ?? "",
-                entry.acceptedKinds.map { $0.map(\.rawValue).sorted().joined(separator: ",") } ?? "",
-            ]
-            return ([entry.op.rawValue, entry.preset ?? "", entry.kind.rawValue] + constraints + entry.path)
-                .joined(separator: unitSeparator)
-        }.joined(separator: "\u{1E}")
-        let localized = moreTitle.map { canonical + "\u{1E}" + $0 } ?? canonical
-        let withUpdate = updateTitle.map { localized + "\u{1E}update\u{1F}" + $0 } ?? localized
-        let withPreview = previewTitle.map { withUpdate + "\u{1E}preview\u{1F}" + $0 } ?? withUpdate
-        return SHA256.hash(data: Data(withPreview.utf8)).hexEncoded
+        var hash = CanonicalHash()
+        hash.add(count: entries.count)
+        for entry in entries {
+            hash.add(entry.op.rawValue, entry.preset, entry.kind.rawValue)
+            hash.add(list: entry.path)
+            hash.add(String(entry.separatorBefore), String(entry.operationSeparatorBefore))
+            hash.add(entry.targetBytes.map { String($0) }, entry.resizeValue.map { String($0) })
+            hash.add(entry.parameterVersion, String(entry.minimumSelection))
+            hash.add(entry.maximumSelection.map { String($0) })
+            hash.add(list: entry.sourceFormats?.sorted())
+            hash.add(entry.targetFormat, String(entry.requiresSingleSourceFormat))
+            hash.add(entry.rotationDegrees.map { String($0) }, entry.frameRate.map { String($0) })
+            hash.add(entry.targetLoudness.map { String($0) })
+            hash.add(entry.recipeID?.uuidString, entry.recipeRevision)
+            hash.add(list: entry.acceptedKinds?.map(\.rawValue).sorted())
+            hash.add(entry.groupID, entry.placement.rawValue)
+        }
+        hash.add(moreTitle)
+        hash.add(count: commands.count)
+        for item in commands {
+            hash.add(item.group.rawValue, item.title, item.placement.rawValue)
+        }
+        return hash.finalized
     }
 
     public func kindTitle(_ kind: FileKind) -> String {
@@ -178,7 +187,11 @@ public struct MenuFile: Codable, Equatable, Sendable {
         let decoder = JSONDecoder()
         let schema = try decoder.decode(MenuSchema.self, from: json).schema
         guard schema == Self.currentSchema else { throw MenuFileError.unsupportedSchema(schema) }
-        self = try decoder.decode(MenuFile.self, from: json)
+        let file = try decoder.decode(MenuFile.self, from: json)
+        // Mismatched indices would run another operation.
+        guard file.catalogVersion == Self.version(of: file.entries, moreTitle: file.moreTitle, commands: file.commands)
+        else { throw MenuFileError.catalogMismatch }
+        self = file
     }
 }
 
@@ -204,8 +217,40 @@ public struct MenuTitles: Sendable {
     }
 }
 
+/// Length-prefixed, so titles cannot forge field boundaries.
+private struct CanonicalHash {
+    private static let absent = -1
+
+    private var sha = SHA256()
+
+    mutating func add(_ fields: String?...) {
+        for field in fields {
+            guard let field else {
+                add(count: Self.absent)
+                continue
+            }
+            let bytes = Data(field.utf8)
+            add(count: bytes.count)
+            sha.update(data: bytes)
+        }
+    }
+
+    mutating func add(list: [String]?) {
+        guard let list else { return add(count: Self.absent) }
+        add(count: list.count)
+        for field in list { add(field) }
+    }
+
+    mutating func add(count: Int) {
+        withUnsafeBytes(of: Int64(count).bigEndian) { sha.update(bufferPointer: $0) }
+    }
+
+    var finalized: String { sha.finalize().hexEncoded }
+}
+
 public enum MenuFileError: Error, Equatable, Sendable {
     case unsupportedSchema(Int)
+    case catalogMismatch
 }
 
 private struct MenuSchema: Decodable {
@@ -222,10 +267,14 @@ extension MenuFile {
         extraRotationDegrees: Double? = nil,
         frameRates: [String: Int] = [:], loudnessTargets: [String: Double] = [:],
         sizeTargets: [String: Int64] = [:], resizeTargets: [String: Int] = [:], parameterVersion: String? = nil,
-        placements: [String: MenuPlacement] = [:], moreTitle: String? = nil, updateTitle: String? = nil,
-        previewTitle: String? = nil
+        arrangement: MenuArrangement = MenuArrangement(), moreTitle: String? = nil,
+        commandTitles: [HostCommand: String] = [:]
     ) {
-        var entries: [MenuEntry] = []
+        let catalog = MenuGroupCatalog.current
+        let scopes = Dictionary(
+            uniqueKeysWithValues: MenuScope.allCases.map { ($0, arrangement.resolved($0, catalog: catalog)) })
+        let placed = Self.placedGroups(scopes.values, catalog: catalog)
+        var groups: [String: [MenuEntry]] = [:]
         let visible = Set(visibleOperations)
         let animations: Set<OperationID> = [.videoToGIF, .videoToAnimatedWebP, .videoToAPNG]
         var hasAnimations = false
@@ -236,55 +285,96 @@ extension MenuFile {
             if !titles.speechAvailable, op == .audioSubtitles || op == .videoSubtitles { continue }
             let parent = op.menuGroupOperation
             let opTitle = titles.operation(parent)
-            var groups = op.presetGroups
+            var presetGroups = op.presetGroups
             if extraRotationDegrees != nil, op == .imageRotate || op == .videoRotate {
-                groups[0].append("extra-angle")
+                presetGroups[0].append(OperationID.extraAnglePreset)
             }
-            if op.offersCustom { groups.append([MenuEntry.customPreset]) }
-            if groups.isEmpty {
-                if !hiddenEntries.contains("\(op.rawValue)/") {
+            if op.offersCustom { presetGroups.append([MenuEntry.customPreset]) }
+            if presetGroups.isEmpty {
+                let groupID = op.menuGroupID(preset: nil)
+                if !hiddenEntries.contains("\(op.rawValue)/"), let group = placed[groupID] {
                     let isSDR = op == .imageHDRToSDR || op == .videoHDRToSDR
-                    entries.append(
+                    let boundary = operationBoundaries.remove(op.kind) != nil
+                    groups[groupID, default: []].append(
                         MenuEntry(
                             op: op, preset: nil, path: isSDR ? [opTitle, titles.operation(op)] : [opTitle],
-                            separatorBefore: isSDR,
-                            operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
-                            parameterVersion: parameterVersion,
-                            groupID: op.menuGroupID(preset: nil), placement: placements[op.menuGroupID(preset: nil)]))
+                            separatorBefore: isSDR, operationSeparatorBefore: boundary && group.keepsClusters,
+                            parameterVersion: parameterVersion, groupID: groupID, placement: group.placement))
                 }
                 continue
             }
-            for (groupIndex, presets) in groups.enumerated() {
+            for (groupIndex, presets) in presetGroups.enumerated() {
                 let presets = presets.filter {
                     !hiddenEntries.contains("\(op.rawValue)/\($0)")
                         && (op != .imageConvert || $0 != "tga" || titles.tgaAvailable)
                 }
                 for (presetIndex, preset) in presets.enumerated() {
+                    let groupID = op.menuGroupID(preset: preset)
+                    guard let group = placed[groupID] else { continue }
                     let flat = op == .textJSON
-                    let boundary =
+                    let separated =
                         groupIndex > 0 || op == .imageFlip || op == .videoFlip
                         || (animations.contains(op) && !hasAnimations)
-                    entries.append(
+                    let boundary = operationBoundaries.remove(op.kind) != nil
+                    groups[groupID, default: []].append(
                         MenuEntry(
                             op: op, preset: preset,
                             path: flat ? [titles.preset(op, preset)] : [opTitle, titles.preset(op, preset)],
-                            separatorBefore: presetIndex == 0 && boundary,
-                            operationSeparatorBefore: operationBoundaries.remove(op.kind) != nil,
+                            separatorBefore: presetIndex == 0 && separated,
+                            operationSeparatorBefore: boundary && group.keepsClusters,
                             targetBytes: sizeTargets["\(op.rawValue)/\(preset)"],
                             resizeValue: resizeTargets["\(op.rawValue)/\(preset)"], parameterVersion: parameterVersion,
-                            rotationDegrees: preset == "extra-angle" ? extraRotationDegrees : nil,
+                            rotationDegrees: preset == OperationID.extraAnglePreset ? extraRotationDegrees : nil,
                             frameRate: op == .videoFPS ? frameRates[preset] : nil,
                             targetLoudness: op == .audioNormalize ? loudnessTargets[preset] : nil,
-                            groupID: op.menuGroupID(preset: preset),
-                            placement: placements[op.menuGroupID(preset: preset)]))
+                            groupID: groupID, placement: group.placement))
                     if animations.contains(op) { hasAnimations = true }
                 }
             }
         }
+        let order = ([.commands] + FileKind.menuOrder.map(MenuScope.init)).compactMap { scopes[$0] }
+        let entries = order.flatMap { scope in
+            scope.scope.sections.flatMap { scope[$0] }.flatMap { groups[$0.rawValue] ?? [] }
+        }
         let kinds = Dictionary(uniqueKeysWithValues: FileKind.allCases.map { ($0, titles.kind($0)) })
         self.init(
             token: token, hostAvailable: hostAvailable, entries: entries, kinds: kinds, moreTitle: moreTitle,
-            updateTitle: updateTitle, previewTitle: previewTitle)
+            commands: scopes[.commands].map { Self.commands($0, titles: commandTitles, groups: groups) } ?? [])
+    }
+
+    private struct PlacedGroup {
+        let placement: MenuPlacement
+        let keepsClusters: Bool
+    }
+
+    /// Reordered sections drop cluster separators.
+    private static func placedGroups(
+        _ scopes: some Sequence<ScopeArrangement>, catalog: MenuGroupCatalog
+    ) -> [String: PlacedGroup] {
+        var placed: [String: PlacedGroup] = [:]
+        for scope in scopes {
+            for section in scope.scope.sections {
+                guard let placement = section.placement else { continue }
+                let canonical = catalog.isCanonical(scope[section], in: section, of: scope.scope)
+                for group in scope[section] {
+                    placed[group.rawValue] = PlacedGroup(placement: placement, keepsClusters: canonical)
+                }
+            }
+        }
+        return placed
+    }
+
+    private static func commands(
+        _ scope: ScopeArrangement, titles: [HostCommand: String], groups: [String: [MenuEntry]]
+    ) -> [MenuCommandItem] {
+        scope.scope.sections.flatMap { section -> [MenuCommandItem] in
+            guard let placement = section.placement else { return [] }
+            return scope[section].compactMap { group in
+                let title =
+                    HostCommand(group: group).flatMap { titles[$0] } ?? groups[group.rawValue]?.first?.path.first
+                return title.map { MenuCommandItem(group: group, title: $0, placement: placement) }
+            }
+        }
     }
 }
 
