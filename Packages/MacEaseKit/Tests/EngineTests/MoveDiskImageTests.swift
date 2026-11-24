@@ -276,13 +276,18 @@ private final class MoveCollisionPresenter: NSObject, NSFilePresenter, Sendable 
     func register() throws {
         guard let source = presentedItemURL else { throw POSIXError(.EINVAL) }
         NSFileCoordinator.addFilePresenter(self)
+        var registered = false
+        defer { if !registered { NSFileCoordinator.removeFilePresenter(self) } }
         for _ in 0..<Self.registrationAttempts {
             var coordinationFailure: NSError?
             NSFileCoordinator(filePresenter: nil).coordinate(
                 readingItemAt: source, options: [], error: &coordinationFailure
             ) { _ in }
             if let coordinationFailure { throw coordinationFailure }
-            if observedRelinquish.withLock({ $0 }) { return }
+            if observedRelinquish.withLock({ $0 }) {
+                registered = true
+                return
+            }
             Thread.sleep(forTimeInterval: Self.registrationRetryInterval)
         }
         throw POSIXError(.ETIMEDOUT)
