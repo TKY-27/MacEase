@@ -173,6 +173,7 @@ public final class JobEngine: Sendable {
             do {
                 context.phase(.preparing)
                 if let expected = workItem.requiredInputStamps {
+                    inputStamps = expected
                     context.recordInputs(expected)
                     for input in workItem.inputs {
                         guard let stamp = expected[input] else { throw ActivityAvailability.unavailable }
@@ -180,16 +181,20 @@ public final class JobEngine: Sendable {
                     }
                 }
                 if !workItem.durableArchive { try Self.downloadIfNeeded(workItem.inputs) }
-                for input in workItem.inputs where !workItem.durableArchive {
+                for input in workItem.inputs where !workItem.durableArchive && workItem.requiredInputStamps == nil {
                     var metadata = stat()
                     guard lstat(input.path, &metadata) == 0 else {
                         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
                     }
                     if metadata.st_mode & S_IFMT != S_IFDIR { inputStamps[input] = try FileStamp(of: input) }
                 }
-                var identities: [URL: FileStamp] = [:]
-                for input in inputStamps.keys { identities[input] = try FileStamp(of: input, includingIdentity: true) }
-                if workItem.requiredInputStamps == nil { context.recordInputs(identities) }
+                if workItem.requiredInputStamps == nil {
+                    var identities: [URL: FileStamp] = [:]
+                    for input in inputStamps.keys {
+                        identities[input] = try FileStamp(of: input, includingIdentity: true)
+                    }
+                    context.recordInputs(identities)
+                }
                 result = try await workItem.body(context)
                 await gate.release()
             } catch {

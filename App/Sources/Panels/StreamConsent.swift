@@ -1,4 +1,5 @@
 import Engine
+import MenuCatalog
 import SwiftUI
 
 /// Consent asked before a panel opens or runs media.
@@ -20,6 +21,7 @@ struct StreamConsentRequest: Identifiable {
     let id = UUID()
     let purpose: Purpose
     let files: [File]
+    var operation: OperationID? = nil
 
     var streams: [UnpreservedStream] {
         let combined = Set(files.flatMap(\.streams))
@@ -56,8 +58,11 @@ struct StreamConsentRequest: Identifiable {
             : ([UserMessages.streamsListIntroduction]
                 + files.map { UserMessages.streamsListLine(file: $0.name, streams: $0.streams) })
                 .joined(separator: "\n")
-        return [found, streams.map(UserMessages.consequence(of:)).joined(separator: "\n"), originalsNote]
-            .joined(separator: "\n\n")
+        return [
+            found, streams.map { UserMessages.consequence(of: $0, operation: operation) }.joined(separator: "\n"),
+            originalsNote,
+        ]
+        .joined(separator: "\n\n")
     }
 
     private var originalsNote: String {

@@ -225,6 +225,7 @@ struct ActivityResult {
     /// Includes skips, which are not problems.
     let problems: [ActivityProblem]
     let confirmations: [ActivityConfirmation]
+    let operation: OperationID
     let replacesOriginals: Bool
     let warnings: [ActivityWarning]
     let skipped: Int
@@ -287,6 +288,7 @@ struct ActivityResult {
         }
         self.problems = problems
         self.confirmations = confirmations
+        operation = outcome.operation
         replacesOriginals = session?.replacesOriginals ?? false
         self.warnings = warnings
         self.skipped = skipped
@@ -398,7 +400,7 @@ private struct StreamOmissionOffer: View {
                 }
             }
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(streams, id: \.self) { Text(UserMessages.consequence(of: $0)) }
+                ForEach(streams, id: \.self) { Text(UserMessages.consequence(of: $0, operation: result.operation)) }
             }
             .foregroundStyle(.secondary)
             Text(

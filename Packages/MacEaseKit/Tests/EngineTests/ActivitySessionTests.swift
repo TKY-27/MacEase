@@ -12,6 +12,40 @@ import UniformTypeIdentifiers
 @testable import Engine
 
 struct ActivitySessionTests {
+    @Test(arguments: [false, true])
+    func confirmedIdentitySurvivesThroughCommit(replacesOriginal: Bool) async throws {
+        let folder = try AudioSignals.temporaryFolder()
+        defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }
+        let source = folder.appending(path: "source.txt")
+        try Data("version A".utf8).write(to: source)
+        let modified = Date(timeIntervalSinceReferenceDate: 1_000_000)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: source.path)
+        let confirmed = try FileStamp(of: source, includingIdentity: true)
+        let replacement = folder.appending(path: "replacement.txt")
+        try Data("version B".utf8).write(to: replacement)
+        try FileManager.default.setAttributes([.modificationDate: confirmed.modified], ofItemAtPath: replacement.path)
+        let replacementStamp = try FileStamp(of: replacement)
+        let unconfirmed = try FileStamp(of: source)
+        try #require(replacementStamp == unconfirmed)
+        var work = WorkItem(inputs: [source]) { context in
+            try FileManager.default.removeItem(at: source)
+            try FileManager.default.moveItem(at: replacement, to: source)
+            let staged = try context.stagingURL(for: source, name: "output.txt")
+            try Data("processed B".utf8).write(to: staged)
+            let output = StagedFile(url: staged, name: "output.txt", check: .text(.utf8))
+            return replacesOriginal
+                ? .replace(original: source, output: output) : .derived(nextTo: source, outputs: [output])
+        }
+        work.requiredInputStamps = [source: confirmed]
+        let engine = try JobEngine(supportDirectory: folder.appending(path: "support"), concurrency: 1)
+        let outcome = await engine.run(Batch(operation: .audioTrim, items: [work]), settings: Settings()) { _ in }
+        #expect(outcome.details.first?.inputStamps[source] == confirmed)
+        #expect(outcome.outcomes == [.skipped(.changedSinceScan)])
+        #expect(outcome.record == nil)
+        #expect(try String(contentsOf: source, encoding: .utf8) == "version B")
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "output.txt").path))
+    }
+
     @Test func retriesOnlyFailuresAndReservesUntilCompletion() async throws {
         let folder = try AudioSignals.temporaryFolder()
         defer { #expect(throws: Never.self) { try FileManager.default.removeItem(at: folder) } }

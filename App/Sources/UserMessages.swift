@@ -99,8 +99,29 @@ enum UserMessages {
     }
 
     /// Effect of leaving one kind out.
-    static func consequence(of stream: UnpreservedStream) -> String {
-        switch stream {
+    static func consequence(of stream: UnpreservedStream, operation: OperationID? = nil) -> String {
+        if stream == .audio {
+            switch operation {
+            case .videoRemoveAudio:
+                return String(localized: "Extra audio: all audio tracks are removed.")
+            case .videoThumbnail, .videoToGIF, .videoToAPNG, .videoToAnimatedWebP, .videoSubtitles, .audioSubtitles:
+                return String(localized: "Extra audio: the output contains no audio tracks.")
+            case .audioEnhance:
+                return String(localized: "Extra audio: only the first audio track is used to create the output.")
+            default: break
+            }
+        }
+        if stream == .video {
+            switch operation {
+            case .videoExtractAudio, .videoSubtitles, .audioConvert, .audioCompress, .audioNormalize, .audioTrim,
+                .audioEnhance, .audioSubtitles:
+                return String(localized: "Extra video: the output contains no video tracks.")
+            case .videoThumbnail, .videoToGIF, .videoToAPNG, .videoToAnimatedWebP:
+                return String(localized: "Extra video: only the first video track is used to create the output.")
+            default: break
+            }
+        }
+        return switch stream {
         case .video: String(localized: "Extra video: only the first video track is kept.")
         case .audio: String(localized: "Extra audio: only the first audio track is kept.")
         case .subtitle: String(localized: "Subtitles: they can no longer be turned on during playback.")

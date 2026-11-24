@@ -56,7 +56,7 @@ struct FileCommitter: Sendable {
                         : try AvailableName.url(for: output.name, in: directory, nextCandidate: &nextCandidate)
                 do {
                     return try coordinate(replacing: original, destination: destination) { target, final in
-                        guard try FileStamp(of: target) == expectedStamp else { throw Failure.changedSinceScan }
+                        guard expectedStamp.matches(target.path) else { throw Failure.changedSinceScan }
                         let attributes = try FinderAttributes(of: target)
                         try Task.checkCancellation()
                         try attributes.apply(to: output.url)

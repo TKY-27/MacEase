@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import CoreMedia
+import MenuCatalog
 import XCTest
 
 @testable import Engine
@@ -258,6 +259,115 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertEqual(String(format: ja("Left out, as you confirmed: %@."), ja("timecode")), "確認したとおり省きました：タイムコード。")
     }
 
+    func testConsequencesMatchEveryOperationInBothLanguages() throws {
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        let cases: [(OperationID, String, String, String, String)] = [
+            (
+                .videoRemoveAudio, "Extra audio: all audio tracks are removed.", "2本目以降の音声トラック：すべての音声トラックが削除されます。",
+                "Extra video: only the first video track is kept.", "2本目以降の映像トラック：最初の映像トラックだけが残ります。"
+            ),
+            (
+                .videoExtractAudio, "Extra audio: only the first audio track is kept.",
+                "2本目以降の音声トラック：最初の音声トラックだけが残ります。", "Extra video: the output contains no video tracks.",
+                "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .videoThumbnail, "Extra audio: the output contains no audio tracks.", "2本目以降の音声トラック：出力に音声トラックは含まれません。",
+                "Extra video: only the first video track is used to create the output.",
+                "2本目以降の映像トラック：最初の映像トラックだけを使って出力を作成します。"
+            ),
+            (
+                .videoToGIF, "Extra audio: the output contains no audio tracks.", "2本目以降の音声トラック：出力に音声トラックは含まれません。",
+                "Extra video: only the first video track is used to create the output.",
+                "2本目以降の映像トラック：最初の映像トラックだけを使って出力を作成します。"
+            ),
+            (
+                .videoToAPNG, "Extra audio: the output contains no audio tracks.", "2本目以降の音声トラック：出力に音声トラックは含まれません。",
+                "Extra video: only the first video track is used to create the output.",
+                "2本目以降の映像トラック：最初の映像トラックだけを使って出力を作成します。"
+            ),
+            (
+                .videoToAnimatedWebP, "Extra audio: the output contains no audio tracks.",
+                "2本目以降の音声トラック：出力に音声トラックは含まれません。",
+                "Extra video: only the first video track is used to create the output.",
+                "2本目以降の映像トラック：最初の映像トラックだけを使って出力を作成します。"
+            ),
+            (
+                .videoSubtitles, "Extra audio: the output contains no audio tracks.", "2本目以降の音声トラック：出力に音声トラックは含まれません。",
+                "Extra video: the output contains no video tracks.", "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .audioSubtitles, "Extra audio: the output contains no audio tracks.", "2本目以降の音声トラック：出力に音声トラックは含まれません。",
+                "Extra video: the output contains no video tracks.", "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .videoEdit, "Extra audio: only the first audio track is kept.", "2本目以降の音声トラック：最初の音声トラックだけが残ります。",
+                "Extra video: only the first video track is kept.", "2本目以降の映像トラック：最初の映像トラックだけが残ります。"
+            ),
+            (
+                .filesFinish, "Extra audio: only the first audio track is kept.", "2本目以降の音声トラック：最初の音声トラックだけが残ります。",
+                "Extra video: only the first video track is kept.", "2本目以降の映像トラック：最初の映像トラックだけが残ります。"
+            ),
+            (
+                .audioConvert, "Extra audio: only the first audio track is kept.", "2本目以降の音声トラック：最初の音声トラックだけが残ります。",
+                "Extra video: the output contains no video tracks.", "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .audioCompress, "Extra audio: only the first audio track is kept.", "2本目以降の音声トラック：最初の音声トラックだけが残ります。",
+                "Extra video: the output contains no video tracks.", "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .audioNormalize, "Extra audio: only the first audio track is kept.", "2本目以降の音声トラック：最初の音声トラックだけが残ります。",
+                "Extra video: the output contains no video tracks.", "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .audioTrim, "Extra audio: only the first audio track is kept.", "2本目以降の音声トラック：最初の音声トラックだけが残ります。",
+                "Extra video: the output contains no video tracks.", "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+            (
+                .audioEnhance, "Extra audio: only the first audio track is used to create the output.",
+                "2本目以降の音声トラック：最初の音声トラックだけを使って出力を作成します。", "Extra video: the output contains no video tracks.",
+                "2本目以降の映像トラック：出力に映像トラックは含まれません。"
+            ),
+        ]
+        let shared: [(UnpreservedStream, String, String)] = [
+            (.subtitle, "Subtitles: they can no longer be turned on during playback.", "字幕：再生中に表示できなくなります。"),
+            (
+                .closedCaption, "Closed captions: they can no longer be turned on during playback.",
+                "クローズドキャプション：再生中に表示できなくなります。"
+            ),
+            (
+                .timecode,
+                "Timecode: editing apps use it to line up clips. Leaving it out doesn’t affect picture or sound.",
+                "タイムコード：編集アプリがクリップの位置合わせに使う情報です。省いても映像と音声には影響しません。"
+            ),
+            (.chapter, "Chapters: you can no longer jump from chapter to chapter.", "チャプター：チャプター単位で移動できなくなります。"),
+            (
+                .attachment, "Attachments: files stored inside, such as cover art or fonts, are left out.",
+                "添付ファイル：カバー画像やフォントなど、ファイル内に保存されたものは含まれません。"
+            ),
+            (
+                .metadata, "Timed metadata: details that change over time, such as location, are left out.",
+                "時系列のメタデータ：位置情報など、時間とともに変わる情報は含まれません。"
+            ),
+            (
+                .data, "Other data: things like markers or sensor readings are left out. Most players don’t use them.",
+                "その他のデータ：マーカーやセンサーの記録などは含まれません。多くの再生アプリでは使われない情報です。"
+            ),
+        ]
+        for (operation, audio, japaneseAudio, video, japaneseVideo) in cases {
+            let expected: [(UnpreservedStream, String, String)] =
+                shared + [
+                    (.audio, audio, japaneseAudio), (.video, video, japaneseVideo),
+                ]
+            for (stream, english, translation) in expected {
+                let message = UserMessages.consequence(of: stream, operation: operation)
+                XCTAssertEqual(message, english, "\(operation): \(stream)")
+                XCTAssertEqual(japanese.localizedString(forKey: message, value: nil, table: nil), translation)
+            }
+        }
+    }
+
     func testEditorAsksBeforeOpeningAndSavesWithTheSameConsent() async throws {
         let directory = try workspace()
         let timecoded = try await timecodedClip(in: directory)
@@ -283,6 +393,9 @@ final class StreamConsentTests: XCTestCase {
         model.change { $0.photo.geometry.quarterTurns = 1 }
         let planned = try model.makeSave(replacingOriginal: false)
         XCTAssertEqual(planned.batch.items.map(\.omittedStreams), [[.timecode]])
+        XCTAssertEqual(
+            planned.batch.items.first?.requiredInputStamps?[timecoded],
+            request.files.first?.omission.stamp.fileStamp)
         let engine = try JobEngine(supportDirectory: directory.appending(path: "engine"), concurrency: 1)
         let saved = await engine.run(planned.batch, settings: planned.settings) { _ in }
         guard case .succeeded(_, let warnings) = saved.outcomes.first else {
@@ -325,6 +438,7 @@ final class StreamConsentTests: XCTestCase {
         XCTAssertFalse(model.ready)
         let request = try XCTUnwrap(model.streamConsent)
         XCTAssertEqual(request.files.map(\.url), [audio])
+        XCTAssertEqual(request.operation, .audioTrim)
         XCTAssertEqual(request.streams, [.data])
 
         model.continueWithoutStreams(request)
@@ -400,7 +514,8 @@ final class StreamConsentTests: XCTestCase {
         let trim = try model.trimRequest()
         XCTAssertEqual(trim.omittedStreams, [.data])
 
-        let replacement = Data(try Data(contentsOf: audio).reversed())
+        var replacement = try Data(contentsOf: audio)
+        replacement[44] ^= 0x7F
         try FileManager.default.removeItem(at: audio)
         try replacement.write(to: audio)
         var settings = Engine.Settings()
@@ -409,9 +524,14 @@ final class StreamConsentTests: XCTestCase {
         let outcome = await engine.run(OperationPlanner.batch(for: trim, settings: settings), settings: settings) {
             _ in
         }
-        guard case .failed = outcome.outcomes.first else {
-            return XCTFail("a replaced original must not be trimmed: \(outcome.outcomes)")
-        }
+        XCTAssertEqual(outcome.outcomes, [.failed(.retryInputChanged)])
+        let validReplacement = try AVAudioFile(forReading: audio)
+        let samples = try XCTUnwrap(
+            AVAudioPCMBuffer(pcmFormat: validReplacement.processingFormat, frameCapacity: 8_000))
+        try validReplacement.read(into: samples)
+        XCTAssertEqual(samples.frameLength, 8_000)
+        let history = await engine.history.records
+        XCTAssertTrue(history.isEmpty)
         XCTAssertNil(outcome.record)
         XCTAssertEqual(try Data(contentsOf: audio), replacement)
         XCTAssertEqual(try files(in: directory), ["cues.wav", "engine", "support"])
@@ -436,6 +556,7 @@ final class StreamConsentTests: XCTestCase {
         try await eventually { model.streamConsent != nil || model.failure != nil }
         let declined = try XCTUnwrap(model.streamConsent)
         XCTAssertEqual(declined.purpose, .proceed)
+        XCTAssertEqual(declined.operation, .audioEnhance)
         XCTAssertEqual(declined.streams, [.audio])
         model.streamConsent = nil
         XCTAssertTrue(submitted.isEmpty, "declining submits nothing")
@@ -510,7 +631,10 @@ final class StreamConsentTests: XCTestCase {
         var format = little(UInt16(1)) + little(UInt16(1)) + little(sampleRate) + little(sampleRate * 2)
         format += little(UInt16(2)) + little(UInt16(16))
         let audio = samples.reduce(into: Data()) { $0 += little($1) }
-        let chunks = [("fmt ", format), ("data", audio), ("cue ", little(UInt32(0)))]
+        let cue =
+            little(UInt32(1)) + Data(repeating: 0, count: 8)
+            + Data("data".utf8) + Data(repeating: 0, count: 12)
+        let chunks = [("fmt ", format), ("data", audio), ("cue ", cue)]
             .reduce(into: Data()) { $0 += Data($1.0.utf8) + little(UInt32($1.1.count)) + $1.1 }
         let url = directory.appending(path: "cues.wav")
         try (Data("RIFF".utf8) + little(UInt32(4 + chunks.count)) + Data("WAVE".utf8) + chunks).write(to: url)

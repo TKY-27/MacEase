@@ -22,7 +22,7 @@ public struct MediaSourceStamp: Codable, Hashable, Sendable {
     }
 }
 
-/// Consent binds to the file version the user saw.
+/// Consent covers only the inspected file version.
 public struct StreamOmission: Hashable, Sendable {
     public let stamp: MediaSourceStamp
     public let streams: Set<UnpreservedStream>
@@ -297,7 +297,8 @@ public enum MediaEditing {
         if (edit.sources?.count ?? 0) <= 1 {
             return OperationPlanner.batch(
                 for: OperationRequest(
-                    op: .videoEdit, options: .video(.edit(edit)), inputs: [url], omittedStreams: omittedStreams),
+                    op: .videoEdit, options: .video(.edit(edit)), inputs: [url], omittedStreams: omittedStreams,
+                    inputStamps: edit.sourceStamp.map { [url: $0] } ?? [:]),
                 settings: settings)
         }
         let inputs = edit.sources?.map(\.url) ?? [url]

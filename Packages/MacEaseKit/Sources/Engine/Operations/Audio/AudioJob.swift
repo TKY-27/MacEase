@@ -99,7 +99,7 @@ enum AudioJob {
         context.warnStreamsOmitted(omitted)
     }
 
-    private static func requirePreservableContent(_ input: AudioInput, context: ItemContext) async throws {
+    static func requirePreservableContent(_ input: AudioInput, context: ItemContext) async throws {
         let found = try await unpreservedStreams(in: input)
         let unconsented = found.filter { !context.omittedStreams.contains($0) }
         if !unconsented.isEmpty { throw EngineError.invalidInput(.unpreservedStreams(unconsented)) }

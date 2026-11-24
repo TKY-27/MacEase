@@ -27,9 +27,10 @@ final class AudioEnhancementModel {
         Task {
             defer { checking = false }
             do {
-                let omission = try await Task.detached { try AudioEnhancement.streamOmission(for: source) }.value
+                let omission = try await Task.detached { try await AudioEnhancement.streamOmission(for: source) }.value
                 guard let omission else { return submit(omission: nil) }
-                streamConsent = StreamConsentRequest(purpose: .proceed, files: [.init(url: source, omission: omission)])
+                streamConsent = StreamConsentRequest(
+                    purpose: .proceed, files: [.init(url: source, omission: omission)], operation: .audioEnhance)
             } catch {
                 report(error)
             }

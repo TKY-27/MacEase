@@ -129,7 +129,7 @@ final class AudioTrimModel {
             await source?.close()
         } catch {
             if let inspected, let file = StreamConsentRequest.blockedFile(by: error, at: url, stamp: inspected) {
-                streamConsent = StreamConsentRequest(purpose: .open, files: [file])
+                streamConsent = StreamConsentRequest(purpose: .open, files: [file], operation: .audioTrim)
             } else {
                 report(error)
             }
