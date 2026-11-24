@@ -2073,6 +2073,18 @@
         }
       }
     },
+    "Canon RAW": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canon RAW画像"
+          }
+        }
+      }
+    },
     "CSV": {
       "localizations": {
         "ja": {
@@ -3398,6 +3410,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "フォルダ"
+          }
+        }
+      }
+    },
+    "Flash Video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash動画"
           }
         }
       }
@@ -15138,6 +15162,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "WOFF2フォント"
+          }
+        }
+      }
+    },
+    "Windows Media Audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows Mediaオーディオ"
+          }
+        }
+      }
+    },
+    "Windows Media Video": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows Media動画"
           }
         }
       }

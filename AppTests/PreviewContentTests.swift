@@ -348,4 +348,26 @@ final class PreviewContentTests: XCTestCase {
             PreviewWebConfiguration.permitsNavigation(to: try XCTUnwrap(URL(string: "about:blank")), page: generated))
         XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: source, page: generated))
     }
+
+    func testDetectedFormatNamesHaveJapaneseLocalizations() throws {
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        let asfHeader: [UInt8] = [
+            0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+        ]
+        let asfVideoGUID: [UInt8] = [
+            0xC0, 0xEF, 0x19, 0xBC, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B,
+        ]
+        let samples: [([UInt8], String, String)] = [
+            ([0x46, 0x4C, 0x56, 0x01, 0x05], "Flash Video", "Flash動画"),
+            (asfHeader + asfVideoGUID, "Windows Media Video", "Windows Media動画"),
+            (asfHeader + [0x00, 0x00], "Windows Media Audio", "Windows Mediaオーディオ"),
+            ([0x00, 0x00, 0x00, 0x14] + Array("ftypcrx ".utf8), "Canon RAW", "Canon RAW画像"),
+        ]
+        for (header, expectedEnglish, expectedJapanese) in samples {
+            let detected = ContentSniffer.identify(header: header)
+            XCTAssertEqual(detected.displayName, expectedEnglish)
+            XCTAssertEqual(
+                japanese.localizedString(forKey: detected.displayName, value: nil, table: nil), expectedJapanese)
+        }
+    }
 }
