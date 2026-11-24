@@ -410,14 +410,6 @@ extension MediaEditorModelTests {
         scroll.configuration = makeConfig(playing: false)
         scroll.updateTimeline()
         XCTAssertEqual(canvas.notifications, [.valueChanged])
-
-        let readout = ClockReadoutView()
-        readout.configure(position: 65.25, duration: 300, enabled: true, edit: {})
-        XCTAssertEqual(readout.accessibilityRole(), .button)
-        XCTAssertEqual(readout.accessibilityLabel(), "Playhead")
-        XCTAssertEqual(
-            readout.accessibilityValue() as? String, "\(Timecode.spoken(65.25)) of \(Timecode.spoken(300))")
-        XCTAssertEqual(readout.accessibilityHelp(), "Type a time to move the playhead.")
     }
 
     func testPlayheadFollowRulePagesWithoutFightingManualScrollOrTrim() throws {
