@@ -1,15 +1,75 @@
+import CoreVideo
 import Formats
 import Foundation
 
-final class TimelineFrameEncodeStage: StreamStage {
+final class TimelineFrameSource {
     private let inputs: [MediaInput]
-    private let encoding: VideoEncoding
+    private let frameDuration: Int64
     private let edit: FrameEdit
     private let timeline: VideoTimeline
+    private let hdr: VideoHDRConfiguration?
     private let toneMapToSDR: Bool
-    private var encoder: any VideoFrameEncoder
+    private let duration: Int64
     private var sampler: FrameSampler?
     private var segmentIndex: Int?
+
+    init(
+        inputs: [MediaInput], frameDuration: Int64, edit: FrameEdit, timeline: VideoTimeline,
+        hdr: VideoHDRConfiguration? = nil, toneMapToSDR: Bool
+    ) throws {
+        self.inputs = inputs
+        self.frameDuration = frameDuration
+        self.edit = edit
+        self.timeline = timeline
+        self.hdr = hdr
+        self.toneMapToSDR = toneMapToSDR
+        duration = try Nanoseconds.from(seconds: timeline.duration)
+        guard duration > 0 else { throw EngineError.encodeFailed("video timeline out of range") }
+    }
+
+    func frame(at timestamp: Int64) async throws -> CVPixelBuffer {
+        guard timestamp >= 0, timestamp < duration else {
+            throw EngineError.encodeFailed("video timeline out of range")
+        }
+        let (frameCenter, centerOverflow) = timestamp.addingReportingOverflow(frameDuration / 2)
+        guard !centerOverflow else { throw EngineError.encodeFailed("video timeline out of range") }
+        let center = min(frameCenter, duration - 1)
+        let seconds = Double(center) / Double(Nanoseconds.perSecond)
+        let index = timeline.index(at: seconds)
+        if segmentIndex != index {
+            let segment = timeline.segments[index]
+            let input = inputs[segment.sourceIndex]
+            var frameEdit = edit
+            frameEdit.displayOrientation = try input.displayOrientation
+            if inputs.count > 1 { frameEdit.fitCanvas = inputs[0].displaySize }
+            frameEdit.adjustments = segment.adjustments.isIdentity ? nil : segment.adjustments
+            frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+            let sourceHDR = try await VideoProperties.hdrConfiguration(input)
+            sampler = try await FrameSampler(
+                input: input, frameDuration: frameDuration, edit: frameEdit,
+                start: Nanoseconds.from(seconds: segment.start), end: Nanoseconds.from(seconds: segment.end),
+                hdr: hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil, holdsLastFrame: true)
+            segmentIndex = index
+        }
+        let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)
+        let sourceTime = min(sourceEnd - 1, try Nanoseconds.from(seconds: timeline.sourceTime(at: seconds)))
+        let fade = timeline.fadeGain(at: Double(timestamp) / Double(Nanoseconds.perSecond))
+        let overlays = timeline.overlays(at: seconds)
+        guard
+            let frame = try await sampler?.next(
+                sourceTime: sourceTime, timestamp: timestamp, fade: fade, overlays: overlays)
+        else {
+            throw EngineError.decodeFailed("no frame in selected segment")
+        }
+        return frame.image
+    }
+}
+
+final class TimelineFrameEncodeStage: StreamStage {
+    private let source: TimelineFrameSource
+    private let frameDuration: Int64
+    private let duration: Int64
+    private var encoder: any VideoFrameEncoder
     private var upcoming: Int64? = 0
 
     init(
@@ -17,11 +77,11 @@ final class TimelineFrameEncodeStage: StreamStage {
         toneMapToSDR: Bool, inputs: [MediaInput]? = nil
     ) throws {
         encoder = try VideoEncoders.make(encoding, track: 1)
-        self.inputs = inputs ?? [input]
-        self.encoding = encoding
-        self.edit = edit
-        self.timeline = timeline
-        self.toneMapToSDR = toneMapToSDR
+        source = try TimelineFrameSource(
+            inputs: inputs ?? [input], frameDuration: encoding.frameDuration, edit: edit,
+            timeline: timeline, hdr: encoding.hdr, toneMapToSDR: toneMapToSDR)
+        frameDuration = encoding.frameDuration
+        duration = try Nanoseconds.from(seconds: timeline.duration)
     }
 
     var output: OutputTrack? {
@@ -35,44 +95,14 @@ final class TimelineFrameEncodeStage: StreamStage {
 
     func pull() async throws -> [MediaPacket] {
         guard let timestamp = upcoming else { return [] }
-        let duration = try Nanoseconds.from(seconds: timeline.duration)
         guard timestamp < duration else {
             upcoming = nil
             return try encoder.finish()
         }
-        let (frameCenter, centerOverflow) = timestamp.addingReportingOverflow(encoding.frameDuration / 2)
-        guard !centerOverflow else { throw EngineError.encodeFailed("video timeline out of range") }
-        let center = min(frameCenter, duration - 1)
-        let seconds = Double(center) / Double(Nanoseconds.perSecond)
-        let index = timeline.index(at: seconds)
-        if segmentIndex != index {
-            let segment = timeline.segments[index]
-            let input = inputs[segment.sourceIndex]
-            var frameEdit = edit
-            frameEdit.displayOrientation = try input.displayOrientation
-            if inputs.count > 1 { frameEdit.fitCanvas = self.inputs[0].displaySize }
-            frameEdit.adjustments = segment.adjustments.isIdentity ? nil : segment.adjustments
-            frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
-            let sourceHDR = try await VideoProperties.hdrConfiguration(input)
-            sampler = try await FrameSampler(
-                input: input, frameDuration: encoding.frameDuration, edit: frameEdit,
-                start: Nanoseconds.from(seconds: segment.start), end: Nanoseconds.from(seconds: segment.end),
-                hdr: encoding.hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil, holdsLastFrame: true)
-            segmentIndex = index
-        }
-        let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)
-        let sourceTime = min(sourceEnd - 1, try Nanoseconds.from(seconds: timeline.sourceTime(at: seconds)))
-        let fade = timeline.fadeGain(at: Double(timestamp) / Double(Nanoseconds.perSecond))
-        let overlays = timeline.overlays(at: seconds)
-        guard
-            let frame = try await sampler?.next(
-                sourceTime: sourceTime, timestamp: timestamp, fade: fade, overlays: overlays)
-        else {
-            throw EngineError.decodeFailed("no frame in selected segment")
-        }
-        let (following, overflow) = timestamp.addingReportingOverflow(encoding.frameDuration)
+        let image = try await source.frame(at: timestamp)
+        let (following, overflow) = timestamp.addingReportingOverflow(frameDuration)
         guard !overflow else { throw EngineError.encodeFailed("video timeline out of range") }
         upcoming = following
-        return try encoder.encode(frame.image, timestamp: timestamp)
+        return try encoder.encode(image, timestamp: timestamp)
     }
 }

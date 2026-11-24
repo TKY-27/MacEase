@@ -6,8 +6,14 @@ import UniformTypeIdentifiers
 
 enum VideoStills {
     private static let sampledFrames: Int64 = 2
+    private static let millisecondsPerSecond = 1_000.0
+    private static let millisecondsPerMinute = 60_000
+    private static let millisecondsPerWholeSecond = 1_000
 
     static func run(_ still: VideoStill, url: URL, context: ItemContext) async throws -> ItemResult {
+        if case .edited(let edit, let outputSeconds) = still {
+            return try await edited(edit, outputSeconds: outputSeconds, url: url, context: context)
+        }
         let input = try await MediaInput.open(url)
         let metadata = try await VideoMetadata.load(from: input)
         let losses = metadata.losses(for: nil, includingAudio: false)
@@ -18,6 +24,7 @@ enum VideoStills {
             case .first: 0
             case .middle: input.duration / 2
             case .at(let seconds): min(max(try Nanoseconds.from(seconds: seconds), 0), input.duration)
+            case .edited: 0
             }
         let (frameSpan, spanOverflow) = input.frameDuration.multipliedReportingOverflow(by: sampledFrames)
         let (end, endOverflow) = time.addingReportingOverflow(frameSpan)
@@ -33,6 +40,95 @@ enum VideoStills {
         let output = try context.stagingURL(for: url, name: name)
         try ImageFiles.write([try CGImage.make(from: frame.image)], type: type, to: output)
         return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .image)])
+    }
+
+    private static func edited(
+        _ edit: VideoEdit, outputSeconds: Double, url: URL, context: ItemContext
+    ) async throws -> ItemResult {
+        try edit.sourceStamp?.validate(url)
+        try edit.geometry.validate()
+        guard outputSeconds.isFinite, outputSeconds >= 0 else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        var inputs: [MediaInput] = []
+        var validated = edit
+        if let sources = edit.sources, !sources.isEmpty {
+            for source in sources {
+                try source.stamp.validate(source.url)
+                let input = try await MediaInput.open(source.url)
+                guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
+                inputs.append(input)
+            }
+            validated.sources = zip(sources, inputs).map { source, input in
+                VideoEditSource(
+                    url: source.url, duration: Double(input.duration) / Double(Nanoseconds.perSecond),
+                    stamp: source.stamp)
+            }
+        } else {
+            let input = try await MediaInput.open(url)
+            guard input.video != nil else { throw EngineError.decodeFailed("no video track") }
+            inputs = [input]
+        }
+        let first = inputs[0]
+        let sourceDuration = Double(first.duration) / Double(Nanoseconds.perSecond)
+        let timeline = try VideoTimeline(edit: validated, sourceDuration: sourceDuration)
+        guard outputSeconds <= timeline.duration else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        let duration = try Nanoseconds.from(seconds: timeline.duration)
+        let rawTimestamp = min(try Nanoseconds.from(seconds: outputSeconds), duration - 1)
+        let timestamp = (rawTimestamp / first.frameDuration) * first.frameDuration
+        var toneMapToSDR = false
+        for input in inputs {
+            let metadata = try await VideoMetadata.load(from: input)
+            let losses = metadata.losses(for: nil, includingAudio: false)
+            if !losses.isEmpty {
+                let warning = ItemWarning.videoMetadataDropped(losses)
+                if !context.warnings.contains(warning) { context.warn(warning) }
+            }
+            if try await VideoProperties.toneMapsExport(input, context: context) { toneMapToSDR = true }
+        }
+        let cropped = edit.geometry.outputSize(
+            CGSize(width: first.displaySize.width, height: first.displaySize.height))
+        let natural = PixelSize(width: Int(cropped.width), height: Int(cropped.height))
+        let size = try edit.resize?.outputSize(natural)
+        let changesSize = size.map { $0 != natural } ?? false
+        var frameEdit = FrameEdit(displayOrientation: try first.displayOrientation)
+        if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
+        if changesSize { frameEdit.size = size }
+        frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+        frameEdit.fill = context.settings.video.rotationFill
+        let format = context.settings.video.thumbnailFormat
+        if inputs.count > 1 {
+            frameEdit.fitCanvas = first.displaySize
+            frameEdit.flattensAlpha = true
+        } else if first.video?.hasAlpha == true, format == .jpeg {
+            frameEdit.flattensAlpha = true
+        }
+        let source = try TimelineFrameSource(
+            inputs: inputs, frameDuration: first.frameDuration, edit: frameEdit, timeline: timeline,
+            toneMapToSDR: toneMapToSDR)
+        let buffer = try await source.frame(at: timestamp)
+        try edit.sourceStamp?.validate(url)
+        if let sources = edit.sources {
+            for source in sources { try source.stamp.validate(source.url) }
+        }
+        let type: UTType = format == .png ? .png : .jpeg
+        let stem = url.deletingPathExtension().lastPathComponent
+        let name = "\(stem)_frame_\(frameTimestamp(outputSeconds)).\(format.rawValue)"
+        let output = try context.stagingURL(for: url, name: name)
+        try ImageFiles.write([try CGImage.make(from: buffer)], type: type, to: output)
+        return .derived(nextTo: url, outputs: [StagedFile(url: output, name: name, check: .image)])
+    }
+
+    private static func frameTimestamp(_ seconds: Double) -> String {
+        let totalMilliseconds = Int((seconds * millisecondsPerSecond).rounded())
+        let minutes = totalMilliseconds / millisecondsPerMinute
+        let wholeSeconds = (totalMilliseconds % millisecondsPerMinute) / millisecondsPerWholeSecond
+        let milliseconds = totalMilliseconds % millisecondsPerWholeSecond
+        return String(
+            format: "%d-%02d.%03d", locale: Locale(identifier: "en_US_POSIX"),
+            minutes, wholeSeconds, milliseconds)
     }
 }
 

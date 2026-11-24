@@ -336,4 +336,20 @@ public enum MediaEditing {
         }
         return Batch(operation: .videoEdit, items: [work])
     }
+
+    public static func frame(url: URL, edit: VideoEdit, outputSeconds: Double, settings: Settings) -> Batch {
+        if (edit.sources?.count ?? 0) <= 1 {
+            return OperationPlanner.batch(
+                for: OperationRequest(
+                    op: .videoThumbnail, options: .video(.still(.edited(edit, outputSeconds: outputSeconds))),
+                    inputs: [url]),
+                settings: settings)
+        }
+        let inputs = edit.sources?.map(\.url) ?? [url]
+        let work = WorkItem(inputs: inputs, lane: .cpu) { context in
+            for input in inputs { try OperationPlanner.validateInput(input) }
+            return try await VideoStills.run(.edited(edit, outputSeconds: outputSeconds), url: url, context: context)
+        }
+        return Batch(operation: .videoThumbnail, items: [work])
+    }
 }
