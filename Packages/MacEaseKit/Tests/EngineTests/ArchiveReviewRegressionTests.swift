@@ -1,11 +1,11 @@
 import CArchive
 import Darwin
-import Formats
 import Foundation
 import Synchronization
 import Testing
 
 @testable import Engine
+@testable import Formats
 
 extension ArchiveExtractionRoutingTests {
     private func reviewFixture(_ variant: String, in root: URL, format: String = "zip", comment: Int = 0) throws -> URL
@@ -65,6 +65,9 @@ extension ArchiveExtractionRoutingTests {
                     #expect(outcome.record == nil)
                     #expect(
                         !FileManager.default.fileExists(atPath: root.appending(path: "support/HatchExtractions").path))
+                    let registered = try JSONDecoder().decode(
+                        [String].self, from: Data(contentsOf: root.appending(path: "support/staging.json")))
+                    #expect(registered.isEmpty)
                 }
                 #expect(try Data(contentsOf: source) == original)
             }
@@ -77,13 +80,76 @@ extension ArchiveExtractionRoutingTests {
         let source = try reviewFixture("duplicate-cp932", in: root, format: "tar")
         let original = try Data(contentsOf: source)
         let (outcome, _, _, _) = try await run(source, in: root, native: true)
-        guard case .failed(.invalidInput(.archiveNameCollision)) = outcome.outcomes.first else {
+        guard case .failed(.invalidInput(.archiveNameCollision(let first, let second))) = outcome.outcomes.first else {
             Issue.record("Native collision was not refused: \(outcome.outcomes)")
             return
         }
+        #expect(first.hasPrefix("1:"))
+        #expect(second.hasPrefix("2:"))
         #expect(try Data(contentsOf: source) == original)
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: "bundle").path))
         #expect(outcome.record == nil)
+        let registered = try JSONDecoder().decode(
+            [String].self, from: Data(contentsOf: root.appending(path: "support/staging.json")))
+        #expect(registered.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func legacyNameInspectionLeavesTheArchiveFolderUnchanged(_ readOnly: Bool) throws {
+        let root = try TestVolume.makeFolder()
+        let source = try fixture(in: root, variant: "legacy-inspection")
+        let original = try Data(contentsOf: source)
+        let names = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+        if readOnly { try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path) }
+        defer { #expect(chmod(root.path, 0o700) == 0) }
+        let descriptor = open(root.path, O_EVTONLY | O_CLOEXEC)
+        try #require(descriptor >= 0)
+        defer { close(descriptor) }
+        let queue = kqueue()
+        try #require(queue >= 0)
+        defer { close(queue) }
+        var subscription = kevent(
+            ident: UInt(descriptor), filter: Int16(EVFILT_VNODE), flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+            fflags: UInt32(NOTE_WRITE), data: 0, udata: nil)
+        try #require(kevent(queue, &subscription, 1, nil, 0, nil) == 0)
+        var checks = 0
+        let inspection = try ArchiveNameInspection.inspect(source, prefersJapanese: true) {
+            checks += 1
+            if checks.isMultiple(of: 256) {
+                let observed = try FileManager.default.contentsOfDirectory(atPath: root.path).sorted()
+                #expect(observed == names)
+            }
+        }
+        #expect(inspection.needsLegacyDecoder)
+        #expect(inspection.inspectionComplete)
+        #expect(checks >= 256)
+        var event = kevent()
+        var timeout = timespec()
+        #expect(kevent(queue, nil, 0, &event, 1, &timeout) == 0)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).sorted() == names)
+        #expect(try Data(contentsOf: source) == original)
+    }
+
+    @Test func nativeCollisionProbeCostFor100000EntriesInRegisteredStaging() throws {
+        let root = try TestVolume.makeFolder()
+        let source = root.appending(path: "source.txt")
+        try Data("original".utf8).write(to: source)
+        let support = root.appending(path: "support")
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
+        let staging = StagingArea(supportDirectory: support)
+        let directory = try staging.makeDirectory(for: source)
+        defer { staging.remove(directory) }
+        let names = (0..<100_000).map { (path: "資料/entry-\($0).txt", directory: false) }
+        let clock = ContinuousClock()
+        let started = clock.now
+        try ArchivePathCollisionCheck.verify(names, beside: directory)
+        let elapsed = started.duration(to: clock.now)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        let registered = try JSONDecoder().decode(
+            [String].self, from: Data(contentsOf: support.appending(path: "staging.json")))
+        #expect(registered == [directory.path])
+        #expect(try Data(contentsOf: source) == Data("original".utf8))
+        print("100000-entry native collision probe in registered staging: \(elapsed)")
     }
 
     @Test func directoryMetadataAfterChildrenIsStillPreserved() async throws {

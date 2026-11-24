@@ -19,13 +19,9 @@ public struct ArchiveNameInspection: Sendable {
     private var uninspectableZIPLinks = false
     public let prefersJapanese: Bool
     public private(set) var inspectionComplete = true
-    private var entryPaths: [(path: String, directory: Bool)] = []
     private var hasLegacyNames = false
     private var allLegacyNamesAreCP932 = true
     public var needsLegacyDecoder: Bool { hasLegacyNames && prefersJapanese && allLegacyNamesAreCP932 }
-    private var zipEncoding: ArchivePathname.LegacyEncoding {
-        prefersJapanese && allLegacyNamesAreCP932 ? .cp932 : .cp437
-    }
     public private(set) var unsupportedNativeFeature: ArchiveExtractionFeature?
     public private(set) var isSplit = false
 
@@ -72,14 +68,6 @@ public struct ArchiveNameInspection: Sendable {
                         try result.inspectZIPLinks(
                             source, directory: directory, password: password, check: check)
                     }
-                    if result.needsLegacyDecoder {
-                        result.entryPaths = try directory.members.map {
-                            (
-                                path: try ArchivePathname.decode($0.name, encoding: result.zipEncoding),
-                                directory: $0.isDirectory
-                            )
-                        }
-                    }
                 } catch ZIPBrowserError.tooManyEntries {
                     throw ArchiveError.nameInspectionLimit(.entries)
                 } catch ZIPBrowserError.namesTooLarge {
@@ -90,10 +78,6 @@ public struct ArchiveNameInspection: Sendable {
                     throw FormatError.corrupt("invalid ZIP directory")
                 }
             }
-            if result.needsLegacyDecoder {
-                try ArchivePathCollisionCheck.verify(result.entryPaths, beside: location.deletingLastPathComponent())
-            }
-            result.entryPaths.removeAll()
             if result.needsLegacyDecoder, result.isSplit { result.unsupportedNativeFeature = .splitVolumes }
             return result
         }
@@ -243,8 +227,7 @@ public struct ArchiveNameInspection: Sendable {
                 let pathBytes = UnsafeBufferPointer(start: pathname, count: strlen(pathname)).map {
                     UInt8(bitPattern: $0)
                 }
-                let decoded = try inspectName(pathBytes, zip: false)
-                entryPaths.append((decoded, archive_entry_filetype(entry) == UInt32(S_IFDIR)))
+                try inspectName(pathBytes, zip: false)
                 for pointer in [
                     archive_entry_symlink_utf8(entry) ?? archive_entry_symlink(entry),
                     archive_entry_hardlink_utf8(entry) ?? archive_entry_hardlink(entry),

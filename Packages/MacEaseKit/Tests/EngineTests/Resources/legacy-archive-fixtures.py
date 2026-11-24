@@ -102,6 +102,9 @@ def fixture(path, format_name, encoding, encryption, variant, size):
         encoded = [bytes.fromhex('63 61 66 82 2e 74 78 74')]
     elif variant == 'mixed-invalid':
         encoded = ['資料.txt'.encode('cp932'), b'caf\x82.txt']
+    elif variant == 'legacy-inspection':
+        encoded = [f'資料/entry-{index:06d}.txt'.encode('cp932') for index in range(10000)]
+        payload = b''
     elif variant in ['benchmark', 'over-budget']:
         encoded = [f'folder/entry-{index:06d}.txt'.encode('utf-8') for index in range(100001 if variant == 'over-budget' else 100000)]
         payload = b''
