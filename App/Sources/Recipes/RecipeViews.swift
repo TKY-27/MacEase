@@ -39,7 +39,7 @@ struct RecipeLibraryView: View {
             List(recipes, selection: $selection) { recipe in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(recipe.name)
-                    Text(recipe.variants.map { $0.output.title }.joined(separator: ", "))
+                    Text(recipe.variants.map { $0.output.title }.formatted(.list(type: .and)))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .tag(recipe.id)
@@ -235,7 +235,8 @@ struct RecipeRunView: View {
                 .onChange(of: selectedID) { failure = revisionFailure }
                 Button("Edit Recipe") { editing = selected }.disabled(selected == nil)
                 if let selected {
-                    LabeledContent("Outputs", value: selected.variants.map { $0.output.title }.joined(separator: ", "))
+                    LabeledContent(
+                        "Outputs", value: selected.variants.map { $0.output.title }.formatted(.list(type: .and)))
                     LabeledContent("Package", value: selected.packaging == .zip ? "ZIP" : String(localized: "Folder"))
                     if let bytes = selected.totalBytes {
                         LabeledContent(

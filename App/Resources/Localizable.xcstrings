@@ -22517,7 +22517,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%1$@」を処理できませんでした：ディスクの空き容量が不足しています（約%2$@必要、空き%3$@）。容量を確保して再試行してください。"
+            "value": "“%1$@”を処理できませんでした：ディスクの空き容量が不足しています（約%2$@必要、空き%3$@）。容量を確保して再試行してください。"
           }
         }
       }
@@ -22527,7 +22527,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」を処理できませんでした：元の状態を保ったまま変換できませんでした。ファイルは変更されていません。"
+            "value": "“%@”を処理できませんでした：元の状態を保ったまま変換できませんでした。ファイルは変更されていません。"
           }
         }
       }
@@ -22537,7 +22537,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「%@」を読み込めませんでした：メディア変換コンポーネントが見つかりません。MacEaseを再インストールして再試行してください。"
+            "value": "“%@”を読み込めませんでした：メディア変換コンポーネントが見つかりません。MacEaseを再インストールして再試行してください。"
           }
         }
       }
@@ -22867,7 +22867,7 @@
         }
       }
     },
-    "%lld more hidden characters on this line aren't marked.": {
+    "%lld more hidden characters on this line aren’t marked.": {
       "localizations": {
         "en": {
           "variations": {
@@ -22891,6 +22891,30 @@
           "stringUnit": {
             "state": "translated",
             "value": "この行には、マークしていない見えない文字がほかに%lld個あります。"
+          }
+        }
+      }
+    },
+    "DTS audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DTSオーディオ"
+          }
+        }
+      }
+    },
+    "AC-3 audio": {
+      "comment": "Detected file format",
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AC-3オーディオ"
           }
         }
       }

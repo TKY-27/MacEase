@@ -285,7 +285,7 @@ final class PreviewTextDecorationTests: XCTestCase {
         XCTAssertTrue(labels.contains { $0.contains("U+202E RIGHT-TO-LEFT OVERRIDE") }, "\(labels)")
         let cut = String(
             localized:
-                "\(1_000 - PreviewTextFragment.maximumQuietMarksPerLine) more hidden characters on this line aren't marked."
+                "\(1_000 - PreviewTextFragment.maximumQuietMarksPerLine) more hidden characters on this line aren’t marked."
         )
         XCTAssertTrue(labels.contains { $0.contains(cut) }, "\(labels)")
 

@@ -119,12 +119,8 @@ public struct AudioInput: Sendable {
             return try AudioInput(url: originalURL, allowsMultiplexedOgg: allowsMultiplexedOgg)
         } catch {
             let wrapped = EngineError.wrapping(error, path: originalURL.path)
-            switch wrapped {
-            case .decodeFailed, .unsupportedCodec:
-                nativeError = wrapped
-            default:
-                throw wrapped
-            }
+            guard StagedMediaFallback.acceptsNativeFailure(wrapped) else { throw wrapped }
+            nativeError = wrapped
         }
         let staged = try await StagedMediaFallback.prepareAudio(
             originalURL, context: context, enforceStreamConsent: enforceStreamConsent,
