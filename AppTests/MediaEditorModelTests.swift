@@ -375,10 +375,10 @@ final class MediaEditorModelTests: XCTestCase {
 
     func testNumericVideoBoundaryUsesActualFrameTimestamps() async throws {
         let model = try await videoModel()
-        model.beginInteraction()
-        model.setVideoBoundary(0.63, start: true)
+        let interaction = model.beginInteraction()
+        model.setVideoBoundary(0.63, start: true, in: interaction)
         await model.finishBoundaryInput()
-        model.endInteraction()
+        model.endInteraction(interaction)
         XCTAssertEqual(model.values.start, 15.0 / 24, accuracy: 0.000_001)
         model.undo()
         XCTAssertEqual(model.values.start, 0)
@@ -635,11 +635,12 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertEqual(model.markupOverlays.map(\.id), [id])
         XCTAssertTrue(model.changesColor)
 
-        model.beginInteraction()
+        let interaction = model.beginInteraction()
         for x in [0.2, 0.3, 0.4] {
-            model.updateOverlay(id, .redaction(rect: EditCrop(x: x, y: 0.1, width: 0.3, height: 0.2), style: .mosaic))
+            model.updateOverlay(
+                id, .redaction(rect: EditCrop(x: x, y: 0.1, width: 0.3, height: 0.2), style: .mosaic), in: interaction)
         }
-        model.endInteraction()
+        model.endInteraction(interaction)
         model.updateOverlay(id, .redaction(rect: EditCrop(x: 0.4, y: 0.1, width: 0.3, height: 0.2), style: .solid))
         model.deleteOverlay(id)
         XCTAssertTrue(model.markupOverlays.isEmpty)
@@ -1535,9 +1536,9 @@ final class MediaEditorModelTests: XCTestCase {
                 original, horizontal: resizeHandle.x, vertical: resizeHandle.y,
                 from: CGPoint(x: location.x / 400, y: location.y / 300),
                 to: CGPoint(x: to.x / 400, y: to.y / 300))
-            model.beginInteraction()
-            model.updateOverlay(hitID, .box(rect: resizedRect, color: .red, size: .medium))
-            model.endInteraction()
+            let interaction = model.beginInteraction()
+            model.updateOverlay(hitID, .box(rect: resizedRect, color: .red, size: .medium), in: interaction)
+            model.endInteraction(interaction)
             guard case .box(let resized, _, _) = model.selectedOverlay?.mark else {
                 window.close()
                 return XCTFail("handle missed the \(transform) box")
@@ -1611,28 +1612,28 @@ final class MediaEditorModelTests: XCTestCase {
         let model = try await videoModel()
         let original = model.values
         model.change { $0.speed = 2 }
-        model.beginInteraction(owner: "start")
-        model.setVideoBoundary(0.5, start: true)
-        model.endInteraction(owner: "start")
+        let startInteraction = model.beginInteraction()
+        model.setVideoBoundary(0.5, start: true, in: startInteraction)
+        model.endInteraction(startInteraction)
         model.undo()
         await model.finishBoundaryInput()
         XCTAssertEqual(model.values, original)
         XCTAssertFalse(model.canUndo)
         model.redo()
         XCTAssertEqual(model.values.speed, 2)
-        model.endInteraction(owner: "start")
+        model.endInteraction(startInteraction)
         model.undo()
         XCTAssertEqual(model.values, original, "blur cannot add a stale history entry")
     }
 
     func testConcurrentBoundaryCommitsKeepAValidRange() async throws {
         let model = try await videoModel()
-        model.beginInteraction(owner: "start")
-        model.setVideoBoundary(1.5, start: true)
-        model.beginInteraction(owner: "end")
-        model.setVideoBoundary(1, start: false)
+        let startInteraction = model.beginInteraction()
+        model.setVideoBoundary(1.5, start: true, in: startInteraction)
+        let endInteraction = model.beginInteraction()
+        model.setVideoBoundary(1, start: false, in: endInteraction)
         await model.finishBoundaryInput()
-        model.endInteraction(owner: "end")
+        model.endInteraction(endInteraction)
         XCTAssertEqual(model.values.start, 1.5, accuracy: model.sourceFrameDuration)
         XCTAssertGreaterThan(model.values.end, model.values.start)
         XCTAssertNotNil(model.timeline)
@@ -1647,7 +1648,7 @@ final class MediaEditorModelTests: XCTestCase {
         let model = try await videoModel()
         let host = NSHostingView(
             rootView: EditorNumberField(
-                model: model, title: "Speed", id: "speed", value: model.binding(\.speed),
+                model: model, title: "Speed", id: "speed", keyPath: \.speed,
                 range: VideoEdit.speedRange, precision: 2))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled],
@@ -1661,9 +1662,9 @@ final class MediaEditorModelTests: XCTestCase {
         let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
         editor.selectAll(nil)
         editor.insertText("2", replacementRange: editor.selectedRange())
-        model.beginInteraction()
-        model.change { $0.volume = 0.5 }
-        model.endInteraction()
+        let slider = model.beginInteraction()
+        model.change(in: slider) { $0.volume = 0.5 }
+        model.endInteraction(slider)
         editor.selectAll(nil)
         editor.insertText("3", replacementRange: editor.selectedRange())
         editor.selectAll(nil)
@@ -1789,21 +1790,21 @@ final class MediaEditorModelTests: XCTestCase {
         XCTAssertNil(model.overlayBoundaryTask)
     }
 
-    func testFieldInteractionsBelongToTheirOwnerAndStartAndEndSnapIndependently() async throws {
+    func testFieldInteractionsBelongToTheirTokenAndStartAndEndSnapIndependently() async throws {
         let model = try await videoModel()
         let original = model.values.segments
-        model.beginInteraction(owner: "start")
-        model.setVideoBoundary(0.5, start: true)
-        model.beginInteraction(owner: "end")
-        model.endInteraction(owner: "start")
-        model.setVideoBoundary(1.5, start: false)
-        model.setVideoBoundary(1.4, start: false)
+        let startInteraction = model.beginInteraction()
+        model.setVideoBoundary(0.5, start: true, in: startInteraction)
+        let endInteraction = model.beginInteraction()
+        model.endInteraction(startInteraction)
+        model.setVideoBoundary(1.5, start: false, in: endInteraction)
+        model.setVideoBoundary(1.4, start: false, in: endInteraction)
         await model.finishBoundaryInput()
         XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "End input keeps Start's value")
         XCTAssertEqual(model.values.end, 1.4, accuracy: model.frameDuration)
-        model.setVideoBoundary(1.3, start: false)
+        model.setVideoBoundary(1.3, start: false, in: endInteraction)
         await model.finishBoundaryInput()
-        model.endInteraction(owner: "end")
+        model.endInteraction(endInteraction)
         XCTAssertFalse(model.canRedo)
         model.undo()
         XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "End is its own Undo step")
@@ -1811,13 +1812,13 @@ final class MediaEditorModelTests: XCTestCase {
         model.undo()
         XCTAssertEqual(model.values.segments, original, "Start is a separate Undo step")
 
-        model.beginInteraction(owner: "start")
-        model.setVideoBoundary(0.5, start: true)
+        let secondStart = model.beginInteraction()
+        model.setVideoBoundary(0.5, start: true, in: secondStart)
         await model.finishBoundaryInput()
-        model.beginInteraction(owner: "end")
-        model.setVideoBoundary(1.2, start: false)
+        let secondEnd = model.beginInteraction()
+        model.setVideoBoundary(1.2, start: false, in: secondEnd)
         await model.finishBoundaryInput()
-        model.endInteraction(owner: "end")
+        model.endInteraction(secondEnd)
         model.undo()
         XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "each finished field is its own step")
         XCTAssertEqual(model.values.end, original[0].end)
@@ -1829,7 +1830,7 @@ final class MediaEditorModelTests: XCTestCase {
         let model = try await videoModel()
         let host = NSHostingView(
             rootView: EditorNumberField(
-                model: model, title: "Speed", id: "speed", value: model.binding(\.speed),
+                model: model, title: "Speed", id: "speed", keyPath: \.speed,
                 range: VideoEdit.speedRange, precision: 2))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled], backing: .buffered,
