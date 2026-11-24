@@ -136,13 +136,7 @@ enum Transcoder {
         }
         let timecode: NativeTimecode?
         if plan.carriesTimecode, case .asset(let asset, _, _) = input.backend {
-            do {
-                timecode = try await NativeTimecode(asset: asset)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
-            }
+            timecode = try await NativeTimecode(asset: asset)
         } else {
             timecode = nil
         }

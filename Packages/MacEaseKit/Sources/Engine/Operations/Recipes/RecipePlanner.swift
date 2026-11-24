@@ -23,7 +23,9 @@ public enum RecipePlanner {
     }
 
     /// Videos whose recompressed copies would leave streams out.
-    public static func streamOmissions(recipe: Recipe, inputs: [URL]) async throws -> [URL: StreamOmission] {
+    public static func streamOmissions(
+        recipe: Recipe, inputs: [URL], unavailable: Set<UnpreservedStream> = []
+    ) async throws -> [URL: StreamOmission] {
         let variants = recipe.variants.filter { $0.output.videoFormat != nil }
         guard !variants.isEmpty else { return [:] }
         var omissions: [URL: StreamOmission] = [:]
@@ -37,7 +39,7 @@ public enum RecipePlanner {
                     goal: .platform(preset(variant, target: variant.targetBytes ?? recipe.totalBytes)))
                 let carryPlan = try await NativeTimecodePlan.make(
                     for: opened, destination: target,
-                    preservesTiming: VideoCompressor.preservesTiming(compression))
+                    preservesTiming: VideoCompressor.preservesTiming(compression), omitting: unavailable)
                 omitted.formUnion(carryPlan.omittedKinds)
             }
             if !omitted.isEmpty { omissions[input] = StreamOmission(stamp: stamp, streams: omitted) }

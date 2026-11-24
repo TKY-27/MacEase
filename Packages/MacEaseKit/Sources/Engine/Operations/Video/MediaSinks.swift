@@ -191,7 +191,7 @@ final class AssetWriterSink: PacketSink {
         if writer.status == .failed || writer.status == .cancelled {
             throw EngineError.encodeFailed(Self.describe(writer.error))
         }
-        try await timecode?.appendReady()
+        try timecode?.appendReady(writer: writer)
     }
 
     func cancel() {

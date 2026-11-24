@@ -66,7 +66,7 @@ enum VideoCompressor {
                 guard output.bytes < Int64(originalBytes) else { return .skipped(.outputNotSmaller) }
             }
             return try await finish(
-                output.url, input: input, carryPlan: carryPlan, name: name
+                output.url, input: input, carryPlan: carryPlan, context: context, name: name
             )
         }
         guard target > 0 else { throw EngineError.invalidInput(.malformed("target bytes must be positive")) }
@@ -74,11 +74,11 @@ enum VideoCompressor {
             input: input, destination: destination, carryPlan: carryPlan, context: context, name: name, target: target)
         if let copied = try await search.copyIfPossible(edit: edit) {
             return try await finish(
-                copied, input: input, carryPlan: carryPlan, name: name)
+                copied, input: input, carryPlan: carryPlan, context: context, name: name)
         }
         let output = try await search.encode(compression, encoding: encoding, edit: &edit)
         return try await finish(
-            output, input: input, carryPlan: carryPlan, name: name)
+            output, input: input, carryPlan: carryPlan, context: context, name: name)
     }
 
     private struct TargetSearch {
@@ -300,7 +300,7 @@ enum VideoCompressor {
         plan.carriesTimecode = carryPlan.carriesTimecode
         let output = try context.stagingURL(for: input.url, name: name)
         context.phase(.encoding)
-        try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await carryPlan.write(input, plan: plan, to: output) { context.progress($0) }
         context.phase(.verifying)
         try await VideoProperties.verify(plan, output: output, context: context)
         let attributes = try output.resourceValues(forKeys: [.fileSizeKey])
@@ -320,8 +320,9 @@ enum VideoCompressor {
     }
 
     private static func finish(
-        _ output: URL, input: MediaInput, carryPlan: NativeTimecodePlan, name: String
+        _ output: URL, input: MediaInput, carryPlan: NativeTimecodePlan, context: ItemContext, name: String
     ) async throws -> ItemResult {
+        context.phase(.verifying)
         try await carryPlan.verify(original: input.url, output: output)
         return .replace(original: input.url, output: StagedFile(url: output, name: name, check: .media))
     }

@@ -4,6 +4,7 @@ import Foundation
 struct NativeTimecodePlan: Sendable {
     let carriesTimecode: Bool
     let omittedKinds: [UnpreservedStream]
+    private let sourceStamp: MediaSourceStamp?
 
     static func make(
         for input: MediaInput, destination: OutputContainer, preservesTiming: Bool,
@@ -13,6 +14,7 @@ struct NativeTimecodePlan: Sendable {
         _ = try VideoDisplayOrientation(input.transform)
         let skipped = MediaInput.unpreservedStreams(from: input.skippedStreams)
         var carries = false
+        let stamp = skipped.contains(.timecode) ? try MediaSourceStamp(url: input.url) : nil
         if destination == .mov, preservesTiming, skipped.contains(.timecode), !consented.contains(.timecode),
             case .asset(let asset, let video?, _) = input.backend
         {
@@ -28,15 +30,15 @@ struct NativeTimecodePlan: Sendable {
                 probe.add(videoInput)
                 try timecode.attach(to: probe, video: videoInput)
                 carries = true
-            } catch is CancellationError {
-                throw CancellationError()
             } catch {
-                carries = false
+                try stamp?.validate(input.url)
+                guard case EngineError.invalidInput(.unpreservedStreams([.timecode])) = error else { throw error }
             }
+            try stamp?.validate(input.url)
         }
         return NativeTimecodePlan(
             carriesTimecode: carries,
-            omittedKinds: skipped.filter { $0 != .timecode || !carries })
+            omittedKinds: skipped.filter { $0 != .timecode || !carries }, sourceStamp: carries ? stamp : nil)
     }
 
     func requireConsent(omitting consented: Set<UnpreservedStream>, context: ItemContext?) throws {
@@ -45,14 +47,26 @@ struct NativeTimecodePlan: Sendable {
         if !omittedKinds.isEmpty { context?.warnStreamsOmitted(omittedKinds) }
     }
 
+    func write(_ input: MediaInput, plan: TranscodePlan, to output: URL, progress: (Double) -> Void) async throws {
+        try sourceStamp?.validate(input.url)
+        do {
+            try await Transcoder.run(input, plan: plan, to: output, progress: progress)
+        } catch {
+            try sourceStamp?.validate(input.url)
+            throw error
+        }
+        try sourceStamp?.validate(input.url)
+    }
+
     func verify(original: URL, output: URL) async throws {
         guard carriesTimecode else { return }
+        try sourceStamp?.validate(original)
         do {
             try await NativeTimecode.verify(original: original, output: output)
-        } catch is CancellationError {
-            throw CancellationError()
         } catch {
-            throw EngineError.invalidInput(.unpreservedStreams([.timecode]))
+            try sourceStamp?.validate(original)
+            throw error
         }
+        try sourceStamp?.validate(original)
     }
 }

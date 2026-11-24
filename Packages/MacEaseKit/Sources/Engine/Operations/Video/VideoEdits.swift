@@ -33,9 +33,9 @@ enum VideoEdits {
         let output = try context.stagingURL(for: url, name: name)
         context.phase(.encoding)
         plan.carriesTimecode = carryPlan.carriesTimecode
-        try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
-        try await carryPlan.verify(original: url, output: output)
+        try await carryPlan.write(input, plan: plan, to: output) { context.progress($0) }
         context.phase(.verifying)
+        try await carryPlan.verify(original: url, output: output)
         try await VideoProperties.verify(plan, output: output, context: context)
         if case .edit(let edit) = operation { try edit.sourceStamp?.validate(url) }
         if plan.derived {

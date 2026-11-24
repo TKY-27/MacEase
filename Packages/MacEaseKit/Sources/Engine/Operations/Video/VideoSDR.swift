@@ -84,7 +84,8 @@ enum VideoSDR {
         let name = url.lastPathComponent
         let output = try context.stagingURL(for: url, name: name)
         plan.carriesTimecode = carryPlan.carriesTimecode
-        try await Transcoder.run(input, plan: plan, to: output) { context.progress($0) }
+        try await carryPlan.write(input, plan: plan, to: output) { context.progress($0) }
+        context.phase(.verifying)
         try await carryPlan.verify(original: url, output: output)
         try await VideoProperties.verify(plan, output: output, context: context)
         context.warn(.hdrProvenanceUnknown)
