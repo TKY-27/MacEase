@@ -19043,6 +19043,46 @@
           }
         }
       }
+    },
+    "This format can't be played directly.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この形式は直接再生できません。"
+          }
+        }
+      }
+    },
+    "Convert and Play": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換して再生"
+          }
+        }
+      }
+    },
+    "Converting…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換中…"
+          }
+        }
+      }
+    },
+    "This file is from the internet, so MacEase doesn't convert it. Open it in a media player.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはインターネットから入手したものなので、MacEaseでは変換しません。メディアプレーヤーで開いてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

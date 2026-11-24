@@ -111,6 +111,7 @@ struct PreviewContent: View {
     let trust: PreviewTrust
     let detected: DetectedContent?
     let settings: FinderPreviewSettings
+    let staging: StagingArea
     @Binding var scriptConsent: Set<String>
 
     var body: some View {
@@ -144,7 +145,10 @@ struct PreviewContent: View {
         case .text, .html, .markdown, .json, .propertyList, .svg:
             PreviewTextViewer(url: url, kind: kind, trust: trust, settings: settings, scriptConsent: $scriptConsent)
         case .image: PreviewImageViewer(url: url)
-        case .media, .audio: PreviewMediaViewer(url: url, audioOnly: kind == .audio)
+        case .media, .audio:
+            PreviewMediaViewer(
+                url: url, audioOnly: kind == .audio, detected: detected, restricted: trust.restricted,
+                staging: staging)
         case .pdf: PreviewPDFViewer(url: url)
         case .font: PreviewFontViewer(url: url, sample: settings.effectiveFontSampleText)
         case .quickLook:

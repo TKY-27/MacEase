@@ -30,6 +30,7 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private static let failureBackoff: TimeInterval = 2
 
     private let settings: SettingsStore
+    private let staging: StagingArea
     private let reader = FinderSelectionReader()
     private let logger = Logger(category: "finder-preview")
     private var tracker: FinderWindowTracker?
@@ -51,8 +52,9 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
     private var retryAfter = Date.distantPast
     var enabledChanged: (() -> Void)?
 
-    init(settings: SettingsStore) {
+    init(settings: SettingsStore, staging: StagingArea) {
         self.settings = settings
+        self.staging = staging
     }
 
     func start() {
@@ -256,7 +258,8 @@ final class FinderPreviewCoordinator: NSObject, NSWindowDelegate {
 
     private func makeView() -> FinderPreviewView {
         FinderPreviewView(
-            state: state, settings: settings, close: { [weak self] in self?.settings.finderPreviewEnabled = false },
+            state: state, settings: settings, staging: staging,
+            close: { [weak self] in self?.settings.finderPreviewEnabled = false },
             retry: { [weak self] in self?.retry() },
             select: { [weak self] in self?.select($0) },
             resize: { [weak self] in self?.resize(by: $0) })

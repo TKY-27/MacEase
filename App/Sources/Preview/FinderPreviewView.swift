@@ -31,6 +31,7 @@ final class FinderPreviewState {
 struct FinderPreviewView: View {
     let state: FinderPreviewState
     let settings: SettingsStore
+    let staging: StagingArea
     let close: () -> Void
     let retry: () -> Void
     let select: (Int) -> Void
@@ -128,6 +129,7 @@ struct FinderPreviewView: View {
                 @Bindable var state = state
                 PreviewContent(
                     url: url, kind: kind, trust: trust, detected: state.detected, settings: settings.finderPreview,
+                    staging: staging,
                     scriptConsent: $state.scriptConsent
                 )
                 .id(state.generation)

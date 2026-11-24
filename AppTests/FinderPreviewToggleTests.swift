@@ -46,7 +46,8 @@ final class FinderPreviewToggleTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let store = SettingsStore(defaults: defaults)
-        let coordinator = FinderPreviewCoordinator(settings: store)
+        let coordinator = FinderPreviewCoordinator(
+            settings: store, staging: StagingArea(supportDirectory: FileManager.default.temporaryDirectory))
         coordinator.toggle()
         XCTAssertTrue(store.finderPreviewEnabled)
         XCTAssertEqual(
