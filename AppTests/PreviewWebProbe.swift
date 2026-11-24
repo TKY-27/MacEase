@@ -108,7 +108,8 @@ final class PreviewWebProbe {
         window = NSWindow(
             contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
         container = PreviewWebContainerView(
-            frame: NSRect(origin: .zero, size: rect.size), configuration: configuration, interactive: page.allowsNetwork
+            frame: NSRect(origin: .zero, size: rect.size), configuration: configuration,
+            interactive: page.allowsInteractive
         )
         window.contentView = container
         window.orderBack(nil)

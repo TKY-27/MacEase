@@ -1066,16 +1066,6 @@
         }
       }
     },
-    "Allow Network": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワーク接続を許可"
-          }
-        }
-      }
-    },
     "Allow enlarging": {
       "localizations": {
         "ja": {
@@ -5825,22 +5815,22 @@
         }
       }
     },
-    "HTML files in these folders open in Preview with scripts on. Files from the internet stay restricted.": {
+    "HTML files in these folders open in Preview with scripts and network access enabled. Files from the internet stay restricted.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これらのフォルダ内のHTMLファイルは、スクリプトを有効にしてプレビューで開きます。インターネットから入手したファイルは制限されたままです。"
+            "value": "これらのフォルダ内のHTMLファイルは、スクリプトとネットワークアクセスが有効な状態でプレビューを開きます。インターネットから取得されたファイルは制限されたままです。"
           }
         }
       }
     },
-    "HTML in the chosen folders opens with scripts on.": {
+    "HTML in the chosen folders opens with scripts and network access enabled.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "選択したフォルダ内のHTMLは、スクリプトを有効にして開きます。"
+            "value": "選択したフォルダ内のHTMLは、スクリプトとネットワークアクセスが有効な状態で開きます。"
           }
         }
       }
@@ -6768,16 +6758,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレビューを読み込み中…"
-          }
-        }
-      }
-    },
-    "Loads content from the internet. Scripts run too.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インターネットからコンテンツを読み込みます。スクリプトも実行されます。"
           }
         }
       }
@@ -9584,22 +9564,12 @@
         }
       }
     },
-    "Preview is view-only until you allow network access.": {
+    "Preview is static and view-only. Scripts and network access are off.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ネットワークアクセスを許可するまでプレビューは表示専用です。"
-          }
-        }
-      }
-    },
-    "Preview is view-only until you allow network access. Some features, such as WebAssembly and custom fonts, are unavailable.": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワークアクセスを許可するまでプレビューは表示専用です。WebAssemblyやカスタムフォントなどの一部機能は利用できません。"
+            "value": "プレビューは静的な表示専用です。スクリプトとネットワークアクセスは無効です。"
           }
         }
       }
@@ -10809,22 +10779,22 @@
         }
       }
     },
-    "Run Scripts": {
+    "Run Scripts with Network Access": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スクリプトを実行"
+            "value": "ネットワークアクセス付きでスクリプトを実行"
           }
         }
       }
     },
-    "Runs this page's scripts until MacEase quits.": {
+    "Runs scripts and allows network access until MacEase quits.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacEaseを終了するまで、このページのスクリプトを実行します。"
+            "value": "MacEaseを終了するまでスクリプトの実行とネットワークアクセスを許可します。"
           }
         }
       }
@@ -11075,6 +11045,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "スクリプトと外部リソースを省略します。PDF は連続した 1 ページ、TXT は表示された文字のみです。"
+          }
+        }
+      }
+    },
+    "Scripts can use the internet": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトはインターネット接続可能"
+          }
+        }
+      }
+    },
+    "Scripts on this page can connect to the internet.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページのスクリプトはインターネットに接続できます。"
           }
         }
       }
@@ -11966,6 +11956,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "開始番号"
+          }
+        }
+      }
+    },
+    "Static view-only preview": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静的な表示専用プレビュー"
           }
         }
       }
@@ -14119,16 +14119,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ダウンロード先とアップデート手順を確認できます。"
-          }
-        }
-      }
-    },
-    "View-only until network is allowed": {
-      "localizations": {
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ネットワーク許可まで表示専用"
           }
         }
       }

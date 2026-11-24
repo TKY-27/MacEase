@@ -4,30 +4,25 @@ import SwiftUI
 import WebKit
 import os
 
-// One-way; network resets on reselection.
-struct PreviewWebPolicy: Hashable, Sendable {
-    let restricted: Bool
-    private(set) var scripts: Bool
-    private(set) var network = false
+// Scripts without network access is unrepresentable.
+enum PreviewWebPolicy: Hashable, Sendable {
+    case restricted
+    case staticPreview
+    case interactive
 
-    init(trust: PreviewTrust, scriptsConsented: Bool) {
-        restricted = trust.restricted
-        scripts = !restricted && (trust.level == .trusted || scriptsConsented)
+    init(trust: PreviewTrust, interactiveConsented: Bool) {
+        if trust.restricted {
+            self = .restricted
+        } else if trust.level == .trusted || interactiveConsented {
+            self = .interactive
+        } else {
+            self = .staticPreview
+        }
     }
 
-    var offersScripts: Bool { !restricted && !scripts }
-    var offersNetwork: Bool { !restricted && !network }
-
-    mutating func allowScripts() {
-        guard !restricted else { return }
-        scripts = true
-    }
-
-    mutating func allowNetwork() {
-        guard !restricted else { return }
-        scripts = true
-        network = true
-    }
+    var isRestricted: Bool { self == .restricted }
+    var allowsInteractive: Bool { self == .interactive }
+    var offersInteractive: Bool { self == .staticPreview }
 }
 
 @MainActor
@@ -70,45 +65,49 @@ enum PreviewWebConfiguration {
         ]
         """
 
-    // Blocks scripted anchor clicks from preconnecting offline.
-    private static let offlineScriptClickGuard = """
+    // Makes links non-actionable for AXPress statically.
+    private static let staticPreviewNeutralizer = """
         (() => {
-          const stop = (event) => {
-            event.preventDefault();
-            event.stopImmediatePropagation();
+          const neutralize = (root) => {
+            for (const el of root.querySelectorAll('a[href], area[href]')) {
+              const style = getComputedStyle(el);
+              if (!el.style.color && style.color) el.style.color = style.color;
+              if (!el.style.textDecorationLine && style.textDecorationLine) {
+                el.style.textDecorationLine = style.textDecorationLine;
+              }
+              el.removeAttribute('href');
+              el.removeAttribute('ping');
+              el.removeAttribute('download');
+              el.setAttribute('aria-disabled', 'true');
+            }
+            for (const el of root.querySelectorAll('a')) {
+              if (el.hasAttributeNS('http://www.w3.org/1999/xlink', 'href')) {
+                el.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+                el.setAttribute('aria-disabled', 'true');
+              }
+            }
+            for (const form of root.querySelectorAll('form')) {
+              form.removeAttribute('action');
+            }
+            for (const ctrl of root.querySelectorAll('button, input, select, textarea')) {
+              ctrl.removeAttribute('formaction');
+              ctrl.disabled = true;
+            }
+            for (const host of root.querySelectorAll('*')) {
+              if (host.shadowRoot) neutralize(host.shadowRoot);
+            }
           };
-          window.addEventListener('click', stop, true);
-          window.addEventListener('submit', stop, true);
-          const isNav = (node) =>
-            node instanceof Element && (node instanceof SVGAElement || node.closest('a, area') !== null);
-          const originalClick = HTMLElement.prototype.click;
-          Object.defineProperty(HTMLElement.prototype, 'click', {
-            value: function() {
-              if (isNav(this)) return;
-              return originalClick.apply(this, arguments);
-            },
-            writable: false,
-            configurable: false
-          });
-          const originalDispatch = EventTarget.prototype.dispatchEvent;
-          Object.defineProperty(EventTarget.prototype, 'dispatchEvent', {
-            value: function(event) {
-              if (event && event.type === 'click' && isNav(this)) return false;
-              return originalDispatch.apply(this, arguments);
-            },
-            writable: false,
-            configurable: false
-          });
+          neutralize(document);
         })();
         """
 
     enum Reach {
         case inline, inlineNetwork, localFiles, network
 
-        var allowsNetwork: Bool { self == .network || self == .inlineNetwork }
+        var allowsInteractive: Bool { self == .network || self == .inlineNetwork }
     }
 
-    static func make(scripts: Bool = false, reach: Reach = .localFiles) async throws -> WKWebViewConfiguration {
+    static func make(reach: Reach = .localFiles) async throws -> WKWebViewConfiguration {
         let (identifier, encoded) =
             switch reach {
             case .inline: ("MacEasePreviewInline", inlineRules)
@@ -121,14 +120,12 @@ enum PreviewWebConfiguration {
                 forIdentifier: identifier, encodedContentRuleList: encoded)
         else { throw CocoaError(.featureUnsupported) }
         try Task.checkCancellation()
-        let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: scripts)
-        if !reach.allowsNetwork, scripts {
-            // Lockdown Mode removes WebRTC and WebTransport.
-            configuration.defaultWebpagePreferences.isLockdownModeEnabled = true
+        let configuration = HTMLDocument.isolatedConfiguration(allowsScripts: reach.allowsInteractive)
+        if !reach.allowsInteractive {
             configuration.userContentController.addUserScript(
                 WKUserScript(
-                    source: offlineScriptClickGuard, injectionTime: .atDocumentStart, forMainFrameOnly: false,
-                    in: .page))
+                    source: staticPreviewNeutralizer, injectionTime: .atDocumentEnd, forMainFrameOnly: false,
+                    in: .defaultClient))
         }
         configuration.userContentController.add(rules)
         return configuration
@@ -137,9 +134,9 @@ enum PreviewWebConfiguration {
     static func make(for page: PreviewWebViewer.Page) async throws -> WKWebViewConfiguration {
         switch page {
         case .file(_, _, let policy, _):
-            try await make(scripts: policy.scripts, reach: policy.network ? .network : .localFiles)
+            try await make(reach: policy.allowsInteractive ? .network : .localFiles)
         case .inline(_, let policy):
-            try await make(scripts: policy.scripts, reach: policy.network ? .inlineNetwork : .inline)
+            try await make(reach: policy.allowsInteractive ? .inlineNetwork : .inline)
         case .generated:
             try await make(reach: .inline)
         }
@@ -192,9 +189,9 @@ struct PreviewWebViewer: View {
         case inline(String, PreviewWebPolicy)
         case generated(String)
 
-        var allowsNetwork: Bool {
+        var allowsInteractive: Bool {
             switch self {
-            case .file(_, _, let policy, _), .inline(_, let policy): policy.network
+            case .file(_, _, let policy, _), .inline(_, let policy): policy.allowsInteractive
             case .generated: false
             }
         }
@@ -242,7 +239,7 @@ private struct PreviewBrowser: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PreviewWebContainerView {
         let container = PreviewWebContainerView(
-            frame: .zero, configuration: configuration, interactive: page.allowsNetwork)
+            frame: .zero, configuration: configuration, interactive: page.allowsInteractive)
         container.webView.navigationDelegate = context.coordinator
         container.webView.uiDelegate = context.coordinator
         if !PreviewWebConfiguration.load(page, in: container.webView) {
@@ -254,7 +251,7 @@ private struct PreviewBrowser: NSViewRepresentable {
     }
 
     func updateNSView(_ container: PreviewWebContainerView, context: Context) {
-        container.setInteractive(page.allowsNetwork)
+        container.setInteractive(page.allowsInteractive)
     }
 
     static func dismantleNSView(_ container: PreviewWebContainerView, coordinator: PreviewWebDelegate) {
@@ -392,6 +389,13 @@ final class PreviewInputShieldView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var acceptsFirstResponder: Bool { false }
+
+    override func isAccessibilityElement() -> Bool { false }
+
+    // Keeps VoiceOver reading through the input shield.
+    override func accessibilityHitTest(_ point: NSPoint) -> Any? {
+        webView?.accessibilityHitTest(point)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, frame.contains(point) else { return nil }

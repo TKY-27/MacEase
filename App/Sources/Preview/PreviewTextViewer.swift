@@ -24,17 +24,13 @@ enum PreviewHTMLSnapshot {
         url: URL,
         trustedFolders: [String],
         scriptConsent: Set<PreviewScriptConsentKey>,
-        networkConsentKey: PreviewScriptConsentKey? = nil,
         encoding: PreviewEncoding = .automatic,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) throws -> Prepared {
         let source = try PreviewTextSource.read(url, trustedFolders: trustedFolders)
         let trust = source.trust ?? PreviewTrust.evaluate(url, trustedFolders: trustedFolders)
         let consented = trust.consentKey.map(scriptConsent.contains) ?? false
-        var policy = PreviewWebPolicy(trust: trust, scriptsConsented: consented)
-        if !trust.restricted, let networkConsentKey, trust.consentKey == networkConsentKey {
-            policy.allowNetwork()
-        }
+        let policy = PreviewWebPolicy(trust: trust, interactiveConsented: consented)
         if source.truncated {
             return Prepared(id: UUID(), trust: trust, policy: policy, page: nil, truncated: true)
         }
@@ -145,7 +141,6 @@ struct PreviewTextViewer: View {
     @State private var rendering: PreviewTextRendering?
     @State private var htmlLoad: PreviewHTMLSnapshot.Prepared?
     @State private var currentTrust: PreviewTrust
-    @State private var networkConsentKey: PreviewScriptConsentKey?
     @State private var encoding = PreviewEncoding.automatic
     @State private var rich: Bool
     @State private var reloadToken = 0
@@ -162,9 +157,9 @@ struct PreviewTextViewer: View {
         _scriptConsent = scriptConsent
         _currentTrust = State(initialValue: trust)
         let consented = trust.consentKey.map { scriptConsent.wrappedValue.contains($0) } ?? false
-        let initialScripts = !trust.restricted && (trust.level == .trusted || consented)
-        // Source first unless scripts are allowed.
-        _rich = State(initialValue: kind != .html || initialScripts)
+        let initialPolicy = PreviewWebPolicy(trust: trust, interactiveConsented: consented)
+        // Source first unless interactive access is granted.
+        _rich = State(initialValue: kind != .html || initialPolicy.allowsInteractive)
     }
 
     var body: some View {
@@ -185,19 +180,20 @@ struct PreviewTextViewer: View {
                             "This file is from the internet. Scripts, external content and other files are disabled."),
                         shortText: Text("From the internet: limited preview"))
                 }
-            } else if kind == .html, rich, let activePolicy, !activePolicy.network {
-                if activePolicy.scripts {
+            } else if kind == .html, rich, let activePolicy {
+                switch activePolicy {
+                case .staticPreview:
                     PreviewNote(
                         symbol: "eye",
-                        text: Text(
-                            "Preview is view-only until you allow network access. Some features, such as WebAssembly and custom fonts, are unavailable."
-                        ),
-                        shortText: Text("View-only until network is allowed"))
-                } else {
+                        text: Text("Preview is static and view-only. Scripts and network access are off."),
+                        shortText: Text("Static view-only preview"))
+                case .interactive:
                     PreviewNote(
-                        symbol: "eye",
-                        text: Text("Preview is view-only until you allow network access."),
-                        shortText: Text("View-only until network is allowed"))
+                        symbol: "network",
+                        text: Text("Scripts on this page can connect to the internet."),
+                        shortText: Text("Scripts can use the internet"))
+                case .restricted:
+                    EmptyView()
                 }
             }
             if source?.truncated == true && !(kind == .html && rich) {
@@ -238,16 +234,12 @@ struct PreviewTextViewer: View {
             await render()
         }
         .onChange(of: rich) { _, isRich in
-            if !isRich {
-                htmlLoad = nil
-                networkConsentKey = nil
-            }
+            if !isRich { htmlLoad = nil }
         }
         .onDisappear {
             source = nil
             rendering = nil
             htmlLoad = nil
-            networkConsentKey = nil
         }
     }
 
@@ -306,26 +298,14 @@ struct PreviewTextViewer: View {
 
     private func webPermissions(for policy: PreviewWebPolicy) -> some View {
         HStack(spacing: 6) {
-            if policy.offersScripts {
+            if policy.offersInteractive {
                 Button {
                     if let key = htmlLoad?.trust.consentKey { scriptConsent.insert(key) }
                     reloadToken += 1
                 } label: {
-                    Label("Run Scripts", systemImage: "curlybraces")
+                    Label("Run Scripts with Network Access", systemImage: "network")
                 }
-                .help(Text("Runs this page's scripts until MacEase quits."))
-            }
-            if policy.offersNetwork {
-                Button {
-                    if let key = htmlLoad?.trust.consentKey {
-                        scriptConsent.insert(key)
-                        networkConsentKey = key
-                    }
-                    reloadToken += 1
-                } label: {
-                    Label("Allow Network", systemImage: "network")
-                }
-                .help(Text("Loads content from the internet. Scripts run too."))
+                .help(Text("Runs scripts and allows network access until MacEase quits."))
             }
         }
         .fixedSize()
@@ -358,19 +338,14 @@ struct PreviewTextViewer: View {
         if kind == .html, rich {
             let trustedFolders = settings.trustedFolders
             let consent = scriptConsent
-            let networkKey = networkConsentKey
             let encoding = encoding
             do {
                 let prepared = try await offMain { [url] in
                     try PreviewHTMLSnapshot.prepare(
-                        url: url, trustedFolders: trustedFolders, scriptConsent: consent,
-                        networkConsentKey: networkKey, encoding: encoding)
+                        url: url, trustedFolders: trustedFolders, scriptConsent: consent, encoding: encoding)
                 }
                 try Task.checkCancellation()
                 currentTrust = prepared.trust
-                if prepared.trust.consentKey != networkConsentKey || prepared.trust.restricted {
-                    networkConsentKey = nil
-                }
                 if prepared.truncated {
                     rich = false
                     return

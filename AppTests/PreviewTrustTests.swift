@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import WebKit
 import XCTest
@@ -84,48 +85,31 @@ final class PreviewTrustTests: XCTestCase {
         XCTAssertEqual(PreviewTrust.evaluate(inside, trustedFolders: settings.trustedFolders).level, .trusted)
     }
 
-    func testWebPolicyOnlyWidensAndNetworkImpliesScripts() {
+    func testWebPolicyHasOnlyRestrictedStaticAndInteractiveStates() {
         let standard = PreviewTrust(level: .standard, resolvedPath: "/tmp/page.html")
-        var policy = PreviewWebPolicy(trust: standard, scriptsConsented: false)
-        XCTAssertFalse(policy.scripts)
-        XCTAssertFalse(policy.network)
-        XCTAssertTrue(policy.offersScripts)
-        XCTAssertTrue(policy.offersNetwork)
+        let staticPolicy = PreviewWebPolicy(trust: standard, interactiveConsented: false)
+        XCTAssertEqual(staticPolicy, .staticPreview)
+        XCTAssertFalse(staticPolicy.allowsInteractive)
+        XCTAssertTrue(staticPolicy.offersInteractive)
+        XCTAssertFalse(staticPolicy.isRestricted)
 
-        policy.allowNetwork()
-        XCTAssertTrue(policy.scripts)
-        XCTAssertTrue(policy.network)
-        XCTAssertFalse(policy.offersScripts)
-        XCTAssertFalse(policy.offersNetwork)
+        let consented = PreviewWebPolicy(trust: standard, interactiveConsented: true)
+        XCTAssertEqual(consented, .interactive)
+        XCTAssertTrue(consented.allowsInteractive)
+        XCTAssertFalse(consented.offersInteractive)
 
-        var scriptsOnly = PreviewWebPolicy(trust: standard, scriptsConsented: false)
-        scriptsOnly.allowScripts()
-        XCTAssertTrue(scriptsOnly.scripts)
-        XCTAssertFalse(scriptsOnly.network)
-        XCTAssertTrue(scriptsOnly.offersNetwork)
-    }
-
-    func testTrustedOrConsentedFilesStartWithScriptsButNeverNetwork() {
         let trusted = PreviewWebPolicy(
-            trust: PreviewTrust(level: .trusted, resolvedPath: "/tmp/page.html"), scriptsConsented: false)
-        XCTAssertTrue(trusted.scripts)
-        XCTAssertFalse(trusted.network)
-        let consented = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: "/tmp/page.html"), scriptsConsented: true)
-        XCTAssertTrue(consented.scripts)
-        XCTAssertFalse(consented.network)
-    }
+            trust: PreviewTrust(level: .trusted, resolvedPath: "/tmp/page.html"), interactiveConsented: false)
+        XCTAssertEqual(trusted, .interactive)
+        XCTAssertTrue(trusted.allowsInteractive)
+        XCTAssertFalse(trusted.offersInteractive)
 
-    func testRestrictedPolicyCannotBeWidened() {
-        var policy = PreviewWebPolicy(
-            trust: PreviewTrust(level: .restricted, resolvedPath: "/tmp/page.html"), scriptsConsented: true)
-        XCTAssertFalse(policy.scripts)
-        XCTAssertFalse(policy.offersScripts)
-        XCTAssertFalse(policy.offersNetwork)
-        policy.allowScripts()
-        policy.allowNetwork()
-        XCTAssertFalse(policy.scripts)
-        XCTAssertFalse(policy.network)
+        let restricted = PreviewWebPolicy(
+            trust: PreviewTrust(level: .restricted, resolvedPath: "/tmp/page.html"), interactiveConsented: true)
+        XCTAssertEqual(restricted, .restricted)
+        XCTAssertTrue(restricted.isRestricted)
+        XCTAssertFalse(restricted.allowsInteractive)
+        XCTAssertFalse(restricted.offersInteractive)
     }
 
     @MainActor
@@ -169,14 +153,10 @@ final class PreviewTrustTests: XCTestCase {
         XCTAssertEqual(title as? String, "Page")
         XCTAssertEqual(listener.connectionCount, 0)
 
-        // Unrestricted Preview intentionally reads its own folder.
+        // Unrestricted static Preview intentionally reads same-folder assets.
         let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
         let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
-        let standard = try await PreviewWebProbe.loading(
-            .file(
-                resolvedPage, readAccess: readAccess,
-                PreviewWebPolicy(
-                    trust: PreviewTrust(level: .standard, resolvedPath: resolvedPage.path), scriptsConsented: false)))
+        let standard = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, .staticPreview))
         let loadedWidth = try await standard.evaluate("document.getElementById('relative').naturalWidth")
         XCTAssertEqual(loadedWidth as? Int, 8, "intended: unrestricted Preview reads same-folder assets")
         let parentWidth = try await standard.evaluate("document.getElementById('parent').naturalWidth")
@@ -184,25 +164,9 @@ final class PreviewTrustTests: XCTestCase {
     }
 
     @MainActor
-    func testLoopbackListenerSeesRequestsWhenNetworkIsAllowed() async throws {
-        let listener = try LoopbackListener()
-        let port = try await listener.start()
-        defer { listener.stop() }
-        let directory = try PreviewFixtures.directory(self)
-        let page = directory.appendingPathComponent("page.html")
-        try Data("<img src=\"http://127.0.0.1:\(port)/remote.png\">".utf8).write(to: page)
-        let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
-        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
-        var policy = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: resolvedPage.path), scriptsConsented: false)
-        policy.allowNetwork()
-        let probe = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, policy))
-        try await probe.settle()
-        XCTAssertGreaterThan(listener.connectionCount, 0, "control: the listener observes allowed requests")
-    }
-
-    @MainActor
-    func testScriptedOfflinePreviewBlocksAllNetworkEgress() async throws {
+    func testStaticPreviewEmitsNoTrafficUnderNoInputRealInputAndAccessibilityAndInteractiveControlReachesListeners()
+        async throws
+    {
         let tcp = try LoopbackListener()
         let udp = try LoopbackUDPListener()
         let tcpPort = try await tcp.start()
@@ -212,10 +176,9 @@ final class PreviewTrustTests: XCTestCase {
             udp.stop()
         }
         let directory = try PreviewFixtures.directory(self)
-        let page = directory.appendingPathComponent("hostile.html")
-        try Data(
-            """
+        let html = """
             <!DOCTYPE html><html><head><title>init</title>
+            <base href="http://127.0.0.1:\(tcpPort)/base">
             <meta http-equiv="refresh" content="0;url=http://127.0.0.1:\(tcpPort)/meta">
             <link rel="dns-prefetch" href="//127.0.0.1:\(tcpPort)">
             <link rel="preconnect" href="http://127.0.0.1:\(tcpPort)">
@@ -224,36 +187,30 @@ final class PreviewTrustTests: XCTestCase {
             <style>
             @import url("http://127.0.0.1:\(tcpPort)/import.css");
             @font-face { font-family: RemoteF; src: url("http://127.0.0.1:\(tcpPort)/font.woff2"); }
-            body { font-family: RemoteF; background: url("http://127.0.0.1:\(tcpPort)/bg.png"); }
-            </style></head><body>
+            body { margin: 0; height: 1200px; font-family: RemoteF; background: url("http://127.0.0.1:\(tcpPort)/bg.png"); }
+            </style></head>
+            <body onload="window.__onload = true">
+            <p id="copy">Readable static text</p>
+            <a id="baseLink" href="#go" onclick="window.__clicked = true" style="display:block;width:200px;height:40px">Base Anchor</a>
+            <a id="extLink" href="http://127.0.0.1:\(tcpPort)/ext" ping="http://127.0.0.1:\(tcpPort)/ping" style="display:block;width:200px;height:40px">External Link</a>
+            <div id="shadowHost"><template shadowrootmode="open"><a id="shadowLink" href="http://127.0.0.1:\(tcpPort)/shadow">Shadow Link</a></template></div>
             <img src="http://127.0.0.1:\(tcpPort)/img.png">
             <video src="http://127.0.0.1:\(tcpPort)/v.mp4" preload="auto"></video>
             <audio src="http://127.0.0.1:\(tcpPort)/a.mp3" preload="auto"></audio>
-            <form id="f" action="http://127.0.0.1:\(tcpPort)/form" method="POST"><input name="k" value="v"></form>
-            <a id="ping" href="#here" ping="http://127.0.0.1:\(tcpPort)/ping">ping</a>
+            <iframe src="http://127.0.0.1:\(tcpPort)/frame.html"></iframe>
+            <form id="f" action="http://127.0.0.1:\(tcpPort)/form" method="POST"><button id="b" type="submit">Send</button></form>
             <script>
             (async () => {
-              window.__report = {
-                js: true,
-                rtc: typeof RTCPeerConnection,
-                wt: typeof WebTransport,
-                sw: typeof navigator.serviceWorker
-              };
+              window.__ran = true;
               try { fetch('http://127.0.0.1:\(tcpPort)/fetch').catch(() => {}); } catch (e) {}
               try { const x = new XMLHttpRequest(); x.open('GET', 'http://127.0.0.1:\(tcpPort)/xhr'); x.send(); } catch (e) {}
               try { navigator.sendBeacon('http://127.0.0.1:\(tcpPort)/beacon', 'x'); } catch (e) {}
               try { new EventSource('http://127.0.0.1:\(tcpPort)/sse'); } catch (e) {}
               try { new WebSocket('ws://127.0.0.1:\(tcpPort)/ws'); } catch (e) {}
-              try { import('http://127.0.0.1:\(tcpPort)/mod.js').catch(() => {}); } catch (e) {}
               try {
                 new Worker(URL.createObjectURL(new Blob([
                   "fetch('http://127.0.0.1:\(tcpPort)/wf'); new WebSocket('ws://127.0.0.1:\(tcpPort)/wws');"
                 ], {type: 'application/javascript'})));
-              } catch (e) {}
-              try {
-                if (typeof WebTransport !== 'undefined') {
-                  new WebTransport('https://127.0.0.1:\(tcpPort)/wt');
-                }
               } catch (e) {}
               try {
                 if (typeof RTCPeerConnection !== 'undefined') {
@@ -265,38 +222,96 @@ final class PreviewTrustTests: XCTestCase {
                   await pc.setLocalDescription(await pc.createOffer());
                 }
               } catch (e) {}
-              try { document.getElementById('ping').click(); } catch (e) {}
-              try { document.getElementById('f').submit(); } catch (e) {}
-              try { window.open('http://127.0.0.1:\(tcpPort)/popup'); } catch (e) {}
-              try { location.href = 'http://127.0.0.1:\(tcpPort)/nav'; } catch (e) {}
             })();
             </script></body></html>
-            """.utf8
-        ).write(to: page)
-
+            """
+        let page = directory.appendingPathComponent("hostile.html")
+        try Data(html.utf8).write(to: page)
         let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
         let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
-        var offlineScripts = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: resolvedPage.path), scriptsConsented: false)
-        offlineScripts.allowScripts()
-        let offline = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, offlineScripts))
-        try await offline.settle(.milliseconds(1000))
 
-        let rawReport = try await offline.evaluate("JSON.stringify(window.__report)") as? String
-        let report = try XCTUnwrap(rawReport)
-        XCTAssertTrue(report.contains("\"js\":true"), report)
-        XCTAssertTrue(report.contains("\"rtc\":\"undefined\""), report)
-        XCTAssertTrue(report.contains("\"wt\":\"undefined\""), report)
-        XCTAssertTrue(report.contains("\"sw\":\"undefined\""), report)
-        XCTAssertEqual(offline.currentURL?.standardizedFileURL.path, resolvedPage.path)
-        XCTAssertEqual(tcp.connectionCount, 0, "offline scripted page must emit zero TCP traffic")
-        XCTAssertEqual(udp.datagramCount, 0, "offline scripted page must emit zero UDP traffic")
+        // Static states: restricted (.generated) and standard (.staticPreview).
+        let staticPages: [PreviewWebViewer.Page] = [
+            .generated(html),
+            .file(resolvedPage, readAccess: readAccess, .staticPreview),
+        ]
+        for staticPage in staticPages {
+            let probe = try await PreviewWebProbe.loading(staticPage)
+            // No-input settle.
+            try await probe.settle(.milliseconds(600))
+            XCTAssertEqual(tcp.connectionCount, 0)
+            XCTAssertEqual(udp.datagramCount, 0)
 
-        // Control: network reaches TCP and UDP listeners.
-        var onlineScripts = offlineScripts
-        onlineScripts.allowNetwork()
-        let online = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, onlineScripts))
-        try await online.settle(.milliseconds(1000))
+            let ran = try await probe.evaluate("Boolean(window.__ran || window.__onload || window.__clicked)") as? Bool
+            XCTAssertEqual(ran, false)
+            let title = try await probe.evaluate("document.title") as? String
+            XCTAssertEqual(title, "init")
+
+            // Synthesized AppKit input over links and forms.
+            let point = NSPoint(x: 40, y: 40)
+            XCTAssertTrue(probe.hitTest(webPoint: point) === probe.container.inputShield)
+            XCTAssertFalse(probe.attemptFocusWebView())
+            try probe.click(webPoint: point)
+            try probe.rightClick(webPoint: point)
+            try probe.drag(from: point, to: NSPoint(x: 120, y: 120))
+            try probe.pressKey("\r", keyCode: 36)
+            try probe.pressKey(" ", keyCode: 49)
+            try probe.scroll(deltaY: -80, at: point)
+            try await probe.settle(.milliseconds(400))
+            XCTAssertEqual(tcp.connectionCount, 0)
+            XCTAssertEqual(udp.datagramCount, 0)
+
+            // Accessibility: content stays readable; links are non-actionable.
+            let axChildren = probe.container.accessibilityChildren() as? [AnyObject] ?? []
+            XCTAssertTrue(axChildren.contains { $0 === probe.container.webView })
+            XCTAssertFalse(probe.container.inputShield.isAccessibilityElement())
+            _ = probe.container.webView.accessibilityChildren()
+            try await probe.settle(.milliseconds(300))
+            let remoteHit = probe.container.accessibilityHitTest(NSPoint(x: 40, y: 40)) as AnyObject?
+            XCTAssertFalse(remoteHit === probe.container.inputShield)
+
+            let textAndLinks =
+                try await probe.evaluate(
+                    """
+                    JSON.stringify({
+                      text: document.body.innerText,
+                      baseHref: document.getElementById('baseLink').getAttribute('href'),
+                      extHref: document.getElementById('extLink').getAttribute('href'),
+                      shadowHref: document.getElementById('shadowHost').shadowRoot.getElementById('shadowLink').getAttribute('href'),
+                      formAction: document.getElementById('f').getAttribute('action'),
+                      buttonDisabled: document.getElementById('b').disabled
+                    })
+                    """
+                ) as? String
+            let snapshot = try XCTUnwrap(textAndLinks)
+            XCTAssertTrue(snapshot.contains("Readable static text"), snapshot)
+            XCTAssertTrue(snapshot.contains("External Link"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"baseHref\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"extHref\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"shadowHref\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"formAction\":null"), snapshot)
+            XCTAssertTrue(snapshot.contains("\"buttonDisabled\":true"), snapshot)
+
+            // Direct activation (like AXPress) emits zero traffic.
+            _ = try await probe.evaluate(
+                """
+                document.getElementById('baseLink').click();
+                document.getElementById('extLink').click();
+                document.getElementById('shadowHost').shadowRoot.getElementById('shadowLink').click();
+                document.getElementById('b').click();
+                """
+            )
+            try await probe.settle(.milliseconds(400))
+            XCTAssertEqual(tcp.connectionCount, 0)
+            XCTAssertEqual(udp.datagramCount, 0)
+        }
+
+        // Control: interactive mode runs scripts and connects.
+        let interactive = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, .interactive))
+        try await interactive.settle(.milliseconds(1000))
+        let interactiveRan = try await interactive.evaluate("window.__ran") as? Bool
+        XCTAssertEqual(interactiveRan, true)
+        XCTAssertTrue(interactive.hitTest(webPoint: NSPoint(x: 40, y: 40)) !== interactive.container.inputShield)
         XCTAssertGreaterThan(tcp.connectionCount, 0, "control: TCP listener observes allowed traffic")
         XCTAssertGreaterThan(udp.datagramCount, 0, "control: UDP listener observes WebRTC STUN")
     }
@@ -330,9 +345,7 @@ final class PreviewTrustTests: XCTestCase {
             PreviewWebConfiguration.folderReadAccess(for: insideSubfolder, homeDirectory: fakeHome)?.path,
             subfolder.resolvingSymlinksInPath().standardizedFileURL.path)
 
-        let policy = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: directInHome.path), scriptsConsented: false)
-        let probe = try await PreviewWebProbe.loading(.inline(html, policy))
+        let probe = try await PreviewWebProbe.loading(.inline(html, .staticPreview))
         try await probe.settle()
         let relativeWidth = try await probe.evaluate("document.getElementById('rel').naturalWidth") as? Int
         let absoluteWidth = try await probe.evaluate("document.getElementById('abs').naturalWidth") as? Int
@@ -369,20 +382,12 @@ final class PreviewTrustTests: XCTestCase {
 
         let resolvedPage = page.resolvingSymlinksInPath().standardizedFileURL
         let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedPage))
-        let policy = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: resolvedPage.path), scriptsConsented: false)
-        let probe = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, policy))
+        let probe = try await PreviewWebProbe.loading(.file(resolvedPage, readAccess: readAccess, .staticPreview))
         try await probe.settle()
 
-        for id in ["nav", "blank", "dl", "jslink", "bOther", "bSelf"] {
+        for id in ["nav", "blank", "dl", "jslink", "remote", "bOther", "bSelf"] {
             _ = try await probe.evaluate("document.getElementById('\(id)').click()")
         }
-        let remoteRect =
-            try await probe.evaluate(
-                "(() => { const r = document.getElementById('remote').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; })()"
-            ) as? [Double]
-        let coords = try XCTUnwrap(remoteRect)
-        try probe.click(webPoint: NSPoint(x: coords[0], y: coords[1]))
         _ = try await probe.evaluate("window.open('other.html')")
         try await probe.settle()
 
@@ -394,54 +399,106 @@ final class PreviewTrustTests: XCTestCase {
     }
 
     @MainActor
-    func testScriptConsentInvalidatesWhenFileIsReplacedOrEdited() async throws {
-        let directory = try PreviewFixtures.directory(self)
+    func testPerLoadPolicyEvaluatesFreshAfterReplacementEditQuarantineAndTrustedSwap() async throws {
+        let root = try PreviewFixtures.directory(self)
+        let directory = root.appendingPathComponent("site")
+        let outside = root.appendingPathComponent("outside")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: false)
+        let sibling = directory.appendingPathComponent("sibling.png")
+        try PreviewFixtures.png().write(to: sibling)
         let page = directory.appendingPathComponent("page.html")
-        try Data("<html><head><title>a</title></head><body><script>document.title='a-ran'</script></body></html>".utf8)
-            .write(to: page)
+        try Data(
+            "<html><head><title>a</title></head><body><img id='s' src='sibling.png'><script>document.title='a-ran'</script></body></html>"
+                .utf8
+        ).write(to: page)
 
-        let trustA = PreviewTrust.evaluate(page, trustedFolders: [])
-        let keyA = try XCTUnwrap(trustA.consentKey)
+        let first = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [])
+        XCTAssertEqual(first.policy, .staticPreview)
+        let keyA = try XCTUnwrap(first.trust.consentKey)
         let consent: Set<PreviewScriptConsentKey> = [keyA]
 
-        // Reselecting unchanged file A keeps script consent.
-        let trustASame = PreviewTrust.evaluate(page, trustedFolders: [])
-        let policySame = PreviewWebPolicy(
-            trust: trustASame, scriptsConsented: trustASame.consentKey.map(consent.contains) ?? false)
-        XCTAssertTrue(policySame.scripts)
-        let resolved = page.resolvingSymlinksInPath().standardizedFileURL
-        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolved))
-        let probeA = try await PreviewWebProbe.loading(.file(resolved, readAccess: readAccess, policySame))
+        // Consent applies to unchanged file A.
+        let consentedA = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: consent)
+        XCTAssertEqual(consentedA.policy, .interactive)
+        let pageA = try XCTUnwrap(consentedA.page)
+        let probeA = try await PreviewWebProbe.loading(pageA)
         let titleA = try await probeA.evaluate("document.title") as? String
         XCTAssertEqual(titleA, "a-ran")
 
-        // Replacing file A invalidates script consent.
-        let replacement = directory.appendingPathComponent("replacement.html")
-        try Data("<html><head><title>b</title></head><body><script>document.title='b-ran'</script></body></html>".utf8)
-            .write(to: replacement)
+        // Replacing the file drops consent.
+        let replacement = directory.appendingPathComponent("b.html")
+        try Data(
+            "<html><head><title>b</title></head><body><img id='s' src='sibling.png'><script>document.title='b-ran'</script></body></html>"
+                .utf8
+        ).write(to: replacement)
         _ = try FileManager.default.replaceItemAt(page, withItemAt: replacement)
 
-        let trustB = PreviewTrust.evaluate(page, trustedFolders: [])
-        let policyB = PreviewWebPolicy(
-            trust: trustB, scriptsConsented: trustB.consentKey.map(consent.contains) ?? false)
-        XCTAssertFalse(policyB.scripts)
-        XCTAssertTrue(policyB.offersScripts)
-        let probeB = try await PreviewWebProbe.loading(.file(resolved, readAccess: readAccess, policyB))
+        // Stale prepared page refuses to load.
+        let staleConfig = try await PreviewWebConfiguration.make(for: pageA)
+        let staleWeb = PreviewWKWebView(frame: .zero, configuration: staleConfig)
+        XCTAssertFalse(PreviewWebConfiguration.load(pageA, in: staleWeb))
+
+        // Fresh prepare evaluates B as static.
+        let reloadedB = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: consent)
+        XCTAssertEqual(reloadedB.policy, .staticPreview)
+        let probeB = try await PreviewWebProbe.loading(try XCTUnwrap(reloadedB.page))
         let titleB = try await probeB.evaluate("document.title") as? String
         XCTAssertEqual(titleB, "b")
 
-        // Editing in place also invalidates consent.
-        let keyB = try XCTUnwrap(trustB.consentKey)
-        let consentB: Set<PreviewScriptConsentKey> = [keyB]
+        // In-place edit drops consent.
+        let keyB = try XCTUnwrap(reloadedB.trust.consentKey)
         let handle = try FileHandle(forWritingTo: page)
         try handle.seekToEnd()
-        try handle.write(contentsOf: Data("<!-- changed -->".utf8))
+        try handle.write(contentsOf: Data("<!-- edited -->".utf8))
         try handle.close()
+        let editedB = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [keyB])
+        XCTAssertEqual(editedB.policy, .staticPreview)
+        let probeEdited = try await PreviewWebProbe.loading(try XCTUnwrap(editedB.page))
+        let titleEdited = try await probeEdited.evaluate("document.title") as? String
+        XCTAssertEqual(titleEdited, "b")
 
-        let trustBEdited = PreviewTrust.evaluate(page, trustedFolders: [])
-        let policyBEdited = PreviewWebPolicy(
-            trust: trustBEdited, scriptsConsented: trustBEdited.consentKey.map(consentB.contains) ?? false)
-        XCTAssertFalse(policyBEdited.scripts)
+        // Trusted-folder file starts interactive until replaced.
+        let trustedStart = try PreviewHTMLSnapshot.prepare(
+            url: page, trustedFolders: [directory.path], scriptConsent: [])
+        XCTAssertEqual(trustedStart.policy, .interactive)
+        let trustedPage = try XCTUnwrap(trustedStart.page)
+        let probeTrusted = try await PreviewWebProbe.loading(trustedPage)
+        let titleTrusted = try await probeTrusted.evaluate("document.title") as? String
+        XCTAssertEqual(titleTrusted, "b-ran")
+
+        // Replacing with a quarantined file forces restricted.
+        let downloaded = directory.appendingPathComponent("downloaded.html")
+        try Data(
+            "<html><head><title>q</title></head><body><img id='s' src='sibling.png'><script>document.title='q-ran'</script></body></html>"
+                .utf8
+        ).write(to: downloaded)
+        try PreviewFixtures.quarantine(downloaded)
+        _ = try FileManager.default.replaceItemAt(page, withItemAt: downloaded)
+        XCTAssertFalse(PreviewWebConfiguration.load(trustedPage, in: staleWeb))
+        let reloadedQuarantined = try PreviewHTMLSnapshot.prepare(
+            url: page, trustedFolders: [directory.path], scriptConsent: [])
+        XCTAssertEqual(reloadedQuarantined.policy, .restricted)
+        let probeQuarantined = try await PreviewWebProbe.loading(try XCTUnwrap(reloadedQuarantined.page))
+        let titleQuarantined = try await probeQuarantined.evaluate("document.title") as? String
+        let siblingWidth = try await probeQuarantined.evaluate("document.getElementById('s').naturalWidth") as? Int
+        XCTAssertEqual(titleQuarantined, "q")
+        XCTAssertEqual(siblingWidth, 0)
+
+        // Replacing with outside symlink drops to static.
+        let externalFile = outside.appendingPathComponent("external.html")
+        try Data(
+            "<html><head><title>ext</title></head><body><script>document.title='ext-ran'</script></body></html>".utf8
+        )
+        .write(to: externalFile)
+        try FileManager.default.removeItem(at: page)
+        try FileManager.default.createSymbolicLink(at: page, withDestinationURL: externalFile)
+        let reloadedOutside = try PreviewHTMLSnapshot.prepare(
+            url: page, trustedFolders: [directory.path], scriptConsent: [])
+        XCTAssertEqual(reloadedOutside.policy, .staticPreview)
+        let probeOutside = try await PreviewWebProbe.loading(try XCTUnwrap(reloadedOutside.page))
+        let titleOutside = try await probeOutside.evaluate("document.title") as? String
+        XCTAssertEqual(titleOutside, "ext")
     }
 
     func testQuarantinedSymlinkIsRestrictedEvenWhenTargetIsNot() throws {
@@ -455,200 +512,5 @@ final class PreviewTrustTests: XCTestCase {
 
         XCTAssertEqual(PreviewTrust.evaluate(target, trustedFolders: [directory.path]).level, .trusted)
         XCTAssertEqual(PreviewTrust.evaluate(link, trustedFolders: [directory.path]).level, .restricted)
-    }
-
-    @MainActor
-    func testOfflinePreviewIsViewOnlyAtAppKitLevelAndBlocksBaseAndShadowLinkClicks() async throws {
-        let tcp = try LoopbackListener()
-        let udp = try LoopbackUDPListener()
-        let tcpPort = try await tcp.start()
-        _ = try await udp.start()
-        defer {
-            tcp.stop()
-            udp.stop()
-        }
-        let directory = try PreviewFixtures.directory(self)
-        let baseHTML = """
-            <!DOCTYPE html><html><head><base href="http://127.0.0.1:\(tcpPort)/base"></head>
-            <body style="margin:0;height:1200px">
-            <a id="target" href="#go" style="display:block;width:200px;height:100px;background:#09f">go</a>
-            </body></html>
-            """
-        let shadowHTML = """
-            <!DOCTYPE html><html><body style="margin:0;height:1200px">
-            <div id="host" style="width:200px;height:100px"></div>
-            <script>
-            const shadow = document.getElementById('host').attachShadow({mode: 'open'});
-            shadow.innerHTML = '<a id="shadowLink" href="http://127.0.0.1:\(tcpPort)/shadow" style="display:block;width:200px;height:100px;background:#f90">shadow</a>';
-            </script></body></html>
-            """
-        let baseFile = directory.appendingPathComponent("base.html")
-        let shadowFile = directory.appendingPathComponent("shadow.html")
-        try Data(baseHTML.utf8).write(to: baseFile)
-        try Data(shadowHTML.utf8).write(to: shadowFile)
-        let resolvedBase = baseFile.resolvingSymlinksInPath().standardizedFileURL
-        let resolvedShadow = shadowFile.resolvingSymlinksInPath().standardizedFileURL
-        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolvedBase))
-
-        let plainPolicy = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: resolvedBase.path), scriptsConsented: false)
-        var scriptedPolicy = plainPolicy
-        scriptedPolicy.allowScripts()
-
-        let offlinePages: [PreviewWebViewer.Page] = [
-            .generated(baseHTML),
-            .file(resolvedBase, readAccess: readAccess, plainPolicy),
-            .file(resolvedBase, readAccess: readAccess, scriptedPolicy),
-            .file(resolvedShadow, readAccess: readAccess, scriptedPolicy),
-        ]
-        let linkPoint = NSPoint(x: 40, y: 40)
-        for page in offlinePages {
-            let probe = try await PreviewWebProbe.loading(page)
-            try await probe.settle(.milliseconds(200))
-            XCTAssertTrue(probe.hitTest(webPoint: linkPoint) === probe.container.inputShield)
-            XCTAssertFalse(probe.attemptFocusWebView())
-            try probe.click(webPoint: linkPoint)
-            try probe.rightClick(webPoint: linkPoint)
-            try probe.drag(from: linkPoint, to: NSPoint(x: 120, y: 120))
-            try probe.pressKey("\r", keyCode: 36)
-            try probe.pressKey(" ", keyCode: 49)
-            try probe.scroll(deltaY: -80, at: linkPoint)
-            try await probe.settle(.milliseconds(400))
-            XCTAssertEqual(tcp.connectionCount, 0)
-            XCTAssertEqual(udp.datagramCount, 0)
-        }
-
-        // Control: allowed network clicks reach the listener.
-        var onlinePolicy = scriptedPolicy
-        onlinePolicy.allowNetwork()
-        for file in [resolvedBase, resolvedShadow] {
-            let before = tcp.connectionCount
-            let online = try await PreviewWebProbe.loading(.file(file, readAccess: readAccess, onlinePolicy))
-            try await online.settle(.milliseconds(200))
-            XCTAssertTrue(online.hitTest(webPoint: linkPoint) !== online.container.inputShield)
-            try online.click(webPoint: linkPoint)
-            try await online.settle(.milliseconds(600))
-            XCTAssertGreaterThan(
-                tcp.connectionCount, before, "control: allowed click reaches listener for \(file.lastPathComponent)")
-        }
-    }
-
-    @MainActor
-    func testProgrammaticAnchorClicksEmitNoTrafficOffline() async throws {
-        let tcp = try LoopbackListener()
-        let port = try await tcp.start()
-        defer { tcp.stop() }
-        let directory = try PreviewFixtures.directory(self)
-        let page = directory.appendingPathComponent("programmatic.html")
-        try Data(
-            """
-            <!DOCTYPE html><html><head><base href="http://127.0.0.1:\(port)/ext"></head><body>
-            <a id="base" href="#go">go</a>
-            <a id="abs" href="http://127.0.0.1:\(port)/abs">abs</a>
-            <div id="host"></div>
-            <script>
-              window.__ran = true;
-              document.getElementById('base').click();
-              document.getElementById('abs').click();
-              const s = document.getElementById('host').attachShadow({mode: 'closed'});
-              const a = document.createElement('a');
-              a.href = 'http://127.0.0.1:\(port)/shadow';
-              s.appendChild(a);
-              a.click();
-              const d = document.createElement('a');
-              d.href = 'http://127.0.0.1:\(port)/detached';
-              d.click();
-              d.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
-            </script></body></html>
-            """.utf8
-        ).write(to: page)
-        let resolved = page.resolvingSymlinksInPath().standardizedFileURL
-        let readAccess = try XCTUnwrap(PreviewWebConfiguration.folderReadAccess(for: resolved))
-        var policy = PreviewWebPolicy(
-            trust: PreviewTrust(level: .standard, resolvedPath: resolved.path), scriptsConsented: false)
-        policy.allowScripts()
-        let probe = try await PreviewWebProbe.loading(.file(resolved, readAccess: readAccess, policy))
-        try await probe.settle(.milliseconds(700))
-        let ran = try await probe.evaluate("window.__ran") as? Bool
-        XCTAssertEqual(ran, true)
-        XCTAssertEqual(tcp.connectionCount, 0)
-    }
-
-    @MainActor
-    func testHTMLPolicyEvaluatesFreshOnEveryLoadAfterReplacementEditOrQuarantine() async throws {
-        let directory = try PreviewFixtures.directory(self)
-        let sibling = directory.appendingPathComponent("sibling.png")
-        try PreviewFixtures.png().write(to: sibling)
-        let page = directory.appendingPathComponent("page.html")
-        try Data(
-            "<html><head><title>a</title></head><body><img id='s' src='sibling.png'><script>document.title='a-ran'</script></body></html>"
-                .utf8
-        ).write(to: page)
-
-        let first = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: [])
-        XCTAssertFalse(first.policy.scripts)
-        let keyA = try XCTUnwrap(first.trust.consentKey)
-        let consent: Set<PreviewScriptConsentKey> = [keyA]
-
-        // Consent applies to unchanged file A.
-        let consentedA = try PreviewHTMLSnapshot.prepare(url: page, trustedFolders: [], scriptConsent: consent)
-        XCTAssertTrue(consentedA.policy.scripts)
-        let pageA = try XCTUnwrap(consentedA.page)
-        let probeA = try await PreviewWebProbe.loading(pageA)
-        let titleA = try await probeA.evaluate("document.title") as? String
-        XCTAssertEqual(titleA, "a-ran")
-
-        // Replacing the file drops script consent.
-        let replacement = directory.appendingPathComponent("b.html")
-        try Data(
-            "<html><head><title>b</title></head><body><img id='s' src='sibling.png'><script>document.title='b-ran'</script></body></html>"
-                .utf8
-        ).write(to: replacement)
-        _ = try FileManager.default.replaceItemAt(page, withItemAt: replacement)
-
-        // Stale prepared page refuses to load.
-        let staleConfig = try await PreviewWebConfiguration.make(for: pageA)
-        let staleWeb = PreviewWKWebView(frame: .zero, configuration: staleConfig)
-        XCTAssertFalse(PreviewWebConfiguration.load(pageA, in: staleWeb))
-
-        // Fresh prepare evaluates B without scripts.
-        let reloadedB = try PreviewHTMLSnapshot.prepare(
-            url: page, trustedFolders: [], scriptConsent: consent, networkConsentKey: keyA)
-        XCTAssertFalse(reloadedB.policy.scripts)
-        XCTAssertFalse(reloadedB.policy.network)
-        let probeB = try await PreviewWebProbe.loading(try XCTUnwrap(reloadedB.page))
-        let titleB = try await probeB.evaluate("document.title") as? String
-        XCTAssertEqual(titleB, "b")
-
-        // In-place edit drops script consent.
-        let keyB = try XCTUnwrap(reloadedB.trust.consentKey)
-        let consentB: Set<PreviewScriptConsentKey> = [keyB]
-        let handle = try FileHandle(forWritingTo: page)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data("<!-- edited -->".utf8))
-        try handle.close()
-        let editedB = try PreviewHTMLSnapshot.prepare(
-            url: page, trustedFolders: [], scriptConsent: consentB, networkConsentKey: keyB)
-        XCTAssertFalse(editedB.policy.scripts)
-        XCTAssertFalse(editedB.policy.network)
-        let probeEdited = try await PreviewWebProbe.loading(try XCTUnwrap(editedB.page))
-        let titleEdited = try await probeEdited.evaluate("document.title") as? String
-        XCTAssertEqual(titleEdited, "b")
-
-        // Quarantine added while selected forces restricted preview.
-        let keyEdited = try XCTUnwrap(editedB.trust.consentKey)
-        try PreviewFixtures.quarantine(page)
-        let quarantined = try PreviewHTMLSnapshot.prepare(
-            url: page, trustedFolders: [directory.path], scriptConsent: [keyEdited], networkConsentKey: keyEdited)
-        XCTAssertTrue(quarantined.trust.restricted)
-        XCTAssertFalse(quarantined.policy.scripts)
-        XCTAssertFalse(quarantined.policy.network)
-        XCTAssertFalse(quarantined.policy.offersScripts)
-        XCTAssertFalse(quarantined.policy.offersNetwork)
-        let probeQuarantined = try await PreviewWebProbe.loading(try XCTUnwrap(quarantined.page))
-        let titleQuarantined = try await probeQuarantined.evaluate("document.title") as? String
-        let siblingWidth = try await probeQuarantined.evaluate("document.getElementById('s').naturalWidth") as? Int
-        XCTAssertEqual(titleQuarantined, "b")
-        XCTAssertEqual(siblingWidth, 0)
     }
 }

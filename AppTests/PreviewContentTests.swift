@@ -152,7 +152,7 @@ final class PreviewContentTests: XCTestCase {
         let store = try XCTUnwrap(WKContentRuleListStore.default())
         let rules = try await store.contentRuleList(forIdentifier: "MacEasePreviewOffline")
         XCTAssertNotNil(rules)
-        let allowed = try await PreviewWebConfiguration.make(scripts: true, reach: .network)
+        let allowed = try await PreviewWebConfiguration.make(reach: .network)
         XCTAssertTrue(allowed.defaultWebpagePreferences.allowsContentJavaScript)
         XCTAssertFalse(allowed.websiteDataStore.isPersistent)
         let reset = try await PreviewWebConfiguration.make()
@@ -164,7 +164,8 @@ final class PreviewContentTests: XCTestCase {
         let source = URL(fileURLWithPath: "/tmp/example/index.html")
         let page = PreviewWebViewer.Page.file(
             source, readAccess: source.deletingLastPathComponent(),
-            PreviewWebPolicy(trust: PreviewTrust(level: .standard, resolvedPath: source.path), scriptsConsented: false))
+            PreviewWebPolicy(
+                trust: PreviewTrust(level: .standard, resolvedPath: source.path), interactiveConsented: false))
         XCTAssertTrue(PreviewWebConfiguration.permitsNavigation(to: source, page: page))
         for address in [
             "https://example.com", "macease://run", "file:///tmp/example/other.html",

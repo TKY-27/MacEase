@@ -75,7 +75,7 @@ struct FinderWindowsSettingsView: View {
                 Text("Trusted Folders")
             } footer: {
                 Text(
-                    "HTML files in these folders open in Preview with scripts on. Files from the internet stay restricted."
+                    "HTML files in these folders open in Preview with scripts and network access enabled. Files from the internet stay restricted."
                 )
             }
         }
@@ -122,7 +122,8 @@ struct FinderWindowsSettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Trust")
-        panel.message = String(localized: "HTML in the chosen folders opens with scripts on.")
+        panel.message = String(
+            localized: "HTML in the chosen folders opens with scripts and network access enabled.")
         guard panel.runModal() == .OK else { return }
         for url in panel.urls { store.finderPreview.addTrustedFolder(url) }
     }
