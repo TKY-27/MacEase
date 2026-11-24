@@ -1,5 +1,61 @@
 # Spikes and Manual Verification
 
+## Native timecode output support (2026-11-24)
+
+Measured on macOS 27.2.1 (26B131), Xcode 27.2 (27B52), macOS 27.2 SDK.
+A native 30 fps `tmcd` format description from a 24 fps MOV was supplied to
+`AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint:)`.
+`AVAssetWriter.canAdd(_:)` returned:
+
+| Writer file type | Accepted timecode |
+| --- | --- |
+| `.mov` | Yes |
+| `.mp4` | No |
+| `.m4v` | No |
+| `.m4a` | No |
+
+MOV accepts timecode samples in the same writer session and supports source
+video/timecode associations. The reader also emits zero-sample marker buffers,
+including leading controls, invalid timestamps and a rounded trailing end marker.
+Never append those markers: they can stretch the preceding sample.
+
+A generated 24 fps, 10-frame FFmpeg MOV has movie timescale 1000, track range
+417/1000, and a real timecode sample of 5120/12288 (exactly 10/24). Appending its
+trailing marker changed that sample duration to 5124/12288. Skipping markers
+alone with writer movieTimeScale 1000 produced track duration 416/1000. Using
+the exact least common multiple of the source movie and timecode media scales
+(1536000 here) retained 5120/12288 and its exact presentation end. The 30 fps,
+31-frame case also passes through compression and MOV recipes.
+
+Verification requires identical timecode payload, sample count, format
+(including frame duration, quanta and flags), PTS/DTS, sample duration, output
+PTS/duration, association membership, enabled state, language and metadata.
+Track start must match exactly. Only track duration may differ by strictly less
+than one source movie tick, `CMTime(value: 1, timescale: sourceMovieScale)`,
+because source movie-level durations already contain rounding. A test rejects
+a difference equal to that bound. The output writer uses the exact common
+scale; scale overflow/rounding is rejected before encoding.
+
+Every material sample is checked before encoding against its own format and
+each declared sample size (four-byte tmcd or eight-byte tc64). Empty tracks,
+multiple format descriptions, multiple nonempty edit segments and clipped sample
+durations require prior omission consent. A direct native replay of two samples
+trimmed from 0.5 to 1.5 seconds changed the final raw duration from 1 to 0.5 s;
+a single clipped sample also shortened the visible range from 1 to 0.5 s.
+Removing markers and using an exact movie scale did not reproduce those edits.
+These cases ask before encoding rather than weakening sample verification.
+Valid tc64 above Int32.max, negative/discontinuous values, two timecode tracks,
+23.976, 29.97/59.94 drop-frame, 25/50/60 fps, HDR-to-SDR and subtitle-only
+omission are covered by native regression tests.
+
+MP4, M4V and M4A require explicit omission consent before encoding. Regenerating
+from a timecode string changes the rate when it differs from the video rate.
+Do not post-remux AVAssetWriter output: packet hashes alone missed HEVC alpha
+sample-description corruption and removal of leading empty edits.
+
+Apple's API contract: [Timecode support](https://developer.apple.com/library/archive/technotes/tn2310/_index.html),
+[pass-through output settings](https://developer.apple.com/documentation/avfoundation/avassetwriterinput/outputsettings).
+
 ## ONNX Runtime document availability (2026-11-24)
 
 An empty worktree-local `Vendor/src/ai-audio` cache reproduced the failure in
@@ -1098,6 +1154,323 @@ returned HTTP 404; the local build uses copies from the installed app whose
 SHA-256 values exactly match `Vendor/ai-audio.lock`. Cold-network bootstrap
 and remote CI remain unverified.
 
+## Freeze-frame composition scaling (2026-11-24)
+
+Environment: macOS 27, Apple Silicon, Swift 6.4. Verified with a 30 fps H.264/AAC
+MOV fixture with distinct per-frame colors through `VideoEditorPlayback`,
+`AVAssetImageGenerator`, and `AVPlayer` with `AVPlayerItemVideoOutput`.
+
+| Question | Result |
+| --- | --- |
+| Does `insertTimeRange` + `scaleTimeRange` hold a single frame in `AVPlayer`? | Yes, for both 2 s and 30 s freezes, including transitions from normal segments before and after the freeze. |
+| What happens when `start..<end` spans one frame duration from a non-frame-aligned `start`? | `insertTimeRange` captures both the frame covering `start` and the following frame, so `scaleTimeRange` flips to the next frame partway through the freeze. Inserting a 1-nanosecond slice at `start` (`min(1 ns, end - start)`) and scaling it to `freezeDuration` isolates strictly the single frame covering `start`. |
+| Does `AVVideoComposition(applyingFiltersTo:)` animate fades during `AVPlayer.play()` over a scaled freeze? | Not with defaults: `filtered.frameDuration` reflects the scaled sample duration and `sourceTrackIDForFrameTiming` tracks the single video sample, freezing filter output across playback. Setting `frameDuration = 1/30 s` and `sourceTrackIDForFrameTiming = kCMPersistentTrackID_Invalid` when the timeline contains a freeze segment makes real playback animate fades identically to export. |
+
+## Integrated editor playback timing (2026-11-24)
+
+The freeze slice also works at one tick of the 60,000 composition timescale.
+The existing unaligned-start test holds the same frame through 30 seconds;
+the 2-second freeze animates fades during actual AVPlayer playback.
+Composition track scales, inserted ranges, audio intersections, ramps and filter
+frame timing now use 60,000 rather than nanoseconds.
+
+On macOS 27, mixing AAC source audio and reversed float-PCM staged audio on
+one composition track produces a ready-to-play item but no rendered audio.
+Separate audio tracks per source restore rendering. An app-hosted audio tap
+measures nonzero samples across six seeks/replays spanning a freeze and the
+staged reversed source. The staged source remains lossless PCM.
+
+## Editor annotation rasterization (2026-11-24)
+
+Apple M5, macOS 27.2.1, Swift 6.4.2, Debug. The measurement renders heavy
+system-font text into a 1280 by 720 bitmap, using a 1920 by 1080 reference.
+Each case runs 10 warmups and 120 measured iterations.
+
+| Text annotations | Content cache | Median ms | p95 ms |
+| --- | --- | --- | --- |
+| 1 | Miss | 0.3045 | 0.8542 |
+| 1 | Hit | 0.0010 | 0.0010 |
+| 50 | Miss | 59.8582 | 105.5526 |
+| 50 | Hit | 0.0208 | 0.0216 |
+
+Rebuilding 50 annotations exceeds a 30 fps frame budget. Preview and export
+now share a content-keyed one-entry bitmap cache. Content, geometry or output
+size changes still incur a miss. These measurements include bitmap generation,
+Core Text and cache lookup, excluding decoding, frame-index lookup, Core Image
+GPU compositing, encoding and UI latency. They are not end-to-end frame times.
+These were baseline measurements from the former EditorOverlayMeasurements
+suite. Current editor measurements run through `scripts/bench.sh editor.photo`.
+
+## Editor reverse and overlay frame timing (2026-11-24)
+
+Verified on Apple M5, macOS 27.2.1 (26B131), using the installed Xcode SDK.
+The synthesized `reverse-open-gop-vfr.mp4` fixture contains HEVC open GOPs,
+leading B frames and variable presentation intervals. For example, the
+0.75-second I frame decodes before B frames presented at 0.625 and 0.583333
+seconds. Stopping a decode-order index at that I frame omits displayed frames.
+
+An edit list also changes compressed sample timing. On this fixture,
+`AVSampleCursor.presentationTimeStamp` and a compressed sample's
+`presentationTimeStamp` include the 0.25-second media offset; decoded frames
+start at output time zero. A compressed sample at 0.541666667 seconds has
+`outputPresentationTimeStamp` 0.291666667 seconds. Zero-duration edit-list
+markers and non-presented samples must not enter the display-frame index.
+Indexing positive output durations and output presentation timestamps matched
+all six selected frames of the 0.26–0.70-second reverse range. The regression
+compares every reversed frame with all forward candidates and checks variable
+frame durations. Container proxies additionally use the original source's
+frame intervals for redaction selection.
+
+At 23.976 fps, `CMTime(seconds:preferredTimescale: 60000)` truncates the
+first frame boundary plus four microseconds into the preceding frame. The
+boundary is 1001/24000 seconds. Nanosecond lookup preserves the intended frame;
+the regression checks both the rendered freeze preview and frame-fetch output
+against a patterned source with a redaction active only in that source frame.
+
+The reverse implementation reads compressed timing once, then decodes forward
+once into independent LZ4-compressed pixel frames. It reads these frames in
+reverse order and preserves their presentation intervals. Compression operates
+in 64 KiB blocks and never retains a decoded GOP. The container decoder's
+presentation reorder queue is disabled for this operation; disk metadata
+supplies ordering. Each retained source pixel buffer is checked against the
+256 MiB budget. Native codec reference surfaces, GPU workspaces and the optional
+geometry processor are separate from that retained-frame budget; process peak
+memory is measured separately. Streaming uses Apple's Compression filters:
+https://developer.apple.com/documentation/compression/outputfilter
+
+The 8K PQ regression uses four 7680×4320, 10-bit biplanar frames. Native HDR
+reads use about three bytes per pixel, not eight-byte RGBA. Thus the earlier
+4K-HDR estimate of eight 66 MB frames did not describe the reader's actual
+buffers. Eight 8K biplanar frames, and the container decoder's old minimum-four
+BGRA reorder queue, still exceeded 256 MiB. Both paths now spill without that
+minimum-frame retention. A separate 8K SDR Matroska regression exercises the
+container decoder. Raw reversed staging remains unredacted by design; preview,
+still export and video export apply source-time overlays from immutable source
+provenance. All staged directories remain registered and session-owned.
+
+Native audio-mix volume keys can interpolate into a future freeze's zero gain.
+The app-hosted placement test measured RMS 0.007569 in a preceding audible
+window; explicit constant-volume intervals prevented that unintended ramp.
+Two coherent 0.8-amplitude tones produced preview RMS 1.131371 but export RMS
+0.850146 because the export mixer clamps samples. Music preview now uses that
+same mixer in a cached float CAF, retaining separate source-format composition
+tracks and a 60000 timescale. Rendered-audio tests cover saturation, offset,
+fades, freeze silence, reversed frequency placement and final A/V duration.
+
+### Measured reverse cost
+
+Release builds used the same 60-second, 1920×1080, 60 fps, video-only H.264
+Matroska inputs before and after the change. FFprobe counted exactly 3600 video
+packets in each, with one keyframe or 60 keyframes respectively. The baseline
+was the integrated renderer with decode/cache counters; final measurements use
+the session-owned public reverse API. `/usr/bin/time -l` wrapped the compiled
+Benchmarks executable, excluding compilation. The machine also ran other
+worktrees, so wall times are observations under shared load, not latency bounds.
+
+| Source | Renderer | Wall seconds | Decoded frames | Retained pixel cache MB | OS max RSS MB |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Single keyframe | Before | 713.506 | 406800 | 265.423 | 51.347 |
+| Single keyframe | After | 45.056 | 3600 | 8.294 | 68.485 |
+| One-second GOP | Before | 28.437 | 7200 | 265.423 | 51.986 |
+| One-second GOP | After | 40.890 | 3600 | 8.294 | 69.124 |
+
+OS peak memory footprints were 57.296/57.640 MB before and 76.301/77.710 MB
+after, in table order. These process counters do not cover every shared GPU or
+codec-service allocation. The retained pixel cache and process RSS measure
+different resources. The spill adds compression and disk I/O: this run was
+15.8 times faster for a single keyframe but 43.8% slower for normal GOPs. Decode
+work became one frame per source frame in both cases; the old single-keyframe
+case decoded each GOP 113 times. Lossless spilling avoids another lossy
+intermediate and removes GOP-length-dependent repeated decoding. Temporary disk
+requirements depend on pixel entropy and can approach uncompressed frame size.
+Only the encoded reversed source remains after success; closing removes it.
+
+The `editor.photo` benchmark used a 12 MP HEIC, 960-pixel previews, five warmups
+and twenty distinct exposure updates. One blurred redaction measured median
+1.669 ms / p95 6.367 ms. One redaction plus 49 text annotations measured median
+37.700 ms / p95 65.242 ms. The benchmark checks output dimensions. Original
+resolution controls font/stroke minima, while annotation bitmaps remain bounded
+by preview dimensions. Max process RSS was 387.318 MB and peak footprint
+310.445 MB; this includes the full decoded source and Core Image workspaces.
+These are measured samples, not a 60 fps guarantee for fifty annotations.
+
+Reproduce the video inputs with FFmpeg's `testsrc2=size=1920x1080:rate=60:duration=60`,
+`libx264 -preset ultrafast -qp 26 -g 36000 -keyint_min 36000 -sc_threshold 0`.
+Re-encode that result with `-g 60 -keyint_min 60 -sc_threshold 0` for normal GOPs.
+Run `scripts/bench.sh editor.reverse <input.mkv>` or
+`scripts/bench.sh editor.photo`. For process memory, first build Release and
+wrap `Packages/MacEaseKit/.build/release/Benchmarks` directly with
+`/usr/bin/time -l`. The single-keyframe fixture SHA-256 is
+`d81a7f22e20c7530e1279018606f0e9ae5301a3e0eb61b21b2b7eaaf8fc96d72`;
+the normal-GOP fixture is
+`c8453c83acd0c32ede3217c370d84adb336de5b5e26b91b1d17de156b5c64bd4`.
+
+## Bounded editor reads, GOP reverse and native music mixing (2026-11-24)
+
+These findings supersede the whole-selection spill and prepared-music-preview
+strategies recorded above. Baseline: `cb33f92`; final engine: `f157039`
+(including foundations `d99de8c` and output capacity `03a23ab`). Environment: Apple M5, macOS 27.2.1 (26B131),
+Apple Swift 6.4.2, Debug builds. Measurements exclude compilation. Other
+worktrees shared the machine; timings are observations rather than latency
+bounds.
+
+Native frame timing can be indexed without loading compressed samples.
+`AVSampleCursor` timestamps must be mapped through each non-empty track
+segment's source/target time mapping. Merely subtracting the first timestamp
+is insufficient for general edit lists. Metadata-only indexes matched positive
+`outputDuration` / `outputPresentationTimeStamp` reader samples on the existing
+open-GOP/VFR and fractional-rate fixtures. Session previews and frame fetches
+share indexes by URL; timeline export shares one index per source. Container
+indexes also record keyframe checkpoints, so samplers and reverse do not rescan
+the full stream at segment boundaries. Container indexing still reads packets
+once; it is not a metadata-only container parser.
+
+### Long-timeline index reads and music readiness
+
+The native input was a synthesized 1800-second, 160x120, 10 fps H.264 MP4:
+18,000 packets, 23,236,782 file bytes. Its 300 selected segments each kept
+0.1 seconds, distributed across the source. One full-frame solid redaction
+covered the source. The baseline logged 298 sampler/index constructions for
+these 300 segments and 23,047,440 packet payload bytes per construction.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| 300-segment export, seconds | 131.029 | 7.230 |
+| Native full-track packet indexes | 298 | 0 |
+| Packet payload bytes read for indexing | 6,868,137,120 | 0 |
+| Shared timing indexes per source | None | 1 |
+| Music edit 1 to ready-to-play, seconds | 22.493 | 0.092 |
+| Music edit 2 to ready-to-play, seconds | 18.909 | 0.010 |
+| Music edit 3 to ready-to-play, seconds | 18.363 | 0.010 |
+| Peak music staging bytes | 1,382,408,192 | 0 |
+
+The long native source has one-second GOPs. Random-seek and full-export latency
+on a long sparse-GOP production recording remain unmeasured; only reverse's
+60-second single-keyframe case below exercises that extreme.
+
+The cache regression renders 300 segments with a redaction for both native and
+Matroska inputs, counts one index build, and checks redacted pixels. Native
+index payload counts are zero; the Matroska index reads its source once.
+Baseline counts came from temporary constructor instrumentation, removed from
+the final source. These payload counts exclude decoder-internal reads,
+container headers, read-ahead and filesystem caching. The process block-input
+counter was zero in both runs with warm cache. Total logical decode bytes and
+a 3 GB production recording were not measured.
+
+The music case used the full 1800-second timeline and a one-second native CAF
+song, with three volume changes. This isolates full-timeline preparation cost;
+it does not measure decoding a long compressed song. Readiness means an
+`AVPlayerItem` reached `.readyToPlay`, not that a human approved playback.
+The final native path inserts music on a separate composition audio track.
+The 60,000 composition timescale and separate source-format tracks remain
+mandatory. Vorbis/Opus music retains one per-file PCM proxy for the session;
+concurrent requests share preparation, and close cancels preparation before
+removing its registered directory.
+
+Two coherent 0.8-amplitude tones measured float preview RMS 1.131371 and export
+RMS 0.850146 over the stable window. Export clamps each summed sample to
+[-1, 1]; clipping the float preview to that range matches export RMS within
+0.035. Native float preview defers saturation to playback output, whose gain
+can also affect audible clipping. Non-clipping mixes remain matched by the
+existing rendered-audio tests across volumes, offsets, source formats, fades,
+speed, freeze and reversed audio placement. A saturated mix is intentionally
+not claimed to have identical float preview and export samples.
+
+### Reverse decode range and storage
+
+The late-segment source was a synthesized 3600-second, 160x120, 10 fps H.264
+Matroska file with 36,000 packets and one-second closed GOPs. The selection
+was 3540.2-3540.8 seconds.
+
+| Late selection | Before | After |
+| --- | ---: | ---: |
+| Reverse seconds | 12.177 | 0.205 |
+| Decoded frames | 35,409 | 9 |
+| Spill bytes | 201,576 sampled peak | 0 |
+
+The regression uses a separate 60-second Matroska fixture and selects
+58.2-58.8 seconds. It compares all six reversed frames against a forward
+reference and requires at most 15 decoded frames. A remuxed HEVC open-GOP/VFR
+Matroska fixture additionally checks leading B frames, ordering and variable
+frame intervals. Keyframe checkpoints resume in decode order; subsequent
+leading B frames are not discarded merely because their PTS precedes the
+keyframe's PTS.
+
+The following 1920x1080, 60 fps, 60-second H.264 Matroska clips each contain
+3600 packets. Single-keyframe and one-second-GOP sources use the generation
+commands from the earlier reverse measurements. Retained pixels are measured
+by the renderer; RSS and footprint come from `/usr/bin/time -l`. They account
+for different resources and do not bound every shared codec/GPU allocation.
+
+| Source | Version | Seconds | Retained pixels MB | Max RSS MB | Peak footprint MB | Peak spill GB | Peak total staging GB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Single keyframe | Before | 32.165 | 8.294 | 69.124 | 75.613 | 2.521 | 3.325 |
+| Single keyframe | After | 22.783 | 3.110 | 54.051 | 47.367 | 1.037 | 1.826 |
+| One-second GOP | Before | 37.444 | 8.294 | 69.386 | 79.660 | 2.489 | 3.234 |
+| One-second GOP | After | 16.892 | 186.624 | 53.576 | 27.264 | 0 | 0.738 |
+
+The baseline's BGRA frames contain 8,294,400 bytes each: 3600 frames would be
+29,859,840,000 uncompressed pixel bytes before LZ4. Thus an 11 GB estimate
+understates that old path's worst case. Final native 8-bit biplanar frames
+contain 3,110,400 bytes each, or 11,197,440,000 bytes for this selection before
+LZ4. Actual compressed spill sizes are in the table, not inferred from entropy.
+
+Both versions decode 3600 frames in these whole-selection cases. The final
+renderer keeps a GOP only when it fits the 256 MiB retained-pixel budget.
+Native biplanar pixels make a 60-frame 1080p GOP fit. Oversized GOPs spill from
+the first frame instead of first filling the cache. Spill reads drain an
+individual autorelease pool per restored image: without that boundary an
+intermediate run reached about 1.1 GB footprint despite a small retained-frame
+counter. The final single-keyframe result above includes that correction.
+Only one GOP's spill exists at a time. Staging peaks are sampled every 50 ms;
+the renderer additionally records the exact maximum spill length.
+
+Before decoding, reverse estimates the largest GOP's worst-case LZ4 spill,
+forward PCM audio, the entire reversed output using uncompressed frame sizes,
+and an 8 MiB container allowance. Row alignment, frame overhead and LZ4
+expansion are included. It uses filesystem available capacity, not purgeable
+capacity advertised for important usage; a small APFS test volume can report
+zero important-usage capacity while still having ordinary free space. A typed
+`insufficientReverseSpace(requiredBytes:availableBytes:)` error provides English
+and Japanese instructions plus formatted needed/available sizes. This is a
+conservative estimate and can refuse an operation whose compressed output
+would fit. Capacity is a snapshot and cannot reserve space against other
+applications. Successful encoded reversed sources remain retained for Undo
+until editor close, even after restoring forward playback or deleting segments.
+
+Reproduce with `Benchmarks editor.timeline <long.mp4> export`,
+`Benchmarks editor.timeline <long.mp4> music`,
+`Benchmarks editor.reverse <hour.mkv> 3540.2 0.6`, and
+`Benchmarks editor.reverse <single-or-normal.mkv>` from the package's Debug
+products. The long clip repeats the committed `reverse-late-gop.mkv` 30 times
+and remuxes to MP4; the hour clip repeats that Matroska result twice. The
+open-GOP Matroska regression remuxes `reverse-open-gop-vfr.mp4` without encoding.
+All large generated benchmark fixtures were removed after measurement; their
+metadata and logs remain in the integration evidence directory.
+
+### Editor tool integration verification (2026-11-24)
+
+A mosaic narrower than one block previously biased its average toward clamped
+white border pixels. A 640×480 white canvas, an eight-pixel-wide selection,
+and a four-pixel black stripe produced gray values 222, 220, and 222 at full,
+half, and quarter preview scale. Such regions now use the selected region's
+area average as one block. The pixel regression requires gray within 140–210
+for this half-black selection and unchanged pixels immediately outside its
+border at all three scales. Normal-width regions retain the box-averaged
+pixellation introduced by the editor UI slice.
+
+Editor numeric interactions now create history groups on their first applied
+mutation. Source-boundary snaps execute in order, using the current opposite
+boundary. Undo and Redo invalidate pending edits before restoring history.
+Independent Start and End edits remain separate groups even while snapping.
+Native timeline input inherits the SwiftUI editing lock explicitly; disabling
+a representable alone does not prevent its AppKit callbacks.
+
+App-hosted checks cover native numeric fields, key events, timeline callbacks,
+rendered Box handle hit-testing and transformed resize coordinates, and the
+clock's submission callback. Synthetic SwiftUI mouse events did not reach
+gesture recognizers reliably in this test harness. End-to-end OS drag and
+clock-click gestures remain a manual verification boundary.
 
 ## 2026-11-24: Exclusive publication on exFAT and FAT32
 

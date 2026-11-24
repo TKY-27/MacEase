@@ -289,7 +289,7 @@ final class AudioEncodeStage: StreamStage {
     private(set) var output: OutputTrack?
 
     init(
-        input: MediaInput, track: MediaTrack, number: Int, codec: MediaCodec, kilobits: Int, start: Int64, end: Int64,
+        input: MediaInput, track: MediaTrack?, number: Int, codec: MediaCodec, kilobits: Int, start: Int64, end: Int64,
         sourceOverride: VideoPCMSource? = nil, destination: OutputContainer = .mov, volume: Double = 1
     )
         throws
@@ -298,7 +298,12 @@ final class AudioEncodeStage: StreamStage {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
         self.volume = Float(volume)
-        source = try sourceOverride ?? VideoPCMSource(input: input, track: track, start: start, end: end)
+        if let sourceOverride {
+            source = sourceOverride
+        } else {
+            guard let track else { throw EngineError.decodeFailed("missing audio track") }
+            source = try VideoPCMSource(input: input, track: track, start: start, end: end)
+        }
         nativeAAC = (sourceOverride != nil || volume != 1) && codec == .aac && destination.fileType != nil
         self.start = start
         self.number = number
@@ -313,7 +318,7 @@ final class AudioEncodeStage: StreamStage {
         }
         sampleRate =
             destination == .flv && codec.isPCM ? Self.flvPCMSampleRate : Int(format.outputSampleRate(source.sampleRate))
-        continuity = PCMFrameContinuity(sampleRate: source.sampleRate, timestampQuantum: track.timestampQuantum)
+        continuity = PCMFrameContinuity(sampleRate: source.sampleRate, timestampQuantum: track?.timestampQuantum)
         maximumSilenceFrames = Int64(
             (Double(maximumSynthesizedSilence) * source.sampleRate / Double(Nanoseconds.perSecond)).rounded(.down))
         channels = format.outputChannels(source.channels)

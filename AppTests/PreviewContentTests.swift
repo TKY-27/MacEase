@@ -89,6 +89,56 @@ final class PreviewContentTests: XCTestCase {
         XCTAssertEqual(try PreviewTextSource(bytes: mixedBE, truncated: false).decoded(as: .automatic), mixed)
     }
 
+    func testCJKEncodingsDecodeManuallyAndExposeDetectedEncoding() throws {
+        XCTAssertTrue(PreviewEncoding.allCases.contains(.gb18030))
+        XCTAssertTrue(PreviewEncoding.allCases.contains(.big5))
+        XCTAssertTrue(PreviewEncoding.allCases.contains(.eucKR))
+        XCTAssertEqual(PreviewEncoding.gb18030.title, "GB18030")
+        XCTAssertEqual(PreviewEncoding.big5.title, "Big5")
+        XCTAssertEqual(PreviewEncoding.eucKR.title, "EUC-KR")
+
+        let simplified = "简体中文😀"
+        let gbBytes = try XCTUnwrap(simplified.data(using: PreviewEncoding.gb18030.foundation))
+        XCTAssertEqual(try PreviewTextSource(bytes: gbBytes, truncated: false).decoded(as: .gb18030), simplified)
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: gbBytes.dropLast(1), truncated: true).decoded(as: .gb18030), "简体中文")
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: gbBytes.dropLast(2), truncated: true).decoded(as: .gb18030), "简体中文")
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: gbBytes.dropLast(3), truncated: true).decoded(as: .gb18030), "简体中文")
+        XCTAssertThrowsError(try PreviewTextSource(bytes: gbBytes.dropLast(1), truncated: false).decoded(as: .gb18030))
+        XCTAssertThrowsError(
+            try PreviewTextSource(bytes: Data([0x41, 0xFF]), truncated: true).decoded(as: .gb18030))
+
+        let traditional = "繁體中文邨"
+        let big5Bytes = try XCTUnwrap(traditional.data(using: PreviewEncoding.big5.foundation))
+        XCTAssertEqual(try PreviewTextSource(bytes: big5Bytes, truncated: false).decoded(as: .big5), traditional)
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: big5Bytes.dropLast(1), truncated: true).decoded(as: .big5), "繁體中文")
+        XCTAssertThrowsError(try PreviewTextSource(bytes: big5Bytes.dropLast(1), truncated: false).decoded(as: .big5))
+
+        let korean = "한국어 똠"
+        let eucKRBytes = try XCTUnwrap(korean.data(using: PreviewEncoding.eucKR.foundation))
+        XCTAssertEqual(try PreviewTextSource(bytes: eucKRBytes, truncated: false).decoded(as: .eucKR), korean)
+        XCTAssertEqual(
+            try PreviewTextSource(bytes: eucKRBytes.dropLast(1), truncated: true).decoded(as: .eucKR), "한국어 ")
+        XCTAssertThrowsError(
+            try PreviewTextSource(bytes: eucKRBytes.dropLast(1), truncated: false).decoded(as: .eucKR))
+
+        let gbWithBOM = PreviewTextSource(bytes: Data([0x84, 0x31, 0x95, 0x33]) + gbBytes, truncated: false)
+        XCTAssertEqual(gbWithBOM.detectedEncoding, .gb18030)
+        XCTAssertEqual(try gbWithBOM.decoded(as: .automatic), simplified)
+
+        XCTAssertEqual(PreviewTextSource(bytes: Data("Hello".utf8), truncated: false).detectedEncoding, .utf8)
+        XCTAssertEqual(
+            PreviewTextSource(bytes: Data([0x93, 0xFA, 0x96, 0x7B]), truncated: false).detectedEncoding, .shiftJIS)
+        XCTAssertEqual(
+            PreviewTextSource(bytes: Data([0xFF, 0xFE, 0x41, 0x00]), truncated: false).detectedEncoding, .utf16LE)
+        let bplist = try PropertyListSerialization.data(
+            fromPropertyList: ["enabled": true], format: .binary, options: 0)
+        XCTAssertNil(PreviewTextSource(bytes: bplist, truncated: false).detectedEncoding)
+    }
+
     func testTokenizerRecognizesSmallSamplesForEverySupportedLanguage() throws {
         let cases: [(PreviewLanguage, String, String, PreviewToken.Kind)] = [
             (.swift, "let count = 12 // note", "let", .keyword),
@@ -120,6 +170,105 @@ final class PreviewContentTests: XCTestCase {
         XCTAssertEqual(
             tokens.filter { $0.kind == .string }.map { (sample as NSString).substring(with: $0.range) },
             ["\"😀 // text\""])
+    }
+
+    func testTokenizerScopesQuotesPerLanguage() throws {
+        let markdown = "It's fine and \"quoted\"\n# Heading\n`code`"
+        let markdownTokens = try PreviewTokenizer.tokens(markdown, language: .markdown)
+        XCTAssertEqual(
+            markdownTokens.filter { $0.kind == .string }.map { (markdown as NSString).substring(with: $0.range) },
+            ["`code`"])
+        XCTAssertTrue(
+            markdownTokens.contains {
+                $0.kind == .keyword && (markdown as NSString).substring(with: $0.range) == "# Heading"
+            })
+
+        let html = "<p>don't stop</p><a href=\"/ok\" data-mode='view'>it's</a>"
+        let htmlTokens = try PreviewTokenizer.tokens(html, language: .markup)
+        XCTAssertEqual(
+            htmlTokens.filter { $0.kind == .string }.map { (html as NSString).substring(with: $0.range) },
+            ["\"/ok\"", "'view'"])
+        XCTAssertEqual(
+            htmlTokens.filter { $0.kind == .keyword }.map { (html as NSString).substring(with: $0.range) },
+            ["<p", "</p", "<a", "</a"])
+
+        let yaml = "note: don't panic\nflag: true\nname: 'MacEase'\nquoted: 'it''s ok'"
+        let yamlTokens = try PreviewTokenizer.tokens(yaml, language: .yaml)
+        XCTAssertEqual(
+            yamlTokens.filter { $0.kind == .string }.map { (yaml as NSString).substring(with: $0.range) },
+            ["'MacEase'", "'it''s ok'"])
+        XCTAssertTrue(
+            yamlTokens.contains {
+                $0.kind == .keyword && (yaml as NSString).substring(with: $0.range) == "true"
+            })
+
+        let swift = "let pattern = /don't/\nlet count = 42"
+        let swiftTokens = try PreviewTokenizer.tokens(swift, language: .swift)
+        XCTAssertEqual(swiftTokens.filter { $0.kind == .string }, [])
+        XCTAssertTrue(
+            swiftTokens.contains {
+                $0.kind == .number && (swift as NSString).substring(with: $0.range) == "42"
+            })
+
+        let jsonc = "// don't edit\n{\"flag\": true}"
+        let jsoncTokens = try PreviewTokenizer.tokens(jsonc, language: .json)
+        XCTAssertEqual(
+            jsoncTokens.filter { $0.kind == .string }.map { (jsonc as NSString).substring(with: $0.range) },
+            ["\"flag\""])
+        XCTAssertTrue(
+            jsoncTokens.contains {
+                $0.kind == .keyword && (jsonc as NSString).substring(with: $0.range) == "true"
+            })
+
+        let cpp = "int million = 1'000'000; char ch = 'a';"
+        let cppTokens = try PreviewTokenizer.tokens(cpp, language: .c)
+        XCTAssertEqual(
+            cppTokens.filter { $0.kind == .string }.map { (cpp as NSString).substring(with: $0.range) },
+            ["'a'"])
+    }
+
+    func testMPEGTransportStreamRoutesToMediaWhileTypeScriptStaysText() throws {
+        let directory = try PreviewFixtures.directory(self)
+        var tsBytes = [UInt8](repeating: 0, count: 377)
+        tsBytes[0] = 0x47
+        tsBytes[188] = 0x47
+        tsBytes[376] = 0x47
+        var mtsBytes = [UInt8](repeating: 0, count: 389)
+        mtsBytes[4] = 0x47
+        mtsBytes[196] = 0x47
+        mtsBytes[388] = 0x47
+
+        let tsVideo = directory.appendingPathComponent("clip.ts")
+        try Data(tsBytes).write(to: tsVideo)
+        let mtsVideo = directory.appendingPathComponent("camera.mts")
+        try Data(mtsBytes).write(to: mtsVideo)
+        let typeScript = directory.appendingPathComponent("app.ts")
+        try Data("export const answer: number = 42;\n".utf8).write(to: typeScript)
+        let fakeTS = directory.appendingPathComponent("spoof.ts")
+        try PreviewFixtures.png().write(to: fakeTS)
+
+        let tsResult = try PreviewKind.inspectContent(tsVideo)
+        XCTAssertEqual(tsResult.kind, .media)
+        XCTAssertEqual(tsResult.detected?.family, .video)
+        XCTAssertEqual(
+            PreviewContentMatch.evaluate(kind: tsResult.kind, detected: try XCTUnwrap(tsResult.detected)), .matches)
+
+        let mtsResult = try PreviewKind.inspectContent(mtsVideo)
+        XCTAssertEqual(mtsResult.kind, .media)
+        XCTAssertEqual(mtsResult.detected?.family, .video)
+        XCTAssertEqual(try PreviewKind.inspect(mtsVideo, disabled: [.text]), .media)
+        XCTAssertEqual(try PreviewKind.inspect(mtsVideo, disabled: [.video]), .quickLook)
+
+        let scriptResult = try PreviewKind.inspectContent(typeScript)
+        XCTAssertEqual(scriptResult.kind, .text)
+        XCTAssertEqual(scriptResult.detected?.family, .text)
+        XCTAssertEqual(try PreviewKind.inspect(typeScript, disabled: [.text]), .quickLook)
+
+        let fakeResult = try PreviewKind.inspectContent(fakeTS)
+        XCTAssertEqual(fakeResult.kind, .text)
+        XCTAssertEqual(
+            PreviewContentMatch.evaluate(kind: fakeResult.kind, detected: try XCTUnwrap(fakeResult.detected)),
+            .binaryWithTextExtension(detectedName: "PNG"))
     }
 
     func testHighlightingStopsAt512KiBWithoutTruncatingSource() throws {
@@ -198,5 +347,27 @@ final class PreviewContentTests: XCTestCase {
         XCTAssertTrue(
             PreviewWebConfiguration.permitsNavigation(to: try XCTUnwrap(URL(string: "about:blank")), page: generated))
         XCTAssertFalse(PreviewWebConfiguration.permitsNavigation(to: source, page: generated))
+    }
+
+    func testDetectedFormatNamesHaveJapaneseLocalizations() throws {
+        let japanese = try XCTUnwrap(Bundle.main.path(forResource: "ja", ofType: "lproj").flatMap(Bundle.init(path:)))
+        let asfHeader: [UInt8] = [
+            0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+        ]
+        let asfVideoGUID: [UInt8] = [
+            0xC0, 0xEF, 0x19, 0xBC, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B,
+        ]
+        let samples: [([UInt8], String, String)] = [
+            ([0x46, 0x4C, 0x56, 0x01, 0x05], "Flash Video", "Flash動画"),
+            (asfHeader + asfVideoGUID, "Windows Media Video", "Windows Media動画"),
+            (asfHeader + [0x00, 0x00], "Windows Media Audio", "Windows Mediaオーディオ"),
+            ([0x00, 0x00, 0x00, 0x14] + Array("ftypcrx ".utf8), "Canon RAW", "Canon RAW画像"),
+        ]
+        for (header, expectedEnglish, expectedJapanese) in samples {
+            let detected = ContentSniffer.identify(header: header)
+            XCTAssertEqual(detected.displayName, expectedEnglish)
+            XCTAssertEqual(
+                japanese.localizedString(forKey: detected.displayName, value: nil, table: nil), expectedJapanese)
+        }
     }
 }

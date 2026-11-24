@@ -99,3 +99,24 @@ func multiplexedOgg(headers: [Data]) async throws -> URL {
     try (primaryBytes.prefix(firstPageLength) + extra + primaryBytes.dropFirst(firstPageLength)).write(to: mixed)
     return mixed
 }
+
+func highFrameRateTimecodedClip(in folder: URL) async throws -> URL {
+    let output = folder.appending(path: "sixty-fps.mov")
+    let tools = try mediaFixtureTools()
+    _ = try await MediaToolProcess().run(
+        executable: tools.ffmpeg,
+        arguments: [
+            "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=size=160x96:rate=60:duration=2",
+            "-c:v", "h264_videotoolbox", "-b:v", "1M", "-timecode", "00:00:00:00", output.path,
+        ], directory: folder, tools: tools)
+    let video = try #require(try await AVURLAsset(url: output).loadTracks(withMediaType: .video).first)
+    #expect(try await video.load(.nominalFrameRate) == 60)
+    return output
+}
+
+func mediaFixtureTools() throws -> MediaDownloadTools {
+    if let directory = ProcessInfo.processInfo.environment["MACEASE_MEDIA_TOOLS"] {
+        return try MediaDownloadTools(directory: URL(filePath: directory))
+    }
+    return try MediaDownloadTools.bundled()
+}

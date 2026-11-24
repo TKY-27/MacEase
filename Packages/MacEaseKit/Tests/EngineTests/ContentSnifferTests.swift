@@ -275,4 +275,46 @@ import Testing
             try ContentSniffer.identify(folder)
         }
     }
+
+    @Test func detectsConcreteEncodingsIncludingGB18030BOM() throws {
+        let folder = try temporaryFolder()
+        let gb18030 = String.Encoding(
+            rawValue: CFStringConvertEncodingToNSStringEncoding(
+                CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        let gbBody = try #require("简体中文 😀\n".data(using: gb18030))
+        let gbWithBOM = Data([0x84, 0x31, 0x95, 0x33]) + gbBody
+
+        let gbFile = try write("zh-bom.txt", bytes: [UInt8](gbWithBOM), in: folder)
+        #expect(try ContentSniffer.identify(gbFile) == DetectedContent(family: .text, displayName: "Text"))
+        let gbDetected = try TextEncoding.detect(from: gbWithBOM)
+        #expect(gbDetected == DetectedText(text: "简体中文 😀\n", encoding: .gb18030))
+
+        let gbEmoji = Data([0x84, 0x31, 0x95, 0x33]) + (try #require("简体😀".data(using: gb18030)))
+        #expect(
+            try TextEncoding.detect(from: gbEmoji.dropLast(1), truncated: true)
+                == DetectedText(text: "简体", encoding: .gb18030))
+        #expect(throws: EngineError.invalidInput(.textEncodingUndetected)) {
+            _ = try TextEncoding.detect(from: gbEmoji.dropLast(1), truncated: false)
+        }
+
+        let gbBinary = try write("fake-gb.bin", bytes: [0x84, 0x31, 0x95, 0x33, 0x00, 0x01], in: folder)
+        #expect(try ContentSniffer.identify(gbBinary) == DetectedContent(family: .binary, displayName: "Binary file"))
+
+        let samples: [(Data, DetectedTextEncoding, String)] = [
+            (Data("Hello UTF-8\n".utf8), .utf8, "Hello UTF-8\n"),
+            (Data([0xEF, 0xBB, 0xBF]) + Data("Hello\n".utf8), .utf8, "Hello\n"),
+            (Data([0xFF, 0xFE, 0x41, 0x00]), .utf16LE, "A"),
+            (Data([0xFE, 0xFF, 0x00, 0x41]), .utf16BE, "A"),
+            (Data([0xFF, 0xFE, 0x00, 0x00, 0x41, 0x00, 0x00, 0x00]), .utf32LE, "A"),
+            (Data([0x00, 0x00, 0xFE, 0xFF, 0x00, 0x00, 0x00, 0x41]), .utf32BE, "A"),
+            (try #require("日本語です\n".data(using: .shiftJIS)), .shiftJIS, "日本語です\n"),
+            (try #require("日本語のテキスト\n".data(using: .japaneseEUC)), .eucJP, "日本語のテキスト\n"),
+            (try #require("日本語\n".data(using: .iso2022JP)), .iso2022JP, "日本語\n"),
+            (try #require("Price: €10\n".data(using: .windowsCP1252)), .windows1252, "Price: €10\n"),
+        ]
+        for (bytes, expectedEncoding, expectedText) in samples {
+            #expect(
+                try TextEncoding.detect(from: bytes) == DetectedText(text: expectedText, encoding: expectedEncoding))
+        }
+    }
 }
