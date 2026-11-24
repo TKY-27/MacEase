@@ -3,6 +3,7 @@ import Formats
 import MenuCatalog
 import Observation
 import SwiftUI
+import os
 
 struct PreviewArchiveListing: Sendable {
     let nodes: [ArchiveNode]
@@ -102,6 +103,7 @@ final class PreviewArchiveModel {
             return
         } catch {
             guard expected == generation, !Task.isCancelled else { return }
+            Logger(category: "finder-preview").error("Archive listing failed: \(String(describing: error))")
             phase = .failed(PreviewArchiveFailure(error))
         }
     }
