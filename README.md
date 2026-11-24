@@ -73,17 +73,30 @@ several files selected, the arrows in its top bar or Command-Option-Left and
 Command-Option-Right step through them.
 
 The panel shows the file itself. Text and code have line numbers, syntax
-highlighting and an encoding menu (including UTF-16, UTF-32, Shift_JIS, EUC-JP,
-GB18030, Big5 and EUC-KR); HTML, Markdown and SVG switch between **Preview** and
-**Source**; JSON and property lists can be formatted. Images open at **Fit**,
+highlighting for 47 languages and an encoding menu (including UTF-16, UTF-32,
+Shift_JIS, EUC-JP, GB18030, Big5 and EUC-KR); files such as `Makefile`,
+`Dockerfile` or `Gemfile` open as text by name. Diff and patch files tint
+added and removed lines across the whole row. Hidden characters, such as
+zero-width spaces or controls that change text direction, are marked in place
+and named when you point at them; a file containing direction-changing or
+hidden tag characters also shows a warning above the text. HTML, Markdown and
+SVG switch between **Preview** and **Source**; JSON and property lists can be
+formatted. CSV and TSV files open as a **Table** you can sort by clicking a
+column header, search with Command-F and copy rows from, or as **Source**; the
+table shows up to 50,000 rows and 256 columns. Images open at **Fit**,
 with **100%**, double-click zoom, Live Text, a transparency checkerboard and an
 **Info** popover; animated images play as often as the file says. PDFs show the
 current page, a table of contents, Fit Width and Actual Size, and an unlock
-field for password-protected files. Fonts show their name and sample text at
-several sizes. Audio shows its artwork, title and artist with a volume control,
+field for password-protected files. Fonts show their name, style, glyph count
+and sample text at several sizes; for font collections, a menu and
+**Previous Face** and **Next Face** switch between faces. Archives (ZIP, TAR
+and compressed TAR) show their contents as a list with search and sorting,
+without extracting anything; 7z and RAR use the macOS preview. Audio shows its artwork, title and artist with a volume control,
 and video uses the system player. Video and audio that macOS cannot play
-directly, such as MKV, WebM, Ogg or FLAC, offer **Convert and Play** for up to
-10 minutes of video or 30 minutes of audio. Folders and other files use Quick
+directly, such as MKV, WebM, Ogg, FLAC, WMV or WMA, offer **Convert and Play**
+for up to 10 minutes of video or 30 minutes of audio; nothing is converted
+until you press it, and files downloaded from the internet are never
+converted. Folders and other files use Quick
 Look. Press Command-F to find text in text, code, Markdown, HTML and PDF
 previews. Nothing in the panel edits or saves files.
 
@@ -104,7 +117,7 @@ links to System Settings. Each file type can be switched back to the macOS
 preview there, along with the code font, line wrapping and font sample text.
 Full screen, Spaces and Finder tabs are untested.
 
-**Conversions and edits keep originals by default. HatchZip extraction consumes its archive.**
+**Conversions and edits keep originals by default. HatchZip extraction usually consumes its archive.**
 
 By default, conversions and edits outside Finder Preview save a new file next to its source,
 with a numbered name when needed to avoid overwrites. Exports and ordinary
@@ -117,7 +130,10 @@ cannot be undone.
 
 **Extract with HatchZip is the exception:** it starts without confirmation,
 progressively releases source archive bytes as verified output becomes durable,
-and does not retain the original archive or offer Undo.
+and does not retain the original archive or offer Undo. Archives whose file
+names need the Japanese Windows encoding (see
+[Archives and other files](#archives-and-other-files)) are extracted to a new
+folder instead and keep the archive.
 
 Select as many files as you like. A selection of one file kind shows its
 operations directly; mixed selections group operations by kind and count.
@@ -196,7 +212,9 @@ reason in the output summary. Drag a crop edge or corner, or
 enter selection percentages; choose free/original, 1:1, 4:3, 3:2, 4:5 or 16:9.
 Use Compare Original, per-adjustment reset and session Undo/Redo. Photos add
 black point, sharpness, noise reduction, vignette and automatic correction.
-Styles are independent presets, not Apple's Photographic Styles.
+Styles are independent presets, not Apple's Photographic Styles. Photo zoom
+offers **Fit**, **100%**, **200%** and **400%**, where 100% shows one image
+pixel per screen pixel, and shows the current level.
 **Markup** adds mosaic, blur or solid redaction, boxes, arrows and one-line text
 to photos and videos, up to 50 items. Redactions stay on the covered content
 when you crop or rotate later; mosaic and blur can sometimes be partly reversed,
@@ -245,6 +263,14 @@ other sizes fit with black borders. Silent sources contribute silence. Review
 the HDR, transparency and metadata disclosure before saving. Multiple tracks
 and transitions are outside this editor's scope.
 
+Press **C** to select the segment under the playhead. During playback the
+timeline scrolls along with the playhead while it was visible when playback
+started; scrolling or zooming the timeline yourself stops this. Controls that
+are unavailable explain why in their tooltip. The timeline also describes its
+segments, playhead, markup, music and silence ranges to VoiceOver and offers
+segment edits as VoiceOver actions; this has not been tested with VoiceOver
+itself.
+
 **Save Frame** (Shift-Command-S) saves the edited frame at the playhead as an
 image next to the video. **Freeze Frame** (Option-F) holds the frame at the
 playhead for two seconds; set 0.1–30 seconds in the inspector. **Reverse** plays
@@ -290,6 +316,14 @@ audio tags block replacement; New File retains the source and reports the loss.
 | **Enhance Audio…** | Local speech cleanup (16 kHz mono, up to 10 minutes) or vocals and instrumental (two 44.1 kHz stereo WAVs, up to 5 minutes) |
 
 Subtitles use Apple's on-device Speech and Translation frameworks.
+
+Video and audio that macOS and MacEase cannot decode themselves, such as WMV,
+MPEG, VOB, RealMedia, MXF, WMA, DTS, WavPack or Monkey's Audio, are first
+converted to a temporary copy with the bundled FFmpeg, checked against the
+original, and then processed as usual. **The result is always saved as a new
+file, even when Replace original is selected**, and any content or metadata
+that could not be carried over is reported. The video editor does not open
+these formats.
 
 ### PDFs
 
@@ -373,7 +407,7 @@ limited; an unattainable limit fails without publishing an incomplete package.
 
 | Operation | What it does |
 | --- | --- |
-| **Extract with HatchZip** | Extract supported local ZIP, 7z, TAR, tar.gz/tgz and recognized numeric split volumes in place, consuming the archive without confirmation or Undo |
+| **Extract with HatchZip** | Extract supported local ZIP, 7z, TAR, tar.gz/tgz and recognized numeric split volumes in place, consuming the archive without confirmation or Undo; archives with Japanese Windows file names are extracted to a new folder and kept |
 | **Extract** | Unpack RAR into a new folder, retaining the archive |
 | **Browse Contents…** | Search a ZIP hierarchy, preview selected files, and save selected files or folders without unpacking the whole archive |
 | **Decompile** | Turn a JAR into Java source with bundled CFR and an installed Java runtime |
@@ -391,7 +425,17 @@ if you need one. Supported split names are `.zip.NNN`, `.7z.NNN` and
 complete archive, volumes, paths, expansion limits and free space before
 mutation. Unsupported cloud/File Provider and network locations, hard-linked
 inputs and untrusted recovery records fail before destructive work. Existing
-outputs are never overwritten. There is no fallback to ordinary extraction.
+outputs are never overwritten.
+
+File names are read as UTF-8 whenever possible. When Japanese is one of your
+preferred languages in System Settings and every other name in the archive is
+valid Japanese Windows (CP932) text, the names are read that way and the
+archive is extracted by MacEase's own extractor: into a new folder, keeping the
+archive, with Undo. Otherwise ZIP names are read as CP437, as before, and TAR
+names that are not UTF-8 are refused before anything changes. Browse Contents
+uses the same rule. A paused extraction resumes the way it started, even if
+your languages changed. Archive decompression never starts an external
+program.
 
 Pause preserves extracted files and recovery state; use **Resume** in Activity,
 including after relaunch. Clearing ordinary history does not remove incomplete
@@ -547,8 +591,11 @@ subtitles or chapters, Activity names the file and the content, explains what
 leaving it out means and what happens to the original, and offers **Continue
 Without …**. Nothing is written until you choose it, and it applies only to that
 file as it was when you saw the question. Activity appears for such a question
-even when the progress window is turned off. The editor, Audio Trim, Finishing
-Recipes and Audio Enhancement ask the same question in a sheet before they run.
+even when **Show Activity automatically** is off. The editor, Audio Trim,
+Finishing Recipes and Audio Enhancement ask the same question in a sheet before
+they run. To skip the question for results saved as new files, choose **Save
+without it** under **Settings > General > If some content can’t be kept**;
+replacing an original always asks.
 
 **Retry Failed…** retries only failed image, video and audio compression or
 conversion and PDF compression, using the original settings. Target-size
@@ -637,15 +684,17 @@ does not download or install updates automatically.
 | **SRT, WebVTT** | Source TXT, the other subtitle format |
 | **Other recognized text files** | TXT, except files already classified as TXT |
 | **Folder** | ZIP, 7z, TAR, tar.gz |
-| **Local ZIP, 7z, TAR, tar.gz/tgz and recognized numeric split volumes** | HatchZip extraction; consumes the archive, no Undo |
+| **WMV, ASF, MPEG, VOB, M2TS/MTS, RealMedia, MXF, DV, 3GP, Ogg video** | The formats in the video row above, always as a new file |
+| **WMA, AC-3, DTS, MP2, WavPack, Monkey's Audio, TTA, AMR, RealAudio, MKA** | The formats in the audio row above, always as a new file |
+| **Local ZIP, 7z, TAR, tar.gz/tgz and recognized numeric split volumes** | HatchZip extraction; consumes the archive, no Undo (Japanese Windows file names: a new folder, keeping the archive) |
 | **RAR** | An extracted folder, retaining the archive |
 | **JAR** | A folder of decompiled Java source |
 | Text encodings | UTF-8, UTF-8 with BOM, UTF-16, Shift_JIS |
 | Line endings | LF, CRLF |
 
 AIFF-C input depends on its codec. Container support does not imply support
-for every codec inside it. SDR-to-HDR conversion, WMA, AV1 video encoding, and
-RAR creation are not implemented. Media operations act on selected files,
+for every codec inside it. SDR-to-HDR conversion, WMA output, AV1 video
+encoding, and RAR creation are not implemented. Media operations act on selected files,
 without scanning folders for media.
 
 <details>
@@ -682,21 +731,25 @@ criteria that are not all verified on every supported macOS version.
 
 Open **Settings** from the menu bar icon. Changes apply immediately.
 
-<img src="docs/images/settings-general-en.png" width="640" alt="MacEase Settings, General page, with Language, Launch at login, Notifications, the choice between Save as new file and Replace original, progress window options, Allow permanent delete, and Show Welcome Window">
+<img src="docs/images/settings-general-en.png" width="640" alt="MacEase Settings, General page, with Language, Open at login, Notifications, the choice between Save as new file and Replace original, Activity window options, Allow permanent deletion, and Show Welcome Window">
 
-- **General** – Language, launch at login, notifications, automatic update
-  checks, **Save as new file** or **Replace original**, the Activity window and
-  when it closes, the menu bar icon and its recent operations, permanent
+- **General** – Language, **Open at login**, notifications, automatic update
+  checks, **Save as new file** or **Replace original**, what to do when content
+  such as subtitles can’t be kept (**Ask**, or **Save without it** for new
+  files; replacing an original always asks), **Show Activity automatically**
+  and when it closes, the menu bar icon and its recent operations, permanent
   deletion, and the Welcome window.
 - **Finder Menu** – Arrange each menu: drag groups between MacEase Menu, More
   and Hidden (and Finder's own menu for commands), check the choices each group
   shows, and edit sizes, compression targets, the extra rotation angle, frame
-  rates, loudness targets and platform presets in **Options…**. Some formats and
-  utilities are hidden by default.
+  rates, loudness targets and platform presets in **Options…**. In Commands,
+  **Options…** also chooses the app for **Open Terminal Here** (Terminal, iTerm,
+  Ghostty, Warp, WezTerm, kitty or another app) and the **New File** templates.
+  Some formats and utilities are hidden by default.
 - **Finder Windows** – Finder Preview and the storage bar, their Accessibility
-  and Automation status, preview file types, code font and wrapping, font sample
-  text, and Trusted Folders.
-- **Images**, **Video**, **Audio**, **Folders**, **Text**, and **Text
+  and Automation status, preview file types (including Archives), code font and
+  wrapping, font sample text, and Trusted Folders.
+- **Images**, **Video**, **Audio**, **Text & PDF**, **Folders**, and **Text
   Recognition & AI** – Quality, background, animation, audio, subtitle, OCR,
   PDF, folder, and text defaults, including duplicate matching and exclusion
   rules.
