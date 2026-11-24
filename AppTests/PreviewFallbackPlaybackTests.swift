@@ -62,7 +62,7 @@ final class PreviewFallbackPlaybackTests: XCTestCase {
             .message(
                 String(
                     localized:
-                        "This file is from the internet, so MacEase doesn't convert it. Open it in a media player.")))
+                        "This file is from the internet, so MacEase doesn’t convert it. Open it in a media player.")))
         playback.convert(wmv)
         XCTAssertFalse(Self.isConverting(playback.phase))
         XCTAssertEqual(try Self.trackedStaging(support), [])
