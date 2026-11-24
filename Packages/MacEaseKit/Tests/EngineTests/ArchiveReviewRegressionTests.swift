@@ -130,28 +130,6 @@ extension ArchiveExtractionRoutingTests {
         #expect(try Data(contentsOf: source) == original)
     }
 
-    @Test func nativeCollisionProbeCostFor100000EntriesInRegisteredStaging() throws {
-        let root = try TestVolume.makeFolder()
-        let source = root.appending(path: "source.txt")
-        try Data("original".utf8).write(to: source)
-        let support = root.appending(path: "support")
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: false)
-        let staging = StagingArea(supportDirectory: support)
-        let directory = try staging.makeDirectory(for: source)
-        defer { staging.remove(directory) }
-        let names = (0..<100_000).map { (path: "資料/entry-\($0).txt", directory: false) }
-        let clock = ContinuousClock()
-        let started = clock.now
-        try ArchivePathCollisionCheck.verify(names, beside: directory)
-        let elapsed = started.duration(to: clock.now)
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
-        let registered = try JSONDecoder().decode(
-            [String].self, from: Data(contentsOf: support.appending(path: "staging.json")))
-        #expect(registered == [directory.path])
-        #expect(try Data(contentsOf: source) == Data("original".utf8))
-        print("100000-entry native collision probe in registered staging: \(elapsed)")
-    }
-
     @Test func directoryMetadataAfterChildrenIsStillPreserved() async throws {
         let root = try TestVolume.makeFolder()
         let source = try reviewFixture("directory-metadata", in: root, format: "tar")

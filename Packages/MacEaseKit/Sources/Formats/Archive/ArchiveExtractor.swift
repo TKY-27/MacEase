@@ -119,15 +119,6 @@ public enum ArchiveExtractor {
             let archiveBytes = reader.source.size
             let limit = limits.limit(forArchiveBytes: archiveBytes)
             archive_write_disk_set_options(reader.disk, Int32(diskFlags))
-            if let zip = reader.zip {
-                let names = try zip.directory.members.map { member in
-                    (
-                        path: try ArchivePathname.decode(member.name, encoding: zip.encoding),
-                        directory: member.isDirectory
-                    )
-                }
-                try ArchivePathCollisionCheck.verify(names, beside: directory)
-            }
             let collisions = ArchivePathCollisionCheck(root: directory)
             var ordinal = 0
             var logicalBytes: Int64 = 0

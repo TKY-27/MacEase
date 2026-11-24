@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import os
 
 final class ArchivePathCollisionCheck {
     private struct Identity: Hashable {
@@ -12,33 +11,11 @@ final class ArchivePathCollisionCheck {
         let label: String
     }
     private let root: URL
-    private let probing: Bool
     private var paths: [Data: Entry] = [:]
     private var identities: [Identity: Entry] = [:]
 
-    init(root: URL, probing: Bool = false) {
+    init(root: URL) {
         self.root = root
-        self.probing = probing
-    }
-
-    static func verify(_ entries: [(path: String, directory: Bool)], beside destination: URL) throws {
-        let root = destination.appending(path: ".MacEaseNames-\(UUID().uuidString)", directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(
-            at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
-        do {
-            let checker = Self(root: root, probing: true)
-            for (index, entry) in entries.enumerated() {
-                try Task.checkCancellation()
-                try checker.check(entry.path, directory: entry.directory, ordinal: index + 1)
-            }
-        } catch {
-            do { try FileManager.default.removeItem(at: root) } catch {
-                Logger(subsystem: "MacEase", category: "archive").error(
-                    "Archive name-check cleanup failed: \(error.localizedDescription, privacy: .private)")
-            }
-            throw error
-        }
-        try FileManager.default.removeItem(at: root)
     }
 
     func check(_ original: String, directory: Bool, ordinal: Int) throws {
@@ -69,19 +46,6 @@ final class ArchivePathCollisionCheck {
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
             let entry = Entry(directory: isDirectory, label: label)
-            if probing {
-                let status: Int32
-                if isDirectory {
-                    status = full.withCString { mkdir($0, 0o700) }
-                } else {
-                    let descriptor = full.withCString {
-                        open($0, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-                    }
-                    status = descriptor < 0 ? -1 : 0
-                    if descriptor >= 0 { close(descriptor) }
-                }
-                guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-            }
             paths[key] = entry
             try register(relative)
         }
