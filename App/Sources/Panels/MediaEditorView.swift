@@ -6,9 +6,17 @@ struct MediaEditorView: View {
     @Bindable var model: MediaEditorModel
     let close: () -> Void
     let save: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
+    let runFrame: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>
     let progress: (UUID) -> JobCenter.ActiveBatch?
 
-    private var editable: Bool { model.ready && model.savingBatchID == nil }
+    private var editable: Bool { model.ready && !model.editingLocked }
+    @State private var showsPreparing = false
+    @GestureState private var pinch = 1.0
+
+    private var preparing: Bool {
+        model.preparingPlayback || model.splitting || model.loadingPhoto
+            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
+    }
 
     var body: some View {
         Group {
@@ -44,7 +52,16 @@ struct MediaEditorView: View {
             model.pause(); model.refresh()
         }
         .onChange(of: model.zoom) { _, _ in model.refresh() }
+        .task(id: preparing) {
+            showsPreparing = false
+            guard preparing else { return }
+            // Quick rebuilds would otherwise flash the indicator.
+            do { try await Task.sleep(for: Self.preparingDelay) } catch { return }
+            showsPreparing = true
+        }
     }
+
+    private static let preparingDelay = Duration.milliseconds(300)
 
     private var workspace: some View {
         VStack(spacing: 0) {
@@ -56,7 +73,11 @@ struct MediaEditorView: View {
                 VStack(spacing: 0) {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity)
                     Divider()
-                    if model.isVideo { EditorTransportBar(model: model) } else { photoBar }
+                    if model.isVideo {
+                        EditorTransportBar(model: model) { Task { await model.saveFrame(run: runFrame) } }
+                    } else {
+                        photoBar
+                    }
                 }
                 Divider()
                 inspector.frame(width: 300)
@@ -140,6 +161,7 @@ struct MediaEditorView: View {
         VStack(spacing: 8) {
             List(model.photoURLs, id: \.self, selection: $model.selectedPhotos) { url in
                 HStack {
+                    PhotoListThumbnail(url: url)
                     Text(url.lastPathComponent).lineLimit(2)
                     Spacer()
                     if model.values.photoEdits[url]?.isIdentity == false {
@@ -185,7 +207,7 @@ struct MediaEditorView: View {
             .labelsHidden()
             .fixedSize()
             .disabled(model.category == .crop)
-            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom")
+            .help(model.category == .crop ? "Zoom is unavailable while cropping" : "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)")
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
@@ -204,7 +226,7 @@ struct MediaEditorView: View {
                             width: model.image?.width ?? 1, height: model.image?.height ?? 1)
                     let scale = min(
                         (proxy.size.width - 48) / imageSize.width, (proxy.size.height - 40) / imageSize.height)
-                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom
+                    let zoom = model.category == .crop || model.isVideo ? 1 : model.zoom * pinch
                     let size = CGSize(width: imageSize.width * scale * zoom, height: imageSize.height * scale * zoom)
                     ScrollView([.horizontal, .vertical]) {
                         ZStack {
@@ -228,6 +250,11 @@ struct MediaEditorView: View {
                         .frame(minWidth: proxy.size.width, minHeight: proxy.size.height)
                     }
                     .scrollIndicators(zoom > 1 ? .automatic : .never)
+                    .gesture(
+                        MagnifyGesture()
+                            .updating($pinch) { value, pinch, _ in pinch = value.magnification }
+                            .onEnded { value in model.setPhotoZoom(model.zoom * value.magnification) },
+                        isEnabled: !model.isVideo && model.category != .crop)
                 } else {
                     ProgressView()
                 }
@@ -239,12 +266,15 @@ struct MediaEditorView: View {
                                 .background(.regularMaterial, in: Capsule())
                         }
                         Spacer()
-                        if model.preparingPlayback || model.splitting || model.loadingPhoto
-                            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
-                        {
-                            ProgressView("Preparing preview…").controlSize(.small).padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(.regularMaterial, in: Capsule())
+                        if showsPreparing {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Preparing preview…").font(.callout)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.regularMaterial, in: Capsule())
+                            .accessibilityElement(children: .combine)
                         }
                     }
                     Spacer()
@@ -257,27 +287,31 @@ struct MediaEditorView: View {
         let needsSegment =
             model.isVideo && !model.hasSelection && model.category != .crop && model.category != .markup
         return VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if needsSegment {
-                        Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                    Group {
-                        switch model.category {
-                        case .video: videoControls
-                        case .adjust: adjustmentControls
-                        case .styles: styleControls
-                        case .crop: cropControls
-                        case .markup: EditorMarkupInspector(model: model)
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if needsSegment {
+                            Label("Select a segment in the timeline to adjust it.", systemImage: "info.circle")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
+                        Group {
+                            switch model.category {
+                            case .video: videoControls
+                            case .adjust: adjustmentControls
+                            case .styles: styleControls
+                            case .crop: cropControls
+                            case .markup: EditorMarkupInspector(model: model)
+                            }
+                        }
+                        .disabled(needsSegment && model.category != .video)
                     }
-                    .disabled(needsSegment && model.category != .video)
+                    .id(model.isVideo ? model.values.selectedID : nil)
+                    .disabled(model.loadingPhoto)
+                    .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .id(model.isVideo ? model.values.selectedID : nil)
-                .disabled(model.loadingPhoto)
-                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .disabled(model.reverseProgress != nil)
+                .onChange(of: model.musicRevealRequest) { _, _ in reader.scrollTo(Self.musicSectionID) }
             }
             if model.isVideo {
                 Divider()
@@ -305,21 +339,54 @@ struct MediaEditorView: View {
         .padding(.vertical, 12)
     }
 
-    @ViewBuilder private var saveProgress: some View {
-        if let id = model.savingBatchID {
-            let batch = progress(id)
-            let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
+    private func saveProgress(_ id: UUID, title: Text) -> some View {
+        let batch = progress(id)
+        let fraction = batch.flatMap { $0.itemCount > 1 ? $0.progress : $0.currentFileFraction }
+        return HStack(spacing: 8) {
+            ProgressView(value: fraction).controlSize(.small)
+            title.font(.callout).foregroundStyle(.secondary).fixedSize()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var reverseStatus: some View {
+        if let fraction = model.reverseProgress {
             HStack(spacing: 8) {
                 ProgressView(value: fraction).controlSize(.small)
-                Text("Saving…").font(.callout).foregroundStyle(.secondary).fixedSize()
+                Text("Reversing…").font(.callout).foregroundStyle(.secondary).fixedSize()
+                Button("Cancel", action: model.cancelReverse).controlSize(.small)
             }
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Reversing segment"))
+        }
+        if let failure = model.reverseFailure { ProblemLabel(text: failure) }
+    }
+
+    @ViewBuilder private var frameNote: some View {
+        switch model.frameNote {
+        case .saved(let output):
+            HStack(spacing: 6) {
+                Label("Saved “\(output.lastPathComponent)”", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([output]) }
+                    .buttonStyle(.link)
+                    .fixedSize()
+            }
+            .font(.callout)
+        case .failed(let message): ProblemLabel(text: message)
+        case nil: EmptyView()
         }
     }
 
     private var outputSummary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            saveProgress
+            if let id = model.savingBatchID { saveProgress(id, title: Text("Saving…")) }
+            if let id = model.frameBatchID { saveProgress(id, title: Text("Saving Frame…")) }
+            frameNote
+            reverseStatus
             if let failure = model.saveFailure ?? model.failure {
                 ProblemLabel(text: failure)
             }
@@ -352,6 +419,21 @@ struct MediaEditorView: View {
         .padding(.vertical, 12)
     }
 
+    @ViewBuilder private func applyToAllSegments(styleOnly: Bool) -> some View {
+        if model.isVideo, model.values.segments.count > 1 {
+            Button {
+                model.applyToAllSegments(styleOnly: styleOnly)
+            } label: {
+                Text(styleOnly ? "Apply Style to All Segments" : "Apply Adjustments to All Segments")
+                    .frame(maxWidth: .infinity)
+            }
+            .disabled(!model.canApplyToAllSegments(styleOnly: styleOnly))
+            .help(
+                styleOnly
+                    ? "Give every segment this segment’s style" : "Give every segment this segment’s adjustments")
+        }
+    }
+
     private var adjustmentControls: some View {
         Group {
             if !model.isVideo {
@@ -372,6 +454,7 @@ struct MediaEditorView: View {
                     }
                 }
             }
+            applyToAllSegments(styleOnly: false)
         }
     }
 
@@ -404,6 +487,7 @@ struct MediaEditorView: View {
                 display: "\(Int((model.adjustments.styleIntensity * 100).rounded()))%", model: model
             )
             .disabled(model.adjustments.style == .original)
+            applyToAllSegments(styleOnly: true)
         }
     }
 
@@ -504,42 +588,43 @@ struct MediaEditorView: View {
         }
     }
 
-    private var videoControls: some View {
+    private var freezeControls: some View {
         Group {
-            InspectorSection(String(localized: "Selected Segment")) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
-                    GridRow {
-                        Text("Start").foregroundStyle(.secondary)
-                        EditorNumberField(
-                            model: model, title: String(localized: "Start"), id: "start",
-                            value: model.videoBoundaryBinding(start: true),
-                            range: 0...max(0, model.values.end - model.sourceFrameDuration),
-                            precision: Self.timecodeDigits, timecode: true
-                        )
-                    }
-                    GridRow {
-                        Text("End").foregroundStyle(.secondary)
-                        EditorNumberField(
-                            model: model, title: String(localized: "End"), id: "end",
-                            value: model.videoBoundaryBinding(start: false),
-                            range: min(
-                                model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
-                                .sourceDuration,
-                            precision: Self.timecodeDigits, timecode: true
-                        )
-                    }
-                    GridRow {
-                        Text("Length").foregroundStyle(.secondary)
-                        Text(
-                            Timecode.string(
-                                (model.values.end - model.values.start) / model.values.speed,
-                                fractionDigits: Self.timecodeDigits)
-                        )
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                GridRow {
+                    Text("Frame").foregroundStyle(.secondary)
+                    Text(Timecode.string(model.values.start, fractionDigits: Self.timecodeDigits))
                         .monospacedDigit()
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                GridRow {
+                    Text("Freeze Duration").foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        EditorNumberField(
+                            model: model, title: String(localized: "Freeze Duration"), id: "freeze",
+                            value: model.binding(\.freezeDuration), range: VideoSegment.freezeDurationRange,
+                            precision: 1)
+                        Text("sec").foregroundStyle(.secondary).accessibilityHidden(true)
                     }
                 }
-                .disabled(!model.hasSelection)
+            }
+            Label(
+                "A freeze frame holds one picture without sound, so trimming, splitting, speed and volume don’t apply.",
+                systemImage: "snowflake"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var videoControls: some View {
+        let freeze = model.selectedSegment?.isFreeze == true
+        return Group {
+            if freeze {
+                InspectorSection(String(localized: "Freeze Frame")) { freezeControls }
+            } else {
+                InspectorSection(String(localized: "Selected Segment")) { segmentRange }
             }
             InspectorSection(String(localized: "Speed")) {
                 Picker(
@@ -565,6 +650,24 @@ struct MediaEditorView: View {
                 }
                 Text("Pitch is preserved.").font(.caption).foregroundStyle(.secondary)
             }
+            .disabled(!model.hasSelection || freeze)
+            InspectorSection(String(localized: "Direction")) {
+                Toggle(
+                    "Play Backward",
+                    isOn: Binding(
+                        get: { model.selectedSegment?.isReversed == true }, set: { _ in model.toggleReverse() })
+                )
+                .disabled(!model.canToggleReverse)
+                Text(
+                    model.reverseUnavailableReason
+                        ?? String(
+                            localized:
+                                "Reversing prepares a backward copy, which takes about as long as the segment plays. Saving then makes a new H.264 MP4 file."
+                        )
+                )
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
             .disabled(!model.hasSelection)
             InspectorSection(String(localized: "Volume")) {
                 HStack(spacing: 10) {
@@ -588,7 +691,7 @@ struct MediaEditorView: View {
                         .monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
                 }
             }
-            .disabled(!model.selectedHasAudio)
+            .disabled(!model.selectedHasAudio || freeze)
             InspectorSection(String(localized: "Fade")) {
                 Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                     GridRow {
@@ -604,10 +707,11 @@ struct MediaEditorView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .disabled(!model.hasSelection)
-            if model.values.sources.count > 1 {
+            EditorMusicSection(model: model).id(Self.musicSectionID)
+            if model.originalSources.count > 1 {
                 InspectorSection(String(localized: "Source Videos")) {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(model.values.sources.enumerated()), id: \.offset) { index, source in
+                        ForEach(Array(model.originalSources.enumerated()), id: \.offset) { index, source in
                             Text("\(index + 1). \(source.url.lastPathComponent)").font(.callout).lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -621,8 +725,75 @@ struct MediaEditorView: View {
         }
     }
 
-    private static let speedPresets: [Double] = [0.5, 1, 1.5, 2]
+    private var segmentRange: some View {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+            GridRow {
+                Text("Start").foregroundStyle(.secondary)
+                EditorNumberField(
+                    model: model, title: String(localized: "Start"), id: "start",
+                    value: model.videoBoundaryBinding(start: true),
+                    range: 0...max(0, model.values.end - model.sourceFrameDuration),
+                    precision: Self.timecodeDigits, timecode: true
+                )
+            }
+            GridRow {
+                Text("End").foregroundStyle(.secondary)
+                EditorNumberField(
+                    model: model, title: String(localized: "End"), id: "end",
+                    value: model.videoBoundaryBinding(start: false),
+                    range: min(
+                        model.sourceDuration, model.values.start + model.sourceFrameDuration)...model
+                        .sourceDuration,
+                    precision: Self.timecodeDigits, timecode: true
+                )
+            }
+            GridRow {
+                Text("Length").foregroundStyle(.secondary)
+                Text(
+                    Timecode.string(
+                        model.selectedSegment?.outputDuration ?? 0, fractionDigits: Self.timecodeDigits)
+                )
+                .monospacedDigit()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .disabled(!model.hasSelection)
+    }
+
+    private static let musicSectionID = "music"
+    private static let speedPresets: [Double] = [0.5, 1, 1.5, 2, 4]
     private static let timecodeDigits = 3
+}
+
+/// Original-photo thumbnail beside a file name.
+private struct PhotoListThumbnail: View {
+    let url: URL
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Color.secondary.opacity(0.15)
+            if let image { Image(decorative: image, scale: 1).resizable().scaledToFill() }
+        }
+        .frame(width: Self.side, height: Self.side)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .accessibilityHidden(true)
+        .task(id: url) { image = await Task.detached(priority: .utility) { Self.thumbnail(url) }.value }
+    }
+
+    /// Unreadable files keep the placeholder.
+    private nonisolated static func thumbnail(_ url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Self.pixels,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static let side: CGFloat = 36
+    private nonisolated static let pixels = 96
 }
 
 private enum AdjustmentGroup: CaseIterable {
@@ -861,6 +1032,8 @@ private struct EditorNumberControl: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             beginEditing()
+            // Input methods apply only committed text.
+            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
             if let amount = parent.parse(field.stringValue) {
                 parent.model.invalidFields.remove(parent.id)
                 if amount != parent.value { parent.value = amount }
@@ -900,7 +1073,7 @@ private struct EditorNumberControl: NSViewRepresentable {
             guard wasEditing || model.invalidFields.contains(id) else { return }
             Task { @MainActor in
                 model.invalidFields.remove(id)
-                if wasEditing { model.endInteraction() }
+                if wasEditing { model.endInteraction(owner: id) }
             }
         }
 
@@ -908,7 +1081,7 @@ private struct EditorNumberControl: NSViewRepresentable {
             guard !editing else { return }
             editing = true
             session += 1
-            parent.model.beginInteraction()
+            parent.model.beginInteraction(owner: parent.id)
         }
 
         private func finishEditing(_ field: NSTextField?) {
@@ -918,7 +1091,7 @@ private struct EditorNumberControl: NSViewRepresentable {
                 if field.stringValue != formatted { field.stringValue = formatted }
             }
             parent.model.invalidFields.remove(parent.id)
-            parent.model.endInteraction()
+            parent.model.endInteraction(owner: parent.id)
         }
     }
 }

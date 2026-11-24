@@ -155,7 +155,8 @@ final class PanelCoordinator {
                         if !edited.isEmpty { self.launch(next.op, next.options, edited) }
                     }
                     return edit
-                }, progress: { id in self.jobs.active.first { $0.batchID == id } })
+                }, runFrame: { batch, settings in self.jobs.run(batch: batch, settings: settings) },
+                progress: { id in self.jobs.active.first { $0.batchID == id } })
         }
     }
 

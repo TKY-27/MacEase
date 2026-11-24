@@ -19749,6 +19749,574 @@
           }
         }
       }
+    },
+    "Save Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームを保存"
+          }
+        }
+      }
+    },
+    "Save Frame at Playhead as an Image (⇧⌘S)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドのフレームを画像として保存（⇧⌘S）"
+          }
+        }
+      }
+    },
+    "Saving Frame…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームを保存中…"
+          }
+        }
+      }
+    },
+    "Saved “%@”": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”を保存しました"
+          }
+        }
+      }
+    },
+    "Insert Freeze Frame at Playhead": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドにフリーズフレームを挿入"
+          }
+        }
+      }
+    },
+    "Freeze Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレーム"
+          }
+        }
+      }
+    },
+    "Insert a Freeze Frame at the Playhead (⌥F)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生ヘッドにフリーズフレームを挿入（⌥F）"
+          }
+        }
+      }
+    },
+    "Freeze": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズ"
+          }
+        }
+      }
+    },
+    "Frame": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレーム"
+          }
+        }
+      }
+    },
+    "Freeze Duration": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズの長さ"
+          }
+        }
+      }
+    },
+    "A freeze frame holds one picture without sound, so trimming, splitting, speed and volume don’t apply.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームは1枚の画像を無音で表示するため、トリミング、分割、速度、音量は使えません。"
+          }
+        }
+      }
+    },
+    "sec": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "秒"
+          }
+        }
+      }
+    },
+    "Reverse": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生"
+          }
+        }
+      }
+    },
+    "Reverse Segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメントを逆再生"
+          }
+        }
+      }
+    },
+    "Reversed": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生"
+          }
+        }
+      }
+    },
+    "Play the Selected Segment Backward": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したセグメントを逆再生"
+          }
+        }
+      }
+    },
+    "Reversing…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生を準備中…"
+          }
+        }
+      }
+    },
+    "Reversing segment": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セグメントの逆再生を準備中"
+          }
+        }
+      }
+    },
+    "Direction": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生方向"
+          }
+        }
+      }
+    },
+    "Play Backward": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生"
+          }
+        }
+      }
+    },
+    "Reversing prepares a backward copy, which takes about as long as the segment plays. Saving then makes a new H.264 MP4 file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生では逆向きのコピーを作成します。セグメントの再生時間と同じくらいかかります。保存すると新しいH.264 MP4ファイルになります。"
+          }
+        }
+      }
+    },
+    "A freeze frame can’t be reversed.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリーズフレームは逆再生できません。"
+          }
+        }
+      }
+    },
+    "Reverse works on segments up to %@ long. Split this segment first.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逆再生できるのは%@までのセグメントです。先にこのセグメントを分割してください。"
+          }
+        }
+      }
+    },
+    "Remove Silence…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音を削除…"
+          }
+        }
+      }
+    },
+    "Remove Silence": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音を削除"
+          }
+        }
+      }
+    },
+    "Cut pauses where the sound is quiet": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音が小さい間を削除します"
+          }
+        }
+      }
+    },
+    "There’s no audible sound to analyze in this video.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画には分析できる音がありません。"
+          }
+        }
+      }
+    },
+    "Analyzing sound…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音を分析中…"
+          }
+        }
+      }
+    },
+    "Silent below": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無音とみなす音量"
+          }
+        }
+      }
+    },
+    "Pauses longer than": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象にする間の長さ"
+          }
+        }
+      }
+    },
+    "Each cut keeps a short margin of sound so speech isn’t clipped.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話し声が途切れないよう、カットの前後に少し余白を残します。"
+          }
+        }
+      }
+    },
+    "No pauses found": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除する間はありません"
+          }
+        }
+      }
+    },
+    "Nothing would be left. Choose a lower threshold or a longer pause.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。"
+          }
+        }
+      }
+    },
+    "%@ dB": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dB"
+          }
+        }
+      }
+    },
+    "Removes %lld pauses (%@)": {
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Removes %lld pause (%@)"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Removes %lld pauses (%@)"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldか所の間を削除（%@）"
+          }
+        }
+      }
+    },
+    "The background music file changed while editing. Choose it again.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集中に音楽ファイルが変更されました。もう一度選んでください。"
+          }
+        }
+      }
+    },
+    "“%@” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”は音楽として使えません。MP3、AAC、WAV、AIFF、FLAC、Ogg、Opusのいずれかを選んでください。"
+          }
+        }
+      }
+    },
+    "Background Music": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BGM"
+          }
+        }
+      }
+    },
+    "Music Volume": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽の音量"
+          }
+        }
+      }
+    },
+    "Start in Song": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "曲の開始位置"
+          }
+        }
+      }
+    },
+    "Plays once from the start of the video. A longer song fades out over the last second.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の先頭から1回だけ再生します。動画より長い曲は最後の1秒でフェードアウトします。"
+          }
+        }
+      }
+    },
+    "Replace…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置き換える…"
+          }
+        }
+      }
+    },
+    "Add Music…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽を追加…"
+          }
+        }
+      }
+    },
+    "Replace Music…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽を置き換える…"
+          }
+        }
+      }
+    },
+    "Plays under the video’s own sound.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の音声に重ねて再生します。"
+          }
+        }
+      }
+    },
+    "Opening music…": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音楽を開いています…"
+          }
+        }
+      }
+    },
+    "Play a song under the video": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画に音楽を重ねて再生します"
+          }
+        }
+      }
+    },
+    "Go to Time": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "時間を指定して移動"
+          }
+        }
+      }
+    },
+    "Type a time such as 1:05.25, then press Return": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1:05.25のように時間を入力してReturnキーを押します"
+          }
+        }
+      }
+    },
+    "Click to Go to a Time": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックして時間を指定"
+          }
+        }
+      }
+    },
+    "Apply Style to All Segments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタイルをすべてのセグメントに適用"
+          }
+        }
+      }
+    },
+    "Apply Adjustments to All Segments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整をすべてのセグメントに適用"
+          }
+        }
+      }
+    },
+    "Give every segment this segment’s style": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセグメントのスタイルをすべてのセグメントに適用します"
+          }
+        }
+      }
+    },
+    "Give every segment this segment’s adjustments": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセグメントの調整をすべてのセグメントに適用します"
+          }
+        }
+      }
+    },
+    "Preview Zoom (⌘+ ⌘− ⌘0, or pinch)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの拡大（⌘+、⌘−、⌘0またはピンチ）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -19,6 +19,11 @@ enum EditorCategory: String, CaseIterable {
     }
 }
 
+enum FrameNote: Equatable {
+    case saved(URL)
+    case failed(String)
+}
+
 struct EditorValues: Equatable {
     private var singlePhoto = ImageEdit()
     var photoEdits: [URL: ImageEdit] = [:]
@@ -35,6 +40,7 @@ struct EditorValues: Equatable {
     var selectedID: UUID?
     var overlays: [TimedOverlay] = []
     var selectedOverlayID: UUID?
+    var music: BackgroundMusic?
 
     var selectedIndex: Int? { segments.firstIndex { $0.id == selectedID } }
     var start: Double {
@@ -61,6 +67,12 @@ struct EditorValues: Equatable {
         get { selectedIndex.map { segments[$0].fadeOut } ?? 0 }
         set { if let selectedIndex { segments[selectedIndex].fadeOut = newValue } }
     }
+    var freezeDuration: Double {
+        get { selectedIndex.flatMap { segments[$0].freezeDuration } ?? 0 }
+        set {
+            if let selectedIndex, segments[selectedIndex].isFreeze { segments[selectedIndex].freezeDuration = newValue }
+        }
+    }
     var videoAdjustments: MediaAdjustments {
         get { selectedIndex.map { segments[$0].adjustments } ?? MediaAdjustments() }
         set { if let selectedIndex { segments[selectedIndex].adjustments = newValue } }
@@ -73,6 +85,7 @@ struct EditorValues: Equatable {
         edit.sources = sources.isEmpty ? nil : sources
         edit.sourceStamp = photo.sourceStamp
         edit.overlays = overlays
+        edit.music = music
         return edit
     }
 }
@@ -114,6 +127,20 @@ final class MediaEditorModel {
     private var saveTask: Task<BatchOutcome?, Never>?
     private(set) var savingBatchID: UUID?
     private(set) var saveFailure: String?
+    private var frameTask: Task<BatchOutcome?, Never>?
+    private(set) var frameBatchID: UUID?
+    private(set) var frameNote: FrameNote?
+    private(set) var reverseProgress: Double?
+    private(set) var reverseFailure: String?
+    private var reverseTask: Task<Void, Never>?
+    var silenceLevels: [URL: AudioLevels] = [:]
+    var silenceTask: Task<Void, Never>?
+    var silenceFailure: String?
+    var silenceRule = SilenceRule()
+    var showsSilencePreview = false
+    var musicTask: Task<Void, Never>?
+    var musicFailure: String?
+    var musicRevealRequest: UUID?
     var streamConsent: StreamConsentRequest?
     private(set) var consents: [URL: StreamOmission] = [:]
     var invalidFields: Set<String> = []
@@ -145,7 +172,7 @@ final class MediaEditorModel {
     private var undoValues: [EditorValues] = []
     private var redoValues: [EditorValues] = []
     private var interactionStart: EditorValues?
-    private var closed = false
+    private(set) var closed = false
     private var timeObserver: Any?
     private var playbackEndObserver: (any NSObjectProtocol)?
     private var loadTask: Task<Void, Never>?
@@ -161,8 +188,10 @@ final class MediaEditorModel {
     private var requestedTrim: Double?
     private var trimTask: Task<Void, Never>?
     private var trimRevision = 0
-    private var boundaryInputTask: Task<Void, Never>?
-    private var boundaryInputGeneration = 0
+    /// Start and End snap independently.
+    private var boundaryInputTasks: [Bool: Task<Void, Never>] = [:]
+    private var boundaryInputGenerations: [Bool: Int] = [:]
+    private var interactionOwner: String?
     private var revision = 0
     private var preparedEdit: VideoEdit?
     private var renderedRevision = -1
@@ -229,8 +258,16 @@ final class MediaEditorModel {
             let start = reference.outputTime(for: original.start, segmentID: segment.id)
         else { return 0...0 }
         let left = start + (segment.start - original.start) / segment.speed
-        let right = start + (segment.end - original.start) / segment.speed
+        let right =
+            segment.isFreeze ? start + segment.outputDuration : start + (segment.end - original.start) / segment.speed
         return left...max(left, right)
+    }
+
+    static let photoZoomRange = 1.0...8.0
+
+    func setPhotoZoom(_ value: Double) {
+        guard value.isFinite else { return }
+        zoom = min(Self.photoZoomRange.upperBound, max(Self.photoZoomRange.lowerBound, value))
     }
 
     func zoomTimeline(by factor: Double) {
@@ -242,6 +279,14 @@ final class MediaEditorModel {
         return max(0, (end - tick).seconds)
     }
     var hasSelection: Bool { values.selectedIndex != nil }
+    func sourceHasAudio(_ index: Int) -> Bool {
+        values.sources.indices.contains(index) && videoDetails[values.sources[index].url]?.hasAudio == true
+    }
+    var selectedSegment: VideoSegment? { values.selectedIndex.map { values.segments[$0] } }
+    func frameDuration(ofSource index: Int) -> Double {
+        guard values.sources.indices.contains(index) else { return frameDuration }
+        return videoDetails[values.sources[index].url]?.frameDuration ?? frameDuration
+    }
     var canUndo: Bool { !undoValues.isEmpty }
     var canRedo: Bool { !redoValues.isEmpty }
     var changesColor: Bool { isVideo ? values.video.changesColor : values.photo.changesColor }
@@ -251,8 +296,22 @@ final class MediaEditorModel {
             && (isVideo && values.sources.count > 1 || changesColor
                 || !isVideo && (requiresSDRForGeometry || values.photo.geometry.straighten != 0))
     }
+    /// Names a staged source after its original.
+    func sourceName(_ segment: VideoSegment) -> String {
+        guard values.sources.indices.contains(segment.sourceIndex) else { return url.lastPathComponent }
+        let source = values.sources[segment.sourceIndex]
+        let original = source.reversedOrigin.map(\.sourceIndex).flatMap {
+            values.sources.indices.contains($0) ? values.sources[$0] : nil
+        }
+        return (original ?? source).url.lastPathComponent
+    }
+
+    /// Reversed segments add staged sources.
+    var originalSources: [VideoEditSource] { values.sources.filter { $0.reversedOrigin == nil } }
+
     var newFileReason: String? {
-        if values.sources.count > 1 { return String(localized: "Multiple videos require a new file.") }
+        if originalSources.count > 1 { return String(localized: "Multiple videos require a new file.") }
+        if let notice = values.video.joinedExportNotice { return notice }
         let editedPhotos = values.photoEdits.filter { !$0.value.isIdentity }
         if isVideo && requiresNewFile
             || editedPhotos.keys.contains(where: { photoDetails[$0]?.requiresNewFile == true })
@@ -289,7 +348,7 @@ final class MediaEditorModel {
     var canSplit: Bool { values.selectedID.map(canSplitSegment) ?? false }
 
     func canSplitSegment(_ id: UUID) -> Bool {
-        guard savingBatchID == nil, !splitting, let timeline, !values.segments.isEmpty else { return false }
+        guard !editingLocked, !splitting, let timeline, !values.segments.isEmpty else { return false }
         let segment = timeline.segment(at: position)
         guard segment.id == id else { return false }
         let source = timeline.sourceTime(at: position)
@@ -297,9 +356,9 @@ final class MediaEditorModel {
     }
 
     var canSave: Bool {
-        guard ready, !closed, savingBatchID == nil, failure == nil, invalidFields.isEmpty, !preparingPlayback,
+        guard ready, !closed, !editingLocked, failure == nil, invalidFields.isEmpty, !preparingPlayback,
             !splitting, !importing,
-            !loadingPhoto, boundaryInputTask == nil,
+            !loadingPhoto, boundaryInputTasks.isEmpty,
             renderedRevision == revision,
             (try? values.photo.validate()) != nil
         else { return false }
@@ -381,8 +440,11 @@ final class MediaEditorModel {
             })
     }
 
+    /// Saving or reversing owns the values.
+    var editingLocked: Bool { savingBatchID != nil || reverseProgress != nil }
+
     func change(_ mutation: (inout EditorValues) -> Void) {
-        guard savingBatchID == nil else { return }
+        guard !editingLocked else { return }
         let previous = values
         var edited = previous
         mutation(&edited)
@@ -394,6 +456,7 @@ final class MediaEditorModel {
         pause()
         failure = nil
         saveFailure = nil
+        reverseFailure = nil
         refresh()
     }
 
@@ -407,7 +470,7 @@ final class MediaEditorModel {
 
     func beginTimelineTrim(_ id: UUID, start: Bool) {
         guard savingBatchID == nil, !trimming, let timeline,
-            let segment = values.segments.first(where: { $0.id == id })
+            let segment = values.segments.first(where: { $0.id == id }), !segment.isFreeze
         else { return }
         selectSegment(id)
         beginInteraction()
@@ -468,17 +531,19 @@ final class MediaEditorModel {
     }
 
     func setVideoBoundary(_ seconds: Double, start: Bool) {
-        guard savingBatchID == nil, seconds.isFinite, let index = values.selectedIndex else { return }
+        guard savingBatchID == nil, seconds.isFinite, let index = values.selectedIndex,
+            !values.segments[index].isFreeze
+        else { return }
         let segment = values.segments[index]
-        boundaryInputTask?.cancel()
-        boundaryInputGeneration += 1
-        let generation = boundaryInputGeneration
-        boundaryInputTask = Task {
-            defer { if generation == boundaryInputGeneration { boundaryInputTask = nil } }
+        boundaryInputTasks[start]?.cancel()
+        let generation = (boundaryInputGenerations[start] ?? 0) + 1
+        boundaryInputGenerations[start] = generation
+        boundaryInputTasks[start] = Task {
+            defer { if boundaryInputGenerations[start] == generation { boundaryInputTasks[start] = nil } }
             do {
                 let boundary = try await snappedVideoBoundary(seconds, segment: segment, start: start)
                 try Task.checkCancellation()
-                guard !closed, generation == boundaryInputGeneration, values.selectedID == segment.id,
+                guard !closed, boundaryInputGenerations[start] == generation, values.selectedID == segment.id,
                     let boundary, let current = values.segments.firstIndex(where: { $0.id == segment.id })
                 else { return }
                 change {
@@ -488,10 +553,10 @@ final class MediaEditorModel {
         }
     }
 
-    var hasPendingBoundaryInput: Bool { boundaryInputTask != nil }
+    var hasPendingBoundaryInput: Bool { !boundaryInputTasks.isEmpty }
 
     func finishBoundaryInput() async {
-        while let task = boundaryInputTask { await task.value }
+        while let task = boundaryInputTasks.values.first { await task.value }
     }
 
     func endTimelineTrim() async {
@@ -505,7 +570,8 @@ final class MediaEditorModel {
     }
 
     func setTrimBoundaryAtPlayhead(start: Bool) {
-        guard savingBatchID == nil, !trimming, let id = values.selectedID else { return }
+        guard savingBatchID == nil, !trimming, let id = values.selectedID, selectedSegment?.isFreeze == false
+        else { return }
         let boundary = position
         beginTimelineTrim(id, start: start)
         updateTimelineTrim(to: boundary)
@@ -552,11 +618,161 @@ final class MediaEditorModel {
         }
     }
 
+    var canInsertFreezeFrame: Bool {
+        guard !editingLocked, !splitting, let timeline, !values.segments.isEmpty else { return false }
+        return !timeline.segment(at: position).isFreeze
+    }
+
+    /// Splits at the playhead; one Undo step.
+    func insertFreezeFrame() {
+        guard canInsertFreezeFrame, let timeline else { return }
+        let segment = timeline.segment(at: position)
+        guard let videoSource = source(for: segment) else { return }
+        pause()
+        let requestedPosition = position
+        let generation = revision
+        let seconds = timeline.sourceTime(at: position)
+        let sourceDuration =
+            values.sources.indices.contains(segment.sourceIndex)
+            ? values.sources[segment.sourceIndex].duration : duration
+        splitTask?.cancel()
+        splitting = true
+        splitTask = Task {
+            defer { splitting = false }
+            do {
+                let next = try await videoSource.adjacentFrameTime(to: seconds, forward: true)
+                let frameEnd = min(segment.end, next > seconds ? next : sourceDuration)
+                let frameStart = max(
+                    segment.start, try await videoSource.adjacentFrameTime(to: frameEnd, forward: false))
+                try Task.checkCancellation()
+                guard !closed, revision == generation, position == requestedPosition, frameStart < frameEnd,
+                    let index = values.segments.firstIndex(where: { $0.id == segment.id }),
+                    let freezeStart = timeline.outputTime(for: frameStart, segmentID: segment.id)
+                else { return }
+                let freeze = VideoSegment(
+                    start: frameStart, end: frameEnd, volume: 0, adjustments: segment.adjustments,
+                    sourceIndex: segment.sourceIndex, freezeDuration: Self.defaultFreezeSeconds)
+                change {
+                    var insertion = index
+                    if frameStart > segment.start {
+                        var right = segment
+                        right.id = UUID()
+                        right.start = frameStart
+                        right.fadeIn = 0
+                        $0.segments[index].end = frameStart
+                        $0.segments[index].fadeOut = 0
+                        $0.segments.insert(right, at: index + 1)
+                        insertion = index + 1
+                    }
+                    $0.segments.insert(freeze, at: insertion)
+                    $0.selectedID = freeze.id
+                }
+                position = freezeStart
+                requestSeek()
+            } catch is CancellationError { return } catch {
+                if !closed, revision == generation, position == requestedPosition { report(error) }
+            }
+        }
+    }
+
+    static let defaultFreezeSeconds = 2.0
+
+    var reverseUnavailableReason: String? {
+        guard let segment = selectedSegment, !segment.isReversed else { return nil }
+        if segment.isFreeze { return String(localized: "A freeze frame can’t be reversed.") }
+        guard segment.end - segment.start <= VideoSegmentReverser.maximumSegmentSeconds else {
+            let limit = Timecode.string(VideoSegmentReverser.maximumSegmentSeconds, fractionDigits: 0)
+            return String(localized: "Reverse works on segments up to \(limit) long. Split this segment first.")
+        }
+        return nil
+    }
+
+    var canToggleReverse: Bool {
+        selectedSegment != nil && reverseUnavailableReason == nil && !editingLocked && !splitting && !trimming
+            && videoSource != nil
+    }
+
+    /// Reversing a reversed segment restores it.
+    func toggleReverse() {
+        guard canToggleReverse, let segment = selectedSegment else { return }
+        reverseFailure = nil
+        guard !segment.isReversed else {
+            do {
+                apply(try VideoSegmentReverser.unreverse(segmentID: segment.id, in: values.video, staging: staging))
+            } catch {
+                reverseFailure = UserMessages.describe(
+                    EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+            }
+            return
+        }
+        guard let videoSource else { return }
+        pause()
+        let edit = values.video
+        reverseProgress = 0
+        let reported = OSAllocatedUnfairLock(initialState: 0.0)
+        reverseTask = Task {
+            do {
+                let reversed = try await videoSource.reverse(segmentID: segment.id, in: edit) { fraction in
+                    // Per-frame callbacks would flood the main actor.
+                    let advanced = reported.withLock { last in
+                        guard fraction - last >= Self.reverseProgressStep else { return false }
+                        last = fraction
+                        return true
+                    }
+                    if advanced { Task { @MainActor in self.reportReverseProgress(fraction) } }
+                }
+                try await openStagedSources(reversed.sources ?? [])
+                try Task.checkCancellation()
+                reverseProgress = nil
+                reverseTask = nil
+                guard !closed, values.video == edit else { return }
+                apply(reversed)
+            } catch {
+                reverseProgress = nil
+                reverseTask = nil
+                guard !closed, !(error is CancellationError) else { return }
+                reverseFailure = UserMessages.describe(
+                    EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+            }
+        }
+    }
+
+    func cancelReverse() { reverseTask?.cancel() }
+
+    private nonisolated static let reverseProgressStep = 0.005
+
+    private func reportReverseProgress(_ fraction: Double) {
+        guard let current = reverseProgress else { return }
+        reverseProgress = max(current, fraction)
+    }
+
+    private func apply(_ edit: VideoEdit) {
+        change {
+            $0.sources = edit.sources ?? []
+            $0.segments = edit.segments ?? []
+            $0.overlays = edit.overlays
+        }
+    }
+
+    /// Snapping, thumbnails and waveforms need staged sources.
+    private func openStagedSources(_ sources: [VideoEditSource]) async throws {
+        for source in sources where videoSources[source.url] == nil {
+            let opened = try await VideoEditorSource.open(source.url, staging: staging)
+            let details = await opened.details
+            guard !closed else {
+                await opened.close()
+                throw CancellationError()
+            }
+            videoSources[source.url] = opened
+            videoDetails[source.url] = details
+        }
+    }
+
     func deleteSelection() {
         guard savingBatchID == nil, let index = values.selectedIndex else { return }
         let segment = values.segments[index]
         let start = timeline?.outputTime(for: segment.start, segmentID: segment.id) ?? 0
-        let removedDuration = (segment.end - segment.start) / segment.speed
+        let removedDuration = segment.outputDuration
         let nextPosition = position < start ? position : max(start, position - removedDuration)
         change {
             $0.segments.remove(at: index)
@@ -593,24 +809,36 @@ final class MediaEditorModel {
         }
     }
 
-    func beginInteraction() {
-        guard savingBatchID == nil else { return }
+    /// Switching owners closes the previous step.
+    func beginInteraction(owner: String? = nil) {
+        guard !editingLocked else { return }
+        if let owner, let current = interactionOwner, current != owner, !hasPendingBoundaryInput {
+            closeInteraction()
+        }
         if interactionStart == nil { interactionStart = values }
+        if let owner { interactionOwner = owner }
         pause()
     }
 
-    func endInteraction() {
-        guard savingBatchID == nil else { return }
-        if boundaryInputTask != nil {
+    /// Owners end only their own interaction.
+    func endInteraction(owner: String? = nil) {
+        guard !editingLocked else { return }
+        if let owner, interactionOwner != owner { return }
+        if hasPendingBoundaryInput {
             Task {
                 await finishBoundaryInput()
-                if !closed { endInteraction() }
+                if !closed { endInteraction(owner: owner) }
             }
             return
         }
+        closeInteraction()
+        if !isVideo { refresh() }
+    }
+
+    private func closeInteraction() {
         if let previous = interactionStart, previous != values { remember(previous) }
         interactionStart = nil
-        if !isVideo { refresh() }
+        interactionOwner = nil
     }
 
     private func remember(_ previous: EditorValues) {
@@ -620,7 +848,7 @@ final class MediaEditorModel {
     }
 
     func undo() {
-        guard savingBatchID == nil else { return }
+        guard !editingLocked else { return }
         endInteraction()
         guard let previous = undoValues.popLast() else { return }
         redoValues.append(values)
@@ -629,7 +857,7 @@ final class MediaEditorModel {
     }
 
     func redo() {
-        guard savingBatchID == nil else { return }
+        guard !editingLocked else { return }
         guard let next = redoValues.popLast() else { return }
         undoValues.append(values)
         values = next
@@ -727,6 +955,50 @@ final class MediaEditorModel {
                 seek(output)
             } catch is CancellationError { return } catch { if !closed { report(error) } }
         }
+    }
+
+    /// Up and Down keys.
+    func jumpToSegmentBoundary(forward: Bool) {
+        guard let timeline, !timeline.segments.isEmpty else { return }
+        let boundaries = timeline.segments.reduce(into: [0.0]) { ends, segment in
+            ends.append(ends[ends.count - 1] + segment.outputDuration)
+        }
+        let tolerance = 1e-6
+        let target =
+            forward
+            ? boundaries.first { $0 > position + tolerance }
+            : boundaries.last { $0 < position - tolerance }
+        guard let target, target < outputDuration || position < lastPlayablePosition else { return }
+        seek(target)
+    }
+
+    /// Styles copy only the look.
+    func canApplyToAllSegments(styleOnly: Bool) -> Bool {
+        guard !editingLocked, values.segments.count > 1, hasSelection else { return false }
+        let selected = values.videoAdjustments
+        return values.segments.contains {
+            Self.adjustments(selected, onto: $0.adjustments, styleOnly: styleOnly) != $0.adjustments
+        }
+    }
+
+    func applyToAllSegments(styleOnly: Bool) {
+        guard canApplyToAllSegments(styleOnly: styleOnly) else { return }
+        let selected = values.videoAdjustments
+        change {
+            for index in $0.segments.indices {
+                $0.segments[index].adjustments = Self.adjustments(
+                    selected, onto: $0.segments[index].adjustments, styleOnly: styleOnly)
+            }
+        }
+    }
+
+    private static func adjustments(
+        _ source: MediaAdjustments, onto target: MediaAdjustments, styleOnly: Bool
+    ) -> MediaAdjustments {
+        var result = styleOnly ? target : source
+        result.style = styleOnly ? source.style : target.style
+        result.styleIntensity = styleOnly ? source.styleIntensity : target.styleIntensity
+        return result
     }
 
     func pause() {
@@ -923,7 +1195,7 @@ final class MediaEditorModel {
 
     /// Segment peaks in timeline seconds.
     func waveform(for segment: VideoSegment, in range: ClosedRange<Double>) -> AudioWaveformSnapshot? {
-        guard values.sources.indices.contains(segment.sourceIndex),
+        guard !segment.isFreeze, values.sources.indices.contains(segment.sourceIndex),
             let source = sourceWaveforms[values.sources[segment.sourceIndex].url], source.duration > 0,
             range.upperBound > range.lowerBound
         else { return nil }
@@ -991,6 +1263,7 @@ final class MediaEditorModel {
         try values.photo.sourceStamp?.validate(url)
         try values.photo.validate()
         if isVideo { _ = try VideoTimeline(edit: values.video, sourceDuration: duration) }
+        try values.music?.validateSource()
     }
 
     func makeSave(replacingOriginal: Bool) throws -> (batch: Batch, settings: Engine.Settings) {
@@ -1053,6 +1326,39 @@ final class MediaEditorModel {
                 }
             }.first
         return saveFailure == nil
+    }
+
+    var canSaveFrame: Bool {
+        isVideo && ready && !closed && !editingLocked && frameBatchID == nil && failure == nil
+            && invalidFields.isEmpty && timeline != nil && !values.segments.isEmpty
+    }
+
+    /// Exports the edited frame without blocking editing.
+    func saveFrame(run: (Batch, Engine.Settings) -> Task<BatchOutcome?, Never>) async {
+        guard canSaveFrame else { return }
+        let file = initialURLs[0].lastPathComponent
+        frameNote = nil
+        do {
+            try validateForSave()
+        } catch {
+            frameNote = .failed(UserMessages.describe(EngineError.wrapping(error, path: url.path), file: file))
+            return
+        }
+        pause()
+        let batch = MediaEditing.frame(
+            url: initialURLs[0], edit: values.video, outputSeconds: position, settings: settings)
+        frameBatchID = batch.id
+        let task = run(batch, settings)
+        frameTask = task
+        let outcome = await task.value
+        frameTask = nil
+        frameBatchID = nil
+        guard let outcome, !outcome.wasCancelled, let result = outcome.outcomes.first else { return }
+        switch result {
+        case .succeeded(let outputs, _): frameNote = outputs.first.map(FrameNote.saved)
+        case .skipped(let reason): frameNote = .failed(UserMessages.describe(reason, file: file))
+        case .failed(let error): frameNote = .failed(UserMessages.describeResult(error, file: file))
+        }
     }
 
     private func finishSavedPhotos(_ outcome: BatchOutcome) {
@@ -1213,7 +1519,7 @@ final class MediaEditorModel {
     }
 
     func importVideos(_ urls: [URL]) {
-        guard savingBatchID == nil, !importing else { return }
+        guard !editingLocked, !importing else { return }
         importing = true
         selectionTask = Task {
             defer { importing = false }
@@ -1230,12 +1536,18 @@ final class MediaEditorModel {
 
     func report(_ error: Error) {
         preparingPlayback = false
-        failure = UserMessages.describe(EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+        failure =
+            musicChanged
+            ? BackgroundMusic.changedErrorMessage
+            : UserMessages.describe(EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
     }
 
     func close() async {
         closed = true
         loadTask?.cancel()
+        reverseTask?.cancel()
+        silenceTask?.cancel()
+        musicTask?.cancel()
         previewTask?.cancel()
         playbackTask?.cancel()
         splitTask?.cancel()
@@ -1243,7 +1555,7 @@ final class MediaEditorModel {
         waveformTask?.cancel()
         seekTask?.cancel()
         trimTask?.cancel()
-        boundaryInputTask?.cancel()
+        for task in boundaryInputTasks.values { task.cancel() }
         player?.pause()
         player?.currentItem?.cancelPendingSeeks()
         if let timeObserver { player?.removeTimeObserver(timeObserver) }
@@ -1253,6 +1565,9 @@ final class MediaEditorModel {
         player?.replaceCurrentItem(with: nil)
         player = nil
         await loadTask?.value
+        await reverseTask?.value
+        await silenceTask?.value
+        await musicTask?.value
         await previewTask?.value
         await playbackTask?.value
         await splitTask?.value
@@ -1260,10 +1575,11 @@ final class MediaEditorModel {
         await waveformTask?.value
         await seekTask?.value
         await trimTask?.value
-        await boundaryInputTask?.value
+        await finishBoundaryInput()
         selectionTask?.cancel()
         await selectionTask?.value
         _ = await saveTask?.value
+        _ = await frameTask?.value
         for source in videoSources.values { await source.close() }
         videoSources.removeAll()
         photoCache.removeAll()

@@ -165,7 +165,8 @@ struct EditorMarkupInspector: View {
                         value: Binding(
                             get: { timed.start },
                             set: { model.setOverlayRange(timed.id, start: $0, end: timed.end) }),
-                        range: 0...max(0, timed.end - model.frameDuration), precision: Self.timecodeDigits,
+                        range: 0...max(0, timed.end - model.frameDuration(ofSource: timed.sourceIndex)),
+                        precision: Self.timecodeDigits,
                         timecode: true)
                 }
                 GridRow {
@@ -175,7 +176,7 @@ struct EditorMarkupInspector: View {
                         value: Binding(
                             get: { timed.end },
                             set: { model.setOverlayRange(timed.id, start: timed.start, end: $0) }),
-                        range: min(duration, timed.start + model.frameDuration)...duration,
+                        range: min(duration, timed.start + model.frameDuration(ofSource: timed.sourceIndex))...duration,
                         precision: Self.timecodeDigits, timecode: true)
                 }
             }

@@ -179,6 +179,28 @@ import Testing
         }
     }
 
+    @Test func mosaicAveragesThinDarkTextIntoVisibleGrayBlocks() throws {
+        let source = try ImageFixtures.canvas(width: 320, height: 160) { context in
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 320, height: 160))
+            context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            for x in stride(from: 3, to: 320, by: 4) { context.fill(CGRect(x: x, y: 0, width: 1, height: 160)) }
+        }
+        let overlays = [EditOverlay(mark: .redaction(rect: EditCrop(), style: .mosaic))]
+        let rendered = try ImagePixels.render(overlays.redacting(CIImage(cgImage: source)), like: source)
+        let block = 5
+        for y in stride(from: 2, to: 158, by: block) {
+            for x in stride(from: 2, to: 318, by: block) {
+                let pixel = try ImageFixtures.pixel(rendered, x: x, y: y)
+                #expect((120...240).contains(pixel[0]), "block at \(x),\(y) is \(pixel[0])")
+                #expect(pixel[0] == pixel[1] && pixel[1] == pixel[2])
+            }
+        }
+        let first = try ImageFixtures.pixel(rendered, x: 0, y: 0)
+        let sameBlock = try ImageFixtures.pixel(rendered, x: 3, y: 3)
+        #expect(first == sameBlock, "a block stays one flat colour")
+    }
+
     @Test func redactionFollowsSensitiveContentAcrossRotationAndCrop() throws {
         let source = try ImageFixtures.canvas(width: 120, height: 80) { context in
             context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))

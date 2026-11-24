@@ -389,7 +389,8 @@ final class MediaEditorModelTests: XCTestCase {
         let model = try await videoModel()
         let host = NSHostingView(
             rootView: MediaEditorView(
-                model: model, close: {}, save: { _, _ in Task { nil } }, progress: { _ in nil }))
+                model: model, close: {}, save: { _, _ in Task { nil } }, runFrame: { _, _ in Task { nil } },
+                progress: { _ in nil }))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1_280, height: 720), styleMask: [.titled],
             backing: .buffered, defer: false)
@@ -423,7 +424,8 @@ final class MediaEditorModelTests: XCTestCase {
         await model.finishBoundaryInput()
         let host = NSHostingView(
             rootView: MediaEditorView(
-                model: model, close: {}, save: { _, _ in Task { nil } }, progress: { _ in nil }))
+                model: model, close: {}, save: { _, _ in Task { nil } }, runFrame: { _, _ in Task { nil } },
+                progress: { _ in nil }))
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 1_280, height: 720), styleMask: [.titled],
             backing: .buffered, defer: false)
@@ -798,6 +800,580 @@ final class MediaEditorModelTests: XCTestCase {
         }
     }
 
+    func testSaveFrameExportsTheEditedPlayheadFrameWhileEditingContinues() async throws {
+        let model = try await videoModel()
+        model.addOverlay(.redaction(rect: EditCrop(x: 0, y: 0, width: 0.5, height: 1), style: .solid))
+        try await eventually { model.canSaveFrame }
+        model.seek(1)
+        let engine = try JobEngine(supportDirectory: try workspace(), concurrency: 1)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let saving = Task {
+            await model.saveFrame { batch, settings in
+                Task {
+                    for await _ in gate { break }
+                    return await engine.run(batch, settings: settings) { _ in }
+                }
+            }
+        }
+        try await eventually { model.frameBatchID != nil }
+        XCTAssertFalse(model.canSaveFrame)
+        XCTAssertNil(model.savingBatchID)
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        XCTAssertEqual(model.values.photo.geometry.quarterTurns, 1, "editing continues during the frame export")
+        open.yield()
+        await saving.value
+        XCTAssertNil(model.frameBatchID)
+        guard case .saved(let output) = model.frameNote else {
+            return XCTFail("frame not saved: \(String(describing: model.frameNote))")
+        }
+        XCTAssertEqual(output.deletingLastPathComponent(), model.url.deletingLastPathComponent())
+        XCTAssertTrue(output.lastPathComponent.hasPrefix("clip-0_frame_0-01.000"), output.lastPathComponent)
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        XCTAssertEqual(CGSize(width: image.width, height: image.height), model.sourceSize, "planned before rotating")
+        XCTAssertLessThan(try rgb(image, x: image.width / 4, y: image.height / 2).max() ?? 1, 0.06)
+        XCTAssertGreaterThan(try rgb(image, x: image.width * 3 / 4, y: image.height / 2).max() ?? 0, 0.2)
+    }
+
+    func testSaveFrameReportsAFailedExport() async throws {
+        let model = try await videoModel()
+        await model.saveFrame { batch, _ in
+            let inputs = [[model.url]]
+            return Task {
+                BatchOutcome(
+                    batchID: batch.id, operation: batch.operation, inputs: inputs,
+                    outcomes: [.failed(.protectionDiskFull)], clipboardText: nil, reportText: nil, record: nil,
+                    historyFailed: false, details: [ItemDetails()])
+            }
+        }
+        XCTAssertEqual(
+            model.frameNote, .failed(UserMessages.describeResult(.protectionDiskFull, file: "clip-0.mp4")))
+        XCTAssertTrue(model.canSaveFrame, "a failed frame export can be retried")
+        XCTAssertEqual(japanese("Saving Frame…"), "フレームを保存中…")
+        XCTAssertEqual(japanese("Saved “%@”"), "“%@”を保存しました")
+    }
+
+    func testFreezeFrameSplitsAtThePlayheadAsOneUndoStepAndLocksTrimming() async throws {
+        let model = try await videoModel()
+        let before = model.outputDuration
+        model.seek(1)
+        XCTAssertTrue(model.canInsertFreezeFrame)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 3 }
+        let segments = model.values.segments
+        let freeze = segments[1]
+        XCTAssertEqual(freeze.freezeDuration, MediaEditorModel.defaultFreezeSeconds)
+        XCTAssertEqual(freeze.volume, 0)
+        XCTAssertEqual(freeze.speed, 1)
+        XCTAssertEqual(freeze.end - freeze.start, model.frameDuration, accuracy: 0.002, "holds one source frame")
+        XCTAssertLessThanOrEqual(freeze.start, 1)
+        XCTAssertGreaterThan(freeze.end, 1)
+        XCTAssertEqual(segments[0].end, freeze.start)
+        XCTAssertEqual(segments[2].start, freeze.start, "the clip continues from the held frame")
+        XCTAssertEqual(model.values.selectedID, freeze.id)
+        XCTAssertEqual(model.position, freeze.start, accuracy: 0.000_001)
+        XCTAssertEqual(model.outputDuration, before + 2, accuracy: 0.000_001)
+        XCTAssertEqual(
+            model.timelineRange(for: freeze).upperBound - model.timelineRange(for: freeze).lowerBound, 2,
+            accuracy: 0.000_001)
+
+        XCTAssertFalse(model.canInsertFreezeFrame, "a freeze cannot be frozen again")
+        XCTAssertFalse(model.canSplit)
+        model.beginTimelineTrim(freeze.id, start: true)
+        XCTAssertFalse(model.trimming, "freeze frames have no trim handles")
+        model.setTrimBoundaryAtPlayhead(start: false)
+        model.setVideoBoundary(0.5, start: true)
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values.segments, segments)
+
+        model.binding(\.freezeDuration).wrappedValue = 4.5
+        XCTAssertEqual(model.values.segments[1].freezeDuration, 4.5)
+        XCTAssertEqual(model.outputDuration, before + 4.5, accuracy: 0.000_001)
+        model.undo()
+        XCTAssertEqual(model.values.segments, segments)
+        model.undo()
+        XCTAssertEqual(model.values.segments.count, 1, "inserting is one Undo step")
+        XCTAssertEqual(model.outputDuration, before, accuracy: 0.000_001)
+
+        model.seek(0)
+        model.insertFreezeFrame()
+        try await eventually { model.values.segments.count == 2 }
+        XCTAssertTrue(model.values.segments[0].isFreeze, "no empty piece before the first frame")
+        XCTAssertEqual(model.values.segments[1].start, model.values.segments[0].start)
+        XCTAssertEqual(japanese("Insert Freeze Frame at Playhead"), "再生ヘッドにフリーズフレームを挿入")
+        XCTAssertEqual(
+            japanese(
+                "A freeze frame holds one picture without sound, so trimming, splitting, speed and volume don’t apply."),
+            "フリーズフレームは1枚の画像を無音で表示するため、トリミング、分割、速度、音量は使えません。")
+    }
+
+    func testReverseLocksEditingDisclosesTheNewFileAndUndoesThroughStagedSources() async throws {
+        let model = try await videoModel()
+        let original = try XCTUnwrap(model.values.segments.first)
+        XCTAssertTrue(model.canToggleReverse)
+        model.toggleReverse()
+        XCTAssertEqual(model.reverseProgress, 0)
+        XCTAssertTrue(model.editingLocked)
+        XCTAssertFalse(model.canSave)
+        XCTAssertFalse(model.canToggleReverse)
+        model.change { $0.photo.geometry.quarterTurns = 1 }
+        XCTAssertEqual(model.values.photo.geometry.quarterTurns, 0, "edits wait for the reverse")
+        try await eventually { model.reverseProgress == nil }
+        XCTAssertNil(model.reverseFailure)
+        let reversed = try XCTUnwrap(model.values.segments.first)
+        XCTAssertTrue(reversed.isReversed)
+        XCTAssertEqual(model.values.sources.count, 2)
+        let staged = model.values.sources[1].url
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+        XCTAssertEqual(model.outputDuration, original.end - original.start, accuracy: 0.05)
+        XCTAssertEqual(model.sourceName(reversed), "clip-0.mp4")
+        XCTAssertEqual(model.originalSources.map(\.url), [model.url])
+        let notice = try XCTUnwrap(model.values.video.joinedExportNotice)
+        XCTAssertEqual(model.newFileReason, notice)
+        XCTAssertEqual(
+            notice,
+            "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR."
+        )
+        XCTAssertTrue(model.forcesNewFile)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: true))
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure, "the staged source previews")
+
+        model.undo()
+        XCTAssertEqual(model.values.segments, [original], "reversing is one Undo step")
+        XCTAssertFalse(model.forcesNewFile)
+        model.redo()
+        XCTAssertTrue(model.values.segments[0].isReversed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path), "Undo history keeps the staged file")
+
+        model.toggleReverse()
+        let restored = try XCTUnwrap(model.values.segments.first)
+        XCTAssertFalse(restored.isReversed)
+        XCTAssertEqual(restored.start, original.start, accuracy: model.frameDuration)
+        XCTAssertEqual(restored.end, original.end, accuracy: model.frameDuration)
+        XCTAssertEqual(model.values.sources.count, 1, "restoring drops the unused staged source")
+        XCTAssertNil(model.newFileReason)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+        model.undo()
+        XCTAssertTrue(model.values.segments[0].isReversed)
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure)
+
+        await model.close()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path), "closing releases staged files")
+    }
+
+    func testCancellingReverseLeavesTheEditUntouched() async throws {
+        let directory = try workspace()
+        let model = try await videoModel(fixture: try synthesizedVideoFixture(in: directory))
+        let original = model.values
+        model.toggleReverse()
+        XCTAssertNotNil(model.reverseProgress)
+        model.cancelReverse()
+        try await eventually { model.reverseProgress == nil }
+        XCTAssertEqual(model.values, original)
+        XCTAssertFalse(model.canUndo)
+        XCTAssertNil(model.reverseFailure, "cancelling is not a failure")
+        XCTAssertTrue(model.canToggleReverse)
+    }
+
+    func testReverseExplainsFreezeAndLengthLimits() async throws {
+        let directory = try workspace()
+        let long = directory.appending(path: "long.mp4")
+        let encoding = Process()
+        encoding.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        encoding.arguments = [
+            "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=64x48:r=10:d=61",
+            "-c:v", "h264_videotoolbox", long.path,
+        ]
+        try encoding.run()
+        encoding.waitUntilExit()
+        XCTAssertEqual(encoding.terminationStatus, 0)
+        let model = try await videoModel(fixture: long)
+        XCTAssertEqual(
+            model.reverseUnavailableReason, "Reverse works on segments up to 1:00 long. Split this segment first.")
+        XCTAssertFalse(model.canToggleReverse)
+        model.toggleReverse()
+        XCTAssertNil(model.reverseProgress)
+        model.seek(30)
+        model.insertFreezeFrame()
+        try await eventually { model.selectedSegment?.isFreeze == true }
+        XCTAssertEqual(model.reverseUnavailableReason, "A freeze frame can’t be reversed.")
+        XCTAssertFalse(model.canToggleReverse)
+        XCTAssertEqual(
+            japanese("Reverse works on segments up to %@ long. Split this segment first."),
+            "逆再生できるのは%@までのセグメントです。先にこのセグメントを分割してください。")
+        XCTAssertEqual(japanese("A freeze frame can’t be reversed."), "フリーズフレームは逆再生できません。")
+        XCTAssertEqual(
+            japanese(
+                "Joined and reversed edits save a new H.264 MP4 file. Transparency is flattened and HDR is converted to SDR."
+            ),
+            "結合・逆再生した動画はH.264のMP4形式で新規保存されます。透明部分は背景色で塗りつぶされ、HDRはSDRに変換されます。")
+    }
+
+    func testRemoveSilenceSummarizesHatchesAndCutsAsOneUndoStep() async throws {
+        let directory = try workspace()
+        let model = try await videoModel(fixture: try pausedSpeechFixture(in: directory))
+        let original = model.values.segments
+        XCTAssertNil(model.silenceUnavailableReason)
+        XCTAssertNil(try model.silencePreview(SilenceRule()), "no summary before analysis")
+        model.analyzeSilence()
+        XCTAssertNotNil(model.silenceTask)
+        try await eventually { model.silenceTask == nil }
+        XCTAssertNil(model.silenceFailure)
+        let preview = try XCTUnwrap(try model.silencePreview(SilenceRule()))
+        XCTAssertEqual(preview.count, 3, "\(preview)")
+        let removed = preview.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
+        XCTAssertEqual(removed, 0.76 + 0.76 + 0.88, accuracy: 0.1)
+        XCTAssertEqual(preview[0].lowerBound, 1.12, accuracy: 0.05)
+        XCTAssertEqual(preview[0].upperBound, 1.88, accuracy: 0.05)
+        XCTAssertEqual(
+            try XCTUnwrap(try model.silencePreview(SilenceRule(minimumDuration: 2))), [], "longer pauses only")
+        model.showsSilencePreview = true
+        XCTAssertEqual(model.silenceHatching, preview)
+        model.analyzeSilence()
+        XCTAssertNil(model.silenceTask, "levels are cached per source")
+
+        model.removeSilence(SilenceRule())
+        XCTAssertEqual(model.values.segments.count, 3)
+        XCTAssertEqual(model.outputDuration, 6 - removed, accuracy: 0.05)
+        XCTAssertTrue(model.values.segments.allSatisfy { $0.speed == 1 && $0.volume == 1 })
+        model.undo()
+        XCTAssertEqual(model.values.segments, original, "removing silence is one Undo step")
+
+        model.change { $0.volume = 0 }
+        XCTAssertEqual(model.silenceUnavailableReason, "There’s no audible sound to analyze in this video.")
+        model.undo()
+        model.change {
+            $0.segments[0].start = 1.2; $0.segments[0].end = 1.8
+        }
+        XCTAssertEqual(
+            model.describeSilence(EngineError.invalidInput(.emptyInput)),
+            "Nothing would be left. Choose a lower threshold or a longer pause.")
+        model.removeSilence(SilenceRule())
+        XCTAssertEqual(model.silenceFailure, "Nothing would be left. Choose a lower threshold or a longer pause.")
+        XCTAssertEqual(model.values.segments.count, 1)
+
+        XCTAssertEqual(String(localized: "Removes \(1) pauses (\("0:01.0"))"), "Removes 1 pause (0:01.0)")
+        XCTAssertEqual(String(localized: "Removes \(14) pauses (\("0:42.0"))"), "Removes 14 pauses (0:42.0)")
+        XCTAssertEqual(japanese("Removes %lld pauses (%@)"), "%lldか所の間を削除（%@）")
+        XCTAssertEqual(
+            japanese("Nothing would be left. Choose a lower threshold or a longer pause."),
+            "何も残らなくなります。無音とみなす音量を下げるか、対象にする間を長くしてください。")
+        XCTAssertEqual(
+            japanese("There’s no audible sound to analyze in this video."), "この動画には分析できる音がありません。")
+    }
+
+    func testRemoveSilenceExplainsVideosWithoutSound() async throws {
+        let model = try await videoModel(fixture: try synthesizedSilentVideoFixture(in: try workspace()))
+        XCTAssertEqual(model.silenceUnavailableReason, "There’s no audible sound to analyze in this video.")
+        model.analyzeSilence()
+        XCTAssertNil(model.silenceTask)
+    }
+
+    func testBackgroundMusicAddsReplacesAndRemovesAsUndoSteps() async throws {
+        let model = try await videoModel()
+        let directory = try workspace()
+        let song = try audioFixture(in: directory)
+        XCTAssertTrue(MediaEditorModel.musicTypes.contains(.wav))
+        XCTAssertTrue(MediaEditorModel.musicTypes.contains(.mp3))
+        model.setMusic(song)
+        try await eventually { model.musicTask == nil }
+        XCTAssertNil(model.musicFailure)
+        let music = try XCTUnwrap(model.values.music)
+        XCTAssertEqual(music.url, song)
+        XCTAssertEqual(music.volume, BackgroundMusic.defaultVolume)
+        XCTAssertEqual(music.duration, 2, accuracy: 0.01)
+        XCTAssertEqual(model.values.video.music, music)
+        XCTAssertNotNil(model.musicRevealRequest)
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure)
+
+        model.musicBinding(\.volume).wrappedValue = 0.8
+        model.musicBinding(\.start).wrappedValue = 0.5
+        XCTAssertEqual(model.values.music?.volume, 0.8)
+        let replacement = directory.appending(path: "second.wav")
+        try FileManager.default.copyItem(at: song, to: replacement)
+        model.setMusic(replacement)
+        try await eventually { model.musicTask == nil }
+        XCTAssertEqual(model.values.music?.url, replacement)
+        XCTAssertEqual(model.values.music?.volume, 0.8, "Replace keeps the mix")
+        XCTAssertEqual(model.values.music?.start, 0.5)
+        model.removeMusic()
+        XCTAssertNil(model.values.music)
+        model.undo()
+        XCTAssertEqual(model.values.music?.url, replacement)
+        model.undo()
+        XCTAssertEqual(model.values.music?.url, song, "replacing is one Undo step")
+        model.undo()
+        model.undo()
+        model.undo()
+        XCTAssertNil(model.values.music, "adding is one Undo step")
+    }
+
+    func testBackgroundMusicExplainsUnsupportedAndChangedFiles() async throws {
+        let model = try await videoModel()
+        let directory = try workspace()
+        let text = directory.appending(path: "notes.mp3")
+        try Data("not audio".utf8).write(to: text)
+        model.setMusic(text)
+        try await eventually { model.musicTask == nil }
+        XCTAssertNil(model.values.music)
+        XCTAssertEqual(
+            model.musicFailure,
+            "“notes.mp3” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file.")
+
+        let song = try audioFixture(in: directory)
+        model.setMusic(song)
+        try await eventually { model.musicTask == nil }
+        XCTAssertNil(model.musicFailure, "a new choice clears the old message")
+        try await eventually { model.canSave || model.failure != nil }
+        try Data(count: 4_096).write(to: song)
+        XCTAssertTrue(model.musicChanged)
+        XCTAssertThrowsError(try model.makeSave(replacingOriginal: false))
+        model.musicBinding(\.volume).wrappedValue = 0.5
+        try await eventually { model.failure != nil }
+        XCTAssertEqual(model.failure, "The background music file changed while editing. Choose it again.")
+        XCTAssertFalse(model.canSave)
+        model.removeMusic()
+        try await eventually { model.canPlay || model.failure != nil }
+        XCTAssertNil(model.failure, "removing the changed song recovers")
+
+        XCTAssertEqual(
+            japanese("“%@” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file."),
+            "“%@”は音楽として使えません。MP3、AAC、WAV、AIFF、FLAC、Ogg、Opusのいずれかを選んでください。")
+        XCTAssertEqual(
+            japanese("The background music file changed while editing. Choose it again."),
+            "編集中に音楽ファイルが変更されました。もう一度選んでください。")
+    }
+
+    func testUpAndDownJumpBetweenSegmentBoundaries() async throws {
+        let model = try await videoModel()
+        let segment = try XCTUnwrap(model.values.segments.first)
+        model.change {
+            var left = segment
+            left.end = 0.5
+            var right = segment
+            right.id = UUID()
+            right.start = 0.5
+            right.speed = 2
+            $0.segments = [left, right]
+        }
+        let end = model.outputDuration
+        model.seek(0.2)
+        model.jumpToSegmentBoundary(forward: true)
+        XCTAssertEqual(model.position, 0.5, accuracy: 0.000_001)
+        model.jumpToSegmentBoundary(forward: true)
+        XCTAssertGreaterThan(model.position, end - 0.01, "the last boundary is the end")
+        model.jumpToSegmentBoundary(forward: true)
+        XCTAssertGreaterThan(model.position, end - 0.01)
+        model.jumpToSegmentBoundary(forward: false)
+        XCTAssertEqual(model.position, 0.5, accuracy: 0.000_001)
+        model.jumpToSegmentBoundary(forward: false)
+        XCTAssertEqual(model.position, 0)
+        XCTAssertEqual(model.values.segments.count, 2, "jumping never edits")
+    }
+
+    func testApplyToAllSegmentsCopiesAdjustmentsOrStyleAsOneUndoStep() async throws {
+        let model = try await videoModel()
+        let segment = try XCTUnwrap(model.values.segments.first)
+        model.change {
+            var left = segment
+            left.end = 0.5
+            left.adjustments.style = .warm
+            var right = segment
+            right.id = UUID()
+            right.start = 0.5
+            $0.segments = [left, right]
+            $0.selectedID = right.id
+        }
+        XCTAssertFalse(model.canApplyToAllSegments(styleOnly: false), "nothing differs yet")
+        model.change { $0.videoAdjustments[.exposure] = 0.4 }
+        model.change { $0.videoAdjustments.style = .dramatic }
+        XCTAssertTrue(model.canApplyToAllSegments(styleOnly: false))
+        model.applyToAllSegments(styleOnly: false)
+        XCTAssertEqual(model.values.segments[0].adjustments[.exposure], 0.4)
+        XCTAssertEqual(model.values.segments[0].adjustments.style, .warm, "Adjust keeps each segment's style")
+        model.undo()
+        XCTAssertEqual(model.values.segments[0].adjustments[.exposure], 0, "applying is one Undo step")
+        model.applyToAllSegments(styleOnly: true)
+        XCTAssertEqual(model.values.segments[0].adjustments.style, .dramatic)
+        XCTAssertEqual(model.values.segments[0].adjustments[.exposure], 0, "Styles keep each segment's light")
+        XCTAssertFalse(model.canApplyToAllSegments(styleOnly: true))
+
+        model.change { $0.speed = 4 }
+        try await eventually { model.canSave || model.failure != nil }
+        XCTAssertNil(model.failure, "4x is a valid preset")
+        XCTAssertEqual(japanese("Apply Style to All Segments"), "スタイルをすべてのセグメントに適用")
+        XCTAssertEqual(japanese("Apply Adjustments to All Segments"), "調整をすべてのセグメントに適用")
+    }
+
+    func testPhotoZoomStaysWithinItsRange() async throws {
+        let model = try await photoModel()
+        model.setPhotoZoom(16)
+        XCTAssertEqual(model.zoom, MediaEditorModel.photoZoomRange.upperBound)
+        model.setPhotoZoom(0.2)
+        XCTAssertEqual(model.zoom, 1)
+        model.setPhotoZoom(.nan)
+        XCTAssertEqual(model.zoom, 1)
+        model.setPhotoZoom(2.5)
+        XCTAssertEqual(model.zoom, 2.5)
+    }
+
+    func testDraggedArrowKeepsItsDirectionAndDraggedRedactionLandsUnderRotationAndFlip() async throws {
+        let model = try await photoModel()
+        model.change {
+            $0.photo.geometry.quarterTurns = 1
+            $0.photo.geometry.flipHorizontal = true
+        }
+        model.markColor = .yellow
+        let arrow = try XCTUnwrap(
+            model.newMark(.arrow, outputRect: CGRect(x: 0.8, y: 0.7, width: -0.6, height: -0.5)))
+        guard case .arrow(let from, let to, _, _) = arrow else { return XCTFail("not an arrow") }
+        let start = model.outputPoint(from)
+        let end = model.outputPoint(to)
+        XCTAssertEqual(start.x, 0.8, accuracy: 0.001, "drags from bottom-right")
+        XCTAssertEqual(start.y, 0.7, accuracy: 0.001)
+        XCTAssertEqual(end.x, 0.2, accuracy: 0.001, "toward top-left")
+        XCTAssertEqual(end.y, 0.2, accuracy: 0.001)
+
+        model.redactionStyle = .solid
+        let drag = CGRect(x: 0.1, y: 0.6, width: 0.3, height: 0.25)
+        let mark = try XCTUnwrap(model.newMark(.redact, outputRect: drag))
+        XCTAssertNotNil(model.addOverlay(mark))
+        try await eventually { model.canSave || model.failure != nil }
+        let planned = try model.makeSave(replacingOriginal: false)
+        let engine = try JobEngine(supportDirectory: try workspace(), concurrency: 1)
+        let result = await engine.run(planned.batch, settings: planned.settings) { _ in }
+        guard case .succeeded(let outputs, _) = result.outcomes.first, let output = outputs.first else {
+            return XCTFail("save failed: \(result.outcomes)")
+        }
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(output as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        func pixel(_ x: Double, _ y: Double) throws -> [Double] {
+            try rgb(image, x: Int(x * Double(image.width)), y: Int(y * Double(image.height)))
+        }
+        XCTAssertLessThan(try pixel(drag.midX, drag.midY).max() ?? 1, 0.06, "the dragged area is hidden")
+        XCTAssertGreaterThan(try pixel(1 - drag.midX, drag.midY)[0], 0.5, "the mirrored area stays visible")
+        XCTAssertGreaterThan(try pixel(drag.midX, 1 - drag.midY)[0], 0.5, "the flipped area stays visible")
+    }
+
+    func testFieldInteractionsBelongToTheirOwnerAndStartAndEndSnapIndependently() async throws {
+        let model = try await videoModel()
+        let original = model.values.segments
+        model.beginInteraction(owner: "start")
+        model.setVideoBoundary(0.5, start: true)
+        model.beginInteraction(owner: "end")
+        model.endInteraction(owner: "start")
+        model.setVideoBoundary(1.5, start: false)
+        model.setVideoBoundary(1.4, start: false)
+        await model.finishBoundaryInput()
+        XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "End input keeps Start's value")
+        XCTAssertEqual(model.values.end, 1.4, accuracy: model.frameDuration)
+        model.setVideoBoundary(1.3, start: false)
+        await model.finishBoundaryInput()
+        model.endInteraction(owner: "end")
+        XCTAssertFalse(model.canRedo)
+        model.undo()
+        XCTAssertEqual(model.values.segments, original, "the overlapping edits form one step, not one per keystroke")
+
+        model.beginInteraction(owner: "start")
+        model.setVideoBoundary(0.5, start: true)
+        await model.finishBoundaryInput()
+        model.beginInteraction(owner: "end")
+        model.setVideoBoundary(1.2, start: false)
+        await model.finishBoundaryInput()
+        model.endInteraction(owner: "end")
+        model.undo()
+        XCTAssertEqual(model.values.start, 0.5, accuracy: model.frameDuration, "each finished field is its own step")
+        XCTAssertEqual(model.values.end, original[0].end)
+        model.undo()
+        XCTAssertEqual(model.values.segments, original)
+    }
+
+    func testMarkedTextDoesNotChangeANumberUntilCommitted() async throws {
+        let model = try await videoModel()
+        let host = NSHostingView(
+            rootView: EditorNumberField(
+                model: model, title: "Speed", id: "speed", value: model.binding(\.speed),
+                range: VideoEdit.speedRange, precision: 2))
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let field = try XCTUnwrap(textFields(in: host).first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.setMarkedText(
+            "2", selectedRange: NSRange(location: 1, length: 0), replacementRange: editor.selectedRange())
+        XCTAssertTrue(editor.hasMarkedText())
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: field)
+        XCTAssertEqual(model.values.speed, 1, "a composing digit is not applied")
+        editor.insertText("2", replacementRange: editor.markedRange())
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(model.values.speed, 2, "the committed digit is applied")
+        window.makeFirstResponder(nil)
+    }
+
+    func testOverlayLaneHitsTheSelectedBarDrawnOnTop() throws {
+        var zoom = 1.0
+        var selected: UUID?
+        let ids = (0..<4).map { _ in UUID() }
+        let canvas = TimelineCanvas(frame: CGRect(x: 0, y: 0, width: 900, height: 122))
+        canvas.configuration = MediaTimeline(
+            duration: 2, position: 1, clips: [TimelineClip(id: UUID(), range: 0...2, selection: nil, label: "")],
+            playing: false, zoom: Binding(get: { zoom }, set: { zoom = $0 }), maximumZoom: 100,
+            seek: { _ in }, hover: { _ in }, select: { _ in }, beginTrim: { _, _ in }, trim: { _ in }, endTrim: {},
+            overlays: ids.enumerated().map { index, id in
+                TimelineOverlayMark(
+                    id: id, ranges: [0...2], label: "\(index)", fill: .systemRed, text: .white, selected: index == 2)
+            },
+            showsOverlayLane: true, selectOverlay: { selected = $0 })
+        let lane = TimelineCanvas.rulerHeight + TimelineCanvas.clipHeight + 6
+        for y in stride(from: lane + 1, to: lane + TimelineCanvas.overlayLaneHeight - 5, by: 2) {
+            let down = try XCTUnwrap(
+                NSEvent.mouseEvent(
+                    with: .leftMouseDown, location: CGPoint(x: 450, y: canvas.bounds.height - y), modifierFlags: [],
+                    timestamp: 0,
+                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            canvas.mouseDown(with: down)
+            canvas.mouseUp(with: down)
+            if selected == ids[2] { return }
+            XCTAssertNotEqual(selected, ids[3], "the bar hidden behind the selected one was hit")
+        }
+        XCTFail("the selected bar drawn on top is never hit")
+    }
+
+    func testOverlayRangeLimitsUseTheOverlaySourceFrameRate() async throws {
+        let directory = try workspace()
+        let ffmpeg = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        var clips: [URL] = []
+        for rate in [24, 60] {
+            let clip = directory.appending(path: "rate-\(rate).mp4")
+            let encoding = Process()
+            encoding.executableURL = ffmpeg
+            encoding.arguments = [
+                "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=64x48:r=\(rate):d=1",
+                "-c:v", "h264_videotoolbox", clip.path,
+            ]
+            try encoding.run()
+            encoding.waitUntilExit()
+            XCTAssertEqual(encoding.terminationStatus, 0)
+            clips.append(clip)
+        }
+        let model = MediaEditorModel(
+            urls: clips, isVideo: true, settings: Engine.Settings(),
+            staging: StagingArea(supportDirectory: directory))
+        addTeardownBlock { await model.close() }
+        model.load()
+        try await eventually { model.canPlay || model.failure != nil }
+        XCTAssertEqual(model.frameDuration, 1.0 / 24, accuracy: 0.000_1)
+        XCTAssertEqual(model.frameDuration(ofSource: 1), 1.0 / 60, accuracy: 0.000_1)
+        XCTAssertEqual(model.frameDuration(ofSource: 0), 1.0 / 24, accuracy: 0.000_1)
+    }
+
     private func rgb(_ image: CGImage, x: Int, y: Int) throws -> [Double] {
         var pixel = [UInt8](repeating: 0, count: 4)
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
@@ -853,12 +1429,14 @@ final class MediaEditorModelTests: XCTestCase {
     }
 
     private func videoModel(
-        count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil
+        count: Int = 1, settings: Engine.Settings = Engine.Settings(), range: ClosedRange<Double>? = nil,
+        fixture: URL? = nil
     ) async throws
         -> MediaEditorModel
     {
         let directory = try workspace()
-        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "ffmpeg-h264-aac", withExtension: "mp4"))
+        let bundled = Bundle(for: Self.self).url(forResource: "ffmpeg-h264-aac", withExtension: "mp4")
+        let fixture = try XCTUnwrap(fixture ?? bundled)
         let sources = try (0..<count).map { index in
             let source = directory.appending(path: "clip-\(index).mp4")
             try FileManager.default.copyItem(at: fixture, to: source)
@@ -1355,6 +1933,23 @@ final class MediaEditorModelTests: XCTestCase {
         return output
     }
 
+    /// Alternating one-second tone and silence.
+    private func pausedSpeechFixture(in directory: URL) throws -> URL {
+        let output = directory.appending(path: "paused.mp4")
+        let encoding = Process()
+        encoding.executableURL = try XCTUnwrap(Bundle.main.resourceURL).appending(path: "media-tools/bin/ffmpeg")
+        encoding.arguments = [
+            "-nostdin", "-y", "-v", "error",
+            "-f", "lavfi", "-i", "color=c=blue:s=160x120:r=30:d=6",
+            "-f", "lavfi", "-i", "aevalsrc='0.4*sin(2*PI*440*t)*lt(mod(t\\,2)\\,1)':s=48000:d=6",
+            "-ac", "2", "-c:v", "h264_videotoolbox", "-b:v", "400k", "-c:a", "aac", "-t", "6", output.path,
+        ]
+        try encoding.run()
+        encoding.waitUntilExit()
+        XCTAssertEqual(encoding.terminationStatus, 0)
+        return output
+    }
+
     private func synthesizedSilentVideoFixture(in directory: URL) throws -> URL {
         let resources = try XCTUnwrap(Bundle.main.resourceURL)
         let ffmpeg = resources.appending(path: "media-tools/bin/ffmpeg")
@@ -1375,6 +1970,11 @@ final class MediaEditorModelTests: XCTestCase {
         let details = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         XCTAssertEqual(encoding.terminationStatus, 0, details)
         return output
+    }
+
+    private func japanese(_ key: String) -> String {
+        let path = Bundle.main.path(forResource: "ja", ofType: "lproj")
+        return path.flatMap(Bundle.init(path:))?.localizedString(forKey: key, value: "missing", table: nil) ?? "missing"
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
