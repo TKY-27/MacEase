@@ -531,7 +531,7 @@ private enum FallbackFixtures {
         do {
             _ = try await MediaToolProcess().runTyped(
                 executable: stub, arguments: [], directory: folder, tools: tools,
-                captureOutput: false, includeTLSCertificate: false, noProgressTimeout: .milliseconds(300))
+                captureOutput: false, includeTLSCertificate: false, noProgressTimeout: .seconds(2))
             Issue.record("expected stalled child to time out")
         } catch let error as MediaToolProcess.Failure {
             timedOutFailure = error
