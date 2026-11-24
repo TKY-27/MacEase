@@ -14714,7 +14714,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ミュート"
+            "value": "消音"
           }
         }
       }
@@ -21892,6 +21892,236 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@×"
+          }
+        }
+      }
+    },
+    "Fit shows the whole image and 100% shows actual pixels. Double-click the image to switch.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“全体表示”は画像全体を、“100%”は実際のピクセルを表示します。画像をダブルクリックすると切り替わります。"
+          }
+        }
+      }
+    },
+    "Image Info": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像の情報"
+          }
+        }
+      }
+    },
+    "Reduced": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "縮小表示"
+          }
+        }
+      }
+    },
+    "This image is shown at a reduced size. Open it in Preview to see every pixel.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画像は縮小して表示されています。すべてのピクセルを見るには“プレビュー”で開いてください。"
+          }
+        }
+      }
+    },
+    "Dimensions": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きさ"
+          }
+        }
+      }
+    },
+    "Color Profile": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラープロファイル"
+          }
+        }
+      }
+    },
+    "Bit Depth": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビット深度"
+          }
+        }
+      }
+    },
+    "Dynamic Range": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイナミックレンジ"
+          }
+        }
+      }
+    },
+    "Camera": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ"
+          }
+        }
+      }
+    },
+    "Lens": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンズ"
+          }
+        }
+      }
+    },
+    "Captured": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撮影日時"
+          }
+        }
+      }
+    },
+    "Location": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置情報"
+          }
+        }
+      }
+    },
+    "Included in the file": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルに含まれています"
+          }
+        }
+      }
+    },
+    "Shown At": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示サイズ"
+          }
+        }
+      }
+    },
+    "%lld × %lld (reduced)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld × %2$lld（縮小）"
+          }
+        }
+      }
+    },
+    "%@ dpi": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dpi"
+          }
+        }
+      }
+    },
+    "%@ × %@ dpi": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ × %2$@ dpi"
+          }
+        }
+      }
+    },
+    "%lld-bit": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldビット"
+          }
+        }
+      }
+    },
+    "HDR, %@× headroom": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR（ヘッドルーム %@倍）"
+          }
+        }
+      }
+    },
+    "Previous File (⌥⌘←)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のファイル (⌥⌘←)"
+          }
+        }
+      }
+    },
+    "Next File (⌥⌘→)": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のファイル (⌥⌘→)"
+          }
+        }
+      }
+    },
+    "%@, %@": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$@"
+          }
+        }
+      }
+    },
+    "Loading": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中"
           }
         }
       }
