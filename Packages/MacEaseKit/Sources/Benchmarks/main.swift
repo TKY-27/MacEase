@@ -504,6 +504,12 @@ do {
     let arguments = Array(CommandLine.arguments.dropFirst())
     if arguments.first == "editor.photo" {
         try await benchmarkEditorPhoto()
+    } else if arguments.first == "editor.timeline", arguments.count == 3 {
+        try await benchmarkEditorTimeline(URL(fileURLWithPath: arguments[1]), mode: arguments[2])
+    } else if arguments.first == "editor.reverse", arguments.count == 4,
+        let start = Double(arguments[2]), let seconds = Double(arguments[3])
+    {
+        try await benchmarkReverse(URL(fileURLWithPath: arguments[1]), start: start, seconds: seconds)
     } else if arguments.first == "editor.reverse", arguments.count == 2 {
         try await benchmarkReverse(URL(fileURLWithPath: arguments[1]))
     } else if arguments.first?.hasPrefix("feature.") == true {

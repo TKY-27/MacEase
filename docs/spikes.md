@@ -1247,3 +1247,146 @@ wrap `Packages/MacEaseKit/.build/release/Benchmarks` directly with
 `d81a7f22e20c7530e1279018606f0e9ae5301a3e0eb61b21b2b7eaaf8fc96d72`;
 the normal-GOP fixture is
 `c8453c83acd0c32ede3217c370d84adb336de5b5e26b91b1d17de156b5c64bd4`.
+
+## Bounded editor reads, GOP reverse and native music mixing (2026-11-24)
+
+These findings supersede the whole-selection spill and prepared-music-preview
+strategies recorded above. Baseline: `cb33f92`; final engine: `f157039`
+(including foundations `d99de8c` and output capacity `03a23ab`). Environment: Apple M5, macOS 27.2.1 (26B131),
+Apple Swift 6.4.2, Debug builds. Measurements exclude compilation. Other
+worktrees shared the machine; timings are observations rather than latency
+bounds.
+
+Native frame timing can be indexed without loading compressed samples.
+`AVSampleCursor` timestamps must be mapped through each non-empty track
+segment's source/target time mapping. Merely subtracting the first timestamp
+is insufficient for general edit lists. Metadata-only indexes matched positive
+`outputDuration` / `outputPresentationTimeStamp` reader samples on the existing
+open-GOP/VFR and fractional-rate fixtures. Session previews and frame fetches
+share indexes by URL; timeline export shares one index per source. Container
+indexes also record keyframe checkpoints, so samplers and reverse do not rescan
+the full stream at segment boundaries. Container indexing still reads packets
+once; it is not a metadata-only container parser.
+
+### Long-timeline index reads and music readiness
+
+The native input was a synthesized 1800-second, 160x120, 10 fps H.264 MP4:
+18,000 packets, 23,236,782 file bytes. Its 300 selected segments each kept
+0.1 seconds, distributed across the source. One full-frame solid redaction
+covered the source. The baseline logged 298 sampler/index constructions for
+these 300 segments and 23,047,440 packet payload bytes per construction.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| 300-segment export, seconds | 131.029 | 7.230 |
+| Native full-track packet indexes | 298 | 0 |
+| Packet payload bytes read for indexing | 6,868,137,120 | 0 |
+| Shared timing indexes per source | None | 1 |
+| Music edit 1 to ready-to-play, seconds | 22.493 | 0.092 |
+| Music edit 2 to ready-to-play, seconds | 18.909 | 0.010 |
+| Music edit 3 to ready-to-play, seconds | 18.363 | 0.010 |
+| Peak music staging bytes | 1,382,408,192 | 0 |
+
+The long native source has one-second GOPs. Random-seek and full-export latency
+on a long sparse-GOP production recording remain unmeasured; only reverse's
+60-second single-keyframe case below exercises that extreme.
+
+The cache regression renders 300 segments with a redaction for both native and
+Matroska inputs, counts one index build, and checks redacted pixels. Native
+index payload counts are zero; the Matroska index reads its source once.
+Baseline counts came from temporary constructor instrumentation, removed from
+the final source. These payload counts exclude decoder-internal reads,
+container headers, read-ahead and filesystem caching. The process block-input
+counter was zero in both runs with warm cache. Total logical decode bytes and
+a 3 GB production recording were not measured.
+
+The music case used the full 1800-second timeline and a one-second native CAF
+song, with three volume changes. This isolates full-timeline preparation cost;
+it does not measure decoding a long compressed song. Readiness means an
+`AVPlayerItem` reached `.readyToPlay`, not that a human approved playback.
+The final native path inserts music on a separate composition audio track.
+The 60,000 composition timescale and separate source-format tracks remain
+mandatory. Vorbis/Opus music retains one per-file PCM proxy for the session;
+concurrent requests share preparation, and close cancels preparation before
+removing its registered directory.
+
+Two coherent 0.8-amplitude tones measured float preview RMS 1.131371 and export
+RMS 0.850146 over the stable window. Export clamps each summed sample to
+[-1, 1]; clipping the float preview to that range matches export RMS within
+0.035. Native float preview defers saturation to playback output, whose gain
+can also affect audible clipping. Non-clipping mixes remain matched by the
+existing rendered-audio tests across volumes, offsets, source formats, fades,
+speed, freeze and reversed audio placement. A saturated mix is intentionally
+not claimed to have identical float preview and export samples.
+
+### Reverse decode range and storage
+
+The late-segment source was a synthesized 3600-second, 160x120, 10 fps H.264
+Matroska file with 36,000 packets and one-second closed GOPs. The selection
+was 3540.2-3540.8 seconds.
+
+| Late selection | Before | After |
+| --- | ---: | ---: |
+| Reverse seconds | 12.177 | 0.205 |
+| Decoded frames | 35,409 | 9 |
+| Spill bytes | 201,576 sampled peak | 0 |
+
+The regression uses a separate 60-second Matroska fixture and selects
+58.2-58.8 seconds. It compares all six reversed frames against a forward
+reference and requires at most 15 decoded frames. A remuxed HEVC open-GOP/VFR
+Matroska fixture additionally checks leading B frames, ordering and variable
+frame intervals. Keyframe checkpoints resume in decode order; subsequent
+leading B frames are not discarded merely because their PTS precedes the
+keyframe's PTS.
+
+The following 1920x1080, 60 fps, 60-second H.264 Matroska clips each contain
+3600 packets. Single-keyframe and one-second-GOP sources use the generation
+commands from the earlier reverse measurements. Retained pixels are measured
+by the renderer; RSS and footprint come from `/usr/bin/time -l`. They account
+for different resources and do not bound every shared codec/GPU allocation.
+
+| Source | Version | Seconds | Retained pixels MB | Max RSS MB | Peak footprint MB | Peak spill GB | Peak total staging GB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Single keyframe | Before | 32.165 | 8.294 | 69.124 | 75.613 | 2.521 | 3.325 |
+| Single keyframe | After | 22.783 | 3.110 | 54.051 | 47.367 | 1.037 | 1.826 |
+| One-second GOP | Before | 37.444 | 8.294 | 69.386 | 79.660 | 2.489 | 3.234 |
+| One-second GOP | After | 16.892 | 186.624 | 53.576 | 27.264 | 0 | 0.738 |
+
+The baseline's BGRA frames contain 8,294,400 bytes each: 3600 frames would be
+29,859,840,000 uncompressed pixel bytes before LZ4. Thus an 11 GB estimate
+understates that old path's worst case. Final native 8-bit biplanar frames
+contain 3,110,400 bytes each, or 11,197,440,000 bytes for this selection before
+LZ4. Actual compressed spill sizes are in the table, not inferred from entropy.
+
+Both versions decode 3600 frames in these whole-selection cases. The final
+renderer keeps a GOP only when it fits the 256 MiB retained-pixel budget.
+Native biplanar pixels make a 60-frame 1080p GOP fit. Oversized GOPs spill from
+the first frame instead of first filling the cache. Spill reads drain an
+individual autorelease pool per restored image: without that boundary an
+intermediate run reached about 1.1 GB footprint despite a small retained-frame
+counter. The final single-keyframe result above includes that correction.
+Only one GOP's spill exists at a time. Staging peaks are sampled every 50 ms;
+the renderer additionally records the exact maximum spill length.
+
+Before decoding, reverse estimates the largest GOP's worst-case LZ4 spill,
+forward PCM audio, the entire reversed output using uncompressed frame sizes,
+and an 8 MiB container allowance. Row alignment, frame overhead and LZ4
+expansion are included. It uses filesystem available capacity, not purgeable
+capacity advertised for important usage; a small APFS test volume can report
+zero important-usage capacity while still having ordinary free space. A typed
+`insufficientReverseSpace(requiredBytes:availableBytes:)` error provides English
+and Japanese instructions plus formatted needed/available sizes. This is a
+conservative estimate and can refuse an operation whose compressed output
+would fit. Capacity is a snapshot and cannot reserve space against other
+applications. Successful encoded reversed sources remain retained for Undo
+until editor close, even after restoring forward playback or deleting segments.
+
+Reproduce with `Benchmarks editor.timeline <long.mp4> export`,
+`Benchmarks editor.timeline <long.mp4> music`,
+`Benchmarks editor.reverse <hour.mkv> 3540.2 0.6`, and
+`Benchmarks editor.reverse <single-or-normal.mkv>` from the package's Debug
+products. The long clip repeats the committed `reverse-late-gop.mkv` 30 times
+and remuxes to MP4; the hour clip repeats that Matroska result twice. The
+open-GOP Matroska regression remuxes `reverse-open-gop-vfr.mp4` without encoding.
+All large generated benchmark fixtures were removed after measurement; their
+metadata and logs remain in the integration evidence directory.

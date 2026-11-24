@@ -1,12 +1,15 @@
+import AVFoundation
 import CoreGraphics
 import Engine
 import Foundation
 
-func benchmarkReverse(_ source: URL) async throws {
+func benchmarkReverse(_ source: URL, start: Double = 0, seconds: Double = VideoSegmentReverser.maximumSegmentSeconds)
+    async throws
+{
     let support = FileManager.default.temporaryDirectory.appending(path: "ReverseBench-\(UUID())")
     try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
     let staging = StagingArea(supportDirectory: support)
-    let segment = VideoSegment(start: 0, end: VideoSegmentReverser.maximumSegmentSeconds)
+    let segment = VideoSegment(start: start, end: start + seconds)
     var edit = VideoEdit()
     edit.segments = [segment]
     let editor = try await VideoEditorSource.open(source, staging: staging)
@@ -14,7 +17,7 @@ func benchmarkReverse(_ source: URL) async throws {
     _ = try await editor.reverse(
         segmentID: segment.id, in: edit,
         statistics: { measured in
-            print("decoded_frames=\(measured.decodedFrames) peak_buffered_bytes=\(measured.peakBufferedBytes)")
+            print(String(reflecting: measured))
         })
     print("reverse_seconds=\((ContinuousClock.now - start) / .seconds(1))")
     await editor.close()
@@ -57,4 +60,78 @@ func benchmarkEditorPhoto() async throws {
         print("photo_overlays=\(count) median_ms=\(median) p95_ms=\(percentile95)")
     }
     try FileManager.default.removeItem(at: folder)
+}
+
+@MainActor
+func benchmarkEditorTimeline(_ source: URL, mode: String) async throws {
+    guard ["music", "export"].contains(mode) else { throw BenchError(description: "Unknown editor timeline benchmark") }
+    let folder = FileManager.default.temporaryDirectory.appending(path: "EditorTimelineBench-\(UUID())")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let staging = StagingArea(supportDirectory: folder)
+    let editor = try await VideoEditorSource.open(source, staging: staging)
+    let details = await editor.details
+    var edit = VideoEdit()
+    if mode == "music" {
+        let song = folder.appending(path: "song.caf")
+        try writeBenchmarkTone(to: song)
+        edit.segments = [VideoSegment(start: 0, end: details.duration)]
+        edit.music = try BackgroundMusic.load(from: song)
+        let volumes = [0.25, 0.5, 0.75]
+        for (iteration, volume) in volumes.enumerated() {
+            edit.music?.volume = volume
+            let start = ContinuousClock.now
+            let playback = try await editor.playback(edit: edit)
+            let playerItem = AVPlayerItem(asset: playback.asset)
+            playerItem.audioMix = playback.audioMix
+            let player = AVPlayer(playerItem: playerItem)
+            while playerItem.status == .unknown { try await Task.sleep(for: .milliseconds(1)) }
+            guard playerItem.status == .readyToPlay else { throw BenchError(description: "preview unavailable") }
+            print("music_edit=\(iteration) playable_seconds=\((ContinuousClock.now - start) / .seconds(1))")
+            withExtendedLifetime(player) {}
+        }
+    } else {
+        let segmentCount = 300
+        let keptSeconds = 0.1
+        edit.segments = (0..<segmentCount).map { index in
+            let start = Double(index) * (details.duration - keptSeconds) / Double(segmentCount)
+            return VideoSegment(start: start, end: start + keptSeconds)
+        }
+        edit.overlays = [
+            TimedOverlay(
+                overlay: EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid)), start: 0, end: details.duration
+            )
+        ]
+        let engine = try JobEngine(supportDirectory: folder, concurrency: 1)
+        let start = ContinuousClock.now
+        let result = await engine.run(
+            MediaEditing.video(url: source, edit: edit, settings: Settings()), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = result.outcomes.first else {
+            throw BenchError(description: "timeline export failed: \(result.outcomes)")
+        }
+        print("segments=\(segmentCount) export_seconds=\((ContinuousClock.now - start) / .seconds(1))")
+        for output in outputs { try FileManager.default.removeItem(at: output) }
+    }
+    await editor.close()
+    try FileManager.default.removeItem(at: folder)
+}
+
+private func writeBenchmarkTone(to url: URL) throws {
+    let sampleRate = Double(Targets.audioSampleRate)
+    let channels = AVAudioChannelCount(Targets.audioChannels)
+    let frameCount = AVAudioFrameCount(Targets.audioSampleRate)
+    guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channels),
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+        let planes = buffer.floatChannelData
+    else { throw BenchError(description: "benchmark audio unavailable") }
+    for frame in 0..<Int(frameCount) {
+        let sample = Float(
+            sin(2 * .pi * Targets.audioToneHertz * Double(frame) / sampleRate) * Targets.audioToneAmplitude)
+        for channel in 0..<Int(channels) { planes[channel][frame] = sample }
+    }
+    buffer.frameLength = frameCount
+    var settings = format.settings
+    settings[AVLinearPCMIsNonInterleaved] = false
+    let file = try AVAudioFile(forWriting: url, settings: settings)
+    try file.write(from: buffer)
 }
