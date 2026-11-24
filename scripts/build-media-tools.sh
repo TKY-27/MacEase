@@ -12,7 +12,8 @@ source_archive="$root/Vendor/build/media-tools-sources.tar.xz"
 deployment_target="26.0"
 python_version="3.14"
 jobs=4
-stamp="$(cat "$lock" "$0" "$root/docs/media-tools.md" "$root/Vendor/patches/lame-media-tools-export.patch" | shasum -a 256 | cut -d' ' -f1)"
+stamp="$(cat "$lock" "$0" "$root/scripts/sign-bundled-code.sh" "$root/scripts/verify-signing.py" "$root"/scripts/entitlements/*.plist \
+    "$root/docs/media-tools.md" "$root/Vendor/patches/lame-media-tools-export.patch" | shasum -a 256 | cut -d' ' -f1)"
 
 if [[ "${1:-}" != --force && -f "$stamp_file" && -f "$source_archive" \
     && "$(cat "$stamp_file")" == "$stamp" && -x "$runtime/bin/python3" \
@@ -186,13 +187,15 @@ while IFS= read -r -d '' executable; do
     case "$executable" in
         "$runtime/bin/ffmpeg"|"$runtime/bin/ffprobe")
             install_name_tool -add_rpath @executable_path/../lib "$executable" ;;
-        *.dylib) install_name_tool -id "@rpath/$(basename "$executable")" "$executable" ;;
+        *.dylib)
+            library_id="$(otool -D "$executable" | sed -n '2p')"
+            install_name_tool -id "@rpath/$(basename "$library_id")" "$executable" ;;
     esac
-    codesign --force --sign - "$executable" >/dev/null 2>&1
     if otool -L "$executable" | grep -E '/opt/homebrew|/usr/local|media-tools-work' >/dev/null; then
         echo "error: external dependency in $executable" >&2; exit 1
     fi
 done < <(find "$runtime/bin" "$runtime/lib" -type f \( -perm -111 -o -name '*.so' -o -name '*.dylib' \) -print0)
+"$root/scripts/sign-bundled-code.sh" "$runtime" --sign -
 
 cp "$lock" "$runtime/manifest.lock"
 cp "$root/docs/media-tools.md" "$runtime/BUILD.md"
@@ -233,11 +236,15 @@ fi
 source_bundle="$work/source-bundle"
 rm -rf "$source_bundle"
 mkdir -p "$source_bundle/sources" "$source_bundle/scripts" "$source_bundle/Vendor" "$source_bundle/docs" "$source_bundle/Vendor/patches"
+mkdir -p "$source_bundle/scripts/entitlements"
 while read -r name _; do
     [[ -z "$name" || "$name" == \#* || "$name" == node ]] && continue
     cp "$(fetch "$name")" "$source_bundle/sources/"
 done < "$lock"
 cp "$0" "$source_bundle/scripts/"
+cp "$root/scripts/sign-bundled-code.sh" "$source_bundle/scripts/"
+cp "$root/scripts/verify-signing.py" "$source_bundle/scripts/"
+cp "$root"/scripts/entitlements/*.plist "$source_bundle/scripts/entitlements/"
 cp "$lock" "$source_bundle/Vendor/"
 cp "$root/Vendor/patches/lame-media-tools-export.patch" "$source_bundle/Vendor/patches/"
 cp "$root/docs/media-tools.md" "$source_bundle/docs/"

@@ -211,6 +211,9 @@ print(json.dumps(report, indent=2))
 
 ''', str(root)], check=True)
 bundled = {}
+subprocess.run([str(root / "scripts/sign-bundled-code.sh"), str(runtime), "--sign", "-"], check=True)
+for executable in (runtime / "bin").iterdir():
+    subprocess.run([str(executable), "--help"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 for directory in (runtime / "bin", runtime / "lib", runtime / "models", runtime / "licenses", corresponding_source):
     for path in sorted(directory.iterdir()):
         if path.is_file():

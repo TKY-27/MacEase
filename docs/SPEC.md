@@ -2292,7 +2292,7 @@ that bound. Earlier whole-key results remain historical evidence in
 - **CI (`.github/workflows/ci.yml`)** on pushes and pull requests to `main`:
   - `lint` on `macos-26`: `swift format lint --strict --recursive`.
   - `build-26` on `macos-26` with the newest installed Xcode 26: build native
-    dependencies (cached by the hash of `Vendor/deps.lock` and the build script),
+    dependencies and bundled runtimes with `make bootstrap` (cached by their pins and build scripts),
     `swift test`, and `xcodebuild build` of the app in Debug.
   - `build-27` on the `xcode-27` image (generally available since
     2026-10-15) with Xcode 27: the same steps.
@@ -2304,6 +2304,22 @@ that bound. Earlier whole-key results remain historical evidence in
   `MACEASE_CERT_P12_BASE64` and `MACEASE_CERT_PASSWORD` to files, never to the
   terminal; `--set-secrets` sets them with `gh`. Debug builds are
   ad-hoc signed.
+- **Hardened Runtime.** Enable it for the host, extension and every bundled
+  Mach-O in Debug and Release (ADR 0069). Only the host receives the Apple
+  Events entitlement for Finder Automation. In normal Debug and Release builds,
+  only Python, FFmpeg, ffprobe and
+  the two sherpa audio executables disable library validation, because the
+  configured identities have no Apple Team ID. Only Node allows JIT memory.
+  The host and extension retain library validation. No unsigned-executable-memory
+  or DYLD-environment exception is granted. Nested code is signed before its
+  enclosing bundles; packaging verifies runtime flags and strict signatures.
+  The host remains unsandboxed; the Finder extension remains sandboxed.
+  App-hosted tests use an isolated `DebugTests` configuration with its own bundle
+  ID and support folder. Only that test host disables library validation to
+  load unteamed XCTest/package bundles; normal Debug and Release do not.
+  Exception measurements use ad-hoc signatures. Equal behavior with the
+  self-signed release identity is inferred from its absent Apple Team ID;
+  that identity was not used in the recorded validation.
 - **Release (`.github/workflows/release.yml`)** on tags `v*` on the `xcode-27`
   image: build native dependencies, regenerate third-party notices, archive
   Release, sign the helper, app and
@@ -3024,6 +3040,10 @@ docked frame flush against a real Finder window, outer-corner mask, hairline,
 toggle titles and undocked size were rendered and checked on macOS 27.
 
 ## Changelog
+
+- 2026-11-24: Enable Hardened Runtime with measured, per-executable exceptions
+  and host Finder Automation access; preserve the unsandboxed host and
+  self-signed, unnotarized distribution (ADR 0069).
 
 - 2026-11-17: Request Finder Automation authorization before timed selection
   reads so the system consent dialog can remain open (ADR 0068).
