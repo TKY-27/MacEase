@@ -424,6 +424,13 @@ public actor VideoEditorSource {
         return updated
     }
 
+    /// Cancelled adoption cannot enter Undo history.
+    public func discardReversedSource(at url: URL) {
+        let directory = url.deletingLastPathComponent()
+        guard reversedDirectories.remove(directory) != nil else { return }
+        staging.release(directory)
+    }
+
     public func close() async {
         closed = true
         let tasks = Array(reverseTasks.values)

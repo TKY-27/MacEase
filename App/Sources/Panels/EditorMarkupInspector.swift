@@ -181,9 +181,9 @@ struct EditorMarkupInspector: View {
                 }
             }
             HStack(spacing: 8) {
-                Button("Start at Playhead") { Task { await model.setOverlayBoundaryAtPlayhead(start: true) } }
+                Button("Start at Playhead") { model.setOverlayBoundaryAtPlayhead(start: true) }
                     .help("Show from the playhead (I)")
-                Button("End at Playhead") { Task { await model.setOverlayBoundaryAtPlayhead(start: false) } }
+                Button("End at Playhead") { model.setOverlayBoundaryAtPlayhead(start: false) }
                     .help("Show through the playhead (O)")
             }
             .disabled(!model.canSetOverlayBoundary)

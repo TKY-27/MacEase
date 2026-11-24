@@ -164,6 +164,7 @@ struct MediaTimeline: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: TimelineScrollView, context: Context) {
+        scroll.interactionEnabled = context.environment.isEnabled
         scroll.configuration = self
         scroll.updateTimeline()
     }
@@ -175,6 +176,7 @@ struct MediaTimeline: NSViewRepresentable {
 }
 
 final class TimelineScrollView: NSScrollView {
+    var interactionEnabled = true
     var configuration: MediaTimeline?
     var canvas: TimelineCanvas? { documentView as? TimelineCanvas }
     private var appliedZoom = 1.0
@@ -188,6 +190,7 @@ final class TimelineScrollView: NSScrollView {
 
     func updateTimeline() {
         guard let configuration, let canvas else { return }
+        canvas.interactionEnabled = interactionEnabled
         let viewportWidth = max(1, contentSize.width)
         if viewportWidth != previousViewportWidth {
             previousViewportWidth = viewportWidth
@@ -219,6 +222,7 @@ final class TimelineScrollView: NSScrollView {
             reflectScrolledClipView(contentView)
             self.anchor = nil
         }
+        horizontalScroller?.isEnabled = interactionEnabled && configuration.zoom > 1
         canvas.needsDisplay = true
         window?.invalidateCursorRects(for: canvas)
         notifyVisibleRange()
@@ -239,6 +243,7 @@ final class TimelineScrollView: NSScrollView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard interactionEnabled else { return }
         guard event.modifierFlags.contains(.command) else { super.scrollWheel(with: event); return }
         magnify(by: exp(Double(event.scrollingDeltaY) * 0.025), event: event)
     }
@@ -248,7 +253,7 @@ final class TimelineScrollView: NSScrollView {
     }
 
     private func magnify(by factor: Double, event: NSEvent) {
-        guard let configuration, let canvas else { return }
+        guard interactionEnabled, let configuration, let canvas else { return }
         let point = canvas.convert(event.locationInWindow, from: nil)
         anchor = (point.x / max(1, canvas.frame.width), point.x - contentView.bounds.minX)
         configuration.zoom = min(configuration.maximumZoom, max(1, configuration.zoom * factor))
@@ -275,6 +280,20 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private static let freezeDash: [CGFloat] = [4, 3]
     private static let minimumLabelWidth = 40.0
     private static let hatchSpacing = 7.0
+
+    var interactionEnabled = true {
+        didSet {
+            guard oldValue, !interactionEnabled else { return }
+            trimDrag = nil
+            mouseOrigin = nil
+            draggedClip = nil
+            leave()
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        interactionEnabled ? super.hitTest(point) : nil
+    }
 
     var configuration: MediaTimeline?
     private(set) var pointerInViewport: CGPoint?
@@ -304,7 +323,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func resetCursorRects() {
-        guard let configuration, configuration.duration > 0 else { return }
+        guard interactionEnabled, let configuration, configuration.duration > 0 else { return }
         for clip in configuration.clips where !clip.freeze {
             guard let selection = clip.selection else { continue }
             for handle in handleRects(rectangle(selection, duration: configuration.duration)) {
@@ -767,6 +786,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard interactionEnabled else { return }
         guard let configuration, trimDrag == nil else { return }
         let location = convert(event.locationInWindow, from: nil)
         pointerInViewport = CGPoint(x: location.x - visibleRect.minX, y: location.y)
@@ -784,6 +804,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard interactionEnabled else { return }
         guard let configuration else { return }
         let location = convert(event.locationInWindow, from: nil)
         mouseOrigin = location
@@ -830,6 +851,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard interactionEnabled else { return }
         guard let configuration else { return }
         let location = convert(event.locationInWindow, from: nil)
         if let drag = trimDrag {
@@ -856,6 +878,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard interactionEnabled else { return }
         if trimDrag != nil { configuration?.endTrim() }
         trimDrag = nil; mouseOrigin = nil; draggedClip = nil
     }
@@ -865,10 +888,12 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     { .move }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        configuration?.move == nil ? [] : .move
+        guard interactionEnabled else { return [] }
+        return configuration?.move == nil ? [] : .move
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard interactionEnabled else { return false }
         guard let configuration, let move = configuration.move,
             let string = sender.draggingPasteboard.string(forType: .string), let id = UUID(uuidString: string),
             configuration.clips.contains(where: { $0.id == id })
@@ -882,7 +907,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let configuration, configuration.action != nil else { return nil }
+        guard interactionEnabled, let configuration, configuration.action != nil else { return nil }
         let location = convert(event.locationInWindow, from: nil)
         guard
             let clip = configuration.clips.first(where: {
@@ -903,7 +928,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     }
 
     @objc private func performTimelineAction(_ sender: NSMenuItem) {
-        guard let menuClip, let action = TimelineAction(rawValue: sender.tag) else { return }
+        guard interactionEnabled, let menuClip, let action = TimelineAction(rawValue: sender.tag) else { return }
         configuration?.action?(menuClip, action)
     }
 }

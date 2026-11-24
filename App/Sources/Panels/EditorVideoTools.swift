@@ -8,8 +8,19 @@ enum FrameNote: Equatable {
 }
 
 extension MediaEditorModel {
+    func frameRange(at seconds: Double, segment: VideoSegment, source: VideoEditorSource) async throws
+        -> ClosedRange<Double>
+    {
+        let sourceDuration = values.sources[segment.sourceIndex].duration
+        let next = try await source.adjacentFrameTime(to: seconds, forward: true)
+        let end = min(segment.end, next > seconds ? next : sourceDuration)
+        let start = max(segment.start, try await source.adjacentFrameTime(to: end, forward: false))
+        return start...end
+    }
+
     var canInsertFreezeFrame: Bool {
-        guard !editingLocked, !splitting, let timeline, !values.segments.isEmpty else { return false }
+        guard !editingLocked, !splitting, !trimming, !hasPendingBoundaryInput, let timeline, !values.segments.isEmpty
+        else { return false }
         return !timeline.segment(at: position).isFreeze
     }
 
@@ -22,18 +33,14 @@ extension MediaEditorModel {
         let requestedPosition = position
         let generation = revision
         let seconds = timeline.sourceTime(at: position)
-        let sourceDuration =
-            values.sources.indices.contains(segment.sourceIndex)
-            ? values.sources[segment.sourceIndex].duration : duration
         splitTask?.cancel()
         splitting = true
         splitTask = Task {
             defer { splitting = false }
             do {
-                let next = try await videoSource.adjacentFrameTime(to: seconds, forward: true)
-                let frameEnd = min(segment.end, next > seconds ? next : sourceDuration)
-                let frameStart = max(
-                    segment.start, try await videoSource.adjacentFrameTime(to: frameEnd, forward: false))
+                let frame = try await frameRange(at: seconds, segment: segment, source: videoSource)
+                let frameEnd = frame.upperBound
+                let frameStart = frame.lowerBound
                 try Task.checkCancellation()
                 guard !closed, revision == generation, position == requestedPosition, frameStart < frameEnd,
                     let index = values.segments.firstIndex(where: { $0.id == segment.id }),
@@ -77,21 +84,27 @@ extension MediaEditorModel {
         return nil
     }
 
+    var reversedBinding: Binding<Bool> {
+        Binding(get: { self.selectedSegment?.isReversed == true }, set: { _ in self.toggleReverse() })
+    }
+
     var canToggleReverse: Bool {
         selectedSegment != nil && reverseUnavailableReason == nil && !editingLocked && !splitting && !trimming
-            && videoSource != nil
+            && videoSource != nil && !importing && musicTask == nil && !hasPendingBoundaryInput
+            && overlayBoundaryTask == nil
     }
 
     /// Reversing a reversed segment restores it.
     func toggleReverse() {
         guard canToggleReverse, let segment = selectedSegment else { return }
         reverseFailure = nil
+        let sourceURL = values.sources[segment.sourceIndex].url
         guard !segment.isReversed else {
             do {
                 apply(try VideoSegmentReverser.unreverse(segmentID: segment.id, in: values.video, staging: staging))
             } catch {
                 reverseFailure = UserMessages.describe(
-                    EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+                    EngineError.wrapping(error, path: sourceURL.path), file: sourceName(segment))
             }
             return
         }
@@ -112,19 +125,35 @@ extension MediaEditorModel {
                     }
                     if advanced { Task { @MainActor in self.reportReverseProgress(fraction) } }
                 }
-                try await openStagedSources(reversed.sources ?? [])
-                try Task.checkCancellation()
-                reverseProgress = nil
+                try await completeReverse(reversed, replacing: edit, segmentID: segment.id)
                 reverseTask = nil
-                guard !closed, values.video == edit else { return }
-                apply(reversed)
             } catch {
                 reverseProgress = nil
                 reverseTask = nil
                 guard !closed, !(error is CancellationError) else { return }
                 reverseFailure = UserMessages.describe(
-                    EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+                    EngineError.wrapping(error, path: sourceURL.path), file: sourceName(segment))
             }
+        }
+    }
+
+    func completeReverse(_ reversed: VideoEdit, replacing previous: VideoEdit, segmentID: UUID) async throws {
+        guard let segment = reversed.segments?.first(where: { $0.id == segmentID }),
+            let sources = reversed.sources, sources.indices.contains(segment.sourceIndex), let videoSource
+        else { throw EngineError.invalidInput(.emptyInput) }
+        let stagedURL = sources[segment.sourceIndex].url
+        do {
+            try Task.checkCancellation()
+            try await openStagedSources(sources)
+            try Task.checkCancellation()
+            guard !closed, values.video == previous else { throw CancellationError() }
+            reverseProgress = nil
+            apply(reversed)
+        } catch {
+            if let opened = videoSources.removeValue(forKey: stagedURL) { await opened.close() }
+            videoDetails[stagedURL] = nil
+            await videoSource.discardReversedSource(at: stagedURL)
+            throw error
         }
     }
 
@@ -160,8 +189,9 @@ extension MediaEditorModel {
     }
 
     var canSaveFrame: Bool {
-        isVideo && ready && !closed && !editingLocked && frameBatchID == nil && failure == nil
+        isVideo && ready && !closed && !editingLocked && frameBatchID == nil && (failure == nil || musicChanged)
             && invalidFields.isEmpty && timeline != nil && !values.segments.isEmpty
+            && !splitting && !trimming && !hasPendingBoundaryInput && overlayBoundaryTask == nil
     }
 
     /// Exports the edited frame without blocking editing.
@@ -170,7 +200,7 @@ extension MediaEditorModel {
         let file = initialURLs[0].lastPathComponent
         frameNote = nil
         do {
-            try validateForSave()
+            try validateForSave(includingAudio: false)
         } catch {
             frameNote = .failed(UserMessages.describe(EngineError.wrapping(error, path: url.path), file: file))
             return

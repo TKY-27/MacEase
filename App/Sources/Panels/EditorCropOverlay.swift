@@ -10,6 +10,7 @@ extension MediaEditorModel {
     }
 
     func synchronizeCropAspect() {
+        guard !editingLocked else { return }
         guard let expected = resolvedCropAspect else { return }
         let canvas = values.photo.geometry.canvasSize(sourceSize)
         let crop = values.photo.geometry.crop
@@ -20,7 +21,7 @@ extension MediaEditorModel {
     }
 
     func setCropPercentage(_ percent: Double, keyPath: WritableKeyPath<EditCrop, Double>) {
-        guard percent.isFinite else { return }
+        guard !editingLocked, percent.isFinite else { return }
         var crop = values.photo.geometry.crop
         let amount = percent / 100
         switch keyPath {
@@ -44,7 +45,7 @@ extension MediaEditorModel {
     }
 
     func fitCropAspect() {
-        guard let aspect = resolvedCropAspect else { return }
+        guard !editingLocked, let aspect = resolvedCropAspect else { return }
         let canvas = values.photo.geometry.canvasSize(sourceSize)
         let normalized = aspect * canvas.height / canvas.width
         let width = min(1, normalized)

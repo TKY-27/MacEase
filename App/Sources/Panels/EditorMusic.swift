@@ -20,10 +20,14 @@ extension MediaEditorModel {
     }
 
     func chooseMusic() {
+        guard !editingLocked else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.allowedContentTypes = Self.musicTypes
-        if panel.runModal() == .OK, let url = panel.url { setMusic(url) }
+        if panel.runModal() == .OK, let url = panel.url {
+            category = .video
+            setMusic(url)
+        }
     }
 
     func setMusic(_ url: URL) {
@@ -32,7 +36,7 @@ extension MediaEditorModel {
         musicTask = Task {
             defer { musicTask = nil }
             do {
-                var music = try await Task.detached { try BackgroundMusic.load(from: url) }.value
+                var music = try await Self.loadMusic(url)
                 try Task.checkCancellation()
                 guard !closed else { return }
                 if let current = values.music {
@@ -44,13 +48,15 @@ extension MediaEditorModel {
             } catch is CancellationError {
                 return
             } catch {
-                musicFailure = describeMusic(error, file: url.lastPathComponent)
+                guard !closed else { return }
+                musicFailure = describeMusic(error, url: url)
                 musicRevealRequest = UUID()
             }
         }
     }
 
     func removeMusic() {
+        guard !editingLocked else { return }
         musicFailure = nil
         change { $0.music = nil }
     }
@@ -61,14 +67,22 @@ extension MediaEditorModel {
             set: { value in self.change { $0.music?[keyPath: keyPath] = value } })
     }
 
-    func describeMusic(_ error: Error, file: String) -> String {
-        switch error {
+    @concurrent private static func loadMusic(_ url: URL) async throws -> BackgroundMusic {
+        try Task.checkCancellation()
+        let music = try BackgroundMusic.load(from: url)
+        try Task.checkCancellation()
+        return music
+    }
+
+    func describeMusic(_ error: Error, url: URL) -> String {
+        let file = url.lastPathComponent
+        return switch error {
         case EngineError.decodeFailed, EngineError.unsupportedCodec:
             String(
                 localized:
                     "“\(file)” can’t be used as music. Choose an MP3, AAC, WAV, AIFF, FLAC, Ogg or Opus file.")
         default:
-            UserMessages.describe(EngineError.wrapping(error, path: file), file: file)
+            UserMessages.describe(EngineError.wrapping(error, path: url.path), file: file)
         }
     }
 }

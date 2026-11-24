@@ -68,8 +68,7 @@ extension MediaEditorView {
             InspectorSection(String(localized: "Direction")) {
                 Toggle(
                     "Play Backward",
-                    isOn: Binding(
-                        get: { model.selectedSegment?.isReversed == true }, set: { _ in model.toggleReverse() })
+                    isOn: model.reversedBinding
                 )
                 .disabled(!model.canToggleReverse)
                 Text(

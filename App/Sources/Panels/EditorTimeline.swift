@@ -9,6 +9,7 @@ struct EditorTransportBar: View {
     var body: some View {
         HStack(spacing: 0) {
             TransportClock(position: model.position, duration: model.outputDuration, seek: model.seek)
+                .disabled(model.editingLocked || model.values.segments.isEmpty)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 18) {
                 Button {
@@ -38,7 +39,7 @@ struct EditorTransportBar: View {
                     Label("Save Frame", systemImage: "camera")
                 }
                 .help("Save Frame at Playhead as an Image (⇧⌘S)")
-                .keyboardShortcut("s", modifiers: [.command, .shift])
+
                 .disabled(!model.canSaveFrame)
                 if model.playing, model.playbackRate != 1 {
                     Text(Self.rateText(model.playbackRate))
@@ -89,7 +90,7 @@ struct TransportClock: View {
     @FocusState private var editing: Bool
 
     var body: some View {
-        if let seek, let draft {
+        if seek != nil, let draft {
             TextField("Go to Time", text: Binding(get: { draft }, set: { self.draft = $0 }))
                 .labelsHidden()
                 .textFieldStyle(.roundedBorder)
@@ -97,7 +98,7 @@ struct TransportClock: View {
                 .frame(width: Self.fieldWidth)
                 .focused($editing)
                 .onAppear { editing = true }
-                .onSubmit { commit(draft, seek: seek) }
+                .onSubmit { commit(draft) }
                 .onExitCommand { self.draft = nil }
                 .onChange(of: editing) { _, focused in if !focused { self.draft = nil } }
                 .help("Type a time such as 1:05.25, then press Return")
@@ -114,7 +115,8 @@ struct TransportClock: View {
         }
     }
 
-    private func commit(_ text: String, seek: (Double) -> Void) {
+    func commit(_ text: String) {
+        guard let seek else { return }
         guard let seconds = TimecodeField.parse(text) else {
             NSSound.beep()
             return
@@ -189,6 +191,7 @@ struct EditorTimeline: View {
             )
             .accessibilityLabel(Text("Timeline"))
         }
+        .disabled(model.editingLocked)
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 6)
@@ -208,7 +211,7 @@ struct EditorTimeline: View {
                 Label("Freeze Frame", systemImage: "snowflake")
             }
             .help("Insert a Freeze Frame at the Playhead (⌥F)").disabled(!model.canInsertFreezeFrame)
-            Toggle(isOn: reversed) {
+            Toggle(isOn: model.reversedBinding) {
                 Label("Reverse", systemImage: "backward")
             }
             .toggleStyle(.button)
@@ -248,7 +251,6 @@ struct EditorTimeline: View {
                 EditorSilencePopover(model: model)
             }
             Button {
-                model.category = .video
                 model.chooseMusic()
             } label: {
                 Label(model.values.music == nil ? "Add Music…" : "Replace Music…", systemImage: "music.note")
@@ -277,18 +279,14 @@ struct EditorTimeline: View {
             Button("Set Out Point at Playhead") { model.setTrimBoundaryAtPlayhead(start: false) }
                 .disabled(model.selectedSegment?.isFreeze == true)
             Button("Insert Freeze Frame at Playhead") { model.insertFreezeFrame() }
-                .keyboardShortcut("f", modifiers: .option)
+
                 .disabled(!model.canInsertFreezeFrame)
-            Toggle("Reverse Segment", isOn: reversed).disabled(!model.canToggleReverse)
+            Toggle("Reverse Segment", isOn: model.reversedBinding).disabled(!model.canToggleReverse)
             Divider()
             Button("Move Segment Left") { model.moveSelection(-1) }.disabled(model.values.selectedIndex == 0)
             Button("Move Segment Right") { model.moveSelection(1) }
                 .disabled(model.values.selectedIndex == model.values.segments.count - 1)
         }
-    }
-
-    private var reversed: Binding<Bool> {
-        Binding(get: { model.selectedSegment?.isReversed == true }, set: { _ in model.toggleReverse() })
     }
 
     private func available(_ id: UUID, _ action: TimelineAction) -> Bool {

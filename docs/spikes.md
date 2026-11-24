@@ -1390,3 +1390,27 @@ and remuxes to MP4; the hour clip repeats that Matroska result twice. The
 open-GOP Matroska regression remuxes `reverse-open-gop-vfr.mp4` without encoding.
 All large generated benchmark fixtures were removed after measurement; their
 metadata and logs remain in the integration evidence directory.
+
+### Editor tool integration verification (2026-11-24)
+
+A mosaic narrower than one block previously biased its average toward clamped
+white border pixels. A 640×480 white canvas, an eight-pixel-wide selection,
+and a four-pixel black stripe produced gray values 222, 220, and 222 at full,
+half, and quarter preview scale. Such regions now use the selected region's
+area average as one block. The pixel regression requires gray within 140–210
+for this half-black selection and unchanged pixels immediately outside its
+border at all three scales. Normal-width regions retain the box-averaged
+pixellation introduced by the editor UI slice.
+
+Editor numeric interactions now create history groups on their first applied
+mutation. Source-boundary snaps execute in order, using the current opposite
+boundary. Undo and Redo invalidate pending edits before restoring history.
+Independent Start and End edits remain separate groups even while snapping.
+Native timeline input inherits the SwiftUI editing lock explicitly; disabling
+a representable alone does not prevent its AppKit callbacks.
+
+App-hosted checks cover native numeric fields, key events, timeline callbacks,
+rendered Box handle hit-testing and transformed resize coordinates, and the
+clock's submission callback. Synthetic SwiftUI mouse events did not reach
+gesture recognizers reliably in this test harness. End-to-end OS drag and
+clock-click gestures remain a manual verification boundary.

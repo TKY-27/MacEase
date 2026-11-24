@@ -4,24 +4,54 @@ import SwiftUI
 struct EditorKeyboardShortcuts: NSViewRepresentable {
     let model: MediaEditorModel?
     let audio: AudioTrimModel?
+    var save: (() -> Void)?
+    var saveFrame: (() -> Void)?
+    var close: (() -> Void)?
 
-    init(model: MediaEditorModel) { self.model = model; audio = nil }
+    init(
+        model: MediaEditorModel, save: @escaping () -> Void, saveFrame: @escaping () -> Void,
+        close: @escaping () -> Void
+    ) {
+        self.model = model
+        audio = nil
+        self.save = save
+        self.saveFrame = saveFrame
+        self.close = close
+    }
     init(audio: AudioTrimModel) { model = nil; self.audio = audio }
 
     func makeNSView(context: Context) -> ShortcutView {
         let view = ShortcutView()
         view.model = model
         view.audio = audio
+        view.save = save
+        view.saveFrame = saveFrame
+        view.close = close
         return view
     }
 
-    func updateNSView(_ view: ShortcutView, context: Context) { view.model = model; view.audio = audio }
+    func updateNSView(_ view: ShortcutView, context: Context) {
+        view.model = model
+        view.audio = audio
+        view.save = save
+        view.saveFrame = saveFrame
+        view.close = close
+    }
     static func dismantleNSView(_ view: ShortcutView, coordinator: ()) { view.stopMonitoring() }
 
     final class ShortcutView: NSView {
         var model: MediaEditorModel?
         var audio: AudioTrimModel?
+        var save: (() -> Void)?
+        var saveFrame: (() -> Void)?
+        var close: (() -> Void)?
         private var monitor: Any?
+        private enum ArrowKey {
+            static let left: UInt16 = 123
+            static let right: UInt16 = 124
+            static let down: UInt16 = 125
+            static let up: UInt16 = 126
+        }
 
         func stopMonitoring() {
             if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
@@ -41,57 +71,90 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                     if let audio = self.audio, audio.ready {
                         return self.audioShortcut(event, modifiers: modifiers, audio: audio)
                     }
-                    guard let model = self.model, model.ready, !model.editingLocked else { return false }
+                    guard let model = self.model else { return false }
+                    let character = event.charactersIgnoringModifiers?.lowercased()
+                    if modifiers.isEmpty, character == "\u{1b}" {
+                        if model.showsSilencePreview {
+                            model.cancelSilenceAnalysis()
+                            model.showsSilencePreview = false
+                        } else if !model.editingLocked, model.category == .markup, model.values.selectedOverlayID != nil
+                        {
+                            model.selectOverlay(nil)
+                        } else if !model.editingLocked, model.category == .markup, model.markupTool != .select {
+                            model.markupTool = .select
+                        } else {
+                            self.close?()
+                        }
+                        return true
+                    }
+                    guard model.ready, !model.editingLocked else { return false }
                     if model.category == .markup, self.markupShortcut(event, modifiers: modifiers, model: model) {
                         return true
                     }
-                    if modifiers == .command, event.charactersIgnoringModifiers == "b", model.isVideo {
+                    if modifiers == .command, character == "b", model.isVideo {
                         model.split(); return true
                     }
-                    if modifiers == .option, event.keyCode == 3, model.isVideo {
+                    if modifiers == .option, character == "f", model.isVideo {
                         model.insertFreezeFrame(); return true
                     }
-                    if modifiers == [.command, .shift], event.charactersIgnoringModifiers == "+", model.isVideo {
-                        model.zoomTimeline(by: 2); return true
+                    if modifiers == .command, character == "z" { model.undo(); return true }
+                    if modifiers == [.command, .shift], character == "z" { model.redo(); return true }
+                    if modifiers == [.command, .shift], character == "s", model.canSaveFrame {
+                        self.saveFrame?(); return true
                     }
-                    if modifiers == .command, !model.isVideo, model.category != .crop {
-                        switch event.charactersIgnoringModifiers {
-                        case "=", "+": model.setPhotoZoom(model.zoom * 2)
-                        case "-": model.setPhotoZoom(model.zoom / 2)
-                        case "0": model.setPhotoZoom(1)
+                    if modifiers.isEmpty, character == "\r" {
+                        if model.showsSilencePreview {
+                            if model.canApplySilence { model.removeSilence(model.silenceRule) }
+                            return true
+                        }
+                        if model.canSave { self.save?(); return true }
+                    }
+                    if modifiers == .command || modifiers == [.command, .shift] {
+                        switch character {
+                        case "=", "+":
+                            if model.isVideo {
+                                model.zoomTimeline(by: 2)
+                            } else if model.category != .crop {
+                                model.setPhotoZoom(model.zoom * 2)
+                            } else {
+                                return false
+                            }
+                        case "-" where modifiers == .command:
+                            if model.isVideo {
+                                model.zoomTimeline(by: 0.5)
+                            } else if model.category != .crop {
+                                model.setPhotoZoom(model.zoom / 2)
+                            } else {
+                                return false
+                            }
+                        case "0" where modifiers == .command && !model.isVideo && model.category != .crop:
+                            model.setPhotoZoom(1)
                         default: return false
                         }
                         return true
                     }
-                    if modifiers == .command, model.isVideo {
-                        switch event.charactersIgnoringModifiers {
-                        case "=", "+": model.zoomTimeline(by: 2)
-                        case "-": model.zoomTimeline(by: 0.5)
-                        default: return false
-                        }
-                        return true
-                    }
-                    if modifiers == .shift, event.charactersIgnoringModifiers?.lowercased() == "z", model.isVideo {
+                    if modifiers == .shift, character == "z", model.isVideo {
                         model.timelineZoom = 1; return true
                     }
                     guard modifiers.isEmpty else { return false }
-                    switch event.keyCode {
-                    case 34 where model.isVideo: model.setTrimBoundaryAtPlayhead(start: true)
-                    case 31 where model.isVideo: model.setTrimBoundaryAtPlayhead(start: false)
-                    case 46: model.original.toggle()
-                    case 49 where model.isVideo: model.play()
-                    case 38 where model.isVideo: model.shuttle(-1)
-                    case 40 where model.isVideo: model.shuttle(0)
-                    case 37 where model.isVideo: model.shuttle(1)
-                    case 123 where model.isVideo && model.category != .crop: model.stepFrame(-1)
-                    case 124 where model.isVideo && model.category != .crop: model.stepFrame(1)
-                    case 126 where model.isVideo && model.category != .crop:
-                        model.jumpToSegmentBoundary(forward: false)
-                    case 125 where model.isVideo && model.category != .crop:
-                        model.jumpToSegmentBoundary(forward: true)
-                    case 51 where model.isVideo, 117 where model.isVideo:
-                        model.deleteSelection()
-                    default: return false
+                    switch character {
+                    case "i" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: true)
+                    case "o" where model.isVideo: model.setTrimBoundaryAtPlayhead(start: false)
+                    case "m": model.original.toggle()
+                    case " " where model.isVideo: model.play()
+                    case "j" where model.isVideo: model.shuttle(-1)
+                    case "k" where model.isVideo: model.shuttle(0)
+                    case "l" where model.isVideo: model.shuttle(1)
+                    case "\u{7f}" where model.isVideo, "\u{f728}" where model.isVideo: model.deleteSelection()
+                    default:
+                        guard model.isVideo, model.category != .crop else { return false }
+                        switch event.keyCode {
+                        case ArrowKey.left: model.stepFrame(-1)
+                        case ArrowKey.right: model.stepFrame(1)
+                        case ArrowKey.up: model.jumpToSegmentBoundary(forward: false)
+                        case ArrowKey.down: model.jumpToSegmentBoundary(forward: true)
+                        default: return false
+                        }
                     }
                     return true
                 }
@@ -107,24 +170,22 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
             if modifiers.isEmpty || modifiers == .shift, let selected {
                 let step = modifiers == .shift ? MediaEditorModel.overlayLargeNudge : MediaEditorModel.overlayNudge
                 switch event.keyCode {
-                case 123: model.nudgeOverlay(selected, dx: -step, dy: 0); return true
-                case 124: model.nudgeOverlay(selected, dx: step, dy: 0); return true
-                case 126: model.nudgeOverlay(selected, dx: 0, dy: -step); return true
-                case 125: model.nudgeOverlay(selected, dx: 0, dy: step); return true
+                case ArrowKey.left: model.nudgeOverlay(selected, dx: -step, dy: 0); return true
+                case ArrowKey.right: model.nudgeOverlay(selected, dx: step, dy: 0); return true
+                case ArrowKey.up: model.nudgeOverlay(selected, dx: 0, dy: -step); return true
+                case ArrowKey.down: model.nudgeOverlay(selected, dx: 0, dy: step); return true
                 default: break
                 }
             }
             guard modifiers.isEmpty else { return false }
-            switch event.keyCode {
-            case 51, 117:
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "\u{7f}", "\u{f728}":
                 if let selected { model.deleteOverlay(selected) }
                 return true
-            case 34 where model.isVideo && selected != nil:
-                Task { await model.setOverlayBoundaryAtPlayhead(start: true) }
-            case 31 where model.isVideo && selected != nil:
-                Task { await model.setOverlayBoundaryAtPlayhead(start: false) }
-            case 53 where selected != nil: model.selectOverlay(nil)
-            case 53 where model.markupTool != .select: model.markupTool = .select
+            case "i" where model.isVideo && selected != nil:
+                model.setOverlayBoundaryAtPlayhead(start: true)
+            case "o" where model.isVideo && selected != nil:
+                model.setOverlayBoundaryAtPlayhead(start: false)
             default: return false
             }
             return true
@@ -150,16 +211,19 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
                 audio.zoom = 1; return true
             }
             guard modifiers.isEmpty else { return false }
-            switch event.keyCode {
-            case 49: audio.play()
-            case 38: audio.shuttle(-1)
-            case 40: audio.shuttle(0)
-            case 37: audio.shuttle(1)
-            case 34: audio.setBoundary(start: true)
-            case 31: audio.setBoundary(start: false)
-            case 123: audio.seek(audio.position - 1 / audio.sampleRate)
-            case 124: audio.seek(audio.position + 1 / audio.sampleRate)
-            default: return false
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case " ": audio.play()
+            case "j": audio.shuttle(-1)
+            case "k": audio.shuttle(0)
+            case "l": audio.shuttle(1)
+            case "i": audio.setBoundary(start: true)
+            case "o": audio.setBoundary(start: false)
+            default:
+                switch event.keyCode {
+                case ArrowKey.left: audio.seek(audio.position - 1 / audio.sampleRate)
+                case ArrowKey.right: audio.seek(audio.position + 1 / audio.sampleRate)
+                default: return false
+                }
             }
             return true
         }

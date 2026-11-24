@@ -1,6 +1,11 @@
 import Engine
 import SwiftUI
 
+struct EditorSilenceAnalysis {
+    let stamp: MediaSourceStamp
+    let levels: AudioLevels
+}
+
 extension MediaEditorModel {
     /// Sources whose audible segments can be cut.
     var silenceSources: [URL] {
@@ -14,27 +19,43 @@ extension MediaEditorModel {
         silenceSources.isEmpty ? String(localized: "There’s no audible sound to analyze in this video.") : nil
     }
 
-    var silenceAnalyzed: Bool { silenceSources.allSatisfy { silenceLevels[$0] != nil } }
+    var canAnalyzeSilence: Bool {
+        !editingLocked && silenceTask == nil && !silenceSources.isEmpty
+            && silenceSources.contains { silenceLevels[$0] == nil }
+    }
 
-    /// Levels stay cached per source.
+    /// File identity bounds cached analysis.
     func analyzeSilence() {
-        guard silenceTask == nil, !closed else { return }
-        let missing = silenceSources.filter { silenceLevels[$0] == nil }
-        guard !missing.isEmpty else { return }
+        guard !editingLocked, silenceTask == nil else { return }
+        let sources = values.sources.filter { silenceSources.contains($0.url) }
         silenceFailure = nil
+        do {
+            for source in sources {
+                try source.stamp.validate(source.url)
+                if silenceLevels[source.url]?.stamp != source.stamp { silenceLevels[source.url] = nil }
+            }
+        } catch {
+            silenceFailure = describeSilence(error)
+            return
+        }
+        let missing = sources.filter { silenceLevels[$0.url] == nil }
+        guard !missing.isEmpty else { return }
         silenceTask = Task {
             defer { silenceTask = nil }
-            for url in missing {
+            for source in missing {
                 do {
-                    let levels = try await AudioWaveform.levels(videoAt: url)
+                    try source.stamp.validate(source.url)
+                    let levels = try await AudioWaveform.levels(videoAt: source.url)
                     try Task.checkCancellation()
-                    guard !closed else { return }
-                    silenceLevels[url] = levels
+                    try source.stamp.validate(source.url)
+                    guard !editingLocked, values.sources.contains(source) else { return }
+                    silenceLevels[source.url] = EditorSilenceAnalysis(stamp: source.stamp, levels: levels)
                 } catch is CancellationError {
                     return
                 } catch {
+                    guard !closed else { return }
                     silenceFailure = UserMessages.describe(
-                        EngineError.wrapping(error, path: url.path), file: url.lastPathComponent)
+                        EngineError.wrapping(error, path: source.url.path), file: source.url.lastPathComponent)
                     return
                 }
             }
@@ -68,7 +89,24 @@ extension MediaEditorModel {
         return preview
     }
 
+    var canApplySilence: Bool {
+        guard !editingLocked, silenceTask == nil,
+            let preview = try? silencePreview(silenceRule), !preview.isEmpty
+        else { return false }
+        return !silenceLeavesNothing(preview)
+    }
+
+    func silenceLeavesNothing(_ preview: [ClosedRange<Double>]?) -> Bool {
+        guard let preview, !preview.isEmpty else { return false }
+        let removed = preview.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
+        return removed >= outputDuration - Self.silenceDurationTolerance
+    }
+
+    private static let silenceDurationTolerance = 1e-6
+
     func removeSilence(_ rule: SilenceRule) {
+        guard !editingLocked else { return }
+        silenceFailure = nil
         do {
             guard let silences = try silences(rule) else { return }
             let segments = try SilenceRemoval.segments(
@@ -77,6 +115,7 @@ extension MediaEditorModel {
                 $0.segments = segments
                 $0.selectedID = segments.first?.id
             }
+            showsSilencePreview = false
         } catch {
             silenceFailure = describeSilence(error)
         }
@@ -94,11 +133,13 @@ extension MediaEditorModel {
     private func silences(_ rule: SilenceRule) throws -> [Int: [Range<Double>]]? {
         var silences: [Int: [Range<Double>]] = [:]
         for index in values.sources.indices where sourceHasAudio(index) {
-            guard let levels = silenceLevels[values.sources[index].url] else {
+            let source = values.sources[index]
+            try source.stamp.validate(source.url)
+            guard let cached = silenceLevels[source.url], cached.stamp == source.stamp else {
                 if silenceSources.contains(values.sources[index].url) { return nil }
                 continue
             }
-            silences[index] = try levels.silentRanges(rule)
+            silences[index] = try cached.levels.silentRanges(rule)
         }
         return silences
     }
@@ -130,6 +171,7 @@ struct EditorSilencePopover: View {
                 }
                 .accessibilityElement(children: .contain)
             } else {
+                if model.canAnalyzeSilence { Button("Analyze", action: model.analyzeSilence) }
                 controls
             }
             if let failure = model.silenceFailure { ProblemLabel(text: failure) }
@@ -180,15 +222,13 @@ struct EditorSilencePopover: View {
             Spacer()
             Button("Apply") {
                 model.removeSilence(model.silenceRule)
-                if model.silenceFailure == nil { model.showsSilencePreview = false }
             }
-            .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
-            .disabled(preview?.isEmpty != false || leavesNothing(preview))
+            .disabled(!model.canApplySilence)
         }
         if case .failure(let error) = result {
             ProblemLabel(text: model.describeSilence(error))
-        } else if leavesNothing(preview) {
+        } else if model.silenceLeavesNothing(preview) {
             ProblemLabel(text: String(localized: "Nothing would be left. Choose a lower threshold or a longer pause."))
         }
     }
@@ -198,12 +238,6 @@ struct EditorSilencePopover: View {
         Binding(
             get: { model.silenceRule[keyPath: keyPath] },
             set: { model.silenceRule[keyPath: keyPath] = ($0 / step).rounded() * step })
-    }
-
-    private func leavesNothing(_ preview: [ClosedRange<Double>]?) -> Bool {
-        guard let preview, !preview.isEmpty else { return false }
-        let removed = preview.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
-        return removed >= model.outputDuration - Self.durationTolerance
     }
 
     private func summary(_ preview: [ClosedRange<Double>]) -> String {
@@ -222,5 +256,4 @@ struct EditorSilencePopover: View {
 
     private static let durationStep = 0.05
     private static let thresholdStep = 1.0
-    private static let durationTolerance = 1e-6
 }

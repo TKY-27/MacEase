@@ -124,7 +124,7 @@ extension MediaEditorModel {
     var selectedOverlay: EditOverlay? { markupOverlays.first { $0.id == values.selectedOverlayID } }
     var selectedTimedOverlay: TimedOverlay? { values.overlays.first { $0.id == values.selectedOverlayID } }
     var canAddOverlay: Bool {
-        savingBatchID == nil && markupOverlays.count < EditOverlay.maximumCount && (!isVideo || timeline != nil)
+        !editingLocked && markupOverlays.count < EditOverlay.maximumCount && (!isVideo || timeline != nil)
     }
 
     /// Overlays drawn at the viewed frame.
@@ -234,7 +234,7 @@ extension MediaEditorModel {
 
     /// Seeks to hidden overlays.
     func selectOverlay(_ id: UUID?) {
-        guard savingBatchID == nil else { return }
+        guard !editingLocked else { return }
         endInteraction()
         values.selectedOverlayID = id
         guard let id, let timed = values.overlays.first(where: { $0.id == id }), !visibleOverlayIDs.contains(id),
@@ -257,34 +257,42 @@ extension MediaEditorModel {
     }
 
     var canSetOverlayBoundary: Bool {
-        guard savingBatchID == nil, let timed = selectedTimedOverlay, let timeline else { return false }
+        guard !editingLocked, let timed = selectedTimedOverlay, let timeline else { return false }
         return timeline.segment(at: position).sourceIndex == timed.sourceIndex
     }
 
     /// Includes the frame at the playhead.
-    func setOverlayBoundaryAtPlayhead(start: Bool) async {
+    func setOverlayBoundaryAtPlayhead(start: Bool) {
         guard canSetOverlayBoundary, let timed = selectedTimedOverlay, let timeline else { return }
         let segment = timeline.segment(at: position)
         guard let actor = source(for: segment) else { return }
         let seconds = timeline.sourceTime(at: position)
         let duration = values.sources[timed.sourceIndex].duration
-        do {
-            let next = try await actor.adjacentFrameTime(to: seconds, forward: true)
-            let frameEnd = next > seconds ? next : duration
-            let frameStart = try await actor.adjacentFrameTime(to: frameEnd, forward: false)
-            guard !Task.isCancelled, let index = values.overlays.firstIndex(where: { $0.id == timed.id }) else {
-                return
-            }
-            change { values in
-                if start {
-                    values.overlays[index].start = frameStart
-                    if values.overlays[index].end <= frameStart { values.overlays[index].end = duration }
-                } else {
-                    values.overlays[index].end = frameEnd
-                    if values.overlays[index].start >= frameEnd { values.overlays[index].start = 0 }
+        let predecessor = overlayBoundaryTask
+        predecessor?.cancel()
+        overlayBoundaryGeneration += 1
+        let generation = overlayBoundaryGeneration
+        overlayBoundaryTask = Task {
+            defer { if overlayBoundaryGeneration == generation { overlayBoundaryTask = nil } }
+            await predecessor?.value
+            guard !Task.isCancelled, !editingLocked else { return }
+            do {
+                let frame = try await frameRange(at: seconds, segment: segment, source: actor)
+                try Task.checkCancellation()
+                guard !editingLocked, let index = values.overlays.firstIndex(where: { $0.id == timed.id }) else {
+                    return
                 }
-            }
-        } catch is CancellationError { return } catch { report(error) }
+                change { values in
+                    if start {
+                        values.overlays[index].start = frame.lowerBound
+                        if values.overlays[index].end <= frame.lowerBound { values.overlays[index].end = duration }
+                    } else {
+                        values.overlays[index].end = frame.upperBound
+                        if values.overlays[index].start >= frame.upperBound { values.overlays[index].start = 0 }
+                    }
+                }
+            } catch is CancellationError { return } catch { if !closed { report(error) } }
+        }
     }
 
     func setOverlayRange(_ id: UUID, start: Double, end: Double) {
@@ -295,6 +303,27 @@ extension MediaEditorModel {
             $0.overlays[index].start = start
             $0.overlays[index].end = end
         }
+    }
+
+    func resizeBox(
+        _ rect: EditCrop, horizontal: Int, vertical: Int, from origin: CGPoint, to destination: CGPoint
+    ) -> EditCrop {
+        let center = canvasPoint(CGPoint(x: 0.5, y: 0.5), clamped: false)
+        let right = canvasPoint(CGPoint(x: 1, y: 0.5), clamped: false)
+        let down = canvasPoint(CGPoint(x: 0.5, y: 1), clamped: false)
+        let horizontalMapsToX =
+            abs((right.x - center.x) * sourceSize.width)
+            >= abs((right.y - center.y) * sourceSize.height)
+        let xDirection = horizontalMapsToX ? right.x - center.x : down.x - center.x
+        let yDirection = horizontalMapsToX ? down.y - center.y : right.y - center.y
+        let xEdge = (horizontalMapsToX ? horizontal : vertical) * (xDirection < 0 ? -1 : 1)
+        let yEdge = (horizontalMapsToX ? vertical : horizontal) * (yDirection < 0 ? -1 : 1)
+        let initial = canvasPoint(origin, clamped: false)
+        let current = canvasPoint(destination, clamped: false)
+        let point = EditPoint(
+            x: (xEdge < 0 ? rect.x : rect.x + rect.width) + current.x - initial.x,
+            y: (yEdge < 0 ? rect.y : rect.y + rect.height) + current.y - initial.y)
+        return resizedMarkupRect(rect, horizontal: xEdge, vertical: yEdge, to: point)
     }
 
     func overlayName(_ overlay: EditOverlay) -> String {
@@ -338,7 +367,7 @@ struct EditorMarkupOverlay: View {
     private static let lineHitDistance = 8.0
     private static let dash: [CGFloat] = [4, 3]
 
-    private struct Handle: Equatable {
+    struct Handle: Equatable {
         let x: Int
         let y: Int
         static let all = [-1, 0, 1].flatMap { x in [-1, 0, 1].map { Handle(x: x, y: $0) } }.filter {
@@ -346,7 +375,7 @@ struct EditorMarkupOverlay: View {
         }
     }
 
-    private enum Target {
+    enum Target {
         case handle(UUID, EditCrop, Handle, CGPoint)
         case endpoint(UUID, EditMark, from: Bool)
         case body(UUID, EditMark)
@@ -357,7 +386,7 @@ struct EditorMarkupOverlay: View {
         case pending(CGPoint)
         case creating(UUID, CGPoint)
         case moving(UUID, EditMark, EditPoint)
-        case resizing(UUID, EditCrop, Handle)
+        case resizing(UUID, EditCrop, Handle, CGPoint)
         case endpoint(UUID, EditMark, from: Bool)
         case ignored
     }
@@ -518,7 +547,7 @@ struct EditorMarkupOverlay: View {
         }
     }
 
-    private func target(at point: CGPoint, size: CGSize) -> Target {
+    func target(at point: CGPoint, size: CGSize) -> Target {
         if let selected = model.selectedOverlay {
             switch selected.mark {
             case .redaction(let rect, _), .box(let rect, _, _):
@@ -592,9 +621,9 @@ struct EditorMarkupOverlay: View {
 
     private func begin(at point: CGPoint, size: CGSize) -> MarkupDrag {
         switch target(at: point, size: size) {
-        case .handle(let id, let rect, let handle, _):
+        case .handle(let id, let rect, let handle, let location):
             model.beginInteraction()
-            return .resizing(id, rect, handle)
+            return .resizing(id, rect, handle, normalized(location, size))
         case .endpoint(let id, let mark, let from):
             model.beginInteraction()
             return .endpoint(id, mark, from: from)
@@ -639,12 +668,16 @@ struct EditorMarkupOverlay: View {
         case .moving(let id, let mark, let origin):
             let current = model.canvasPoint(normalized(point, size), clamped: false)
             model.updateOverlay(id, mark.translated(dx: current.x - origin.x, dy: current.y - origin.y))
-        case .resizing(let id, let rect, let handle):
+        case .resizing(let id, let rect, let handle, let origin):
             guard let overlay = model.markupOverlays.first(where: { $0.id == id }) else { return }
-            let resized = Self.resized(rect, handle: handle, to: model.canvasPoint(normalized(point, size)))
             switch overlay.mark {
-            case .redaction(_, let style): model.updateOverlay(id, .redaction(rect: resized, style: style))
+            case .redaction(_, let style):
+                let resized = resizedMarkupRect(
+                    rect, horizontal: handle.x, vertical: handle.y, to: model.canvasPoint(normalized(point, size)))
+                model.updateOverlay(id, .redaction(rect: resized, style: style))
             case .box(_, let color, let markSize):
+                let resized = model.resizeBox(
+                    rect, horizontal: handle.x, vertical: handle.y, from: origin, to: normalized(point, size))
                 model.updateOverlay(id, .box(rect: resized, color: color, size: markSize))
             case .arrow, .text: break
             }
@@ -655,21 +688,6 @@ struct EditorMarkupOverlay: View {
                 id, .arrow(from: from ? moved : start, to: from ? end : moved, color: color, size: markSize))
         case .ignored, .none: break
         }
-    }
-
-    private static func resized(_ rect: EditCrop, handle: Handle, to point: EditPoint) -> EditCrop {
-        let minimum = MediaEditorModel.minimumOverlaySide
-        var left = rect.x
-        var right = rect.x + rect.width
-        var top = rect.y
-        var bottom = rect.y + rect.height
-        if handle.x < 0 { left = min(point.x, right - minimum) }
-        if handle.x > 0 { right = max(point.x, left + minimum) }
-        if handle.y < 0 { top = min(point.y, bottom - minimum) }
-        if handle.y > 0 { bottom = max(point.y, top + minimum) }
-        left = max(0, left)
-        top = max(0, top)
-        return EditCrop(x: left, y: top, width: min(1, right) - left, height: min(1, bottom) - top)
     }
 
     private func finish(at point: CGPoint, size: CGSize) {
@@ -714,4 +732,21 @@ struct EditorMarkupOverlay: View {
             }
             .accessibilityAction(named: Text("Delete")) { model.deleteOverlay(id) }
     }
+}
+
+private func resizedMarkupRect(
+    _ rect: EditCrop, horizontal: Int, vertical: Int, to point: EditPoint
+) -> EditCrop {
+    let minimum = MediaEditorModel.minimumOverlaySide
+    var left = rect.x
+    var right = rect.x + rect.width
+    var top = rect.y
+    var bottom = rect.y + rect.height
+    if horizontal < 0 { left = min(point.x, right - minimum) }
+    if horizontal > 0 { right = max(point.x, left + minimum) }
+    if vertical < 0 { top = min(point.y, bottom - minimum) }
+    if vertical > 0 { bottom = max(point.y, top + minimum) }
+    left = max(0, left)
+    top = max(0, top)
+    return EditCrop(x: left, y: top, width: min(1, right) - left, height: min(1, bottom) - top)
 }

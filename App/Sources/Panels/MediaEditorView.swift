@@ -13,10 +13,7 @@ struct MediaEditorView: View {
     @State private var showsPreparing = false
     @GestureState private var pinch = 1.0
 
-    private var preparing: Bool {
-        model.preparingPlayback || model.splitting || model.loadingPhoto
-            || model.isVideo && !model.playerReady && !model.values.segments.isEmpty
-    }
+    private var preparing: Bool { model.preparingPreview }
 
     var body: some View {
         Group {
@@ -44,7 +41,12 @@ struct MediaEditorView: View {
         .streamConsentAlert($model.streamConsent, accept: model.continueWithoutStreams) { declined in
             if declined.purpose == .open { close() }
         }
-        .background(EditorKeyboardShortcuts(model: model).frame(width: 0, height: 0))
+        .background(
+            EditorKeyboardShortcuts(
+                model: model, save: { save(replacingOriginal: false) },
+                saveFrame: { Task { await model.saveFrame(run: runFrame) } }, close: close
+            ).frame(width: 0, height: 0)
+        )
         .onChange(of: model.category) { _, _ in
             model.pause(); model.refresh()
         }
@@ -120,16 +122,16 @@ struct MediaEditorView: View {
                     model.undo()
                 }
                 .help("Undo (⌘Z)")
-                .disabled(!model.canUndo || !editable).keyboardShortcut("z", modifiers: .command)
+                .disabled(!model.canUndo || !editable)
                 Button {
                     model.redo()
                 } label: {
                     Label("Redo Edit", systemImage: "arrow.uturn.forward")
                 }
                 .help("Redo (⇧⌘Z)")
-                .disabled(!model.canRedo || !editable).keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!model.canRedo || !editable)
             }
-            Button("Cancel", action: close).keyboardShortcut(.cancelAction)
+            Button("Cancel", action: close)
         }
         ToolbarItem(placement: .confirmationAction) {
             Menu {
@@ -147,7 +149,6 @@ struct MediaEditorView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.canSave)
-            .keyboardShortcut(.defaultAction)
         }
     }
 
@@ -240,10 +241,12 @@ struct MediaEditorView: View {
                                 Image(decorative: image, scale: 1).resizable().interpolation(.high)
                             }
                             if model.category == .crop && !model.original {
-                                EditorCropOverlay(model: model)
+                                EditorCropOverlay(model: model).disabled(model.editingLocked)
+                                    .allowsHitTesting(!model.editingLocked)
                             }
                             if model.category == .markup && !model.original {
-                                EditorMarkupOverlay(model: model)
+                                EditorMarkupOverlay(model: model).disabled(model.editingLocked)
+                                    .allowsHitTesting(!model.editingLocked)
                             }
                         }
                         .frame(width: size.width, height: size.height)
@@ -315,7 +318,7 @@ struct MediaEditorView: View {
             }
             if model.isVideo {
                 Divider()
-                exportSettings
+                exportSettings.disabled(model.editingLocked)
             }
             Divider()
             outputSummary
@@ -603,11 +606,16 @@ private struct PhotoListThumbnail: View {
         .frame(width: Self.side, height: Self.side)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .accessibilityHidden(true)
-        .task(id: url) { image = await Task.detached(priority: .utility) { Self.thumbnail(url) }.value }
+        .task(id: url) {
+            let thumbnail = await Self.thumbnail(url)
+            guard !Task.isCancelled else { return }
+            image = thumbnail
+        }
     }
 
     /// Unreadable files keep the placeholder.
-    private nonisolated static func thumbnail(_ url: URL) -> CGImage? {
+    @concurrent private static func thumbnail(_ url: URL) async -> CGImage? {
+        guard !Task.isCancelled else { return nil }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -848,7 +856,6 @@ private struct EditorNumberControl: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: EditorNumberControl
         var editing = false
-        private var session = 0
 
         init(parent: EditorNumberControl) { self.parent = parent }
 
@@ -869,18 +876,7 @@ private struct EditorNumberControl: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard editing else { return }
-            let field = notification.object as? NSTextField
-            let session = self.session
-            guard parent.model.hasPendingBoundaryInput else {
-                finishEditing(field)
-                return
-            }
-            Task { @MainActor [weak self, weak field] in
-                guard let self else { return }
-                await self.parent.model.finishBoundaryInput()
-                guard self.session == session, field?.currentEditor() == nil else { return }
-                self.finishEditing(field)
-            }
+            finishEditing(notification.object as? NSTextField)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -894,18 +890,14 @@ private struct EditorNumberControl: NSViewRepresentable {
             let id = parent.id
             let wasEditing = editing
             editing = false
-            session += 1
             guard wasEditing || model.invalidFields.contains(id) else { return }
-            Task { @MainActor in
-                model.invalidFields.remove(id)
-                if wasEditing { model.endInteraction(owner: id) }
-            }
+            guard !model.closed else { return }
+            model.invalidFields.remove(id)
+            if wasEditing { model.endInteraction(owner: id) }
         }
 
         private func beginEditing() {
-            guard !editing else { return }
             editing = true
-            session += 1
             parent.model.beginInteraction(owner: parent.id)
         }
 
