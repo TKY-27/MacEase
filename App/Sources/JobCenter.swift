@@ -346,6 +346,13 @@ final class JobCenter {
         }
     }
 
+    func undoBatch(_ id: UUID) async throws -> [UndoOutcome] {
+        onUndo?()
+        let outcomes = try await engine.undo(id)
+        await refreshRecent()
+        return outcomes
+    }
+
     func undo(_ id: UUID) {
         onUndo?()
         guard !terminating, undoTasks[id] == nil else { return }

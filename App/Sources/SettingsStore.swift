@@ -95,13 +95,14 @@ final class SettingsStore {
 
     var terminalApplicationURL: URL {
         didSet {
+            guard terminalApplicationURL != oldValue else { return }
             defaults.set(terminalApplicationURL.path, forKey: Key.terminalApplication)
-            onChange?()
         }
     }
 
     var enabledNewFileTemplates: Set<NewFileTemplate.BuiltIn> {
         didSet {
+            guard enabledNewFileTemplates != oldValue else { return }
             defaults.set(enabledNewFileTemplates.map(\.rawValue).sorted(), forKey: Key.newFileTemplates)
             onChange?()
         }
@@ -168,7 +169,8 @@ final class SettingsStore {
         activityClosesAfterCancel = defaults.bool(forKey: Key.activityClosesAfterCancel)
         activityClosesAfterFailure = defaults.bool(forKey: Key.activityClosesAfterFailure)
         terminalApplicationURL =
-            defaults.string(forKey: Key.terminalApplication).map { URL(fileURLWithPath: $0) }
+            defaults.string(forKey: Key.terminalApplication)
+            .flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil }
             ?? Self.defaultTerminalApplicationURL
         enabledNewFileTemplates =
             defaults.stringArray(forKey: Key.newFileTemplates).map {

@@ -90,9 +90,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openPreview: { [weak self] in self?.finderPreview?.toggle() },
             finderCommand: { [weak finderCommands, weak panels] request in
                 Task {
-                    do { try await finderCommands?.execute(request) } catch {
+                    do { try await finderCommands?.execute(request) } catch is CancellationError {
+                    } catch {
                         panels?.showFailure(
-                            title: MenuStrings.command(request.action.command), message: error.localizedDescription)
+                            title: MenuStrings.command(request.action.command),
+                            message: FinderCommands.describe(error, paths: request.paths))
                     }
                 }
             })
