@@ -99,12 +99,8 @@ private struct PreviewTableGrid: NSViewRepresentable {
 
 final class PreviewTableView: NSTableView, NSTableViewDataSource, NSTableViewDelegate, PreviewFindTarget {
     private static let cellIdentifier = NSUserInterfaceItemIdentifier("PreviewTableCell")
-    // Core Text fonts are immutable and thread-safe.
-    nonisolated(unsafe) private static let cellFont: CTFont = NSFont.monospacedDigitSystemFont(
-        ofSize: NSFont.systemFontSize(for: .small), weight: .regular)
-    nonisolated(unsafe) private static let headerFont: CTFont = NSFont.boldSystemFont(
-        ofSize: NSFont.systemFontSize(for: .small))
-    private static let font = cellFont as NSFont
+    nonisolated private static let fontSize = NSFont.systemFontSize(for: .small)
+    private static let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
     nonisolated private static let cellPadding: CGFloat = 4
     private static let rowPadding: CGFloat = 6
     nonisolated private static let minimumColumnWidth: CGFloat = 40
@@ -169,7 +165,9 @@ final class PreviewTableView: NSTableView, NSTableViewDataSource, NSTableViewDel
 
     // Off the main actor; headers measured bold.
     nonisolated static func columnWidths(for table: PreviewTable) throws -> [CGFloat] {
-        try (0..<table.columnCount).map { column in
+        let cellFont: CTFont = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
+        let headerFont: CTFont = NSFont.boldSystemFont(ofSize: fontSize)
+        return try (0..<table.columnCount).map { column in
             try Task.checkCancellation()
             var widest = width(of: table.value(row: 0, column: column), font: headerFont) + sortIndicatorWidth
             for row in table.rows.indices.dropFirst().prefix(measuredRows) where widest < maximumColumnWidth {
