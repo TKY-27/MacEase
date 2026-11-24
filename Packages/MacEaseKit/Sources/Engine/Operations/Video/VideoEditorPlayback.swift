@@ -138,6 +138,8 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         let context = CIContext(options: [.cacheIntermediates: false, .outputColorSpace: colorSpace])
         let presentation = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+        let hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+        let renderBounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let filtered = try await AVVideoComposition(applyingFiltersTo: asset) { request in
             let input = request.sourceImage
             let normalized = input.transformed(
@@ -153,19 +155,27 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                         y: (bounds.height - canvas.extent.height) / 2))
                 canvas = canvas.composited(over: CIImage(color: .black).cropped(to: bounds)).cropped(to: bounds)
             }
+            let outputTime = request.compositionTime.seconds
+            let activeOverlays = timeline.overlays(at: outputTime)
+            let canvasSize = canvas.extent.size
+            if !activeOverlays.isEmpty { canvas = activeOverlays.redacting(canvas) }
             var image = geometry.applying(to: canvas)
-            let adjustments = timeline.segment(at: request.compositionTime.seconds).adjustments
+            let adjustments = timeline.segment(at: outputTime).adjustments
             image = adjustments.applying(to: image)
-            let fade = timeline.fadeGain(at: request.compositionTime.seconds)
-            if fade < 1 { image = image.fadedToBlack(fade) }
             image = image.transformed(
                 by: CGAffineTransform(
                     scaleX: CGFloat(size.width) / image.extent.width,
-                    y: CGFloat(size.height) / image.extent.height))
-            if adjustments.isIdentity { return AVCIImageFilteringResult(resultImage: image) }
+                    y: CGFloat(size.height) / image.extent.height)
+            ).cropped(to: renderBounds)
+            if !activeOverlays.isEmpty {
+                image = activeOverlays.annotating(image, geometry: geometry, canvas: canvasSize)
+            }
+            let fade = timeline.fadeGain(at: outputTime)
+            if fade < 1 { image = image.fadedToBlack(fade) }
+            if adjustments.isIdentity && !hasAnnotations { return AVCIImageFilteringResult(resultImage: image) }
             // Match export transfer values before compositor presentation.
             guard
-                let rendered = context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: colorSpace)
+                let rendered = context.createCGImage(image, from: renderBounds, format: .RGBA8, colorSpace: colorSpace)
             else {
                 throw EngineError.encodeFailed("video preview rendering failed")
             }

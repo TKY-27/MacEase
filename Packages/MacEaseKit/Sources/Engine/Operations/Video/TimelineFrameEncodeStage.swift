@@ -52,6 +52,7 @@ final class TimelineFrameEncodeStage: StreamStage {
             frameEdit.displayOrientation = try input.displayOrientation
             if inputs.count > 1 { frameEdit.fitCanvas = self.inputs[0].displaySize }
             frameEdit.adjustments = segment.adjustments.isIdentity ? nil : segment.adjustments
+            frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
             let sourceHDR = try await VideoProperties.hdrConfiguration(input)
             sampler = try await FrameSampler(
                 input: input, frameDuration: encoding.frameDuration, edit: frameEdit,
@@ -62,7 +63,11 @@ final class TimelineFrameEncodeStage: StreamStage {
         let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)
         let sourceTime = min(sourceEnd - 1, try Nanoseconds.from(seconds: timeline.sourceTime(at: seconds)))
         let fade = timeline.fadeGain(at: Double(timestamp) / Double(Nanoseconds.perSecond))
-        guard let frame = try await sampler?.next(sourceTime: sourceTime, timestamp: timestamp, fade: fade) else {
+        let overlays = timeline.overlays(at: seconds)
+        guard
+            let frame = try await sampler?.next(
+                sourceTime: sourceTime, timestamp: timestamp, fade: fade, overlays: overlays)
+        else {
             throw EngineError.decodeFailed("no frame in selected segment")
         }
         let (following, overflow) = timestamp.addingReportingOverflow(encoding.frameDuration)

@@ -21,7 +21,8 @@ enum VideoProperties {
             adjustsHDR =
                 hdr != nil
                 && (edit.adjustments?.isIdentity == false
-                    || plan.timeline?.segments.contains { !$0.adjustments.isIdentity } == true)
+                    || plan.timeline?.segments.contains { !$0.adjustments.isIdentity } == true
+                    || plan.timeline?.overlays.isEmpty == false)
         } else {
             adjustsHDR = false
         }

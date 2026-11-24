@@ -56,12 +56,18 @@ public struct VideoSegment: Codable, Hashable, Sendable, Identifiable {
 }
 
 public struct VideoTimeline: Hashable, Sendable {
+    private static let rangeMergeTolerance = 1e-9
+
     public let segments: [VideoSegment]
+    public let overlays: [TimedOverlay]
     public let duration: Double
     private let starts: [Double]
 
     public init(edit: VideoEdit, sourceDuration: Double) throws {
         guard sourceDuration.isFinite, sourceDuration > 0 else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        if edit.segments == nil, !edit.overlays.isEmpty {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
         let segments =
@@ -99,9 +105,51 @@ public struct VideoTimeline: Hashable, Sendable {
         guard try Nanoseconds.from(seconds: duration) > 0 else {
             throw EngineError.invalidInput(.invalidNumericParameter)
         }
+        guard edit.overlays.count <= EditOverlay.maximumCount else {
+            throw EngineError.invalidInput(.invalidNumericParameter)
+        }
+        var overlayIDs = Set<UUID>()
+        for timed in edit.overlays {
+            guard overlayIDs.insert(timed.id).inserted,
+                durations.indices.contains(timed.sourceIndex),
+                timed.start.isFinite, timed.end.isFinite,
+                timed.start >= 0, timed.start < timed.end, timed.end <= durations[timed.sourceIndex]
+            else { throw EngineError.invalidInput(.invalidNumericParameter) }
+            try timed.overlay.validate()
+        }
         self.segments = segments
+        self.overlays = edit.overlays
         self.duration = duration
         self.starts = starts
+    }
+
+    public func overlays(at outputSeconds: Double) -> [EditOverlay] {
+        guard !overlays.isEmpty else { return [] }
+        let segment = segment(at: outputSeconds)
+        let source = sourceTime(at: outputSeconds)
+        return overlays.compactMap { timed in
+            timed.sourceIndex == segment.sourceIndex && source >= timed.start && source < timed.end
+                ? timed.overlay : nil
+        }
+    }
+
+    public func outputRanges(of overlay: TimedOverlay) -> [ClosedRange<Double>] {
+        guard overlay.start.isFinite, overlay.end.isFinite, overlay.start < overlay.end else { return [] }
+        var ranges: [ClosedRange<Double>] = []
+        for (index, segment) in segments.enumerated() {
+            guard segment.sourceIndex == overlay.sourceIndex else { continue }
+            let lower = max(segment.start, overlay.start)
+            let upper = min(segment.end, overlay.end)
+            guard lower < upper else { continue }
+            let outStart = starts[index] + (lower - segment.start) / segment.speed
+            let outEnd = starts[index] + (upper - segment.start) / segment.speed
+            if let previous = ranges.last, outStart <= previous.upperBound + Self.rangeMergeTolerance {
+                ranges[ranges.count - 1] = previous.lowerBound...max(previous.upperBound, outEnd)
+            } else {
+                ranges.append(outStart...outEnd)
+            }
+        }
+        return ranges
     }
 
     public func segment(at outputSeconds: Double) -> VideoSegment {
