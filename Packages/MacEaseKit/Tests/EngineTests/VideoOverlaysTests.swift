@@ -187,7 +187,7 @@ import Testing
         monochrome.style = .monochrome
         var edit = FrameEdit()
         edit.adjustments = monochrome
-        edit.hasAnnotations = true
+        edit.hasOverlays = true
         let processor = try FrameProcessor(source: size, edit: edit)
 
         let arrow = EditOverlay(
@@ -208,6 +208,7 @@ import Testing
         #expect(fadedArrow[0] < arrowPixel[0] - 40 && fadedArrow[0] > 40)
 
         let blueArrow = EditOverlay(
+            id: arrow.id,
             mark: .arrow(from: EditPoint(x: 0.2, y: 0.75), to: EditPoint(x: 0.8, y: 0.75), color: .blue, size: .large))
         let switched = try processor.process(buffer, fade: 1, overlays: [blueArrow])
         let switchedImage = try CGImage.make(from: switched)
@@ -326,6 +327,197 @@ import Testing
         #expect(center[0] < 20 && center[1] < 20 && center[2] < 20)
     }
 
+    @Test func boundaryFramesStayRedactedInPreviewExportAndFrameAPI() async throws {
+        let source = try await videoFixture(width: 160, height: 120, duration: Self.duration)
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0, end: Self.duration)]
+        edit.overlays = [
+            TimedOverlay(
+                overlay: EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid)), start: 0.99, end: 1.01)
+        ]
+        let input = try await MediaInput.open(source)
+        let plan = try VideoEdits.plan(
+            .edit(edit), input: input, source: #require(input.video), settings: VideoSettings())
+        let output = source.deletingLastPathComponent().appending(path: "boundary.mov")
+        try await Transcoder.run(input, plan: plan, to: output) { _ in }
+        let editor = try await VideoEditorSource.open(
+            source, staging: StagingArea(supportDirectory: AudioSignals.temporaryFolder()))
+        defer { Task { await editor.close() } }
+        let playback = try await editor.playback(edit: edit)
+        let saved = AVAssetImageGenerator(asset: AVURLAsset(url: output))
+        let preview = AVAssetImageGenerator(asset: playback.asset)
+        preview.videoComposition = playback.videoComposition
+        for generator in [saved, preview] {
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+        }
+        for (frameIndex, redacted) in [(28, false), (29, true), (30, true), (31, false), (32, false)] {
+            let second = Double(frameIndex) / Double(Self.frameRate)
+            let time = CMTime(seconds: second, preferredTimescale: 60_000)
+            let savedResult = try await saved.image(at: time)
+            let exported = savedResult.image
+            let shown = try await preview.image(at: time).image
+            let fetched = try #require(
+                try await editor.frames(at: [second], width: 160, edit: edit, exactFrame: true).first)
+            for (label, image) in [("export", exported), ("preview", shown), ("frames", fetched)] {
+                let pixel = try ImageFixtures.pixel(image, x: 80, y: 60)
+                if redacted {
+                    #expect(pixel[0] < 20 && pixel[1] < 20 && pixel[2] < 20, "\(label) frame \(frameIndex): \(pixel)")
+                } else {
+                    #expect(pixel[1] > 100, "\(label) frame \(frameIndex): \(pixel)")
+                }
+            }
+        }
+    }
+
+    @Test func reverseKeepsSourceTimeRedactionsEditableAndOutOfIntermediate() async throws {
+        let source = try await videoFixture(width: 160, height: 120, duration: Self.duration)
+        let target = VideoSegment(start: 0.2, end: 1.8)
+        let mark = EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid))
+        var edit = VideoEdit()
+        edit.segments = [target]
+        edit.overlays = [TimedOverlay(overlay: mark, start: 0.9, end: 1.4)]
+        let staging = StagingArea(supportDirectory: try AudioSignals.temporaryFolder())
+        let reversed = try await VideoSegmentReverser.reverse(
+            segmentID: target.id, in: edit, primaryURL: source, staging: staging)
+        let staged = try #require(reversed.sources?.last)
+        defer { VideoSegmentReverser.cleanupStagedSource(staged.url, in: staging) }
+        #expect(reversed.overlays == edit.overlays)
+        let raw = AVAssetImageGenerator(asset: AVURLAsset(url: staged.url))
+        let rawImage = try await raw.image(at: CMTime(seconds: 0.6, preferredTimescale: 60_000)).image
+        #expect(try ImageFixtures.pixel(rawImage, x: 80, y: 60)[1] > 100)
+        let timeline = try VideoTimeline(edit: reversed, sourceDuration: Self.duration)
+        let ranges = timeline.outputRanges(of: edit.overlays[0])
+        try #require(ranges.count == 1)
+        #expect(abs(ranges[0].lowerBound - 0.4) < 0.02)
+        #expect(abs(ranges[0].upperBound - 0.9) < 0.02)
+        let playback = try await VideoEditorPlayback.joined(
+            urls: #require(reversed.sources).map(\.url), edit: reversed, sourceSize: CGSize(width: 160, height: 120))
+        let preview = AVAssetImageGenerator(asset: playback.asset)
+        preview.videoComposition = playback.videoComposition
+        let image = try await preview.image(at: CMTime(seconds: 0.6, preferredTimescale: 60_000)).image
+        #expect(try ImageFixtures.pixel(image, x: 80, y: 60)[1] < 20)
+        let restored = try VideoSegmentReverser.unreverse(segmentID: target.id, in: reversed)
+        #expect(restored.overlays == edit.overlays)
+        #expect(try VideoTimeline(edit: restored, sourceDuration: Self.duration).overlays(at: 0.8) == [mark])
+
+        var newlyMarked = reversed
+        let newMark = EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid))
+        newlyMarked.overlays = [TimedOverlay(overlay: newMark, sourceIndex: 1, start: 0.4, end: 0.9)]
+        let mappedBack = try VideoSegmentReverser.unreverse(segmentID: target.id, in: newlyMarked)
+        let remapped = try #require(mappedBack.overlays.first)
+        #expect(remapped.id == newMark.id && remapped.sourceIndex == 0)
+        #expect(abs(remapped.start - 0.9) < 0.02 && abs(remapped.end - 1.4) < 0.02)
+        #expect(try VideoTimeline(edit: mappedBack, sourceDuration: Self.duration).overlays(at: 0.8) == [newMark])
+
+        var settings = Settings()
+        settings.video.thumbnailFormat = .png
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let outcome = await engine.run(
+            MediaEditing.frame(url: source, edit: reversed, outputSeconds: 0.6, settings: settings), settings: settings
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = outcome.outcomes.first, let stillURL = outputs.first else {
+            Issue.record("expected redacted reversed still")
+            return
+        }
+        let still = try ImageFixtures.image(stillURL)
+        #expect(try ImageFixtures.pixel(still, x: 80, y: 60)[1] < 20)
+    }
+
+    @Test func joinedOrientationsAndBlurColorsMatchPreviewAndExport() async throws {
+        let first = try await videoFixture(width: 160, height: 120, duration: 1)
+        let second = try await videoFixture(
+            width: 120, height: 240, duration: 1,
+            transform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 240, ty: 0))
+        var edit = VideoEdit()
+        edit.sources = try [first, second].map {
+            VideoEditSource(url: $0, duration: 1, stamp: try MediaSourceStamp(url: $0))
+        }
+        edit.segments = [VideoSegment(start: 0, end: 1), VideoSegment(start: 0, end: 1, sourceIndex: 1)]
+        edit.overlays = [
+            TimedOverlay(overlay: EditOverlay(mark: .redaction(rect: EditCrop(), style: .blur)), start: 0, end: 1),
+            TimedOverlay(
+                overlay: EditOverlay(
+                    mark: .redaction(rect: EditCrop(x: 0.2, y: 0.25, width: 0.3, height: 0.5), style: .solid)),
+                sourceIndex: 1, start: 0, end: 1),
+        ]
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let outcome = await engine.run(
+            MediaEditing.video(url: first, edit: edit, settings: Settings()), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = outcome.outcomes.first, let output = outputs.first else {
+            Issue.record("expected joined overlay export")
+            return
+        }
+        let playback = try await VideoEditorPlayback.joined(
+            urls: [first, second], edit: edit, sourceSize: CGSize(width: 160, height: 120))
+        let saved = AVAssetImageGenerator(asset: AVURLAsset(url: output))
+        let preview = AVAssetImageGenerator(asset: playback.asset)
+        preview.videoComposition = playback.videoComposition
+        for generator in [saved, preview] {
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+        }
+        for second in [0.5, 1.5] {
+            let time = CMTime(seconds: second, preferredTimescale: 60_000)
+            let exported = try await saved.image(at: time).image
+            let shown = try await preview.image(at: time).image
+            #expect(exported.width == 160 && exported.height == 120)
+            #expect(shown.width == 160 && shown.height == 120)
+            for (x, y) in [(56, 60), (140, 60), (140, 10)] {
+                let expected = try ImageFixtures.pixel(exported, x: x, y: y)
+                let actual = try ImageFixtures.pixel(shown, x: x, y: y)
+                #expect(
+                    zip(expected, actual).allSatisfy { abs(Int($0) - Int($1)) < 18 },
+                    "at \(second), (\(x), \(y)): \(expected) vs \(actual)")
+                if second == 1.5 {
+                    if x == 56 || y == 10 {
+                        #expect(expected[1] < 20 && actual[1] < 20)
+                    } else {
+                        #expect(expected[1] > 100 && actual[1] > 100)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test func unalignedFreezeRedactsTheWholeVariableDurationSourceFrame() async throws {
+        let source = try await videoFixture(
+            width: 160, height: 120, duration: 2, frameTimes: [0, 0.2, 0.8, 1.2])
+        var edit = VideoEdit()
+        edit.segments = [VideoSegment(start: 0.5, end: 0.533, volume: 0, freezeDuration: 2)]
+        edit.overlays = [
+            TimedOverlay(
+                overlay: EditOverlay(mark: .redaction(rect: EditCrop(), style: .solid)), start: 0.6, end: 0.7)
+        ]
+        let editor = try await VideoEditorSource.open(
+            source, staging: StagingArea(supportDirectory: AudioSignals.temporaryFolder()))
+        defer { Task { await editor.close() } }
+        let playback = try await editor.playback(edit: edit)
+        let preview = AVAssetImageGenerator(asset: playback.asset)
+        preview.videoComposition = playback.videoComposition
+        preview.requestedTimeToleranceBefore = .zero
+        preview.requestedTimeToleranceAfter = .zero
+        let shown = try await preview.image(at: CMTime(seconds: 1, preferredTimescale: 60_000)).image
+        let fetched = try #require(try await editor.frames(at: [0.5], width: 160, edit: edit, exactFrame: true).first)
+        let engine = try JobEngine(supportDirectory: AudioSignals.temporaryFolder(), concurrency: 1)
+        let outcome = await engine.run(
+            MediaEditing.video(url: source, edit: edit, settings: Settings()), settings: Settings()
+        ) { _ in }
+        guard case .succeeded(let outputs, _) = outcome.outcomes.first, let output = outputs.first else {
+            Issue.record("expected redacted variable-duration freeze")
+            return
+        }
+        let saved = AVAssetImageGenerator(asset: AVURLAsset(url: output))
+        let exported = try await saved.image(at: CMTime(seconds: 1, preferredTimescale: 60_000)).image
+        for image in [shown, fetched, exported] {
+            let pixel = try ImageFixtures.pixel(image, x: 80, y: 60)
+            #expect(pixel[0] < 20 && pixel[1] < 20 && pixel[2] < 20)
+        }
+    }
+
     private func solidFrame(width: Int, height: Int, red: UInt8, green: UInt8, blue: UInt8) throws -> CVPixelBuffer {
         var created: CVPixelBuffer?
         try #require(
@@ -347,7 +539,12 @@ import Testing
         return buffer
     }
 
-    private func videoFixture(width: Int, height: Int, duration: Double) async throws -> URL {
+    private func videoFixture(
+        width: Int, height: Int, duration: Double, transform: CGAffineTransform = .identity,
+        frameTimes: [Double]? = nil
+    )
+        async throws -> URL
+    {
         let folder = try AudioSignals.temporaryFolder()
         let url = folder.appending(path: "source.mov")
         let encoding = VideoEncoding(
@@ -356,14 +553,16 @@ import Testing
         var encoder = try VideoEncoders.make(encoding, track: 1)
         let frame = try solidFrame(width: width, height: height, red: 60, green: 180, blue: 220)
         var packets: [MediaPacket] = []
-        for index in 0..<Int(duration * Double(Self.frameRate)) {
-            let timestamp = try Nanoseconds.from(seconds: Double(index) / Double(Self.frameRate))
+        let times =
+            frameTimes ?? (0..<Int(duration * Double(Self.frameRate))).map { Double($0) / Double(Self.frameRate) }
+        for second in times {
+            let timestamp = try Nanoseconds.from(seconds: second)
             packets += try encoder.encode(frame, timestamp: timestamp)
         }
         packets += try encoder.finish()
         var sink = try Sinks.make(
             .mov, url: url, tracks: [OutputTrack(track: encoder.track, format: encoder.formatDescription)],
-            transform: .identity)
+            transform: transform)
         for packet in packets.sorted(by: { ($0.decodeTimestamp ?? $0.timestamp) < ($1.decodeTimestamp ?? $1.timestamp) }
         ) {
             try await sink.write(packet)

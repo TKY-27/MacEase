@@ -287,6 +287,107 @@ import Testing
         #expect(center[0] < 10 && center[1] < 10 && center[2] < 10)
     }
 
+    @Test func fractionalRedactionsCoverEveryEdgeAndReplaceTranslucentPixels() throws {
+        let source = try ImageFixtures.canvas(width: 100, height: 100) { context in
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5))
+            context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        }
+        let cases: [(EditCrop, [(Int, Int)])] = [
+            (EditCrop(x: 0.106, y: 0.106, width: 0.2, height: 0.2), [(10, 20), (30, 20), (20, 10), (20, 30)]),
+            (EditCrop(x: 0.996, y: 0, width: 0.004, height: 1), [(99, 0), (99, 50), (99, 99)]),
+            (EditCrop(x: 0, y: 0, width: 0.004, height: 1), [(0, 0), (0, 50), (0, 99)]),
+            (EditCrop(x: 0, y: 0.996, width: 1, height: 0.004), [(0, 99), (50, 99), (99, 99)]),
+            (EditCrop(x: 0, y: 0, width: 1, height: 0.004), [(0, 0), (50, 0), (99, 0)]),
+        ]
+        for (rect, probes) in cases {
+            let overlays = [EditOverlay(mark: .redaction(rect: rect, style: .solid))]
+            let rendered = try ImagePixels.render(overlays.redacting(CIImage(cgImage: source)), like: source)
+            for (x, y) in probes {
+                #expect(try ImageFixtures.pixel(rendered, x: x, y: y) == [0, 0, 0, 255])
+            }
+            #expect(try ImageFixtures.pixel(rendered, x: 50, y: 50) == ImageFixtures.pixel(source, x: 50, y: 50))
+        }
+    }
+
+    @Test func fractionalCropPointsMatchActualPixelBounds() {
+        let canvas = CGSize(width: 101, height: 79)
+        var geometry = EditGeometry()
+        geometry.crop = EditCrop(x: 0.106, y: 0.117, width: 0.601, height: 0.663)
+        let mapped = geometry.outputPoint(EditPoint(x: 11.0 / 101, y: 9.0 / 79), canvas: canvas)
+        #expect(abs(mapped.x) < 1e-12)
+        #expect(abs(mapped.y) < 1e-12)
+        let restored = geometry.canvasPoint(.zero, canvas: canvas)
+        #expect(abs(restored.x - 11.0 / 101) < 1e-12)
+        #expect(abs(restored.y - 9.0 / 79) < 1e-12)
+    }
+
+    @Test func redactionContainsSensitivePixelsAfterStraighten() throws {
+        let source = try ImageFixtures.canvas(width: 100, height: 100) { context in
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        }
+        var edit = ImageEdit()
+        edit.geometry.straighten = 23
+        edit.overlays = [
+            EditOverlay(mark: .redaction(rect: EditCrop(x: 0.306, y: 0.306, width: 0.4, height: 0.4), style: .solid))
+        ]
+        let rendered = try ImagePixels.render(
+            PhotoEditing.image(source, edit: edit, automaticFilters: []), like: source)
+        for y in stride(from: 0.311, through: 0.701, by: 0.03) {
+            for x in stride(from: 0.311, through: 0.701, by: 0.03) {
+                let point = edit.geometry.outputPoint(EditPoint(x: x, y: y), canvas: CGSize(width: 100, height: 100))
+                let pixel = try ImageFixtures.pixel(rendered, x: Int(point.x * 100), y: Int(point.y * 100))
+                #expect(pixel[0] < 8 && pixel[1] < 8 && pixel[2] < 8)
+            }
+        }
+    }
+
+    @Test func smallTextUsesFullResolutionMinimumInNarrowPhotoPreview() async throws {
+        let folder = try TestVolume.makeFolder()
+        let source = try ImageFixtures.canvas(width: 4000, height: 400) { context in
+            context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 4000, height: 400))
+        }
+        let url = try ImageFixtures.write([source], as: .png, to: folder.appending(path: "wide.png"))
+        let editor = try await PhotoEditorSource.open(url)
+        var edit = ImageEdit()
+        edit.overlays = [EditOverlay(mark: .text("SECRET", at: EditPoint(x: 0.5, y: 0.5), color: .white, size: .small))]
+        let preview = try await editor.render(edit, maximumDimension: 960)
+        let full = try ImagePixels.render(PhotoEditing.image(source, edit: edit, automaticFilters: []), like: source)
+        let scaled = try ImagePixels.scaled(full, width: preview.width, height: preview.height)
+        for image in [preview, scaled] {
+            var rows = Set<Int>()
+            for y in 30..<66 {
+                for x in 440..<520 {
+                    let pixel = try ImageFixtures.pixel(image, x: x, y: y)
+                    if pixel[0] > 30 { rows.insert(y) }
+                }
+            }
+            #expect(!rows.isEmpty)
+            #expect(rows.count <= 6)
+        }
+    }
+
+    @Test func blurPreviewUsesFullResolutionRadius() throws {
+        let source = try ImageFixtures.canvas(width: 4000, height: 400) { context in
+            context.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 4000, height: 400))
+            context.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 2000, height: 400))
+        }
+        let overlays = [EditOverlay(mark: .redaction(rect: EditCrop(), style: .blur))]
+        let small = try ImagePixels.scaled(source, width: 960, height: 96)
+        let preview = try ImagePixels.render(
+            overlays.redacting(CIImage(cgImage: small), fullCanvasSize: CGSize(width: 4000, height: 400)), like: small)
+        let full = try ImagePixels.render(overlays.redacting(CIImage(cgImage: source)), like: source)
+        let scaled = try ImagePixels.scaled(full, width: 960, height: 96)
+        for x in 470...490 {
+            let actual = try ImageFixtures.pixel(preview, x: x, y: 48)
+            let expected = try ImageFixtures.pixel(scaled, x: x, y: 48)
+            #expect(abs(Int(actual[0]) - Int(expected[0])) < 8)
+        }
+    }
+
     private func checkerboard(width: Int, height: Int, tile: Int) throws -> CGImage {
         try ImageFixtures.canvas(width: width, height: height) { context in
             for row in stride(from: 0, to: height, by: tile) {

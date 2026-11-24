@@ -31,10 +31,7 @@ final class TimelineFrameSource {
         guard timestamp >= 0, timestamp < duration else {
             throw EngineError.encodeFailed("video timeline out of range")
         }
-        let (frameCenter, centerOverflow) = timestamp.addingReportingOverflow(frameDuration / 2)
-        guard !centerOverflow else { throw EngineError.encodeFailed("video timeline out of range") }
-        let center = min(frameCenter, duration - 1)
-        let seconds = Double(center) / Double(Nanoseconds.perSecond)
+        let seconds = Double(timestamp) / Double(Nanoseconds.perSecond)
         let index = timeline.index(at: seconds)
         if segmentIndex != index {
             let segment = timeline.segments[index]
@@ -43,7 +40,7 @@ final class TimelineFrameSource {
             frameEdit.displayOrientation = try input.displayOrientation
             if inputs.count > 1 { frameEdit.fitCanvas = inputs[0].displaySize }
             frameEdit.adjustments = segment.adjustments.isIdentity ? nil : segment.adjustments
-            frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+            frameEdit.hasOverlays = !timeline.overlays.isEmpty
             let sourceHDR = try await VideoProperties.hdrConfiguration(input)
             sampler = try await FrameSampler(
                 input: input, frameDuration: frameDuration, edit: frameEdit,
@@ -51,13 +48,22 @@ final class TimelineFrameSource {
                 hdr: hdr, toneMapToSDR: toneMapToSDR && sourceHDR != nil, holdsLastFrame: true)
             segmentIndex = index
         }
+        let (center, overflow) = timestamp.addingReportingOverflow(frameDuration / 2)
+        guard !overflow else { throw EngineError.encodeFailed("video timeline out of range") }
+        let sampleSeconds = min(Double(center) / Double(Nanoseconds.perSecond), timeline.outputEnd(at: index).nextDown)
         let sourceEnd = try Nanoseconds.from(seconds: timeline.segments[index].end)
-        let sourceTime = min(sourceEnd - 1, try Nanoseconds.from(seconds: timeline.sourceTime(at: seconds)))
+        let sourceTime = min(sourceEnd - 1, try Nanoseconds.from(seconds: timeline.sourceTime(at: sampleSeconds)))
         let fade = timeline.fadeGain(at: Double(timestamp) / Double(Nanoseconds.perSecond))
-        let overlays = timeline.overlays(at: seconds)
+        let selection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])? =
+            timeline.overlays.isEmpty
+            ? nil
+            : { @Sendable [timeline] (range: ClosedRange<Double>) in
+                timeline.overlays(at: seconds, sourceRange: range)
+            }
         guard
             let frame = try await sampler?.next(
-                sourceTime: sourceTime, timestamp: timestamp, fade: fade, overlays: overlays)
+                sourceTime: sourceTime, timestamp: timestamp, fade: fade,
+                overlaySelection: selection)
         else {
             throw EngineError.decodeFailed("no frame in selected segment")
         }

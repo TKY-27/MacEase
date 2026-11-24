@@ -135,7 +135,7 @@ enum VideoEdits {
         var frame = FrameEdit(displayOrientation: try first.displayOrientation)
         frame.fitCanvas = first.displaySize
         frame.editorGeometry = edit.geometry
-        frame.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+        frame.hasOverlays = !timeline.overlays.isEmpty
         let natural = edit.geometry.outputSize(CGSize(width: first.displaySize.width, height: first.displaySize.height))
         let size =
             try edit.resize?.outputSize(PixelSize(width: Int(natural.width), height: Int(natural.height)))
@@ -344,7 +344,7 @@ enum VideoEdits {
         var frameEdit = try baked(input)
         if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
         if changesSize { frameEdit.size = size }
-        frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+        frameEdit.hasOverlays = !timeline.overlays.isEmpty
         var plan = try reencoded(input, source: source, edit: frameEdit, settings: settings)
         plan.timeline = timeline
         plan.startsAtKeyframe = false

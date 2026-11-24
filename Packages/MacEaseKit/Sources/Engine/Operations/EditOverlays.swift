@@ -308,7 +308,7 @@ extension [EditOverlay] {
         }
     }
 
-    func redacting(_ canvas: CIImage) -> CIImage {
+    func redacting(_ canvas: CIImage, fullCanvasSize: CGSize? = nil) -> CIImage {
         let redactions = compactMap { overlay -> (EditCrop, RedactionStyle)? in
             guard case .redaction(let rect, let style) = overlay.mark else { return nil }
             return (rect, style)
@@ -317,17 +317,23 @@ extension [EditOverlay] {
         let extent = canvas.extent
         let shortSide = Swift.min(extent.width, extent.height)
         guard shortSide > 0 else { return canvas }
+        let reference = fullCanvasSize ?? extent.size
+        let referenceShortSide = Swift.min(reference.width, reference.height)
+        let renderScale = shortSide / referenceShortSide
         var current = canvas
         let clear = CIImage(color: .clear).cropped(to: extent)
         for (crop, style) in redactions {
-            let region = crop.rect(in: extent.size)
-                .offsetBy(dx: extent.minX, dy: extent.minY)
+            let left = floor(extent.minX + crop.x * extent.width)
+            let right = ceil(extent.minX + (crop.x + crop.width) * extent.width)
+            let bottom = floor(extent.minY + (1 - crop.y - crop.height) * extent.height)
+            let top = ceil(extent.minY + (1 - crop.y) * extent.height)
+            let region = CGRect(x: left, y: bottom, width: right - left, height: top - bottom)
                 .intersection(extent)
             guard !region.isEmpty else { continue }
             let replacement: CIImage
             switch style {
             case .mosaic:
-                let block = Swift.max(1, shortSide * EditOverlay.mosaicBlockFraction)
+                let block = Swift.max(1, referenceShortSide * EditOverlay.mosaicBlockFraction) * renderScale
                 replacement = current.cropped(to: region).clampedToExtent()
                     .applyingFilter(
                         "CIPixellate",
@@ -338,9 +344,11 @@ extension [EditOverlay] {
                     )
                     .cropped(to: region)
             case .blur:
-                let radius = Swift.min(
-                    shortSide * EditOverlay.maximumBlurFraction,
-                    Swift.max(EditOverlay.minimumBlurRadius, shortSide * EditOverlay.blurRadiusFraction))
+                let radius =
+                    Swift.min(
+                        referenceShortSide * EditOverlay.maximumBlurFraction,
+                        Swift.max(EditOverlay.minimumBlurRadius, referenceShortSide * EditOverlay.blurRadiusFraction))
+                    * renderScale
                 replacement = current.cropped(to: region).clampedToExtent()
                     .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
                     .cropped(to: region)
@@ -360,11 +368,15 @@ extension [EditOverlay] {
         return current
     }
 
-    func annotating(_ image: CIImage, geometry: EditGeometry, canvas: CGSize, includingCrop: Bool = true) -> CIImage {
+    func annotating(
+        _ image: CIImage, geometry: EditGeometry, canvas: CGSize, includingCrop: Bool = true,
+        fullOutputSize: CGSize? = nil
+    ) -> CIImage {
         let extent = image.extent
         guard
             let layer = annotationLayer(
-                size: extent.size, geometry: geometry, canvas: canvas, includingCrop: includingCrop)
+                size: extent.size, geometry: geometry, canvas: canvas, includingCrop: includingCrop,
+                fullOutputSize: fullOutputSize)
         else { return image }
         let positioned =
             extent.origin == .zero
@@ -373,7 +385,10 @@ extension [EditOverlay] {
         return positioned.composited(over: image).cropped(to: extent)
     }
 
-    func annotationLayer(size: CGSize, geometry: EditGeometry, canvas: CGSize, includingCrop: Bool = true) -> CIImage? {
+    func annotationLayer(
+        size: CGSize, geometry: EditGeometry, canvas: CGSize, includingCrop: Bool = true,
+        fullOutputSize: CGSize? = nil
+    ) -> CIImage? {
         let annotations = filter(\.isAnnotation)
         guard !annotations.isEmpty else { return nil }
         let width = Int(size.width.rounded())
@@ -386,7 +401,8 @@ extension [EditOverlay] {
         else { return nil }
         context.setAllowsAntialiasing(true)
         context.setShouldAntialias(true)
-        let outputSize = CGSize(width: width, height: height)
+        let outputSize = fullOutputSize ?? (includingCrop ? geometry.outputSize(canvas) : geometry.canvasSize(canvas))
+        context.scaleBy(x: CGFloat(width) / outputSize.width, y: CGFloat(height) / outputSize.height)
         for overlay in annotations {
             switch overlay.mark {
             case .redaction:
@@ -407,5 +423,38 @@ extension [EditOverlay] {
         }
         guard let rendered = context.makeImage() else { return nil }
         return CIImage(cgImage: rendered)
+    }
+}
+
+// Filter requests may render concurrently.
+final class EditAnnotationCache: @unchecked Sendable {
+    private struct Key: Equatable {
+        let overlays: [EditOverlay]
+        let size: CGSize
+        let geometry: EditGeometry
+        let canvas: CGSize
+        let fullOutputSize: CGSize
+    }
+
+    private let lock = NSLock()
+    private var cached: (key: Key, layer: CIImage)?
+
+    func layer(
+        for overlays: [EditOverlay], size: CGSize, geometry: EditGeometry, canvas: CGSize,
+        fullOutputSize: CGSize
+    ) -> CIImage? {
+        let annotations = overlays.filter(\.isAnnotation)
+        guard !annotations.isEmpty else { return nil }
+        let key = Key(
+            overlays: annotations, size: size, geometry: geometry, canvas: canvas, fullOutputSize: fullOutputSize)
+        return lock.withLock {
+            if let cached, cached.key == key { return cached.layer }
+            guard
+                let layer = annotations.annotationLayer(
+                    size: size, geometry: geometry, canvas: canvas, fullOutputSize: fullOutputSize)
+            else { return nil }
+            cached = (key, layer)
+            return layer
+        }
     }
 }

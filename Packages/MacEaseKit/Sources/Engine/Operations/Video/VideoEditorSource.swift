@@ -70,9 +70,17 @@ public actor VideoEditorSource {
                 segmentID.flatMap { id in timeline.segments.first { $0.id == id } }
                 ?? timeline.segments.first { second >= $0.start && second < $0.end }
                 ?? timeline.segments[0]
+            let selection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])? =
+                timeline.overlays.isEmpty
+                ? nil
+                : { @Sendable (range: ClosedRange<Double>) in
+                    timeline.overlays(
+                        at: timeline.outputTime(for: second, segmentID: segment.id) ?? 0, sourceRange: range)
+                }
             images += try await preview.frames(
                 at: [second], width: width, geometry: geometry, adjustments: segment.adjustments,
-                toneMapToSDR: details.containsHDR && edit.changesColor, exactFrame: exactFrame)
+                toneMapToSDR: details.containsHDR && edit.changesColor, exactFrame: exactFrame,
+                overlaySelection: selection)
         }
         return images
     }

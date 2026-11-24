@@ -90,6 +90,7 @@ public struct VideoTimeline: Hashable, Sendable {
     public let overlays: [TimedOverlay]
     public let duration: Double
     private let starts: [Double]
+    private let sourceDurations: [Double]
 
     public init(edit: VideoEdit, sourceDuration: Double) throws {
         guard sourceDuration.isFinite, sourceDuration > 0 else {
@@ -162,15 +163,35 @@ public struct VideoTimeline: Hashable, Sendable {
         self.overlays = edit.overlays
         self.duration = duration
         self.starts = starts
+        sourceDurations = durations
     }
 
-    public func overlays(at outputSeconds: Double) -> [EditOverlay] {
+    public func overlays(
+        at outputSeconds: Double, sourceRange: ClosedRange<Double>? = nil
+    ) -> [EditOverlay] {
         guard !overlays.isEmpty else { return [] }
-        let segment = segment(at: outputSeconds)
-        let source = sourceTime(at: outputSeconds)
+        let index = index(at: outputSeconds)
+        let segment = segments[index]
+        let source = sourceRange?.lowerBound ?? sourceTime(at: outputSeconds)
+        let upper = sourceRange?.upperBound ?? source
         return overlays.compactMap { timed in
-            timed.sourceIndex == segment.sourceIndex && source >= timed.start && source < timed.end
-                ? timed.overlay : nil
+            let lowerBound: Double
+            let upperBound: Double
+            if timed.sourceIndex == segment.sourceIndex {
+                lowerBound = source
+                upperBound = upper
+            } else if let origin = segment.reversedOrigin, timed.sourceIndex == origin.sourceIndex {
+                let scale = (origin.end - origin.start) / sourceDurations[segment.sourceIndex]
+                lowerBound = origin.end - upper * scale
+                upperBound = origin.end - source * scale
+            } else {
+                return nil
+            }
+            if case .redaction = timed.overlay.mark, sourceRange != nil {
+                // Boundary uncertainty must favor privacy.
+                return timed.start <= upperBound && timed.end >= lowerBound ? timed.overlay : nil
+            }
+            return lowerBound >= timed.start && lowerBound < timed.end ? timed.overlay : nil
         }
     }
 
@@ -178,16 +199,24 @@ public struct VideoTimeline: Hashable, Sendable {
         guard overlay.start.isFinite, overlay.end.isFinite, overlay.start < overlay.end else { return [] }
         var ranges: [ClosedRange<Double>] = []
         for (index, segment) in segments.enumerated() {
-            guard segment.sourceIndex == overlay.sourceIndex else { continue }
+            let sourceRange: Range<Double>
+            if segment.sourceIndex == overlay.sourceIndex {
+                sourceRange = overlay.start..<overlay.end
+            } else if let origin = segment.reversedOrigin, origin.sourceIndex == overlay.sourceIndex {
+                let scale = sourceDurations[segment.sourceIndex] / (origin.end - origin.start)
+                sourceRange = (origin.end - overlay.end) * scale..<(origin.end - overlay.start) * scale
+            } else {
+                continue
+            }
             let outStart: Double
             let outEnd: Double
             if segment.freezeDuration != nil {
-                guard segment.start >= overlay.start, segment.start < overlay.end else { continue }
+                guard sourceRange.contains(segment.start) else { continue }
                 outStart = starts[index]
                 outEnd = starts[index] + segment.outputDuration
             } else {
-                let lower = max(segment.start, overlay.start)
-                let upper = min(segment.end, overlay.end)
+                let lower = max(segment.start, sourceRange.lowerBound)
+                let upper = min(segment.end, sourceRange.upperBound)
                 guard lower < upper else { continue }
                 outStart = starts[index] + (lower - segment.start) / segment.speed
                 outEnd = starts[index] + (upper - segment.start) / segment.speed

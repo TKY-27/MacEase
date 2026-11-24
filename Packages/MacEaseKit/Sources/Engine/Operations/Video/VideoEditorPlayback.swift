@@ -5,8 +5,6 @@ import Foundation
 
 // Immutable snapshots cross the actor boundary.
 public struct VideoEditorPlayback: @unchecked Sendable {
-    private static let freezePreviewFrameRate: CMTimeScale = 30
-
     public let asset: AVAsset
     public let videoComposition: AVVideoComposition?
     public let audioMix: AVAudioMix?
@@ -42,7 +40,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                 withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
         else { throw EngineError.decodeFailed("cannot create playback video track") }
         video.naturalTimeScale = compositionTimescale
-        video.preferredTransform = try await sourceVideo.load(.preferredTransform)
+        video.preferredTransform = urls.count > 1 ? .identity : try await sourceVideo.load(.preferredTransform)
         var audioTracks: [AVMutableCompositionTrack?] = []
         var audioParameters: [AVMutableAudioMixInputParameters?] = []
         for url in urls {
@@ -138,7 +136,8 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         let videoComposition: AVVideoComposition?
         if edit.changesAppearance || urls.count > 1 || timeline.hasFades {
-            videoComposition = try await filtered(composition, timeline: timeline, edit: edit, sourceSize: sourceSize)
+            videoComposition = try await filtered(
+                composition, timeline: timeline, edit: edit, sourceSize: sourceSize, urls: urls)
         } else {
             videoComposition = nil
         }
@@ -150,7 +149,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
     }
 
     private static func filtered(
-        _ asset: AVAsset, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize
+        _ asset: AVAsset, timeline: VideoTimeline, edit: VideoEdit, sourceSize: CGSize, urls: [URL]
     ) async throws -> AVVideoComposition {
         let geometry = edit.geometry
         let original = geometry.outputSize(sourceSize)
@@ -163,12 +162,33 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         let context = CIContext(options: [.cacheIntermediates: false, .outputColorSpace: colorSpace])
         let presentation = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
-        let hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+        let hasOverlays = !timeline.overlays.isEmpty
+        let annotationCache = EditAnnotationCache()
+        let fullOutputSize = CGSize(width: selected.width, height: selected.height)
+        let source = try await MediaInput.open(urls[0])
+        var sourceOrientations: [VideoDisplayOrientation] = []
+        var sourceIndexes: [EditorFrameIndex] = []
+        for url in urls {
+            let input = try await MediaInput.open(url)
+            sourceOrientations.append(try input.displayOrientation)
+            guard case .asset(_, let track?, _) = input.backend else {
+                throw EngineError.decodeFailed("preview source has no native video track")
+            }
+            sourceIndexes.append(
+                EditorFrameIndex(track: track, end: Double(input.duration) / Double(Nanoseconds.perSecond)))
+        }
+        let orientations = sourceOrientations
+        let frameIndexes = sourceIndexes
+        let frameSeconds = Double(source.frameDuration) / Double(Nanoseconds.perSecond)
         let renderBounds = CGRect(x: 0, y: 0, width: size.width, height: size.height)
         let filtered = try await AVVideoComposition(applyingFiltersTo: asset) { request in
+            let outputTime = request.compositionTime.seconds
+            let segment = timeline.segment(at: outputTime)
             let input = request.sourceImage
-            let normalized = input.transformed(
-                by: CGAffineTransform(translationX: -input.extent.minX, y: -input.extent.minY))
+            let oriented =
+                urls.count > 1 ? input.transformed(by: orientations[segment.sourceIndex].pixelTransform) : input
+            let normalized = oriented.transformed(
+                by: CGAffineTransform(translationX: -oriented.extent.minX, y: -oriented.extent.minY))
             var canvas = normalized
             if (edit.sources?.count ?? 0) > 1 {
                 let bounds = CGRect(origin: .zero, size: sourceSize)
@@ -180,24 +200,33 @@ public struct VideoEditorPlayback: @unchecked Sendable {
                         y: (bounds.height - canvas.extent.height) / 2))
                 canvas = canvas.composited(over: CIImage(color: .black).cropped(to: bounds)).cropped(to: bounds)
             }
-            let outputTime = request.compositionTime.seconds
-            let activeOverlays = timeline.overlays(at: outputTime)
+            let activeOverlays: [EditOverlay]
+            if hasOverlays {
+                let sourceRange = try frameIndexes[segment.sourceIndex].range(
+                    at: time(timeline.sourceTime(at: outputTime)))
+                activeOverlays = timeline.overlays(at: outputTime, sourceRange: sourceRange)
+            } else {
+                activeOverlays = []
+            }
             let canvasSize = canvas.extent.size
-            if !activeOverlays.isEmpty { canvas = activeOverlays.redacting(canvas) }
+            if !activeOverlays.isEmpty { canvas = activeOverlays.redacting(canvas, fullCanvasSize: sourceSize) }
             var image = geometry.applying(to: canvas)
-            let adjustments = timeline.segment(at: outputTime).adjustments
+            let adjustments = segment.adjustments
             image = adjustments.applying(to: image)
             image = image.transformed(
                 by: CGAffineTransform(
                     scaleX: CGFloat(size.width) / image.extent.width,
                     y: CGFloat(size.height) / image.extent.height)
             ).cropped(to: renderBounds)
-            if !activeOverlays.isEmpty {
-                image = activeOverlays.annotating(image, geometry: geometry, canvas: canvasSize)
+            if let layer = annotationCache.layer(
+                for: activeOverlays, size: renderBounds.size, geometry: geometry, canvas: canvasSize,
+                fullOutputSize: fullOutputSize)
+            {
+                image = layer.composited(over: image).cropped(to: renderBounds)
             }
             let fade = timeline.fadeGain(at: outputTime)
             if fade < 1 { image = image.fadedToBlack(fade) }
-            if adjustments.isIdentity && !hasAnnotations { return AVCIImageFilteringResult(resultImage: image) }
+            if adjustments.isIdentity && !hasOverlays { return AVCIImageFilteringResult(resultImage: image) }
             // Match export transfer values before compositor presentation.
             guard
                 let rendered = context.createCGImage(image, from: renderBounds, format: .RGBA8, colorSpace: colorSpace)
@@ -209,10 +238,7 @@ public struct VideoEditorPlayback: @unchecked Sendable {
         }
         // Scaled freeze samples otherwise pause fades.
         let hasFreeze = timeline.segments.contains(where: \.isFreeze)
-        let frameDuration =
-            CMTimeConvertScale(
-                hasFreeze ? CMTime(value: 1, timescale: Self.freezePreviewFrameRate) : filtered.frameDuration,
-                timescale: compositionTimescale, method: .default)
+        let frameDuration = time(frameSeconds)
         var configuration = AVVideoComposition.Configuration(
             colorPrimaries: filtered.colorPrimaries,
             colorTransferFunction: filtered.colorTransferFunction,

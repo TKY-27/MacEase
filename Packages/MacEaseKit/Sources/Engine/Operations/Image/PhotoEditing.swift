@@ -70,8 +70,12 @@ public actor PhotoEditorSource {
         let output = cropPreview ? edit.geometry.canvasSize(dimensions) : edit.geometry.outputSize(dimensions)
         let sourceScale = min(1, Double(maximumDimension) / max(output.width, output.height))
         let sourceDimension = min(8192, max(1, Int(ceil(max(dimensions.width, dimensions.height) * sourceScale))))
-        let source = try previewImage(
-            reference.first, maximumDimension: sourceDimension, isSDR: usesSDR, interactive: maximumDimension <= 960)
+        let source =
+            try edit.overlays.isEmpty
+            ? previewImage(
+                reference.first, maximumDimension: sourceDimension, isSDR: usesSDR, interactive: maximumDimension <= 960
+            )
+            : reference.first
         let image = try PhotoEditing.image(
             source, edit: edit,
             automaticFilters: edit.autoEnhance ? automaticFilters ?? [] : [], includingCrop: !cropPreview,
@@ -147,6 +151,7 @@ enum PhotoEditing {
             image = output
         }
         image = edit.adjustments.applying(to: image)
+        let fullOutputSize = image.extent.size
         if let maximumDimension {
             let scale = min(1, Double(maximumDimension) / max(image.extent.width, image.extent.height))
             if scale < 1 {
@@ -154,7 +159,8 @@ enum PhotoEditing {
             }
         }
         return edit.overlays.annotating(
-            image, geometry: edit.geometry, canvas: canvasSize, includingCrop: includingCrop)
+            image, geometry: edit.geometry, canvas: canvasSize, includingCrop: includingCrop,
+            fullOutputSize: fullOutputSize)
     }
 
     static func run(_ edit: ImageEdit, url: URL, context: ItemContext) async throws -> ItemResult {

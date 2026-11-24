@@ -23,11 +23,14 @@ public struct MediaPreview: Sendable {
     /// Each frame decodes from a keyframe.
     public func frames(
         at seconds: [Double], width: Int, geometry: EditGeometry = EditGeometry(),
-        adjustments: MediaAdjustments = MediaAdjustments(), toneMapToSDR: Bool = false, exactFrame: Bool = false
+        adjustments: MediaAdjustments = MediaAdjustments(), toneMapToSDR: Bool = false, exactFrame: Bool = false,
+        overlays: [EditOverlay] = [],
+        overlaySelection: (@Sendable (ClosedRange<Double>) -> [EditOverlay])? = nil
     ) async throws -> [CGImage] {
         let input = try await MediaInput.open(url)
         try geometry.validate()
         try adjustments.validate()
+        try overlays.validate()
         let edited = geometry.outputSize(CGSize(width: input.displaySize.width, height: input.displaySize.height))
         let display = PixelSize(width: Int(edited.width), height: Int(edited.height))
         guard display.width > 0, display.height > 0 else {
@@ -36,11 +39,13 @@ public struct MediaPreview: Sendable {
         guard width > 0,
             let height = Int(exactly: (Double(display.height) * Double(width) / Double(display.width)).rounded())
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
-        let edit = FrameEdit(
+        var edit = FrameEdit(
             displayOrientation: try input.displayOrientation,
             size: PixelSize(width: width, height: max(1, height)).evened(),
             editorGeometry: geometry.isIdentity ? nil : geometry,
             adjustments: adjustments.isIdentity ? nil : adjustments)
+        edit.hasOverlays = !overlays.isEmpty || overlaySelection != nil
+        edit.annotationSize = edited
         var images: [CGImage] = []
         for second in seconds {
             let (lastFrameStart, startOverflow) = input.duration.subtractingReportingOverflow(input.frameDuration)
@@ -53,7 +58,12 @@ public struct MediaPreview: Sendable {
             let sampler = try await FrameSampler(
                 input: input, frameDuration: exactFrame ? 1 : input.frameDuration, edit: edit, start: time,
                 end: end, toneMapToSDR: toneMapToSDR)
-            guard let frame = try await sampler.next() else { throw EngineError.decodeFailed("no frame at that time") }
+            guard
+                let frame = try await sampler.next(
+                    sourceTime: time, timestamp: time, overlays: overlays, overlaySelection: overlaySelection)
+            else {
+                throw EngineError.decodeFailed("no frame at that time")
+            }
             images.append(try CGImage.make(from: frame.image))
         }
         return images

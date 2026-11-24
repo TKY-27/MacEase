@@ -63,7 +63,8 @@ struct FrameEdit: Hashable, Sendable {
     var fitCanvas: PixelSize?
     var editorGeometry: EditGeometry?
     var adjustments: MediaAdjustments?
-    var hasAnnotations = false
+    var hasOverlays = false
+    var annotationSize: CGSize?
 }
 
 struct PixelSize: Hashable, Sendable {
@@ -89,7 +90,8 @@ final class FrameProcessor {
     private let fitCanvas: PixelSize?
     private let editorGeometry: EditGeometry?
     private let adjustments: MediaAdjustments?
-    private var annotationCache: (ids: [UUID], layer: CIImage)?
+    private let annotationCache = EditAnnotationCache()
+    private let annotationSize: CGSize
     let size: PixelSize
 
     static func outputSize(
@@ -124,7 +126,7 @@ final class FrameProcessor {
             else { throw EngineError.encodeFailed("HDR color space unavailable") }
             context = CIContext(options: [.workingColorSpace: working, .workingFormat: CIFormat.RGBAh])
             outputColorSpace = output
-        } else if edit.adjustments?.isIdentity == false || edit.hasAnnotations {
+        } else if edit.adjustments?.isIdentity == false || edit.hasOverlays {
             context = CIContext(options: [.cacheIntermediates: false])
             outputColorSpace = CGColorSpace(name: CGColorSpace.itur_709)
         } else {
@@ -150,6 +152,7 @@ final class FrameProcessor {
         size = try Self.outputSize(source: source, edit: edit, display: display)
         let canvasSize = edit.fitCanvas.map { CGSize(width: $0.width, height: $0.height) } ?? bounds.size
         let editedSize = edit.editorGeometry?.outputSize(canvasSize) ?? canvasSize
+        annotationSize = edit.annotationSize ?? CGSize(width: size.width, height: size.height)
         scale = CGAffineTransform(
             scaleX: CGFloat(size.width) / editedSize.width, y: CGFloat(size.height) / editedSize.height)
         let rightAngle = edit.rotation.truncatingRemainder(dividingBy: 90) == 0
@@ -243,15 +246,8 @@ final class FrameProcessor {
     }
 
     private func annotationLayer(for overlays: [EditOverlay], outputSize: CGSize, canvas: CGSize) -> CIImage? {
-        let annotations = overlays.filter(\.isAnnotation)
-        guard !annotations.isEmpty else { return nil }
-        let ids = annotations.map(\.id)
-        if let cached = annotationCache, cached.ids == ids { return cached.layer }
-        guard
-            let layer = annotations.annotationLayer(
-                size: outputSize, geometry: editorGeometry ?? EditGeometry(), canvas: canvas)
-        else { return nil }
-        annotationCache = (ids, layer)
-        return layer
+        annotationCache.layer(
+            for: overlays, size: outputSize, geometry: editorGeometry ?? EditGeometry(), canvas: canvas,
+            fullOutputSize: annotationSize)
     }
 }

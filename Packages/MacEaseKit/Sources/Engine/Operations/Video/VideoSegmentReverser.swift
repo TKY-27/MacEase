@@ -113,6 +113,7 @@ public enum VideoSegmentReverser {
             let origin = segments[segmentIndex].reversedOrigin
         else { throw EngineError.invalidInput(.invalidNumericParameter) }
         var segment = segments[segmentIndex]
+        let stagedSourceIndex = segment.sourceIndex
         let reversedDuration = edit.sources.flatMap {
             $0.indices.contains(segment.sourceIndex) ? $0[segment.sourceIndex].duration : nil
         }
@@ -127,6 +128,20 @@ public enum VideoSegmentReverser {
 
         var updated = edit
         updated.segments = segments
+        if edit.overlays.contains(where: { $0.sourceIndex == stagedSourceIndex }) {
+            guard let reversedDuration, reversedDuration > 0 else {
+                throw EngineError.invalidInput(.invalidNumericParameter)
+            }
+            let scale = (origin.end - origin.start) / reversedDuration
+            updated.overlays = edit.overlays.map { timed in
+                guard timed.sourceIndex == stagedSourceIndex else { return timed }
+                var mapped = timed
+                mapped.sourceIndex = origin.sourceIndex
+                mapped.start = origin.end - timed.end * scale
+                mapped.end = origin.end - timed.start * scale
+                return mapped
+            }
+        }
         if let staging {
             return removeUnusedStagedSources(in: updated, staging: staging)
         }

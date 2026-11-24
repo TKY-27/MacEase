@@ -96,7 +96,7 @@ enum VideoStills {
         var frameEdit = FrameEdit(displayOrientation: try first.displayOrientation)
         if !edit.geometry.isIdentity { frameEdit.editorGeometry = edit.geometry }
         if changesSize { frameEdit.size = size }
-        frameEdit.hasAnnotations = timeline.overlays.contains { $0.overlay.isAnnotation }
+        frameEdit.hasOverlays = !timeline.overlays.isEmpty
         frameEdit.fill = context.settings.video.rotationFill
         let format = context.settings.video.thumbnailFormat
         if inputs.count > 1 {
