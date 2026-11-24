@@ -27,7 +27,7 @@ struct EditorMarkupInspector: View {
             if let selected {
                 if case .text(let text, _, _, _) = selected.mark {
                     InspectorSection(String(localized: "Text")) {
-                        MarkupTextField(model: model, id: selected.id, text: text)
+                        MarkupTextField(model: model, id: selected.id, text: text).id(selected.id)
                     }
                 }
                 EditorMarkupPosition(model: model, overlay: selected)
@@ -45,9 +45,15 @@ struct EditorMarkupInspector: View {
                     model.markupTool = tool
                 } label: {
                     Label(tool.title, systemImage: tool.symbol)
+                        .padding(.vertical, 4)
+                        .foregroundStyle(active ? Color.white : .primary)
+                        .background(
+                            active ? Color.accentColor : Color.primary.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 7)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 7))
                 }
-                .buttonStyle(.bordered)
-                .tint(active ? .accentColor : nil)
+                .buttonStyle(.plain)
                 .accessibilityAddTraits(active ? .isSelected : [])
                 .help(hint(tool))
             }

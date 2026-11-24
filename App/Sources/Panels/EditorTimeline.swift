@@ -191,7 +191,7 @@ struct EditorTimeline: View {
             let color = timed.overlay.mark.color
             return TimelineOverlayMark(
                 id: timed.id, ranges: timeline.outputRanges(of: timed), label: model.overlayName(timed.overlay),
-                fill: color.flatMap { NSColor(cgColor: $0.cgColor) } ?? .systemGray,
+                fill: color.flatMap { NSColor(cgColor: $0.cgColor) } ?? .systemIndigo,
                 text: color.flatMap { NSColor(cgColor: $0.strokeColor) } ?? .white,
                 selected: model.values.selectedOverlayID == timed.id)
         }

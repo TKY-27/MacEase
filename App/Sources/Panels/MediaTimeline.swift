@@ -242,7 +242,7 @@ final class TimelineCanvas: NSView, NSDraggingSource {
     private static let playheadWidth = 2.0
     private static let rulerMinorTicks = 4
     private static let waveformLaneHeight = 18.0
-    static let overlayLaneHeight = 24.0
+    static let overlayLaneHeight = 30.0
     private static let overlayRowLimit = 3
     private static let overlayRowGap = 2.0
     private static let overlayLabelMinimumWidth = 36.0

@@ -363,6 +363,7 @@ struct EditorMarkupOverlay: View {
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
+            let visible = model.visibleOverlayIDs
             let candidates = shownOverlays
             ZStack(alignment: .topLeading) {
                 Color.clear.contentShape(Rectangle())
@@ -373,7 +374,9 @@ struct EditorMarkupOverlay: View {
                     .pointerStyle(pointerStyle(size: size))
                     .accessibilityHidden(true)
                 Canvas { context, _ in
-                    for overlay in candidates { draw(overlay, in: &context, size: size) }
+                    for overlay in candidates {
+                        draw(overlay, hidden: !visible.contains(overlay.id), in: &context, size: size)
+                    }
                 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -438,17 +441,25 @@ struct EditorMarkupOverlay: View {
         }
     }
 
-    private func draw(_ overlay: EditOverlay, in context: inout GraphicsContext, size: CGSize) {
+    private func draw(_ overlay: EditOverlay, hidden: Bool, in context: inout GraphicsContext, size: CGSize) {
         let selected = overlay.id == model.values.selectedOverlayID
-        let hidden = !model.visibleOverlayIDs.contains(overlay.id)
         let path = outline(overlay.mark, size)
         let dash = selected && !hidden ? [] : Self.dash
-        context.stroke(
-            path, with: .color(.black.opacity(selected ? 0.55 : 0.35)),
-            style: StrokeStyle(lineWidth: selected ? 3 : 2, dash: dash))
-        context.stroke(
-            path, with: .color(.white.opacity(selected ? 1 : 0.75)),
-            style: StrokeStyle(lineWidth: selected ? 1.5 : 1, dash: dash))
+        let outlined =
+            switch overlay.mark {
+            case .redaction: true
+            case .box, .text: selected || hidden
+            case .arrow: hidden
+            }
+        if outlined {
+            // Dark halo keeps lines visible.
+            context.stroke(
+                path, with: .color(.black.opacity(selected ? 0.55 : 0.35)),
+                style: StrokeStyle(lineWidth: selected ? 3 : 2, dash: dash))
+            context.stroke(
+                path, with: .color(.white.opacity(selected ? 1 : 0.75)),
+                style: StrokeStyle(lineWidth: selected ? 1.5 : 1, dash: dash))
+        }
         guard selected else { return }
         let points: [CGPoint]
         switch overlay.mark {

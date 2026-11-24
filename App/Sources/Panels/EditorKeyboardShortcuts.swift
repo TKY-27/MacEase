@@ -83,7 +83,7 @@ struct EditorKeyboardShortcuts: NSViewRepresentable {
             }
         }
 
-        /// Falls through to the editor's keys when unhandled.
+        /// Unhandled keys reach the editor shortcuts.
         private func markupShortcut(
             _ event: NSEvent, modifiers: NSEvent.ModifierFlags, model: MediaEditorModel
         ) -> Bool {
